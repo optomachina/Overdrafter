@@ -65,3 +65,33 @@ test('all stages run and remaining checks report after failure; verdict must be 
   for (const stage of ['lint', 'typecheck', 'test']) expect(result.stdout).toContain(`preflight: ${stage} FAIL`);
   expect(result.stdout).toContain('pre-push: preflight FAIL'); expect(result.stdout).toContain('pre-push: pr-body-gate PASS'); expect(result.stdout).toContain('pre-push: verdict FAIL');
 });
+
+test('symlinked temporary directory still runs the validator for an empty body', () => {
+  const { dir, git, run } = fixture();
+  const physical = join(dir, 'physical');
+  const linked = join(dir, 'linked');
+  mkdirSync(physical);
+  symlinkSync(physical, linked);
+  mkdirSync(join(linked, 'scripts'));
+  copyFileSync(join(dir, 'scripts/validate-pr-body.mjs'), join(linked, 'scripts/validate-pr-body.mjs'));
+  writeFileSync(join(dir, 'bin/mktemp'), `#!/bin/sh\nprintf '%s\\n' '${linked}'\n`, { mode: 0o755 });
+  // Changing the validator requires the strict gate even with an empty body.
+  writeFileSync(join(dir, 'scripts/validate-pr-body.mjs'), '// changed validator\n');
+  git('add', 'scripts'); git('commit', '-qm', 'validator change');
+  const result = run('--body', 'body.md');
+  expect(result.status).toBe(1);
+  expect(result.stdout).toContain('pre-push: pr-body-gate FAIL (validation failed)');
+  expect(result.stdout).toContain('pre-push: pr-body-full WARN (validation failed)');
+  expect(result.stdout).not.toContain('pre-push: pr-body-gate PASS');
+});
+test('base validator exiting zero without a pass line fails closed', () => {
+  const { dir, git, run } = fixture();
+  writeFileSync(join(dir, 'scripts/validate-pr-body.mjs'), 'console.log("validator output");\n');
+  git('add', 'scripts'); git('commit', '-qm', 'silent success validator');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const result = run('--body', 'body.md');
+  expect(result.status).toBe(1);
+  expect(result.stdout).toContain('pre-push: pr-body-gate FAIL (validation failed)');
+  expect(result.stdout).toContain('pre-push: pr-body-full WARN (validation failed)');
+  expect(result.stdout.match(/validator output/g)).toHaveLength(2);
+});

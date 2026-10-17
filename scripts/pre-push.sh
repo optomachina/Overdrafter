@@ -30,7 +30,9 @@ if [[ ! -f "$body" ]]; then reason='body file missing'
 elif ! git rev-parse --verify origin/main^{commit} >/dev/null 2>&1; then reason='origin/main missing'
 elif ! base=$(git merge-base origin/main HEAD); then reason='merge-base unreachable'
 elif ! gate=$(mktemp -d); then reason='temporary directory unavailable'
+elif ! canonical_gate=$(cd "$gate" && pwd -P); then reason='temporary directory unavailable'
 else
+  gate="$canonical_gate"
   mkdir -p "$gate/scripts"
   for file in scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs; do
     if ! git show "$base:$file" > "$gate/$file" 2>/dev/null; then reason='base copy missing'; fi
@@ -45,9 +47,13 @@ if [[ -n "$reason" ]]; then
   status=1
 else
   args=("$gate/scripts/validate-pr-body.mjs" "$body" --changed-files-from "$gate/changed-files.txt" --diff-from "$gate/pr.diff" --base-ref "$base" --head-ref HEAD --verify-links)
-  if node "${args[@]}" --skip-unless-enabling; then echo 'pre-push: pr-body-gate PASS'
+  if node "${args[@]}" --skip-unless-enabling > "$gate/gate-output.txt"; then gate_status=0; else gate_status=$?; fi
+  cat "$gate/gate-output.txt"
+  if [[ "$gate_status" == 0 ]] && grep -Eq '^(PR body validation passed|No provider enablement or gate edit in this diff)' "$gate/gate-output.txt"; then echo 'pre-push: pr-body-gate PASS'
   else echo 'pre-push: pr-body-gate FAIL (validation failed)'; status=1; fi
-  if node "${args[@]}"; then echo 'pre-push: pr-body-full PASS'
+  if node "${args[@]}" > "$gate/full-output.txt"; then full_status=0; else full_status=$?; fi
+  cat "$gate/full-output.txt"
+  if [[ "$full_status" == 0 ]] && grep -q '^PR body validation passed' "$gate/full-output.txt"; then echo 'pre-push: pr-body-full PASS'
   else echo 'pre-push: pr-body-full WARN (validation failed)'; fi
 fi
 if [[ -n "$verdict" ]]; then
