@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -370,6 +370,33 @@ describe("jev PR screen", () => {
   it("replays a marker hit without lowering below the marker's tier", () => {
     const hit = { pr: 1, sha: "c", ok: true, deterministic: "low", final: "risky", marker_hit: true, marker_tier: "risky", jev: { tier: "low", confidence: 0.99 } };
     expect(replay([hit])).toEqual([{ pr: 1, sha: "c", before: "risky", after: "risky", changed: false }]);
+  });
+
+  it("warns on stderr when the decision log cannot be written, and still completes the screen", async () => {
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const failingAppend = () => {
+        throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+      };
+      const records = await screen([{ pr: 3, sha: "c", deterministic: "low", title: "secret title", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: failingAppend });
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ pr: 3, ok: true, final: "low" });
+      const logLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
+      expect(logLines).toEqual(["jev-pr-screen: decision log write failed (ENOSPC); the screen result stands"]);
+      expect(logLines[0]).not.toContain("pr_risk_screen");
+
+      // No code: the sanitized message, as one line.
+      stderr.mockClear();
+      const plain = () => {
+        throw new Error("disk\nfull");
+      };
+      const [record] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: plain });
+      expect(record.final).toBe("low");
+      const messageLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
+      expect(messageLines).toEqual(["jev-pr-screen: decision log write failed (disk_full); the screen result stands"]);
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("runs at most the limit at once and keeps input order", async () => {

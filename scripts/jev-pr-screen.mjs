@@ -224,6 +224,12 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
   });
 }
 
+/** A log failure's error code (ENOSPC, EACCES ...) or sanitized one-token message; never the record. */
+function logFailure(error) {
+  if (typeof error?.code === "string" && error.code !== "") return sanitizeToken(error.code);
+  return sanitizeToken(String(error?.message ?? error)) ?? "unknown";
+}
+
 /** What Jev sees for one PR. */
 function screenState(pr) {
   return { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
@@ -332,11 +338,11 @@ export async function screen(
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   const outcomes = await mapBounded(prs, MAX_CONCURRENT_CALLS, (pr) => screenOne(pr, context));
 
-  // Ensure log directory exists (fail open)
+  // Ensure log directory exists (fail open, with a warning)
   try {
     mkdirSync(dirname(log), { recursive: true });
-  } catch {
-    // Fail open: if we can't create the log dir, continue without logging
+  } catch (error) {
+    warn(`jev-pr-screen: decision log directory could not be created (${logFailure(error)}); the screen result stands`);
   }
 
   // Append in input order so the log reads like the batch.
@@ -354,8 +360,9 @@ export async function screen(
     for (const record of records) {
       append(log, `${JSON.stringify(record)}\n`);
     }
-  } catch {
-    // Fail open: if we can't write the log, continue
+  } catch (error) {
+    // Fail open: the screen still completes; the warning names the failure, never the record.
+    warn(`jev-pr-screen: decision log write failed (${logFailure(error)}); the screen result stands`);
   }
 
   return records;
