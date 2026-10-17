@@ -164,7 +164,8 @@ function collectSections(body) {
     const start = match.index + match[0].length;
     const end = index + 1 < matches.length ? matches[index + 1].index : normalizedBody.length;
     const content = normalizedBody.slice(start, end).trim();
-    sections.set(normalizeHeading(heading), { heading, content });
+    const key = normalizeHeading(heading);
+    sections.set(key, { heading, content, count: (sections.get(key)?.count ?? 0) + 1 });
   });
 
   return sections;
@@ -384,16 +385,25 @@ export function enablesProvider(options = {}) {
 
 export const GATE_CHANGE_HEADING = "Gate change review";
 
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const FENCE_OPEN = /^([ \t]*)(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSE = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/;
 
 /**
- * Mark the lines of `lines` that sit inside a fenced code block (CommonMark
- * rules): a fence opens with 3+ backticks or tildes indented at most 3 spaces
- * (a backtick fence's info string may not contain a backtick), and closes with
- * a line of the same character, at least as long, indented at most 3 spaces,
- * with nothing after it but whitespace. An unclosed fence runs to the end.
- * Fence lines themselves count as inside.
+ * Mark the lines of `lines` that sit inside a fenced code block: a fence
+ * opens with 3+ backticks or tildes (a backtick fence's info string may not
+ * contain a backtick), and closes with a line of the same character, at least
+ * as long, with nothing after it but whitespace. An unclosed fence runs to the
+ * end. Fence lines themselves count as inside.
+ *
+ * This errs toward fail-closed: an opener at any indent counts (CommonMark
+ * allows 0-3 at top level, more inside list items), so an indented code line
+ * that starts with ``` also hides what follows. A closer may be indented at
+ * most 3 columns past its opener, matching CommonMark within the same container.
  */
+function indentWidth(indent) {
+  return [...indent].reduce((width, char) => (char === "\t" ? width + 4 - (width % 4) : width + 1), 0);
+}
+
 function fencedLineFlags(lines) {
   const flags = [];
   let fence = null;
@@ -401,16 +411,21 @@ function fencedLineFlags(lines) {
   for (const line of lines) {
     if (fence) {
       flags.push(true);
-      const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+      const close = line.match(FENCE_CLOSE);
+      if (
+        close &&
+        close[2][0] === fence.marker[0] &&
+        close[2].length >= fence.marker.length &&
+        indentWidth(close[1]) <= fence.indent + 3
+      ) {
         fence = null;
       }
       continue;
     }
 
     const open = line.match(FENCE_OPEN);
-    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      fence = open[1];
+    if (open && !(open[2][0] === "`" && open[3].includes("`"))) {
+      fence = { marker: open[2], indent: indentWidth(open[1]) };
       flags.push(true);
       continue;
     }
@@ -587,6 +602,11 @@ function validateProviderGoLiveSection(body, findings) {
   if (!section) {
     const why = findings.map((finding) => `${finding.file}: ${finding.reason}`).join("; ");
     return [`missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that enables a provider (${why})`];
+  }
+
+  // Only one section is validated, so a second copy could hide an unticked first one.
+  if (section.count > 1) {
+    errors.push(`"${PROVIDER_GO_LIVE_HEADING}" appears ${section.count} times; keep exactly one section`);
   }
 
   const boxes = parseCheckboxLines(section.content);

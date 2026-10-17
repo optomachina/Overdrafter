@@ -609,11 +609,25 @@ describe("validatePrBody", () => {
       expect(result.ok).toBe(false);
     });
 
-    it("an indented code line of 4 spaces is not a fence", () => {
-      // Tildes: the section splitter still treats any ``` as a fence, which only fails closed.
-      // The leading prose keeps section trimming from eating the 4-space indent (also fail-closed).
-      const result = validate(withExtra("Example:\n    ~~~\n- [x] envelope reviewed (automatic)\n    ~~~"));
-      expect(result).toEqual({ ok: true, errors: [] });
+    it("hides a fence nested in a list item (4+ spaces), failing closed", () => {
+      const nested = "- example\n\n    ~~~\n    - [x] envelope reviewed (automatic)\n    ~~~";
+      expect(validate(withExtra(nested)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+      // A closer indented more than 3 columns past its opener does not close the fence.
+      const deepClose = "~~~\n    ~~~\n- [x] envelope reviewed (automatic)\n~~~";
+      expect(validate(withExtra(deepClose)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("rejects a second Provider go-live section that could hide an unticked first one", () => {
+      const unticked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const result = validate(`${unticked}\n${buildGoLiveSection()}`);
+      expect(result).toEqual({
+        ok: false,
+        errors: ['"Provider go-live" appears 2 times; keep exactly one section'],
+      });
     });
 
     it("ignores a fake Provider go-live section inside a tilde fence", () => {
