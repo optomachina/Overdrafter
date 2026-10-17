@@ -23,8 +23,9 @@ test("secret path block runs in report mode on HEAD^1..HEAD", (t) => {
   const report = JSON.parse(stdout.text);
   assert.equal(report.schema, REPORT_SCHEMA);
   assert.ok(Array.isArray(report.findings));
-  assert.ok(Array.isArray(report.gate_loosening));
-  if (report.findings.length > 0 || report.gate_loosening.length > 0) {
-    t.diagnostic(`secret-paths report mode: ${report.findings.length} blocked, ${report.gate_loosening.length} gate_loosening`);
+  assert.equal(typeof report.gate_loosening.detected, "boolean");
+  assert.ok(Array.isArray(report.gate_loosening.reasons));
+  if (report.findings.length > 0 || report.gate_loosening.reasons.length > 0) {
+    t.diagnostic(`secret-paths report mode: ${report.findings.length} blocked, ${report.gate_loosening.reasons.length} gate_loosening`);
   }
 });
