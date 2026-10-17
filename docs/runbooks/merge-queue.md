@@ -1,15 +1,21 @@
 # Merge queue for `main` (OVD-854)
 
-Status: **Option B (strict) approved by Blaine on 2026-10-16 and applied by
-Blaine in the GitHub settings UI, with `enforce_admins` turned on as well**, per
-the handoff. That differs from the drafted Option B table below, which left
-`enforce_admins` unchanged. The `gh api` commands under Option B were not used
-to apply it; they stay here for reference and rollback. This runbook does not
-record the live settings as verified: confirm them with the read-only snapshot
-calls under "Current settings snapshot". **Option A (merge queue) is not
-applied** and still needs the repo moved to an organization. Any further change
-to branch protection is a protected action that needs Blaine's approval card,
-and Grok Bot applies it only after approval.
+Status: **Option B (strict) and `enforce_admins` were approved by Blaine on
+2026-10-16; application is pending.** A read-back on 2026-10-16 showed both
+still `false`, so neither is in force. Before relying on strict mode, verify
+with:
+
+```bash
+gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
+```
+
+The `land` skill (`.codex/skills/land/SKILL.md`) is correct whether or not strict
+is on: it only needs the update-branch path when a PR reports `BEHIND`, which
+happens only under strict. The `gh api` commands under Option B stay here as the
+apply and rollback reference. **Option A (merge queue) is not applied** and
+still needs the repo moved to an organization. Any further change to branch
+protection is a protected action that needs Blaine's approval card, and Grok Bot
+applies it only after approval.
 
 **Blocker: the merge queue (Option A) cannot be applied to this repo as it is
 owned today.** GitHub's docs say: "Pull request merge queues are available in
@@ -24,12 +30,13 @@ returned `User`). Two separate decisions for Blaine follow:
    own decision and is out of scope for OVD-854. See
    [Prerequisite: organization ownership](#prerequisite-organization-ownership).
 2. **Option B, applicable now:** turn on `strict: true` ("Require branches to be
-   up to date before merging") on the classic branch protection. See
+   up to date before merging") on the classic branch protection. Approved by
+   Blaine on 2026-10-16 together with `enforce_admins`; application is pending
+   (see Status). See
    [Option B: strict up to date checks](#option-b-strict-up-to-date-checks-applicable-now).
 
-The approval card should ask for Option B unless Blaine has already approved the
-org transfer. Option A stays drafted so it can be applied once the repo is
-org-owned.
+Option B is the approved path. Option A stays drafted so it can be applied once
+the repo is org-owned.
 
 ## Why
 
@@ -268,19 +275,23 @@ have passed on that state. It does not serialise automatically; after each
 merge, every other open PR goes out of date and must be updated (which reruns
 both checks, since both trigger on `synchronize`) before it can merge.
 
-### Drafted settings
+### Approved settings (application pending)
 
-| Setting | Before | After |
+| Setting | Before | After (approved 2026-10-16, pending) |
 | --- | --- | --- |
 | `required_status_checks.strict` | `false` | `true` |
 | `required_status_checks.checks` | `ci`, `provider-go-live` (app 15368) | unchanged |
-| `enforce_admins` | `false` | unchanged (not part of this call) |
+| `enforce_admins` | `false` | `true` (approved with Option B; set separately from the call below) |
 | Everything else in classic protection | as snapshotted | unchanged |
 
-The call targets the `required_status_checks` sub-resource with `PATCH`, so it
-does not touch `enforce_admins`, reviews, or any other protection setting. It
-restates the two required checks with their app id so they cannot be dropped
-or rebound to another app.
+The call below targets the `required_status_checks` sub-resource with `PATCH`,
+so it does not touch `enforce_admins`, reviews, or any other protection
+setting. `enforce_admins` is approved with Option B but is a separate setting:
+turn it on in the branch protection settings UI, or with
+`gh api --method POST repos/optomachina/Overdrafter/branches/main/protection/enforce_admins`
+(rollback: the same path with `--method DELETE`), under the same approval card
+rules. The `PATCH` call restates the two required checks with their app id so
+they cannot be dropped or rebound to another app.
 
 ### Apply command
 
@@ -300,12 +311,14 @@ gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/req
 JSON
 ```
 
-Verify (read-only) that only `strict` changed:
+Verify (read-only) that only `strict` changed, plus `enforce_admins` if it was
+turned on in the same window:
 
 ```bash
 gh api repos/optomachina/Overdrafter/branches/main/protection > /tmp/ovd854-protection-after.json
 diff <(jq -S . /tmp/ovd854-protection-before.json) <(jq -S . /tmp/ovd854-protection-after.json)
-# Expected diff: required_status_checks.strict false -> true, nothing else.
+# Expected diff: required_status_checks.strict false -> true, plus
+# enforce_admins.enabled false -> true if it was applied; nothing else.
 ```
 
 If the snapshot shows the required checks differ from `ci` and
@@ -321,10 +334,13 @@ them.
   blocks the merge again.
 - **Auto-merge and the `land` skill.** GitHub auto-merge does not update an
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
-  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) should run
-  `gh pr update-branch` before `gh pr merge`, and on a "not up to date" block
-  update and re-wait instead of moving the issue back to `Rework`. Update the
-  skill in the same change that applies Option B.
+  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) runs
+  `gh pr update-branch` when a PR reports `BEHIND`, waits for `ci` and
+  `provider-go-live` on the new head, and merges pinned to that head with
+  `--match-head-commit`. On a "not up to date" block it updates and re-waits
+  instead of moving the issue back to `Rework`. It stops and reports on a
+  conflict (`DIRTY`), a failed `update-branch`, or a head that never moves.
+  The same steps are correct with strict off, where `BEHIND` never occurs.
 - **Infra flakes and cancelled runs.** Same policy as the queue: re-run the
   failed job, never fix a flake with a code change, a cancelled run is not a
   pass.
@@ -348,7 +364,8 @@ JSON
 
 ### Dry-run checklist (after approval and apply)
 
-1. Snapshot recorded; the after/before diff shows only `strict` changed.
+1. Snapshot recorded; the after/before diff shows only `strict` changed, plus
+   `enforce_admins` if it was applied with it.
 2. Open two trivial docs PRs from the same `main`. Merge the first. Confirm
    the second shows "This branch is out-of-date" and cannot merge.
 3. Update the second branch; confirm `ci` and `provider-go-live` rerun on the

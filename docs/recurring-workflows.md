@@ -171,6 +171,9 @@ deployment, live verification, an external operation, or other post-merge work.
 The drafted merge queue for `main` (required checks, settings, re-run policy,
 rollback, and the rule that every required check triggers on `merge_group`)
 lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
-needs an organization-owned repo, so the runbook also drafts the applicable
-fallback (`strict: true` up to date checks). Neither is applied until Blaine
-approves it, and the `land` skill must be updated in the same change.
+needs an organization-owned repo, so it is not applied. The runbook also covers
+the applicable fallback, Option B (`strict: true` up to date checks), which
+Blaine approved on 2026-10-16 together with `enforce_admins`; application is
+pending, so verify the live settings (the read-only command in the runbook's
+Status paragraph) before relying on strict mode. The `land` skill already
+handles a `BEHIND` branch and is correct whether or not strict is on.

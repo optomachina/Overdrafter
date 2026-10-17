@@ -548,8 +548,9 @@ jobs:
       # stop a PR from changing the mode: on pull_request runs this workflow and
       # scripts/extraction-gate-decision.mjs are taken from the PR head, so a PR
       # can hardcode a mode here or edit the decision script. Protecting those
-      # two files is a review control (CODEOWNERS plus required code-owner
-      # review), not something the variable provides.
+      # two files is a review convention, not something the variable provides:
+      # .github/CODEOWNERS is visibility-only and required code-owner review is
+      # off, so nothing enforces that review.
       # Values: report (default; unset or anything else) or enforce. Flipping
       # the variable to enforce requires Blaine's approval. The mode governs
       # only the parsed result line (fail/error: warning in report, fail in
