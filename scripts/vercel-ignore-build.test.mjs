@@ -86,18 +86,28 @@ describe("vercel-ignore-build.sh", () => {
     if (previous) env.VERCEL_GIT_PREVIOUS_SHA = previous;
     const result = runScript(dir, env);
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(result.stdout).toMatch(/BUILD - no comparable base commit/);
+    expect(result.stdout).toMatch(/BUILD - (no comparable base commit|VERCEL_GIT_PREVIOUS_SHA does not resolve)/);
   });
 
-  it("falls back to merge-base with main and skips docs-only changes", () => {
+  it("falls back to merge-base with main on a first deployment and skips docs-only changes", () => {
+    const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
+    const result = runScript(dir, { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature" });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/SKIP .*merge-base with main/);
+  });
+
+  it.each([
+    ["missing", "0123456789abcdef0123456789abcdef01234567"],
+    ["garbage", "not-a-sha; rm -rf /"],
+  ])("builds when VERCEL_GIT_PREVIOUS_SHA is %s even if main exists", (_label, previous) => {
     const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
     const result = runScript(dir, {
       VERCEL_ENV: "preview",
       VERCEL_GIT_COMMIT_REF: "feature",
-      VERCEL_GIT_PREVIOUS_SHA: "0123456789abcdef0123456789abcdef01234567",
+      VERCEL_GIT_PREVIOUS_SHA: previous,
     });
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stdout).toMatch(/SKIP .*merge-base with main/);
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(/BUILD - VERCEL_GIT_PREVIOUS_SHA does not resolve/);
   });
 
   it("falls back to merge-base with main and builds src changes", () => {

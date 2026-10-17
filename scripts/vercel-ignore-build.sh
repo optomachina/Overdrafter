@@ -37,8 +37,15 @@ if [ -n "$previous_sha" ]; then
     git fetch --quiet --depth=100 origin "$previous_sha" >/dev/null 2>&1
     base="$(resolve_commit "$previous_sha")"
   fi
-  [ -n "$base" ] && base_source="previous deployment"
+  if [ -z "$base" ]; then
+    # A set but unresolvable previous SHA is an error, not a first deploy.
+    build "VERCEL_GIT_PREVIOUS_SHA does not resolve to a commit"
+  fi
+  base_source="previous deployment"
 fi
+
+# Only a branch's first deployment (no VERCEL_GIT_PREVIOUS_SHA) falls back to
+# the merge-base with main.
 
 if [ -z "$base" ]; then
   for ref in origin/main main; do
