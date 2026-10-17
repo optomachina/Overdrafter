@@ -517,6 +517,28 @@ describe("detect", () => {
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
   });
 
+  it("reads SQL heads with bounded concurrency and keeps changed-file order", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const names = Array.from({ length: 20 }, (_, n) => `supabase/fixtures/f${n}.sql`);
+    const result = await detect({
+      files: names.map((name) => modified(name)),
+      readHeadFile: async (name) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return name.endsWith("f3.sql") ? "create policy p on t;" : "select 1;";
+      },
+      config,
+    });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(result.files.map((file) => file.path)).toEqual(names);
+    expect(result.files[3].classes).toContain("rls");
+    expect(result.files[4].classes).not.toContain("rls");
+  });
+
   describe("oversized SQL bodies", () => {
     const file = "supabase/fixtures/big.sql";
     const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });

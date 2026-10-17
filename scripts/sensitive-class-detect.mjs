@@ -332,67 +332,125 @@ export class SqlTooLargeError extends Error {}
  * closed: a string literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  */
-export function sqlWords(text, depth = 0, budget = { left: MAX_SQL_TOKENS }) {
-  const sql = String(text);
+export function sqlWords(text) {
+  return tokenizeSql(String(text), 0, new SqlBudget());
+}
+
+/** Shared token budget across one body and every string nested inside it. */
+class SqlBudget {
+  left = MAX_SQL_TOKENS;
+
+  take() {
+    this.left -= 1;
+    if (this.left < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
+  }
+}
+
+const isWordChar = (char) => /[A-Za-z0-9_]/.test(char ?? "");
+
+/** Index just past a line comment starting at index. Postgres ends one at CR as well as LF. */
+function skipLineComment(sql, index) {
+  let at = index;
+  while (at < sql.length && sql[at] !== "\n" && sql[at] !== "\r") at += 1;
+  return at + 1;
+}
+
+/** Index just past a (nested) block comment starting at index. */
+function skipBlockComment(sql, index) {
+  let at = index + 2;
+  let level = 1;
+  while (at < sql.length && level > 0) {
+    const pair = sql.slice(at, at + 2);
+    if (pair === "/*") (level += 1), (at += 2);
+    else if (pair === "*/") (level -= 1), (at += 2);
+    else at += 1;
+  }
+  return at;
+}
+
+/** One character (or escape) of a quoted body at index: [text to append, characters consumed], or null at the closing quote. */
+function quotedStep(sql, index, quote, backslash) {
+  const char = sql[index];
+  // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
+  if (backslash && char === "\\") return [/[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2), 2];
+  if (char === quote && sql[index + 1] === quote) return [quote, 2];
+  if (char === quote) return null;
+  return [char, 1];
+}
+
+/** Read a single- or double-quoted token starting at index: its body and the index just past it. */
+function readQuoted(sql, index, backslash) {
+  const quote = sql[index];
+  let at = index + 1;
+  let body = "";
+  while (at < sql.length) {
+    const step = quotedStep(sql, at, quote, backslash);
+    if (!step) return { body, end: at + 1 };
+    body += step[0];
+    at += step[1];
+  }
+  return { body, end: at };
+}
+
+/** The dollar-quote tag starting at index, or null. */
+function dollarTagAt(sql, index) {
+  if (sql[index] !== "$" || isWordChar(sql[index - 1])) return null;
+  const match = DOLLAR_TAG.exec(sql.slice(index, index + 64));
+  return match ? match[0] : null;
+}
+
+/** The token at index: { words, end }. Comments give no words; strings give their body's words. */
+function sqlTokenAt(sql, index, depth, budget, previous) {
+  const char = sql[index];
+  const pair = sql.slice(index, index + 2);
+  if (pair === "--") return { words: [], end: skipLineComment(sql, index) };
+  if (pair === "/*") return { words: [], end: skipBlockComment(sql, index) };
+  if (char === "'" || char === '"') return quotedToken(sql, index, depth, budget, previous);
+  const tag = dollarTagAt(sql, index);
+  if (tag) return dollarToken(sql, index, tag, depth, budget);
+  if (/[A-Za-z_]/.test(char)) {
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256))[0];
+    return { words: [word.toLowerCase()], end: index + word.length };
+  }
+  return { words: /\s/.test(char) ? [] : [char], end: index + 1 };
+}
+
+/** A quoted token. E'' strings take backslash escapes, and drop the e word the prefix produced. Identifiers give no words. */
+function quotedToken(sql, index, depth, budget, previous) {
+  const char = sql[index];
+  const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !isWordChar(sql[index - 2]);
+  const { body, end } = readQuoted(sql, index, backslash);
+  const words = char === "'" ? sqlBodyWords(body, depth, budget) : [];
+  return { words, end, dropPrevious: backslash && previous === "e" };
+}
+
+function dollarToken(sql, index, tag, depth, budget) {
+  const bodyStart = index + tag.length;
+  const found = sql.indexOf(tag, bodyStart);
+  const close = found === -1 ? sql.length : found;
+  return { words: sqlBodyWords(sql.slice(bodyStart, close), depth, budget), end: Math.min(sql.length, close + tag.length) };
+}
+
+function tokenizeSql(sql, depth, budget) {
   const words = [];
-  const add = (word) => {
-    if ((budget.left -= 1) < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
-    words.push(word);
-  };
-  const addAll = (list) => {
-    for (const word of list) add(word);
-  };
   let index = 0;
   while (index < sql.length) {
-    const char = sql[index];
-    const next = sql[index + 1];
-    if (char === "-" && next === "-") {
-      // Postgres ends a line comment at CR as well as LF.
-      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
-      index += 1;
-    } else if (char === "/" && next === "*") {
-      let level = 1;
-      index += 2;
-      while (index < sql.length && level > 0) {
-        if (sql[index] === "/" && sql[index + 1] === "*") (level += 1), (index += 2);
-        else if (sql[index] === "*" && sql[index + 1] === "/") (level -= 1), (index += 2);
-        else index += 1;
-      }
-    } else if (char === "'" || char === '"') {
-      const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") (words.pop(), (budget.left += 1));
-      index += 1;
-      let body = "";
-      while (index < sql.length) {
-        // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
-        if (backslash && sql[index] === "\\") (body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2)), (index += 2);
-        else if (sql[index] === char && sql[index + 1] === char) (body += char), (index += 2);
-        else if (sql[index] === char) {
-          index += 1;
-          break;
-        } else (body += sql[index]), (index += 1);
-      }
-      if (char === "'") addAll(sqlBodyWords(body, depth, budget));
-    } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
-      const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
-      const bodyStart = index + tag.length;
-      const close = sql.indexOf(tag, bodyStart);
-      addAll(sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth, budget));
-      index = close === -1 ? sql.length : close + tag.length;
-    } else if (/[A-Za-z_]/.test(char)) {
-      const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      add(match[0].toLowerCase());
-      index += match[0].length;
-    } else {
-      if (!/\s/.test(char)) add(char);
-      index += 1;
+    const token = sqlTokenAt(sql, index, depth, budget, words.at(-1));
+    if (token.dropPrevious) {
+      words.pop();
+      budget.left += 1;
     }
+    for (const word of token.words) {
+      budget.take();
+      words.push(word);
+    }
+    index = token.end;
   }
   return words;
 }
 
 function sqlBodyWords(body, depth, budget) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1, budget);
+  if (depth < MAX_SQL_DEPTH) return tokenizeSql(body, depth + 1, budget);
   return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
@@ -443,62 +501,22 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
   const list = Array.isArray(files) ? files : [];
   if (!Array.isArray(files)) allErrors.push("the changed-file list is not an array");
   else if (files.length === 0 && !allowEmpty) allErrors.push("the changed-file list is empty, but the PR does not report zero changed files");
-  const results = [];
-  const notices = [];
+  const valid = [];
   for (const [index, file] of list.entries()) {
     const problem = fileProblem(file);
-    if (problem) {
-      allErrors.push(`changed file ${index + 1}: ${problem}`);
-      continue;
-    }
-    const paths = [file.filename];
-    if (file.previous_filename && file.previous_filename !== file.filename) paths.push(file.previous_filename);
-    const classes = [];
-    const reasons = [];
-    let category = null;
-    const categories = [];
-    for (const path of paths) {
-      const result = classifyPath(path, config);
-      const label = path === file.filename ? "" : "previous:";
-      for (const name of result.classes) if (!classes.includes(name)) classes.push(name);
-      reasons.push(...result.reasons.map((reason) => label + reason));
-      categories.push(result.category);
-    }
-    if (readsHead(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
-      try {
-        if (!readHeadFile) throw new Error("no head reader");
-        const body = await readHeadFile(file.filename);
-        let sql;
-        try {
-          sql = classifySql(body, config);
-        } catch (error) {
-          if (!(error instanceof SqlTooLargeError)) throw error;
-        }
-        if (!sql) {
-          // Too large to scan: treat as every class the SQL scan could have found.
-          const message = `SQL body ${file.filename} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`;
-          for (const rule of config.sqlContent.rules) if (!classes.includes(rule.class)) classes.push(rule.class);
-          reasons.push(`sql:oversized:>${MAX_SQL_TOKENS}`);
-          notices.push(message);
-        } else {
-          for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
-          for (const reason of sql.reasons) reasons.push(reason);
-        }
-      } catch (error) {
-        allErrors.push(`could not read ${file.filename} at head: ${messageOf(error)}`);
-      }
-    }
-    // A rename keeps its safe category only when both names share it.
-    if (!classes.length && categories.every((name) => name && name === categories[0])) category = categories[0];
-    // Fail closed: only a safe category makes a file with no class non-sensitive.
-    if (!classes.length && !category) {
-      classes.push(UNCLASSIFIED);
-      reasons.push(`${UNCLASSIFIED}:no-safe-category`);
-    }
-    classes.sort((a, b) => OUTPUT_CLASSES.indexOf(a) - OUTPUT_CLASSES.indexOf(b));
-    const entry = { path: file.filename, status: file.status, classes, category, reasons };
-    if (paths.length > 1) entry.previous_path = file.previous_filename;
-    results.push(entry);
+    if (problem) allErrors.push(`changed file ${index + 1}: ${problem}`);
+    else valid.push(file);
+  }
+  // Read every SQL head body up front; results stay in changed-file order.
+  const limit = limiter(HEAD_READ_CONCURRENCY);
+  const sqlScans = await Promise.all(valid.map((file) => limit(() => scanHeadSql(file, readHeadFile, config))));
+  const results = [];
+  const notices = [];
+  for (const [index, file] of valid.entries()) {
+    const scan = sqlScans[index];
+    if (scan.error) allErrors.push(scan.error);
+    if (scan.notice) notices.push(scan.notice);
+    results.push(classifyFile(file, config, scan));
   }
 
   const classes = OUTPUT_CLASSES.filter((name) => results.some((file) => file.classes.includes(name)));
@@ -515,6 +533,82 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     errors: allErrors,
     ...(notices.length ? { manual_review: notices } : {}),
   };
+}
+
+/** At most this many head reads (GitHub contents API calls) in flight at once. */
+const HEAD_READ_CONCURRENCY = 8;
+
+/** Run async tasks with at most `size` in flight. */
+function limiter(size) {
+  let active = 0;
+  const waiting = [];
+  const release = () => {
+    active -= 1;
+    waiting.shift()?.();
+  };
+  return (task) =>
+    new Promise((resolve, reject) => {
+      const start = () => {
+        active += 1;
+        task().then(resolve, reject).finally(release);
+      };
+      if (active < size) start();
+      else waiting.push(start);
+    });
+}
+
+const NO_SQL = Object.freeze({ classes: [], reasons: [] });
+
+/** SQL content classes for one file's head body: { classes, reasons, notice?, error? }. */
+async function scanHeadSql(file, readHeadFile, config) {
+  if (!readsHead(file.status) || !config.sqlContent.paths.some((re) => re.test(file.filename))) return NO_SQL;
+  let body;
+  try {
+    if (!readHeadFile) throw new Error("no head reader");
+    body = await readHeadFile(file.filename);
+  } catch (error) {
+    return { ...NO_SQL, error: `could not read ${file.filename} at head: ${messageOf(error)}` };
+  }
+  try {
+    return classifySql(body, config);
+  } catch (error) {
+    if (!(error instanceof SqlTooLargeError)) return { ...NO_SQL, error: `could not read ${file.filename} at head: ${messageOf(error)}` };
+    // Too large to scan: treat as every class the SQL scan could have found.
+    return {
+      classes: [...new Set(config.sqlContent.rules.map((rule) => rule.class))],
+      reasons: [`sql:oversized:>${MAX_SQL_TOKENS}`],
+      notice: `SQL body ${file.filename} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+    };
+  }
+}
+
+/** The result entry for one well-formed changed file, given its SQL scan. */
+function classifyFile(file, config, scan) {
+  const paths = [file.filename];
+  if (file.previous_filename && file.previous_filename !== file.filename) paths.push(file.previous_filename);
+  const classes = [];
+  const reasons = [];
+  const categories = [];
+  for (const path of paths) {
+    const result = classifyPath(path, config);
+    const label = path === file.filename ? "" : "previous:";
+    for (const name of result.classes) if (!classes.includes(name)) classes.push(name);
+    reasons.push(...result.reasons.map((reason) => label + reason));
+    categories.push(result.category);
+  }
+  for (const name of scan.classes) if (!classes.includes(name)) classes.push(name);
+  reasons.push(...scan.reasons);
+  // A rename keeps its safe category only when both names share it.
+  const category = !classes.length && categories.every((name) => name && name === categories[0]) ? categories[0] : null;
+  // Fail closed: only a safe category makes a file with no class non-sensitive.
+  if (!classes.length && !category) {
+    classes.push(UNCLASSIFIED);
+    reasons.push(`${UNCLASSIFIED}:no-safe-category`);
+  }
+  classes.sort((a, b) => OUTPUT_CLASSES.indexOf(a) - OUTPUT_CLASSES.indexOf(b));
+  const entry = { path: file.filename, status: file.status, classes, category, reasons };
+  if (paths.length > 1) entry.previous_path = file.previous_filename;
+  return entry;
 }
 
 /** The result for a run that could not classify anything. */
