@@ -1,8 +1,10 @@
 // @vitest-environment node
 
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -12,8 +14,13 @@ import {
   parseNameStatus,
 } from "./provider-enablement-detect.mjs";
 import {
+  ANY_ATX_HEADING,
+  CHECKBOX_LINE,
+  CONTAINER_PREFIX,
+  FENCE_OPEN,
   PROVIDER_GO_LIVE_GROUPS,
   PROVIDER_GO_LIVE_HEADING,
+  PROVIDER_GO_LIVE_AUTO_SIGNATURE,
   PROVIDER_GO_LIVE_REQUIRED_ITEMS,
   collectGoLiveEvidenceLinks,
   enablesProvider,
@@ -383,6 +390,9 @@ function evidenceFor(item, index) {
 }
 
 function itemLine(item, index, overrides = {}) {
+  if (item.auto) {
+    return `- [x] ${item.text}`;
+  }
   if (overrides.na !== undefined) {
     const base = item.text.replace(/:$/, "").replace(/\s*Evidence$/, "");
     return `- [x] ${base} N/A: ${overrides.na}`;
@@ -406,6 +416,7 @@ function buildGoLiveSection(overridesById = {}) {
 }
 
 const ENABLING = ENABLE_REGISTRY;
+const MANUAL_ITEMS = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.auto);
 
 function validate(section, options = ENABLING) {
   return validatePrBody(`${buildValidPrBody()}${section}`, options);
@@ -500,8 +511,279 @@ describe("validatePrBody", () => {
   });
 
   it("rejects unchecked boxes", () => {
-    const result = validate(buildGoLiveSection({ "kill-switch": { checked: false } }));
-    expect(result.errors).toContain('check "per provider kill switch rehearsal"');
+    const result = validate(buildGoLiveSection({ "supplier-switch": { checked: false } }));
+    expect(result.errors).toContain('check "per-supplier on/off switch in the admin dashboard"');
+  });
+
+  it("requires an evidence link on the per-supplier on/off switch item", () => {
+    const result = validate(buildGoLiveSection({ "supplier-switch": { evidence: "tested locally" } }));
+    expect(result.errors).toEqual([
+      'add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "per-supplier on/off switch in the admin dashboard"',
+    ]);
+  });
+
+  it("accepts the OVD-829 Linear issue URL as evidence on the per-supplier on/off switch item", () => {
+    const result = validate(buildGoLiveSection({ "supplier-switch": { evidence: "https://linear.app/overdrafter/issue/OVD-829" } }));
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it("treats the envelope review item as automatic but rejects it unticked or missing", () => {
+    const auto = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => item.auto);
+    expect(auto.map((item) => item.id)).toEqual(["envelope-reviewer"]);
+    expect(auto[0].text).toContain(PROVIDER_GO_LIVE_AUTO_SIGNATURE);
+    expect(PROVIDER_GO_LIVE_AUTO_SIGNATURE).toBe("Grok Bot under Blaine Wilson standing authority");
+    expect(validate(buildGoLiveSection())).toEqual({ ok: true, errors: [] });
+    expect(validate(buildGoLiveSection({ "envelope-reviewer": null }))).toEqual({
+      ok: false,
+      errors: ['missing Provider go-live item "envelope reviewed (automatic)"'],
+    });
+    const unchecked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+    expect(unchecked).toContain(`- [ ] Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`);
+    expect(validate(unchecked)).toEqual({ ok: false, errors: ['"envelope reviewed (automatic)" must be ticked'] });
+    const uncheckedBold = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+      "## Provider go-live",
+      "## Provider go-live\n\n- [ ] **Envelope reviewed (automatic).** Signed: x\n",
+    );
+    expect(validate(uncheckedBold)).toEqual({ ok: false, errors: ['"envelope reviewed (automatic)" must be ticked'] });
+  });
+
+  it("does not take the automatic envelope line from prose, a blockquote, or mid-line text", () => {
+    for (const extra of [
+      "The envelope reviewed (automatic) item is pending.",
+      "> - [x] envelope reviewed (automatic)",
+      "Note: - [x] envelope reviewed (automatic)",
+    ]) {
+      const section = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+        "## Provider go-live",
+        `## Provider go-live\n\n${extra}\n`,
+      );
+      expect(validate(section).errors, extra).toContain('missing Provider go-live item "envelope reviewed (automatic)"');
+    }
+  });
+
+  describe("ignores checkboxes inside fenced code blocks", () => {
+    const withExtra = (extra, overrides = { "envelope-reviewer": null }) =>
+      buildGoLiveSection(overrides).replace("## Provider go-live", `## Provider go-live\n\n${extra}\n`);
+    const fences = [
+      ["```", "```"],
+      ["~~~", "~~~"],
+      ["````md", "````"],
+      ["   ```", "  ```"],
+      ["~~~~", "~~~~~"],
+    ];
+
+    it("a fenced ticked automatic line alone does not satisfy the item", () => {
+      for (const [open, close] of fences) {
+        const result = validate(withExtra(`${open}\n- [x] envelope reviewed (automatic)\n${close}`));
+        expect(result, open).toEqual({
+          ok: false,
+          errors: ['missing Provider go-live item "envelope reviewed (automatic)"'],
+        });
+      }
+    });
+
+    it("a fenced unticked line plus a real ticked line passes with no error", () => {
+      for (const [open, close] of fences) {
+        const result = validate(withExtra(`${open}\n- [ ] envelope reviewed (automatic)\n${close}`, {}));
+        expect(result, open).toEqual({ ok: true, errors: [] });
+      }
+    });
+
+    it("a fenced ticked line plus a real unticked line fails", () => {
+      for (const [open, close] of fences) {
+        const section = withExtra(`${open}\n- [x] envelope reviewed (automatic)\n${close}`, {}).replace(
+          "- [x] Envelope reviewed",
+          "- [ ] Envelope reviewed",
+        );
+        expect(validate(section), open).toEqual({
+          ok: false,
+          errors: ['"envelope reviewed (automatic)" must be ticked'],
+        });
+      }
+    });
+
+    it("closes a fence only on a matching, long enough, bare fence line", () => {
+      // None of the inner lines close the ```` fence, so the ticked box stays fenced.
+      for (const inner of ["```", "~~~~", "```` not a close", "    ````"]) {
+        const result = validate(withExtra(`\`\`\`\`\n${inner}\n- [x] envelope reviewed (automatic)\n\`\`\`\``));
+        expect(result.errors, inner).toEqual(['missing Provider go-live item "envelope reviewed (automatic)"']);
+      }
+    });
+
+    it("an unclosed fence hides everything after it", () => {
+      const result = validate(withExtra("~~~\n- [x] envelope reviewed (automatic)"));
+      expect(result.ok).toBe(false);
+    });
+
+    it("hides a fence nested in a list item (4+ spaces), failing closed", () => {
+      const nested = "- example\n\n    ~~~\n    - [x] envelope reviewed (automatic)\n    ~~~";
+      expect(validate(withExtra(nested)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+      // A closer indented more than 3 columns past its opener does not close the fence.
+      const deepClose = "~~~\n    ~~~\n- [x] envelope reviewed (automatic)\n~~~";
+      expect(validate(withExtra(deepClose)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("rejects a second Provider go-live section that could hide an unticked first one", () => {
+      const unticked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const result = validate(`${unticked}\n${buildGoLiveSection()}`);
+      expect(result).toEqual({
+        ok: false,
+        errors: ['"Provider go-live" appears 2 times; keep exactly one section'],
+      });
+    });
+
+    it("counts a duplicate section in any heading form", () => {
+      const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+      for (const heading of [
+        "## Provider go-live ##",
+        "  ## Provider go-live",
+        "# Provider go-live",
+        "### Provider go-live",
+        "Provider go-live\n---",
+        "### Provider go-live <!-- duplicate -->",
+        "### **Provider go-live**",
+        "## Provider `go-live`",
+        "## Provider go&#8209;live (continued)",
+        "## Provider g&#111;-live",
+        "## Provider g&#x6f;-live",
+        "> ## Provider go-live",
+        "### Pro<span></span>vider go-live",
+        "> Provider go-live\n> ---",
+        "Provider\ngo-live\n---",
+        "<h2>Provider go-live</h2>",
+        "## Notes\n\n<h2>\nProvider go-live\n</h2>",
+        "## Notes\n\n<h2>Notes</h2><h2>Provider go-live</h2>",
+        "- item\n\n    ## Provider go-live",
+        "- item\n\n\t## Provider go-live",
+      ]) {
+        const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
+        expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
+      }
+    });
+
+    it("counts a duplicate section even where the legacy ``` scan would hide its heading", () => {
+      const unticked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const body = `\n## Notes\n\nInline \`\`\` text\n${unticked}\n\nInline \`\`\` text\n${buildGoLiveSection()}`;
+      expect(validate(body).errors).toContain('"Provider go-live" appears 2 times; keep exactly one section');
+    });
+
+    it("hides a fence opened after a list or blockquote marker", () => {
+      for (const extra of [
+        "- ~~~\n  - [x] Envelope reviewed (automatic)\n  ~~~",
+        "1. ```\n   - [x] Envelope reviewed (automatic)\n   ```",
+        "> ~~~\n> - [x] Envelope reviewed (automatic)\n> ~~~",
+      ]) {
+        expect(validate(withExtra(extra)).errors, extra).toEqual([
+          'missing Provider go-live item "envelope reviewed (automatic)"',
+        ]);
+      }
+    });
+
+    it("keeps a list-item fence open past a less indented marker line, which opens a new fence", () => {
+      // CommonMark: the unindented ~~~ ends the list item and opens a new fence.
+      // That new fence never closes, so it also hides the rest of the section.
+      const extra = "- ~~~\n  x\n~~~\n- [x] Envelope reviewed (automatic)";
+      expect(validate(withExtra(extra)).errors).toContain('missing Provider go-live item "envelope reviewed (automatic)"');
+      const closed = "- ~~~\n  x\n~~~\n- [x] Envelope reviewed (automatic)\n~~~";
+      expect(validate(withExtra(closed)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("does not close a top-level fence on an over-indented marker line", () => {
+      const extra = "   ~~~\n      ~~~\n- [x] Envelope reviewed (automatic)\n   ~~~";
+      expect(validate(withExtra(extra)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("hides the rest of the body when a fence end is ambiguous", () => {
+      // After "- item", a fence at column 2 could be in the list item (k=2) or top level (k=0);
+      // a closer at column 1 closes in one reading and opens a new fence in the other.
+      const extra = "- item\n\n  ~~~\n - [x] Envelope reviewed (automatic)\n ~~~\n- [x] Envelope reviewed (automatic)";
+      expect(validate(withExtra(extra)).ok).toBe(false);
+    });
+
+    it("ignores checkboxes inside a multi-line HTML comment", () => {
+      const extra = "<!--\n- [x] Envelope reviewed (automatic)\n-->";
+      expect(validate(withExtra(extra)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+      const passes = validate(withExtra("<!--\n- [ ] Envelope reviewed (automatic)\n-->", {}));
+      expect(passes).toEqual({ ok: true, errors: [] });
+    });
+
+    it("never takes item text or evidence from an HTML comment", () => {
+      const real = buildGoLiveSection().split("\n").find((line) => line.startsWith("- [x] provider:check green"));
+      for (const replacement of [
+        "- [x] Pending\n  <!-- provider:check green. Evidence: https://github.com/optomachina/Overdrafter/pull/123\n  This claim is commented out.\n  -->",
+        "- [x] Pending <!-- provider:check green. Evidence: https://github.com/optomachina/Overdrafter/pull/123 -->",
+        "- [x] provider:check green. Evidence: <!-- https://github.com/optomachina/Overdrafter/pull/123 -->",
+        "- [x] provider:check green. Evidence: <!--\n  https://github.com/optomachina/Overdrafter/pull/123 -->",
+      ]) {
+        const result = validate(buildGoLiveSection().replace(real, replacement));
+        expect(result.ok, replacement).toBe(false);
+      }
+    });
+
+    it("reads checkboxes with every list marker and rejects unticked or quoted extras", () => {
+      for (const extra of ["+ [ ] Envelope reviewed (automatic)", "1. [ ] Extra attestation", "2) [ ] Extra attestation", "> - [ ] Quoted attestation", "- - [ ] Nested attestation", "> 1. - [ ] Nested quoted"]) {
+        expect(validate(withExtra(extra, {})).ok, extra).toBe(false);
+      }
+      // A ticked "+" or ordered line satisfies the automatic item; a quoted one never does.
+      for (const line of ["+ [x] Envelope reviewed (automatic)", "1. [x] Envelope reviewed (automatic)", "- [x] __Envelope reviewed (automatic)__", "- - [x] Envelope reviewed (automatic)"]) {
+        expect(validate(withExtra(line)), line).toEqual({ ok: true, errors: [] });
+      }
+      // The automatic text must be on the checkbox line itself, not a continuation.
+      expect(validate(withExtra("- [x]\n  Envelope reviewed (automatic)")).errors).toContain(
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      );
+      expect(validate(withExtra("> - [x] Envelope reviewed (automatic)")).errors).toContain(
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      );
+    });
+
+    it("ignores a fake Provider go-live section inside a tilde fence", () => {
+      const fake = `~~~\n## Provider go-live\n\n- [x] envelope reviewed (automatic)\n~~~`;
+      const broken = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const result = validate(`${broken}\n\n## Notes\n\n${fake}\n`);
+      expect(result.errors).toContain('"envelope reviewed (automatic)" must be ticked');
+    });
+  });
+
+  it("matches only a ticked envelope-reviewed (automatic) checkbox line", () => {
+    const { match } = PROVIDER_GO_LIVE_REQUIRED_ITEMS.find((item) => item.id === "envelope-reviewer");
+    for (const line of [
+      "- [x] envelope reviewed (automatic)",
+      "* [X] Envelope reviewed (automatic). Signed: anyone.",
+      "  - [x] envelope reviewed (automatic)",
+      "- [x] **Envelope reviewed (automatic).** Signed: Grok Bot under Blaine Wilson",
+    ]) {
+      expect(match.test(line), line).toBe(true);
+    }
+    for (const line of [
+      "not envelope reviewed",
+      "- [ ] envelope reviewed (automatic)",
+      "the envelope reviewed (automatic) item is missing",
+      "    envelope reviewed (automatic)",
+      "> envelope reviewed (automatic)",
+    ]) {
+      expect(match.test(line), line).toBe(false);
+    }
+  });
+
+  it("does not treat an unticked lookalike as the automatic envelope item", () => {
+    const section = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+      "## Provider go-live",
+      "## Provider go-live\n\n- [ ] not envelope reviewed\n",
+    );
+    const result = validate(section);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => /not envelope reviewed/i.test(error))).toBe(true);
   });
 
   it("rejects a placeholder URL on every item", () => {
@@ -510,7 +792,7 @@ describe("validatePrBody", () => {
     );
     const result = validate(buildGoLiveSection(overrides));
     expect(result.ok).toBe(false);
-    expect(result.errors).toHaveLength(PROVIDER_GO_LIVE_REQUIRED_ITEMS.length);
+    expect(result.errors).toHaveLength(MANUAL_ITEMS.length);
   });
 
   it("rejects links to other repos, bare github.com, and non-evidence paths", () => {
@@ -542,7 +824,7 @@ describe("validatePrBody", () => {
     const overrides = Object.fromEntries(PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [item.id, { evidence: "OVD-1" }]));
     const result = validate(buildGoLiveSection(overrides));
     expect(result.ok).toBe(false);
-    expect(result.errors).toHaveLength(PROVIDER_GO_LIVE_REQUIRED_ITEMS.length);
+    expect(result.errors).toHaveLength(MANUAL_ITEMS.length);
     expect(result.errors.every((error) => error.startsWith("add an evidence link"))).toBe(true);
   });
 
@@ -557,11 +839,9 @@ describe("validatePrBody", () => {
     expect(validate(buildGoLiveSection(overrides))).toEqual({ ok: true, errors: [] });
   });
 
-  it("rejects N/A on the envelope, rollback, kill switch, and legal stance items", () => {
-    const naIds = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.na).map((item) => item.id);
-    expect(naIds).toEqual(
-      expect.arrayContaining(["provider-check", "rollback", "kill-switch", "same-day-off", "rate-limit", "no-evasion", "no-passwords"]),
-    );
+  it("rejects N/A on the provider:check, per-supplier switch, and legal stance items", () => {
+    const naIds = MANUAL_ITEMS.filter((item) => !item.na).map((item) => item.id);
+    expect(naIds).toEqual(["provider-check", "supplier-switch", "no-passwords"]);
     for (const id of naIds) {
       const result = validate(buildGoLiveSection({ [id]: { na: "this does not apply to the stage" } }));
       expect(result.errors.some((error) => error.startsWith("N/A is not allowed")), id).toBe(true);
@@ -590,8 +870,8 @@ describe("validatePrBody", () => {
   });
 
   it("rejects missing items and unchecked extra items", () => {
-    const missing = validate(buildGoLiveSection({ "no-passwords": null }));
-    expect(missing.errors).toContain('missing Provider go-live item "no stored customer passwords, encrypted session tokens, one click revoke"');
+    const missing = validate(buildGoLiveSection({ "supplier-switch": null }));
+    expect(missing.errors).toContain('missing Provider go-live item "per-supplier on/off switch in the admin dashboard"');
     const extra = validate(`${buildGoLiveSection()}\n- [ ] Extra attestation\n`);
     expect(extra.errors).toContain('check "Extra attestation"');
   });
@@ -696,7 +976,7 @@ describe("provider go-live docs and workflows", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
     expect(template).toContain(`## ${PROVIDER_GO_LIVE_HEADING}`);
     for (const item of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
-      expect(template, item.id).toContain(`- [ ] ${item.text}`);
+      expect(template, item.id).toContain(`- [${item.auto ? "x" : " "}] ${item.text}`);
       expect(item.match.test(checklist), item.label).toBe(true);
     }
     expect(template).toContain("never committed by a generator");
@@ -717,9 +997,25 @@ describe("provider go-live docs and workflows", () => {
 
   it("covers the provider legal stance in the checklist", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
-    for (const phrase of ["provider:kill", "provider-cease-and-desist.md", "same day", "20 quotes", "rotate IPs", "CAPTCHA", "customer passwords", "one click", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
-      expect(checklist, phrase).toContain(phrase);
+    for (const phrase of ["Blaine Wilson, October 16, 2026", PROVIDER_GO_LIVE_AUTO_SIGNATURE, "OVD-829",
+      "https://linear.app/overdrafter/issue/OVD-829", "satisfied by dependency on", "optional admin daily quote cap (default unlimited)", "no default daily quote cap", "No stored customer passwords", "encrypted session tokens", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
+      expect(checklist.replace(/\s+/g, " "), phrase).toContain(phrase);
     }
+    const goLiveItems = (text) => text.slice(text.indexOf("## Envelope")).split(/\n(?=- \[)/).filter((line) => line.startsWith("- ["));
+    for (const text of [checklist, read(".github", "pull_request_template.md")]) {
+      for (const item of goLiveItems(text)) {
+        expect(item).not.toMatch(/CAPTCHA|rotate IPs|one click revoke|named reviewer|GO-LIVE:|providerKillSwitch\.handler\.test/i);
+      }
+    }
+  });
+
+  it("requires the no stored customer passwords item, decoupled from one-click revoke", () => {
+    const item = PROVIDER_GO_LIVE_REQUIRED_ITEMS.find((candidate) => candidate.id === "no-passwords");
+    expect(item).toMatchObject({ group: "Legal stance", na: false });
+    expect(item.text).not.toMatch(/revoke/i);
+    const missing = validate(buildGoLiveSection({ "no-passwords": null }));
+    expect(missing.errors).toContain('missing Provider go-live item "no stored customer passwords, encrypted session tokens only"');
+    expect(read(".github", "pull_request_template.md")).toContain("- [ ] No stored customer passwords; encrypted session tokens only. Evidence:");
   });
 
   it("no longer says the checklist is unbuilt and uses real command names", () => {
@@ -766,5 +1062,147 @@ describe("provider go-live docs and workflows", () => {
     expect(workflow).not.toMatch(/^\s+- edited$/m);
     expect(workflow).not.toContain("provider-go-live");
     expect(workflow).not.toContain("validate-pr-body");
+  });
+});
+
+describe("linear heading and checkbox regexes", () => {
+  it("pins ATX headings, including a trailing CR that does not match", () => {
+    const captured = (line) => {
+      const match = ANY_ATX_HEADING.exec(line);
+      return match ? (match[1] ?? "") : null;
+    };
+    expect(captured("#######")).toBeNull();
+    expect(captured("#x")).toBeNull();
+    expect(captured("#")).toBe("");
+    expect(captured("#   ")).toBe("");
+    expect(captured("# a")).toBe("a");
+    expect(captured("   ## a ##")).toBe("a ##");
+    expect(captured("# a\r")).toBeNull();
+  });
+
+  it("pins the container prefix used before heading detection", () => {
+    const stripped = (line) => line.replace(CONTAINER_PREFIX, "");
+    expect(stripped("> - 1. text")).toBe("text");
+    expect(stripped(">>- x")).toBe("x");
+    expect(stripped("1234567890. x")).toBe("1234567890. x");
+    expect(stripped("-x")).toBe("-x");
+  });
+
+  it("pins checkbox captures, including quoted markers and an empty tail", () => {
+    const captured = (line) => {
+      const match = CHECKBOX_LINE.exec(line);
+      return match ? [match[1].includes(">"), match[2], match[3] ?? ""] : null;
+    };
+    expect(captured("+ [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("* [X] a")).toEqual([false, "X", "a"]);
+    expect(captured("1) [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("123456789. [ ] a")).toEqual([false, " ", "a"]);
+    expect(captured("1234567890. [x] a")).toBeNull();
+    expect(captured("- - [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("> 1. - [ ] a")).toEqual([true, " ", "a"]);
+    expect(captured("> - [x] quoted")).toEqual([true, "x", "quoted"]);
+    expect(captured("- [x] plain")).toEqual([false, "x", "plain"]);
+    expect(captured("- [x]")).toEqual([false, "x", ""]);
+    expect(captured("- [x]\t  text")).toEqual([false, "x", "text"]);
+    expect(captured(">- [x] text")).toEqual([true, "x", "text"]);
+    expect(captured(">>- [ ] a")).toEqual([true, " ", "a"]);
+    expect(captured("> >1. [x] b")).toEqual([true, "x", "b"]);
+  });
+
+  it("pins fence openers, including a quoted fence and a backtick in the info string", () => {
+    const captured = (line) => {
+      const match = FENCE_OPEN.exec(line);
+      return match ? [match[1], match[2], match[3]] : null;
+    };
+    expect(captured("> ```")).toEqual(["> ", "```", ""]);
+    expect(captured(">```")).toBeNull();
+    expect(captured("- ~~~")).toEqual(["- ", "~~~", ""]);
+    expect(captured("```js")).toEqual(["", "```", "js"]);
+    expect(captured("```x`x")).toEqual(["", "```", "x`x"]);
+    expect(captured("````")).toEqual(["", "````", ""]);
+  });
+
+  it("still counts a multi-line setext Provider go-live heading, and two of them", () => {
+    const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+    for (const heading of ["Provider\ngo-live\n---", "> Provider\n> go-live\n> ==="]) {
+      expect(validate(`${missingAuto}\n${heading}\n`).errors, heading).toContain(
+        '"Provider go-live" appears 2 times; keep exactly one section',
+      );
+      expect(validate(`${missingAuto}\n${heading}\n${heading}\n`).errors, heading).toContain(
+        '"Provider go-live" appears 3 times; keep exactly one section',
+      );
+    }
+  });
+});
+
+const REDOS_CHILD = fileURLToPath(new URL("./validate-pr-body-redos-child.mjs", import.meta.url));
+const REDOS_MISSING = [
+  'add Provider go-live checkboxes to "Provider go-live"',
+  'missing Provider go-live item "provider:check green"',
+  'missing Provider go-live item "envelope reviewed (automatic)"',
+  'missing Provider go-live item "worker adapter and Secret Manager secret"',
+  'missing Provider go-live item "stable egress verified"',
+  'missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)"',
+  'missing Provider go-live item "automatic_quote_collection rollout and org enablement"',
+  'missing Provider go-live item "certification run evidence"',
+  'missing Provider go-live item "per-supplier on/off switch in the admin dashboard"',
+  'missing Provider go-live item "no stored customer passwords, encrypted session tokens only"',
+  'missing Provider go-live item "ITAR/EAR controlled or uncertain uploads blocked to foreign providers and LLMs"',
+];
+
+function runRedosCase(id) {
+  const result = spawnSync(process.execPath, [REDOS_CHILD, id], { timeout: 5000, encoding: "utf8" });
+  expect(result.error?.code ?? result.signal, result.stderr).toBeFalsy();
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+describe("adversarial ReDoS bounds", { timeout: 30_000 }, () => {
+  const bounded = [
+    ["a1", 250],
+    ["a2", 250],
+    ["a3", 250],
+    ["a5", 250],
+    ["a6", 250],
+    ["a7", 250],
+    ["a8", 250],
+    ["a10", 250],
+    ["a11", 250],
+    ["a12", 250],
+  ];
+
+  it.each(bounded)("%s stays under %i ms and still fails closed", (id, bound) => {
+    const report = runRedosCase(id);
+    expect(report.maxMs).toBeLessThan(bound);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(report.errors.map(() => REDOS_MISSING));
+  });
+
+  it("a4 matches nothing and stays under 50 ms", () => {
+    const report = runRedosCase("a4");
+    expect(report.maxMs).toBeLessThan(50);
+    expect(report.match).toBe(false);
+  });
+
+  it("a mixed 65 KiB body stays under 1 s", () => {
+    const report = runRedosCase("a9");
+    expect(report.sumMs).toBeLessThan(1000);
+    expect(report.maxMs).toBeLessThan(1000);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([REDOS_MISSING]);
+  });
+
+  it("a mixed 10k body stays under 100 ms", () => {
+    const report = runRedosCase("a10k");
+    expect(report.sumMs).toBeLessThan(100);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([REDOS_MISSING]);
+  });
+
+  it("grows less than 8x from 16 KiB to 64 KiB", () => {
+    const report = runRedosCase("growth");
+    for (const [name, row] of Object.entries(report.ratios)) {
+      expect(row.ratio, name).toBeLessThan(8);
+    }
   });
 });
