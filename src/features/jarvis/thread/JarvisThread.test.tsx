@@ -28,6 +28,15 @@ describe('web thread', () => {
     expect(screen.getByText('Plate ready')).toBeTruthy(); expect(screen.getByRole('img', { name: 'Iso' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy(); expect(screen.getByText('4.000 × 4.000 × 0.250 in')).toBeTruthy();
   });
+  it('labels the first picture Iso and the second Top view when there is no 3D model', () => {
+    const s = setup();
+    const top = { ...artifact(4, 'png'), uri: '/top.png' };
+    s.send(artifact(3, 'png'), top, artifact(5, 'step'), { ...base, seq: 6, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate ready', picks: {}, artifacts: [{ kind: 'png', uri: '/png' }, { kind: 'png', uri: '/top.png' }, { kind: 'step', uri: '/step' }] });
+    const [first, second] = screen.getAllByRole('img');
+    expect(first.getAttribute('alt')).toBe('Iso'); expect(first.getAttribute('src')).toBe('/png');
+    expect(second.getAttribute('alt')).toBe('Top view');
+    expect(screen.queryByRole('button', { name: /3D/ })).toBeNull();
+  });
   it('T2 and T3 skips once and waits for the server recorded guess and rationale', async () => {
     const s = setup(); s.send(decision);
     const skip = screen.getByRole('button', { name: 'SKIP' }); fireEvent.click(skip); fireEvent.click(skip);
@@ -114,7 +123,10 @@ it('viewer loads and supports button alternatives for orbit and zoom', () => {
   expect(screen.queryByText('Loading 3D model')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'ROTATE' })); expect(model.cameraOrbit).toBe(`${Math.PI / 4}rad 1rad 2m`);
   fireEvent.click(screen.getByRole('button', { name: 'ZOOM IN' })); expect(model.fieldOfView).toBe('24deg');
-  fireEvent.click(screen.getByRole('button', { name: 'FIT' })); expect(model.cameraOrbit).toBe('auto auto auto');
+  fireEvent.click(screen.getByRole('button', { name: 'ZOOM OUT' })); expect(model.fieldOfView).toBe('37.5deg');
+  fireEvent.click(screen.getByRole('button', { name: 'FIT' })); expect(model.cameraOrbit).toBe('auto auto auto'); expect(model.fieldOfView).toBe('auto');
+  // Every control, not only zoom, must snap the camera to its new goal.
+  expect((model as unknown as { jumpCameraToGoal: ReturnType<typeof vi.fn> }).jumpCameraToGoal).toHaveBeenCalledTimes(4);
 });
 
 it('announces only stage and state while the elapsed timer advances', () => {

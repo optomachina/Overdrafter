@@ -15,9 +15,10 @@ export function createPreview() {
   const publish = (event: GraphEvent) => deliver([event]);
   const later = (fn: () => void) => { const timer = setTimeout(() => { timers.delete(timer); fn(); }, 800); timers.add(timer); };
   const files = ['iso.png', 'top.png', 'plate.glb', 'plate.step'];
-  const artifacts = [isoUrl, topUrl, glbUrl, stepUrl].map((uri, i) => ({ kind: (i < 2 ? 'png' : i === 2 ? 'glb' : 'step') as 'png' | 'glb' | 'step', uri }));
+  const kinds = ['png', 'png', 'glb', 'step'] as const, mimeTypes = ['image/png', 'image/png', 'model/gltf-binary', 'model/step'];
+  const artifacts = [isoUrl, topUrl, glbUrl, stepUrl].map((uri, i) => ({ kind: kinds[i], uri }));
   const result = () => {
-    artifacts.forEach((a, i) => publish({ ...envelope(), type: 'artifact', nodeId: 'domain_agent', agentId: 'cad', ...a, name: files[i], mimeType: i < 2 ? 'image/png' : i === 2 ? 'model/gltf-binary' : 'model/step', dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } }));
+    artifacts.forEach((a, i) => publish({ ...envelope(), type: 'artifact', nodeId: 'domain_agent', agentId: 'cad', ...a, name: files[i], mimeType: mimeTypes[i], dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } }));
     publish({ ...envelope(), type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate review ready', picks: { thickness: '0.250 in' }, artifacts });
   };
   const source: EventSource = {

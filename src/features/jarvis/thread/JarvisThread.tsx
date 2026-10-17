@@ -28,6 +28,11 @@ function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: 
   return undefined;
 }
 
+// The first picture is always the iso view, with or without a 3D model to open.
+function pictureAlt(index: number): string {
+  return index === 0 ? 'Iso' : 'Top view';
+}
+
 function decisionLabel(resolved: GraphDecisionResolvedEvent): string {
   if (resolved.outcome !== 'skipped_best_guess') return 'Choice recorded';
   return resolved.cause === 'timeout' ? 'No answer in time. Best guess recorded' : 'Best guess recorded';
@@ -152,7 +157,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
       </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
-        <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt="Top view" />)}{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+        <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt={pictureAlt(i)} />)}{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />
