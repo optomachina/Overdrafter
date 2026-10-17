@@ -150,7 +150,8 @@ export async function loadLinear(ids, options, env, fetcher = fetch) {
   return { data: redactValue(cache, env.LINEAR_API_KEY), loaded };
 }
 const money = (n) => n === null ? NA : `$${n.toFixed(2)}`;
-const fraction = (n, d) => `${n}/${d} (${d ? (100 * n / d).toFixed(1) + '%' : 'n/a'})`;
+const LOW_SAMPLE = 10;
+const fraction = (n, d) => `${n}/${d} (${d ? (100 * n / d).toFixed(1) + '%' : 'n/a'})${d < LOW_SAMPLE ? '; low sample' : ''}`;
 const cell = (v) => String(v).replaceAll('|', '\\|').replaceAll(/[\r\n]/g, ' ');
 function comparison(a, b, names = ['Baseline (14d)', 'Current week (7d)']) {
   const rows = [
@@ -201,9 +202,13 @@ export function buildReport({ prs, ledger = [], experiments = [], linear = {}, w
     if (counts.size) flags.push(`Failing head checks: ${[...counts].map(([name, count]) => `${cell(name)} ×${count}`).join(', ')}`);
   }
   for (const [name, s] of [['Baseline', baseline], ['Current week', current]]) {
-    if (s.denominator < 10) flags.push(`${name} low sample: n=${s.denominator}; treat pass rate as indicative`);
+    if (s.denominator < LOW_SAMPLE) flags.push(`${name} low sample: n=${s.denominator}; treat pass rate as indicative`);
   }
-  const lines = [`# Weekly evals report — week ending ${weekEnding}`, '', `Generated-at: ${now}\n\nRepo: ${cell(repo)}\n\nDefinition: [Cost per accepted PR](https://github.com/${repo}/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)`, '', '## Flags', '', ...(flags.length ? flags.map((f) => `- ${f}`) : ['None.']), '', `Baseline: ${w.baseline.from}–${w.baseline.to}; current: ${w.current.from}–${w.current.to} (UTC inclusive).`, '', comparison(baseline, current), '', ...sections, '', '## Data sources and gaps', '', `- Ignored infra/advisory contexts (case-insensitive name or context): ${cell(ignoreChecks || '(disabled)')}`, `- gh call count: ${stats.calls}; cache hits: ${stats.hits}`, `- Linear data: ${linearLoaded ? 'loaded' : 'not loaded'}`, `- Spend ledger lines used: baseline ${baseline.lines}; current ${current.lines}; input records ${ledger.length}`, '- GitHub rollups are observed after merge, not historical merge-time snapshots. Empty rollups are not accepted. Cached comments and checks may omit later updates.', '- Missing QA verdicts are unknown. Missing attributed spend is not zero. Issue spend shared by multiple PRs is left unattributed. A/B costs omit shared overhead.', '', '## Current week PRs', '', '| PR | Issue | Accepted | CI first pass | QA | Repair rounds | Opus | Spend |', '| --- | --- | --- | --- | --- | --- | --- | --- |'];
+  const summaryNotes = [];
+  for (const [label, n] of [['first-pass pass rate', baseline.denominator], ['first-pass CI rate', baseline.ciKnown], ['QA verdict coverage', baseline.prs.length]]) {
+    if (n < LOW_SAMPLE) summaryNotes.push(`Baseline ${label}: n=${n}; treat as indicative`);
+  }
+  const lines = [`# Weekly evals report — week ending ${weekEnding}`, '', `Generated-at: ${now}\n\nRepo: ${cell(repo)}\n\nDefinition: [Cost per accepted PR](https://github.com/${repo}/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)`, '', '## Flags', '', ...(flags.length ? flags.map((f) => `- ${f}`) : ['None.']), '', `Baseline: ${w.baseline.from}–${w.baseline.to}; current: ${w.current.from}–${w.current.to} (UTC inclusive).`, '', ...(summaryNotes.length ? ['**Low-sample baseline:** ' + summaryNotes.join('; ') + '.', ''] : []), comparison(baseline, current), '', ...sections, '', '## Data sources and gaps', '', `- Ignored infra/advisory contexts (case-insensitive name or context): ${cell(ignoreChecks || '(disabled)')}`, `- gh call count: ${stats.calls}; cache hits: ${stats.hits}`, `- Linear data: ${linearLoaded ? 'loaded' : 'not loaded'}`, `- Spend ledger lines used: baseline ${baseline.lines}; current ${current.lines}; input records ${ledger.length}`, '- GitHub rollups are observed after merge, not historical merge-time snapshots. Empty rollups are not accepted. Cached comments and checks may omit later updates.', '- Missing QA verdicts are unknown. Missing attributed spend is not zero. Issue spend shared by multiple PRs is left unattributed. A/B costs omit shared overhead.', '', '## Current week PRs', '', '| PR | Issue | Accepted | CI first pass | QA | Repair rounds | Opus | Spend |', '| --- | --- | --- | --- | --- | --- | --- | --- |'];
   for (const p of current.prs) lines.push(`| [#${p.number}](${p.url}) | ${p.issues.join(', ') || '—'} | ${p.accepted ? 'yes' : 'no'} | ${p.ci} | ${p.qa} | ${p.repairs} | ${p.opus ? 'yes' : 'no'} | ${current.spending.find((s) => s.number === p.number)?.usd == null ? 'n/a' : money(current.spending.find((s) => s.number === p.number).usd)} |`);
   return lines.join('\n') + '\n';
 }

@@ -45,14 +45,17 @@ describe('weekly evals', () => {
   });
   it('reports CI and QA coverage separately while retaining the joint first-pass denominator', () => {
     const text = report({ experiments: [] });
-    expect(text).toContain('| First-pass pass rate | 1/1 (100.0%) | 1/2 (50.0%) |');
-    expect(text).toContain('| First-pass CI rate (CI known) | 1/1 (100.0%) | 1/2 (50.0%) |');
-    expect(text).toContain('| QA verdict coverage | 1/1 (100.0%) | 2/3 (66.7%) |');
+    expect(text).toContain('| First-pass pass rate | 1/1 (100.0%); low sample | 1/2 (50.0%); low sample |');
+    expect(text).toContain('**Low-sample baseline:** Baseline first-pass pass rate: n=1; treat as indicative; Baseline first-pass CI rate: n=1; treat as indicative; Baseline QA verdict coverage: n=1; treat as indicative');
+    expect(text).toContain('| First-pass CI rate (CI known) | 1/1 (100.0%); low sample | 1/2 (50.0%); low sample |');
+    expect(text).toContain('| QA verdict coverage | 1/1 (100.0%); low sample | 2/3 (66.7%); low sample |');
     expect(text).toContain('Baseline low sample: n=1; treat pass rate as indicative');
     expect(text).toContain('Current week low sample: n=2; treat pass rate as indicative');
     expect(text).toContain('https://github.com/example/repo/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr');
     const many = Array.from({ length: 10 }, (_, i) => ({ ...prs[0], number: i, ci: 'pass', qa: 'pass' }));
-    expect(report({ prs: many, experiments: [] })).not.toContain('Baseline low sample');
+    const manyText = report({ prs: many, experiments: [] });
+    expect(manyText).not.toContain('Baseline low sample');
+    expect(manyText).not.toContain('**Low-sample baseline:**');
   });
   it('caps rejected links and counts only failing non-ignored head checks', () => {
     const rejected = Array.from({ length: 12 }, (_, i) => analyzePR({ ...list[1], number: i + 100 }, { statusCheckRollup: [
