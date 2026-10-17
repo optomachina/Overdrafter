@@ -111,8 +111,8 @@ const inWindow = (iso, window) => {
 
 // ---------- normalization ----------
 
-const BOT_KEY = /^[a-z0-9][a-z0-9._-]*$/;
-const stripMarkdown = (line) => line.replaceAll(/[*`#>]/g, "").replaceAll(/(^|\s)_+|_+(?=\s|$)/g, "$1").trim();
+const BOT_KEY = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
+const stripMarkdown = (line) => line.replaceAll(/[*`#>]/g, "").replaceAll(/(^|\s)(_+)([^_\s](?:.*?[^_\s])?)\2(?=\s|$)/g, "$1$3").trim();
 
 function authorBotKey(raw) {
   const author = raw.user ?? raw.author;
@@ -171,11 +171,18 @@ export function attributePullRequest(pr) {
     if (!candidates.has(key)) candidates.set(key, new Set());
     candidates.get(key).add(source);
   };
+  const evidenceSources = new Set();
+  let ambiguous = false;
+  const declare = (key, source) => {
+    if (key === "unknown") return;
+    evidenceSources.add(source);
+    if (!BOT_KEY.test(key)) ambiguous = true;
+    else add(key, source);
+  };
   for (const label of pr.labels ?? []) {
     const name = (typeof label === "string" ? label : label?.name)?.toLowerCase();
-    if (name?.startsWith("model:")) add(name.slice(6), "label");
+    if (name?.startsWith("model:")) declare(name.slice(6), "label");
   }
-  let conflictingBody = false;
   let fenced = false;
   for (const line of (pr.body ?? "").split("\n")) {
     if (line.trimStart().startsWith("```")) {
@@ -190,12 +197,11 @@ export function attributePullRequest(pr) {
     let token = /^\S*/.exec(remainder)[0];
     if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
     token = token.replace(/[,;:)·]+$/, "").toLowerCase();
-    if (BOT_KEY.test(token)) add(token, "body");
-    else conflictingBody = true;
+    declare(token, "body");
   }
   add(pr.authorBot ?? authorBotKey(pr), "author");
-  const sources = [...new Set([...candidates.values()].flatMap((values) => [...values]))].sort(compareCodeUnits);
-  if (conflictingBody) return { bot: "unknown", status: "conflicting", sources: [...new Set([...sources, "body"])].sort(compareCodeUnits) };
+  const sources = [...new Set([...evidenceSources, ...[...candidates.values()].flatMap((values) => [...values])])].sort(compareCodeUnits);
+  if (ambiguous) return { bot: "unknown", status: "ambiguous", sources };
   if (candidates.size === 1) return { bot: [...candidates.keys()][0], status: "attributed", sources };
   return { bot: "unknown", status: candidates.size ? "conflicting" : "no_signal", sources };
 }
@@ -203,12 +209,12 @@ export function attributePullRequest(pr) {
 export function parseReviewVerdict(body) {
   const first = (body ?? "").split("\n").find((line) => line.trim() !== "") ?? "";
   const match = /^(\S+)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b/i.exec(stripMarkdown(first));
-  if (!match || !/^[a-z][a-z0-9._-]*$/i.test(match[1]) || match[1].toLowerCase() === "unknown") return null;
+  if (!match || !BOT_KEY.test(match[1].toLowerCase()) || match[1].toLowerCase() === "unknown") return null;
   return { bot: match[1].toLowerCase(), round: match[2].toLowerCase(), sha: match[3].toLowerCase(), verdict: match[4].toLowerCase().replace(" ", "_") };
 }
 
 export function computeBotAttribution(merged) {
-  const result = { attributed: 0, noSignal: 0, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } };
+  const result = { attributed: 0, noSignal: 0, conflicting: 0, ambiguous: 0, bySource: { label: 0, body: 0, author: 0 } };
   for (const pr of merged) {
     const attribution = attributePullRequest(pr);
     result[attribution.status === "no_signal" ? "noSignal" : attribution.status] += 1;

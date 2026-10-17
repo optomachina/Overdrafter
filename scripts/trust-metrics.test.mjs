@@ -225,7 +225,7 @@ describe("snapshot", () => {
       window: { start: "2026-09-28", end: "2026-10-15" },
       sources: { repository: "optomachina/Overdrafter", baseBranch: "main", harnessResultFiles: 1 },
       bots: [{ bot: "unknown", prs: 6, qa: { pass: 2, fail: 2, noVerdict: 2, passRate: 0.5 }, reverts: { reverts: 1, rollbacks: 2 }, reviews: { approved: 0, changesRequired: 0 } }],
-      botAttribution: { attributed: 0, noSignal: 6, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } },
+      botAttribution: { attributed: 0, noSignal: 6, conflicting: 0, ambiguous: 0, bySource: { label: 0, body: 0, author: 0 } },
     });
   });
 
@@ -322,9 +322,9 @@ describe("bot attribution", () => {
       row("codex", 3, 2, 1, 0, 0.6667, 1, 0, 1),
       row("opus", 2, 1, 1, 0, 0.5, 0, 1, 0, 1),
       row("sonnet", 0, 0, 0, 0, null, 0, 0, 1),
-      row("unknown", 6, 0, 0, 6, null),
+      row("unknown", 11, 0, 0, 11, null),
     ]);
-    expect(result.botAttribution).toEqual({ attributed: 5, noSignal: 4, conflicting: 2, bySource: { label: 4, body: 1, author: 1 } });
+    expect(result.botAttribution).toEqual({ attributed: 5, noSignal: 4, conflicting: 2, ambiguous: 5, bySource: { label: 4, body: 1, author: 1 } });
     expect(result.bots.reduce((sum, bot) => sum + bot.prs, 0)).toBe(result.merges.total);
     for (const key of ["pass", "fail", "noVerdict"]) {
       expect(result.bots.reduce((sum, bot) => sum + bot.qa[key], 0)).toBe(result.qa[key]);
@@ -332,8 +332,8 @@ describe("bot attribution", () => {
     for (const key of ["reverts", "rollbacks"]) {
       expect(result.bots.reduce((sum, bot) => sum + bot.reverts[key], 0)).toBe(result.reverts[key]);
     }
-    const { attributed, noSignal, conflicting } = result.botAttribution;
-    expect(attributed + noSignal + conflicting).toBe(result.merges.total);
+    const { attributed, noSignal, conflicting, ambiguous } = result.botAttribution;
+    expect(attributed + noSignal + conflicting + ambiguous).toBe(result.merges.total);
     expect(result.bots.at(-1).bot).toBe("unknown");
     expect(Object.keys(result.bots[0])).toEqual(["bot", "prs", "qa", "reverts", "reviews"]);
   });
@@ -347,7 +347,7 @@ describe("bot attribution", () => {
   it("handles empty and entirely unattributable inputs", () => {
     const empty = snapshot({ pullRequests: [], comments: [] });
     expect(empty.bots).toEqual([]);
-    expect(empty.botAttribution).toEqual({ attributed: 0, noSignal: 0, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } });
+    expect(empty.botAttribution).toEqual({ attributed: 0, noSignal: 0, conflicting: 0, ambiguous: 0, bySource: { label: 0, body: 0, author: 0 } });
     expect(computeBots(mergedInWindow([botPrs[2]], window), [], window)).toEqual([row("unknown", 1, 0, 0, 1, null)]);
   });
 
@@ -355,6 +355,8 @@ describe("bot attribution", () => {
     "Model: opus per Release",
     "_Model: opus_",
     "__model: opus__",
+    "__Model: opus__",
+    "__model:opus__ · x",
     "Model: opus.",
     "Model: opus, per Release",
     "Model: opus; per Release",
@@ -369,21 +371,29 @@ describe("bot attribution", () => {
     expect(attributePullRequest(normalizePullRequest({ body }))).toEqual({ bot: "opus", status: "attributed", sources: ["body"] });
   });
 
-  it("preserves complete bot keys in body evidence", () => {
-    expect(attributePullRequest({ body: "Model: z_bot", labels: ["model:z_bot"] })).toEqual({ bot: "z_bot", status: "attributed", sources: ["body", "label"] });
-    expect(attributePullRequest({ body: "Model: bot-" })).toEqual({ bot: "bot-", status: "attributed", sources: ["body"] });
+  it("marks matching invalid declarations ambiguous without normalizing keys", () => {
+    expect(attributePullRequest({ body: "Model: z_bot", labels: ["model:z_bot"] })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["body", "label"] });
   });
 
-  it.each(["codex/opus", "codex,opus", "opus|codex", ""])("treats invalid explicit model tokens as conflicting: %s", (token) => {
+  it("keeps an unpaired leading underscore, leaving the model prefix unmatched", () => {
+    expect(attributePullRequest({ body: "_Model: opus" })).toEqual({ bot: "unknown", status: "no_signal", sources: [] });
+  });
+
+  it.each(["codex/opus", "codex,opus", "opus|codex", "bot-", "z_bot", "z_bot_", "codex_", "z-bot.2_v1", "-bot", ".bot", "bot..key", "bot--key", "bot.-key", ""])("treats invalid explicit model tokens as ambiguous: %s", (token) => {
+    expect(attributePullRequest({ labels: [`model:${token}`] })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["label"] });
     const body = `Model: ${token}`;
-    expect(attributePullRequest({ body })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body"] });
-    expect(attributePullRequest({ body, labels: ["model:codex"] })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body", "label"] });
+    expect(attributePullRequest({ body })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["body"] });
+    expect(attributePullRequest({ body, labels: ["model:codex"] })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["body", "label"] });
   });
 
   it("accepts explicit handoff lines and preserves keys without aliases", () => {
     expect(attributePullRequest({ body: "Model: sonnet per Grok Bot triage handoff (no model label exists)" }).bot).toBe("sonnet");
     expect(attributePullRequest({ labels: ["model:Claude"] }).bot).toBe("claude");
-    expect(attributePullRequest({ labels: ["model:z-bot.2_v1"] }).bot).toBe("z-bot.2_v1");
+    for (const key of ["gpt-5.5", "claude-sonnet-4.5", "grok"]) {
+      for (const input of [{ labels: [`model:${key}`] }, { body: `Model: ${key}` }, { user: { login: `${key}[bot]`, type: "Bot" } }]) {
+        expect(attributePullRequest(input).bot).toBe(key);
+      }
+    }
   });
 
   it.each(["Codex and other reviewers: pending", "Opus review: CHANGES REQUIRED", "Generated with Claude Code", "Co-Authored-By: Claude ...", "```\nModel: opus\n```", "Model: unknown"])("ignores prose, fences and reserved keys: %s", (body) => {
@@ -394,12 +404,16 @@ describe("bot attribution", () => {
     expect(attributePullRequest(normalizePullRequest({ labels: ["model:codex", "model:codex"], body: "Model: codex", user: { login: "codex[bot]", type: "Bot" } }))).toEqual({ bot: "codex", status: "attributed", sources: ["author", "body", "label"] });
     expect(attributePullRequest({ labels: ["model:codex"], body: "Model: opus" })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body", "label"] });
     expect(attributePullRequest({ labels: ["model:codex", "model:opus"] })).toEqual({ bot: "unknown", status: "conflicting", sources: ["label"] });
-    expect(attributePullRequest({ labels: ["model:unknown", "model:invalid/key"] })).toEqual({ bot: "unknown", status: "no_signal", sources: [] });
+    expect(attributePullRequest({ labels: ["model:unknown", "model:invalid/key"] })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["label"] });
+    expect(attributePullRequest({ labels: ["model:codex", "model:opus", "model:bot-"], body: "Model: grok", authorBot: "sonnet" })).toEqual({ bot: "unknown", status: "ambiguous", sources: ["author", "body", "label"] });
   });
 
   it("keeps only bot author keys during normalization", () => {
     for (const author of [{ login: "robot[bot]" }, { login: "robot", is_bot: true }]) {
       expect(normalizePullRequest({ author }).authorBot).toBe("robot");
+    }
+    for (const key of ["z_bot", "bot-", "codex/opus", "unknown"]) {
+      expect(attributePullRequest(normalizePullRequest({ user: { login: `${key}[bot]`, type: "Bot" } }))).toEqual({ bot: "unknown", status: "no_signal", sources: [] });
     }
     const human = normalizePullRequest({ user: { login: "optomachina", type: "User" } });
     expect(human.authorBot).toBeNull();
@@ -409,8 +423,8 @@ describe("bot attribution", () => {
   });
 
   it("sorts bot keys in code-unit order with unknown last", () => {
-    const input = ["z", "a_", "a-", "unknown"].map((bot, number) => normalizePullRequest({ number, labels: [`model:${bot}`] }));
-    expect(computeBots(input, [], window).map((bot) => bot.bot)).toEqual(["a-", "a_", "z", "unknown"]);
+    const input = ["z", "a.1", "a-1", "unknown"].map((bot, number) => normalizePullRequest({ number, labels: [`model:${bot}`] }));
+    expect(computeBots(input, [], window).map((bot) => bot.bot)).toEqual(["a-1", "a.1", "z", "unknown"]);
   });
 
   it("counts id-zero reviews individually and allows comments before window start", () => {
@@ -425,13 +439,16 @@ describe("review verdicts", () => {
     expect(parseReviewVerdict("Codex review @ 1a2b3c4d: APPROVED")).toEqual({ bot: "codex", round: "review", sha: "1a2b3c4d", verdict: "approved" });
     expect(parseReviewVerdict("\n**Opus re-review @ DEADBEEF: CHANGES REQUIRED** details")).toEqual({ bot: "opus", round: "re-review", sha: "deadbeef", verdict: "changes_required" });
   });
-  it.each(["z_bot", "bot-"])("preserves the complete reviewer key: %s", (bot) => {
-    expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)).toEqual({ bot, round: "review", sha: "deadbeef", verdict: "approved" });
+  it.each(["gpt-5.5", "claude-sonnet-4.5", "grok", "2bot"])("accepts valid reviewer key: %s", (bot) => {
+    expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)?.bot).toBe(bot);
+  });
+  it.each(["z_bot", "z_bot_", "bot-"])("rejects invalid reviewer keys: %s", (bot) => {
+    expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)).toBeNull();
   });
   it.each(["codex/opus", "codex,opus", "opus|codex"])("rejects ambiguous reviewer keys: %s", (bot) => {
     expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)).toBeNull();
   });
-  it.each([undefined, "Opus review: CHANGES REQUIRED @ 7717135c", "Intro\nCodex review @ deadbeef: APPROVED", "unknown review @ deadbeef: APPROVED", "Codex review @ abc: APPROVED", `Codex review @ ${"a".repeat(41)}: APPROVED`, "2bot review @ deadbeef: APPROVED"])("rejects nonstandard verdict %s", (body) => {
+  it.each([undefined, "Opus review: CHANGES REQUIRED @ 7717135c", "Intro\nCodex review @ deadbeef: APPROVED", "unknown review @ deadbeef: APPROVED", "Codex review @ abc: APPROVED", `Codex review @ ${"a".repeat(41)}: APPROVED`])("rejects nonstandard verdict %s", (body) => {
     expect(parseReviewVerdict(body)).toBeNull();
   });
 });

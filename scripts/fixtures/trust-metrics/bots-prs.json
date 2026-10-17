@@ -101,5 +101,49 @@
     ],
     "title": "Rollback feature",
     "number": 11
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 12,
+    "body": "Model: codex/opus"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 13,
+    "body": "Model: bot-"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 14,
+    "body": "Model: z_bot"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:z_bot"
+    ],
+    "title": "Feature",
+    "number": 15,
+    "body": "Model: z_bot"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:codex"
+    ],
+    "title": "Feature",
+    "number": 16,
+    "body": "Model: codex/opus"
   }
 ]
