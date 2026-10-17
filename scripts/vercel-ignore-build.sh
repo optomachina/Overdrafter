@@ -67,6 +67,14 @@ count=0
 while IFS= read -r file; do
   [ -z "$file" ] && continue
   count=$((count + 1))
+  # Build inputs that the skip patterns below would otherwise match: scripts run
+  # by package.json "build", vite plugins imported by vite.config.ts, and
+  # markdown under public/ (copied into dist). scripts/jarvis-demo/ stays
+  # skippable: no api/ function reaches server/design-graph/cad-agent.ts.
+  case "$file" in
+    scripts/verify-public-assets.mjs | scripts/verify-mobile-auth-build.mjs | scripts/vite-* | public/*)
+      build "build-input change vs $base_source: $file" ;;
+  esac
   case "$file" in
     docs/* | scripts/* | .github/* | supabase/tests/* | *.md) ;;
     *) build "app-affecting change vs $base_source: $file" ;;
