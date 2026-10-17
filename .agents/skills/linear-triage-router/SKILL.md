@@ -31,6 +31,7 @@ Classify an incoming request into one category and produce a practical intake ou
 - Do not over-design the solution.
 - Do not silently guess critical missing info.
 - Route conservatively when billing/auth/data integrity is involved.
+- When the request names files or directories, classify them with `node scripts/lib/sensitive-paths.mjs classify <path> ...`; any match routes the issue architect-first. Do not copy the globs from `docs/sensitive-paths.json`.
 
 ## Workflow
 1. Read request and extract the concrete problem.

@@ -3,6 +3,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { SENSITIVE_PATHS_FILE, checkAgentsParity, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export function validateAgentContract(repoRoot = root) {
@@ -38,6 +40,14 @@ export function validateAgentContract(repoRoot = root) {
   if (/gpt-5\.3|shell_environment_policy\.inherit=all/.test(workflow)) {
     errors.push("WORKFLOW.md retains an obsolete model or inherited-all environment setting");
   }
+  // OVD-873: the AGENTS.md sensitive-paths list mirrors the JSON in both directions.
+  let sensitivePaths = null;
+  try {
+    sensitivePaths = parseSensitivePaths(read(SENSITIVE_PATHS_FILE));
+  } catch (error) {
+    errors.push(error.code === "ENOENT" ? `${SENSITIVE_PATHS_FILE} is missing` : error.message);
+  }
+  if (sensitivePaths) errors.push(...checkAgentsParity(agents, sensitivePaths));
   const turns = Number(workflow.match(/max_turns:\s*(\d+)/)?.[1] ?? 0);
   if (turns < 10) errors.push("WORKFLOW.md does not allow sustained continuation");
   if (!workflow.includes("command: bash ./scripts/symphony-agent.sh")) {
@@ -46,7 +56,21 @@ export function validateAgentContract(repoRoot = root) {
   return errors;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * True when node was asked to run this file. Realpaths are compared because
+ * node runs a script given through a symlinked path (macOS /tmp, for example)
+ * from its real path, so comparing the given path skipped the CLI silently.
+ */
+function invokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    return fs.realpathSync(argvPath) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsScript()) {
   const errors = validateAgentContract(root);
   if (errors.length) {
     for (const error of errors) console.error(`agent-contract: ${error}`);
