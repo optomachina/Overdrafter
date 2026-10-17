@@ -137,10 +137,20 @@ const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/;
 // optional closing hashes, or a setext underline on the next line.
 const ANY_ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*))?$/;
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+const CONTAINER_PREFIX = /^(?:[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))[ \t]*)+/;
+const NAMED_ENTITIES = { nbsp: " ", amp: "&", hyphen: "-", dash: "-", ndash: "-", mdash: "-", minus: "-" };
+
+function decodeEntities(text) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16) % 0x110000))
+    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10) % 0x110000))
+    .replace(/&([a-z]+);/gi, (entity, name) => NAMED_ENTITIES[name.toLowerCase()] ?? entity);
+}
 
 /** Visible text of a heading on line `index`, or null when it is not a heading. */
 function anyHeadingText(lines, index) {
-  const atx = lines[index].match(ANY_ATX_HEADING);
+  // Headings inside blockquotes or list items ("> ## x", "- ## x") count too.
+  const atx = lines[index].replace(CONTAINER_PREFIX, "").match(ANY_ATX_HEADING);
   if (atx) return atx[1] ?? "";
   if (index + 1 < lines.length && SETEXT_UNDERLINE.test(lines[index + 1]) && /\S/.test(lines[index])) {
     return lines[index];
@@ -149,14 +159,22 @@ function anyHeadingText(lines, index) {
 }
 
 /**
- * Squash heading text to letters and digits, dropping comments, entities, and
- * markup, so "### **Provider go-live** <!-- x -->" still reads as go-live.
+ * Squash heading text to letters and digits, dropping comments and markup and
+ * decoding entities, so "### **Provider g&#111;-live** <!-- x -->" still reads
+ * as go-live.
  */
 function squashHeading(text) {
-  return stripComments(text, false)
-    .text.replace(/&#?[a-z0-9]+;/gi, "")
+  return decodeEntities(stripComments(text, false).text)
+    .normalize("NFKC")
     .toLowerCase()
+    .replace(/&[a-z]+;/g, "")
     .replace(/[^a-z0-9]/g, "");
+}
+
+/** Conservative: a heading naming both "provider" and "live" counts as go-live. */
+function isGoLiveHeading(text) {
+  const squashed = squashHeading(text);
+  return squashed.includes("provider") && squashed.includes("live");
 }
 
 function collectSections(body) {
@@ -175,7 +193,7 @@ function collectSections(body) {
     // duplicates, in any heading form and even where the splitter skips it (an HTML
     // comment, the legacy ``` ranges), so a second copy can never stand in for the real one.
     const anyText = visibleToCount ? anyHeadingText(lines, index) : null;
-    if (anyText !== null && squashHeading(anyText).includes("providergolive")) goLiveHeadings += 1;
+    if (anyText !== null && isGoLiveHeading(anyText)) goLiveHeadings += 1;
     // A heading after an unresolved fence still splits sections so ordinary PR
     // bodies keep working; its checkboxes stay hidden.
     if (match && visibleToCount) {
@@ -330,7 +348,7 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     text: `Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`,
     label: "envelope reviewed (automatic)",
     // Ticked checkbox line only; must not match prose or unticked / "not envelope reviewed".
-    match: /^\s*[-*]\s*\[[xX]\]\s*\**envelope reviewed \(automatic\)/im,
+    match: /^\s*(?:[-*+]|\d{1,9}[.)])\s*\[[xX]\]\s*[*_]*\s*envelope reviewed \(automatic\)/im,
     na: false,
     auto: true,
   },
@@ -402,7 +420,8 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
 
 export const PROVIDER_GO_LIVE_GROUPS = ["Envelope", "Live", "Admit", "Legal stance"];
 
-const CHECKBOX_LINE = /^[ \t]*[-*][ \t]+\[([ xX])\][ \t]*(.*)$/;
+// Any list marker ("-", "*", "+", "1.", "1)"), optionally inside a blockquote.
+const CHECKBOX_LINE = /^((?:[ \t]*>)*)[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]*(.*)$/;
 
 export { detectProviderEnablement };
 
@@ -597,7 +616,14 @@ function parseCheckboxLines(sectionLines) {
     const match = line.match(CHECKBOX_LINE);
     if (match) {
       const visibleMatch = visible.match(CHECKBOX_LINE);
-      boxes.push({ checked: match[1] !== " ", text: visibleMatch ? visibleMatch[2] : "", line: visible });
+      // A quoted checkbox ("> - [x] ...") is checked like any extra line but never
+      // satisfies a required item.
+      boxes.push({
+        checked: match[2] !== " ",
+        text: visibleMatch ? visibleMatch[3] : "",
+        line: visible,
+        quoted: match[1].length > 0,
+      });
       continuing = true;
       continue;
     }
@@ -738,7 +764,7 @@ export function validateGateChangeNote(body, findings = []) {
 }
 
 /** Text of the automatic envelope line, ticked or not (bold markers allowed). */
-const AUTO_LINE_TEXT = /^\**[ \t]*envelope reviewed \(automatic\)/i;
+const AUTO_LINE_TEXT = /^[*_]*[ \t]*envelope reviewed \(automatic\)/i;
 
 function validateProviderGoLiveSection(body, findings) {
   const sections = collectSections(body);
@@ -766,12 +792,12 @@ function validateProviderGoLiveSection(body, findings) {
       // The automatic line must be present and ticked. A ticked line satisfies it;
       // an unticked real line is consumed and rejected; lookalikes such as
       // "not envelope reviewed" are never consumed and fail as extra lines.
-      const ticked = unused.findIndex((box) => box.checked && required.match.test(box.line));
+      const ticked = unused.findIndex((box) => !box.quoted && box.checked && required.match.test(box.line));
       if (ticked !== -1) {
         unused.splice(ticked, 1);
         continue;
       }
-      const unticked = unused.findIndex((box) => !box.checked && AUTO_LINE_TEXT.test(box.text));
+      const unticked = unused.findIndex((box) => !box.quoted && !box.checked && AUTO_LINE_TEXT.test(box.text));
       if (unticked !== -1) {
         unused.splice(unticked, 1);
         errors.push(`"${required.label}" must be ticked`);
@@ -780,7 +806,7 @@ function validateProviderGoLiveSection(body, findings) {
       errors.push(`missing Provider go-live item "${required.label}"`);
       continue;
     }
-    const index = unused.findIndex((box) => required.match.test(box.text));
+    const index = unused.findIndex((box) => !box.quoted && required.match.test(box.text));
     if (index === -1) {
       errors.push(`missing Provider go-live item "${required.label}"`);
       continue;

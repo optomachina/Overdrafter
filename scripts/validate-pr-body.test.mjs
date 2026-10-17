@@ -642,6 +642,9 @@ describe("validatePrBody", () => {
         "### **Provider go-live**",
         "## Provider `go-live`",
         "## Provider go&#8209;live (continued)",
+        "## Provider g&#111;-live",
+        "## Provider g&#x6f;-live",
+        "> ## Provider go-live",
       ]) {
         const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
         expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
@@ -711,6 +714,19 @@ describe("validatePrBody", () => {
         const result = validate(buildGoLiveSection().replace(real, replacement));
         expect(result.ok, replacement).toBe(false);
       }
+    });
+
+    it("reads checkboxes with every list marker and rejects unticked or quoted extras", () => {
+      for (const extra of ["+ [ ] Envelope reviewed (automatic)", "1. [ ] Extra attestation", "2) [ ] Extra attestation", "> - [ ] Quoted attestation"]) {
+        expect(validate(withExtra(extra, {})).ok, extra).toBe(false);
+      }
+      // A ticked "+" or ordered line satisfies the automatic item; a quoted one never does.
+      for (const line of ["+ [x] Envelope reviewed (automatic)", "1. [x] Envelope reviewed (automatic)", "- [x] __Envelope reviewed (automatic)__"]) {
+        expect(validate(withExtra(line)), line).toEqual({ ok: true, errors: [] });
+      }
+      expect(validate(withExtra("> - [x] Envelope reviewed (automatic)")).errors).toContain(
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      );
     });
 
     it("ignores a fake Provider go-live section inside a tilde fence", () => {
