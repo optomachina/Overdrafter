@@ -25,10 +25,10 @@
  * it takes a schema-only pg_dump, applies that family's drafts, re-applies only
  * drafts whose header declares `-- ovd: idempotent`, runs the family's pending
  * pgTAP, applies the rollbacks newest first twice (the second pass must succeed),
- * and requires an empty DM-1R diff against the first dump. A family with no
- * rollback files is reported as rollback "none" and does not fail the run.
+ * and requires an empty DM-1R diff against the baseline after each pass. A family
+ * with no rollback files fails the run.
  * Pending tests tagged `-- ovd: post-rollback` in their leading comments run
- * after each rollback pass; the second run follows the DM-1R dump/diff.
+ * after each rollback pass, following its DM-1R dump/diff.
  * The ovd849.ephemeral-db.v1 report records their aggregate status in
  * families[].rollback.postRollbackPgtap (pass, fail, or skipped).
  * Every family runs and is reported (dm1r, replay, reapply, pgtap) even after
@@ -307,7 +307,7 @@ function dumpSchema({ exec, psql, dbUrl, root }) {
 
 function familyRollbackOk(family) {
   const rollback = family?.rollback;
-  if (rollback == null || rollback === "none" || rollback === "not-run") return true;
+  if (rollback == null) return false;
   return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped") && rollback.pgtap !== "fail" && rollback.postRollbackPgtap !== "fail";
 }
 
@@ -319,7 +319,7 @@ function recordRollbackError(rollback, message) {
   rollback.errors.push(message);
 }
 
-function replayFamily(family, applyFile, rollback, afterFirstPass) {
+function replayFamily(family, applyFile, rollback, afterPass) {
   for (const pass of [1, 2]) {
     const rolled = applyInOrder(family.rollbacks, applyFile);
     if (rolled.failed) {
@@ -327,7 +327,7 @@ function replayFamily(family, applyFile, rollback, afterFirstPass) {
       recordRollbackError(rollback, `family ${family.id}: rollback replay failed on pass ${pass} (${rolled.failed.file}): ${rolled.failed.error}`);
       return;
     }
-    if (pass === 1) afterFirstPass();
+    afterPass(pass);
   }
   rollback.replay = "pass";
 }
@@ -353,25 +353,29 @@ function checkFamilyPending({ root, family, workDir, exec, project, rollback }) 
   return { ...tap, files: expectedFiles };
 }
 
-function checkFamilyDiff(options, before, rollback) {
-  if (rollback.replay !== "pass") return;
+function checkFamilyDiff(options, before, rollback, pass) {
   const after = dumpSchema(options);
+  const alreadyFailed = rollback.dm1r === "fail";
   rollback.dm1r = "fail";
   if (!after.ok) {
-    recordRollbackError(rollback, `family ${options.family.id}: post-rollback pg_dump failed: ${after.error}`);
+    recordRollbackError(rollback, `family ${options.family.id}: post-rollback pg_dump after pass ${pass} failed: ${after.error}`);
     return;
   }
   const diff = schemaDiff(before.text, after.text);
-  if (diff) recordRollbackError(rollback, `family ${options.family.id}: ${diff}`);
-  else rollback.dm1r = "pass";
+  if (diff) recordRollbackError(rollback, `family ${options.family.id}: pass ${pass}: ${diff}`);
+  else if (!alreadyFailed) rollback.dm1r = "pass";
 }
 
 function rollbackOneFamily(options) {
   const { family, applyFile, log = () => {} } = options;
-  if (family.rollbacks.length === 0) return { result: { ...family, rollback: "none" }, applied: [] };
   log(`rollback family ${family.id}`);
   const rollback = skippedRollback();
   const outcome = { result: { ...family, rollback }, applied: [] };
+  if (family.rollbacks.length === 0) {
+    rollback.dm1r = "fail";
+    recordRollbackError(rollback, `family ${family.id}: no rollback file`);
+    return outcome;
+  }
   const before = dumpSchema(options);
   if (!before.ok) {
     rollback.dm1r = "fail";
@@ -398,18 +402,19 @@ function rollbackOneFamily(options) {
     if (rollback.postRollbackPgtap !== "fail") rollback.postRollbackPgtap = tap.status;
     if (tap.status !== "pass") recordRollbackError(rollback, `family ${family.id}: post-rollback pgTAP after pass ${pass} failed: ${tap.error ?? "unknown"}`);
   };
-  replayFamily(family, applyFile, rollback, () => postRollbackTests(1));
-  checkFamilyDiff(options, before, rollback);
-  if (rollback.replay === "pass") postRollbackTests(2);
+  replayFamily(family, applyFile, rollback, (pass) => {
+    checkFamilyDiff(options, before, rollback, pass);
+    postRollbackTests(pass);
+  });
   return outcome;
 }
 
 /**
  * Proves every resolved family against its own pre-draft schema baseline:
  * dump, apply, re-apply idempotent drafts, pending pgTAP, rollbacks newest-first
- * twice, dump, empty DM-1R diff. A failing family does not stop the loop; later
- * families carry `afterFailedFamily` because their baseline may hold leftovers.
- * Families with no rollback files are `rollback: "none"`.
+ * twice with a dump and empty DM-1R diff after each pass. A failing family does
+ * not stop the loop; later families carry `afterFailedFamily` because their baseline may hold leftovers.
+ * Families with no rollback files fail DM-1R.
  */
 export function runFamilyRollbacks(options) {
   const applied = [];
@@ -536,14 +541,14 @@ export function emptyReport({ mode, base, head, checkerSource = "unknown", stage
 
 /** "pass" only when every phase that ran passed and nothing stopped early. */
 export function decideResult(report) {
-  const familiesOk = (report.families ?? []).every(familyRollbackOk);
   const rollbackStage = report.stage === "rollback";
+  const familiesOk = (report.families ?? []).every((family) =>
+    (!rollbackStage && family.rollback === "not-run") || familyRollbackOk(family));
   const policyOk = rollbackStage
     ? report.policyTests.status === "pass" || report.policyTests.status === "skipped"
     : report.policyTests.status === "pass";
-  // The rollback stage runs pending pgTAP only for families that have rollback
-  // files. A family reported "none" still has selected tests from the apply
-  // path; skipping them here must not fail the stage.
+  // Missing rollbacks fail through familiesOk. Families with no pending tests
+  // may skip pgTAP, but must still prove schema restoration and replay.
   const pendingOk = rollbackStage
     ? report.pendingTests.status !== "fail"
     : report.pendingTests.status === "pass" || (report.pendingTests.status === "skipped" && report.pendingTests.selected.length === 0);

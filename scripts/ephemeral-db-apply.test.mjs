@@ -479,8 +479,11 @@ describe("ephemeral-db workflow", () => {
     expect(rollbackAt).toBeGreaterThan(workflow.indexOf("paths:"));
     const rollbackStep = workflow.slice(rollbackAt, workflow.indexOf("- name: Upload report"));
     expect(rollbackStep).toMatch(/\$RUNNER_TEMP\/gate\/scripts\/ephemeral-db-apply\.mjs/);
-    expect(rollbackStep).toMatch(/grep -q 'arg === "--rollback"'/);
-    expect(rollbackStep).toMatch(/node "\$script"/);
+    expect(rollbackStep).not.toMatch(/grep/);
+    expect(rollbackStep).toContain('node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs"');
+    expect(rollbackStep).toContain('--checker-source "$CHECKER_SOURCE"');
+    expect(rollbackStep).not.toMatch(/(?:node |script=)"scripts\/ephemeral-db-apply\.mjs"/);
+    expect(rollbackStep).not.toMatch(/CHECKER_SOURCE=head/);
     expect(rollbackStep).toMatch(/--rollback/);
     expect(rollbackStep).not.toMatch(/continue-on-error/);
     expect(rollbackStep).not.toMatch(/paths:/);
@@ -532,7 +535,7 @@ const ORDER_A_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-a.rollback.sql`;
 const ORDER_B_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-b.rollback.sql`;
 
 /** Stubbed psql/pg_dump: schema stays put unless a rollback says it left an extra column. */
-function rollbackFake({ diff, failPendingFamily, failPostSuffix }) {
+function rollbackFake({ diff, failPendingFamily, failPostSuffix, dumps = [] }) {
   const calls = [];
   let schema = "base-schema\n";
   const counts = new Map();
@@ -547,7 +550,7 @@ function rollbackFake({ diff, failPendingFamily, failPostSuffix }) {
       if (failPendingFamily && args.at(-1).endsWith(`/rollback-tests/${failPendingFamily}`)) return { status: 1, stderr: "pending test failed" };
       return { status: 0, stdout: pgProve(args.at(-1)) };
     }
-    if (cmd === "docker" && args.includes("pg_dump")) return { status: 0, stdout: schema, stderr: "" };
+    if (cmd === "docker" && args.includes("pg_dump")) return dumps.shift() ?? { status: 0, stdout: schema, stderr: "" };
     if (cmd === "docker" && args.includes("psql")) {
       const file = args.at(-1);
       const text = readFileSync(join(ROOT, file), "utf8");
@@ -593,9 +596,11 @@ describe("rollback stage", () => {
     const dumpIndices = fake.calls.flatMap((call, index) => call.includes("pg_dump") ? [index] : []);
     expect(rollbackIndices[0]).toBeLessThan(fake.calls.indexOf(posts[0]));
     expect(fake.calls.indexOf(posts[0])).toBeLessThan(rollbackIndices[1]);
-    expect(rollbackIndices[1]).toBeLessThan(dumpIndices[1]);
-    expect(dumpIndices[1]).toBeLessThan(fake.calls.indexOf(posts[1]));
-    expect(dumpCount(fake.calls)).toBe(2);
+    for (const [index, rollbackIndex] of rollbackIndices.entries()) {
+      expect(rollbackIndex).toBeLessThan(dumpIndices[index + 1]);
+      expect(dumpIndices[index + 1]).toBeLessThan(fake.calls.indexOf(posts[index]));
+    }
+    expect(dumpCount(fake.calls)).toBe(3);
     expect(report.families[0].rollback.postRollbackPgtap).toBe("pass");
     expect(renderSummary(report)).toContain("post-rollback pgtap pass");
     expect(report.result).toBe("pass");
@@ -625,7 +630,7 @@ describe("rollback stage", () => {
       expect.objectContaining({ id: "9904", rollback: { dm1r: "pass", replay: "pass", reapply: "pass", pgtap: "pass", postRollbackPgtap: "skipped" } }),
     ]);
     expect(psqlFiles(fake.calls)).toEqual([IDEMPOTENT, IDEMPOTENT, IDEMPOTENT_ROLLBACK, IDEMPOTENT_ROLLBACK]);
-    expect(dumpCount(fake.calls)).toBe(2);
+    expect(dumpCount(fake.calls)).toBe(3);
     expect(report.policyTests.status).toBe("skipped");
   });
 
@@ -639,16 +644,47 @@ describe("rollback stage", () => {
     expect(renderSummary(report)).toContain("family 9907");
   });
 
+  it("fails restoration on pass 1 even when pass 2 cleans up", () => {
+    const fake = rollbackFake({ diff: `M\t${IDEMPOTENT}\n`, dumps: [
+      { status: 0, stdout: "base-schema\n" },
+      { status: 0, stdout: "base-schema\nleftover_object\n" },
+      { status: 0, stdout: "base-schema\n" },
+    ] });
+    const report = run(fake, { rollback: true });
+    expect(report.result).toBe("fail");
+    expect(report.families[0].rollback).toMatchObject({ dm1r: "fail", replay: "pass" });
+    expect(report.families[0].rollback.error).toMatch(/pass 1.*DM-1R/);
+    expect(report.families[0].rollback.error).toContain("leftover_object");
+    expect(dumpCount(fake.calls)).toBe(3);
+  });
+
+  it.each([1, 2])("fails DM-1R when the dump after pass %s fails", (pass) => {
+    const dumps = Array.from({ length: 3 }, () => ({ status: 0, stdout: "base-schema\n" }));
+    dumps[pass] = { status: 1, stderr: "dump failed" };
+    const fake = rollbackFake({ diff: `M\t${IDEMPOTENT}\n`, dumps });
+    const report = run(fake, { rollback: true });
+    expect(report.result).toBe("fail");
+    expect(report.families[0].rollback).toMatchObject({ dm1r: "fail", replay: "pass" });
+    expect(report.families[0].rollback.error).toContain(`pg_dump after pass ${pass} failed`);
+    expect(dumpCount(fake.calls)).toBe(3);
+  });
+
+  it.each(["none", "not-run", null])("rejects unchecked rollback status %s", (rollback) => {
+    const { report } = rollbackRun(`M\t${IDEMPOTENT}\n`);
+    report.families[0].rollback = rollback;
+    expect(decideResult(report)).toBe("fail");
+  });
+
   it("fails the replay when the second rollback pass errors", () => {
     const { fake, report } = rollbackRun(`M\t${SECOND}\n`);
     expect(report.result).toBe("fail");
     expect(report.families[0].id).toBe("9906");
     expect(report.families[0].rollback.replay).toBe("fail");
-    expect(report.families[0].rollback.dm1r).toBe("skipped");
+    expect(report.families[0].rollback.dm1r).toBe("pass");
     expect(report.families[0].rollback.error).toMatch(/family 9906/);
     expect(report.families[0].rollback.error).toMatch(/pass 2/);
     expect(psqlFiles(fake.calls).filter((file) => file === SECOND_ROLLBACK)).toHaveLength(2);
-    expect(dumpCount(fake.calls)).toBe(1);
+    expect(dumpCount(fake.calls)).toBe(2);
   });
 
   it("fails when an idempotent draft errors on re-apply", () => {
@@ -661,7 +697,7 @@ describe("rollback stage", () => {
     const rollback = REAPPLY.replace(".sql", ".rollback.sql");
     expect(psqlFiles(fake.calls)).toEqual([REAPPLY, REAPPLY, rollback, rollback]);
     expect(report.families[0].rollback).toMatchObject({ replay: "pass", dm1r: "pass", pgtap: "pass" });
-    expect(dumpCount(fake.calls)).toBe(2);
+    expect(dumpCount(fake.calls)).toBe(3);
   });
 
   it("does not re-apply a draft without the idempotent header", () => {
@@ -672,10 +708,12 @@ describe("rollback stage", () => {
     expect(psqlFiles(fake.calls).filter((file) => file === DRAFT_OK)).toEqual([DRAFT_OK]);
   });
 
-  it("reports a family without rollback files as none and does not fail", () => {
+  it("fails a family without rollback files", () => {
     const { fake, report } = rollbackRun(`M\t${NONE}\n`);
-    expect(report.result).toBe("pass");
-    expect(report.families).toEqual([expect.objectContaining({ id: "9908", rollback: "none" })]);
+    expect(report.result).toBe("fail");
+    expect(report.families).toEqual([expect.objectContaining({
+      id: "9908", rollback: expect.objectContaining({ dm1r: "fail", error: "family 9908: no rollback file" }),
+    })]);
     expect(psqlFiles(fake.calls)).toEqual([]);
     expect(dumpCount(fake.calls)).toBe(0);
     expect(report.drafts.failed).toBeNull();
@@ -690,7 +728,7 @@ describe("rollback stage", () => {
     expect(later).toMatchObject({ id: "9909", afterFailedFamily: "9905", rollback: { dm1r: "pass", replay: "pass" } });
     expect(psqlFiles(fake.calls)).toContain(ORDER_A);
     expect(psqlFiles(fake.calls)).toContain(ORDER_B_ROLLBACK);
-    expect(dumpCount(fake.calls)).toBe(4);
+    expect(dumpCount(fake.calls)).toBe(6);
     expect(JSON.stringify(report.families)).not.toContain("not reached");
     const summary = renderSummary(report);
     expect(summary).toContain("Family `9905`");
@@ -705,7 +743,7 @@ describe("rollback stage", () => {
     expect(report.pendingTests).toMatchObject({ status: "fail" });
     expect(report.families[0].rollback).toMatchObject({ pgtap: "fail", replay: "pass", dm1r: "pass" });
     expect(psqlFiles(fake.calls)).toEqual([IDEMPOTENT, IDEMPOTENT, IDEMPOTENT_ROLLBACK, IDEMPOTENT_ROLLBACK]);
-    expect(dumpCount(fake.calls)).toBe(2);
+    expect(dumpCount(fake.calls)).toBe(3);
   });
 
   it("applies rollbacks newest first, twice", () => {
