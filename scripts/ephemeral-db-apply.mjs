@@ -27,6 +27,10 @@
  * pgTAP, applies the rollbacks newest first twice (the second pass must succeed),
  * and requires an empty DM-1R diff against the first dump. A family with no
  * rollback files is reported as rollback "none" and does not fail the run.
+ * Pending tests tagged `-- ovd: post-rollback` in their leading comments run
+ * after each rollback pass; the second run follows the DM-1R dump/diff.
+ * The ovd849.ephemeral-db.v1 report records their aggregate status in
+ * families[].rollback.postRollbackPgtap (pass, fail, or skipped).
  * Every family runs and is reported (dm1r, replay, reapply, pgtap) even after
  * an earlier family fails; --rollback then exits 1 unless the result is pass.
  *
@@ -256,10 +260,19 @@ export function rollbacksNewestFirst(drafts, rollbackFiles) {
 
 /** True when the leading comment block declares `-- ovd: idempotent` on its own line. */
 export function isIdempotentDraft(text) {
+  return leadingCommentDeclares(text, /^--\s*ovd:\s*idempotent\s*$/i);
+}
+
+/** True when the leading comment block declares a post-rollback test. */
+export function isPostRollbackTest(text) {
+  return leadingCommentDeclares(text, /^--\s*ovd:\s*post-rollback\s*$/i);
+}
+
+function leadingCommentDeclares(text, pattern) {
   for (const line of String(text).split("\n")) {
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith("--")) return false;
-    if (/^--\s*ovd:\s*idempotent\s*$/i.test(trimmed)) return true;
+    if (pattern.test(trimmed)) return true;
   }
   return false;
 }
@@ -295,10 +308,10 @@ function dumpSchema({ exec, psql, dbUrl, root }) {
 function familyRollbackOk(family) {
   const rollback = family?.rollback;
   if (rollback == null || rollback === "none" || rollback === "not-run") return true;
-  return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped") && rollback.pgtap !== "fail";
+  return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped") && rollback.pgtap !== "fail" && rollback.postRollbackPgtap !== "fail";
 }
 
-const skippedRollback = () => ({ dm1r: "skipped", replay: "skipped", reapply: "skipped", pgtap: "skipped" });
+const skippedRollback = () => ({ dm1r: "skipped", replay: "skipped", reapply: "skipped", pgtap: "skipped", postRollbackPgtap: "skipped" });
 
 function recordRollbackError(rollback, message) {
   rollback.error ??= message;
@@ -306,7 +319,7 @@ function recordRollbackError(rollback, message) {
   rollback.errors.push(message);
 }
 
-function replayFamily(family, applyFile, rollback) {
+function replayFamily(family, applyFile, rollback, afterFirstPass) {
   for (const pass of [1, 2]) {
     const rolled = applyInOrder(family.rollbacks, applyFile);
     if (rolled.failed) {
@@ -314,6 +327,7 @@ function replayFamily(family, applyFile, rollback) {
       recordRollbackError(rollback, `family ${family.id}: rollback replay failed on pass ${pass} (${rolled.failed.file}): ${rolled.failed.error}`);
       return;
     }
+    if (pass === 1) afterFirstPass();
   }
   rollback.replay = "pass";
 }
@@ -375,8 +389,18 @@ function rollbackOneFamily(options) {
   }
   checkFamilyDrafts({ ...options, rollback });
   outcome.pending = checkFamilyPending({ ...options, rollback });
-  replayFamily(family, applyFile, rollback);
+  const tagged = family.pendingTests.filter((file) => isPostRollbackTest(readFileSync(join(options.root, file), "utf8")));
+  const postRollbackTests = (pass) => {
+    if (tagged.length === 0) return;
+    const dir = join(options.workDir, "rollback-tests", `${family.id}-post-${pass}`);
+    const expectedFiles = stagePendingTests(options.root, tagged, dir);
+    const tap = runPgTap({ ...options, dir, expectedFiles });
+    if (rollback.postRollbackPgtap !== "fail") rollback.postRollbackPgtap = tap.status;
+    if (tap.status !== "pass") recordRollbackError(rollback, `family ${family.id}: post-rollback pgTAP after pass ${pass} failed: ${tap.error ?? "unknown"}`);
+  };
+  replayFamily(family, applyFile, rollback, () => postRollbackTests(1));
   checkFamilyDiff(options, before, rollback);
+  if (rollback.replay === "pass") postRollbackTests(2);
   return outcome;
 }
 
@@ -673,7 +697,7 @@ export function renderSummary(report) {
     const rollback = family.rollback;
     if (!rollback || rollback === "not-run") continue;
     if (rollback === "none") lines.push(`- Family \`${family.id}\` rollback: none`);
-    else lines.push(`- Family \`${family.id}\` rollback: dm1r ${rollback.dm1r}, replay ${rollback.replay}, reapply ${rollback.reapply}, pgtap ${rollback.pgtap}`);
+    else lines.push(`- Family \`${family.id}\` rollback: dm1r ${rollback.dm1r}, replay ${rollback.replay}, reapply ${rollback.reapply}, pgtap ${rollback.pgtap}, post-rollback pgtap ${rollback.postRollbackPgtap}`);
   }
   for (const warning of report.warnings) lines.push(`- Warning: ${warning}`);
   const failure = report.migrations.failed ?? report.drafts.failed;
