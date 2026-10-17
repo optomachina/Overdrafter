@@ -1,0 +1,9 @@
+.jarvis-ar-row { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 44px; padding: 10px 16px; color: inherit; background: transparent; border: 0; text-decoration: none; font-size: 16px; }
+.jarvis-ar-row:disabled, .jarvis-ar-note { color: #aaaab2; }
+.jarvis-ar-note { font-size: 14px; padding: 8px 16px; overflow-wrap: anywhere; }
+.jarvis-ar-preview { min-height: 100vh; background: #0d0d0f; color: #eeeeef; padding: 20px; font-size: 16px; }
+.jarvis-ar-card, .jarvis-ar-sheet { max-width: 430px; margin: 24px auto; border: 1px solid #6A6A72; border-radius: 4px; }
+.jarvis-ar-card { padding: 16px; }
+.jarvis-ar-sheet { background: #18181b; padding: 16px 0; }
+.jarvis-ar-sheet h2 { padding: 0 16px; font-size: 20px; }
+.jarvis-ar-outline { border: 1px solid #6A6A72; border-radius: 4px; }
