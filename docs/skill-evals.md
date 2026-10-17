@@ -23,7 +23,7 @@ Re-run a skill's evals on any change under its skill directory, or under `evals/
 node scripts/skill-evals.mjs changed --base origin/main --head HEAD
 ```
 
-It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Loose files directly under a skill root (such as a README) belong to no skill and are not listed. File names with non-ASCII or special characters (accents, tabs, newlines, quotes) are handled, so a change to such a file still lists its skill. Feed the list to the loop and to `report --skill`:
+It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Loose files directly under a skill root (such as a README) belong to no skill and are not listed. File names with non-ASCII or special characters (accents, tabs, newlines, quotes) are handled, so a change to such a file still lists its skill. `changed` only compares commits (`base...head`). It does not see staged, unstaged or untracked edits, so commit before trusting an empty list. Feed the list to the loop and to `report --skill`:
 
 ```bash
 skills=$(node scripts/skill-evals.mjs changed --base origin/main --head HEAD | paste -sd, -)
@@ -32,7 +32,7 @@ node scripts/skill-evals.mjs report --skill "$skills" scores/*.json
 
 If the list includes a skill whose directory and spec were both removed (a retirement), drop that name first: `report --skill` exits 2 for a name with no spec.
 
-When no skill changed, `$skills` is empty and `report --skill ""` prints "no skills changed" and exits 0. It reads no scores files, so a missing `scores/` directory is fine. It still runs the `validate` checks, so a broken repo fails it with exit 1. Only a fully empty value means "none changed". A bare `--skill`, or a list with an empty entry such as `a,,b`, exits 2. Keep the quotes around `"$skills"`: unquoted, an empty list would swallow the next argument as a skill name.
+When no skill changed, `$skills` is empty and `report --skill ""` prints "no skills changed" and exits 0. This is the one case where `report` passes with nothing scored, so its output says `Overall: nothing to re-score`, never `PASS`. It reads no scores files, so a missing `scores/` directory is fine. It still runs the `validate` checks, so a broken repo fails it with exit 1. Because `changed` cannot see uncommitted work, `report --skill ""` in a git checkout also exits 1 with "uncommitted skill changes; commit first" when `git status` shows any staged, unstaged or untracked change under a skill root or `evals/skills`. Only the exact empty string `""` means "none changed". A blank value (only spaces, a tab or a newline), a bare `--skill`, or a list with an empty entry such as `a,,b` exits 2. Keep the quotes around `"$skills"`: unquoted, an empty list would swallow the next argument as a skill name.
 
 The `skillHash` enforces the trigger. `report` only counts results whose `skillHash` matches the current skill directory plus spec. Older results show as `stale` and fail, so a score cannot outlive the skill version it judged.
 
@@ -47,13 +47,13 @@ node scripts/skill-evals.mjs report [--skill <name>]... scores/*.json   # markdo
 
 `check-judge` exits 2 when either flag is missing, empty or whitespace, or has no value (for example `--runner $A` with `A` unset).
 
-`report` accepts files that hold one result or an array. A result that is not an object with string `skill` and `case` fields stops the run (exit 2) and names its file and index. Among the results with the current `skillHash`, the last one for a case (in argument order) wins, so a re-run replaces earlier attempts. Results for an older `skillHash` are ignored. `report` exits 0 only when `validate` passes, at least one skill is in scope, and every in-scope case is 10/10. Otherwise it exits 1.
+`report` accepts files that hold one result or an array. A result that is not an object with string `skill` and `case` fields stops the run (exit 2) and names its file and index. Among the results with the current `skillHash`, the last one for a case (in argument order) wins, so a re-run replaces earlier attempts. Results for an older `skillHash` are ignored. `report` exits 0 only when `validate` passes, at least one skill is in scope, and every in-scope case is 10/10. The one exception is `--skill ""` (nothing changed), which exits 0 with nothing scored when `validate` passes and nothing under a skill root or `evals/skills` has uncommitted changes. Otherwise it exits 1.
 
 - `report` runs the same checks as `validate` first, scoped or not. A present skill with no spec, a spec with no skill directory, a skill name in two roots, or a malformed spec fails the report and lists the errors.
-- A report with nothing in scope fails. It never passes with nothing scored.
+- A report with nothing in scope fails, so it never passes with nothing scored. The one exception is `--skill ""` (nothing changed), which exits 0 with "nothing to re-score" and no case scored.
 - A case with no result is `unscored`, and it fails. A case whose results all carry an older `skillHash` is `stale`, and it fails.
 - Missing, unknown, duplicated or out-of-range scores mark the case `invalid`. A judge that is the same base model as the runner also marks the case `invalid`.
-- `--skill` with an unknown name, or with no value, exits 2.
+- `--skill` with an unknown name, with no value, or with a blank value (only spaces, a tab or a newline) exits 2.
 
 ## Adding or changing a skill
 

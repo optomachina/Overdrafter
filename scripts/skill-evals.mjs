@@ -255,6 +255,20 @@ export function changedSkills(root, base, head) {
 }
 
 /**
+ * Paths with uncommitted changes (staged, unstaged or untracked) under the
+ * skill roots or the spec root. `changed` only compares commits, so an empty
+ * list cannot be trusted while any of these exist. Outside a git checkout
+ * there is no git state to ask, so it returns [].
+ */
+export function uncommittedSkillChanges(root) {
+  if (!isGitCheckout(root)) return [];
+  // -z: NUL-separated, unquoted `XY path` entries; --no-renames keeps one path per entry.
+  const args = ["status", "--porcelain", "-z", "--no-renames", "--untracked-files=all", "--", ...SKILL_ROOTS, SPEC_ROOT];
+  const out = execFileSync(GIT_BIN, args, { cwd: root, encoding: "utf8" });
+  return out.split("\0").filter(Boolean).map((entry) => entry.slice(3));
+}
+
+/**
  * Judge result shape: { skill, case, skillHash, runner, judge, scores: [{ id, points }] }.
  * Returns a per-case result with a validated total.
  */
@@ -340,8 +354,14 @@ function cell(value) {
   return String(value).replaceAll("|", String.raw`\|`).replaceAll(/\r?\n/g, " ");
 }
 
+// "PASS" is reserved for a report that scored something; an empty scope says so.
+function overallLabel(report) {
+  if (report.nothingToRescore) return "nothing to re-score";
+  return report.ok ? "PASS" : "NOT 10/10";
+}
+
 function summaryLines(report) {
-  const lines = ["# Skill eval report", "", `Overall: ${report.ok ? "PASS" : "NOT 10/10"}`, ""];
+  const lines = ["# Skill eval report", "", `Overall: ${overallLabel(report)}`, ""];
   if (report.reason) lines.push(`Reason: ${report.reason}`, "");
   const errors = report.errors ?? [];
   if (errors.length) lines.push(...errors.map((e) => `- error: ${e}`), "");
@@ -406,14 +426,17 @@ export function parseFlags(argv) {
 }
 
 /**
- * `--skill a --skill b,c` -> ["a", "b", "c"], or null when absent. A value
- * that is empty (what `changed | paste -sd, -` yields when no skill changed)
- * means an empty scope, []. Any other empty name, such as a bare `--skill` or
- * `a,,b`, is an error.
+ * `--skill a --skill b,c` -> ["a", "b", "c"], or null when absent. Only the
+ * exact empty string (what `changed | paste -sd, -` yields when no skill
+ * changed) means an empty scope, []. A blank value (spaces, tab, newline) is
+ * an error, as is any other empty name, such as a bare `--skill` or `a,,b`.
  */
 function skillScope(values, specs) {
   if (values === undefined) return null;
-  if (values.every((v) => typeof v === "string" && v.trim() === "")) return [];
+  if (values.every((v) => v === "")) return [];
+  if (values.some((v) => typeof v === "string" && v !== "" && v.trim() === "")) {
+    throw new Error('--skill value is blank; pass exactly "" for "no skills changed", or name a skill');
+  }
   const names = values.flatMap((v) => (typeof v === "string" ? v.split(",") : [""])).map((v) => v.trim());
   if (names.some((n) => !n)) throw new Error("--skill needs a skill name");
   const unknown = names.filter((n) => !specs.has(n));
@@ -428,7 +451,8 @@ const USAGE = `Usage: node scripts/skill-evals.mjs <command>
   hash <skill>...                   print the skillHash a judge result must carry
   report [--json] [--skill <name>]... <scores.json>...
                                     aggregate judge results (exit 1 unless validate
-                                    passes and every in-scope case is 10/10)`;
+                                    passes and every in-scope case is 10/10; the one
+                                    exception is --skill "", meaning nothing changed)`;
 
 function runValidate(f, root, out) {
   const r = validateAll(root);
@@ -465,11 +489,25 @@ function runHash(f, root, out) {
   return 0;
 }
 
+/**
+ * `report --skill ""` is the documented pipeline's "no skills changed" case.
+ * Nothing needs scoring, so it is the one report that may pass with no case
+ * scored. `changed` only compares commits, so it refuses (exit 1) while a skill
+ * or spec dir has uncommitted changes, and it labels the result "nothing to
+ * re-score" rather than PASS.
+ */
+function nothingChangedReport(root) {
+  const dirty = uncommittedSkillChanges(root);
+  if (dirty.length) {
+    return { ok: false, reason: "uncommitted skill changes; commit first", errors: dirty.map((p) => `uncommitted: ${p}`), skills: [] };
+  }
+  return { ok: true, nothingToRescore: true, reason: "no skills changed, so there is nothing to re-score", skills: [] };
+}
+
 function runReport(f, root, out) {
   const { specs, dirs, errors } = inspectRepo(root);
   const only = skillScope(f.skill, specs);
-  // `report --skill ""`: the documented pipeline's "no skills changed" case.
-  // Nothing needs scoring, so no scores file is required or read.
+  // No scores file is required or read when nothing changed.
   const noneChanged = only?.length === 0;
   if (!noneChanged && f._.length === 0) throw new Error("at least one scores file is required");
   const results = noneChanged ? [] : readResults(f._);
@@ -479,7 +517,7 @@ function runReport(f, root, out) {
   if (errors.length) {
     report = { ok: false, reason: "validation failed (see node scripts/skill-evals.mjs validate)", errors, skills: [] };
   } else if (noneChanged) {
-    report = { ok: true, reason: "no skills changed, so there is nothing to re-score", skills: [] };
+    report = nothingChangedReport(root);
   } else {
     const hashes = new Map([...dirs.keys()].map((n) => [n, skillHash(root, n, dirs)]));
     report = buildReport(specs, results, { hashes, only });

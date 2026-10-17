@@ -429,13 +429,17 @@ describe("report", () => {
     write(root, ".agents/skills/demo/SKILL.md", "x");
     write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
     const none = path.join(root, "no-such-scores.json");
-    for (const args of [["--skill", "", none], ["--skill", "", "--json", none], ["--skill", ""], ["--skill", "  "]]) {
+    for (const args of [["--skill", "", none], ["--skill", "", "--json", none], ["--skill", ""], ["--skill", "", "--skill", ""]]) {
       const r = run(root, "report", ...args);
       expect(r.code).toBe(0);
       expect(r.text).toMatch(/no skills changed/);
     }
-    expect(run(root, "report", "--skill", "", "--json", none).text).toMatch(/"ok": true/);
-    // Only a fully empty value means "none changed"; every other empty name is still an error.
+    // Nothing was scored, so the label never says PASS.
+    const text = run(root, "report", "--skill", "", none).text;
+    expect(text).toMatch(/Overall: nothing to re-score/);
+    expect(text).not.toMatch(/PASS/);
+    expect(JSON.parse(run(root, "report", "--skill", "", "--json", none).text)).toMatchObject({ ok: true, nothingToRescore: true, skills: [] });
+    // Only the exact empty string means "none changed"; every other empty name is still an error.
     for (const args of [["--skill"], ["--skill", ","], ["--skill", "demo,,"], ["--skill", "", "--skill", "demo"]]) {
       expect(run(root, "report", ...args, none).code).toBe(2);
     }
@@ -444,7 +448,95 @@ describe("report", () => {
     const broken = run(root, "report", "--skill", "", none);
     expect(broken.code).toBe(1);
     expect(broken.text).toMatch(/error: evals\/skills\/orphan: no skill directory for this spec/);
-    expect(broken.text).not.toMatch(/no skills changed/);
+    expect(broken.text).not.toMatch(/no skills changed|nothing to re-score/);
+  });
+  it("cli: a blank --skill value (spaces, tab, newline) is an error, not \"no skills changed\"", () => {
+    const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
+    write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+    const none = path.join(root, "no-such-scores.json");
+    const blanks = [" ", "   ", "\t", "\n", " \t\n ", "\r\n"];
+    for (const blank of blanks) {
+      for (const args of [["--skill", blank, none], ["--skill", blank, "--json", none], ["--skill", "", "--skill", blank], ["--skill", blank, "--skill", "demo"]]) {
+        const r = run(root, "report", ...args);
+        expect(r.code).toBe(2);
+        expect(r.text).toMatch(/^error: --skill value is blank/);
+        expect(r.text).not.toMatch(/nothing to re-score|"ok"/);
+      }
+    }
+  });
+  describe("report --skill \"\" with uncommitted skill changes", () => {
+    // `changed` only compares commits, so an empty list proves nothing while the
+    // working tree holds an edit that no commit contains.
+    const cleanRepo = () => {
+      const root = tmp();
+      const git = initGit(root);
+      write(root, ".gitignore", ".claude/skills/\n");
+      write(root, ".agents/skills/demo/SKILL.md", "1");
+      write(root, ".agents/skills/demo/notes.md", "1");
+      write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+      write(root, "docs/x.md", "1");
+      git("add", "-A");
+      git("commit", "-qm", "base");
+      return { root, git, none: path.join(root, "no-such-scores.json") };
+    };
+    const dirtyCases = [
+      ["an unstaged edit", ({ root }) => write(root, ".agents/skills/demo/SKILL.md", "2"), [".agents/skills/demo/SKILL.md"]],
+      ["a staged edit", ({ root, git }) => {
+        write(root, ".agents/skills/demo/SKILL.md", "2");
+        git("add", "-A");
+      }, [".agents/skills/demo/SKILL.md"]],
+      ["an edited spec", ({ root }) => write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec(), null, 2)), ["evals/skills/demo/spec.json"]],
+      ["an untracked file in a skill", ({ root }) => write(root, ".agents/skills/demo/new.md", "1"), [".agents/skills/demo/new.md"]],
+      ["an untracked new skill", ({ root }) => write(root, ".codex/skills/fresh/SKILL.md", "1"), [".codex/skills/fresh/SKILL.md"]],
+      ["an unstaged delete", ({ root }) => fs.rmSync(path.join(root, ".agents/skills/demo/notes.md")), [".agents/skills/demo/notes.md"]],
+      ["a staged rename", ({ root, git }) => {
+        git("mv", ".agents/skills/demo/notes.md", ".agents/skills/demo/moved.md");
+        expect(fs.existsSync(path.join(root, ".agents/skills/demo/moved.md"))).toBe(true);
+      }, [".agents/skills/demo/notes.md", ".agents/skills/demo/moved.md"]],
+      ["accented, tab and newline file names", ({ root }) => {
+        for (const name of ["caf\u00e9.md", "a\tb.md", "c\nd.md"]) write(root, `.agents/skills/demo/${name}`, "1");
+      }, [".agents/skills/demo/caf\u00e9.md", ".agents/skills/demo/a\tb.md", ".agents/skills/demo/c\nd.md"]],
+    ];
+    it.each(dirtyCases)("fails (exit 1, commit first) on %s", (_name, mutate, paths) => {
+      const repo = cleanRepo();
+      mutate(repo);
+      const r = run(repo.root, "report", "--skill", "", repo.none);
+      expect(r.code).toBe(1);
+      expect(r.text).toMatch(/Reason: uncommitted skill changes; commit first/);
+      expect(r.text).not.toMatch(/no skills changed|nothing to re-score|PASS/);
+      for (const p of paths) expect(r.text).toContain(`- error: uncommitted: ${p}`);
+      const json = JSON.parse(run(repo.root, "report", "--skill", "", "--json", repo.none).text);
+      expect(json).toMatchObject({ ok: false, reason: "uncommitted skill changes; commit first", skills: [] });
+      expect(json.errors).toEqual(expect.arrayContaining(paths.map((p) => `uncommitted: ${p}`)));
+    });
+    it("shows the gap it closes: `changed` lists nothing while an edit is pending", () => {
+      const repo = cleanRepo();
+      write(repo.root, ".agents/skills/demo/SKILL.md", "2");
+      expect(run(repo.root, "changed", "--base", "HEAD", "--head", "HEAD")).toEqual({ code: 0, text: "" });
+      expect(run(repo.root, "report", "--skill", "", repo.none).code).toBe(1);
+      repo.git("add", "-A");
+      repo.git("commit", "-qm", "commit the edit");
+      const after = run(repo.root, "report", "--skill", "", repo.none);
+      expect(after.code).toBe(0);
+      expect(after.text).toMatch(/Overall: nothing to re-score/);
+    });
+    it("ignores changes outside the skill and spec dirs, and ignored third-party skills", () => {
+      const repo = cleanRepo();
+      write(repo.root, "docs/x.md", "2");
+      write(repo.root, "docs/new.md", "1");
+      write(repo.root, ".claude/skills/third-party/SKILL.md", "1");
+      const r = run(repo.root, "report", "--skill", "", repo.none);
+      expect(r.code).toBe(0);
+      expect(r.text).toMatch(/Overall: nothing to re-score/);
+    });
+    it("reports validation errors, not the uncommitted check, for a broken repo", () => {
+      const repo = cleanRepo();
+      write(repo.root, "evals/skills/orphan/spec.json", JSON.stringify(goodSpec("orphan")));
+      const r = run(repo.root, "report", "--skill", "", repo.none);
+      expect(r.code).toBe(1);
+      expect(r.text).toMatch(/Reason: validation failed/);
+    });
   });
   it("cli: the documented changed | report pipeline handles no changed skills", () => {
     const root = tmp();
@@ -461,7 +553,9 @@ describe("report", () => {
     expect(changed).toEqual({ code: 0, text: "" });
     // `skills=$(... | paste -sd, -)` strips the trailing newline and joins lines.
     const skills = changed.text.split("\n").filter(Boolean).join(",");
-    expect(run(root, "report", "--skill", skills, path.join(root, "scores", "*.json"))).toMatchObject({ code: 0 });
+    const pipeline = run(root, "report", "--skill", skills, path.join(root, "scores", "*.json"));
+    expect(pipeline.code).toBe(0);
+    expect(pipeline.text).toMatch(/Overall: nothing to re-score/);
   });
   it("cli aggregates score files", () => {
     const root = tmp();
