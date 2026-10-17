@@ -1,0 +1,120 @@
+name: Sensitive class
+
+# Classifies every changed file into sensitive classes and auto-merge safe
+# categories with scripts/sensitive-class-detect.mjs. Path classes come from
+# the shared sensitive-paths list (docs/sensitive-paths.json through
+# scripts/lib/sensitive-paths.mjs, OVD-873); the SQL content rules and the
+# safe categories come from scripts/sensitive-classes.json. Report mode only:
+# the job never fails the PR and is not a required check. The JSON result
+# (keyed to the head sha) is in the job summary and the sensitive-class
+# artifact, for the auto-merge eligibility check (OVD-845).
+#
+# The script runs from the base checkout, never from the PR. It lists changed
+# files through the API and reads changed SQL files at the head as data only.
+# When the base has no copy of the script yet (the PR that introduces it), the
+# job skips with a summary note. merge_group runs are a no op pass so the check
+# can never stall a merge queue. `edited` reruns the job when the PR is
+# retargeted to another base, so the result never describes a stale base.
+#
+# GitHub runs a run: block with no shell as `bash -e`, so the detect step
+# captures the script's exit code with `|| rc=$?`: a crash, any non-zero
+# exit, or an exit 0 with no readable result is a warning and an ERROR
+# summary, never a red job; the step removes any partial result, so no
+# artifact is uploaded. The detector's tests run this block under bash -e with
+# stub detectors.
+#
+# OVD-845 requirement: this artifact is not a trusted gate by itself. Under
+# pull_request this YAML comes from the PR, so a PR can edit this file (or add
+# a workflow that uploads an artifact named sensitive-class) and publish a
+# clean result. OVD-845 must recompute the result in a trusted context
+# (workflow_run, or pull_request_target with a base checkout and no head code
+# executed) or confirm from the API file list that the PR touches no
+# .github/** file, must check the producing run's workflow path
+# (.github/workflows/sensitive-class.yml) and head sha, and must treat a
+# missing artifact as needs-Blaine.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - edited
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: sensitive-class-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sensitive-class:
+    name: sensitive-class
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, sensitive-class reports on the pull_request run."
+
+      - name: Checkout base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Detect sensitive classes
+        if: github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/sensitive-class.json"
+          if [ ! -f scripts/sensitive-class-detect.mjs ]; then
+            printf '### Sensitive classes: SKIPPED\n\nThe base branch has no scripts/sensitive-class-detect.mjs yet, so there is no trusted copy to run.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # bash -e would end the step on a non-zero exit; capture it instead.
+          rc=0
+          node scripts/sensitive-class-detect.mjs --repo "$REPOSITORY" --pr "$PR_NUMBER" --head-sha "$HEAD_SHA" --json "$out" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            rm -f "$out"
+            echo "::warning title=Sensitive class::sensitive-class-detect exited $rc (report mode, not failing the job)"
+            printf '### Sensitive classes: ERROR\n\nsensitive-class-detect exited %s, so there is no result. Treat the PR as needs-Blaine.\n' "$rc" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status)' "$out" 2>/dev/null)" || status=unreadable
+          if [ "$status" = unreadable ]; then
+            rm -f "$out"
+            echo "::warning title=Sensitive class::no readable result (report mode, not failing the job)"
+            printf '### Sensitive classes: ERROR\n\nsensitive-class-detect exited 0 but wrote no readable result. Treat the PR as needs-Blaine.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" != ok ]; then
+            echo "::warning title=Sensitive class::status is not ok (report mode, not failing the job); see the job summary"
+          fi
+          exit 0
+
+      - name: Upload result
+        if: github.event_name == 'pull_request' && hashFiles('scripts/sensitive-class-detect.mjs') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensitive-class
+          path: ${{ runner.temp }}/sensitive-class.json
+          if-no-files-found: ignore
+          retention-days: 30
