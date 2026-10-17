@@ -99,7 +99,12 @@ describe("sweep against 0163daf7", () => {
     expect(stats.unexplained.slice(0, 20)).toEqual([]);
     expect(stats.newlySafeNames).toEqual([]);
     expect([...stats.residual.keys()].sort()).toEqual(EXPECTED_RESIDUAL);
-    expect(formatSweep(stats)).toContain("Unexplained: 0.");
+    const table = formatSweep(stats);
+    expect(table).toContain("Unexplained: 0.");
+    // Every residual class is one table row, and a backtick or pipe cannot break its cells.
+    expect(table.split("\n").filter((line) => line.startsWith("| rls"))).toHaveLength(EXPECTED_RESIDUAL.length);
+    expect(table).toContain('| rls after `` ` `` |');
+    expect(table).toContain("| rls after `\\|` |");
   }, 180_000);
 
   it("generates the names the reviews found, and classifies them as sensitive", () => {

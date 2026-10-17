@@ -522,7 +522,13 @@ export function witnessProblems(key, config, fixture) {
   return problems;
 }
 
-/** The PR-body summary, generated from a sweep. */
+/** A Markdown code span that survives a table cell (backticks and pipes in the text). */
+const codeSpan = (text) => {
+  const body = text.replaceAll("|", "\\|");
+  return body.includes("`") ? `\`\` ${body} \`\`` : `\`${body}\``;
+};
+
+/** The PR-body summary, generated from a sweep. Examples are shown as JSON strings. */
 export function formatSweep(stats) {
   const lines = [
     `Names generated: ${stats.total}. Sensitive at ${V1_COMMIT}: ${stats.v1Sensitive}. Still sensitive: ${stats.kept}. Lost: ${stats.lost} (${stats.lostToSafe} to a safe category, ${stats.lostToUnclassified} to unclassified). Unexplained: ${stats.unexplained.length}. Not safe at ${V1_COMMIT} and safe here: ${stats.newlySafe}.`,
@@ -530,9 +536,13 @@ export function formatSweep(stats) {
     "| Residual class | Lost names | Of which safe here | Example |",
     "| --- | --- | --- | --- |",
   ];
-  const escape = (text) => JSON.stringify(text).slice(1, -1).replaceAll("|", "\\|").replaceAll("`", "\\`");
-  for (const [key, entry] of [...stats.residual].sort(([a], [b]) => a.localeCompare(b))) {
-    lines.push(`| ${escape(key)} | ${entry.count} | ${entry.toSafe} | \`${escape(entry.example)}\` |`);
+  const label = (key) => {
+    const shown = key.replace(/^rls after /, "");
+    if (shown === key) return key;
+    return `rls after ${/^U\+[0-9A-F]{4,}$/.test(shown) ? shown : codeSpan(shown)}`;
+  };
+  for (const [key, entry] of [...stats.residual].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    lines.push(`| ${label(key)} | ${entry.count} | ${entry.toSafe} | ${codeSpan(JSON.stringify(entry.example))} |`);
   }
   return `${lines.join("\n")}\n`;
 }
