@@ -51,13 +51,44 @@ export function loadRouting(path) {
   return validateRouting(JSON.parse(readFileSync(path, 'utf8')));
 }
 
-function readTags(text, findings) {
+const FREE_TEXT_POOLS = [
+  ['claude-opus', 'claude-opus'], ['opus', 'claude-opus'],
+  ['claude', 'claude-sonnet'], ['sonnet', 'claude-sonnet'],
+  ['codex', 'codex'], ['gpt', 'codex'], ['openai', 'codex'],
+  ['grok', 'grok-overflow'], ['jev', 'jev'],
+];
+
+function readFreeText(entry, routing) {
+  const match = /^([^/]+)\/\s*(\S+)([\s\S]*)$/.exec(entry.trim());
+  if (!match || !match[1].trim()) return [];
+  const token = match[2].replace(/[^a-z0-9-]+$/i, '');
+  const pool = FREE_TEXT_POOLS.find(([prefix]) => token.toLowerCase().startsWith(prefix))?.[1];
+  if (!pool || !own(routing.pools, pool)) return [];
+  // Parenthetical context may name other models; outside it, another builder
+  // must fail safe rather than silently attributing the line to its first model.
+  let depth = 0;
+  let outside = match[2].slice(token.length);
+  for (const character of match[3]) {
+    if (character === '(') depth++;
+    else if (character === ')') { if (!depth) return []; depth--; }
+    else if (!depth) outside += character;
+  }
+  if (depth || /[+,]\s*(?:codex|gpt|openai|claude|sonnet|opus|grok|jev)/i.test(outside)) return [];
+  const name = match[1].trim().toLowerCase();
+  const bot = routing.bots.find(bot => bot.id.toLowerCase() === name || bot.display.toLowerCase() === name)?.id
+    ?? name.replace(/\s+/g, '-');
+  return [{ bot, model: `model:${pool}`, token }];
+}
+
+function readTags(text, findings, routing) {
   const lines = text.split(/\r?\n/).filter(line => /^\s*Built-by:/i.test(line));
   if (lines.length > 1) findings.push('Multiple Built-by lines; use one semicolon-separated line');
   if (lines.length) {
     return lines.flatMap(line => line.replace(/^\s*Built-by:\s*/i, '').split(';').flatMap(entry => {
       const match = /^bot=([a-z0-9-]+)\s+model=(model:[a-z0-9-]+)$/.exec(entry.trim());
       if (!match) {
+        const freeText = readFreeText(entry, routing);
+        if (freeText.length) return freeText;
         findings.push('Unparseable Built-by line');
         return [];
       }
@@ -80,14 +111,14 @@ export function parseBuiltBy(input) {
       throw new Error('Invalid parser input');
     }
     const findings = [];
-    const bodyBuilders = readTags(body, findings);
+    const bodyBuilders = readTags(body, findings, routing);
     const trailerBuilders = [];
     const commitEntries = [];
     for (const commit of commits) {
       if (!record(commit) || typeof commit.message !== 'string') throw new Error('Invalid commit');
       // Only Built-by commit metadata is supported; legacy Model is body-only.
       if (/^\s*Built-by:/im.test(commit.message)) {
-        const tags = readTags(commit.message, findings);
+        const tags = readTags(commit.message, findings, routing);
         trailerBuilders.push(...tags);
         commitEntries.push(...tags);
       } else commitEntries.push(...bodyBuilders);
