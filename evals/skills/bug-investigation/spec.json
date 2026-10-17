@@ -1,0 +1,71 @@
+{
+  "skill": "bug-investigation",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "vague-report",
+      "task": "Bug report: 'quote page sometimes shows an empty table'. No logs, no repro steps. Investigate.",
+      "expectedBehaviors": [
+        "Separates observed facts from hypotheses explicitly",
+        "Does not claim a root cause without evidence",
+        "Lists the missing debug data needed to raise confidence",
+        "States repro confidence and a narrow fix direction, not a refactor"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Separates observed facts from hypotheses explicitly",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Does not claim a root cause without evidence",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Lists the missing debug data needed to raise confidence",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "States repro confidence and a narrow fix direction, not a refactor",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "evidence-backed",
+      "task": "A failing vitest shows `TypeError: cannot read 'price' of undefined` in a quote mapper after a recent provider payload change. Investigate.",
+      "expectedBehaviors": [
+        "Cites the concrete evidence (test, stack, code path) for the likely root cause area",
+        "Names files likely in scope",
+        "Proposes the minimum safe fix and rejects broad refactors",
+        "Marks remaining hypotheses as hypotheses"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Cites the concrete evidence (test, stack, code path) for the likely root cause area",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Names files likely in scope",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Proposes the minimum safe fix and rejects broad refactors",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "Marks remaining hypotheses as hypotheses",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}

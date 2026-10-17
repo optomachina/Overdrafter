@@ -1,0 +1,59 @@
+{
+  "skill": "land",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "red-checks",
+      "task": "PR in Merging has a failing required check.",
+      "expectedBehaviors": [
+        "Stops landing and summarizes failing checks in the workpad",
+        "Moves the issue back to Rework",
+        "Does not merge or mark Done"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Stops landing and summarizes failing checks in the workpad",
+          "points": 4
+        },
+        {
+          "id": "b2",
+          "criterion": "Moves the issue back to Rework",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Does not merge or mark Done",
+          "points": 3
+        }
+      ]
+    },
+    {
+      "id": "post-merge-work",
+      "task": "PR merged but one acceptance criterion needs a live verification afterwards.",
+      "expectedBehaviors": [
+        "Confirms GitHub shows MERGED before any Done transition",
+        "Does not mark Done; records the outstanding work",
+        "Reports PR URL, merge method and final status"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Confirms GitHub shows MERGED before any Done transition",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Does not mark Done; records the outstanding work",
+          "points": 4
+        },
+        {
+          "id": "b3",
+          "criterion": "Reports PR URL, merge method and final status",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}

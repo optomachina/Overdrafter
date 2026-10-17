@@ -1,0 +1,71 @@
+{
+  "skill": "linear-triage-router",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "billing-ambiguous",
+      "task": "Incoming: 'customers get double charged sometimes, fix asap'.",
+      "expectedBehaviors": [
+        "Picks billing-feature (or bug with billing routing) from the allowed categories only",
+        "Routes conservatively and says implementation should not start now",
+        "Lists blocking missing information without guessing it",
+        "Gives title in '<ISSUE-TYPE>: <intent>' form, P0-P3 priority with rationale, up to three labels"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Picks billing-feature (or bug with billing routing) from the allowed categories only",
+          "points": 2
+        },
+        {
+          "id": "b2",
+          "criterion": "Routes conservatively and says implementation should not start now",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Lists blocking missing information without guessing it",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "Gives title in '<ISSUE-TYPE>: <intent>' form, P0-P3 priority with rationale, up to three labels",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "docs-request",
+      "task": "Incoming: 'README setup section is out of date'.",
+      "expectedBehaviors": [
+        "Selects documentation",
+        "Suggests a concise title, a priority with rationale and at most three labels",
+        "States a next action and that implementation may start",
+        "Does not implement or over-design"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Selects documentation",
+          "points": 2
+        },
+        {
+          "id": "b2",
+          "criterion": "Suggests a concise title, a priority with rationale and at most three labels",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "States a next action and that implementation may start",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "Does not implement or over-design",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}
