@@ -88,7 +88,7 @@ All paths are relative to the snapshot root.
 | `liveQuotes[].timestamp` | string ISO 8601 UTC (ms) | When the harness recorded the row. | `results.jsonl` |
 | `liveQuotes[].errorCode` | string or null | Harness error code on failure. | `results.jsonl` |
 | `bots[]` | array | Builder and reviewer bot rows, sorted by bot key with `unknown` last. | PRs and issue comments |
-| `bots[].bot` | string | Lowercase alphanumeric segments joined by single `.` or `-`; `unknown` means no signal, conflicting evidence or an ambiguous declaration. | attribution evidence |
+| `bots[].bot` | string | Lowercase bot key; `unknown` means no signal or conflicting evidence. | attribution evidence |
 | `bots[].prs` | integer | Merged PRs attributed to this builder. | GitHub PRs |
 | `bots[].qa.pass` | integer | Builder PRs whose latest QA verdict is PASS. | PR comments |
 | `bots[].qa.fail` | integer | Builder PRs whose latest QA verdict is FAIL. | PR comments |
@@ -98,10 +98,9 @@ All paths are relative to the snapshot root.
 | `bots[].reverts.rollbacks` | integer | Builder PRs counted as rollbacks by the shared rules below. | GitHub PRs |
 | `bots[].reviews.approved` | integer | Standard APPROVED verdict comments attributed to this reviewer. | PR comments |
 | `bots[].reviews.changesRequired` | integer | Standard CHANGES REQUIRED verdict comments attributed to this reviewer. | PR comments |
-| `botAttribution.attributed` | integer | Merged PRs with exactly one distinct candidate key and no invalid declaration. | attribution evidence |
-| `botAttribution.noSignal` | integer | Merged PRs with no candidate keys or invalid declarations. | attribution evidence |
-| `botAttribution.conflicting` | integer | Merged PRs with two or more distinct valid candidate keys and no invalid declaration. | attribution evidence |
-| `botAttribution.ambiguous` | integer | Merged PRs with any invalid explicit model declaration, regardless of other evidence. | attribution evidence |
+| `botAttribution.attributed` | integer | Merged PRs with exactly one distinct candidate key. | attribution evidence |
+| `botAttribution.noSignal` | integer | Merged PRs with no candidate keys. | attribution evidence |
+| `botAttribution.conflicting` | integer | Merged PRs with multiple distinct candidate keys or invalid explicit model tokens. | attribution evidence |
 | `botAttribution.bySource.label` | integer | Attributed PRs supported by a model label. | PR labels |
 | `botAttribution.bySource.body` | integer | Attributed PRs supported by an explicit body model line. | PR bodies |
 | `botAttribution.bySource.author` | integer | Attributed PRs supported by a GitHub App bot author. | bot author metadata |
@@ -112,35 +111,31 @@ logins reduced to a bot key can supply author attribution.
 
 ### Bot attribution
 
-Bot keys are lowercase tokens matching `/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/`.
-Only lowercase alphanumeric segments joined by single dots or hyphens are valid;
-underscores and leading, trailing or doubled separators are invalid.
-`gpt-5.5`, `claude-sonnet-4.5` and `grok` are valid.
+Bot keys are lowercase tokens matching `/^[a-z0-9][a-z0-9._-]*$/`.
 Keys are used as written after lowercasing, with no alias mapping: `claude`
 does not become `opus`. The literal `unknown` is reserved and supplies no
 signal from any source.
 
 Each merged PR collects builder candidates from three sources:
 
-- **label:** every label beginning with `model:` after lowercasing. The full
-  suffix must be a valid key; an empty or invalid suffix is ambiguous evidence.
+- **label:** every label matching `model:<key>` after lowercasing.
 - **body:** explicit model lines, ignoring lines inside triple-backtick fenced
   code blocks. Strip `*`, backticks, `#` and `>` everywhere, leading list markers
   (`- `, `* `, `+ `), and surrounding whitespace. Strip runs of underscores
   only as paired emphasis delimiters: an opening run at line start or after
   whitespace must have an identical closing run followed by whitespace or line
-  end. Thus `_Model: opus_` and `__Model: opus__` work, while unpaired
-  underscores remain intact: `Model: codex_` is ambiguous even with
-  label `model:codex`, and reviewer `z_bot_` is rejected.
-  An unpaired leading `_Model: opus` supplies no signal because its prefix
-  does not match. Match the prefix `/^(?:build(?:er)?\s+)?model\s*:\s*/i`,
+  end. Underscores inside tokens and bare trailing underscores stay intact:
+  `_Model: opus_` and `__model: opus__` work, `z_bot` stays `z_bot`, and
+  `Model: codex_` credits `codex_` (so label `model:codex` plus body
+  `Model: codex_` is conflicting). An unpaired leading `_Model: opus`
+  supplies no signal because its prefix does not match. Match the prefix `/^(?:build(?:er)?\s+)?model\s*:\s*/i`,
   then take the whole next whitespace-delimited token. Remove trailing
   punctuation from the set `, ; : ) ·`; also remove a single trailing `.`
   only when the line ends immediately after it (never a run of periods).
   The whole remaining token must match the bot key pattern, case-insensitively,
-  then is lowercased. Thus `Model: bot-` is ambiguous, while `Model: opus.`
+  then is lowercased. Thus `Model: bot-` credits `bot-`, and `Model: opus.`
   and `Model: opus, per Release` credit `opus`. An empty or ambiguous token
-  such as `codex/opus`, `codex,opus`, `opus|codex`, `z_bot` or `codex_` is ambiguous evidence.
+  such as `codex/opus`, `codex,opus` or `opus|codex` is conflicting evidence.
   This includes an exact `model:<key>` line, `Model: opus per Release`,
   `**model:opus** · **Needs Blaine's card**`, `Build model: **opus** (source: …)`,
   and `Model: sonnet per Grok Bot triage handoff (no model label exists)`.
@@ -153,25 +148,16 @@ Each merged PR collects builder candidates from three sources:
   author logins never supply evidence and are discarded by normalization.
   The live fetch keeps author metadata only when `user.type === "Bot"`.
 
-Any invalid explicit declaration means `ambiguous`, regardless of other
-sources. Otherwise, two or more distinct valid keys mean `conflicting`, one
-means `attributed`, and zero means `no_signal`. Precedence is **ambiguous >
-conflicting > attributed > no_signal**. The reserved key `unknown` supplies
-no evidence. Invalid bot author keys are ignored because author metadata is
-not an explicit declaration.
-
-The sorted, distinct `sources` include every source carrying evidence,
-including an invalid declaration's source. For example, `Model: codex/opus`,
-`Model: bot-` and `Model: z_bot` each return `unknown` / `ambiguous` with
-`["body"]`. Label `model:z_bot` plus body `Model: z_bot` returns ambiguous
-with `["body", "label"]`, without stripping the underscore or inventing
-`zbot`. Label `model:codex` plus body `Model: codex/opus` also returns
-ambiguous with `["body", "label"]`. Invalid labels such as `model:bot-`
-and `model:codex/opus` likewise prevent attribution.
-
-All three unattributable statuses go to `unknown`; attribution never guesses.
-`botAttribution` counts all four outcomes. `bySource` counts only attributed
-PRs, once per agreeing source, so one PR can count toward multiple sources.
+Exactly one distinct key means `attributed`; its sorted, distinct `sources`
+record all agreeing sources. Zero keys means `no_signal` with no sources.
+Multiple distinct keys or an invalid explicit model token mean `conflicting`,
+with all contributing sources (including `body` for an invalid token), even
+when a label or author supplies a valid key. An ambiguous explicit model line
+prevents attribution from any source.
+Both unattributable cases go to `unknown`, never guessed. A label cannot
+outvote a body or author. `botAttribution` counts these three outcomes;
+`bySource` counts only attributed PRs, once per agreeing source, so one PR
+can count toward multiple sources.
 
 Review comments count toward the **reviewer**, independently of the builder.
 The first non-empty line, after applying the same markdown stripping rules and
@@ -182,10 +168,10 @@ trimming, must match this case-insensitive format:
 ```
 
 The whole whitespace-delimited reviewer token must match
-`/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/` after lowercasing and cannot be
-`unknown`; invalid tokens are rejected. Thus `z_bot review`, `z_bot_ review`,
-`bot- review` and `codex/opus review` followed by `@ deadbeef: APPROVED`
-all return null and do not count. The parser lowercases
+`/^[a-z][a-z0-9._-]*$/i` and cannot be `unknown`; partial or ambiguous
+tokens are rejected. Internal and bare trailing underscores remain intact, so
+`z_bot review @ deadbeef: APPROVED` credits `z_bot` and
+`z_bot_ review @ deadbeef: APPROVED` credits `z_bot_`. The parser lowercases
 the bot, round and SHA and returns verdict `approved` or `changes_required`.
 `Codex review @ 1a2b3c4d: APPROVED` and
 `**Opus re-review @ deadbeef: CHANGES REQUIRED**` count.
@@ -203,10 +189,10 @@ with no attribution give one `unknown` row. QA and revert calculations use
 the same rules as the overall metrics. Across rows, PR counts sum to
 `merges.total`, QA pass/fail/noVerdict counts sum to the overall QA counts,
 and revert/rollback counts sum to the overall revert/rollback counts.
-`attributed + noSignal + conflicting + ambiguous = merges.total`.
+`attributed + noSignal + conflicting = merges.total`.
 
 This is additive within `trust-snapshot.v1`: `botAttribution` is appended
-after `bots`, with integer `ambiguous` between `conflicting` and `bySource`. The committed `snapshot-2026-10-15.json` predates OVD-786 and
+after `bots`. The committed `snapshot-2026-10-15.json` predates OVD-786 and
 has `bots: []` and no `botAttribution`. Treat a missing `botAttribution` as
 "not computed", rather than zero attribution.
 
