@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { main } from "./spend-ledger.mjs";
+import { main, resolveBin } from "./spend-ledger.mjs";
 import { POOLS, UsageError, usageToLedger, parseLines, uniqueUsage, validateLedger, mergeLedger, jsonl, isoWeek, weeklyReport, parseAttribution, attributePR, exportEvals, markdownReport } from "./lib/spend-ledger.mjs";
 
 const fixture = fileURLToPath(new URL("./fixtures/spend-ledger/", import.meta.url));
@@ -110,6 +110,12 @@ describe("PR attribution and evals export", () => {
   it.each([
     [{ "100": "codex" }, [], "codex", "explicit"],
     [{}, ["model:claude"], "claude", "explicit"],
+    [{ "100": { bot: "opus" } }, [], "claude", "explicit"],
+    [{ "100": { bot: "Sonnet" } }, [], "claude", "explicit"],
+    [{}, ["model:opus"], "claude", "explicit"],
+    [{}, ["model:sonnet"], "claude", "explicit"],
+    [{}, ["model:opus", "model:claude"], "claude", "explicit"],
+    [{}, ["model:opus", "model:codex"], "unknown", "conflicting"],
     [{ "100": { bot: "grok" } }, [], "cursor", "explicit"],
     [{ "100": "codex" }, ["pool:claude"], "unknown", "conflicting"],
     [{ "100": "unknown" }, [], "unknown", "explicit"],
@@ -128,6 +134,11 @@ describe("PR attribution and evals export", () => {
       expect(Number.isFinite(Date.parse(line.ts))).toBe(true);
       expect(line).toMatchObject({ pr: 100, issue: "OVD-100", agent: "writer" });
       expect(line).not.toHaveProperty("tokens");
+      expect(line).toMatchObject({ exportUnvaluedRecords: 1, exportComplete: false });
+      // PR #835 loadLedger acceptance rule; extra fields are ignored.
+      expect(Number.isFinite(Date.parse(line.ts)) && Number.isFinite(line.usd) && line.usd >= 0
+        && (line.pr == null || (Number.isInteger(line.pr) && line.pr > 0))
+        && (line.issue == null || /^OVD-\d+$/.test(line.issue))).toBe(true);
     }
   });
 });
@@ -184,5 +195,68 @@ describe("CLI with local files and injected gh", () => {
     expect(JSON.parse(result.out).sources.prSource).toBe("gh");
     expect(invoke(args, { runGh: () => Array.from({ length: 1000 }, (_, i) => pr(i + 1)) }).code).toBe(1);
     expect(invoke([...args, "--from", "bad"]).code).toBe(2);
+  }));
+});
+
+describe("export completeness and executable resolution", () => {
+  it("rejects model aliases as explicit pools", () => {
+    for (const pool of ["opus", "sonnet"]) expect(() => parseAttribution({ 100: { pool } })).toThrow(UsageError);
+  });
+  it("marks every exported line and accepts all-valued and empty inputs", () => {
+    const valued = [row({ pr: 100 }), row({ pool: "claude", issue: "OVD-932" })];
+    for (const line of exportEvals([...valued, row({ pool: "jev", dollars: null })])) {
+      expect(line).toMatchObject({ exportUnvaluedRecords: 1, exportComplete: false });
+      expect(Number.isFinite(Date.parse(line.ts)) && Number.isFinite(line.usd) && line.usd >= 0
+        && (line.pr == null || (Number.isInteger(line.pr) && line.pr > 0))
+        && (line.issue == null || /^OVD-\d+$/.test(line.issue))).toBe(true);
+    }
+    for (const line of exportEvals(valued)) expect(line).toMatchObject({ exportUnvaluedRecords: 0, exportComplete: true });
+    expect(exportEvals([])).toEqual([]);
+  });
+  it("exits 3 for all-unvalued exports to stdout or file, and 0 for empty ledgers", () => withCLI(({ dir, ledger, invoke }) => {
+    fs.mkdirSync(path.dirname(ledger));
+    fs.writeFileSync(ledger, jsonl([row({ dollars: null })]));
+    const args = ["export-evals", "--ledger", ledger];
+    const result = invoke(args);
+    expect(result).toMatchObject({ code: 3, out: "" });
+    expect(result.err).toContain("Skipped 1 unvalued lines");
+    expect(result.err).toContain("No valued records to export; 1 unvalued");
+    const out = path.join(dir, "empty.jsonl");
+    expect(invoke([...args, "--out", out]).code).toBe(3);
+    expect(fs.readFileSync(out, "utf8")).toBe("");
+    fs.writeFileSync(ledger, "");
+    expect(invoke(args)).toMatchObject({ code: 0, out: "" });
+  }));
+  it("resolves only absolute standard executable paths or null", () => {
+    for (const name of ["git", "gh"]) {
+      const binary = resolveBin(name);
+      if (binary !== null) {
+        expect(path.isAbsolute(binary)).toBe(true);
+        expect(["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"]).toContain(path.dirname(binary));
+        expect(path.basename(binary)).toBe(name);
+      }
+      expect(resolveBin(name)).toBe(binary);
+    }
+    expect(resolveBin("../gh")).toBeNull();
+  });
+  it("uses absolute gh with a minimal environment and validates dates first", () => withCLI(({ ledger, invoke }) => {
+    fs.mkdirSync(path.dirname(ledger));
+    fs.writeFileSync(ledger, "");
+    const args = ["weekly", "--ledger", ledger, "--from", "2026-10-05", "--to", "2026-10-11"];
+    let calls = 0;
+    const deps = { runGh: undefined, resolveBin: () => "/usr/bin/gh", execFile: (binary, argv, options) => {
+      calls++;
+      expect(binary).toBe("/usr/bin/gh");
+      expect(argv).toEqual(["pr", "list", "--state", "merged", "--base", "main", "--search", "merged:2026-10-05..2026-10-11", "--limit", "1000", "--json", "number,title,mergedAt,labels,headRefName,body,author"]);
+      expect(options.env).toEqual({ PATH: "/usr/bin:/bin", HOME: os.homedir() });
+      return "[]";
+    } };
+    expect(invoke(args, deps).code).toBe(0);
+    expect(invoke(args.map((v) => v === "2026-10-05" ? "bad" : v), deps).code).toBe(2);
+    expect(calls).toBe(1);
+    const missing = invoke(args, { runGh: undefined, resolveBin: () => null });
+    expect(missing.code).toBe(2);
+    expect(missing.err).toContain("gh was not found in standard locations");
+    expect(missing.err).toContain("--prs-json");
   }));
 });

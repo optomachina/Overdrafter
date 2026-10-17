@@ -2,7 +2,7 @@
 export const POOLS = ["codex", "claude", "cursor", "jev"];
 export const BOT_TO_POOL = Object.freeze({
   codex: "codex", chatgpt: "codex", "chatgpt-codex-connector": "codex",
-  claude: "claude", "claude-code": "claude",
+  claude: "claude", "claude-code": "claude", opus: "claude", sonnet: "claude",
   cursor: "cursor", grok: "cursor", "cursor-agent": "cursor", jev: "jev",
 });
 export class UsageError extends Error {}
@@ -17,6 +17,7 @@ export function validDate(value) {
 }
 const nextDay = (day, n = 1) => new Date(Date.parse(day) + n * 86400000).toISOString().slice(0, 10);
 const short = (v) => v.slice(0, 64);
+const zonedTimestamp = (v) => typeof v === "string" && v.includes("T") && (v.endsWith("Z") || /[+-]\d\d:\d\d$/.test(v)) && Number.isFinite(Date.parse(v));
 /** Validate usage and whitelist fields into the canonical ledger shape. */
 export function usageToLedger(record, location = "input:1") {
   const check = (condition, message) => { if (!condition) fail(`${location}: ${message}`); };
@@ -121,8 +122,8 @@ export function attributePR(pr, attribution) {
   if (entry?.pool) signals.add(entry.pool);
   if (entry?.bot && BOT_TO_POOL[entry.bot.toLowerCase()]) signals.add(BOT_TO_POOL[entry.bot.toLowerCase()]);
   for (const label of pr.labels ?? []) {
-    const match = /^(?:model|pool):(codex|claude|cursor|jev)$/.exec(typeof label === "string" ? label : label?.name);
-    if (match) signals.add(match[1]);
+    const match = /^(?:(?:model|pool):(codex|claude|cursor|jev)|model:(opus|sonnet))$/.exec(typeof label === "string" ? label : label?.name);
+    if (match) signals.add(match[1] ?? BOT_TO_POOL[match[2]]);
   }
   if (signals.size > 1) return { pool: "unknown", attributionStatus: "conflicting" };
   if (!signals.size) return { pool: "unknown", attributionStatus: "no_signal" };
@@ -141,14 +142,14 @@ function metrics(usd, count, minSample, partial = false) {
 export function weeklyReport({ ledger, prs, from, to, attribution = {}, minSample = 5, generatedAt = `${to}T23:59:59Z`, sources = {} }) {
   if (!validDate(from) || !validDate(to) || from > to) fail("invalid from/to window");
   if (!Number.isSafeInteger(minSample) || minSample < 1) fail("invalid min-sample");
-  if (typeof generatedAt !== "string" || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(generatedAt) || !Number.isFinite(Date.parse(generatedAt))) fail("invalid generated-at");
+  if (!zonedTimestamp(generatedAt) || !/^\d{4}-\d\d-\d\dT/.test(generatedAt)) fail("invalid generated-at");
   if (!Array.isArray(prs)) fail("prs: expected array");
   const seen = new Set();
   const normalized = prs.map((pr) => {
     if (!object(pr) || !Number.isSafeInteger(pr.number) || pr.number < 1 || seen.has(pr.number)) fail("prs: invalid or duplicate number");
     seen.add(pr.number);
     const mergedAt = pr.mergedAt ?? pr.merged_at;
-    if (typeof mergedAt !== "string" || !/T.*(?:Z|[+-]\d\d:\d\d)$/.test(mergedAt) || !Number.isFinite(Date.parse(mergedAt))) fail("prs: invalid mergedAt");
+    if (!zonedTimestamp(mergedAt)) fail("prs: invalid mergedAt");
     if (pr.labels && !Array.isArray(pr.labels)) fail("prs: invalid labels");
     const day = new Date(mergedAt).toISOString().slice(0, 10);
     const issues = [...new Set(`${pr.title ?? ""} ${pr.headRefName ?? ""} ${pr.body ?? ""}`.toUpperCase().match(/\bOVD-\d+\b/g) ?? [])];
@@ -215,8 +216,10 @@ export function weeklyReport({ ledger, prs, from, to, attribution = {}, minSampl
 }
 /** Export only valued records in the pending evals reader's compatible shape. */
 export function exportEvals(rows) {
-  return mergeLedger([], rows).filter((r) => r.usd !== null).map((r) => {
-    const result = { ts: r.ts, usd: r.usd };
+  const merged = mergeLedger([], rows);
+  const exportUnvaluedRecords = merged.filter((r) => r.usd === null).length;
+  return merged.filter((r) => r.usd !== null).map((r) => {
+    const result = { ts: r.ts, usd: r.usd, exportUnvaluedRecords, exportComplete: exportUnvaluedRecords === 0 };
     for (const key of ["pr", "issue", "agent", "source", "pool"]) if (present(r[key])) result[key] = r[key];
     return result;
   });

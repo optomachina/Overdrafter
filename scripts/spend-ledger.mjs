@@ -1,9 +1,28 @@
 /** Filesystem/gh adapter for the pure spend ledger module. */
 import * as fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { UsageError, usageToLedger, ledgerKey, parseLines, validateLedger, mergeLedger, jsonl, weeklyReport, parseAttribution, exportEvals, markdownReport } from "./lib/spend-ledger.mjs";
+
+const STANDARD_DIRECTORIES = ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+const binaries = new Map();
+/** Resolve executable names only in fixed standard locations, once per binary. */
+export function resolveBin(name) {
+  if (!['git', 'gh'].includes(name)) return null;
+  if (!binaries.has(name)) {
+    let found = null;
+    for (const directory of STANDARD_DIRECTORIES) {
+      const candidate = path.join(directory, name);
+      try { fs.accessSync(candidate, fs.constants.X_OK); found = candidate; break; }
+      catch { /* Try the next standard location. */ }
+    }
+    binaries.set(name, found);
+  }
+  return binaries.get(name);
+}
+const executableEnvironment = () => ({ PATH: "/usr/bin:/bin", HOME: os.homedir() });
 
 const HELP = `Usage: spend-ledger <collect|weekly|export-evals> [options]
 collect --input FILE (repeatable) [--ledger FILE] [--dry-run]
@@ -38,7 +57,11 @@ export function main(args, deps = {}) {
     const one = (key) => options[key]?.[0];
     let repoRoot = deps.repoRoot;
     if (!repoRoot) {
-      try { repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+      try {
+        const git = (deps.resolveBin ?? resolveBin)("git");
+        if (!git) throw new Error("git unavailable");
+        repoRoot = (deps.execFile ?? execFileSync)(git, ["rev-parse", "--show-toplevel"], { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      }
       catch { repoRoot = fileURLToPath(new URL("../", import.meta.url)); }
     }
     const resolve = (file) => path.resolve(cwd, file);
@@ -82,9 +105,15 @@ export function main(args, deps = {}) {
       stdout.write(`${JSON.stringify({ records: merged.length, valued: merged.filter((r) => r.usd !== null).length, unvalued: merged.filter((r) => r.usd === null).length, dryRun: !!one("dry-run") })}\n`);
     } else if (command === "export-evals") {
       const rows = mergeLedger([], load());
-      const output = jsonl(exportEvals(rows));
+      const exported = exportEvals(rows);
+      const output = jsonl(exported);
+      const unvalued = rows.filter((r) => r.usd === null).length;
       if (one("out")) writeAtomic(resolve(one("out")), output); else stdout.write(output);
-      stderr.write(`Skipped ${rows.filter((r) => r.usd === null).length} unvalued lines\n`);
+      stderr.write(`Skipped ${unvalued} unvalued lines\n`);
+      if (!exported.length && unvalued > 0) {
+        stderr.write(`No valued records to export; ${unvalued} unvalued\n`);
+        return 3;
+      }
     } else {
       if (!one("from") || !one("to")) throw new UsageError("weekly requires --from and --to");
       if (one("prs-json") && one("repo")) throw new UsageError("choose --prs-json or --repo");
@@ -99,7 +128,11 @@ export function main(args, deps = {}) {
       if (one("prs-json")) prs = readJSON(resolve(one("prs-json")));
       else {
         const ghArgs = ["pr", "list", ...(one("repo") ? ["--repo", one("repo")] : []), "--state", "merged", "--base", "main", "--search", `merged:${one("from")}..${one("to")}`, "--limit", "1000", "--json", "number,title,mergedAt,labels,headRefName,body,author"];
-        const runGh = deps.runGh ?? ((argv) => execFileSync("gh", argv, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+        const runGh = deps.runGh ?? ((argv) => {
+          const gh = (deps.resolveBin ?? resolveBin)("gh");
+          if (!gh) throw new UsageError("gh was not found in standard locations; use --prs-json");
+          return (deps.execFile ?? execFileSync)(gh, argv, { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+        });
         const response = runGh(ghArgs);
         try { prs = typeof response === "string" || Buffer.isBuffer(response) ? JSON.parse(String(response)) : response; }
         catch { throw new Error("gh returned invalid JSON"); }

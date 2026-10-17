@@ -91,11 +91,12 @@ is not a signal. Supported bot mappings:
 | Bot | Pool |
 | --- | --- |
 | codex, chatgpt, chatgpt-codex-connector | codex |
-| claude, claude-code | claude |
+| claude, claude-code, opus, sonnet | claude |
 | cursor, grok, cursor-agent | cursor |
 | jev | jev |
 
-Bot mapping ignores case. Labels `model:<pool>` and `pool:<pool>` supply signals.
+Bot mapping ignores case. Labels `model:opus` and `model:sonnet` also normalize
+to claude; explicit pool values remain restricted to real pools and unknown. Labels `model:<pool>` and `pool:<pool>` supply signals.
 All signals must agree: file versus label disagreement, or two different pools,
 means unknown with `conflicting`. An explicit unknown remains unknown (and cannot
 be upgraded by a label). No signals means unknown with `no_signal`; a consistent
@@ -162,10 +163,21 @@ ledger containing null usd. Export writes only valued lines with ts, usd, option
 pr/issue/agent, source and pool; stderr reports skipped unvalued lines. Without
 `--out`, JSONL goes to stdout. Evals consumes this export; Evaluator consumes the
 weekly JSON. Export removes model/tokens/subscription metadata.
+Every exported line also carries `exportUnvaluedRecords`, the integer count of
+excluded unvalued records, and `exportComplete`, true only when that count is zero.
+No header or trailer is emitted. When all records are unvalued, output is empty
+and the CLI exits 3 with `No valued records to export; N unvalued` on stderr.
+An empty ledger still exits 0 with empty output.
+
+Both gh and git are resolved only from `/usr/bin`, `/bin`, `/usr/local/bin`, and
+`/opt/homebrew/bin`. Their environment contains only PATH set to `/usr/bin:/bin`
+and HOME from the operating system home directory. GH_TOKEN-only authentication
+is not passed through; use gh's stored login or `--prs-json`. Missing gh produces
+a usage error suggesting `--prs-json`; missing git uses the repository-root fallback.
 
 `--help` exits 0. Success exits 0, usage/validation errors exit 2, file or gh
 failures exit 1. `main(args, deps)` supports stdout, stderr, runGh, cwd and repoRoot
-injection; tests use disposable directories and never contact gh or the network.
+injection, plus resolveBin and execFile injection; tests use disposable directories and never contact gh or the network.
 
 ## Open questions for Token Watcher
 
