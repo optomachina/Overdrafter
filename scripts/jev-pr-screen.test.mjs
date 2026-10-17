@@ -972,7 +972,7 @@ function fileTransport({ paths = ["README.md"], count = paths.length, pageError 
       const n = Number(page[1]);
       if (n === pageError) throw new Error("HTTP 502");
       if (malformed) return '{"message":"bad"}';
-      return JSON.stringify(paths.slice((n - 1) * 100, n * 100).map((filename) => ({ filename })));
+      return JSON.stringify(paths.slice((n - 1) * 100, n * 100).map((filename) => ({ filename, status: "modified" })));
     }
     snapshots += 1;
     return JSON.stringify({ head: { sha: race && snapshots > 1 ? OTHER_SHA : head }, base: { sha: baseRace && snapshots > 1 ? SHA : OTHER_SHA }, changed_files: count });
@@ -1132,7 +1132,7 @@ describe("OVD-961 independent review regressions", () => {
 
   it.each(["fresh", "cached"].flatMap((mode) => ["base", "head", "count", "error"].map((change) => [mode, change])))
   ("rejects %s result after post-acquisition %s change without a marker write", async (mode, change) => {
-    const acquisition = mutableAcquisition([{ filename: "README.md" }]);
+    const acquisition = mutableAcquisition([{ filename: "README.md", status: "modified" }]);
     const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: mode === "cached" ? [status(markerText({ tier: "low", jevTier: "low" }))] : [] } });
     const mutate = () => {
       if (change === "error") acquisition.snapshot = null;
@@ -1154,5 +1154,57 @@ describe("OVD-961 independent review regressions", () => {
     const actualPath = relative(repoRoot, fileURLToPath(new URL(imported, new URL("./jev-pr-screen.mjs", import.meta.url))));
     expect(deterministicTier({ deterministic: "low", files: [actualPath] }, loadSensitivePaths({ root: repoRoot })))
       .toMatchObject({ tier: "risky", sensitiveClasses: ["infra_ci"] });
+  });
+});
+
+describe("OVD-961 malformed status admission", () => {
+  it.each([
+    ["absent", {}],
+    ["undefined", { status: undefined }],
+    ["null", { status: null }],
+    ["unknown", { status: "unknown" }],
+    ["empty", { status: "" }],
+    ["wrong case", { status: "RENAMED" }],
+    ["whitespace", { status: " modified " }],
+    ["number", { status: 1 }],
+    ["boolean", { status: true }],
+    ["array", { status: ["modified"] }],
+    ["object", { status: { value: "modified" } }],
+    ["prototype name", { status: "toString" }],
+  ])("fails closed before cache or Jev for %s status", async (_label, fields) => {
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const acquisition = mutableAcquisition([{ filename: "docs/retired.md", ...fields }]);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each(["added", "removed", "modified", "changed", "unchanged", "renamed", "copied"])
+  ("accepts supported %s status with complete affected paths", async (status) => {
+    const moves = status === "renamed" || status === "copied";
+    const entry = { filename: "docs/retired.md", status, ...(moves ? { previous_filename: ".github/workflows/required.yml" } : {}) };
+    const acquisition = mutableAcquisition([entry]);
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    expect(record).toMatchObject({ final: moves ? "risky" : "low", filesProblem: null });
+    const paths = moves ? [entry.filename, entry.previous_filename] : [entry.filename];
+    expect(ask.mock.calls[0][0].files).toEqual(paths);
+    expect(parseMarkerDescription(github.store[SHA][0].description).filesHash).toBe(hashVerifiedPaths(paths));
+  });
+
+  it("rejects a malformed status on a later page before any screening/cache calls", async () => {
+    const records = [...Array.from({ length: 100 }, (_, i) => ({ filename: `docs/${i}.md`, status: "modified" })), { filename: "docs/retired.md", status: null }];
+    const run = (args) => {
+      const page = /\/files\?per_page=100&page=(\d+)$/.exec(args[1]);
+      if (page) return JSON.stringify(records.slice((Number(page[1]) - 1) * 100, Number(page[1]) * 100));
+      return JSON.stringify({ head: { sha: SHA }, base: { sha: OTHER_SHA }, changed_files: records.length });
+    };
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const [record] = await screen([readme()], { ...quiet, files: (pr, sha) => verifiedPrFiles(pr, sha, { run }), marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
   });
 });

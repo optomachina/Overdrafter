@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { DEFAULT_OWNER, DEFAULT_REPO, isValidSha, runGh } from "./lib/jev-screen-marker.mjs";
 
 export const FILES_INCOMPLETE = "files-incomplete";
+// GitHub REST diff-entry status values. Unknown values cannot prove path completeness.
+const FILE_STATUSES = new Set(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
 const validPath = (path) => typeof path === "string" && path.trim() !== "" && !path.includes("\0");
 
 function prSnapshot(pr, run, endpoint) {
@@ -15,7 +17,7 @@ function prSnapshot(pr, run, endpoint) {
 
 /** Validate rename metadata and retain both affected paths. */
 function affectedPaths(entry) {
-  if (!validPath(entry?.filename)) throw new Error(FILES_INCOMPLETE);
+  if (!validPath(entry?.filename) || !FILE_STATUSES.has(entry.status)) throw new Error(FILES_INCOMPLETE);
   if (entry.status === "renamed" || entry.status === "copied") {
     if (!validPath(entry.previous_filename) || entry.previous_filename === entry.filename) throw new Error(FILES_INCOMPLETE);
     return [entry.filename, entry.previous_filename];
