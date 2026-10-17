@@ -155,6 +155,69 @@ describe("computePatchId", () => {
   });
 });
 
+describe("computePatchId with NUL bytes", () => {
+  // git patch-id hashes each diff line with strlen(), so it ignores everything
+  // after a line's first NUL. git decides text vs binary from the first 8000
+  // bytes only, so a NUL at offset 9000 leaves the file text and --binary does
+  // not encode it: the raw NUL reaches patch-id and the payload goes unhashed.
+  const NUL_NAME = /diff contains a NUL byte, which git patch-id cannot hash/;
+  const lateNul = (payload) => Buffer.concat([Buffer.alloc(9000, 0x61), Buffer.from(`\0${payload}\n`)]);
+  const script = fileURLToPath(new URL("./emit-verdict.mjs", import.meta.url));
+
+  beforeAll(() => {
+    git("checkout", "-q", "-b", "nul-one", "main");
+    commit("nul.txt", lateNul("PAYLOAD-ONE"), "text file with a late NUL, payload one");
+    git("checkout", "-q", "-b", "nul-two", "main");
+    commit("nul.txt", lateNul("PAYLOAD-TWO"), "text file with a late NUL, payload two");
+    // NUL inside the first 8000 bytes: git classifies this as binary.
+    git("checkout", "-q", "-b", "bin-one", "main");
+    commit("early.bin", Buffer.concat([Buffer.from("head\0"), Buffer.alloc(100, 0x61), Buffer.from("ONE\n")]), "binary file, tail one");
+    git("checkout", "-q", "-b", "bin-two", "main");
+    commit("early.bin", Buffer.concat([Buffer.from("head\0"), Buffer.alloc(100, 0x61), Buffer.from("TWO\n")]), "binary file, tail two");
+    git("checkout", "-q", "main");
+  });
+
+  it("builds a fixture where git sees different text files that differ only after the NUL", () => {
+    expect(git("rev-parse", "nul-one:nul.txt")).not.toBe(git("rev-parse", "nul-two:nul.txt"));
+    // numstat prints "-\t-" for binary files; "1\t0" means git treats this one as text.
+    expect(git("diff", "--numstat", "--no-renames", "main", "nul-one")).toBe("1\t0\tnul.txt");
+    expect(git("diff", "--numstat", "--no-renames", "main", "nul-two")).toBe("1\t0\tnul.txt");
+  });
+
+  it("refuses to compute a patch_id instead of returning one id for two different diffs", () => {
+    expect(() => patchId("main", "nul-one")).toThrow(NUL_NAME);
+    expect(() => patchId("main", "nul-two")).toThrow(NUL_NAME);
+    expect(() => patchId("main", "nul-one")).toThrow(new RegExp(`${sha("main")}\\.\\.\\.${sha("nul-one")}`));
+  });
+
+  it("does not turn a NUL-free diff or a git-classified binary file into an error", () => {
+    expect(patchId("main", "feature")).toMatch(/^[0-9a-f]{40}$/);
+    expect(patchId("main", "bin-one")).toMatch(/^[0-9a-f]{40}$/);
+    expect(patchId("main", "bin-two")).toMatch(/^[0-9a-f]{40}$/);
+    expect(patchId("main", "bin-one")).not.toBe(patchId("main", "bin-two"));
+  });
+
+  it("fails buildVerdict and main() the same way, without a verdict", () => {
+    const input = { role: "verifier", verdict: "PASS", base: sha("main"), head: sha("nul-one"), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } };
+    expect(() => buildVerdict(input, { cwd: repo, now: NOW })).toThrow(NUL_NAME);
+    const run = () => main([...argsWithout("--head"), "--head", sha("nul-two")], { cwd: repo, now: NOW });
+    expect(run).toThrow(NUL_NAME);
+  });
+
+  it("exits 1 with the reason on stderr and nothing on stdout when run as a CLI", () => {
+    let result;
+    try {
+      execFileSync(process.execPath, [script, ...argsWithout("--head"), "--head", sha("nul-one")], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      result = { status: 0, stdout: "", stderr: "" };
+    } catch (error) {
+      result = { status: error.status, stdout: error.stdout, stderr: error.stderr };
+    }
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/^emit-verdict: computePatchId: [0-9a-f]{40}\.\.\.[0-9a-f]{40} diff contains a NUL byte, which git patch-id cannot hash/);
+  });
+});
+
 describe("emit -> validate round trip", () => {
   it("fills sha, patch_id and a UTC timestamp and validates", () => {
     const body = main(ARGS(), { cwd: repo, now: NOW });

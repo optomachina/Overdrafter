@@ -119,6 +119,23 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   empty diff is an error. The diff is handled as raw bytes and never decoded
   as text, so two diffs that differ only in invalid UTF-8 bytes get different
   ids.
+- A diff that contains a NUL byte is an error, never a `patch_id`.
+  `git patch-id` hashes each line with `strlen()` and stops at its first NUL,
+  so two diffs that differ only after a NUL on a line would get the same id.
+  Git decides text versus binary from the first 8000 bytes of a file (or from
+  `.gitattributes`), and `--binary` base85-encodes only files it classes as
+  binary. A text-classified file with a later NUL therefore puts a raw NUL in
+  the diff. For that input there is no byte-exact `git patch-id`, and
+  `patch_id` stays git's own value (no custom hash), so `computePatchId`
+  throws `computePatchId: <base>...<head> diff contains a NUL byte, which git
+  patch-id cannot hash ...` before it calls `git patch-id`. Real binary files
+  are unaffected: a NUL in the first 8000 bytes makes git encode the file, and
+  the encoded diff has no raw NUL.
+- Exit status: the script exits 0 after printing the comment. On any error,
+  including an empty diff or the NUL case above, it prints
+  `emit-verdict: <message>` to stderr, prints no verdict to stdout and exits
+  1; the empty-diff and NUL errors happen before anything is posted. OVD-845 must treat a throw from `computePatchId` as
+  "cannot carry this verdict over", never as a match.
 - `timestamp` is the current UTC time, to the second.
 - Reviewers add `--role reviewer --findings findings.json`. The file must hold a
   JSON array. The script tags the findings with `corroborated` before printing
@@ -206,6 +223,10 @@ cover:
   changes, including an indentation-only change or a change only in invalid
   UTF-8 bytes; the same id under different `diff.*` config (temporary git repo
   in `os.tmpdir()`);
+- NUL bytes: two commits whose text-classified files differ only after a NUL
+  past byte 8000 make `computePatchId`, `buildVerdict` and the CLI fail (exit 1,
+  nothing on stdout) instead of returning one shared id, while a NUL-free diff
+  and a git-classified binary file with an early NUL still get distinct ids;
 - `--base`/`--head`: both required; ref names (`main`, `origin/main`, `HEAD`),
   39- and 41-character hex, uppercase hex and values starting with `--` are
   refused, a valid SHA is accepted, and an unknown SHA is reported;

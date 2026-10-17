@@ -6,7 +6,9 @@
  * reviewers (role reviewer, advisory, with --findings). --base and --head are
  * required commit SHAs (the tool never resolves refs); it fills sha from head,
  * patch_id from `git patch-id --verbatim` over base...head, and a UTC
- * timestamp. Prints the comment body to stdout; it only
+ * timestamp. It exits 1 with `emit-verdict: <reason>` on stderr, and prints no
+ * verdict, on any error, including a diff with a NUL byte that git patch-id
+ * cannot hash. Prints the comment body to stdout; it only
  * posts (via `gh pr comment`) when --post and --pr are both given. Never edit a
  * posted verdict comment: edited comments are rejected, so post a new one.
  *
@@ -144,7 +146,9 @@ const PINNED_DIFF = [
  * `--verbatim` keeps whitespace, so an indentation-only change yields a new id,
  * and implies the order-independent `--stable` hashing (git rejects passing
  * both). Both ends must be full commit SHAs (checked before any git call) and
- * follow `--end-of-options`, so neither can be read as a git option.
+ * follow `--end-of-options`, so neither can be read as a git option. Throws on
+ * an empty diff and on a diff containing a NUL byte (see the guard below); the
+ * CLI reports either as `emit-verdict: <message>` on stderr and exits 1.
  */
 export function computePatchId({ base, head, cwd }) {
   const baseSha = assertSha(base, "--base");
@@ -156,6 +160,19 @@ export function computePatchId({ base, head, cwd }) {
   // Only patch-id's ASCII output is decoded.
   const diff = git([...PINNED_DIFF, "--end-of-options", `${baseSha}...${headSha}`, "--"], { cwd, encoding: "buffer" });
   if (diff.length === 0) throw new Error(`computePatchId: ${baseSha}...${headSha} has an empty diff`);
+  // git patch-id hashes every diff line with strlen(), so it silently ignores
+  // everything after the first NUL byte of a line, even for raw byte input. A
+  // file git classifies as text (no NUL in its first 8000 bytes, or marked text
+  // by .gitattributes) can still hold a later NUL, and --binary only
+  // base85-encodes files git classifies as binary. Two diffs that differ only
+  // after such a NUL would then share a patch_id, and OVD-845 would carry a
+  // verdict over to a head it never verified. There is no byte-exact patch-id
+  // for this input (and patch_id must stay git's own), so fail closed.
+  if (diff.includes(0)) {
+    throw new Error(
+      `computePatchId: ${baseSha}...${headSha} diff contains a NUL byte, which git patch-id cannot hash (it stops reading a line at the first NUL); refusing to compute a patch_id that two different diffs could share`,
+    );
+  }
   const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
   if (!SHA.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
   return patchId;
