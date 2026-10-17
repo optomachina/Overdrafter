@@ -44,7 +44,7 @@ jobs:
       - name: Provision and run separate actual retention qualification
         run: |
           set -euo pipefail
-          node -e ''
+          node scripts/ovd591-ci-fixture.mjs run-retention "$OVD591_EVIDENCE"
           if ! test -s "$OVD591_EVIDENCE/fixture-result.json" || ! jq -e '.status == "passed"' "$OVD591_EVIDENCE/fixture-result.json" > /dev/null; then
             echo "::error::SQL qualification exited successfully without a passed fixture receipt."
             exit 1

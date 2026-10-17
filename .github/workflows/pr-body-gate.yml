@@ -119,7 +119,12 @@ jobs:
           printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
           # Run from the checkout so git show reads this repository, with the
           # base copy of the scripts.
-          node -e '' | tee "$RUNNER_TEMP/pr-body-validation.log"
+          node "$RUNNER_TEMP/gate/scripts/validate-pr-body.mjs" "$RUNNER_TEMP/pr-body.md" \
+            --changed-files-from "$RUNNER_TEMP/changed-files.txt" \
+            --diff-from "$RUNNER_TEMP/pr.diff" \
+            --base-ref HEAD^1 --head-ref HEAD \
+            --skip-unless-enabling \
+            --verify-links | tee "$RUNNER_TEMP/pr-body-validation.log"
           if ! grep -Eq '^(PR body validation passed|No provider enablement or gate edit in this diff)' "$RUNNER_TEMP/pr-body-validation.log"; then
             echo "::error::PR body validator exited successfully without validation evidence."
             exit 1
