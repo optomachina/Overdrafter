@@ -132,40 +132,44 @@ function isInsideRange(ranges, index) {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
-/** Character ranges of fenced code blocks by line-based fence rules (``` and ~~~). */
-function fencedLineRanges(text) {
-  const lines = text.split("\n");
-  const flags = fencedLineFlags(lines);
-  const ranges = [];
-  let offset = 0;
-  lines.forEach((line, index) => {
-    if (flags[index]) ranges.push([offset, offset + line.length + 1]);
-    offset += line.length + 1;
-  });
-  return ranges;
-}
-
-const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/gm;
+const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/;
 
 function collectSections(body) {
   const normalizedBody = normalizeText(body);
   const fences = fencedCodeRanges(normalizedBody);
-  const lineFences = fencedLineRanges(normalizedBody);
-  const matches = [...normalizedBody.matchAll(SECTION_HEADING_LINE)].filter(
-    (match) =>
-      typeof match.index === "number" &&
-      !isInsideRange(fences, match.index) &&
-      !isInsideRange(lineFences, match.index),
-  );
-  const sections = new Map();
+  const lines = normalizedBody.split("\n");
+  const hidden = hiddenLineFlags(lines);
+  const headings = [];
+  const totals = new Map();
+  let offset = 0;
 
-  matches.forEach((match, index) => {
-    const heading = match[1].trim();
-    const start = match.index + match[0].length;
-    const end = index + 1 < matches.length ? matches[index + 1].index : normalizedBody.length;
-    const content = normalizedBody.slice(start, end).trim();
-    const key = normalizeHeading(heading);
-    sections.set(key, { heading, content, count: (sections.get(key)?.count ?? 0) + 1 });
+  lines.forEach((line, index) => {
+    const match = line.match(SECTION_HEADING_LINE);
+    // A heading after an unresolved fence still counts toward duplicates, and still
+    // splits sections so ordinary PR bodies keep working; its checkboxes stay hidden.
+    if (match && (!hidden.fenced[index] || hidden.uncertain[index])) {
+      const key = normalizeHeading(match[1]);
+      // Every heading outside a code fence counts toward duplicates, even one the
+      // splitter skips (inside an HTML comment or the legacy ``` ranges), so a
+      // second copy can never quietly stand in for the real section.
+      totals.set(key, (totals.get(key) ?? 0) + 1);
+      if (!hidden.comment[index] && !isInsideRange(fences, offset)) {
+        headings.push({ index, key, heading: match[1].trim() });
+      }
+    }
+    offset += line.length + 1;
+  });
+
+  const sections = new Map();
+  headings.forEach((entry, position) => {
+    const endLine = position + 1 < headings.length ? headings[position + 1].index : lines.length;
+    const sectionLines = lines.slice(entry.index + 1, endLine);
+    const content = sectionLines.join("\n").trim();
+    const parsedLines = sectionLines.map((line, offsetInSection) => ({
+      line,
+      hidden: hidden.fenced[entry.index + 1 + offsetInSection] || hidden.comment[entry.index + 1 + offsetInSection],
+    }));
+    sections.set(entry.key, { heading: entry.heading, content, lines: parsedLines, count: totals.get(entry.key) });
   });
 
   return sections;
@@ -385,66 +389,155 @@ export function enablesProvider(options = {}) {
 
 export const GATE_CHANGE_HEADING = "Gate change review";
 
-const FENCE_OPEN = /^([ \t]*)(`{3,}|~{3,})(.*)$/;
+// A fence opener may follow list or blockquote markers ("- ~~~", "> ```").
+const FENCE_OPEN = /^((?:[ \t]*(?:[-*+]|\d{1,9}[.)]|>)(?=[ \t]|$))*[ \t]*)(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/;
+const LIST_MARKERS = /^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+/;
+const LIST_MARKER = /([-*+]|\d{1,9}[.)])([ \t]*)/g;
 
-/**
- * Mark the lines of `lines` that sit inside a fenced code block: a fence
- * opens with 3+ backticks or tildes (a backtick fence's info string may not
- * contain a backtick), and closes with a line of the same character, at least
- * as long, with nothing after it but whitespace. An unclosed fence runs to the
- * end. Fence lines themselves count as inside.
- *
- * This errs toward fail-closed: an opener at any indent counts (CommonMark
- * allows 0-3 at top level, more inside list items), so an indented code line
- * that starts with ``` also hides what follows. A closer may be indented at
- * most 3 columns past its opener, matching CommonMark within the same container.
- */
-function indentWidth(indent) {
-  return [...indent].reduce((width, char) => (char === "\t" ? width + 4 - (width % 4) : width + 1), 0);
+function columnWidth(prefix, start = 0) {
+  return [...prefix].reduce((width, char) => (char === "\t" ? width + 4 - (width % 4) : width + 1), start) - start;
 }
 
-function fencedLineFlags(lines) {
-  const flags = [];
+/** Possible content columns of the list item(s) a line opens. */
+function listContentColumns(line) {
+  const prefix = line.match(LIST_MARKERS)?.[0];
+  if (!prefix) return [];
+  const columns = [];
+  const lead = prefix.match(/^[ \t]*/)[0];
+  let column = columnWidth(lead);
+  for (const marker of prefix.slice(lead.length).matchAll(LIST_MARKER)) {
+    const markerEnd = column + marker[1].length;
+    const spaces = columnWidth(marker[2], markerEnd);
+    // 1-4 spaces set the content column; 5+ (or none) mean one space and the rest is content.
+    columns.push(markerEnd + 1);
+    if (spaces >= 1 && spaces <= 4) columns.push(markerEnd + spaces);
+    column = markerEnd + spaces;
+  }
+  return columns;
+}
+
+/**
+ * Flag the lines a reader never sees as real checklist content: lines inside a
+ * fenced code block (``` or ~~~, fence lines included) and lines inside a
+ * multi-line HTML comment. `uncertain` marks lines after a fence whose end
+ * could not be pinned down.
+ *
+ * The scan is deliberately fail-closed: it may hide a line a reader sees (a
+ * hidden checkbox can only fail an item), but must never show a fenced one.
+ *
+ * - A fence opens on a line of 3+ backticks or tildes, at any indent and also
+ *   after list or blockquote markers (a backtick fence's info string may not
+ *   hold a backtick). An unclosed fence runs to the end.
+ * - Its container content column k is known for an opener after list markers;
+ *   otherwise k is 0 or the content column of any earlier list item at most 3
+ *   columns left of the opener. A bare marker line of the same character, at
+ *   least as long, at column d closes the fence when k <= d <= k + 3 holds for
+ *   every candidate k, ends the container and opens a new fence when d < k for
+ *   every candidate, and otherwise leaves the rest of the body uncertain
+ *   (hidden). If no candidate fits, the opener is really indented code, so
+ *   hiding until the marker line at its own column is only ever extra hiding.
+ * - A fence opened after a blockquote marker lasts until a line that does not
+ *   start with ">", which ends the blockquote.
+ * - An HTML comment opened by "<!--" outside a fence hides the following lines
+ *   until a line containing "-->".
+ */
+function hiddenLineFlags(lines) {
+  const fenced = [];
+  const comment = [];
+  const uncertain = [];
+  const listColumns = new Set([0]);
   let fence = null;
+  let inComment = false;
+  let stuck = false;
+
+  const openFence = (marker, column, prefix) => {
+    if (/>/.test(prefix)) return { marker, quote: true };
+    const afterList = LIST_MARKERS.test(prefix);
+    const candidates = afterList
+      ? [column]
+      : [...listColumns].filter((k) => k <= column && column - k <= 3);
+    return { marker, column, candidates };
+  };
 
   for (const line of lines) {
-    if (fence) {
-      flags.push(true);
+    if (stuck) {
+      fenced.push(true);
+      comment.push(false);
+      uncertain.push(true);
+      continue;
+    }
+
+    if (fence?.quote) {
+      if (/^[ \t]*>/.test(line)) {
+        fenced.push(true);
+        comment.push(false);
+        uncertain.push(false);
+        continue;
+      }
+      fence = null;
+    } else if (fence) {
+      fenced.push(true);
+      comment.push(false);
+      uncertain.push(false);
       const close = line.match(FENCE_CLOSE);
-      if (
-        close &&
-        close[2][0] === fence.marker[0] &&
-        close[2].length >= fence.marker.length &&
-        indentWidth(close[1]) <= fence.indent + 3
-      ) {
-        fence = null;
+      if (close && close[2][0] === fence.marker[0] && close[2].length >= fence.marker.length) {
+        const d = columnWidth(close[1]);
+        const { candidates } = fence;
+        if (candidates.length === 0) {
+          if (d === fence.column) fence = null;
+        } else if (d >= Math.max(...candidates) && d <= Math.min(...candidates) + 3) {
+          fence = null;
+        } else if (d < Math.min(...candidates)) {
+          fence = openFence(close[2], d, close[1]);
+        } else if (candidates.some((k) => d >= k && d <= k + 3) || candidates.some((k) => d < k)) {
+          stuck = true;
+        }
+      }
+      continue;
+    }
+
+    if (inComment) {
+      fenced.push(false);
+      comment.push(true);
+      uncertain.push(false);
+      const closeAt = line.indexOf("-->");
+      if (closeAt !== -1) {
+        inComment = line.lastIndexOf("<!--") > line.lastIndexOf("-->");
       }
       continue;
     }
 
     const open = line.match(FENCE_OPEN);
     if (open && !(open[2][0] === "`" && open[3].includes("`"))) {
-      fence = { marker: open[2], indent: indentWidth(open[1]) };
-      flags.push(true);
+      fence = openFence(open[2], columnWidth(open[1]), open[1]);
+      fenced.push(true);
+      comment.push(false);
+      uncertain.push(false);
       continue;
     }
 
-    flags.push(false);
+    for (const column of listContentColumns(line)) listColumns.add(column);
+    fenced.push(false);
+    comment.push(false);
+    uncertain.push(false);
+    const openAt = line.lastIndexOf("<!--");
+    if (openAt !== -1 && line.indexOf("-->", openAt + 4) === -1) {
+      inComment = true;
+    }
   }
 
-  return flags;
+  return { fenced, comment, uncertain };
 }
 
-function parseCheckboxLines(content) {
+/** Parse checkbox lines from a section's `lines` ({ line, hidden }) entries. */
+function parseCheckboxLines(sectionLines) {
   const boxes = [];
-  const lines = content.split("\n");
-  const fenced = fencedLineFlags(lines);
   let continuing = false;
 
-  for (const [index, line] of lines.entries()) {
-    // A checkbox shown inside a code fence is an example, never a real answer.
-    if (fenced[index]) {
+  for (const { line, hidden } of sectionLines) {
+    // A checkbox in a code fence or HTML comment is never a real answer.
+    if (hidden) {
       continuing = false;
       continue;
     }
@@ -609,7 +702,7 @@ function validateProviderGoLiveSection(body, findings) {
     errors.push(`"${PROVIDER_GO_LIVE_HEADING}" appears ${section.count} times; keep exactly one section`);
   }
 
-  const boxes = parseCheckboxLines(section.content);
+  const boxes = parseCheckboxLines(section.lines);
   if (boxes.length === 0) {
     errors.push(`add Provider go-live checkboxes to "${PROVIDER_GO_LIVE_HEADING}"`);
   }
@@ -669,7 +762,7 @@ export function collectGoLiveEvidenceLinks(body) {
 
   return [
     ...new Set(
-      parseCheckboxLines(section.content)
+      parseCheckboxLines(section.lines)
         .filter((box) => box.checked && !parseNaAnnotation(box.text))
         .flatMap((box) => extractEvidenceLinks(box.text)),
     ),

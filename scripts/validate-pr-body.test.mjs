@@ -630,6 +630,58 @@ describe("validatePrBody", () => {
       });
     });
 
+    it("counts a duplicate section even where the legacy ``` scan would hide its heading", () => {
+      const unticked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const body = `\n## Notes\n\nInline \`\`\` text\n${unticked}\n\nInline \`\`\` text\n${buildGoLiveSection()}`;
+      expect(validate(body).errors).toContain('"Provider go-live" appears 2 times; keep exactly one section');
+    });
+
+    it("hides a fence opened after a list or blockquote marker", () => {
+      for (const extra of [
+        "- ~~~\n  - [x] Envelope reviewed (automatic)\n  ~~~",
+        "1. ```\n   - [x] Envelope reviewed (automatic)\n   ```",
+        "> ~~~\n> - [x] Envelope reviewed (automatic)\n> ~~~",
+      ]) {
+        expect(validate(withExtra(extra)).errors, extra).toEqual([
+          'missing Provider go-live item "envelope reviewed (automatic)"',
+        ]);
+      }
+    });
+
+    it("keeps a list-item fence open past a less indented marker line, which opens a new fence", () => {
+      // CommonMark: the unindented ~~~ ends the list item and opens a new fence.
+      // That new fence never closes, so it also hides the rest of the section.
+      const extra = "- ~~~\n  x\n~~~\n- [x] Envelope reviewed (automatic)";
+      expect(validate(withExtra(extra)).errors).toContain('missing Provider go-live item "envelope reviewed (automatic)"');
+      const closed = "- ~~~\n  x\n~~~\n- [x] Envelope reviewed (automatic)\n~~~";
+      expect(validate(withExtra(closed)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("does not close a top-level fence on an over-indented marker line", () => {
+      const extra = "   ~~~\n      ~~~\n- [x] Envelope reviewed (automatic)\n   ~~~";
+      expect(validate(withExtra(extra)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+    });
+
+    it("hides the rest of the body when a fence end is ambiguous", () => {
+      // After "- item", a fence at column 2 could be in the list item (k=2) or top level (k=0);
+      // a closer at column 1 closes in one reading and opens a new fence in the other.
+      const extra = "- item\n\n  ~~~\n - [x] Envelope reviewed (automatic)\n ~~~\n- [x] Envelope reviewed (automatic)";
+      expect(validate(withExtra(extra)).ok).toBe(false);
+    });
+
+    it("ignores checkboxes inside a multi-line HTML comment", () => {
+      const extra = "<!--\n- [x] Envelope reviewed (automatic)\n-->";
+      expect(validate(withExtra(extra)).errors).toEqual([
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      ]);
+      const passes = validate(withExtra("<!--\n- [ ] Envelope reviewed (automatic)\n-->", {}));
+      expect(passes).toEqual({ ok: true, errors: [] });
+    });
+
     it("ignores a fake Provider go-live section inside a tilde fence", () => {
       const fake = `~~~\n## Provider go-live\n\n- [x] envelope reviewed (automatic)\n~~~`;
       const broken = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
