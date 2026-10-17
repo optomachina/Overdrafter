@@ -440,8 +440,9 @@ Any of these ends the window for the day. Blaine runs the disable in section
   solve a CAPTCHA, mimic human pacing, or retry around a block.
 - `login_required`, an anonymous session, or a 401 on the material API: stop, no
   retry, provider off for the day. Do not authenticate again on the same day.
-- Daily cap: about 20 quotes per provider per day. Count the 5 runs, the drill
-  request, and any probes. Stop at the cap.
+- Daily cap: there is no default cap (OVD-829). If an admin set a Xometry
+  daily quote cap for the window, count the 5 runs, the drill request, and any
+  probes against it, and stop at the cap.
 - Any non Xometry lane or task created, or `WORKER_LIVE_ADAPTERS` not exactly
   `xometry`.
 - Any scope fingerprint mismatch, wrong file disclosed, wrong organization

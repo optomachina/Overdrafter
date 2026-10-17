@@ -122,18 +122,33 @@ import {
 import {
   cancelVendorTaskForDisabledProvider,
   checkProviderKillSwitchAtClaim,
-  createProviderKillSwitchGuard,
-  guardProviderQuote,
+  guardProviderDispatch,
   markTaskCancelledForDisabledProvider,
-  supabaseProviderKillSwitchReader,
   failVendorResultForUnavailableKillSwitch,
+  PROVIDER_DAILY_CAP_REACHED,
   ProviderKillSwitchError,
   isProviderKillSwitchEngaged,
   providerKillSwitchSweepWarnings,
+  providerDispatchCapMode,
+  supabaseProviderSettingsPort,
   sweepProviderDisabledTasks,
-} from "./providerKillSwitch.js";
+} from "./providerSettings.js";
 import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
-import { createProviderDaySwitch, type ProviderTaskOutcome } from "./providerTaskPipeline.js";
+import {
+  createProviderDaySwitch,
+  PROVIDER_PAUSED_FIXTURE_HEAL,
+  providerPackageId,
+  type ProviderTaskOutcome,
+} from "./providerTaskPipeline.js";
+import {
+  createFixtureSanityGate,
+  failClosedSanityOutput,
+  type FixtureSanityContext,
+  type FixtureSanityGate,
+  type FixtureSanityGateResult,
+} from "./fixtureHeal/gate.js";
+import { createSupplierPauseSwitch, internalTestQuotePolicyFromEnv, isInternalTestQuote } from "./fixtureHeal/pause.js";
+import { createSupabaseSanityHistoryReader } from "./fixtureHeal/sanityHistory.js";
 import {
   preserveDerivedValiditySource,
   providerTaskFailureRecord,
@@ -148,6 +163,24 @@ import { createSupabaseProviderTaskLeasePort } from "./providerTaskLeasePort.js"
 // UTC midnight after a block or ban.
 const providerAuthorizationConsumer = createProviderAuthorizationConsumer();
 const providerDaySwitch = createProviderDaySwitch();
+/**
+ * OVD-813: process-local drift pause (no timer release; durable engage is
+ * OVD-771 / slice 2). Exported so tests and the later re-verify/heal flow can
+ * read and release it.
+ */
+export const fixtureHealSupplierPause = createSupplierPauseSwitch();
+
+function fixtureSanityGateFor(supabase: SupabaseClient): FixtureSanityGate {
+  return createFixtureSanityGate({ history: createSupabaseSanityHistoryReader(supabase), pause: fixtureHealSupplierPause });
+}
+
+/** Package identity of the staged files, matching `providerPackageId` on the generic route; null without a CAD digest. */
+function stagedPackageId(files: { cad: { trustedContentSha256?: string | null } | null; drawing: { trustedContentSha256?: string | null } | null }) {
+  const cadSha = files.cad?.trustedContentSha256;
+  if (!cadSha) return null;
+  const drawingSha = files.drawing?.trustedContentSha256;
+  return providerPackageId([{ role: "cad", sha256: cadSha }, ...(drawingSha ? [{ role: "drawing", sha256: drawingSha }] : [])]);
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1254,6 +1287,40 @@ export async function handleVendorQuoteTask(
     }
   }
 
+  // OVD-813: a supplier the sanity gate paused runs only verified internal
+  // test quotes. Checked after the kill switch, which always wins, and before
+  // anything is staged or sent.
+  const internalTestQuote = isInternalTestQuote(
+    { marker: task.payload.fixtureHeal, organizationId: task.organization_id, partId: task.part_id },
+    internalTestQuotePolicyFromEnv(process.env),
+  );
+  if (config.workerMode === "live" && !fixtureHealSupplierPause.admits(vendor, { internalTestQuote })) {
+    // Compare and set like every other terminal lane write: a lane already
+    // settled elsewhere is left as is and the task fails with a stable code.
+    const pauseWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+      status: "manual_vendor_followup",
+      notes: [`${vendor} is paused while its quoting is re-verified; manual vendor follow-up is required.`],
+      raw_payload: {
+        requiresManualVendorFollowUp: true,
+        manualFollowUpReason: PROVIDER_PAUSED_FIXTURE_HEAL,
+        failureCode: PROVIDER_PAUSED_FIXTURE_HEAL,
+        requestedQuantity: currentResult.requested_quantity,
+        retryCount,
+      },
+    });
+    if (pauseWrite !== "written") {
+      await settleUnwrittenProviderOutcome(supabase, task, pauseWrite, false);
+      return;
+    }
+    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    await markTaskCompleted(supabase, task, {
+      vendorStatus: "manual_vendor_followup",
+      manualVendor: true,
+      manualReasonCode: PROVIDER_PAUSED_FIXTURE_HEAL,
+    });
+    return;
+  }
+
   await supabase
     .from("vendor_quote_results")
     .update({
@@ -1425,6 +1492,15 @@ export async function handleVendorQuoteTask(
         failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`;
       } else {
         failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
+      }
+    } else if (dispatchAuthorizationError?.boundary === "provider_settings") {
+      // OVD-829: refused by the supplier settings gate before launch.
+      if (dispatchAuthorizationError.reasonCode === PROVIDER_DAILY_CAP_REACHED) {
+        failureNote = `${vendor} reached its daily quote cap, so nothing was sent. Manual follow-up is required.`;
+      } else if (retryAt) {
+        failureNote = `${vendor} dispatch could not be counted against its daily quote cap, so nothing was sent. Retry scheduled for ${retryAt}.`;
+      } else {
+        failureNote = `${vendor} dispatch could not be counted against its daily quote cap, so nothing was sent and automation stopped. It will not retry automatically.`;
       }
     } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
@@ -1717,11 +1793,16 @@ export async function handleVendorQuoteTask(
         // adapter.quote. Both gates must pass before any provider call; the
         // kill switch is read first, so an engaged switch ends the lane as
         // cancelled_provider_disabled even when the job is also held.
+        // OVD-829: that before-launch read is the universal supplier settings
+        // gate (kill switch, then one durable reservation against the daily
+        // cap); a spent cap ends the lane provider_daily_cap_reached.
         adapter: {
           provider: vendor,
-          quote: guardProviderQuote(
-            createProviderKillSwitchGuard(supabaseProviderKillSwitchReader(supabase), vendor),
-            async (input) => {
+          quote: guardProviderDispatch({
+            provider: vendor,
+            port: supabaseProviderSettingsPort(supabase),
+            capMode: providerDispatchCapMode(config.providerDurableDispatchCap),
+            quote: async (input) => {
               try {
                 return await exportCheckedAdapter.quote(input);
               } catch (error) {
@@ -1734,10 +1815,16 @@ export async function handleVendorQuoteTask(
                 throw error;
               }
             },
-          ),
+          }),
         },
         consumer: providerAuthorizationConsumer,
         daySwitch: providerDaySwitch,
+        // OVD-813: the sanity gate between validate and persist, and the pause
+        // rechecked at launch (another lane in this process may have paused it).
+        internalTestQuote,
+        pause: fixtureHealSupplierPause,
+        sanity: (output, sanityContext) =>
+          fixtureSanityGateFor(supabase)(output, { ...sanityContext, requirement: approvedRequirement }),
         persist: async (output) => {
           output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
           const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
@@ -1841,7 +1928,41 @@ export async function handleVendorQuoteTask(
       },
     });
 
-    result.artifacts.forEach((artifact: VendorArtifact) =>
+    // OVD-813: Xometry bypasses runProviderTaskPipeline, so the same sanity
+    // gate runs here, before finalizeVendorQuoteResult and before routing
+    // scores. Live results only; simulate output is not a supplier price.
+    // A gate that throws never lets the unchecked price through: the result is
+    // held (fixture_sanity_failed) and persisted, so the task is not retried.
+    let sanity: FixtureSanityGateResult | null = null;
+    if (config.workerMode === "live") {
+      const sanityContext: FixtureSanityContext = {
+        provider: vendor,
+        vendorQuoteResultId: currentResult.id,
+        quoteRunId: task.quote_run_id,
+        requestedQuantity: currentResult.requested_quantity,
+        requirement: context.requirement,
+        // Computed before the gate runs, so a fail-closed hold keeps the package identity too.
+        packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
+        internalTestQuote,
+      };
+      try {
+        sanity = await fixtureSanityGateFor(supabase)(result, sanityContext);
+      } catch (sanityError) {
+        console.warn(
+          JSON.stringify({
+            service: "overdrafter-cad-worker",
+            level: "warn",
+            source: "fixture_heal.sanity",
+            message: `Fixture sanity gate failed; the result is held: ${summarizeWorkerError(sanityError)}`,
+            context: { taskId: task.id, vendorQuoteResultId: currentResult.id, failureCode: "fixture_sanity_failed" },
+          }),
+        );
+        sanity = failClosedSanityOutput(result, sanityContext, new Date().toISOString());
+      }
+    }
+    const gatedResult = sanity?.output ?? result;
+
+    gatedResult.artifacts.forEach((artifact: VendorArtifact) =>
       artifactDirs.add(path.dirname(artifact.localPath)),
     );
     const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
@@ -1850,7 +1971,7 @@ export async function handleVendorQuoteTask(
       quoteRunId: task.quote_run_id,
       partId: task.part_id,
       vendor,
-      artifacts: result.artifacts,
+      artifacts: gatedResult.artifacts,
     });
 
     const offerPayloads = buildVendorQuoteOfferPayloads({
@@ -1860,23 +1981,23 @@ export async function handleVendorQuoteTask(
       requestedQuantity: currentResult.requested_quantity,
       requirement: context.requirement,
       requirementCapturedAt,
-      result,
+      result: gatedResult,
     });
 
     await finalizeVendorQuoteResult(
       supabase,
       currentResult.id,
       {
-        status: result.status,
-        unit_price_usd: result.unitPriceUsd,
-        total_price_usd: result.totalPriceUsd,
-        lead_time_business_days: result.leadTimeBusinessDays,
-        quote_url: result.quoteUrl,
-        dfm_issues: result.dfmIssues,
-        notes: result.notes,
+        status: gatedResult.status,
+        unit_price_usd: gatedResult.unitPriceUsd,
+        total_price_usd: gatedResult.totalPriceUsd,
+        lead_time_business_days: gatedResult.leadTimeBusinessDays,
+        quote_url: gatedResult.quoteUrl,
+        dfm_issues: gatedResult.dfmIssues,
+        notes: gatedResult.notes,
         raw_payload: {
-          ...result.rawPayload,
-          offers: result.offers ?? [],
+          ...gatedResult.rawPayload,
+          offers: gatedResult.offers ?? [],
           artifactStoragePaths,
           requestedQuantity: currentResult.requested_quantity,
           requirementCapturedAt,
@@ -1891,12 +2012,15 @@ export async function handleVendorQuoteTask(
     // Compute and store routing scores for this quote run.
     // This is a best-effort operation — it will only succeed once all
     // vendor quotes for the run are in a terminal state.
+    // OVD-813: a held result has no price to score, so it is skipped.
     try {
-      await computeAndStoreRoutingScores(
-        supabase,
-        task.quote_run_id,
-        task.organization_id,
-      );
+      if (!sanity?.held) {
+        await computeAndStoreRoutingScores(
+          supabase,
+          task.quote_run_id,
+          task.organization_id,
+        );
+      }
     } catch (scoringError) {
       // Non-fatal: do not fail the task if scoring fails
       console.warn(
@@ -1914,7 +2038,7 @@ export async function handleVendorQuoteTask(
 
     if (requestStatusAfterResult === "canceled") {
       await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-          vendorStatus: result.status,
+          vendorStatus: gatedResult.status,
         artifactCount: artifactStoragePaths.length,
         ignoredDueToCanceledRequest: true,
       });
@@ -1923,7 +2047,7 @@ export async function handleVendorQuoteTask(
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
-      vendorStatus: result.status,
+      vendorStatus: gatedResult.status,
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
@@ -2159,7 +2283,8 @@ async function recordGenericProviderOutcome(
   if (!jobId || !quoteRunId) throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
   if (outcome.disposition === "persisted") {
     try {
-      await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
+      // OVD-813: a result the sanity gate held carries no price to score.
+      if (!outcome.persisted?.held) await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
     } catch (scoringError) {
       console.warn(
         JSON.stringify({

@@ -694,6 +694,12 @@ SUPABASE_URL=https://your-project.supabase.co \
 ./scripts/deploy-cloud-run.sh
 ```
 
+For a staging worker against the staging Supabase project, set
+`OVERDRAFTER_DEPLOY_ENV=staging` with `WORKER_MODE=simulate` and a
+`SERVICE_NAME` and secret names ending in `-staging`; the script refuses live
+mode and any other name. See
+[docs/staging-env-wiring.md](../docs/staging-env-wiring.md).
+
 To inject a provider key from Secret Manager, add either
 `OPENAI_API_KEY_SECRET_NAME=openai-api-key` or
 `ANTHROPIC_API_KEY_SECRET_NAME=anthropic-api-key`. Production deployments

@@ -26,6 +26,7 @@ import { createProviderMutationPhase } from "./providerMutationPhase";
 import type { QueueTaskRecord, VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 import { failureCodeForError, isRetryableVendorTaskError } from "./vendorTaskRetry";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 /**
  * In-memory stand-in for private.provider_kill_switches and
@@ -82,6 +83,9 @@ function fakeSupabase(
     if (name === PROVIDER_KILL_SWITCH_RPC) {
       return { data: store.state(args.p_provider as VendorName), error: null };
     }
+    if (name === "api_worker_reserve_provider_dispatch") {
+      return { data: providerDispatchReservation(args.p_provider), error: null };
+    }
     if (name === "api_authorize_xometry_beta_worker_dispatch" || name === "api_authorize_provider_worker_dispatch") {
       options.onPreflight?.();
       return { data: options.preflight ?? xometryAuthorized, error: null };
@@ -99,7 +103,7 @@ function routedRun(
 ) {
   return quoteWithRoutedDispatchPreflight({
     supabase,
-    config: { workerMode: "live", workerName: "worker-1" },
+    config: { workerMode: "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
     task: { id: "00000000-0000-4000-8000-000000000001", payload: {} },
     vendorQuoteResultId: "00000000-0000-4000-8000-000000000002",
     claimedAt: "2026-10-11T12:00:00.000Z",
@@ -338,7 +342,7 @@ describe("server preflight denial is terminal (OVD-722)", () => {
     const quote = vi.fn();
     const error = await quoteWithRoutedDispatchPreflight({
       supabase: client,
-      config: { workerMode: "live", workerName: "worker-1" },
+      config: { workerMode: "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
       task: { id: "00000000-0000-4000-8000-000000000001", payload: {
         providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c",
         providerDispatchEnvelopeRevision: "fictiv-quote-envelope.v1",

@@ -1,0 +1,12 @@
+{
+  "action": "edited",
+  "number": 4242,
+  "pull_request": {
+    "number": 4242,
+    "draft": false,
+    "body": "## Summary\n\nFixture PR.\n\n## Proof\n\n- Command: npx vitest run scripts/proof-check.test.mjs\n  ```text\n  Test Files  1 passed (1)\n  ```\n- Screenshot: ![quote table](https://github.com/user-attachments/assets/fixture.png)\n\n## Tests\n\nNone.\n",
+    "base": { "sha": "0000000000000000000000000000000000000001", "ref": "main" },
+    "head": { "sha": "0000000000000000000000000000000000000002", "ref": "fixture" }
+  },
+  "repository": { "full_name": "optomachina/Overdrafter" }
+}

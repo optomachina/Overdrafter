@@ -1,0 +1,37 @@
+# OVD-858: weekly read-only drift report for the verify-overdrafter feature map.
+# It only runs the detector and uploads its report; the maintain-verification-skill
+# agent run that may open a PR is in docs/runbooks/verify-skill-maintenance.md.
+# Exit 1 (drift) fails the run on purpose so the weekly signal is visible.
+name: Verify skill drift
+on:
+  schedule:
+    - cron: '17 14 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verify-skill-drift
+  cancel-in-progress: true
+jobs:
+  drift-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Detect feature-map drift
+        run: node scripts/verify-skill-drift.mjs --json verify-skill-drift.json --markdown verify-skill-drift.md
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-skill-drift
+          path: |
+            verify-skill-drift.json
+            verify-skill-drift.md
+          if-no-files-found: ignore
+          retention-days: 30

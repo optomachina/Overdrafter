@@ -1,5 +1,10 @@
 -- OVD-678 durable per provider daily quote cap: DRAFT ONLY. Not a migration.
 --
+-- SUPERSEDED by docs/migration-drafts/ovd-828-s1.sql (OVD-829): the cap is
+-- per-supplier data with no default (null = unlimited), and the RMFG
+-- in-process cap of 20 described below has been removed from the worker. Do
+-- not apply this draft; it is kept as history only.
+--
 -- Do not copy into supabase/migrations/ or apply to any hosted project without
 -- its own review and Blaine's approval. No CI test runs this draft yet.
 --

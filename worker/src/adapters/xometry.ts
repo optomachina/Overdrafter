@@ -55,6 +55,7 @@ import type {
   ProviderUploadCapabilityDecision,
   ProviderUploadCapabilityObserved,
 } from "../providerUploadCapabilityTypes.js";
+import { uploadCapabilityAllowsStagedExtensions } from "../providerUploadCapability.js";
 import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
@@ -1607,11 +1608,6 @@ type UploadCapabilityGate = {
     | undefined;
 };
 
-const PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS: ReadonlySet<string> = new Set([
-  "matches_policy",
-  "reviewed_missing_accept_xometry",
-]);
-
 function buildUploadCapabilityObservation(
   target: ApprovedUploadTarget,
   observedAccept: string | null,
@@ -1649,7 +1645,9 @@ function buildUploadCapabilityObservation(
  * OVD-414: re-resolves the shared capability decision right before file
  * selection. Anything but a passing classification that covers every staged
  * extension, including a missing or throwing checkpoint, selects no files.
- * Only the classification is carried in the denial, never provider evidence.
+ * OVD-863: format drift passes when every staged extension is in admission ∩
+ * live accept list, and is logged. Only the classification is carried in the
+ * denial, never provider evidence.
  */
 async function assertUploadCapabilityAllowsSelection(
   page: Page,
@@ -1680,14 +1678,30 @@ async function assertUploadCapabilityAllowsSelection(
   } catch {
     return deny("decision_unavailable");
   }
-  if (!PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS.has(decision?.classification)) {
-    return deny(String(decision?.classification ?? "decision_malformed").slice(0, 64));
-  }
-  const allowed = new Set(decision.allowedExtensions ?? []);
-  const permitsEveryFile = filePaths.every((filePath) =>
-    allowed.has(path.extname(filePath).toLocaleLowerCase().replace(/^\./, "")),
+  const verdict = uploadCapabilityAllowsStagedExtensions(
+    decision,
+    filePaths.map((filePath) => path.extname(filePath)),
   );
-  if (!permitsEveryFile) deny("extension_not_allowed");
+  if (!verdict.allowed) return deny(verdict.reason.slice(0, 64));
+  if (verdict.drift) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.upload_capability_format_drift",
+        message: "Xometry's live accept list drifted from admission; staged files remain within the admitted intersection.",
+        context: {
+          vendor: "xometry",
+          classification: decision.classification,
+          allowedExtensions: decision.allowedExtensions,
+          reportedAddedExtensions: decision.reportedAddedExtensions,
+          reportedRemovedExtensions: decision.reportedRemovedExtensions,
+          route: classifyXometryRoute(page.url()),
+          stateId: target.stateId,
+        },
+      }),
+    );
+  }
 }
 
 async function setFilesOnApprovedUploadTarget(

@@ -13,7 +13,10 @@ const stubs: Record<string, string> = {
   "@/components/admin/ManualQuoteRequestInbox": "import React from 'react'; export const ManualQuoteRequestInbox=()=>React.createElement('h2',null,'Synthetic manual inbox');",
   "@/components/admin/FoundingBetaEnrollmentCard": "import React from 'react'; export const FoundingBetaEnrollmentCard=()=>React.createElement('h2',null,'Synthetic enrollment');",
   "@/components/admin/SpendCapCard": "import React from 'react'; export const SpendCapCard=()=>React.createElement('h2',null,'Synthetic spend');",
-  "@/integrations/supabase/client": "export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'synthetic-admin-token',user:{id:'synthetic-admin'}}},error:null})}};",
+  // RPCs post to a same-origin synthetic path so a spec can intercept them with page.route; anything unrouted answers an error.
+  "@/integrations/supabase/client": "export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'synthetic-admin-token',user:{id:'synthetic-admin'}}},error:null})},rpc:async(fn,args)=>{try{const r=await fetch('/synthetic-rpc/'+fn,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(args??{})});const body=await r.json();return r.ok?{data:body,error:null}:{data:null,error:body};}catch{return {data:null,error:{message:'synthetic rpc unavailable'}};}}};",
+  // The synthetic admin session is already AAL2, so admin writes go straight to the RPC.
+  "@/features/auth/mfa-api": "export * from '/src/features/auth/mfa-api.ts'; export const hasAal2Session=async()=>true;",
 };
 export default defineConfig({
   root: path.resolve(import.meta.dirname, ".."),

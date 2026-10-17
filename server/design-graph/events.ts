@@ -22,6 +22,21 @@ export type SkipCause = (typeof SKIP_CAUSES)[number];
 export const ERROR_CODES = ["agent_not_enabled", "no_agent", "agent_failed", "verify_failed", "internal_error"] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+// Every control kind the API names; slice 1 applies only ACTIVE_CONTROL_KINDS.
+export const CONTROL_KINDS = ["pause", "resume", "steer", "cancel"] as const;
+export type ControlKind = (typeof CONTROL_KINDS)[number];
+
+export const ACTIVE_CONTROL_KINDS = ["pause", "cancel"] as const;
+export type ActiveControlKind = (typeof ACTIVE_CONTROL_KINDS)[number];
+
+// Where a control command took effect: between nodes, at an agent's ctx.checkpoint(),
+// or while the run was waiting on a decision.
+export const CHECKPOINT_KINDS = ["node_boundary", "agent", "decision"] as const;
+export type CheckpointKind = (typeof CHECKPOINT_KINDS)[number];
+
+export const CONTROL_REJECT_REASONS = ["terminal", "duplicate", "cancel_pending", "superseded"] as const;
+export type ControlRejectReason = (typeof CONTROL_REJECT_REASONS)[number];
+
 export interface EventEnvelope {
   runId: string;
   seq: number;
@@ -93,13 +108,45 @@ export interface ErrorEvent extends EventEnvelope {
   agentId?: DomainId;
 }
 
+export interface ControlRequestedEvent extends EventEnvelope {
+  type: "control_requested";
+  commandId: string;
+  nodeId: NodeId;
+  kind: ActiveControlKind;
+  actorId: string;
+  idempotencyKey: string;
+}
+
+export type ControlAppliedEvent = EventEnvelope & {
+  type: "control_applied";
+  commandId: string;
+  nodeId: NodeId;
+  checkpoint: CheckpointKind;
+} & ({ kind: "pause"; state: "paused" } | { kind: "cancel"; state: "cancelled"; kept: ResultArtifactRef[] });
+
+export interface ControlRejectedEvent extends EventEnvelope {
+  type: "control_rejected";
+  commandId: string;
+  nodeId: NodeId;
+  kind: ActiveControlKind;
+  reason: ControlRejectReason;
+}
+
 export type DesignGraphEvent =
   | StatusEvent
   | DecisionRequestedEvent
   | DecisionResolvedEvent
   | ArtifactEvent
   | ResultEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | ControlRequestedEvent
+  | ControlAppliedEvent
+  | ControlRejectedEvent;
+
+export const CONTROL_EVENT_TYPES = ["control_requested", "control_applied", "control_rejected"] as const;
+
+export const isControlEventType = (type: unknown): boolean =>
+  typeof type === "string" && (CONTROL_EVENT_TYPES as readonly string[]).includes(type);
 
 export type DesignGraphEventType = DesignGraphEvent["type"];
 
@@ -204,6 +251,37 @@ function validateBody(event: Rec, errors: string[]) {
       requireEnum(event, "code", ERROR_CODES, errors);
       requireString(event, "message", errors);
       if (event.agentId !== undefined) requireEnum(event, "agentId", DOMAIN_IDS, errors);
+      return;
+    case "control_requested":
+      requireString(event, "commandId", errors);
+      requireEnum(event, "nodeId", NODE_IDS, errors);
+      requireEnum(event, "kind", ACTIVE_CONTROL_KINDS, errors);
+      requireString(event, "actorId", errors);
+      requireString(event, "idempotencyKey", errors);
+      return;
+    case "control_applied":
+      requireString(event, "commandId", errors);
+      requireEnum(event, "nodeId", NODE_IDS, errors);
+      requireEnum(event, "checkpoint", CHECKPOINT_KINDS, errors);
+      if (event.kind === "pause") {
+        if (event.state !== "paused") errors.push("state must be paused when kind is pause");
+        if ("kept" in event) errors.push("kept is only allowed when kind is cancel");
+      } else if (event.kind === "cancel") {
+        if (event.state !== "cancelled") errors.push("state must be cancelled when kind is cancel");
+        if (!Array.isArray(event.kept)) {
+          errors.push("kept must be an array");
+        } else {
+          event.kept.forEach((ref, index) => validateArtifactRef(ref, `kept[${index}]`, errors));
+        }
+      } else {
+        errors.push(`kind must be one of ${ACTIVE_CONTROL_KINDS.join("|")}`);
+      }
+      return;
+    case "control_rejected":
+      requireString(event, "commandId", errors);
+      requireEnum(event, "nodeId", NODE_IDS, errors);
+      requireEnum(event, "kind", ACTIVE_CONTROL_KINDS, errors);
+      requireEnum(event, "reason", CONTROL_REJECT_REASONS, errors);
       return;
     default:
       errors.push(`unknown event type: ${String(event.type)}`);

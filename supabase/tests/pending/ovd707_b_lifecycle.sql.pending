@@ -1,0 +1,661 @@
+-- OVD-707 (group b): providers as data, lifecycle, four-eyes, audit and the
+-- service read.
+--
+-- Targets the drafts docs/migration-drafts/ovd-707-a.sql and
+-- docs/migration-drafts/ovd-707-b-seed.sql.
+-- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
+-- file carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the drafts are promoted and this file
+-- is renamed to supabase/tests/ovd707_b_lifecycle.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers:
+--   * draft -> pending_review -> approved -> active, suspend/resume, reopen,
+--     reject back to draft, retire; invalid transitions are refused
+--   * four-eyes: approval, dry-run recording and activation by any contributor
+--     (editor or submitter) refused, and activation by the dry-run recorder
+--     refused (42501 four_eyes_required); the single-admin override needs
+--     Blaine (the only override-listed email) and a reason, and is audited;
+--     suspend stays single-admin, even for a contributor
+--   * activation needs the OVD-723 export fields and a dry-run pass for the
+--     current version
+--   * input validation: credential_ref is a secret name, admission shape
+--   * every successful transition writes exactly one audit row (actor, action)
+--   * audit log, revisions and definitions are append-only / never deleted
+--   * the service read returns only active rows and kill switches win
+--   * the registry seed: only liveAdapter: true providers, all approved and
+--     none active, and an override list holding only Blaine
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(104);
+
+create function pg_temp.ovd707b_as(p_user_id uuid)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', 'authenticated', 'aal', 'aal2')::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+-- "<audit rows for the provider>:<latest action>:<latest actor>"
+create function pg_temp.ovd707b_audit(p_slug text)
+returns text
+language sql
+set search_path = pg_catalog
+as $$
+  select pg_catalog.count(*)::text || ':'
+    || coalesce((select a2.action || ':' || a2.actor from private.provider_audit_log a2
+                 where a2.provider_id = d.id order by a2.id desc limit 1), '')
+  from private.provider_definitions d
+  join private.provider_audit_log a on a.provider_id = d.id
+  where d.slug = p_slug
+  group by d.id;
+$$;
+
+-- Definer so the authenticated test calls can name a definition by slug.
+create function pg_temp.ovd707b_id(p_slug text)
+returns uuid
+language sql
+security definer
+set search_path = pg_catalog
+as $$ select d.id from private.provider_definitions d where d.slug = p_slug; $$;
+
+create function pg_temp.ovd707b_active_slugs()
+returns setof text
+language sql
+set search_path = pg_catalog
+as $$
+  select p ->> 'slug'
+  from pg_catalog.jsonb_array_elements(public.api_service_list_active_provider_definitions() -> 'providers') p;
+$$;
+
+grant execute on function pg_temp.ovd707b_as(uuid) to authenticated, service_role;
+grant execute on function pg_temp.ovd707b_id(text) to authenticated, service_role;
+grant execute on function pg_temp.ovd707b_active_slugs() to service_role;
+
+-- a: proposer. b: second admin. c: third admin. o: Blaine, the only
+-- override-listed email (the draft seeds it; this file adds no override row).
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000707b01', 'authenticated', 'authenticated', 'ovd707b-a@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000707b02', 'authenticated', 'authenticated', 'ovd707b-b@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000707b03', 'authenticated', 'authenticated', 'blaineswilson@gmail.com', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000707b04', 'authenticated', 'authenticated', 'ovd707b-c@example.test', pg_catalog.now());
+insert into private.platform_admin_emails (email) values
+  ('ovd707b-a@example.test'), ('ovd707b-b@example.test'), ('blaineswilson@gmail.com'), ('ovd707b-c@example.test')
+on conflict do nothing;
+
+-- ---------------------------------------------------------------------
+-- Seed and override list (6)
+-- ---------------------------------------------------------------------
+create temporary table ovd707b_seeded on commit drop as
+  select d.* from private.provider_definitions d
+  where exists (select 1 from private.provider_audit_log a where a.provider_id = d.id and a.action = 'seed');
+
+select set_eq(
+  $$ select slug from ovd707b_seeded $$,
+  array['fictiv', 'quickparts', 'weerg', 'xometry'],
+  'the seed holds exactly the four liveAdapter: true registry providers');
+select is_empty(
+  $$ select slug from ovd707b_seeded where admission -> 'liveAdapter' is distinct from 'true'::jsonb $$,
+  'no non-live registry entry is seeded');
+select is_empty(
+  $$ select slug from ovd707b_seeded
+     where not (status = 'approved' and version = 1 and approved_revision_id is not null
+       and dry_run_passed_version is null and dry_run_recorded_by is null
+       and export_controlled_allowed = false) $$,
+  'every seeded provider is approved version 1 with no dry run; none is active');
+select ok(
+  (select d.export_jurisdiction = 'foreign' and d.quote_currency = 'EUR'
+     and d.admission ->> 'egress' = 'stable_nat' and d.credential_ref = 'WEERG_STORAGE_STATE_SECRET_NAME'
+   from private.provider_definitions d where d.slug = 'weerg'),
+  'the weerg seed row carries its registry entry, foreign jurisdiction and EUR');
+select is(
+  (select pg_catalog.array_agg(email) from private.provider_definition_override_emails),
+  array['blaineswilson@gmail.com'],
+  'the override list holds exactly one row: Blaine');
+
+set local role service_role;
+select is(
+  pg_catalog.jsonb_array_length(public.api_service_list_active_provider_definitions() -> 'providers'),
+  0, 'nothing is served until a live provider is activated');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Create and input validation (8)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+
+select is(
+  public.api_admin_create_provider_definition('ovdlifea',
+    '{"displayName": "OVD-707 Life A", "kind": "portal", "hostAllowlist": ["life-a.example.test"],
+      "admission": {"key": "ovdlifea", "liveAdapter": false, "sessionSecrets": [], "egress": "none"},
+      "credentialRef": "OVDLIFEA_SESSION_SECRET_NAME"}',
+    'OVD-707 test: create life A') ->> 'status',
+  'draft', 'create makes a draft');
+
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual", "credentialRef": "sk_live_51HxQabcdefghijklmnop",
+      "admission": {"key": "ovdlifeb", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: secret value')$$,
+  '23514', null, 'a credential_ref that looks like a secret value is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual",
+      "admission": {"key": "someoneelse", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: key mismatch')$$,
+  '23514', null, 'an admission key that differs from the slug is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual",
+      "admission": {"key": "ovdlifeb", "liveAdapter": true, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: live without secret')$$,
+  '23514', null, 'a live admission without a required secret or justification is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual", "admission": {"key": "ovdlifeb", "liveAdapter": false,
+      "sessionSecrets": [{"secretNameEnv": "OVD_TOKEN", "requiredWhenListed": true}], "egress": "none"}}',
+    'OVD-707 test: bad secret name')$$,
+  '23514', null, 'a session secret env name not ending in _SECRET_NAME is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual", "apiKey": "x",
+      "admission": {"key": "ovdlifeb", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: unknown key')$$,
+  '22023', 'definition_unknown_key', 'an unknown definition key is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('ovdlifeb',
+    '{"displayName": "B", "kind": "manual",
+      "admission": {"key": "ovdlifeb", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'short')$$,
+  '22023', 'reason_required_min_10_chars', 'a short reason is refused');
+select throws_ok(
+  $$select public.api_admin_create_provider_definition('xometry',
+    '{"displayName": "dup", "kind": "manual",
+      "admission": {"key": "xometry", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: duplicate slug')$$,
+  '23505', null, 'a duplicate slug is refused');
+reset role;
+
+select is(pg_temp.ovd707b_audit('ovdlifea'), '1:create:00000000-0000-4000-8000-000000707b01',
+  'create wrote exactly one audit row, by the caller');
+
+-- ---------------------------------------------------------------------
+-- Invalid transitions from draft (5)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: approve a draft')$$,
+  'P0001', 'invalid_provider_transition', 'approve is refused from draft');
+select throws_ok(
+  $$select public.api_admin_reject_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: reject a draft')$$,
+  'P0001', 'invalid_provider_transition', 'reject is refused from draft');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: activate a draft')$$,
+  'P0001', 'invalid_provider_transition', 'activate is refused from draft');
+select throws_ok(
+  $$select public.api_admin_suspend_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: suspend a draft')$$,
+  'P0001', 'invalid_provider_transition', 'suspend is refused from draft');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifea'), true, 'run-1', 'OVD-707 test: dry run a draft')$$,
+  'P0001', 'invalid_provider_transition', 'record_dry_run is refused from draft');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Submit, four-eyes refusals, reject (8)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: submit v1') ->> 'status',
+  'pending_review', 'submit moves draft to pending_review');
+select throws_ok(
+  $$select public.api_admin_update_provider_definition_draft(pg_temp.ovd707b_id('ovdlifea'),
+    '{"displayName": "edit", "kind": "manual", "admission": {"key": "ovdlifea", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: edit while pending')$$,
+  'P0001', 'invalid_provider_transition', 'a pending definition cannot be edited');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: self approve')$$,
+  '42501', 'four_eyes_required', 'the proposer cannot approve their own revision');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: self approve with override', true)$$,
+  '42501', 'four_eyes_override_not_permitted', 'an admin outside the override list cannot self-approve with the override');
+reset role;
+
+select is(pg_temp.ovd707b_audit('ovdlifea'), '2:submit:00000000-0000-4000-8000-000000707b01',
+  'submit wrote exactly one audit row and the refusals wrote none');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_reject_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: reject v1') ->> 'status',
+  'draft', 'reject returns the definition to draft');
+reset role;
+
+select is(pg_temp.ovd707b_audit('ovdlifea'), '3:reject:00000000-0000-4000-8000-000000707b02',
+  'reject wrote exactly one audit row');
+select is(
+  (select r.decision || ':' || r.version from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifea')),
+  'rejected:1', 'the rejected revision is kept, decided');
+
+-- ---------------------------------------------------------------------
+-- Resubmit, approve by a second admin, activation gates (12)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: submit v2') ->> 'status',
+  'pending_review', 'resubmit after reject');
+
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: needless override', true)$$,
+  '22023', 'four_eyes_override_not_needed', 'a second admin cannot mark a normal approval as an override');
+select is(
+  public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: approve v2') ->> 'version',
+  '2', 'a second admin approves; the definition carries version 2');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: activate without export fields')$$,
+  'P0001', 'export_control_fields_required', 'activation needs the export-control fields');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifea'), true, '  ', 'OVD-707 test: no evidence')$$,
+  '22023', 'dry_run_evidence_required', 'a dry-run result needs an evidence reference');
+
+-- Back to draft to add the export fields.
+select is(
+  public.api_admin_reopen_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: reopen for export fields') ->> 'status',
+  'draft', 'reopen moves approved back to draft');
+select throws_ok(
+  $$select public.api_admin_update_provider_definition_draft(pg_temp.ovd707b_id('ovdlifea'),
+    '{"displayName": "OVD-707 Life A", "kind": "portal", "hostAllowlist": ["life-a.example.test"],
+      "admission": {"key": "ovdlifea", "liveAdapter": false, "sessionSecrets": [], "egress": "none"},
+      "exportJurisdiction": "foreign", "exportControlledAllowed": true}',
+    'OVD-707 test: foreign controlled')$$,
+  '23514', null, 'a foreign provider may not accept export-controlled parts');
+select is(
+  public.api_admin_update_provider_definition_draft(pg_temp.ovd707b_id('ovdlifea'),
+    '{"displayName": "OVD-707 Life A", "kind": "portal", "hostAllowlist": ["life-a.example.test"],
+      "admission": {"key": "ovdlifea", "liveAdapter": false, "sessionSecrets": [], "egress": "none"},
+      "credentialRef": "OVDLIFEA_SESSION_SECRET_NAME", "exportJurisdiction": "us", "exportControlledAllowed": false}',
+    'OVD-707 test: add export fields') ->> 'exportJurisdiction',
+  'us', 'the draft takes the export-control fields');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: submit v3') ->> 'status',
+  'pending_review', 'b submits v3');
+
+-- Four-eyes follows the revision's contributors: b edited and submitted v3,
+-- so b cannot approve it. a created the definition, but before the v2
+-- approval, so a is not a v3 contributor and can.
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: self approve v3')$$,
+  '42501', 'four_eyes_required', 'b cannot approve the revision b proposed');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: approve v3') ->> 'version',
+  '3', 'a approves v3');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: activate without dry run')$$,
+  'P0001', 'dry_run_required', 'activation needs a dry-run pass for the current version');
+reset role;
+
+select is(pg_temp.ovd707b_audit('ovdlifea'), '9:approve:00000000-0000-4000-8000-000000707b01',
+  'nine successful transitions wrote nine audit rows; the latest is a''s approval');
+
+-- ---------------------------------------------------------------------
+-- Dry run and activate four-eyes, suspend, resume (15)
+-- ---------------------------------------------------------------------
+-- v3's only contributor is b. c records the dry run, so a must activate.
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifea'), true, 'ovd707-test-run-b',
+    'OVD-707 test: contributor records dry run')$$,
+  '42501', 'four_eyes_required', 'a contributor to the revision cannot record its dry run');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifea'), true, 'ovd707-test-run-b',
+    'OVD-707 test: contributor records dry run with override', true)$$,
+  '42501', 'four_eyes_override_not_permitted', 'an admin outside the override list cannot record their own dry run with the override');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b04');
+select is(
+  public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifea'), true, 'ovd707-test-run-1',
+    'OVD-707 test: dry run passed') ->> 'dryRunPassedVersion',
+  '3', 'a non-contributor records a passing dry run against version 3');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: recorder activates')$$,
+  '42501', 'four_eyes_required', 'the dry-run recorder cannot activate');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: contributor activates')$$,
+  '42501', 'four_eyes_required', 'a contributor to the revision cannot activate');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: contributor activates with override', true)$$,
+  '42501', 'four_eyes_override_not_permitted', 'an admin outside the override list cannot activate with the override');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: activate v3') ->> 'status',
+  'active', 'a third admin, neither contributor nor recorder, activates once the gates are met');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: activate twice')$$,
+  'P0001', 'invalid_provider_transition', 'activate is refused from active');
+select throws_ok(
+  $$select public.api_admin_reopen_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: reopen active')$$,
+  'P0001', 'invalid_provider_transition', 'reopen is refused from active');
+reset role;
+select ok(
+  pg_temp.ovd707b_audit('ovdlifea') = '11:activate:00000000-0000-4000-8000-000000707b01'
+    and (select d.dry_run_recorded_by = '00000000-0000-4000-8000-000000707b04'
+         from private.provider_definitions d where d.slug = 'ovdlifea')
+    and exists (select 1 from private.provider_audit_log a
+                where a.provider_id = pg_temp.ovd707b_id('ovdlifea') and a.action = 'record_dry_run'
+                  and a.actor = '00000000-0000-4000-8000-000000707b04'),
+  'dry run and activate wrote one audit row each; the recorder is stored; refusals wrote none');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_suspend_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: suspend') ->> 'status',
+  'suspended', 'suspend is single-admin: a contributor alone can switch the provider off');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b04');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: recorder resumes')$$,
+  '42501', 'four_eyes_required', 'resuming is an activation: the dry-run recorder cannot resume');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: resume') ->> 'status',
+  'active', 'suspended -> active (resume) keeps the passing dry run for the same version');
+reset role;
+select is(pg_temp.ovd707b_audit('ovdlifea'), '13:activate:00000000-0000-4000-8000-000000707b01',
+  'suspend and resume wrote one audit row each');
+select is_empty(
+  $$ select d.slug from private.provider_definitions d
+     where d.approved_revision_id is not null
+       and not exists (select 1 from private.provider_definition_revisions r
+                       where r.id = d.approved_revision_id and r.definition_id = d.id
+                         and r.decision = 'approved' and r.version = d.version) $$,
+  'every live row points only at an approved revision of its own, at its version');
+
+-- ---------------------------------------------------------------------
+-- Activating the seeded live providers (the promotion runbook path),
+-- Blaine's activation override (9)
+-- ---------------------------------------------------------------------
+-- The seed revisions have no contributors, so any admin may record the dry
+-- run; a different admin activates.
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('xometry'), true, 'ovd707-test-xometry-run',
+    'OVD-707 test: xometry dry run') ->> 'dryRunPassedVersion',
+  '1', 'a real dry run is recorded for a seeded live provider');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('xometry'), 'OVD-707 test: activate xometry') ->> 'status',
+  'active', 'a second admin activates the seeded provider');
+
+-- Blaine alone: records the dry run, then activates through the override.
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b03');
+select is(
+  public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('fictiv'), true, 'ovd707-test-fictiv-run',
+    'OVD-707 test: fictiv dry run') ->> 'dryRunPassedVersion',
+  '1', 'Blaine records the fictiv dry run');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('fictiv'), 'OVD-707 test: Blaine activates own dry run')$$,
+  '42501', 'four_eyes_required', 'even Blaine cannot activate their own dry run without the override');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('fictiv'), 'too short', true)$$,
+  '22023', 'reason_required_min_10_chars', 'the activation override needs a reason of at least 10 characters');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('fictiv'),
+    'OVD-707 test: single-admin activation override, no second admin', true) ->> 'status',
+  'active', 'Blaine at AAL2 activates through the override with a reason');
+
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('quickparts'), true, 'ovd707-test-quickparts-run',
+    'OVD-707 test: quickparts dry run') ->> 'dryRunPassedVersion',
+  '1', 'a dry run is recorded for quickparts');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b04');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('quickparts'), 'OVD-707 test: activate quickparts') ->> 'status',
+  'active', 'quickparts is activated by a second admin');
+select is(
+  public.api_admin_suspend_provider_definition(pg_temp.ovd707b_id('quickparts'), 'OVD-707 test: suspend a seeded provider') ->> 'status',
+  'suspended', 'a seeded active provider can be suspended by one admin');
+reset role;
+
+select ok(
+  pg_temp.ovd707b_audit('fictiv') = '3:activate_override:00000000-0000-4000-8000-000000707b03'
+    and (select a.reason = 'OVD-707 test: single-admin activation override, no second admin'
+           and (a.after ->> 'status') = 'active'
+         from private.provider_audit_log a
+         where a.provider_id = pg_temp.ovd707b_id('fictiv') and a.action = 'activate_override'),
+  'the activation override wrote one activate_override audit row with its reason');
+
+-- ---------------------------------------------------------------------
+-- Service read: active only, kill switches win (6)
+-- ---------------------------------------------------------------------
+
+create temporary table ovd707b_expected_active on commit drop as
+  select d.slug from private.provider_definitions d
+  where d.status = 'active' and d.slug = any (pg_catalog.enum_range(null::public.vendor_name)::text[]);
+grant select on ovd707b_expected_active to service_role;
+
+set local role service_role;
+select set_eq(
+  $$ select * from pg_temp.ovd707b_active_slugs() $$,
+  $$ select slug from ovd707b_expected_active $$,
+  'service_role sees exactly the active definitions whose kill switch is released');
+reset role;
+select is_empty(
+  $$ select s from pg_temp.ovd707b_active_slugs() s
+     join private.provider_definitions d on d.slug = s where d.status <> 'active' $$,
+  'the service read never returns a draft, pending, approved, suspended or retired row');
+select ok(
+  not exists (select 1 from pg_temp.ovd707b_active_slugs() s where s in ('quickparts', 'weerg', 'ovdlifea'))
+    and exists (select 1 from pg_temp.ovd707b_active_slugs() s where s = 'fictiv'),
+  'a suspended provider, a seeded provider never activated, and an active slug with no kill switch row (fail closed) are left out');
+
+update private.provider_kill_switches set engaged = true where provider = 'fictiv';
+set local role service_role;
+select ok(
+  not exists (select 1 from pg_temp.ovd707b_active_slugs() s where s = 'fictiv')
+    and exists (select 1 from pg_temp.ovd707b_active_slugs() s where s = 'xometry'),
+  'an engaged provider kill switch removes that active provider from the service read');
+reset role;
+
+update private.provider_global_kill_switch set engaged = true where singleton;
+set local role service_role;
+select is(
+  pg_catalog.jsonb_array_length(public.api_service_list_active_provider_definitions() -> 'providers'),
+  0, 'the engaged global kill switch empties the service read');
+reset role;
+update private.provider_global_kill_switch set engaged = false where singleton;
+update private.provider_kill_switches set engaged = false where provider = 'fictiv';
+
+select is(pg_temp.ovd707b_audit('quickparts'), '4:suspend:00000000-0000-4000-8000-000000707b04',
+  'seed, dry run, activate and suspend wrote one audit row each');
+
+-- ---------------------------------------------------------------------
+-- Retire (3)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_retire_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: retire') ->> 'status',
+  'retired', 'active -> retired');
+select throws_ok(
+  $$select public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: revive')$$,
+  'P0001', 'invalid_provider_transition', 'retired is terminal: activate is refused');
+select throws_ok(
+  $$select public.api_admin_retire_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: retire twice')$$,
+  'P0001', 'invalid_provider_transition', 'retired is terminal: retire is refused');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Contributors: the editor is a maker even when someone else submits (10)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_create_provider_definition('ovdlifec',
+    '{"displayName": "OVD-707 Life C", "kind": "manual",
+      "admission": {"key": "ovdlifec", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: create life C') ->> 'status',
+  'draft', 'a creates life C');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: submit C1') ->> 'status',
+  'pending_review', 'b submits the draft a wrote');
+reset role;
+select is(
+  (select r.contributors from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.decision = 'pending'),
+  array['00000000-0000-4000-8000-000000707b01', '00000000-0000-4000-8000-000000707b02']::uuid[],
+  'the revision names the editor and the submitter as contributors');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: editor approves C1')$$,
+  '42501', 'four_eyes_required', 'a edits, b submits: a cannot approve');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_reject_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: reject C1') ->> 'status',
+  'draft', 'b withdraws C1');
+
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_update_provider_definition_draft(pg_temp.ovd707b_id('ovdlifec'),
+    '{"displayName": "OVD-707 Life C2", "kind": "manual",
+      "admission": {"key": "ovdlifec", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: edit C2') ->> 'displayName',
+  'OVD-707 Life C2', 'a edits the draft');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: submit C2') ->> 'status',
+  'pending_review', 'a submits C2');
+reset role;
+select is(
+  (select r.contributors from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.decision = 'pending'),
+  array['00000000-0000-4000-8000-000000707b01']::uuid[],
+  'the earlier submitter b is not a contributor to C2');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: approve C2') ->> 'version',
+  '2', 'a edits and submits, b approves: allowed');
+reset role;
+select is(
+  (select r.proposal_reason || ' / ' || r.decision_reason from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.version = 2),
+  'OVD-707 test: submit C2 / OVD-707 test: approve C2',
+  'the approval keeps the submitter''s reason next to the approver''s');
+
+-- ---------------------------------------------------------------------
+-- Single-admin override by Blaine: approve, record dry run, activate (11)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b03');
+select is(
+  public.api_admin_create_provider_definition('ovdlifeo',
+    '{"displayName": "OVD-707 Life O", "kind": "manual",
+      "admission": {"key": "ovdlifeo", "liveAdapter": false, "sessionSecrets": [], "egress": "none"},
+      "exportJurisdiction": "us", "exportControlledAllowed": false}',
+    'OVD-707 test: create life O') ->> 'status',
+  'draft', 'Blaine creates a draft');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifeo'), 'OVD-707 test: submit O') ->> 'status',
+  'pending_review', 'and submits it');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifeo'), '   ', true)$$,
+  '22023', 'reason_required_min_10_chars', 'the override needs a reason');
+select is(
+  public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifeo'),
+    'OVD-707 test: single-admin override, no second admin available', true) ->> 'status',
+  'approved', 'Blaine at AAL2 may self-approve with a reason');
+reset role;
+select ok(
+  pg_temp.ovd707b_audit('ovdlifeo') = '3:approve_override:00000000-0000-4000-8000-000000707b03'
+    and (select r.four_eyes_override and r.reviewed_by = any (r.contributors)
+         from private.provider_definition_revisions r
+         where r.definition_id = pg_temp.ovd707b_id('ovdlifeo') and r.decision = 'approved'),
+  'the override is recorded on the revision and as one approve_override audit row');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b03');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifeo'), true, 'ovd707-test-run-o',
+    'OVD-707 test: Blaine records own dry run')$$,
+  '42501', 'four_eyes_required', 'even Blaine needs the override to record a dry run for a revision Blaine wrote');
+select is(
+  public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifeo'), true, 'ovd707-test-run-o',
+    'OVD-707 test: single-admin dry-run override', true) ->> 'dryRunPassedVersion',
+  '1', 'Blaine records the dry run through the override');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select throws_ok(
+  $$select public.api_admin_record_provider_dry_run(pg_temp.ovd707b_id('ovdlifeo'), true, 'ovd707-test-run-a',
+    'OVD-707 test: needless dry-run override', true)$$,
+  '22023', 'four_eyes_override_not_needed', 'a non-contributor cannot mark a normal dry run as an override');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b03');
+select is(
+  public.api_admin_activate_provider_definition(pg_temp.ovd707b_id('ovdlifeo'),
+    'OVD-707 test: single-admin activation override', true) ->> 'status',
+  'active', 'Blaine activates through the override');
+reset role;
+select ok(
+  pg_temp.ovd707b_audit('ovdlifeo') = '5:activate_override:00000000-0000-4000-8000-000000707b03'
+    and exists (select 1 from private.provider_audit_log a
+                where a.provider_id = pg_temp.ovd707b_id('ovdlifeo') and a.action = 'record_dry_run_override'
+                  and a.reason = 'OVD-707 test: single-admin dry-run override'
+                  and (a.after ->> 'fourEyesOverride')::boolean),
+  'the dry-run and activation overrides wrote one audited override row each');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_audit_log a
+   where a.action like '%\_override' and a.actor <> '00000000-0000-4000-8000-000000707b03'),
+  0, 'only Blaine ever used an override');
+
+-- ---------------------------------------------------------------------
+-- Append-only (7)
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$update private.provider_audit_log set reason = 'rewritten' where provider_id = pg_temp.ovd707b_id('ovdlifea')$$,
+  '42501', 'provider_audit_log is append-only', 'audit rows cannot be updated');
+select throws_ok(
+  $$delete from private.provider_audit_log where provider_id = pg_temp.ovd707b_id('ovdlifea')$$,
+  '42501', 'provider_audit_log is append-only', 'audit rows cannot be deleted');
+select throws_ok(
+  $$truncate private.provider_audit_log$$,
+  '42501', 'provider_audit_log is append-only', 'the audit log cannot be truncated');
+select throws_ok(
+  $$update private.provider_definition_revisions set payload = '{}' where definition_id = pg_temp.ovd707b_id('ovdlifea')$$,
+  '42501', 'provider_definition_revisions is append-only', 'a revision payload cannot be rewritten');
+select throws_ok(
+  $$delete from private.provider_definition_revisions where definition_id = pg_temp.ovd707b_id('ovdlifea')$$,
+  '42501', 'provider_definition_revisions is append-only', 'revisions cannot be deleted');
+-- The two tables reference each other, so TRUNCATE must name both to get past
+-- the foreign key check to the triggers.
+select throws_ok(
+  $$truncate private.provider_definition_revisions, private.provider_definitions$$,
+  '42501', null, 'revisions and definitions cannot be truncated');
+select throws_ok(
+  $$delete from private.provider_definitions where slug = 'ovdlifea'$$,
+  '42501', 'provider_definitions rows are retired, not deleted', 'definitions cannot be deleted');
+
+-- Every audit row this file caused names a user actor and a known action.
+select is_empty(
+  $$ select a.id from private.provider_audit_log a
+     where a.actor like '00000000-0000-4000-8000-000000707b0%'
+       and not (a.actor_kind = 'user' and a.reason like 'OVD-707 test:%') $$,
+  'every audit row written here is a user row with the caller''s reason');
+
+select * from finish();
+rollback;

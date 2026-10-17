@@ -1,3 +1,4 @@
+import { CadAgent, isCadAgentEnabled, type CadWorkerRunner, type Env } from "./cad-agent";
 import type { ArtifactDimensionsMm, ArtifactKind, DomainId, StatusState } from "./events";
 
 export interface DesignRequest {
@@ -34,6 +35,10 @@ export interface AgentContext {
   runId: string;
   request: DesignRequest;
   picks: Readonly<Record<string, string>>;
+  // A safe point to apply queued pause/cancel. Call it between artifact writes, never
+  // in the middle of one. It blocks while the run is paused and throws
+  // RunCancelledError once a cancel applies; let that error propagate.
+  checkpoint(): Promise<void>;
 }
 
 export interface AgentOutput {
@@ -141,14 +146,27 @@ export class StubCadAgent implements DomainAgent {
     const dimensionsMm = { x: PLATE_EDGE_MM, y: PLATE_EDGE_MM, z: PLATE_THICKNESS_MM };
     const base = `stub://design-graph/${ctx.runId}/plate-101.6mm`;
     emit({ type: "status", state: "info", message: `Modeling ${PLATE_EDGE_MM} mm square plate in ${material}` });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "step", name: "plate-101.6mm.step", mimeType: "model/step", uri: `${base}.step`, dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "glb", name: "plate-101.6mm.glb", mimeType: "model/gltf-binary", uri: `${base}.glb`, dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "png", name: "plate-101.6mm.png", mimeType: "image/png", uri: `${base}.png` });
     return { summary: `4-inch (${PLATE_EDGE_MM} mm) square plate, ${PLATE_THICKNESS_MM} mm thick, ${material}` };
   }
 }
 
-export function createDefaultRegistry(): DomainAgentRegistry {
+export interface DefaultRegistryOptions {
+  // Read for JARVIS_CAD_AGENT_ENABLED and the worker's JARVIS_DEMO_* settings.
+  env?: Env;
+  cadRunner?: CadWorkerRunner;
+}
+
+// cad is the real build123d CadAgent only when JARVIS_CAD_AGENT_ENABLED=1; otherwise
+// the slice-1 stub stays, so nothing reaches the worker by default.
+export function createDefaultRegistry(options: DefaultRegistryOptions = {}): DomainAgentRegistry {
+  const env = options.env ?? process.env;
+  const cad = isCadAgentEnabled(env) ? new CadAgent({ env, enabled: true, runner: options.cadRunner }) : new StubCadAgent();
   return new DomainAgentRegistry()
     .register(new DisabledStubAgent("optics", [/\blens\b/i, /\boptic/i, /\bmirror\b/i, /\blaser\b/i]), { enabled: false })
     .register(new DisabledStubAgent("electronics", [/\bpcb\b/i, /\bcircuit\b/i, /\bresistor\b/i, /\bschematic\b/i]), {
@@ -157,5 +175,5 @@ export function createDefaultRegistry(): DomainAgentRegistry {
     .register(new DisabledStubAgent("analysis", [/\bfea\b/i, /\bstress analysis\b/i, /\bthermal analysis\b/i]), {
       enabled: false,
     })
-    .register(new StubCadAgent(), { enabled: true });
+    .register(cad, { enabled: true });
 }

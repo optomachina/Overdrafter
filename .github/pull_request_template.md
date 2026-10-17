@@ -46,6 +46,26 @@ Results:
 
 Baseline failures or exceptions:
 
+## Proof
+
+<!-- proof: replace me -->
+<!--
+Replace the placeholder with at least one item, one per line. The proof check
+(scripts/proof-check.mjs) recognises:
+
+- Test: <path>  (a test file in this diff or already in the repo)
+- Command: <cmd>  followed by a fenced block with its output:
+  ```text
+  <output>
+  ```
+- Live: <url>
+- Screenshot: <image/url>
+
+A change to src/**/*.tsx or src/**/*.css needs a Screenshot item and a journey
+test reference: an e2e/journeys/<name>.spec.ts path or the GitHub Actions run
+URL of that journey test. A PR that only touches docs/ or *.md files is exempt.
+-->
+
 ## Review findings and coverage
 
 - Final PR head SHA:
@@ -125,10 +145,6 @@ See `docs/checklists/provider-go-live-checklist.md`.
 - [ ] Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:
 - [ ] No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:
 - [ ] ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:
-
-## Screenshots or videos (if UI)
-
-Add screenshots, videos, logs, or other evidence.
 
 ## Follow-up items
 

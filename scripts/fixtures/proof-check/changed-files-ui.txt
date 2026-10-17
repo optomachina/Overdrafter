@@ -1,0 +1,2 @@
+src/components/QuoteTable.tsx
+scripts/proof-check.mjs

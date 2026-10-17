@@ -14,6 +14,16 @@ no SolidWorks and no provider. It is not OVD-520 native evidence.
   no pairwise interference, the pin clearance, that the pin passes through the
   upright, and that the bracket is seated. A failed check exits 2 and is never retried.
 
+## Plate recipe (OVD-802)
+
+The design graph's `CadAgent` (`server/design-graph/cad-agent.ts`) uses this worker through the same queue:
+
+- `jarvis-demo.mjs plate '<params json>'` validates the params and files the plate job directly into `queue/claimed/`, so no concurrent `work` can take it, then runs `plate.py`. Plate jobs need `JARVIS_CAD_AGENT_ENABLED=1` as well as `JARVIS_DEMO_ENABLED=1`. With the CAD flag off, `plate` files nothing, and `work` puts a claimed plate job back in `pending/`. The params are `recipe: "plate"`, `edgeMm: 101.6`, `thicknessMm` (0.5 to 50), `holePattern` (`none`, `four_corner_m5` or `four_corner_1_4_20`) and `material`. Any other value is refused, and nothing is filed. `work` runs a queued plate job like any other job.
+- `plate.py` writes `plate.step` (authoritative), `plate.glb` (binary glTF in metres, a derived review view), `plate-iso.png`, `plate-top.png` and `result.json`. It checks for one valid solid, re-imports the STEP and measures its bounding box against the expected size (within 0.01 mm), and confirms the GLB is watertight. A failed check exits 2.
+- `glb_check.py` parses a GLB with only `struct` and numpy. It merges coincident vertices and requires every edge to be shared by exactly two triangles. Run it standalone with `python glb_check.py <file.glb>`; it reads only `.glb` files under `$JARVIS_DEMO_ROOT/runs`.
+- Each Python run has a time limit, `JARVIS_DEMO_WORKER_TIMEOUT_MS` (default 300000). Python runs in its own process group. On a timeout, or when the CLI gets SIGTERM or SIGINT, the CLI kills that whole group, moves the claim to `failed/` and writes `outcome.json`. A job with an unknown recipe also fails with `reason: "unknown recipe"`.
+- The worker runs Python with `PYTHONDONTWRITEBYTECODE=1`, so `plate.py` importing `glb_check` leaves no `__pycache__` in the repo.
+
 Python setup (outside the repo's dependency files):
 
 ```bash
