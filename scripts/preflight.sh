@@ -6,6 +6,7 @@
 # "preflight: <stage> PASS|FAIL" line so logs separate code failures from
 # infra failures (install, network, runner), which fail before any stage starts.
 set -uo pipefail
+unset OVD_PREFLIGHT_DOCKER_UNAVAILABLE
 
 cd "$(dirname "$0")/.."
 

@@ -10,7 +10,7 @@ const dockerTests = [...preflight.match(/docker_only_tests=\(([\s\S]*?)\)/)[1].m
 const bashPath = process.env.PATH.split(":").map((dir) => join(dir, "bash")).find(existsSync);
 const dirnamePath = process.env.PATH.split(":").map((dir) => join(dir, "dirname")).find(existsSync);
 
-function runPreflight({ docker = "available", ci = false, npmStatus = 0 } = {}) {
+function runPreflight({ docker = "available", ci = false, npmStatus = 0, inheritedDockerUnavailable = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ovd909-preflight-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -31,6 +31,7 @@ function runPreflight({ docker = "available", ci = false, npmStatus = 0 } = {}) 
     const env = { ...process.env, PATH: bin, NPM_CALLS: callsPath, NPM_STATUS: String(npmStatus), DOCKER_CALLS: probePath };
     delete env.CI;
     delete env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE;
+    if (inheritedDockerUnavailable) env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE = "1";
     if (ci) env.CI = "true";
     const result = spawnSync(bashPath, [preflightPath, "test"], { env, encoding: "utf8", stdio: "pipe" });
     expect(result.error).toBeUndefined();
@@ -80,6 +81,22 @@ describe("preflight local Docker skips", () => {
     const result = runPreflight({ docker: "failing" });
     expectSkipped(result);
     expect(result.dockerCalls).toBe("info\n");
+  });
+
+  it("clears an inherited skip flag with working Docker locally", () => {
+    const result = runPreflight({ inheritedDockerUnavailable: true });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test\nunset\n");
+    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
+    expect(result.dockerCalls).toBe("info\n");
+  });
+
+  it("clears an inherited skip flag in CI with Docker missing", () => {
+    const result = runPreflight({ docker: "missing", ci: true, inheritedDockerUnavailable: true });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test\nunset\n");
+    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
+    expect(result.dockerCalls).toBe("");
   });
 
   it("skips three cases with Docker entirely absent from the isolated PATH", () => {
