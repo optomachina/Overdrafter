@@ -19,8 +19,9 @@ name: Sensitive class
 # GitHub runs a run: block with no shell as `bash -e`, so the detect step
 # captures the script's exit code with `|| rc=$?`: a crash or any non-zero
 # exit is a warning and an ERROR summary, never a red job, and no artifact is
-# uploaded. The detector's tests run this block under bash -e with stub
-# detectors.
+# uploaded. An exit 0 with a missing or unparseable result file is handled the
+# same way: the file is removed, so a partial result is never uploaded. The
+# detector's tests run this block under bash -e with stub detectors.
 #
 # OVD-845 requirement: this artifact is not a trusted gate by itself. Under
 # pull_request this YAML comes from the PR, so a PR can edit this file (or add
@@ -101,6 +102,8 @@ jobs:
           fi
           status="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status)' "$out" 2>/dev/null)" || status=unreadable
           if [ "$status" = unreadable ]; then
+            # A partial or unparseable file must not be uploaded as the result.
+            rm -f "$out"
             echo "::warning title=Sensitive class::no readable result (report mode, not failing the job)"
             printf '### Sensitive classes: ERROR\n\nsensitive-class-detect exited 0 but wrote no readable result. Treat the PR as needs-Blaine.\n' >> "$GITHUB_STEP_SUMMARY"
           elif [ "$status" != ok ]; then
