@@ -76,7 +76,11 @@ call:
 - the OVD-462 provider session lease is on by default, and
   `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` defaults to the production
   `worker-provider-session-namespace-key`, so a staging deploy must set it to a
-  `-staging` name (or set `WORKER_PROVIDER_SESSION_LEASE=off`).
+  `-staging` name. There is no opt-out from this check:
+  `WORKER_PROVIDER_SESSION_LEASE=off` does not clear the default secret name, and
+  an empty `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` falls back to the
+  production default (`${VAR:-default}`), so the staging guard still refuses.
+  With the lease off, the script also still binds the namespace-key secret.
 
 In the other direction, a deploy without `OVERDRAFTER_DEPLOY_ENV=staging` is
 refused when `SUPABASE_URL` names the staging project. Live staging dispatch is
@@ -106,6 +110,32 @@ gcloud secrets create xometry-storage-state-staging --replication-policy=automat
 
 The worker `/health` and `/ready` payloads include `supabaseProjectRef` (ref
 only) so the deployed target is visible.
+
+### Repairing staging after a failed apply or lease step
+
+If a staging worker deploy is refused at the lease step ("A staging worker
+requires WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME to end in -staging."
+or "WORKER_PROVIDER_SESSION_LEASE must be on or off."), the script exits before
+any `gcloud` call, so nothing in staging changed. Set
+`WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` to a `-staging` Secret
+Manager name (and `WORKER_PROVIDER_SESSION_LEASE` to `on`, `off` or unset), then
+re-run `worker/scripts/deploy-cloud-run.sh`.
+
+If the staging migration history has drifted from the repository, for example
+because staging applied `20261015074957_ovd736_revoke_anon_definer_execute`
+before OVD-766 renamed it to `20261016013742` with the same bytes, repair only
+those exact versions with the Supabase CLI, as
+`scripts/run-ovd373-production-upgrade.sh` does:
+
+```sh
+supabase migration repair --db-url "$STAGING_DB_URL" --status reverted --yes 20261015074957
+supabase migration repair --db-url "$STAGING_DB_URL" --status applied --yes 20261016013742
+```
+
+Repair only versions whose bytes are confirmed identical. Do not use a broad
+repair, `db push --include-all`, or a manual ledger insert (see
+[`supabase-migration-history-reconciliation.md`](supabase-migration-history-reconciliation.md)).
+A repair writes to the staging migration ledger and needs the usual approval.
 
 ## GitHub Actions
 
