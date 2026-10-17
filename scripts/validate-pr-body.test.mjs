@@ -645,6 +645,8 @@ describe("validatePrBody", () => {
         "## Provider g&#111;-live",
         "## Provider g&#x6f;-live",
         "> ## Provider go-live",
+        "### Pro<span></span>vider go-live",
+        "> Provider go-live\n> ---",
       ]) {
         const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
         expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
@@ -717,11 +719,11 @@ describe("validatePrBody", () => {
     });
 
     it("reads checkboxes with every list marker and rejects unticked or quoted extras", () => {
-      for (const extra of ["+ [ ] Envelope reviewed (automatic)", "1. [ ] Extra attestation", "2) [ ] Extra attestation", "> - [ ] Quoted attestation"]) {
+      for (const extra of ["+ [ ] Envelope reviewed (automatic)", "1. [ ] Extra attestation", "2) [ ] Extra attestation", "> - [ ] Quoted attestation", "- - [ ] Nested attestation", "> 1. - [ ] Nested quoted"]) {
         expect(validate(withExtra(extra, {})).ok, extra).toBe(false);
       }
       // A ticked "+" or ordered line satisfies the automatic item; a quoted one never does.
-      for (const line of ["+ [x] Envelope reviewed (automatic)", "1. [x] Envelope reviewed (automatic)", "- [x] __Envelope reviewed (automatic)__"]) {
+      for (const line of ["+ [x] Envelope reviewed (automatic)", "1. [x] Envelope reviewed (automatic)", "- [x] __Envelope reviewed (automatic)__", "- - [x] Envelope reviewed (automatic)"]) {
         expect(validate(withExtra(line)), line).toEqual({ ok: true, errors: [] });
       }
       expect(validate(withExtra("> - [x] Envelope reviewed (automatic)")).errors).toContain(

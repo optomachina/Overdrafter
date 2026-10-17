@@ -150,10 +150,12 @@ function decodeEntities(text) {
 /** Visible text of a heading on line `index`, or null when it is not a heading. */
 function anyHeadingText(lines, index) {
   // Headings inside blockquotes or list items ("> ## x", "- ## x") count too.
-  const atx = lines[index].replace(CONTAINER_PREFIX, "").match(ANY_ATX_HEADING);
+  const line = lines[index].replace(CONTAINER_PREFIX, "");
+  const atx = line.match(ANY_ATX_HEADING);
   if (atx) return atx[1] ?? "";
-  if (index + 1 < lines.length && SETEXT_UNDERLINE.test(lines[index + 1]) && /\S/.test(lines[index])) {
-    return lines[index];
+  const next = index + 1 < lines.length ? lines[index + 1].replace(/^(?:[ \t]*>)+/, "") : "";
+  if (SETEXT_UNDERLINE.test(next) && /\S/.test(line)) {
+    return line;
   }
   return null;
 }
@@ -164,7 +166,7 @@ function anyHeadingText(lines, index) {
  * as go-live.
  */
 function squashHeading(text) {
-  return decodeEntities(stripComments(text, false).text)
+  return decodeEntities(stripComments(text, false).text.replace(/<\/?[a-z][^>]*>/gi, ""))
     .normalize("NFKC")
     .toLowerCase()
     .replace(/&[a-z]+;/g, "")
@@ -348,7 +350,7 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     text: `Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`,
     label: "envelope reviewed (automatic)",
     // Ticked checkbox line only; must not match prose or unticked / "not envelope reviewed".
-    match: /^\s*(?:[-*+]|\d{1,9}[.)])\s*\[[xX]\]\s*[*_]*\s*envelope reviewed \(automatic\)/im,
+    match: /^(?:\s*(?:[-*+]|\d{1,9}[.)])\s+)+\[[xX]\]\s*[*_]*\s*envelope reviewed \(automatic\)/im,
     na: false,
     auto: true,
   },
@@ -421,7 +423,8 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
 export const PROVIDER_GO_LIVE_GROUPS = ["Envelope", "Live", "Admit", "Legal stance"];
 
 // Any list marker ("-", "*", "+", "1.", "1)"), optionally inside a blockquote.
-const CHECKBOX_LINE = /^((?:[ \t]*>)*)[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]*(.*)$/;
+// Nested markers ("- - [ ]", "> 1. - [ ]") count too; group 1 is the container prefix.
+const CHECKBOX_LINE = /^((?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*?)[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]*(.*)$/;
 
 export { detectProviderEnablement };
 
@@ -622,7 +625,7 @@ function parseCheckboxLines(sectionLines) {
         checked: match[2] !== " ",
         text: visibleMatch ? visibleMatch[3] : "",
         line: visible,
-        quoted: match[1].length > 0,
+        quoted: match[1].includes(">"),
       });
       continuing = true;
       continue;
@@ -792,7 +795,7 @@ function validateProviderGoLiveSection(body, findings) {
       // The automatic line must be present and ticked. A ticked line satisfies it;
       // an unticked real line is consumed and rejected; lookalikes such as
       // "not envelope reviewed" are never consumed and fail as extra lines.
-      const ticked = unused.findIndex((box) => !box.quoted && box.checked && required.match.test(box.line));
+      const ticked = unused.findIndex((box) => !box.quoted && box.checked && AUTO_LINE_TEXT.test(box.text));
       if (ticked !== -1) {
         unused.splice(ticked, 1);
         continue;
