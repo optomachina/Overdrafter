@@ -334,13 +334,17 @@ them.
   blocks the merge again.
 - **Auto-merge and the `land` skill.** GitHub auto-merge does not update an
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
-  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) runs
-  `gh pr update-branch` when a PR reports `BEHIND`, waits for `ci` and
-  `provider-go-live` on the new head, and merges pinned to that head with
-  `--match-head-commit`. On a "not up to date" block it updates and re-waits
-  instead of moving the issue back to `Rework`. It stops and reports on a
-  conflict (`DIRTY`), a failed `update-branch`, or a head that never moves.
-  The same steps are correct with strict off, where `BEHIND` never occurs.
+  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) reads the PR's
+  state, head and required checks in one call. A `BEHIND` PR gets
+  `gh pr update-branch` and the skill stops; the next land run waits for `ci`
+  and `provider-go-live` on the new head. A current PR with both checks green
+  is merged with `--match-head-commit` pinned to the head it read, so GitHub
+  refuses the merge if the head moved and, under strict, if the branch fell
+  behind `main`. The final wait never updates the branch: `BEHIND`, `DIRTY`,
+  a closed PR or a moved head stop and report, and success needs the merged
+  head to equal the pinned head. A "not up to date" block means update and
+  re-run, never `Rework`. The same steps are correct with strict off, where
+  `BEHIND` never occurs.
 - **Infra flakes and cancelled runs.** Same policy as the queue: re-run the
   failed job, never fix a flake with a code change, a cancelled run is not a
   pass.

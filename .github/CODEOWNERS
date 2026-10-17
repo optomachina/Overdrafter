@@ -16,7 +16,4 @@
 
 /.github/ @optomachina
 /scripts/ @optomachina
-
-# This file lands with #818. A pattern for a file that does not exist yet is
-# valid and starts matching as soon as the file does.
 /docs/sensitive-paths.json @optomachina
