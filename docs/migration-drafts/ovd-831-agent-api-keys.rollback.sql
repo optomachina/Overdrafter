@@ -25,8 +25,7 @@ drop function if exists private.agent_api_key_revoke(uuid, uuid, text);
 drop function if exists public.api_list_agent_api_keys(uuid);
 drop function if exists public.api_create_agent_api_key(uuid, text, text[], timestamptz);
 
--- OVD-924 AC3 throwaway: this rollback deliberately leaves private.agent_api_key_rate_limits behind (DM-1R must fail). Reverted in the next commit.
--- drop table if exists private.agent_api_key_rate_limits;
+drop table if exists private.agent_api_key_rate_limits;
 drop table if exists private.agent_api_key_audit;
 drop function if exists private.agent_api_key_audit_immutable();
 drop table if exists public.agent_api_keys;
