@@ -21,7 +21,7 @@ Preconditions: fixture mode for `auth-shell` and reload checks; local mode (seed
 
 - **Shell and reload (fixture).** `verify.sh --features auth` runs `e2e/client-shell.spec.ts` and `e2e/part-reload.spec.ts`. Expect the shell instead of the boot screen and no part data requested before auth verifies.
 - **Session and scope (local).** `verify.sh --mode local --prepare --features auth` runs `e2e/smoke.spec.ts` and `e2e/access-scope.spec.ts`. Expect the client "Parts" heading, the internal "Operations Dashboard", and an outsider unable to read another organization's part.
-- **Evidence.** Manifest verdict, `playwright-report.json`, failure screenshots/traces.
+- **Evidence.** Manifest verdict, `playwright-report-<n>.json`, failure screenshots/traces.
 
 ## Gotchas
 
