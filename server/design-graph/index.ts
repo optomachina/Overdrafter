@@ -9,9 +9,20 @@ export {
   type DesignGraphOptions,
   type GraphClock,
   type ResolveDecisionResult,
+  type RunClaim,
   type RunSnapshot,
   type RunState,
+  type SubmitOptions,
 } from "./graph";
+export {
+  InMemoryControlCommandStore,
+  RunCancelledError,
+  type ActorAal,
+  type ControlActor,
+  type ControlCommand,
+  type ControlCommandStore,
+  type ControlResult,
+} from "./control";
 export {
   DomainAgentRegistry,
   DisabledStubAgent,
@@ -43,6 +54,7 @@ export {
   assertValidDesignGraphEvent,
   validateDesignGraphEvent,
   InvalidDesignGraphEventError,
+  type ControlKind,
   type DesignGraphEvent,
   type DesignGraphEventType,
   type DomainId,

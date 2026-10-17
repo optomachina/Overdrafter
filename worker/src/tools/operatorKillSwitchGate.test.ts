@@ -2,8 +2,13 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+  PROVIDER_DAILY_CAP_REACHED,
+  PROVIDER_DISPATCH_COUNTER_UNAVAILABLE,
+  PROVIDER_DISPATCH_RESERVATION_SCHEMA,
   PROVIDER_KILL_SWITCH_STATE_SCHEMA,
+  PROVIDER_SETTINGS_STATE_SCHEMA,
   ProviderKillSwitchError,
+  type ProviderSettingsPort,
 } from "../providerKillSwitch";
 import { assertOperatorProvidersEnabled, envProviderKillSwitchReader, guardOperatorQuote } from "./operatorKillSwitchGate";
 
@@ -99,5 +104,54 @@ describe("guardOperatorQuote", () => {
     }, reader);
 
     await expect(guarded({} as never)).rejects.toMatchObject({ checkpoint: "before_save" });
+  });
+});
+
+describe("guardOperatorQuote daily cap (OVD-829)", () => {
+  function port(overrides: Partial<ProviderSettingsPort> = {}): ProviderSettingsPort {
+    let used = 0;
+    return {
+      readKillSwitch: async (provider) => state(provider, false, false),
+      readSettings: async (provider) => ({
+        schema: PROVIDER_SETTINGS_STATE_SCHEMA, provider, globalEngaged: false, engaged: false, dailyQuoteCap: 1, usedToday: 0,
+      }),
+      reserveDispatch: async (provider) => {
+        const allowed = used < 1;
+        if (allowed) used += 1;
+        return { schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider, allowed,
+          reason: allowed ? null : PROVIDER_DAILY_CAP_REACHED, cap: 1, used };
+      },
+      ...overrides,
+    };
+  }
+
+  it("spends the supplier's durable cap like the worker, refusing the next quote once it is spent", async () => {
+    const quote = vi.fn(async () => "quoted");
+    const guarded = guardOperatorQuote("rmfg", quote, undefined, { port: port(), capMode: "durable" });
+    await expect(guarded({} as never)).resolves.toBe("quoted");
+    await expect(guarded({} as never)).rejects.toMatchObject({ reasonCode: PROVIDER_DAILY_CAP_REACHED });
+    expect(quote).toHaveBeenCalledOnce();
+  });
+
+  it("refuses with no provider call when the durable counter is unreachable", async () => {
+    const quote = vi.fn(async () => "quoted");
+    const guarded = guardOperatorQuote("rmfg", quote, undefined, {
+      port: port({ reserveDispatch: async () => { throw new Error("missing rpc"); } }),
+      capMode: "durable",
+    });
+    await expect(guarded({} as never)).rejects.toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("before the migration, enforces the database cap in process without the durable counter", async () => {
+    const reserveDispatch = vi.fn(async () => null);
+    const quote = vi.fn(async () => "quoted");
+    const guarded = guardOperatorQuote("quickparts", quote, undefined, {
+      port: port({ reserveDispatch }),
+      capMode: "process_local",
+    });
+    await expect(guarded({} as never)).resolves.toBe("quoted");
+    await expect(guarded({} as never)).rejects.toMatchObject({ reasonCode: PROVIDER_DAILY_CAP_REACHED });
+    expect(reserveDispatch).not.toHaveBeenCalled();
   });
 });

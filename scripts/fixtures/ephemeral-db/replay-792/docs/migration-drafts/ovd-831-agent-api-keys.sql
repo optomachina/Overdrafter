@@ -1,0 +1,60 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-831 (OVD-828 slice 3): agent-caller API keys. Scoped, hashed,
+-- expiring, revocable, rate limited and audited.
+--
+-- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
+-- to any database outside a Blaine-approved migration window (a separate
+-- approval card). When approved, it ships as ONE migration (next timestamp
+-- from `npm run migration:new`), and
+-- supabase/tests/pending/ovd831_agent_api_keys.sql.pending is renamed to
+-- supabase/tests/ovd831_agent_api_keys.sql in the same change.
+-- Rollback: docs/migration-drafts/ovd-831-agent-api-keys.rollback.sql.
+-- Notes, OVD-602 allowlist rows and promotion checklist:
+-- docs/migration-drafts/ovd-831-notes.md.
+--
+-- Requires (already applied): auth.users, auth.uid(), auth.jwt(),
+-- public.organizations, public.organization_memberships,
+-- public.user_can_access_org(uuid), public.is_org_admin(uuid),
+-- public.is_platform_admin(), public.current_user_has_aal2(),
+-- pgcrypto in the extensions schema (extensions.gen_random_bytes).
+--
+-- Transaction: no begin/commit of its own. The migration runner wraps it in
+-- one transaction. By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Key format: ovd_<prefix>_<secret>
+--   prefix  16 lowercase hex chars (8 random bytes). Not secret; shown in UI
+--           and used to find the row.
+--   secret  43 base64url chars (32 random bytes = 256 bits) from
+--           extensions.gen_random_bytes. Generated here, so no caller can
+--           pick a weak secret. Stored only as key_hash =
+--           hex(sha256(utf8(secret))). The plaintext key is returned once by
+--           api_create_agent_api_key and is never stored or returned again.
+--   The server verifier (server/agent-auth/) recomputes the hash and compares
+--   it with timingSafeEqual.
+--
+-- Access model:
+--   * public.agent_api_keys: RLS on. anon has nothing. authenticated has
+--     column-level SELECT on every column except key_hash, limited by policy
+--     to keys of orgs it belongs to. No client INSERT/UPDATE/DELETE grant or
+--     policy: writes go through the SECURITY DEFINER RPCs below.
+--   * private.agent_api_key_audit and private.agent_api_key_rate_limits:
+--     no grant to any API role, RLS forced with no policy. Audit is
+--     append-only (trigger).
+--   * User RPCs (authenticated): create and revoke require AAL2 and org
+--     membership; list is SECURITY INVOKER (RLS applies).
+--   * Admin RPCs (authenticated): list by org and revoke any key require
+--     public.current_user_has_aal2() AND public.is_platform_admin().
+--   * Service RPCs (service_role only): lookup by prefix, admit a use (re-check
+--     + rate limit + audit), record a refused use.
+--
+-- Additive only: three new tables, nine new functions, one trigger function.
+-- No existing object changes.
+
+-- =====================================================================
+-- Tables
+-- =====================================================================
+-- [header-only snapshot of docs/migration-drafts/ovd-831-agent-api-keys.sql at d2b7981b (#792); body omitted]
+select 1;

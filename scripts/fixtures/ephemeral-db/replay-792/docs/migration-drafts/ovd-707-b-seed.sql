@@ -1,0 +1,37 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-707 (PR 1 of 3, group b): one-time seed of the live providers in
+-- provider-registry.v1.json into private.provider_definitions as approved,
+-- version 1 (not active).
+--
+-- DRAFT. NOT APPLIED. Apply after ovd-707-a.sql, in the same window and the
+-- same migration. Rollback: docs/migration-drafts/ovd-707-b-seed.rollback.sql.
+--
+-- The rows below are generated from the liveAdapter: true entries of
+-- provider-integrations/provider-registry.v1.json (admission = the registry
+-- entry, verbatim) and each provider's
+-- manifest.v1.json (display name, official domains as host allowlist,
+-- integration.adapterKind: api -> api, *_portal -> portal, guidance_only ->
+-- manual). Regenerate them if the registry changes before promotion; see
+-- ovd-707-notes.md (A5, Q4).
+--
+-- Decided (ovd-707-notes.md, Q4): only liveAdapter: true entries are seeded,
+-- and they land as approved, not active. Non-live entries are not seeded;
+-- they go through create/submit/approve when needed. Seeded rows are
+-- grandfathered through review only: the registry is today's authority, so
+-- each row gets an approved revision with no proposer, reviewer or
+-- contributors, and one 'seed' audit row with actor 'cli:ovd-707-seed'. No
+-- dry run is recorded. Each provider is activated explicitly after a real dry
+-- run, by two different admins (record_dry_run, then activate) or by Blaine
+-- through the override. The service read fails closed, so the promotion
+-- runbook must activate the live providers in the same window. Export
+-- jurisdiction comes from private.export_control_provider_jurisdiction
+-- (OVD-723), and export-controlled parts are not allowed for any seeded
+-- provider.
+--
+-- Idempotent: a slug that already has a definition is skipped, so re-running
+-- inserts nothing and writes no audit row.
+
+-- [header-only snapshot of docs/migration-drafts/ovd-707-b-seed.sql at d2b7981b (#792); body omitted]
+select 1;

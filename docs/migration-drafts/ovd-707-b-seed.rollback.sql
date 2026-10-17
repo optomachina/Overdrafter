@@ -6,7 +6,9 @@
 -- Removes the seeded definitions an admin never touched: rows whose only
 -- audit entries are the seed's own. Any definition with an admin action is
 -- kept and reported in a notice; undo those through the RPCs (retire) or the
--- group a rollback. Each removal writes one 'seed_rollback' audit row; the
+-- group a rollback. Once the promotion runbook has recorded a dry run for and
+-- activated a seeded live provider, that provider counts as admin-modified
+-- and is kept. Each removal writes one 'seed_rollback' audit row; the
 -- seed audit rows stay as evidence. The definition and revision delete guards
 -- are disabled only for the removal inside this transaction, then restored.
 -- Re-running finds nothing to remove and is a no-op. When ovd-707-a.sql is not

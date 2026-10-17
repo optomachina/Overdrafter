@@ -1,0 +1,514 @@
+-- OVD-831: agent-caller API keys (table, RLS, RPCs, audit, rate limits).
+--
+-- Targets the draft docs/migration-drafts/ovd-831-agent-api-keys.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. .github/workflows/ovd831-pending-pgtap.yml runs it against a
+-- throwaway database with the draft applied. In the approved window, the draft
+-- is promoted and this file is renamed to
+-- supabase/tests/ovd831_agent_api_keys.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers the OVD-831 hardening checklist:
+--   K-1  shape: RLS on; audit and rate-limit tables RLS forced, no API grant
+--   K-2  anon denied on the table and every RPC
+--   K-3  key_hash is not selectable by any client role (column grant)
+--   K-4  cross-org isolation: org B sees none of org A's keys
+--   K-5  no client INSERT/UPDATE/DELETE; one SELECT policy
+--   K-6  RPC grants: user/admin RPCs to authenticated only, service RPCs to
+--        service_role only; SECURITY DEFINER with search_path ''
+--   K-7  create needs AAL2 + org membership; default scope quotes:read,
+--        default expiry 90 days, max 1 year; no admin scope; plaintext returned
+--        once in ovd_<16 hex>_<43 base64url> form, stored only as sha256
+--   K-8  revoke needs AAL2 and creator/org admin; idempotent; immediate
+--   K-9  admin RPCs need AAL2 AND platform admin
+--   K-10 service admit: revoked / expired / creator removed refused;
+--        per-key and per-org rate limits; last_used_at stamped
+--   K-11 audit rows for create / revoke / use with key id + endpoint +
+--        result and no key material; append-only
+-- DM-1R (rollback returns the exact pre-draft schema) is checked outside
+-- pgTAP by the workflow and the fixture: pg_dump --schema-only diff is empty.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(101);
+
+create function pg_temp.ovd831_as(p_user_id uuid, p_role text, p_aal text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
+      'sub', p_user_id, 'role', p_role, 'aal', p_aal))::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+grant execute on function pg_temp.ovd831_as(uuid, text, text) to anon, authenticated, service_role;
+
+-- Keys created during the test (label -> plaintext, id, prefix).
+create temp table ovd831_keys (label text primary key, key text, id uuid, prefix text);
+grant all on table ovd831_keys to anon, authenticated, service_role;
+create temp table ovd831_out (label text primary key, value jsonb);
+grant all on table ovd831_out to anon, authenticated, service_role;
+
+create temp table ovd831_functions (sig regprocedure primary key, grantee text not null);
+insert into ovd831_functions values
+  ('public.api_create_agent_api_key(uuid, text, text[], timestamptz)', 'authenticated'),
+  ('public.api_list_agent_api_keys(uuid)', 'authenticated'),
+  ('public.api_revoke_agent_api_key(uuid)', 'authenticated'),
+  ('public.api_admin_list_agent_api_keys(uuid)', 'authenticated'),
+  ('public.api_admin_revoke_agent_api_key(uuid)', 'authenticated'),
+  ('public.api_service_get_agent_api_key(text)', 'service_role'),
+  ('public.api_service_admit_agent_api_key_use(uuid, text, integer, integer, integer)', 'service_role'),
+  ('public.api_service_record_agent_api_key_refusal(uuid, text, text)', 'service_role'),
+  ('private.agent_api_key_revoke(uuid, uuid, text)', 'none');
+
+-- Org A: A1 creator (client), A2 org admin, A3 other member. Org B: B1.
+-- D is a platform admin with no org membership.
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000831a01', 'authenticated', 'authenticated', 'ovd831-a1@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000831a02', 'authenticated', 'authenticated', 'ovd831-a2@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000831a03', 'authenticated', 'authenticated', 'ovd831-a3@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000831b01', 'authenticated', 'authenticated', 'ovd831-b1@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000831d01', 'authenticated', 'authenticated', 'ovd831-admin@example.test', pg_catalog.now());
+insert into private.platform_admin_emails (email) values ('ovd831-admin@example.test') on conflict do nothing;
+insert into public.organizations (id, name, slug) values
+  ('00000000-0000-4000-8000-0000008310a0', 'OVD-831 Org A', 'ovd831-org-a'),
+  ('00000000-0000-4000-8000-0000008310b0', 'OVD-831 Org B', 'ovd831-org-b');
+insert into public.organization_memberships (organization_id, user_id, role) values
+  ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'client'),
+  ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a02', 'internal_admin'),
+  ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a03', 'client'),
+  ('00000000-0000-4000-8000-0000008310b0', '00000000-0000-4000-8000-000000831b01', 'client');
+
+-- ---------------------------------------------------------------------
+-- K-1, K-3, K-5, K-6 shape and privileges
+-- ---------------------------------------------------------------------
+select ok((select c.relrowsecurity from pg_catalog.pg_class c where c.oid = 'public.agent_api_keys'::regclass),
+  'K-1 RLS is enabled on public.agent_api_keys');
+select ok(
+  (select pg_catalog.bool_and(c.relrowsecurity and c.relforcerowsecurity) from pg_catalog.pg_class c
+   where c.oid in ('private.agent_api_key_audit'::regclass, 'private.agent_api_key_rate_limits'::regclass)),
+  'K-1 audit and rate-limit tables have RLS enabled and forced');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, t, p))
+   from unnest(array['anon', 'authenticated', 'service_role']) r
+   cross join unnest(array['private.agent_api_key_audit', 'private.agent_api_key_rate_limits']) t
+   cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p),
+  'K-1 no API role holds any privilege on the audit or rate-limit tables');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_table_privilege('anon', 'public.agent_api_keys', p))
+   from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p)
+  and not pg_catalog.has_any_column_privilege('anon', 'public.agent_api_keys', 'SELECT'),
+  'K-2 anon holds no privilege on public.agent_api_keys');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'public.agent_api_keys', p))
+   from unnest(array['authenticated', 'service_role']) r
+   cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p),
+  'K-5 authenticated and service_role hold no table-level privilege (no client write path)');
+select ok(not pg_catalog.has_column_privilege('authenticated', 'public.agent_api_keys', 'key_hash', 'SELECT'),
+  'K-3 authenticated cannot select key_hash');
+select ok(not pg_catalog.has_column_privilege('service_role', 'public.agent_api_keys', 'key_hash', 'SELECT'),
+  'K-3 service_role cannot select key_hash directly (only through the lookup RPC)');
+select ok(
+  (select pg_catalog.bool_and(pg_catalog.has_column_privilege('authenticated', 'public.agent_api_keys', c, 'SELECT'))
+   from unnest(array['id','org_id','created_by','name','key_prefix','scopes','created_at',
+                     'last_used_at','expires_at','revoked_at','revoked_by']) c),
+  'K-3 authenticated can select every non-secret column');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_column_privilege('authenticated', 'public.agent_api_keys', c, p))
+   from unnest(array['id','org_id','created_by','name','key_prefix','key_hash','scopes','created_at',
+                     'last_used_at','expires_at','revoked_at','revoked_by']) c
+   cross join unnest(array['INSERT','UPDATE','REFERENCES']) p),
+  'K-5 authenticated has no column-level write privilege');
+select is(
+  (select pg_catalog.count(*)::int from pg_catalog.pg_policies
+   where schemaname = 'public' and tablename = 'agent_api_keys'
+     and cmd = 'SELECT' and roles = array['authenticated']::name[] and permissive = 'PERMISSIVE'),
+  1, 'K-5 one permissive SELECT policy for authenticated');
+select is(
+  (select pg_catalog.count(*)::int from pg_catalog.pg_policies
+   where (schemaname = 'public' and tablename = 'agent_api_keys')
+      or (schemaname = 'private' and tablename like 'agent\_api\_key\_%')),
+  1, 'K-5 no other policy exists on the agent key tables');
+
+select is(
+  (select pg_catalog.count(*)::int from ovd831_functions f
+   where pg_catalog.has_function_privilege('public', f.sig, 'EXECUTE')
+      or pg_catalog.has_function_privilege('anon', f.sig, 'EXECUTE')),
+  0, 'K-6 PUBLIC and anon execute none of the agent key functions');
+select is(
+  (select pg_catalog.array_agg(f.sig::text order by f.sig::text) from ovd831_functions f
+   where pg_catalog.has_function_privilege('authenticated', f.sig, 'EXECUTE')),
+  (select pg_catalog.array_agg(f.sig::text order by f.sig::text) from ovd831_functions f where f.grantee = 'authenticated'),
+  'K-6 authenticated executes exactly the user and admin RPCs');
+select is(
+  (select pg_catalog.array_agg(f.sig::text order by f.sig::text) from ovd831_functions f
+   where pg_catalog.has_function_privilege('service_role', f.sig, 'EXECUTE')),
+  (select pg_catalog.array_agg(f.sig::text order by f.sig::text) from ovd831_functions f where f.grantee = 'service_role'),
+  'K-6 service_role executes exactly the service RPCs');
+select is(
+  (select pg_catalog.count(*)::int from ovd831_functions f join pg_catalog.pg_proc p on p.oid = f.sig
+   where p.proconfig is distinct from array['search_path=""']),
+  0, 'K-6 every agent key function pins search_path to ''''');
+select is(
+  (select pg_catalog.array_agg(p.proname::text order by p.proname) from ovd831_functions f
+   join pg_catalog.pg_proc p on p.oid = f.sig where not p.prosecdef),
+  array['api_list_agent_api_keys'],
+  'K-6 only the list RPC is SECURITY INVOKER; the rest are SECURITY DEFINER');
+
+-- ---------------------------------------------------------------------
+-- CHECK constraints (direct insert as the owner)
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$insert into public.agent_api_keys (org_id, created_by, name, key_prefix, key_hash, scopes, expires_at)
+    values ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'x',
+            '0123456789abcdef', pg_catalog.repeat('a', 64), array['admin'], pg_catalog.now() + interval '1 day')$$,
+  '23514', null, 'K-7 an admin scope violates the CHECK');
+select throws_ok(
+  $$insert into public.agent_api_keys (org_id, created_by, name, key_prefix, key_hash, scopes, expires_at)
+    values ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'x',
+            '0123456789abcdef', pg_catalog.repeat('a', 64), array['quotes:read'], pg_catalog.now() + interval '366 days')$$,
+  '23514', null, 'K-7 an expiry more than one year out violates the CHECK');
+select throws_ok(
+  $$insert into public.agent_api_keys (org_id, created_by, name, key_prefix, key_hash, scopes)
+    values ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'x',
+            '0123456789abcdef', pg_catalog.repeat('a', 64), array['quotes:read'])$$,
+  '23502', null, 'K-7 expires_at is required (NOT NULL)');
+select throws_ok(
+  $$insert into public.agent_api_keys (org_id, created_by, name, key_prefix, key_hash, scopes, expires_at)
+    values ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'x',
+            '0123456789abcdef', 'ovd_plaintext_not_a_hash', array['quotes:read'], pg_catalog.now() + interval '1 day')$$,
+  '23514', null, 'K-7 key_hash must be 64 hex chars (a plaintext key is rejected)');
+
+-- ---------------------------------------------------------------------
+-- K-7 create (as A1)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a01', 'authenticated', 'aal1');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'aal1 key')$$,
+  '42501', 'aal2_required', 'K-7 create without AAL2 is refused');
+
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a01', 'authenticated', 'aal2');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310b0', 'other org')$$,
+  '42501', 'organization_access_required', 'K-7 create for an org the caller is not in is refused');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'admin', array['admin'])$$,
+  '22023', 'invalid_scopes', 'K-7 create with an admin scope is refused');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'empty', array[]::text[])$$,
+  '22023', 'invalid_scopes', 'K-7 create with no scope is refused');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'long', array['quotes:read'],
+      pg_catalog.now() + interval '1 year 1 day')$$,
+  '22023', 'invalid_expiry', 'K-7 create with expiry over one year is refused');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'past', array['quotes:read'],
+      pg_catalog.now() - interval '1 minute')$$,
+  '22023', 'invalid_expiry', 'K-7 create with an expiry in the past is refused');
+select throws_ok(
+  $$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', '   ')$$,
+  '22023', 'invalid_name', 'K-7 create with a blank name is refused');
+
+insert into ovd831_out
+select 'a1_read', public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'A1 read key');
+insert into ovd831_keys
+select 'a1_read', value ->> 'key', (value ->> 'id')::uuid, value ->> 'keyPrefix' from ovd831_out where label = 'a1_read';
+insert into ovd831_out
+select 'a1_both', public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'A1 both',
+  array['quotes:request', 'quotes:read', 'quotes:read'], pg_catalog.now() + interval '1 year');
+insert into ovd831_keys
+select 'a1_both', value ->> 'key', (value ->> 'id')::uuid, value ->> 'keyPrefix' from ovd831_out where label = 'a1_both';
+insert into ovd831_out
+select 'a1_spare', public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'A1 spare');
+insert into ovd831_keys
+select 'a1_spare', value ->> 'key', (value ->> 'id')::uuid, value ->> 'keyPrefix' from ovd831_out where label = 'a1_spare';
+
+select ok((select key ~ '^ovd_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$' from ovd831_keys where label = 'a1_read'),
+  'K-7 create returns a plaintext key in ovd_<16 hex>_<43 base64url> form');
+select is((select pg_catalog.split_part(key, '_', 2) from ovd831_keys where label = 'a1_read'),
+  (select prefix from ovd831_keys where label = 'a1_read'), 'K-7 the key embeds the returned prefix');
+select is((select value -> 'scopes' from ovd831_out where label = 'a1_read'), '["quotes:read"]'::jsonb,
+  'K-7 default scope is quotes:read only');
+select ok(
+  (select (value ->> 'expiresAt')::timestamptz between pg_catalog.now() + interval '90 days' - interval '1 minute'
+                                                   and pg_catalog.now() + interval '90 days' + interval '1 minute'
+   from ovd831_out where label = 'a1_read'),
+  'K-7 default expiry is 90 days');
+select is((select value -> 'scopes' from ovd831_out where label = 'a1_both'), '["quotes:read", "quotes:request"]'::jsonb,
+  'K-7 requested scopes are deduplicated and sorted');
+select is((select pg_catalog.count(*)::int from ovd831_keys where key is not null), 3, 'three keys created');
+
+-- K-3 as a client: key_hash is not selectable, even for the org's own keys.
+select throws_ok($$select key_hash from public.agent_api_keys$$, '42501', null,
+  'K-3 A1 cannot select key_hash');
+select throws_ok($$select * from public.agent_api_keys$$, '42501', null,
+  'K-3 A1 cannot select * (it includes key_hash)');
+select is((select pg_catalog.count(*)::int from public.agent_api_keys where org_id = '00000000-0000-4000-8000-0000008310a0'),
+  3, 'K-4 A1 reads its own org''s keys (non-secret columns)');
+select is((select key_prefix from public.agent_api_keys where id = (select id from ovd831_keys where label = 'a1_read')),
+  (select prefix from ovd831_keys where label = 'a1_read'), 'K-4 A1 reads the prefix of its key');
+
+-- K-7 list: non-secret columns only.
+insert into ovd831_out select 'a1_list', public.api_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0');
+select is((select pg_catalog.jsonb_array_length(value) from ovd831_out where label = 'a1_list'), 3,
+  'K-7 list returns the org''s three keys');
+select ok((select not (value::text like '%keyHash%' or value::text like '%"key"%') from ovd831_out where label = 'a1_list'),
+  'K-7 list returns neither a hash nor a plaintext key');
+select ok(
+  (select pg_catalog.bool_and(position(pg_catalog.substr(k.key, 22) in o.value::text) = 0)
+   from ovd831_keys k cross join ovd831_out o where o.label = 'a1_list'),
+  'K-7 the plaintext secret is never returned again by list');
+
+-- K-5 no client write path.
+select throws_ok(
+  $$insert into public.agent_api_keys (org_id, created_by, name, key_prefix, key_hash, expires_at)
+    values ('00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01', 'x',
+            'fedcba9876543210', pg_catalog.repeat('b', 64), pg_catalog.now() + interval '1 day')$$,
+  '42501', null, 'K-5 A1 cannot insert a key directly');
+select throws_ok($$update public.agent_api_keys set revoked_at = null$$, '42501', null,
+  'K-5 A1 cannot update keys directly (cannot un-revoke)');
+select throws_ok($$update public.agent_api_keys set expires_at = pg_catalog.now() + interval '5 years'$$, '42501', null,
+  'K-5 A1 cannot extend expiry directly');
+select throws_ok($$delete from public.agent_api_keys$$, '42501', null, 'K-5 A1 cannot delete keys directly');
+
+-- K-6 service RPCs are not callable by a client.
+select throws_ok($$select public.api_service_get_agent_api_key('0123456789abcdef')$$, '42501', null,
+  'K-6 authenticated cannot call the service lookup (it returns the hash)');
+select throws_ok(
+  $$select public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-000000000000', 'quotes.read', 60, 10, 10)$$,
+  '42501', null, 'K-6 authenticated cannot call the service admit RPC');
+select throws_ok(
+  $$select public.api_service_record_agent_api_key_refusal('00000000-0000-4000-8000-000000000000', 'quotes.read', 'invalid_secret')$$,
+  '42501', null, 'K-6 authenticated cannot call the service refusal RPC');
+select throws_ok($$select private.agent_api_key_revoke('00000000-0000-4000-8000-000000000000', null, 'x')$$, '42501', null,
+  'K-6 authenticated cannot call the private revoke helper');
+
+-- ---------------------------------------------------------------------
+-- K-4 cross-org isolation (as B1)
+-- ---------------------------------------------------------------------
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831b01', 'authenticated', 'aal2');
+select is((select pg_catalog.count(*)::int from public.agent_api_keys), 0, 'K-4 B1 sees none of org A''s keys');
+select is((select public.api_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0')), '[]'::jsonb,
+  'K-4 B1 lists no keys for org A');
+select throws_ok($$select key_hash from public.agent_api_keys$$, '42501', null, 'K-3 B1 cannot select key_hash');
+select throws_ok(
+  format('select public.api_revoke_agent_api_key(%L)', (select id from ovd831_keys where label = 'a1_read')),
+  'P0002', 'key_not_found', 'K-8 B1 cannot revoke org A''s key (same answer as an unknown key)');
+select throws_ok($$select public.api_revoke_agent_api_key('00000000-0000-4000-8000-0000008319ff')$$,
+  'P0002', 'key_not_found', 'K-8 an unknown key gives key_not_found');
+
+-- ---------------------------------------------------------------------
+-- K-8 revoke
+-- ---------------------------------------------------------------------
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a03', 'authenticated', 'aal2');
+select throws_ok(
+  format('select public.api_revoke_agent_api_key(%L)', (select id from ovd831_keys where label = 'a1_read')),
+  'P0002', 'key_not_found', 'K-8 another org member (not creator, not org admin) cannot revoke');
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a01', 'authenticated', 'aal1');
+select throws_ok(
+  format('select public.api_revoke_agent_api_key(%L)', (select id from ovd831_keys where label = 'a1_read')),
+  '42501', 'aal2_required', 'K-8 revoke without AAL2 is refused');
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a01', 'authenticated', 'aal2');
+insert into ovd831_out select 'a1_revoke', public.api_revoke_agent_api_key((select id from ovd831_keys where label = 'a1_read'));
+select ok((select (value ->> 'revokedAt') is not null and not (value ->> 'alreadyRevoked')::boolean
+           from ovd831_out where label = 'a1_revoke'), 'K-8 the creator revokes its key at AAL2');
+insert into ovd831_out select 'a1_revoke2', public.api_revoke_agent_api_key((select id from ovd831_keys where label = 'a1_read'));
+select ok((select (value ->> 'alreadyRevoked')::boolean
+                  and value ->> 'revokedAt' = (select value ->> 'revokedAt' from ovd831_out where label = 'a1_revoke')
+           from ovd831_out where label = 'a1_revoke2'), 'K-8 a second revoke is idempotent and keeps revoked_at');
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a02', 'authenticated', 'aal2');
+insert into ovd831_out select 'a2_revoke', public.api_revoke_agent_api_key((select id from ovd831_keys where label = 'a1_spare'));
+select ok((select not (value ->> 'alreadyRevoked')::boolean from ovd831_out where label = 'a2_revoke'),
+  'K-8 an org admin can revoke a member''s key');
+
+-- ---------------------------------------------------------------------
+-- K-9 admin RPCs: AAL2 AND platform admin
+-- ---------------------------------------------------------------------
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831a02', 'authenticated', 'aal2');
+select throws_ok($$select public.api_admin_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0')$$,
+  '42501', 'platform_admin_aal2_required', 'K-9 an org admin who is not a platform admin cannot admin-list');
+select throws_ok(
+  format('select public.api_admin_revoke_agent_api_key(%L)', (select id from ovd831_keys where label = 'a1_both')),
+  '42501', 'platform_admin_aal2_required', 'K-9 a non platform admin cannot admin-revoke');
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831d01', 'authenticated', 'aal1');
+select throws_ok($$select public.api_admin_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0')$$,
+  '42501', 'platform_admin_aal2_required', 'K-9 a platform admin without AAL2 cannot admin-list');
+select throws_ok(
+  format('select public.api_admin_revoke_agent_api_key(%L)', (select id from ovd831_keys where label = 'a1_both')),
+  '42501', 'platform_admin_aal2_required', 'K-9 a platform admin without AAL2 cannot admin-revoke');
+select is((select pg_catalog.count(*)::int from public.agent_api_keys), 0,
+  'K-4 a platform admin with no membership reads no keys directly');
+select pg_temp.ovd831_as('00000000-0000-4000-8000-000000831d01', 'authenticated', 'aal2');
+insert into ovd831_out select 'admin_list', public.api_admin_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0');
+select is((select pg_catalog.jsonb_array_length(value) from ovd831_out where label = 'admin_list'), 3,
+  'K-9 a platform admin at AAL2 lists org A''s keys');
+select ok((select not (value::text like '%keyHash%') from ovd831_out where label = 'admin_list'),
+  'K-9 admin list returns no hash');
+select throws_ok($$select key_hash from public.agent_api_keys$$, '42501', null,
+  'K-3 a platform admin cannot select key_hash either');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- K-7 storage: hash only, sha256 of the secret part
+-- ---------------------------------------------------------------------
+select is(
+  (select k.key_hash from public.agent_api_keys k where k.id = (select id from ovd831_keys where label = 'a1_both')),
+  (select pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.substr(key, 22), 'UTF8')), 'hex')
+   from ovd831_keys where label = 'a1_both'),
+  'K-7 key_hash is hex sha256 of the 43-char secret');
+select ok(
+  not exists (
+    select 1 from public.agent_api_keys k cross join ovd831_keys o
+    where position(pg_catalog.substr(o.key, 22) in k::text) > 0),
+  'K-7 no stored key row contains a plaintext secret');
+select is(
+  (select pg_catalog.count(distinct k.key_hash)::int from public.agent_api_keys k
+   where k.org_id = '00000000-0000-4000-8000-0000008310a0'),
+  3, 'K-7 every key has a distinct hash');
+
+-- ---------------------------------------------------------------------
+-- K-10 service RPCs (as service_role)
+-- ---------------------------------------------------------------------
+-- An expired key, and a key whose creator has left org A.
+insert into public.agent_api_keys (id, org_id, created_by, name, key_prefix, key_hash, scopes, created_at, expires_at)
+values
+  ('00000000-0000-4000-8000-0000008311e1', '00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a01',
+   'expired', 'e000000000000001', pg_catalog.repeat('e', 64), array['quotes:read'],
+   pg_catalog.now() - interval '2 days', pg_catalog.now() - interval '1 day'),
+  ('00000000-0000-4000-8000-0000008311f1', '00000000-0000-4000-8000-0000008310a0', '00000000-0000-4000-8000-000000831a03',
+   'leaver', 'f000000000000001', pg_catalog.repeat('f', 64), array['quotes:read'],
+   pg_catalog.now(), pg_catalog.now() + interval '1 day');
+delete from public.organization_memberships
+where user_id = '00000000-0000-4000-8000-000000831a03';
+
+set local role service_role;
+select pg_temp.ovd831_as(null, 'service_role', null);
+select throws_ok($$select 1 from public.agent_api_keys$$, '42501', null,
+  'K-6 service_role has no direct table read');
+insert into ovd831_out
+select 'lookup', public.api_service_get_agent_api_key((select prefix from ovd831_keys where label = 'a1_both'));
+select is((select value ->> 'id' from ovd831_out where label = 'lookup'),
+  (select id::text from ovd831_keys where label = 'a1_both'), 'K-10 lookup by prefix finds the key');
+select ok((select value ->> 'keyHash' ~ '^[0-9a-f]{64}$' and value ->> 'revokedAt' is null
+                  and value -> 'scopes' = '["quotes:read", "quotes:request"]'::jsonb
+           from ovd831_out where label = 'lookup'),
+  'K-10 lookup returns hash, scopes and revocation state');
+select is(public.api_service_get_agent_api_key('ffffffffffffffff'), null::jsonb,
+  'K-10 lookup of an unknown prefix returns null');
+select ok(
+  (select (public.api_service_get_agent_api_key(prefix) ->> 'revokedAt') is not null from ovd831_keys where label = 'a1_read'),
+  'K-10 lookup sees the revocation immediately (no cache in the database path)');
+
+select is(
+  public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_read'), 'quotes.read', 3600, 10, 100),
+  '{"allowed": false, "result": "revoked", "retryAfterSeconds": 0}'::jsonb,
+  'K-10 admit refuses a revoked key');
+select is(
+  public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-0000008311e1', 'quotes.read', 3600, 10, 100) ->> 'result',
+  'expired', 'K-10 admit refuses an expired key');
+select is(
+  public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-0000008311f1', 'quotes.read', 3600, 10, 100) ->> 'result',
+  'creator_not_member', 'K-10 admit refuses a key whose creator left the org');
+select throws_ok(
+  $$select public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-0000008311e1', 'https://x/?key=ovd_', 3600, 10, 100)$$,
+  '22023', 'invalid_endpoint', 'K-11 admit rejects an endpoint that is not a bare name (no URLs or query strings)');
+
+select is(
+  public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 3600, 2, 100),
+  '{"allowed": true, "result": "allowed", "retryAfterSeconds": 0}'::jsonb, 'K-10 first use is allowed');
+select is(
+  public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 3600, 2, 100) ->> 'result',
+  'allowed', 'K-10 second use is allowed');
+insert into ovd831_out
+select 'limited', public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 3600, 2, 100);
+select ok((select value ->> 'result' = 'rate_limited_key' and not (value ->> 'allowed')::boolean
+                  and (value ->> 'retryAfterSeconds')::int between 1 and 3600
+           from ovd831_out where label = 'limited'),
+  'K-10 third use in the window is rate limited per key, with a retry-after');
+select is(
+  public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 60, 100, 1) ->> 'result',
+  'allowed', 'K-10 a different window starts fresh');
+select is(
+  public.api_service_admit_agent_api_key_use((select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 60, 100, 1) ->> 'result',
+  'rate_limited_org', 'K-10 the per-org limit applies independently of the per-key limit');
+
+select throws_ok(
+  format('select public.api_service_record_agent_api_key_refusal(%L, %L, %L)',
+         (select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 'ovd_secret_in_result'),
+  '22023', 'invalid_result', 'K-11 refusal rejects a free-form result (no key material can be smuggled in)');
+select lives_ok(
+  format('select public.api_service_record_agent_api_key_refusal(%L, %L, %L)',
+         (select id from ovd831_keys where label = 'a1_both'), 'quotes.request', 'insufficient_scope'),
+  'K-11 refusal records an insufficient_scope use');
+select lives_ok(
+  format('select public.api_service_record_agent_api_key_refusal(%L, %L, %L)',
+         (select id from ovd831_keys where label = 'a1_both'), 'quotes.read', 'invalid_secret'),
+  'K-11 refusal records an invalid_secret use');
+reset role;
+
+select ok(
+  (select last_used_at is not null from public.agent_api_keys where id = (select id from ovd831_keys where label = 'a1_both')),
+  'K-10 an allowed use stamps last_used_at');
+select ok(
+  (select last_used_at is null from public.agent_api_keys where id = (select id from ovd831_keys where label = 'a1_read')),
+  'K-10 a refused use does not stamp last_used_at');
+
+-- ---------------------------------------------------------------------
+-- K-11 audit
+-- ---------------------------------------------------------------------
+select is(
+  (select pg_catalog.count(*)::int from private.agent_api_key_audit a
+   where a.org_id = '00000000-0000-4000-8000-0000008310a0' and a.event = 'create'),
+  3, 'K-11 three create events');
+select is(
+  (select pg_catalog.array_agg(a.result order by a.result) from private.agent_api_key_audit a
+   where a.org_id = '00000000-0000-4000-8000-0000008310a0' and a.event = 'revoke'),
+  array['revoked', 'revoked'], 'K-11 two revoke events (the idempotent replay writes none)');
+select is(
+  (select pg_catalog.count(*)::int from private.agent_api_key_audit a
+   where a.event = 'revoke' and a.actor_user_id is null),
+  0, 'K-11 every revoke event names its actor');
+select is(
+  (select pg_catalog.array_agg(a.result order by a.id) from private.agent_api_key_audit a
+   where a.event = 'use' and a.key_id = (select id from ovd831_keys where label = 'a1_both')),
+  array['allowed', 'allowed', 'rate_limited_key', 'allowed', 'rate_limited_org', 'insufficient_scope', 'invalid_secret'],
+  'K-11 every use outcome is audited with its result');
+select is(
+  (select pg_catalog.count(*)::int from private.agent_api_key_audit a
+   where a.event = 'use' and (a.endpoint is null or a.key_id is null)),
+  0, 'K-11 every use event carries key id and endpoint');
+select ok(
+  not exists (
+    select 1 from private.agent_api_key_audit a cross join ovd831_keys o
+    where position(pg_catalog.substr(o.key, 22) in a::text) > 0
+       or position(o.key in a::text) > 0),
+  'K-11 no audit row contains key material');
+select throws_ok($$update private.agent_api_key_audit set result = 'x'$$, '42501', 'agent_api_key_audit is append-only',
+  'K-11 audit rows cannot be updated');
+select throws_ok($$delete from private.agent_api_key_audit$$, '42501', 'agent_api_key_audit is append-only',
+  'K-11 audit rows cannot be deleted');
+
+-- ---------------------------------------------------------------------
+-- K-2 anon is denied everything
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd831_as(null, 'anon', null);
+select throws_ok($$select id from public.agent_api_keys$$, '42501', null, 'K-2 anon cannot read agent_api_keys');
+select throws_ok($$select public.api_create_agent_api_key('00000000-0000-4000-8000-0000008310a0', 'anon')$$,
+  '42501', null, 'K-2 anon cannot create');
+select throws_ok($$select public.api_list_agent_api_keys('00000000-0000-4000-8000-0000008310a0')$$,
+  '42501', null, 'K-2 anon cannot list');
+select throws_ok($$select public.api_revoke_agent_api_key('00000000-0000-4000-8000-0000008311e1')$$,
+  '42501', null, 'K-2 anon cannot revoke');
+select throws_ok($$select public.api_service_get_agent_api_key('e000000000000001')$$,
+  '42501', null, 'K-2 anon cannot call the service lookup');
+reset role;
+
+select * from finish();
+rollback;

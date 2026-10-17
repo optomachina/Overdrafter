@@ -7,6 +7,7 @@ import { handleVendorQuoteTask, processClaimedTask } from "./index";
 import { XometryAdapter } from "./adapters/xometry";
 import { createProviderMutationPhase, markProviderMutationStarted, runInProviderMutationPhase } from "./providerMutationPhase";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "./types";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 vi.mock("./files.js", async (original) => ({
   ...await original<typeof import("./files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -100,6 +101,7 @@ function database() {
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.xometry, globalEngaged: switches.global }
       : name === "api_authorize_xometry_beta_worker_dispatch" ? preflight
         : name === "api_reserve_spend" ? spend
+          : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
           : name === "api_record_export_control_clean_scan" ? "export-scan"
           : name === "api_check_export_control_dispatch" ? exportChecks[Math.min(exportCalls++, exportChecks.length - 1)]
           : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",

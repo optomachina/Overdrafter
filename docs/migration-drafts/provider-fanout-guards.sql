@@ -17,11 +17,14 @@
 --     #677's real predicate (clean declaration, no pending marking review,
 --     clean scan of record for every file the part sends).
 --
--- The daily cap (about 20 quotes per provider per day,
--- docs/business/business-model.md) protects OverDrafter's own provider account,
--- so it counts permits across all organizations. The function returns only
--- which providers are at that cap, never the counts themselves. Both permit
--- paths count.
+-- The daily cap is optional and per supplier: there is no default cap
+-- (docs/business/business-model.md). A provider is reported at cap only when an
+-- admin set a positive private.provider_kill_switches.daily_quote_cap
+-- (OVD-829, docs/migration-drafts/ovd-828-s1.sql); a null cap never appears.
+-- It protects OverDrafter's own provider account, so it counts permits across
+-- all organizations. The function returns only which providers are at that
+-- cap, never the counts themselves. Both permit paths count. Rebind the count
+-- to private.provider_daily_quote_usage before review.
 --
 -- quoteRequestBudget mirrors the per user guardrail that
 -- private.request_scoped_automatic_quote_impl enforces on every provider
@@ -44,7 +47,6 @@ as $$
 declare
   v_job public.jobs%rowtype;
   v_day_start timestamptz := pg_catalog.date_trunc('day', pg_catalog.now() at time zone 'UTC') at time zone 'UTC';
-  v_daily_cap constant integer := 20;
   v_guardrails jsonb;
   v_window_minutes integer;
   v_max_requests integer;
@@ -111,7 +113,11 @@ begin
         ) issued
         group by issued.provider
       ) counts
-      where counts.total >= v_daily_cap
+      join private.provider_kill_switches cap_row
+        on cap_row.provider::text = counts.provider
+      where cap_row.daily_quote_cap is not null
+        and cap_row.daily_quote_cap > 0
+        and counts.total >= cap_row.daily_quote_cap
     ), '[]'::jsonb),
     'quoteRequestBudget', coalesce(v_budget, 'null'::jsonb)
   );

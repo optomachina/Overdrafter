@@ -11,6 +11,7 @@ import {
 } from "../src/providerDispatchEnvelope.js";
 import type { ProviderDispatchEnvelope } from "../src/providerDispatchTypes.js";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput, WorkerConfig } from "../src/types.js";
+import { providerDispatchReservation } from "./providerDispatchReservation.js";
 
 /**
  * Shared scaffolding for production-portal adapter tests. Each provider test
@@ -118,6 +119,7 @@ export async function expectAdmittedDecisionReachesAdapter(testCase: AdmittedDec
     scopeSnapshot: { schema: "quote-lane-scope.v1", vendor },
     adapter: { quote },
     quoteInput: testCase.input,
+    reserveDispatch: async (provider) => providerDispatchReservation(provider),
     killSwitchReader: async (provider) => ({
       schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
     }),

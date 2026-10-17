@@ -33,6 +33,13 @@ npm --prefix worker run dev
 
 ## Database
 
+Every `supabase/migrations` change is applied to the staging project
+(`ldmambwtksfvqdufhaam`) and passes staging smoke reads before any production
+apply. Production apply stays manual and still needs Blaine's approval card.
+Follow [docs/runbooks/staging.md](docs/runbooks/staging.md) for the flow, the
+prod-ref guard (`node scripts/staging-reset-guard.mjs <ref>`), reseed, and the
+evidence template.
+
 ```bash
 # Start local Supabase (Docker required)
 npm run db:start
@@ -40,7 +47,8 @@ npm run db:start
 # Reset DB and re-run all migrations
 npm run db:reset
 
-# Push local migrations to remote
+# Push local migrations to the linked remote (staging only; confirm
+# supabase/.temp/project-ref is ldmambwtksfvqdufhaam first)
 npm run db:push
 
 # Regenerate TypeScript types from DB schema

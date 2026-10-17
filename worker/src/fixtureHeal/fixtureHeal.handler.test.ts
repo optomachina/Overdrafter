@@ -6,6 +6,7 @@ import { XometryAdapter } from "../adapters/xometry";
 import { HISTORY_COLUMNS } from "./sanityHistory";
 import { computeAndStoreRoutingScores } from "../scoringIntegration";
 import type { QueueTaskRecord, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
+import { providerDispatchReservation } from "../../test-support/providerDispatchReservation";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -84,6 +85,7 @@ function database(options: { historyError?: boolean; laneSettled?: boolean; mate
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: false, globalEngaged: false }
       : name === "api_authorize_xometry_beta_worker_dispatch" ? xometryAuthorized
         : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
+          : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
           : name === "api_record_export_control_clean_scan" ? "export-scan"
             : name === "api_check_export_control_dispatch" ? { allowed: true }
               : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed",

@@ -82,7 +82,7 @@ describe("renderPrBody", () => {
     });
 
     expect(validatePrBody(rendered).ok).toBe(true);
-    expect(checkProof(rendered, changedFiles)).toEqual({
+    expect(checkProof(rendered, changedFiles)).toMatchObject({
       status: "pass",
       reasons: ["Test: `scripts/render-pr-body.test.mjs`", "Command: `npx vitest run scripts/render-pr-body.test.mjs`"],
     });

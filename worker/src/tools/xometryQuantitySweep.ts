@@ -16,7 +16,11 @@ import type {
   WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
-import { ProviderKillSwitchError, type ProviderKillSwitchReader } from "../providerKillSwitch.js";
+import {
+  ProviderDispatchRefusedError,
+  ProviderKillSwitchError,
+  type ProviderKillSwitchReader,
+} from "../providerKillSwitch.js";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
@@ -304,7 +308,8 @@ export async function runQuote(
     };
   } catch (error) {
     console.log("FAILED");
-    if (error instanceof ProviderKillSwitchError) throw error;
+    // A switched-off supplier or a spent daily cap stops the whole run.
+    if (error instanceof ProviderKillSwitchError || error instanceof ProviderDispatchRefusedError) throw error;
     return buildErrorRow(quantity, startedAt, startMs, error);
   }
 }

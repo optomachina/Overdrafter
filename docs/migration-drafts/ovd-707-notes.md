@@ -10,22 +10,22 @@ the seed and fallback source until PR 2.
 
 | File | Purpose |
 | --- | --- |
-| `ovd-707-a.sql` | Tables, enum, validation helpers, append-only triggers, 12 admin RPCs, 1 service read |
+| `ovd-707-a.sql` | Tables, enum, validation helpers, append-only triggers, four-eyes helper, 12 admin RPCs, 1 service read |
 | `ovd-707-a.rollback.sql` | Drops all of the above. Refuses while admin-written audit rows exist, unless the export is confirmed |
-| `ovd-707-b-seed.sql` | Idempotent one-time seed of the 18 registry providers as `active`, version 1 |
+| `ovd-707-b-seed.sql` | Idempotent one-time seed of the 4 `liveAdapter: true` registry providers as `approved`, version 1 (Q4) |
 | `ovd-707-b-seed.rollback.sql` | Removes seeded definitions that no admin has touched. Run before the group a rollback |
 | `supabase/tests/pending/ovd707_a_guards.sql.pending` | 75 assertions: posture, ACLs, RLS, and the denial matrix for every RPC |
-| `supabase/tests/pending/ovd707_b_lifecycle.sql.pending` | 80 assertions: lifecycle, four-eyes (contributors) and override, gates, audit, append-only, service read, seed |
-| `scripts/ovd707-provider-definition-seed.test.mjs` | Vitest drift check that pins the seed rows to the registry and manifests |
+| `supabase/tests/pending/ovd707_b_lifecycle.sql.pending` | 104 assertions: lifecycle, four-eyes on approve, dry run and activate, Blaine's override, single-admin suspend, gates, audit, append-only, service read, seed |
+| `scripts/ovd707-provider-definition-seed.test.mjs` | Vitest drift check that pins the seed rows to the live registry entries and manifests, seeded `approved` |
 | `.github/workflows/ovd707-pending-pgtap.yml` | Ephemeral local Supabase: apply the drafts twice, run the pending pgTAP, replay the rollbacks twice newest-first, and diff the catalog against the pre-draft snapshot |
 
 ## Object map
 
 - `private.provider_status` enum: `draft`, `pending_review`, `approved`, `active`, `suspended`, `retired`.
-- `private.provider_definitions` is the live row. It holds `id`, `slug` (unique), `display_name`, `kind` (`portal|api|email|manual`), `quote_currency` (default `USD`), `host_allowlist text[]`, `admission jsonb` (structural check), `status`, `version`, `approved_revision_id`, `credential_ref` (secret name only), the export-control fields, the dry-run fields, `created_by`, `created_at` and `updated_at`.
+- `private.provider_definitions` is the live row. It holds `id`, `slug` (unique), `display_name`, `kind` (`portal|api|email|manual`), `quote_currency` (default `USD`), `host_allowlist text[]`, `admission jsonb` (structural check), `status`, `version`, `approved_revision_id`, `credential_ref` (secret name only), the export-control fields, the dry-run fields (including `dry_run_recorded_by`), `created_by`, `created_at` and `updated_at`.
 - `private.provider_definition_revisions` holds append-only snapshots. A revision is decided once (`pending` to `approved` or `rejected`, and only the decision columns change). Revisions are never deleted. Each definition has at most one pending revision.
 - `private.provider_audit_log` is append-only. Triggers block UPDATE, DELETE and TRUNCATE. No API role holds any grant on it.
-- `private.provider_definition_override_emails` lists who may use the single-admin override (Q1).
+- `private.provider_definition_override_emails` lists who may use the single-admin override. Decided (Q1): Blaine only.
 - RLS is enabled and forced on all four tables. They have no policies and no grants to `anon`, `authenticated` or `service_role`.
 - Admin RPCs (`authenticated` only, verified auth + platform admin + AAL2, `SECURITY DEFINER`, `search_path = ''`): `api_admin_create_provider_definition`, `api_admin_update_provider_definition_draft`, `api_admin_submit_provider_definition`, `api_admin_approve_provider_definition`, `api_admin_reject_provider_definition`, `api_admin_record_provider_dry_run`, `api_admin_activate_provider_definition`, `api_admin_suspend_provider_definition`, `api_admin_reopen_provider_definition`, `api_admin_retire_provider_definition`, `api_admin_list_provider_definitions`, `api_admin_list_provider_definition_history`.
 - Service read (`service_role` only): `api_service_list_active_provider_definitions()`.
@@ -52,8 +52,8 @@ draft | approved | active | suspended --retire--> retired (terminal)
 - **A1. Schema.** All tables and the enum live in `private`, like the kill switch tables. Nothing is in `public`, so the OVD-602 "every public table has RLS" check is not affected.
 - **A2. Editing a live provider.** In v1 you edit only in `draft`. To change an active provider, you suspend, reopen, edit, submit, approve, record the dry run and activate it again. This creates a new version. While it is in draft, the provider is not served. See Q3.
 - **A3. Export-control fields (OVD-723).** There are two fields. `export_jurisdiction` is `us` or `foreign`, the same values `private.export_control_provider_jurisdiction` returns. `export_controlled_allowed` is a boolean. A foreign provider can never be set to `true`. Activation requires both fields to be set.
-- **A4. Dry-run gate.** `api_admin_record_provider_dry_run` records the result of an offline dry-run check with a required evidence reference. The database performs no dispatch. A pass is tied to the current `version`. Approving a new version, reopening, or recording a failing result clears the pass. Activation requires `dry_run_passed_version = version`. Resuming from `suspended` keeps the pass for the same version.
-- **A5. Seed.** All 18 registry providers are seeded as `active`, version 1, with these sources:
+- **A4. Dry-run gate.** `api_admin_record_provider_dry_run` records the result of an offline dry-run check with a required evidence reference, and who recorded it (`dry_run_recorded_by`). The database performs no dispatch. A pass is tied to the current `version`. Approving a new version, reopening, or recording a failing result clears the pass. Activation requires `dry_run_passed_version = version`. Resuming from `suspended` keeps the pass for the same version. Recording and activating are four-eyes steps (A12, Q2).
+- **A5. Seed.** Only the `liveAdapter: true` registry providers (today fictiv, oshcut, quickparts, weerg and xometry) are seeded, as `approved`, version 1 (Q4). They have these sources:
   - `admission`: the registry entry, verbatim.
   - `display_name`: the manifest `displayName`.
   - `host_allowlist`: the manifest `official.domains`.
@@ -62,10 +62,12 @@ draft | approved | active | suspended --retire--> retired (terminal)
   - `credential_ref`: the first `sessionSecrets[].secretNameEnv`, or null.
   - Export-control fields: `export_jurisdiction` from the OVD-723 function, and `export_controlled_allowed = false`.
 
-  Seeded rows are grandfathered:
-  - The revision has no proposer or reviewer.
-  - The dry-run evidence is `seed:provider-registry.v1.json`.
+  Seeded rows are grandfathered through review only:
+  - The revision has no proposer, reviewer or contributors.
+  - No dry run is recorded. Each provider is activated explicitly after a real dry run (record, then activate by a different admin, or by Blaine through the override).
   - Each row gets one audit row with actor `cli:ovd-707-seed` and `actor_kind = 'cli'`.
+
+  Non-live registry entries are not seeded. When one is needed it goes through create, submit and approve.
 
   The seed is idempotent: it skips existing slugs. `scripts/ovd707-provider-definition-seed.test.mjs` fails if the registry or a manifest changes without the seed being regenerated.
 - **A6. `credential_ref`** must match `^[A-Z][A-Z0-9_]{0,100}_SECRET_NAME$`. That is the registry's `secretNameEnv` convention: the name of an env var that holds the secret name. API keys, tokens, JSON, URLs and lowercase values are refused by a check constraint.
@@ -74,8 +76,8 @@ draft | approved | active | suspended --retire--> retired (terminal)
 - **A9. Reads.** The admin read RPCs use the same guard (AAL2) as the writes. They write no audit row.
 - **A10. Audit shape.** `actor` is text. It holds a user id for `user` rows (enforced by a check constraint) and a free label for `cli` rows. `request_id` is taken from the PostgREST `request.headers` `x-request-id` when present. `before` and `after` hold the full row state.
 - **A11. "Active" is not "admitted".** An active definition does not admit a provider or enable dispatch. Admission policies, permits, the production-certified allowlist and the kill switches still decide every dispatch.
-- **A12. Reject by the proposer** (a withdrawal) is allowed. Four-eyes applies to approval only.
-- **A13. Four-eyes covers every contributor.** At submit, the revision records `contributors`: the distinct users behind `create` and `update_draft` audit rows since the definition's last `approve` or `approve_override` (or since creation), plus the submitter. None of them may approve that revision except through the single-admin override. `contributors` and `proposal_reason` cannot change after submit; the approver's or rejecter's reason goes in `decision_reason`.
+- **A12. Four-eyes steps.** Approve, record dry run and activate (including resume from `suspended`) are four-eyes steps. None of them may be done by a contributor to the revision (A13). The activator also must not be the admin who recorded the dry run. Violations raise `42501 four_eyes_required`. The only exception is the single-admin override (Q1): `p_override = true`, the caller's email is in the override list, verified auth, platform admin, AAL2 and a reason of at least 10 characters. It is audited as `approve_override`, `record_dry_run_override` or `activate_override`. Passing `p_override` when there is no conflict raises `22023 four_eyes_override_not_needed`. Reject by the proposer (a withdrawal), suspend, reopen and retire stay single-admin. Suspend in particular must never be blocked.
+- **A13. Four-eyes covers every contributor.** At submit, the revision records `contributors`: the distinct users behind `create` and `update_draft` audit rows since the definition's last `approve` or `approve_override` (or since creation), plus the submitter. None of them may approve that revision, record its dry run or activate it, except through the single-admin override. `contributors` and `proposal_reason` cannot change after submit; the approver's or rejecter's reason goes in `decision_reason`.
 
 ## OVD-602 privilege inventory
 
@@ -87,12 +89,12 @@ pending guards test pins the exact ACLs instead. In the promotion change, add
 these rows (inventory text form, no spaces after commas):
 
 ```sql
-  ('public.api_admin_activate_provider_definition(uuid,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
+  ('public.api_admin_activate_provider_definition(uuid,text,boolean)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_approve_provider_definition(uuid,text,boolean)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_create_provider_definition(text,jsonb,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_list_provider_definition_history(uuid)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_list_provider_definitions()', 'authenticated', 'admin-aal2', 'OVD-707'),
-  ('public.api_admin_record_provider_dry_run(uuid,boolean,text,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
+  ('public.api_admin_record_provider_dry_run(uuid,boolean,text,text,boolean)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_reject_provider_definition(uuid,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_reopen_provider_definition(uuid,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
   ('public.api_admin_retire_provider_definition(uuid,text)', 'authenticated', 'admin-aal2', 'OVD-707'),
@@ -105,7 +107,8 @@ The service read is `service_role` only and the private helpers are revoked from
 
 ## Design questions
 
-1. **How is Blaine identified for the four-eyes override?** The draft follows
+1. **How is Blaine identified for the four-eyes override?** *Decided, see
+   Decisions below.* The draft follows
    the existing pattern of a lowercase email allowlist,
    `private.provider_definition_override_emails`. The existing pattern is
    `private.platform_admin_emails`, which the 20260303123000 migration seeds
@@ -113,17 +116,17 @@ The service read is `service_role` only and the private helpers are revoked from
    sign-in (`require_verified_auth()`), AAL2, and a reason of at least 10
    characters. It is recorded as `approve_override` and as
    `four_eyes_override = true` on the revision. Alternatives:
-   - pin his `auth.users.id`, which survives an email change;
+   - pin Blaine's `auth.users.id`, which survives an email change;
    - use a capability row in `private.platform_admin_capabilities`, the
      commercial-admin pattern with expiry and revocation.
 
    Which should promotion use?
-2. **Should activation and dry-run recording also need a second admin?** Today
-   only approval does.
+2. **Should activation and dry-run recording also need a second admin?**
+   *Decided: yes, see Decisions below.*
 3. **Should active providers support zero-downtime edits?** That would mean a
    pending revision alongside the live one, so the active version keeps serving
    until the new one is activated. v1 needs suspend and reopen (A2).
-4. **How should the seed land?** Options:
+4. **How should the seed land?** *Decided, see Decisions below.* Options:
    - Seed `active` with grandfathered review and dry run, as drafted.
    - Seed `approved`, so each provider is activated explicitly after a real dry
      run.
@@ -138,6 +141,32 @@ The service read is `service_role` only and the private helpers are revoked from
    `private.export_control_provider_jurisdiction` and the worker's
    `FOREIGN_JURISDICTION_PROVIDERS` read from the definitions, so there is one
    source of jurisdiction. Or the two stay duplicated with a parity check.
+
+### Decisions
+
+Recorded from the OVD-707 Linear thread after the PR 1 review.
+
+- **Q1 (Blaine).** The override list is Blaine only for now.
+  `private.provider_definition_override_emails` is seeded with Blaine's
+  address and nothing else. Adding anyone needs a reviewed migration and
+  Blaine's approval. The override still requires verified auth, platform
+  admin, AAL2 and a reason of at least 10 characters, and is audited
+  (`approve_override` for approval).
+- **Q2 (Architect, conservative).** Dry-run recording and activation are
+  four-eyes too. The recorder and the activator must not be contributors to
+  the revision (the same rule as approve), and the activator must not be the
+  recorder. Violations raise `42501 four_eyes_required`. The only exception is
+  the Q1 override, audited as `record_dry_run_override` or
+  `activate_override`. Suspend stays single-admin, because switching a
+  provider off must never be blocked.
+- **Q4 (Architect, conservative).** Seed only the `liveAdapter: true`
+  registry entries, as `approved`, not `active`. Each one is activated
+  explicitly after a real dry run is recorded. Non-live entries are not
+  seeded; they go through create, submit and approve when needed. The service
+  read fails closed, so the promotion runbook must activate the live
+  providers (Xometry and every other live one) in the same window, or they
+  will not be served.
+
 7. **What format should `credential_ref` use?** It currently uses the env-var
    name convention (A6). If PR 2 wants the Secret Manager secret name itself
    (lowercase with hyphens), the check needs a different, still value-rejecting
@@ -189,10 +218,21 @@ workflow above is the faithful proof on a real local Supabase stack. Results:
 - These changes have not been applied or run anywhere. The CI workflow is the
   first proof.
 
+## Decisions round (Q1, Q2, Q4)
+
+- New column `dry_run_recorded_by`, returned as `dryRunRecordedBy` in the row state.
+- New private helpers `require_provider_four_eyes(uuid, boolean, boolean)` (shared by approve, record dry run and activate) and `provider_approved_contributors(provider_definitions)`. Both are revoked from every API role and dropped by the rollback.
+- `api_admin_record_provider_dry_run` and `api_admin_activate_provider_definition` take a trailing `p_override boolean default false`, so their signatures (and the OVD-602 rows above) change. Existing calls keep working.
+- New audit actions `record_dry_run_override` and `activate_override`.
+- The seed now holds 4 approved rows. The drift test pins it to the `liveAdapter: true` entries.
+- The lifecycle test no longer adds a test email to the override list. Its override admin signs in with Blaine's address, so the test also proves the list holds exactly one row.
+- Local verification, on the same throwaway PostgreSQL 17 + pgTAP shim as above (nothing applied to any Supabase project): both drafts apply twice; the pending pgTAP passes 179/179 (75 guards + 104 lifecycle); both rollbacks replay twice and the catalog matches the pre-draft snapshot. Three mutation checks were run: removing the recorder check, the dry-run contributor check, or the activation contributor check. Each one fails the suite. The CI workflow is still the faithful proof.
+
 ## Promotion checklist
 
 1. Run `npm run migration:new` and combine `ovd-707-a.sql` and `ovd-707-b-seed.sql` into one migration (regenerate the seed first if the drift test fails).
 2. Rename `supabase/tests/pending/ovd707_*.sql.pending` to `supabase/tests/ovd707_*.sql`.
 3. Add the OVD-602 allowlist rows above.
 4. Delete `.github/workflows/ovd707-pending-pgtap.yml` and the `ovd-707-*` Sonar CPD exclusion if the promoted migration no longer needs it.
-5. Resolve the design questions above, Q1 first.
+5. Resolve the remaining design questions (Q3, Q5, Q6); Q1, Q2 and Q4 are decided above.
+6. In the same window, for each seeded live provider (`fictiv`, `oshcut`, `quickparts`, `weerg`, `xometry`): one admin records a real dry run, and a different admin activates it, or Blaine activates through the override. Until then the service read returns nothing for them.

@@ -51,9 +51,11 @@ import {
   CANCELLED_PROVIDER_DISABLED,
   isProviderKillSwitchEngaged,
   PROVIDER_KILL_SWITCH_ENGAGED,
+  PROVIDER_DAILY_CAP_REACHED,
   PROVIDER_KILL_SWITCH_UNAVAILABLE,
+  ProviderDispatchRefusedError,
   ProviderKillSwitchError,
-} from "./providerKillSwitch.js";
+} from "./providerSettings.js";
 import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
 
 /**
@@ -246,6 +248,15 @@ export function classifyProviderAdapterFailure(
     return phase.started
       ? { failureClass: "manual_follow_up", code: PROVIDER_KILL_SWITCH_UNAVAILABLE }
       : { failureClass: "failed", code: PROVIDER_KILL_SWITCH_UNAVAILABLE };
+  }
+  // OVD-829: the supplier settings gate refused before launch, so nothing was
+  // sent. A spent daily cap goes to manual quoting; an unreachable counter
+  // fails like an unreadable switch (it may be a spent cap).
+  if (error instanceof ProviderDispatchRefusedError) {
+    return {
+      failureClass: error.reasonCode === PROVIDER_DAILY_CAP_REACHED ? "manual_follow_up" : "failed",
+      code: error.reasonCode,
+    };
   }
   // OVD-748: an abort is a stop decision, never a provider failure and never retried.
   if (error instanceof ProviderAbortedError) {
@@ -946,6 +957,10 @@ async function executeValidateAndPersist(
           // OVD-722: a before_launch refusal comes from the guard wrapping the
           // adapter, before anything launched; the adapter never started.
           if (error instanceof ProviderKillSwitchError && error.checkpoint === "before_launch") {
+            state.adapterStarted = false;
+          }
+          // OVD-829: the settings gate runs only at before_launch.
+          if (error instanceof ProviderDispatchRefusedError) {
             state.adapterStarted = false;
           }
           if (error instanceof ProviderAbortedError && error.checkpoint === "before_launch") {

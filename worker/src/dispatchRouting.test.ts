@@ -18,6 +18,7 @@ import { createProviderMutationPhase } from "./providerMutationPhase";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 import { failureCodeForError, isRetryableVendorTaskError } from "./vendorTaskRetry";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 const PERMIT_ID = GENERIC_PERMIT_ID;
 const GENERIC_RPC = "api_authorize_provider_worker_dispatch";
@@ -57,7 +58,7 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
     const task = input.task ?? genericTask();
     return quoteWithRoutedDispatchPreflight({
       supabase: { rpc } as unknown as SupabaseClient,
-      config: { workerMode: input.workerMode ?? "live", workerName: "worker-1" },
+      config: { workerMode: input.workerMode ?? "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
       task,
       vendorQuoteResultId: task.vendorQuoteResultId,
       claimedAt: "2026-10-03T12:04:00.000Z",
@@ -66,6 +67,7 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
       adapter: { quote },
       quoteInput: { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput,
       onAuthorized,
+      reserveDispatch: async (provider: VendorName) => providerDispatchReservation(provider),
       killSwitchReader,
     });
   };
@@ -237,6 +239,7 @@ describe("dispatch routing upload capability checkpoint (OVD-414)", () => {
       scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "xometry" },
       adapter: { quote },
       quoteInput: { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput,
+      reserveDispatch: async (provider: VendorName) => providerDispatchReservation(provider),
       killSwitchReader: async (provider) => ({
         schema: "provider-kill-switch-state.v1",
         provider,

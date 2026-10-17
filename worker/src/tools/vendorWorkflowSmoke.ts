@@ -44,7 +44,11 @@ import {
   sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
-import { ProviderKillSwitchError, type ProviderKillSwitchReader } from "../providerKillSwitch.js";
+import {
+  ProviderDispatchRefusedError,
+  ProviderKillSwitchError,
+  type ProviderKillSwitchReader,
+} from "../providerKillSwitch.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
@@ -1576,7 +1580,8 @@ export async function runQuote(
     await recordRunArtifacts(runArtifacts, row, result.quoteUrl, result.artifacts);
   } catch (error) {
     console.log("FAILED");
-    if (error instanceof ProviderKillSwitchError) throw error;
+    // A switched-off supplier or a spent daily cap stops the whole run.
+    if (error instanceof ProviderKillSwitchError || error instanceof ProviderDispatchRefusedError) throw error;
     row = buildErrorRow(
       vendor,
       quantity,
