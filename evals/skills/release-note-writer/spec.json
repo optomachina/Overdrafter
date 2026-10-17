@@ -1,0 +1,65 @@
+{
+  "skill": "release-note-writer",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "mixed-changes",
+      "task": "Merged work: new retry button (user-visible), a dependency bump and a refactor of the quote mapper.",
+      "expectedBehaviors": [
+        "Separates user-visible changes from internal maintenance",
+        "Uses plain language and stays concise",
+        "Includes short title, what changed and why it matters",
+        "Adds rollout/ops notes and known limitations when relevant"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Separates user-visible changes from internal maintenance",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Uses plain language and stays concise",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Includes short title, what changed and why it matters",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Adds rollout/ops notes and known limitations when relevant",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "ops-change",
+      "task": "Merged work: a new env var is required by the worker before deploy.",
+      "expectedBehaviors": [
+        "Surfaces the operator action in rollout/ops notes",
+        "Accurate and does not invent behavior not in the PR",
+        "Concise"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Surfaces the operator action in rollout/ops notes",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Accurate and does not invent behavior not in the PR",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Concise",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}

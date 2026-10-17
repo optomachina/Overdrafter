@@ -1,0 +1,71 @@
+{
+  "skill": "billing-implementation-guardrails",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "entitlement-from-redirect",
+      "task": "A teammate proposes unlocking a paid plan when the browser returns to /billing/success after Stripe Checkout. Review the plan under this skill.",
+      "expectedBehaviors": [
+        "Rejects client-only redirect as the entitlement trigger",
+        "Names webhook-driven sync (e.g. checkout.session.completed / subscription events) as the authoritative path",
+        "Defines one source-of-truth owner for entitlement state",
+        "Produces the required output sections (Stripe objects, source of truth, event map, failure states, logging, idempotency)"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Rejects client-only redirect as the entitlement trigger",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Names webhook-driven sync (e.g. checkout.session.completed / subscription events) as the authoritative path",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Defines one source-of-truth owner for entitlement state",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Produces the required output sections (Stripe objects, source of truth, event map, failure states, logging, idempotency)",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "replayed-webhook",
+      "task": "Design handling for a Stripe invoice.paid webhook that is delivered twice and out of order with a subscription.updated event.",
+      "expectedBehaviors": [
+        "Flags idempotency keyed on the Stripe event id",
+        "Addresses out-of-order delivery and replay resilience",
+        "Verifies org/customer/subscription mapping before applying state",
+        "Lists failure/recovery and audit-log expectations"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Flags idempotency keyed on the Stripe event id",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Addresses out-of-order delivery and replay resilience",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Verifies org/customer/subscription mapping before applying state",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Lists failure/recovery and audit-log expectations",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}
