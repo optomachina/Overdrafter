@@ -104,7 +104,7 @@ describe("ClientQuoteDecisionPanel provider notes", () => {
 
 describe("sanitizeProviderNotes", () => {
   it("removes control characters and collapses whitespace without touching markup text", () => {
-    expect(sanitizeProviderNotes("a\u0000b‮ <b>bold</b>   text\ufeff\u2060x")).toBe("a b <b>bold</b> text x");
+    expect(sanitizeProviderNotes("a\u0000b\u202e <b>bold</b>   text\ufeff\u2060x")).toBe("a b <b>bold</b> text x");
   });
 
   it("preserves the exact angle-bracket counterexample", () => {

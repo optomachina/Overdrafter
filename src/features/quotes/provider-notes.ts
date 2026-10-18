@@ -2,11 +2,8 @@ export const PROVIDER_NOTES_PREVIEW_CHARS = 240;
 export const PROVIDER_NOTES_MAX_CHARS = 2000;
 
 // C0/C1 controls, zero-width and bidi-override characters, built from escapes.
-const UNSAFE_CHARS = new RegExp(
-  // eslint-disable-next-line no-control-regex -- stripping control characters is the purpose
-  "[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060\\u2066-\\u2069\\uFEFF]",
-  "g",
-);
+// eslint-disable-next-line no-control-regex -- stripping control characters is the purpose
+const UNSAFE_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
 
 // Hard bound applied before any regex so work is linear in a small constant.
 const RAW_INPUT_LIMIT = PROVIDER_NOTES_MAX_CHARS * 4;
