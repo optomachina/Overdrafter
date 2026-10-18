@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OverDrafter: your manufacturing agent for building frontier hardware</title>
+<meta name="description" content="Upload a STEP file and PDF drawing. OverDrafter reads the specs, requests quotes from manufacturing providers in parallel, and lets you compare price and lead time.">
+<style>
+:root{
+  --bone:#F2EFE8; --ink:#1c1a17; --mute:#6a655c; --rule:#d6d1c5; --rule-strong:#b9b3a4;
+  --red:#C2410C; --red-ink:#9a3309;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --gutter:clamp(20px,4vw,56px);
+}
+*{box-sizing:border-box}
+html{background:var(--bone);color:var(--ink);-webkit-text-size-adjust:100%}
+body{margin:0;font-family:var(--sans);font-size:16px;line-height:1.55;background:var(--bone);overflow-x:hidden}
+a{color:inherit}
+img{display:block;max-width:100%;height:auto}
+.wrap{max-width:1360px;margin:0 auto;padding:0 var(--gutter)}
+.mono{font-family:var(--mono);font-feature-settings:"tnum" 1,"lnum" 1}
+.eyebrow{font:500 12px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.sample{font:12px/1.4 var(--mono);color:var(--mute);letter-spacing:.02em}
+.sample::before{content:"";display:inline-block;width:6px;height:6px;background:var(--red);margin-right:8px;vertical-align:1px}
+
+/* header */
+header{border-bottom:1px solid var(--rule)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+.brand{font:700 17px/1 var(--sans);letter-spacing:-.01em;text-decoration:none}
+.brand span{color:var(--red)}
+.nav-link{font:14px/1 var(--sans);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:3px}
+.nav-link:hover{color:var(--red);border-color:var(--red)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:10px;background:var(--red);color:#fff;text-decoration:none;font:600 16px/1 var(--sans);padding:17px 26px;border:1px solid var(--red);border-radius:0;transition:background-color .15s}
+.btn:hover{background:var(--red-ink);border-color:var(--red-ink)}
+.btn:focus-visible,.nav-link:focus-visible,.seg button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.btn .arr{font-family:var(--mono)}
+.beta{margin:14px 0 0;font:13px/1.5 var(--mono);color:var(--mute);max-width:46ch}
+
+/* hero */
+.hero{border-bottom:1px solid var(--rule)}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:clamp(24px,2vw,40px);align-items:center;padding-top:clamp(40px,6vw,88px);padding-bottom:clamp(32px,4vw,56px)}
+.hero h1{font:700 clamp(34px,3.7vw,54px)/1.05 var(--sans);letter-spacing:-.025em;margin:18px 0 22px;text-wrap:balance}
+.hero p.lede{font-size:clamp(16px,1.25vw,19px);line-height:1.5;color:#3b3731;max-width:46ch;margin:0 0 30px}
+.hero figure{margin:0;position:relative;margin-right:calc(var(--gutter) * -0.4)}
+.hero figcaption{margin-top:8px}
+.partline{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:20px;padding-top:12px;border-top:1px solid var(--rule)}
+
+/* sections */
+section.s{border-bottom:1px solid var(--rule)}
+section.s .wrap{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,4vw,72px);align-items:center;padding-top:clamp(48px,7vw,112px);padding-bottom:clamp(48px,7vw,112px)}
+section.s.flip .wrap{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+section.s.flip .copy{order:2}
+section.s h2{font:700 clamp(28px,3.2vw,44px)/1.08 var(--sans);letter-spacing:-.02em;margin:14px 0 16px;text-wrap:balance}
+section.s p{margin:0 0 18px;max-width:50ch;color:#3b3731}
+.idx{font:12px/1 var(--mono);color:var(--red);letter-spacing:.06em}
+.art figure{margin:0}
+.art figcaption{margin-top:6px}
+
+/* spec list */
+dl.spec{margin:22px 0 0;border-top:1px solid var(--rule-strong);font:13px/1.4 var(--mono)}
+dl.spec div{display:grid;grid-template-columns:130px 1fr;gap:12px;padding:9px 0;border-bottom:1px solid var(--rule)}
+dl.spec dt{color:var(--mute)}
+dl.spec dd{margin:0}
+dl.spec .rd{opacity:0;transform:translateX(-4px);transition:opacity .4s,transform .4s}
+.in dl.spec .rd{opacity:1;transform:none}
+
+/* provider table */
+table.prov{width:100%;border-collapse:collapse;font:13px/1.35 var(--mono);margin-top:22px;border-top:1px solid var(--rule-strong)}
+table.prov th{font-weight:500;color:var(--mute);text-align:left;padding:8px 0;border-bottom:1px solid var(--rule-strong);font-size:12px}
+table.prov td{padding:10px 0;border-bottom:1px solid var(--rule);vertical-align:middle}
+table.prov .n{width:1%;white-space:nowrap;color:var(--mute);padding-right:12px}
+table.prov .r{text-align:right;white-space:nowrap;padding-left:16px}
+.dot{display:inline-block;width:8px;height:8px;border:1px solid var(--rule-strong);margin-right:8px;vertical-align:0}
+.q .dot{background:var(--red);border-color:var(--red)}
+.state{color:var(--mute)}
+.q .state{color:var(--ink)}
+.val{opacity:.0;transition:opacity .35s}
+.q .val{opacity:1}
+.bar{display:block;height:3px;background:var(--rule);position:relative;margin-top:6px}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink);width:0;transition:width .5s}
+.bar.lead i{background:var(--red)}
+tr.sel td{background:rgba(194,65,12,.06)}
+
+.seg{display:inline-flex;border:1px solid var(--rule-strong);margin-top:22px}
+.seg button{font:500 13px/1 var(--mono);background:transparent;color:var(--ink);border:0;padding:11px 16px;cursor:pointer;border-radius:0}
+.seg button+button{border-left:1px solid var(--rule-strong)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bone)}
+.tag{font:11px/1 var(--mono);color:var(--red);border:1px solid var(--red);padding:3px 6px;margin-left:8px;white-space:nowrap}
+
+/* final */
+.final .wrap{padding-top:clamp(56px,9vw,136px);padding-bottom:clamp(56px,9vw,136px)}
+.final h2{font:700 clamp(36px,5.6vw,80px)/1 var(--sans);letter-spacing:-.03em;margin:0 0 30px}
+footer{border-top:1px solid var(--rule)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;padding-top:20px;padding-bottom:28px}
+
+@media (max-width:900px){
+  .hero .wrap,section.s .wrap,section.s.flip .wrap{grid-template-columns:minmax(0,1fr)}
+  section.s.flip .copy{order:0}
+  .hero figure{margin-right:0}
+  .hero .copy{order:0}
+  dl.spec div{grid-template-columns:110px 1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  dl.spec .rd,.val{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="/">Over<span>Drafter</span></a>
+    <a class="nav-link" href="/">Create account</a>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <div class="copy">
+      <div class="eyebrow">Manufacturing quotes</div>
+      <h1>OverDrafter is your manufacturing agent for building frontier hardware.</h1>
+      <p class="lede">Upload a STEP file and a PDF drawing. OverDrafter reads the specs, requests quotes from manufacturing providers in parallel, and lets you compare price and lead time.</p>
+      <a class="btn" href="/">Create account <span class="arr" aria-hidden="true">&rarr;</span></a>
+      <p class="beta">Automatic vendor collection is only in the free, invitation-only Founding Beta.</p>
+    </div>
+    <figure>
+      <img src="hero.svg" width="1200" height="610" alt="Isometric illustration of a quoting bench. A drawing feeder and reader bridge fan out into six parallel lanes that stamp parts, ending in six output columns of different heights. Illustration with sample data.">
+      <figcaption class="sample">One drawing in, six quote lanes running in parallel. Sample data &middot; not live quotes</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="s" id="read">
+  <div class="wrap">
+    <div class="copy">
+      <div class="idx">01</div>
+      <h2>Agents turn drawings into quotes</h2>
+      <p>Drop in a STEP file and its PDF drawing. The agent reads the material, finish, tolerance and quantity off the drawing, so you do not retype them into a form for every provider.</p>
+      <dl class="spec" id="spec">
+        <div class="rd" style="transition-delay:.0s"><dt>Part</dt><dd>FLT-BRACKET-01, Rev C</dd></div>
+        <div class="rd" style="transition-delay:.15s"><dt>Material</dt><dd>6061-T6 Aluminum</dd></div>
+        <div class="rd" style="transition-delay:.3s"><dt>Finish</dt><dd>Clear Anodize Type II</dd></div>
+        <div class="rd" style="transition-delay:.45s"><dt>Tolerance</dt><dd>&plusmn;0.005 in</dd></div>
+        <div class="rd" style="transition-delay:.6s"><dt>Quantity</dt><dd>25 pcs</dd></div>
+      </dl>
+      <p class="sample" style="margin-top:12px">Sample data &middot; not live quotes</p>
+    </div>
+    <div class="art">
+      <figure>
+        <img src="reader.svg" width="900" height="520" loading="lazy" alt="A drawing feeder pushes a sheet under a scanning bridge. A red carriage sweeps across the bridge while lines of read-out write themselves on its side.">
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="s flip" id="parallel">
+  <div class="wrap">
+    <div class="copy">
+      <div class="idx">02</div>
+      <h2>Works autonomously, quotes in parallel</h2>
+      <p>Once the specs are read, the agent requests quotes from every provider at the same time rather than one after another. Each lane runs on its own.</p>
+      <table class="prov" id="prov" aria-label="Sample provider request status">
+        <thead><tr><th colspan="2">Provider</th><th class="r">Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="sample" style="margin-top:12px">Sample data &middot; not live quotes</p>
+    </div>
+    <div class="art">
+      <figure>
+        <img src="lanes.svg" width="900" height="600" loading="lazy" alt="Six quoting lanes side by side. Parts ride each belt at their own pace and a red stamp head presses at each station.">
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="compare">
+  <div class="wrap">
+    <div class="copy">
+      <div class="idx">03</div>
+      <h2>Compare the best supplier for every part</h2>
+      <p>Quotes land in one table. Sort by price or by lead time and pick the trade-off that fits your schedule.</p>
+      <div class="seg" role="group" aria-label="Sort sample quotes">
+        <button type="button" data-sort="price" aria-pressed="true">Sort by price</button>
+        <button type="button" data-sort="lead" aria-pressed="false">Sort by lead time</button>
+      </div>
+      <table class="prov" id="cmp" aria-live="polite" aria-label="Sample quote comparison for FLT-BRACKET-01, quantity 25">
+        <thead><tr><th>Provider</th><th class="r">Price</th><th class="r">Lead time</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="sample" style="margin-top:12px">FLT-BRACKET-01 &middot; qty 25 &middot; Sample data &middot; not live quotes</p>
+    </div>
+    <div class="art">
+      <figure>
+        <img src="compare.svg" width="900" height="500" loading="lazy" alt="Six output columns. Column height shows sample price and the red bar in front shows sample lead time.">
+        <figcaption class="sample">Column height: price. Red bar: lead time. Sample data</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="s flip" id="project">
+  <div class="wrap">
+    <div class="copy">
+      <div class="idx">04</div>
+      <h2>Quote the whole project at once</h2>
+      <p>Add every part in the project, not just one. Each drawing is read and sent out together, and you compare price and lead time part by part.</p>
+      <p class="sample">Illustration &middot; sample data &middot; not live quotes</p>
+    </div>
+    <div class="art">
+      <figure>
+        <img src="project.svg" width="1100" height="640" loading="lazy" alt="Three stacks of drawings feed the same bench of six lanes at once, with three different part shapes riding the belts.">
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Try OverDrafter now.</h2>
+    <a class="btn" href="/">Create account <span class="arr" aria-hidden="true">&rarr;</span></a>
+    <p class="beta">Automatic vendor collection is only in the free, invitation-only Founding Beta.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono" style="font-size:12px;color:var(--mute)">OverDrafter</span>
+    <span class="sample">All quote figures on this page are sample data &middot; not live quotes</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var P=[["Northline Manufacturing",445,16],["Apex CNC",487,12],["Mesa Precision",525,9],["ForgeWorks",558,11],["Axis Manufacturing",610,7],["Summit Prototype",690,5]];
+  var $=function(s,r){return (r||document).querySelector(s)};
+  function onView(el,fn){
+    if(!("IntersectionObserver" in window)){fn();return}
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.disconnect();fn()}})},{threshold:.35});
+    io.observe(el);
+  }
+  // 01 spec read-out
+  var spec=$("#spec");
+  if(reduce)spec.parentNode.classList.add("in");else onView(spec,function(){spec.parentNode.classList.add("in")});
+
+  // 02 parallel requests: every row starts together, each answers on its own beat
+  var pb=$("#prov tbody");
+  P.forEach(function(p,i){
+    var tr=document.createElement("tr");
+    tr.innerHTML='<td class="n">'+String(i+1).padStart(2,"0")+'</td><td><span class="dot"></span>'+p[0]+'</td><td class="r"><span class="state">Requested</span> <span class="val">&nbsp;$'+p[1]+' &middot; '+p[2]+' d</span></td>';
+    pb.appendChild(tr);
+  });
+  function settle(){
+    Array.prototype.forEach.call(pb.rows,function(tr,i){
+      var t=reduce?0:900+P[i][2]*170;
+      setTimeout(function(){tr.classList.add("q");tr.querySelector(".state").textContent="Quoted"},t);
+    });
+  }
+  if(reduce)settle();else onView($("#prov"),settle);
+
+  // 03 comparison with sort
+  var cb=$("#cmp tbody"),mode="price";
+  var minP=Math.min.apply(null,P.map(function(p){return p[1]})),maxP=Math.max.apply(null,P.map(function(p){return p[1]}));
+  var minL=Math.min.apply(null,P.map(function(p){return p[2]})),maxL=Math.max.apply(null,P.map(function(p){return p[2]}));
+  function render(){
+    var rows=P.slice().sort(function(a,b){return mode==="price"?a[1]-b[1]:a[2]-b[2]});
+    cb.innerHTML=rows.map(function(p){
+      var pw=Math.round(30+70*(p[1]-minP)/(maxP-minP)),lw=Math.round(30+70*(p[2]-minL)/(maxL-minL));
+      var t=(p[1]===minP?'<span class="tag">lowest price</span>':'')+(p[2]===minL?'<span class="tag">shortest lead</span>':'');
+      return '<tr><td>'+p[0]+t+'</td><td class="r">$'+p[1]+'<span class="bar"><i style="width:'+pw+'%"></i></span></td><td class="r">'+p[2]+' d<span class="bar lead"><i style="width:'+lw+'%"></i></span></td></tr>';
+    }).join("");
+    if(reduce){Array.prototype.forEach.call(cb.querySelectorAll("i"),function(i){i.style.transition="none"})}
+  }
+  render();
+  Array.prototype.forEach.call(document.querySelectorAll(".seg button"),function(b){
+    b.addEventListener("click",function(){
+      mode=b.getAttribute("data-sort");
+      Array.prototype.forEach.call(document.querySelectorAll(".seg button"),function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
+      render();
+    });
+  });
+})();
+</script>
+</body>
+</html>

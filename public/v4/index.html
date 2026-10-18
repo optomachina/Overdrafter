@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OverDrafter: your manufacturing agent for building frontier hardware</title>
+<meta name="description" content="Upload a STEP file and PDF drawing. OverDrafter reads the specs, requests quotes from manufacturing providers in parallel, and lets you compare price and lead time.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0908'/%3E%3Cpath d='M8 2l6 3.5v5L8 14 2 10.5v-5z' fill='none' stroke='%23F27A45' stroke-width='1.5'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0b0908; --bg2:#100d0b; --ink:#f1e9e3; --muted:#a99e97; --dim:#8d827b;
+  --line:#a29790; --hair:#2b2421; --hair2:#3a312d;
+  --accent:#C2410C; --accent-hi:#F27A45; --accent-dim:#7a2e10;
+  --ft:#2a2420; --ff:#171311; --fs:#211c19; --hole:#070504;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --pad:clamp(16px,4vw,48px);
+}
+*{box-sizing:border-box}
+html{background:var(--bg);scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+.wrap{max-width:1280px;margin:0 auto;padding:0 var(--pad)}
+.mono{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--accent-hi);outline-offset:3px}
+
+/* header */
+header.top{display:flex;align-items:center;justify-content:space-between;padding-top:20px;padding-bottom:20px}
+.brand{font-weight:700;letter-spacing:.01em;text-decoration:none;display:flex;align-items:center;gap:10px;font-size:1.05rem}
+.brand i{display:block;width:14px;height:14px;border:2px solid var(--accent-hi);transform:rotate(45deg) skew(12deg,12deg);box-shadow:0 0 12px rgba(242,122,69,.55)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 22px;border-radius:2px;font:600 1rem/1 var(--sans);text-decoration:none;cursor:pointer;border:1px solid var(--hair2);background:transparent;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#d4480f}
+.btn.ghost:hover{border-color:var(--accent-hi)}
+.btn.small{min-height:36px;padding:0 14px;font-size:.9rem}
+
+/* hero */
+.hero{padding-top:clamp(24px,5vw,64px)}
+.eyebrow{font:500 .8rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent-hi);margin:0 0 20px}
+h1{font-size:clamp(2.1rem,5.4vw,4.4rem);line-height:1.04;letter-spacing:-.02em;margin:0;max-width:19ch;font-weight:700}
+.lede{color:var(--muted);font-size:clamp(1rem,1.4vw,1.2rem);max-width:60ch;margin:22px 0 0}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.plate{position:relative;margin-top:clamp(28px,4vw,48px);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);background:radial-gradient(ellipse 50% 60% at 50% 46%,rgba(194,65,12,.10),transparent 70%),var(--bg2)}
+.plate-head{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;padding:14px 0;font:500 .78rem/1.3 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.plate-head b{color:var(--ink);font-weight:600}
+.sample{color:var(--accent-hi)}
+#hero-svg{display:block;width:100%;height:auto;touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+#hero-svg.drag{cursor:grabbing}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 0 18px}
+.controls .hint{color:var(--dim);font:.78rem/1.3 var(--mono);margin-left:auto}
+.tog[aria-pressed="true"]{border-color:var(--accent-hi);color:var(--accent-hi);box-shadow:inset 0 0 0 1px var(--accent-hi)}
+.legend{display:none;margin:0;padding:0 0 18px;list-style:none;font:.82rem/1.4 var(--mono)}
+.legend li{display:grid;grid-template-columns:28px 1fr;gap:4px 8px;padding:8px 0;border-top:1px solid var(--hair)}
+.legend li.hot b,.legend li.hot span{color:var(--accent-hi)}
+.legend b{color:var(--accent-hi);font-weight:600}
+.legend small{display:block;color:var(--muted);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase}
+
+/* iso svg vocabulary */
+svg .t{fill:var(--ft);stroke:var(--line);stroke-width:1;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+svg .f{fill:var(--ff);stroke:var(--line);stroke-width:1;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+svg .s{fill:var(--fs);stroke:var(--line);stroke-width:1;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+svg .hole{fill:var(--hole);stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .detail{fill:none;stroke:var(--hair2);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .hatch{fill:url(#hatchP);stroke:var(--accent-hi);stroke-width:1.2;vector-effect:non-scaling-stroke}
+svg .guide{fill:none;opacity:.75;stroke:var(--accent-hi);stroke-width:1;stroke-dasharray:4 5;vector-effect:non-scaling-stroke}
+svg .hot .t,svg .hot .f,svg .hot .s{stroke:var(--accent-hi)}
+svg .hot{filter:url(#glow)}
+svg .lit{fill:var(--accent);stroke:var(--accent-hi);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .litTop{fill:#d8571d;stroke:var(--accent-hi);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .litSide{fill:#8e3009;stroke:var(--accent-hi);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .glowE{filter:url(#glow)}
+svg .ring .t,svg .ring .f,svg .ring .s{stroke:var(--accent-hi)}
+svg .lead{fill:none;stroke:var(--accent-hi);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .pin circle{fill:var(--bg);stroke:var(--accent-hi);stroke-width:1.5;vector-effect:non-scaling-stroke}
+svg .pin text{fill:var(--accent-hi);font:600 13px var(--mono);text-anchor:middle;dominant-baseline:central}
+svg .callout{cursor:default}
+svg .callout .k{fill:var(--muted);font:500 12px var(--mono);letter-spacing:.14em}
+svg .callout .v{fill:var(--ink);font:600 17px var(--mono)}
+svg .callout .ld{fill:none;stroke:var(--hair2);stroke-width:1;vector-effect:non-scaling-stroke}
+svg .callout.hot .ld{stroke:var(--accent-hi)}
+svg .callout.hot .v{fill:var(--accent-hi)}
+svg .tag{fill:var(--accent-hi);font:600 13px var(--mono);letter-spacing:.14em}
+svg .ax{fill:var(--muted);font:500 12px var(--mono)}
+svg .num{fill:var(--ink);font:600 15px var(--mono);text-anchor:middle;dominant-baseline:central}
+svg .partHit{cursor:pointer}
+
+/* sections */
+section.s{border-top:1px solid var(--hair);padding:clamp(56px,9vw,120px) 0}
+.s-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,5vw,72px);align-items:center}
+.s-grid.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.s-grid.flip .copy{order:2}
+.idx{font:500 .78rem/1 var(--mono);letter-spacing:.14em;color:var(--accent-hi);margin:0 0 18px}
+h2{font-size:clamp(1.8rem,3.6vw,3rem);line-height:1.08;letter-spacing:-.015em;margin:0;font-weight:700;max-width:16ch}
+.copy p.sent{color:var(--muted);font-size:1.08rem;max-width:44ch;margin:18px 0 0}
+.stage{position:relative;border:1px solid var(--hair);background:radial-gradient(ellipse 60% 55% at 50% 50%,rgba(194,65,12,.07),transparent 70%),var(--bg2)}
+.stage svg{display:block;width:100%;height:auto}
+.stage-tag{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid var(--hair);font:.72rem/1.3 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.stage-tag .sample{color:var(--accent-hi)}
+.rows{list-style:none;margin:26px 0 0;padding:0;font:.9rem/1.3 var(--mono)}
+.rows li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--hair);color:var(--dim);transition:color .2s}
+.rows li:last-child{border-bottom:1px solid var(--hair)}
+.rows .n{color:var(--muted)}
+.rows .v{text-align:right}
+.rows li.on{color:var(--ink)}
+.rows li.on .v{color:var(--accent-hi)}
+.rows li.pick{box-shadow:inset 3px 0 0 var(--accent-hi);padding-left:12px;color:var(--ink)}
+.rows li.hl{color:var(--ink)}
+.rows li.hl .n{color:var(--accent-hi)}
+.rows .sub{grid-column:1/-1;font-size:.74rem;color:var(--dim)}
+
+.picker{margin-top:24px;font:.82rem/1.3 var(--mono);color:var(--muted)}
+.picker label{display:flex;justify-content:space-between;margin-bottom:8px;gap:12px}
+.picker input[type=range]{width:100%;accent-color:var(--accent-hi);height:28px;background:transparent}
+.verdict{margin:14px 0 0;font:.88rem/1.4 var(--mono);color:var(--ink);min-height:2.6em}
+.verdict em{font-style:normal;color:var(--accent-hi)}
+.note{font:.78rem/1.4 var(--mono);color:var(--dim);margin-top:10px}
+
+/* final cta */
+.final{border-top:1px solid var(--hair);padding:clamp(72px,11vw,140px) 0 clamp(56px,8vw,96px)}
+.final h2{font-size:clamp(2.2rem,5.4vw,4.2rem);max-width:12ch}
+.beta{color:var(--muted);font-size:.95rem;margin:16px 0 0;max-width:52ch}
+footer{border-top:1px solid var(--hair);padding:22px 0 40px;color:var(--dim);font:.76rem/1.5 var(--mono);display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+footer .sample{color:var(--accent-hi)}
+
+@media (max-width:900px){
+  .s-grid,.s-grid.flip{grid-template-columns:minmax(0,1fr)}
+  .s-grid.flip .copy{order:0}
+}
+@media (max-width:720px){
+  .callout{display:none}
+  .legend{display:block}
+  .controls .hint{margin-left:0;width:100%}
+  .btn{padding:0 16px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<!-- shared defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="glow" filterUnits="userSpaceOnUse" x="-3000" y="-3000" width="6000" height="6000" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 .6 0 0 0  0 0 .3 0 0  0 0 0 .9 0" result="c"/>
+      <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="hatchP" patternUnits="userSpaceOnUse" width="5" height="5">
+      <rect width="5" height="5" fill="#2b1409"/>
+      <path d="M-1,5 L5,-1 M0,6 L6,0" stroke="#F27A45" stroke-width=".7"/>
+    </pattern>
+    <linearGradient id="curtain" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#F27A45" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#C2410C" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/" aria-label="OverDrafter home"><i aria-hidden="true"></i>OverDrafter</a>
+    <a class="btn primary small" href="/">Create account</a>
+  </header>
+</div>
+
+<main>
+<div class="wrap hero">
+  <p class="eyebrow">Drawing in. Quotes out.</p>
+  <h1>OverDrafter is your manufacturing agent for building frontier hardware.</h1>
+  <p class="lede">Upload a STEP file and a PDF drawing. OverDrafter reads the specs, requests quotes from manufacturing providers in parallel, and lays out price against lead time.</p>
+  <div class="hero-cta">
+    <a class="btn primary" href="/">Create account</a>
+    <a class="btn ghost" href="#s1">See how it works</a>
+  </div>
+</div>
+
+<div class="plate" id="plate">
+  <div class="wrap">
+    <div class="plate-head">
+      <span><b>FLT-BRACKET-01</b> · Rev C · machined bracket</span>
+      <span class="sample">Sample data · not live quotes</span>
+    </div>
+    <svg id="hero-svg" viewBox="0 0 1000 620" role="img" aria-label="Isometric exploded view of sample part FLT-BRACKET-01: a base plate with slotted holes, an upright with four mounting holes, and a gusset. Callouts list material 6061-T6 Aluminum, finish Clear Anodize Type II, tolerance plus or minus 0.005 inch, quantity 25 pieces. Drag sideways to explode or assemble it."></svg>
+    <div class="controls">
+      <button class="btn tog" id="b-explode" type="button" aria-pressed="false">Explode</button>
+      <button class="btn tog" id="b-section" type="button" aria-pressed="false">Section cut A–A</button>
+      <button class="btn tog" id="b-auto" type="button" aria-pressed="true">Auto loop</button>
+      <span class="hint">Drag the part sideways to explode · hover a part or pin</span>
+    </div>
+    <ul class="legend" id="legend" aria-label="Part specifications"></ul>
+  </div>
+</div>
+
+<section class="s" id="s1">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">01 / 04</p>
+      <h2>Agents turn drawings into quotes</h2>
+      <p class="sent">The agent reads the drawing and pulls the specs a provider needs to price the part.</p>
+      <ul class="rows" id="specrows" aria-live="polite"></ul>
+    </div>
+    <div>
+      <div class="stage"><svg id="sc1" role="img" aria-label="A drawing sheet in isometric view. A beam of light sweeps across it and lights the title block fields one by one: material, finish, tolerance, quantity, revision."></svg>
+      <div class="stage-tag"><span>FLT-BRACKET-01 · drawing read</span><span class="sample">Sample data · not live quotes</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s2">
+  <div class="wrap s-grid flip">
+    <div class="copy">
+      <p class="idx">02 / 04</p>
+      <h2>Works autonomously, quotes in parallel</h2>
+      <p class="sent">One request goes to every provider at once, so you are not waiting on them one by one.</p>
+      <ul class="rows" id="prov" aria-live="polite"></ul>
+    </div>
+    <div>
+      <div class="stage"><svg id="sc2" role="img" aria-label="One request block sends six pulses of light along six parallel rails at the same moment. Each provider block lights when its answer arrives."></svg>
+      <div class="stage-tag"><span>Six sample providers · one request</span><span class="sample">Sample data · not live quotes</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s3">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">03 / 04</p>
+      <h2>Compare the best supplier for every part</h2>
+      <p class="sent">Price and lead time sit on one plane. Weigh one against the other and see who wins.</p>
+      <div class="picker">
+        <label for="weight"><span>Lowest price</span><span>Fastest lead time</span></label>
+        <input id="weight" type="range" min="0" max="100" value="50" aria-describedby="verdict">
+      </div>
+      <p class="verdict" id="verdict" aria-live="polite"></p>
+      <ul class="rows" id="cmp"></ul>
+      <p class="note" id="cmpnote"></p>
+    </div>
+    <div>
+      <div class="stage"><svg id="sc3" role="img" aria-label="Six sample providers plotted on an isometric floor: lead time across, price deep. A dashed line joins the providers that no other provider beats on both price and lead time. The selected provider carries a column of light."></svg>
+      <div class="stage-tag"><span>Lead time × price · FLT-BRACKET-01 × 25</span><span class="sample">Sample data · not live quotes</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s4">
+  <div class="wrap s-grid flip">
+    <div class="copy">
+      <p class="idx">04 / 04</p>
+      <h2>Quote the whole project at once</h2>
+      <p class="sent">Drop in every part of the build and track each one from drawing to comparison in a single ledger.</p>
+      <ul class="rows" id="ledger"></ul>
+    </div>
+    <div>
+      <div class="stage"><svg id="sc4" role="img" aria-label="Five part slabs stacked inside one dashed project outline. Each slab lights up as its quote moves from reading the drawing to ready to compare."></svg>
+      <div class="stage-tag"><span>One project · five parts</span><span class="sample">Sample data · not live quotes</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Try OverDrafter now.</h2>
+    <div class="hero-cta"><a class="btn primary" href="/">Create account</a></div>
+    <p class="beta">Automatic vendor collection is available in the free, invitation-only Founding Beta.</p>
+  </div>
+</section>
+</main>
+
+<div class="wrap">
+  <footer>
+    <span>OverDrafter</span>
+    <span class="sample">All figures on this page are sample data · not live quotes</span>
+  </footer>
+</div>
+
+<script>
+(()=>{
+'use strict';
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const C=Math.cos(Math.PI/6), S=.5;
+const f=n=>Math.round(n*100)/100;
+const P=(x,y,z)=>[(x-y)*C,(x+y)*S-z];
+const D=(x,y,z)=>[(x-y)*C,(x+y)*S-z];
+const pts=a=>a.map(p=>{const q=P(p[0],p[1],p[2]);return f(q[0])+','+f(q[1])}).join(' ');
+const poly=(a,c,x='')=>`<polygon class="${c}" points="${pts(a)}" ${x}/>`;
+const plane=(O,U,V)=>{const o=P(...O),u=D(...U),v=D(...V);return `matrix(${f(u[0])} ${f(u[1])} ${f(v[0])} ${f(v[1])} ${f(o[0])} ${f(o[1])})`};
+const TOP=(x,y,z)=>plane([x,y,z],[1,0,0],[0,1,0]);
+const FRONT=(x,y,z)=>plane([x,y,z],[1,0,0],[0,0,-1]);
+const SIDE=(x,y,z)=>plane([x,y,z],[0,-1,0],[0,0,-1]);
+// box: draws top, front (y+d face), side (x+w face); back to front paint order is the caller's job
+function box(x,y,z,w,d,h,c={}){
+  const t=c.t||'t',fr=c.f||'f',s=c.s||'s';
+  return poly([[x,y+d,z],[x+w,y+d,z],[x+w,y+d,z+h],[x,y+d,z+h]],fr)+
+         poly([[x+w,y,z],[x+w,y+d,z],[x+w,y+d,z+h],[x+w,y,z+h]],s)+
+         poly([[x,y,z+h],[x+w,y,z+h],[x+w,y+d,z+h],[x,y+d,z+h]],t);
+}
+const LIT={t:'litTop',f:'lit',s:'litSide'};
+function fit(points,pad=.08){
+  let a=1e9,b=1e9,c=-1e9,d=-1e9;
+  points.forEach(p=>{const q=P(...p);a=Math.min(a,q[0]);c=Math.max(c,q[0]);b=Math.min(b,q[1]);d=Math.max(d,q[1])});
+  const w=c-a,h=d-b,px=w*pad,py=h*pad;
+  return {x:a-px,y:b-py,w:w+2*px,h:h+2*py};
+}
+const setVB=(svg,v)=>svg.setAttribute('viewBox',`${f(v.x)} ${f(v.y)} ${f(v.w)} ${f(v.h)}`);
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const $=s=>document.querySelector(s);
+
+// scene runner: runs rAF only while visible; reduced motion draws one final frame
+const FINAL=1e9;
+function runScene(el,draw){
+  if(REDUCED){draw(FINAL);return;}
+  let raf=0,start=0;
+  const frame=now=>{if(!start)start=now;draw(now-start);raf=requestAnimationFrame(frame)};
+  new IntersectionObserver(es=>es.forEach(en=>{
+    if(en.isIntersecting&&!raf){start=0;raf=requestAnimationFrame(frame)}
+    else if(!en.isIntersecting&&raf){cancelAnimationFrame(raf);raf=0}
+  }),{rootMargin:'80px'}).observe(el);
+}
+
+/* ================= HERO ================= */
+(()=>{
+  const svg=$('#hero-svg');
+  const OFF=[[0,0,0],[-28,0,80],[60,0,46]];          // base, upright, gusset explode vectors
+  const REF=[[80,50,6],[7,50,90],[42,50,41]];         // guide-line reference per part
+  const st={e:REDUCED?.85:0,target:0,auto:!REDUCED,sec:false,hover:-1,drag:null,idle:0};
+  const ANCH=[ // callouts: key, value, part, anchor fn(sec) -> world pt, side, label y
+    {k:'MATERIAL',v:'6061-T6 Aluminum',part:1,p:s=>[14,s?30:30,84],side:'L',ly:150},
+    {k:'FINISH',v:'Clear Anodize Type II',part:2,p:s=>[44,s?47:50,39],side:'R',ly:170},
+    {k:'TOLERANCE',v:'±0.005 in',part:0,p:s=>[45,18,12],side:'L',ly:470},
+    {k:'QUANTITY',v:'25 pcs',part:0,p:s=>[150,s?50:100,6],side:'R',ly:500},
+  ];
+  // geometry for fit: extreme corners of assembled and exploded states
+  const corners=[];
+  [[0,0,0],[160,100,0],[160,0,0],[0,100,0],[0,0,92],[14,100,92],[70,58,12]].forEach(p=>{
+    OFF.forEach(o=>{corners.push(p);corners.push([p[0]+o[0],p[1]+o[1],p[2]+o[2]])});
+  });
+  const vb=fit(corners,0);
+  const K=Math.min(560/vb.w,570/vb.h);
+  const TX=500-K*(vb.x+vb.w/2), TY=318-K*(vb.y+vb.h/2);
+  const sp=(w,off)=>{const q=P(w[0]+off[0],w[1]+off[1],w[2]+off[2]);return [TX+K*q[0],TY+K*q[1]]};
+
+  function parts(sec){
+    const yb=sec?50:100, cap=(x,y,z,w,h)=>`<g transform="${FRONT(x,y,z)}"><rect class="hatch" width="${w}" height="${h}"/></g>`;
+    // base
+    let b=box(0,0,0,160,yb,12);
+    if(sec)b+=cap(0,yb,12,160,12);
+    [[45,18],[130,18],[45,82],[130,82]].forEach(c=>{
+      if(c[1]<yb-6)b+=`<g transform="${TOP(0,0,12)}"><rect class="hole" x="${c[0]-14}" y="${c[1]-4.5}" width="28" height="9" rx="4.5"/></g>`;
+    });
+    // upright with four mounting holes in its side face
+    let u=box(0,0,12,14,yb,78);
+    if(sec)u+=cap(0,yb,90,14,78);
+    [[22,36],[22,70],[78,36],[78,70]].forEach(c=>{
+      if(c[0]<yb-8)u+=`<g transform="${SIDE(14,yb,90)}"><circle class="hole" cx="${yb-c[0]}" cy="${90-c[1]}" r="6"/></g>`;
+    });
+    // gusset
+    const y1=42,y2=sec?50:58;
+    let g=poly([[14,y1,70],[14,y2,70],[70,y2,12],[70,y1,12]],'t')+poly([[14,y2,70],[14,y2,12],[70,y2,12]],'f');
+    if(sec)g+=`<g transform="${FRONT(14,y2,70)}"><polygon class="hatch" points="0,0 0,58 56,58"/></g>`;
+    return [b,u,g];
+  }
+  const guides=document.createElementNS('http://www.w3.org/2000/svg','g');
+
+  function build(){
+    const sec=st.sec, ps=parts(sec);
+    let h=`<g id="plateGrid"></g><g id="guides"></g>`;
+    h+=`<g id="world" transform="translate(${f(TX)} ${f(TY)}) scale(${f(K)})">`;
+    ps.forEach((p,i)=>{h+=`<g class="partHit" data-part="${i}" id="part${i}">${p}</g>`});
+    h+=`</g>`;
+    // callouts
+    h+=`<g id="callouts">`;
+    ANCH.forEach((a,i)=>{
+      const lx=a.side==='L'?230:770, tx=a.side==='L'?220:780, an=a.side==='L'?'end':'start';
+      h+=`<g class="callout" data-c="${i}"><path class="ld" id="ld${i}" fill="none"/>
+        <text class="k" x="${tx}" y="${a.ly-6}" text-anchor="${an}">${a.k}</text>
+        <text class="v" x="${tx}" y="${a.ly+14}" text-anchor="${an}">${a.v}</text></g>`;
+    });
+    ANCH.forEach((a,i)=>{h+=`<g class="pin" data-c="${i}" id="pin${i}"><circle r="10"/><text>${i+1}</text></g>`});
+    h+=`</g>`;
+    h+=`<text class="tag" id="sectag" x="500" y="42" text-anchor="middle" opacity="0">SECTION A–A · HALF REMOVED</text>`;
+    svg.innerHTML=h;
+    svg.querySelectorAll('[data-part]').forEach(g=>{
+      g.addEventListener('pointerenter',()=>{st.hover=+g.dataset.part;paint()});
+      g.addEventListener('pointerleave',()=>{st.hover=-1;paint()});
+    });
+    svg.querySelectorAll('.pin,.callout').forEach(g=>{
+      g.addEventListener('pointerenter',()=>{st.hover=ANCH[+g.dataset.c].part;paint()});
+      g.addEventListener('pointerleave',()=>{st.hover=-1;paint()});
+    });
+    $('#sectag').setAttribute('opacity',sec?1:0);
+    update();paint();
+  }
+  const legend=$('#legend');
+  legend.innerHTML=ANCH.map((a,i)=>`<li data-c="${i}"><b>${i+1}</b><span><small>${a.k}</small>${a.v}</span></li>`).join('');
+
+  function paint(){
+    for(let i=0;i<3;i++){const g=svg.querySelector('#part'+i);if(g)g.classList.toggle('hot',st.hover===i)}
+    svg.querySelectorAll('.callout').forEach(g=>g.classList.toggle('hot',ANCH[+g.dataset.c].part===st.hover));
+    legend.querySelectorAll('li').forEach(l=>l.classList.toggle('hot',ANCH[+l.dataset.c].part===st.hover));
+  }
+  function update(){
+    const e=st.e;
+    // parts
+    for(let i=0;i<3;i++){
+      const g=svg.querySelector('#part'+i);if(!g)continue;
+      const o=OFF[i],d=D(o[0]*e,o[1]*e,o[2]*e);
+      g.setAttribute('transform',`translate(${f(d[0])} ${f(d[1])})`);
+    }
+    // guides
+    let gs='';
+    for(let i=1;i<3;i++){
+      const a=sp(REF[i],[0,0,0]),b=sp(REF[i],OFF[i].map(v=>v*e));
+      gs+=`<path class="guide" d="M${f(a[0])},${f(a[1])} L${f(b[0])},${f(b[1])}" opacity="${f(Math.min(1,e*3))}"/>`;
+    }
+    svg.querySelector('#guides').innerHTML=gs;
+    // callouts
+    ANCH.forEach((a,i)=>{
+      const w=a.p(st.sec),o=OFF[a.part].map(v=>v*e),q=sp(w,o);
+      const lx=a.side==='L'?230:770, ly=a.ly+4;
+      const elbow=a.side==='L'?lx+26:lx-26;
+      const d=`M${lx},${ly} L${elbow},${ly} L${f(q[0])},${f(q[1])}`;
+      svg.querySelector('#ld'+i).setAttribute('d',d);
+      const pin=svg.querySelector('#pin'+i);pin.setAttribute('transform',`translate(${f(q[0])} ${f(q[1])})`);
+    });
+  }
+  function setE(v){st.e=clamp(v,0,1);update()}
+
+  // timeline
+  function autoE(ms){
+    const T=(ms/1000)%13;
+    if(T<1.5)return 0;
+    if(T<4.5)return ease((T-1.5)/3);
+    if(T<8)return 1;
+    if(T<11)return 1-ease((T-8)/3);
+    return 0;
+  }
+  let last=0,t0=performance.now();
+  function loop(now){
+    requestAnimationFrame(loop);
+    if(!heroVisible)return;
+    if(st.auto)setE(autoE(now-t0));
+    else if(Math.abs(st.e-st.target)>.001&&!st.drag){
+      const dt=Math.min(.05,(now-last)/1000);
+      st.e+= (st.target-st.e)*Math.min(1,dt*5);setE(st.e);
+    }
+    last=now;
+    syncBtn();
+  }
+  function syncBtn(){
+    const ex=st.target>.5||st.e>.5;
+    const be=$('#b-explode');
+    be.textContent=ex?'Assemble':'Explode';
+    be.setAttribute('aria-pressed',ex);
+  }
+  let heroVisible=true;
+  new IntersectionObserver(es=>es.forEach(en=>heroVisible=en.isIntersecting)).observe($('#plate'));
+
+  $('#b-explode').addEventListener('click',()=>{
+    st.auto=false;$('#b-auto').setAttribute('aria-pressed','false');
+    st.target=st.e>.5?0:1;
+    if(REDUCED)setE(st.target);
+  });
+  $('#b-section').addEventListener('click',e=>{
+    st.sec=!st.sec;e.currentTarget.setAttribute('aria-pressed',st.sec);build();
+  });
+  $('#b-auto').addEventListener('click',e=>{
+    if(REDUCED){return}
+    st.auto=!st.auto;e.currentTarget.setAttribute('aria-pressed',st.auto);
+    if(st.auto)t0=performance.now()-(st.e>.5?4600:1500);
+    else st.target=st.e>.5?1:0;
+  });
+  // drag to scrub the explosion
+  svg.addEventListener('pointerdown',ev=>{
+    if(ev.pointerType==='touch'&&false)return;
+    st.drag={x:ev.clientX,e:st.e,w:svg.getBoundingClientRect().width};
+    svg.classList.add('drag');
+    try{svg.setPointerCapture(ev.pointerId)}catch(_){}
+    if(st.auto){st.auto=false;st.resume=true;$('#b-auto').setAttribute('aria-pressed','false')}
+    clearTimeout(st.idle);
+  });
+  svg.addEventListener('pointermove',ev=>{
+    if(!st.drag)return;
+    setE(st.drag.e+(ev.clientX-st.drag.x)/(st.drag.w*.45));
+    st.target=st.e;
+  });
+  const endDrag=()=>{
+    if(!st.drag)return;st.drag=null;svg.classList.remove('drag');
+    st.target=st.e>.5?1:0;
+    if(st.resume&&!REDUCED){st.idle=setTimeout(()=>{st.auto=true;st.resume=false;t0=performance.now()-(st.e>.5?4600:1500);$('#b-auto').setAttribute('aria-pressed','true')},5000)}
+    if(REDUCED)setE(st.target);
+  };
+  svg.addEventListener('pointerup',endDrag);svg.addEventListener('pointercancel',endDrag);
+  svg.addEventListener('keydown',()=>{});
+
+  // viewbox: wide on desktop, cropped on phones
+  const mq=matchMedia('(max-width:720px)');
+  const applyVB=()=>svg.setAttribute('viewBox',mq.matches?'170 20 660 600':'0 0 1000 620');
+  mq.addEventListener('change',applyVB);applyVB();
+  legend.addEventListener('pointerover',ev=>{const li=ev.target.closest('li');if(li){st.hover=ANCH[+li.dataset.c].part;paint()}});
+  legend.addEventListener('pointerleave',()=>{st.hover=-1;paint()});
+
+  build();
+  if(REDUCED){st.e=.85;st.target=1;update();syncBtn()}
+  else requestAnimationFrame(loop);
+})();
+
+/* ================= 01 DRAWING READ ================= */
+(()=>{
+  const svg=$('#sc1');
+  const W=220,H=150,T=4;
+  const fields=[['MATERIAL','6061-T6 Aluminum'],['FINISH','Clear Anodize Type II'],['TOLERANCE','±0.005 in'],['QUANTITY','25 pcs'],['REVISION','Rev C']];
+  const cw=(W-24)/5;
+  setVB(svg,fit([[0,0,0],[W,0,0],[0,H,0],[W,H,0],[0,0,60]],.05));
+  let s=box(0,0,0,W,H,T);
+  // drawing content on the sheet plane
+  let c=`<g transform="${TOP(0,0,T)}">`;
+  c+=`<rect class="detail" x="8" y="8" width="${W-16}" height="${H-16}"/>`;
+  // side view of bracket
+  c+=`<path class="t" style="fill:none;stroke:var(--line)" d="M28,84 L28,26 L42,26 L42,48 L90,84 L180,84 L180,98 L28,98 Z"/>`;
+  c+=`<circle class="detail" cx="35" cy="40" r="3"/><circle class="detail" cx="35" cy="66" r="3"/>`;
+  c+=`<path class="detail" d="M28,108 L180,108 M28,104 L28,112 M180,104 L180,112 M18,26 L18,98 M14,26 L22,26 M14,98 L22,98"/>`;
+  c+=`<path class="detail" d="M120,40 L176,40 L176,70 L120,70 Z M120,52 L176,52 M148,40 L148,70"/>`;
+  // title block cells
+  fields.forEach((f_,i)=>{c+=`<rect class="detail" x="${f(12+i*cw)}" y="118" width="${f(cw)}" height="24"/>`});
+  c+=`</g>`;
+  s+=c;
+  s+=`<g id="sc1dyn"></g>`;
+  svg.innerHTML=s;
+  const dyn=svg.querySelector('#sc1dyn');
+  const rows=$('#specrows');
+  rows.innerHTML=fields.map(x=>`<li><span class="n">${x[0]}</span><span class="v">…</span></li>`).join('');
+  const lis=[...rows.children];
+  let shown=-1;
+  const PER=9000;
+  runScene(svg,t=>{
+    const fin=t>=FINAL, tt=fin?7000:t%PER;
+    const sx=fin?W+10:clamp((tt-500)/4800,0,1)*(W+10)-5;
+    let d='';
+    let n=0;
+    fields.forEach((_,i)=>{
+      const x0=12+i*cw,lit=sx>x0+cw/2;
+      if(lit)n++;
+      d+=`<g transform="${TOP(0,0,T)}"><rect x="${f(x0+1.5)}" y="119.5" width="${f(cw-3)}" height="21" ${lit?'fill="#C2410C" stroke="#F27A45" class="glowE" fill-opacity=".85"':'fill="none" stroke="none"'}/>${lit?`<rect x="${f(x0+5)}" y="127" width="${f(cw*.5)}" height="3" fill="#ffd9c4"/><rect x="${f(x0+5)}" y="133" width="${f(cw*.7)}" height="3" fill="#ffd9c4" opacity=".6"/>`:''}</g>`;
+    });
+    if(sx>-4&&sx<W+8&&!fin){
+      d+=poly([[sx,0,T],[sx,H,T],[sx,H,T+46],[sx,0,T+46]],'',`fill="url(#curtain)" stroke="none" opacity=".9"`);
+      d+=`<path d="M${pts([[sx,0,T],[sx,H,T]]).replace(/ /,' L')}" fill="none" stroke="#F27A45" stroke-width="2.4" class="glowE" vector-effect="non-scaling-stroke"/>`;
+    }
+    dyn.innerHTML=d;
+    if(n!==shown){
+      shown=n;
+      lis.forEach((li,i)=>{
+        const on=i<n;li.classList.toggle('on',on);
+        li.lastChild.textContent=on?fields[i][1]:'…';
+      });
+    }
+  });
+})();
+
+/* ================= 02 PARALLEL PROVIDERS ================= */
+(()=>{
+  const svg=$('#sc2');
+  const prov=[['Northline Manufacturing',445,16,3900],['Apex CNC',487,12,5100],['Mesa Precision',525,9,2600],['ForgeWorks',558,11,5800],['Axis Manufacturing',610,7,3300],['Summit Prototype',690,5,4500]];
+  const GAP=34,L=230,N=6;
+  const yEnd=(N-1)*GAP+20;
+  setVB(svg,fit([[-44,-4,0],[L+40,-4,0],[-44,yEnd+8,0],[L+40,yEnd+8,0],[L+40,yEnd+8,24],[-44,-4,24]],.08));
+  let base=box(-44,-4,0,30,yEnd+8,14);
+  base+=`<g transform="${TOP(0,0,14)}"><rect class="detail" x="-40" y="0" width="22" height="${yEnd}"/></g>`;
+  svg.innerHTML=`<g id="sc2req">${base}</g><g id="sc2dyn"></g>`;
+  const dyn=svg.querySelector('#sc2dyn'),req=svg.querySelector('#sc2req');
+  const ul=$('#prov');
+  ul.innerHTML=prov.map((p,i)=>`<li><span class="n">${String(i+1).padStart(2,'0')} · ${p[0]}</span><span class="v">requesting…</span></li>`).join('');
+  const lis=[...ul.children];
+  const PER=10500, SEND=700;
+  let shown=new Array(N).fill(-1);
+  runScene(svg,t=>{
+    const fin=t>=FINAL, tt=fin?PER-1500:t%PER;
+    let d='',allIn=true;
+    prov.forEach((p,i)=>{
+      const y=i*GAP, arr=p[3], done=tt>=arr;
+      if(!done)allIn=false;
+      d+=box(-14,y+3,0,L+14,12,3,{});                    // rail
+      d+=`<g transform="${TOP(0,0,3)}"><rect class="detail" x="-12" y="${y+7}" width="${L+10}" height="2"/></g>`;
+      // pulse in flight
+      if(!done&&tt>=SEND){
+        const k=(tt-SEND)/(arr-SEND), px=-10+k*(L-8);
+        d+=`<g class="glowE">${box(px,y+5,3,22,8,3,LIT)}</g>`;
+      } else if(!done&&tt<SEND){
+        d+=box(-10,y+5,3,22,8,3,{t:'t'});
+      }
+      d+=done?`<g class="glowE">${box(L,y-1,0,38,22,16,LIT)}</g>`:box(L,y-1,0,38,22,16);
+      d+=`<g transform="${TOP(0,0,16)}"><text class="num" x="${L+19}" y="${y+10}" style="fill:${done?'#fff':'var(--ink)'}" transform="translate(${L+19} ${y+10}) scale(1 1) translate(${-(L+19)} ${-(y+10)})">${i+1}</text></g>`;
+    });
+    dyn.innerHTML=d;
+    req.classList.toggle('glowE',tt>=SEND&&tt<SEND+400);
+    lis.forEach((li,i)=>{
+      const p=prov[i],done=tt>=p[3],state=tt<SEND?0:(done?2:1);
+      if(shown[i]!==state){
+        shown[i]=state;li.classList.toggle('on',state===2);
+        li.lastChild.textContent=state===2?`$${p[1]} · ${p[2]} d`:(state===1?'requesting…':'waiting');
+      }
+    });
+  });
+})();
+
+/* ================= 03 COMPARE ================= */
+(()=>{
+  const svg=$('#sc3');
+  const prov=[['Northline Manufacturing',445,16],['Apex CNC',487,12],['Mesa Precision',525,9],['ForgeWorks',558,11],['Axis Manufacturing',610,7],['Summit Prototype',690,5]];
+  const FW=270,FD=230;
+  const X=l=>(l-4)/13*FW, Y=p=>(p-420)/300*FD;
+  setVB(svg,fit([[-50,0,0],[FW,0,0],[-50,FD+36,0],[FW+10,FD+36,0],[0,0,100]],.06));
+  const dom=i=>prov.some((q,j)=>j!==i&&q[1]<=prov[i][1]&&q[2]<=prov[i][2]&&(q[1]<prov[i][1]||q[2]<prov[i][2]));
+  const front=prov.map((_,i)=>!dom(i));
+  const ranked=prov.map((p,i)=>i).sort((a,b)=>prov[a][1]-prov[b][1]);
+  const w=$('#weight'),verdict=$('#verdict'),cmp=$('#cmp');
+  let hover=-1;
+  function pick(){
+    const wt=w.value/100;  // 0 = price, 1 = speed
+    let best=0,bs=1e9;
+    prov.forEach((p,i)=>{
+      const sc=(1-wt)*(p[1]-445)/245+wt*(p[2]-5)/11;
+      if(sc<bs-1e-9){bs=sc;best=i}
+    });
+    return best;
+  }
+  function draw(){
+    const pk=pick();
+    let s=box(0,0,0,FW,FD,6);
+    let g=`<g transform="${TOP(0,0,6)}">`;
+    for(let l=5;l<=17;l+=2){const x=X(l);g+=`<path class="detail" d="M${f(x)},0 L${f(x)},${FD}"/>`}
+    for(let p=450;p<=700;p+=50){const y=Y(p);g+=`<path class="detail" d="M0,${f(y)} L${FW},${f(y)}"/>`}
+    // axis ticks
+    [5,10,15].forEach(l=>{g+=`<text class="ax" x="${f(X(l))}" y="${FD+17}" text-anchor="middle">${l}d</text>`});
+    [450,550,650].forEach(p=>{g+=`<text class="ax" x="-16" y="${f(Y(p)+4)}" text-anchor="end">$${p}</text>`});
+    g+=`<text class="ax" x="${FW}" y="${FD+34}" text-anchor="end">LEAD TIME →</text>`;
+    g+=`<text class="ax" x="-8" y="-8" text-anchor="end">PRICE ↓</text>`;
+    // frontier
+    const fp=prov.map((p,i)=>[i,p]).filter(x=>front[x[0]]).sort((a,b)=>a[1][2]-b[1][2]);
+    g+=`<path d="M${fp.map(x=>f(X(x[1][2]))+','+f(Y(x[1][1]))).join(' L')}" fill="none" stroke="#F27A45" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>`;
+    g+=`</g>`;
+    s+=g;
+    // pillars back to front
+    const order=prov.map((_,i)=>i).sort((a,b)=>(X(prov[a][2])+Y(prov[a][1]))-(X(prov[b][2])+Y(prov[b][1])));
+    order.forEach(i=>{
+      const p=prov[i],x=X(p[2]),y=Y(p[1]),sel=i===pk,h=sel?44:26;
+      if(sel){
+        s+=`<g class="glowE">${poly([[x-4,y-4,6],[x+4,y-4,6],[x+4,y-4,130],[x-4,y-4,130]],'',`fill="url(#curtain)" stroke="none"`)}${poly([[x-4,y+4,6],[x+4,y+4,6],[x+4,y+4,130],[x-4,y+4,130]],'',`fill="url(#curtain)" stroke="none"`)}</g>`;
+      }
+      s+=sel?`<g class="glowE">${box(x-8,y-8,6,16,16,h,LIT)}</g>`:`<g style="opacity:${front[i]?1:.5}${i===hover?';filter:url(#glow)':''}">${box(x-8,y-8,6,16,16,h)}</g>`;
+      const q=P(x,y,6+h+16);
+      s+=`<text class="num" x="${f(q[0])}" y="${f(q[1])}" style="fill:${sel?'#F27A45':'var(--ink)'}">${i+1}</text>`;
+    });
+    svg.innerHTML=s;
+    // list
+    cmp.innerHTML=ranked.map(i=>{const p=prov[i];
+      return `<li data-i="${i}" class="${i===pk?'pick on':''}${i===hover?' hl':''}"><span class="n">${i+1} · ${p[0]}</span><span class="v">$${p[1]} · ${p[2]} d</span>${front[i]?'':`<span class="sub">Not on the frontier: ${prov.find(q=>q[1]<=p[1]&&q[2]<=p[2]&&q!==p)[0]} costs less and is no slower.</span>`}</li>`}).join('');
+    const p=prov[pk],wt=+w.value;
+    const lab=wt<20?'Weighted toward lowest price':wt>80?'Weighted toward fastest lead time':'Balanced price and lead time';
+    verdict.innerHTML=`${lab}: <em>${p[0]}</em>, $${p[1]} in ${p[2]} days.`;
+  }
+  w.addEventListener('input',draw);
+  cmp.addEventListener('pointerover',e=>{const li=e.target.closest('li');const h=li?+li.dataset.i:-1;if(h!==hover){hover=h;draw()}});
+  cmp.addEventListener('pointerleave',()=>{if(hover!==-1){hover=-1;draw()}});
+  $('#cmpnote').textContent='Dashed line: providers no other provider beats on both price and lead time.';
+  draw();
+})();
+
+/* ================= 04 PROJECT LEDGER ================= */
+(()=>{
+  const svg=$('#sc4');
+  const parts=[['FLT-BRACKET-01','Rev C'],['FLT-PLATE-02',''],['FLT-SPACER-03',''],['FLT-HOUSING-04',''],['FLT-SHAFT-05','']];
+  const stages=['Reading drawing','Requesting quotes','Comparing','Ready to compare'];
+  const SW=150,SD=100,SH=9,GAPZ=30;
+  setVB(svg,fit([[-14,-14,0],[SW+14,-14,0],[SW+14,SD+14,0],[-14,SD+14,0],[-14,-14,GAPZ*4+SH+14],[SW+14,-14,GAPZ*4+SH+14]],.08));
+  const ul=$('#ledger');
+  ul.innerHTML=parts.map((p,i)=>`<li data-i="${i}"><span class="n">${String(i+1).padStart(2,'0')} · ${p[0]}${p[1]?' · '+p[1]:''}</span><span class="v">…</span></li>`).join('');
+  const lis=[...ul.children];
+  let hover=-1;
+  const stageOf=(tt,i)=>clamp(Math.floor((tt-i*1100-400)/1500),-1,3);
+  let shown=new Array(5).fill(-9),lastHover=-2;
+  function render(tt){
+    let s=`<g transform="translate(0 0)"><path d="${'M'+pts([[-14,-14,0],[SW+14,-14,0],[SW+14,SD+14,0],[-14,SD+14,0]]).replace(/ /g,' L')+' Z'}" fill="none" stroke="#7a2e10" stroke-width="1" stroke-dasharray="5 5" vector-effect="non-scaling-stroke"/></g>`;
+    // vertical project edges
+    const top=GAPZ*4+SH+14;
+    s+=`<path d="M${pts([[-14,-14,0],[-14,-14,top]]).replace(/ /,' L')} M${pts([[SW+14,-14,0],[SW+14,-14,top]]).replace(/ /,' L')} M${pts([[-14,SD+14,0],[-14,SD+14,top]]).replace(/ /,' L')}" fill="none" stroke="#7a2e10" stroke-width="1" stroke-dasharray="5 5" vector-effect="non-scaling-stroke"/>`;
+    for(let i=0;i<5;i++){
+      const z=i*GAPZ,sg=stageOf(tt,i),hot=sg===3,hv=i===hover;
+      let h=box(0,0,z,SW,SD,SH,hot?{t:'t',f:'lit',s:'s'}:{});
+      // progress bar on front face
+      const frac=sg<0?0:(sg+1)/4;
+      h+=`<g transform="${FRONT(0,SD,z+SH)}"><rect x="10" y="3" width="${SW-20}" height="3" fill="#2b2421"/>${frac>0?`<rect x="10" y="3" width="${f((SW-20)*frac)}" height="3" fill="${hot?'#ffe0cf':'#F27A45'}"/>`:''}</g>`;
+      h+=`<g transform="${TOP(0,0,z+SH)}"><rect class="detail" x="10" y="10" width="${SW-20}" height="${SD-20}" ${hot?'style="stroke:#F27A45"':''}/><path class="detail" d="M24,30 L${SW-60},30 M24,44 L${SW-90},44 M24,58 L${SW-40},58" ${hot?'style="stroke:#ffd9c4"':''}/></g>`;
+      s+=(hot||hv)?`<g class="ring${hv?' glowE':''}">${h}</g>`:`<g style="opacity:${sg<0?.6:1}">${h}</g>`;
+      const q=P(SW,0,z+SH/2);
+      s+=`<text class="num" x="${f(q[0]+16)}" y="${f(q[1])}" style="fill:${hot?'#F27A45':'var(--ink)'}">${i+1}</text>`;
+      if(shown[i]!==sg||lastHover!==hover){
+        shown[i]=sg;
+        lis[i].classList.toggle('on',sg>=0);lis[i].classList.toggle('hl',hv);
+        lis[i].lastChild.textContent=sg<0?'queued':stages[sg];
+        lis[i].classList.toggle('pick',hot);
+      }
+    }
+    lastHover=hover;
+    svg.innerHTML=s;
+  }
+  ul.addEventListener('pointerover',e=>{const li=e.target.closest('li');hover=li?+li.dataset.i:-1});
+  ul.addEventListener('pointerleave',()=>{hover=-1});
+  const PER=12500;
+  if(REDUCED){render(PER);}
+  else runScene(svg,t=>render(t%PER));
+})();
+})();
+</script>
+</body>
+</html>
