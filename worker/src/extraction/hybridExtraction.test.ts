@@ -875,7 +875,7 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
     const { stored } = await storedTolerances(["DIMENSIONS ARE IN MILLIMETERS", "TOLERANCES ±0.1 mm"]);
     const valueInch = stored.tolerances.valueInch;
 
-    expect(valueInch).toBeCloseTo(0.003937, 6);
+    expect(valueInch).toBe(0.0039);
     expect(selectToleranceTier(valueInch).tier).toBe("tighter");
     expect(valueInch !== null && valueInch >= BETA_MINIMUM_TOLERANCE_INCH).toBe(false);
     expect(stored.tolerances).toMatchObject({ tightest: "±0.1 mm", unit: "mm", drawingUnits: "metric" });
@@ -909,5 +909,70 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
 
     expect(stored.tolerances.tightest).toBeNull();
     expect(stored.tolerances.valueInch).toBeNull();
+  });
+
+  describe("repair round 1 (adversarial review)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // Each case: [lines, true tightest in inches]. The stored value must be positive, not looser
+    // than the truth, below the 0.005 beta gate, and never in the looser Xometry tier.
+    it.each([
+      ["B1 H03", ["DIMENSIONS IN MM", "BORE ±0.02 mm (±0.1 BEFORE PLATING)"], 0.00079],
+      ["B1 H28", ["BORE ±0.05mm [±0.5]"], 0.00197],
+      ["B1 H04", ["TOLERANCES ±0.1 mm [±.04 in]"], 0.00394],
+      ["H1 rounding", ["TOLERANCES ±0.126 mm"], 0.00496],
+      ["H2 H06", ["DIMENSIONS IN MILLIMETERS", "NOTE: 1 INCH = 25.4", "TWO PLACE DECIMAL +0.1"], 0.00394],
+      ["H3 H02", ["DIMENSIONS IN MM", "PROFILE ±0.1 IN ALL DIRECTIONS"], 0.00394],
+      ["H4 H01", ["Ø12mm THRU", "TOLERANCES ±0.05"], 0.00197],
+    ] as Array<[string, string[], number]>)("%s is never looser than the true tolerance", async (_id, lines, truth) => {
+      const { stored } = await storedTolerances(lines);
+      const valueInch = stored.tolerances.valueInch;
+      // null is also acceptable (fail closed); a number must be positive and not looser than truth.
+      if (valueInch !== null) {
+        expect(valueInch).toBeGreaterThan(0);
+        expect(valueInch).toBeLessThanOrEqual(truth);
+        expect(valueInch).toBeLessThan(BETA_MINIMUM_TOLERANCE_INCH);
+        expect(selectToleranceTier(valueInch).tier).not.toBe("looser");
+      }
+    });
+
+    it("B2: a decimal comma stores null with the raw text, never 0", async () => {
+      for (const lines of [["DIMENSIONS IN MM", "TOLERANCES ±0,05"], ["TOLERANCES ±0,1"]]) {
+        const { stored, extraction } = await storedTolerances(lines);
+        expect(stored.tolerances.valueInch).toBeNull();
+        expect(stored.tolerances.unit).toBe("unknown");
+        expect(stored.tolerances.tightest).toMatch(/^±0,/);
+        expect(selectToleranceTier(stored.tolerances.valueInch).tier).toBeNull();
+        expect(summarizeExtractionOutcome(extraction).missingFields).toContain("tightestToleranceInch");
+      }
+    });
+
+    it("B2: the stored payload never carries a zero or negative valueInch", async () => {
+      const { extraction } = await storedTolerances(["TOLERANCES ±.005"]);
+      for (const bad of [0, -0.005, Number.NaN]) {
+        const stored = buildStoredExtractionPayload(
+          { ...extraction, tightestTolerance: { ...extraction.tightestTolerance, valueInch: bad } },
+          1,
+          "test",
+        ) as { tolerances: { valueInch: number | null } };
+        expect(stored.tolerances.valueInch).toBeNull();
+      }
+    });
+
+    it("B2: a zero value from the parser is never stored as 0", async () => {
+      const original = pdfDrawing.inferDrawingSignalsFromPdf;
+      vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockImplementation((input) => ({
+        ...original(input),
+        tightestTolerance: "±0",
+        tightestToleranceValueInch: 0,
+        tightestToleranceUnit: "in",
+      }));
+      const { stored, extraction } = await storedTolerances(["TOLERANCES ±.005"]);
+      expect(extraction.tightestTolerance.valueInch).toBeNull();
+      expect(stored.tolerances.valueInch).toBeNull();
+      expect(stored.tolerances.unit).toBe("unknown");
+    });
   });
 });

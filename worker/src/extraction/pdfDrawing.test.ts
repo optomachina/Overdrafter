@@ -858,8 +858,8 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
 
   it("converts a bare tolerance on a millimeter drawing instead of reading it as inches", () => {
     const result = tolerance(["DIMENSIONS ARE IN MILLIMETERS", "UNLESS OTHERWISE SPECIFIED TOLERANCES ±0.1"]);
-    expect(result.valueInch).toBeCloseTo(0.003937, 6);
-    expect(result.valueInch).toBe(0.003937); // stored rounded to 6 decimal places
+    expect(result.valueInch).toBe(0.0039);
+    expect(result.valueInch).toBe(0.0039); // floored to the 4 decimals of numeric(10,4), never rounded up
     expect(result.valueInch).not.toBe(0.1);
     expect(result.unit).toBe("mm");
     expect(result.drawingUnits).toBe("metric");
@@ -870,20 +870,20 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
     ["DIMENSIONS IN MM", "TOLERANCE +/- 0.1"],
     ["METRIC", "TOLERANCE ±0.1"],
   ])("recognizes metric drawing markers (%s)", (marker, line) => {
-    expect(tolerance([marker, line]).valueInch).toBeCloseTo(0.003937, 6);
+    expect(tolerance([marker, line]).valueInch).toBe(0.0039);
   });
 
   it("converts explicit mm, micron and mil suffixes", () => {
-    expect(tolerance(["TOLERANCES ±0.05 mm"]).valueInch).toBeCloseTo(0.001969, 6);
-    expect(tolerance(["TOLERANCE ±25 µm"]).valueInch).toBeCloseTo(0.000984, 6);
-    expect(tolerance(["TOLERANCE ±25 um"]).valueInch).toBeCloseTo(0.000984, 6);
+    expect(tolerance(["TOLERANCES ±0.05 mm"]).valueInch).toBe(0.0019);
+    expect(tolerance(["TOLERANCE ±25 µm"]).valueInch).toBe(0.0009);
+    expect(tolerance(["TOLERANCE ±25 um"]).valueInch).toBe(0.0009);
     expect(tolerance(["TOLERANCE ±5 mil"]).valueInch).toBe(0.005);
     expect(tolerance(["TOLERANCE ±5 mil"]).unit).toBe("mil");
   });
 
   it("takes the tightest value across mixed per-value units", () => {
     const result = tolerance(["DIMENSIONS IN MM", "GENERAL TOLERANCE ±0.2", "Ø12 H7 ±0.05"]);
-    expect(result.valueInch).toBeCloseTo(0.001969, 6);
+    expect(result.valueInch).toBe(0.0019);
   });
 
   it("ignores angular tolerances", () => {
@@ -924,10 +924,10 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
     });
   });
 
-  it("keeps the inch counterpart of a dual-dimension tolerance", () => {
+  it("reads a consistent dual-dimension tolerance as one value, never looser than either side", () => {
     const result = tolerance(["TOLERANCES ±0.1 mm [±.004 in]"]);
-    expect(result.valueInch).toBe(0.004);
-    expect(result.unit).toBe("in");
+    expect(result.valueInch).toBe(0.0039);
+    expect(result.unit).toBe("mm");
   });
 
   it("fails closed when units cannot be resolved", () => {
@@ -957,7 +957,7 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   });
 
   it("treats an ISO 2768 callout as a metric drawing signal", () => {
-    expect(tolerance(["TOLERANCES PER ISO 2768-m", "Ø12 H7 ±0.05"]).valueInch).toBeCloseTo(0.001969, 6);
+    expect(tolerance(["TOLERANCES PER ISO 2768-m", "Ø12 H7 ±0.05"]).valueInch).toBe(0.0019);
   });
 
   it("accepts an inch value above the unlabelled plausibility bound when the drawing declares inches", () => {
@@ -967,6 +967,148 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   });
 
   it("ignores an angular value on a metric drawing and converts the linear one", () => {
-    expect(tolerance(["DIMENSIONS IN MM", "ANGULAR ±0.5°", "LINEAR ±0.2"]).valueInch).toBeCloseTo(0.007874, 6);
+    expect(tolerance(["DIMENSIONS IN MM", "ANGULAR ±0.5°", "LINEAR ±0.2"]).valueInch).toBe(0.0078);
+  });
+
+  describe("repair round 1 (adversarial review)", () => {
+    // B1: a bracketed bare value is adopted as inches only when it matches the mm value.
+    it("B1 H03: does not adopt an unrelated bracketed value as the inch counterpart", () => {
+      const result = tolerance(["DIMENSIONS IN MM", "BORE ±0.02 mm (±0.1 BEFORE PLATING)"]);
+      expect(result.valueInch).not.toBeNull();
+      expect(result.valueInch as number).toBeGreaterThan(0);
+      expect(result.valueInch as number).toBeLessThanOrEqual(0.00079);
+    });
+
+    it("B1 H28: '±0.05mm [±0.5]' never stores 0.5", () => {
+      const result = tolerance(["BORE ±0.05mm [±0.5]"]);
+      expect(result.valueInch as number).toBeLessThanOrEqual(0.00197);
+      expect(result.valueInch as number).toBeGreaterThan(0);
+    });
+
+    it("B1 H04: an inconsistent '±0.1 mm [±.04 in]' pair keeps the tighter converted value", () => {
+      const result = tolerance(["TOLERANCES ±0.1 mm [±.04 in]"]);
+      expect(result.valueInch as number).toBeLessThanOrEqual(0.00394);
+      expect(result.valueInch as number).toBeGreaterThan(0);
+    });
+
+    it("B1: a consistent '±0.1 mm [±.004 in]' pair gives the tighter of the two", () => {
+      for (const line of ["TOLERANCES ±0.1 mm [±.004 in]", "TOLERANCES ±0.1 mm [±.004]"]) {
+        const result = tolerance([line]);
+        expect(result.valueInch as number).toBeLessThanOrEqual(0.004);
+        expect(result.valueInch as number).toBeGreaterThanOrEqual(0.0039);
+      }
+    });
+
+    it("B1: on a mixed drawing an inconsistent bracketed bare value stays unresolved", () => {
+      const result = tolerance(["DIMENSIONS IN INCHES [MILLIMETERS]", "BORE ±0.05 mm [±0.5]"]);
+      expect(result.valueInch).toBeNull();
+      expect(result.unit).toBe("unknown");
+      // The same pair with a consistent inch counterpart resolves.
+      expect(tolerance(["DIMENSIONS IN INCHES [MILLIMETERS]", "BORE ±0.05 mm [±0.002]"]).valueInch).toBe(0.0019);
+    });
+
+    it("B1 H22: an inch-first '±.004 [±0.1 mm]' dual is not read as 0.004 mm", () => {
+      const result = tolerance(["TOLERANCES ±.004 [±0.1 mm]"]);
+      expect(result.valueInch as number).toBeLessThanOrEqual(0.004);
+      expect(result.valueInch as number).toBeGreaterThanOrEqual(0.0039);
+    });
+
+    // B2: decimal commas and zero values.
+    it("B2 H07/H08: a decimal comma is unresolved, never 0", () => {
+      for (const lines of [
+        ["DIMENSIONS IN MM", "TOLERANCES ±0,05"],
+        ["TOLERANCES ±0,1"],
+        ["TOLERANCES ±0,05 mm"],
+      ]) {
+        const result = tolerance(lines);
+        expect(result.valueInch).toBeNull();
+        expect(result.unit).toBe("unknown");
+        expect(result.raw).not.toBeNull();
+      }
+    });
+
+    it("B2: a decimal comma after a decimal-place phrase is unresolved and keeps its raw text", () => {
+      const result = tolerance(["DIMENSIONS ARE IN INCHES", "TWO PLACE DECIMAL +0,1"]);
+      expect(result.valueInch).toBeNull();
+      expect(result.unit).toBe("unknown");
+      expect(result.raw).toBe("±0,1");
+    });
+
+    it("B2: a zero or non-positive tolerance is unresolved, never stored as 0", () => {
+      for (const lines of [["DIMENSIONS ARE IN INCHES", "TOLERANCES ±0"], ["TOLERANCES ±0.000"], ["TWO PLACE DECIMAL +0"]]) {
+        const result = tolerance(lines);
+        expect(result.valueInch).toBeNull();
+        expect(result.unit).toBe("unknown");
+      }
+    });
+
+    // H1: numeric(10,4) rounds half up, so converted values are floored to 4 decimals.
+    it("H1: a converted value never rounds up across the 0.005 gate", () => {
+      const result = tolerance(["TOLERANCES ±0.126 mm"]);
+      expect(result.valueInch).toBe(0.0049);
+    });
+
+    it("H1: a micron tolerance never collapses to 0", () => {
+      const result = tolerance(["TOLERANCES ±1 µm"]);
+      expect(result.valueInch).toBe(0.0001);
+    });
+
+    // H2: decimal-place phrases obey the plausibility bound on mixed drawings.
+    it("H2 H06: a TWO PLACE DECIMAL +0.1 on a mixed drawing is unresolved", () => {
+      const result = tolerance(["DIMENSIONS IN MILLIMETERS", "NOTE: 1 INCH = 25.4", "TWO PLACE DECIMAL +0.1"]);
+      expect(result.valueInch).toBeNull();
+      expect(result.unit).toBe("unknown");
+    });
+
+    // H3: the English word IN is not an inch suffix on metric or mixed drawings.
+    it("H3 H02: '±0.1 IN ALL DIRECTIONS' on a metric drawing is not 0.1 inch", () => {
+      const result = tolerance(["DIMENSIONS IN MM", "PROFILE ±0.1 IN ALL DIRECTIONS"]);
+      expect(result.valueInch).toBe(0.0039);
+    });
+
+    it("H3: an explicit inch marker still counts on a metric drawing", () => {
+      expect(tolerance(["DIMENSIONS IN MM", "BORE ±.001\""]).valueInch).toBe(0.001);
+      expect(tolerance(["DIMENSIONS IN MM", "BORE ±.002 INCH"]).valueInch).toBe(0.002);
+      expect(tolerance(["DIMENSIONS IN MM", "BORE ±.005 IN"]).valueInch).toBe(0.005);
+    });
+
+    // H4: glued units are metric signals; bare mu is microns; percent is not a tolerance.
+    it("H4 H01: a glued millimeter unit makes the drawing metric", () => {
+      const result = tolerance(["Ø12mm THRU", "TOLERANCES ±0.05"]);
+      expect(result.drawingUnits).toBe("metric");
+      expect(result.valueInch).toBe(0.0019);
+    });
+
+    it("H4 H11: a bare micro sign is microns", () => {
+      const result = tolerance(["DIMENSIONS IN MM", "BORE ±5μ"]);
+      expect(result.unit).toBe("um");
+      expect(result.valueInch).toBe(0.0001);
+    });
+
+    it("H4 H20: a percent value is not a length tolerance", () => {
+      const result = tolerance(["DIMENSIONS ARE IN INCHES", "SPRING RATE ±10%"]);
+      expect(result.raw).toBeNull();
+      expect(result.valueInch ?? null).toBeNull();
+    });
+
+    it("H4: a microinch value is unresolved, never read as inches", () => {
+      const result = tolerance(["DIMENSIONS ARE IN INCHES", "FINISH ±32 µin", "BORE ±.002"]);
+      expect(result.valueInch).toBeNull();
+    });
+
+    // H5: MM counts as a metric signal only in unit contexts.
+    it("H5 H17/H34: MM in a date template or part number does not make an inch drawing metric", () => {
+      expect(tolerance(["DATE YYYY-MM-DD", "TOLERANCES ±.005"])).toMatchObject({ valueInch: 0.005, drawingUnits: "unspecified" });
+      expect(tolerance(["DATE MM/DD/YY", "TOLERANCES ±.005"]).valueInch).toBe(0.005);
+      expect(tolerance(["DATE FORMAT IN MM/DD/YY", "TOLERANCES ±.005"]).valueInch).toBe(0.005);
+      expect(tolerance(["FORMAT IN MM-DD-YYYY", "TOLERANCES ±.005"]).valueInch).toBe(0.005);
+      expect(tolerance(["PART NO MM-1234", "TOLERANCES ±.005"]).valueInch).toBe(0.005);
+    });
+
+    it("H5: MM still counts after a unit introducer or beside a number", () => {
+      expect(tolerance(["UNITS: MM", "TOLERANCES ±0.2"]).valueInch).toBe(0.0078);
+      expect(tolerance(["ALL DIMENSIONS ARE IN MILLIMETERS", "TOLERANCES ±0.2"]).valueInch).toBe(0.0078);
+      expect(tolerance(["OVERALL 12 MM", "TOLERANCES ±0.2"]).valueInch).toBe(0.0078);
+    });
   });
 });

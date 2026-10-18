@@ -71,7 +71,13 @@ export function buildStoredExtractionPayload(
     tolerances: {
       general: extraction.generalTolerance.raw,
       tightest: extraction.tightestTolerance.raw,
-      valueInch: extraction.tightestTolerance.valueInch,
+      // A zero or non-finite value is never stored (it would read as tighter than any gate).
+      valueInch:
+        typeof extraction.tightestTolerance.valueInch === "number" &&
+        Number.isFinite(extraction.tightestTolerance.valueInch) &&
+        extraction.tightestTolerance.valueInch > 0
+          ? extraction.tightestTolerance.valueInch
+          : null,
       // OVD-976: additive JSON keys. SQL reads only tolerances.valueInch and the client reads
       // tightest/valueInch/confidence, so readers ignore these.
       unit: extraction.tightestTolerance.unit ?? null,
