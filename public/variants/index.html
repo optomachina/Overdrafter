@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>OverDrafter homepage variants</title>
+<style>
+  :root {
+    --bg: #F2EFE8;
+    --fg: #1C1B19;
+    --muted: #5B5850;
+    --rule: #D6D1C4;
+    --hover: #E8E4D8;
+    --accent: #C2410C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E0E0D;
+      --fg: #F2EFE8;
+      --muted: #A8A397;
+      --rule: #2C2B28;
+      --hover: #181816;
+      --accent: #E0662F;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 56px 16px 80px; }
+  .eyebrow {
+    margin: 0 0 12px;
+    font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(28px, 6vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .lede { margin: 16px 0 0; max-width: 560px; color: var(--muted); }
+  ul { list-style: none; margin: 40px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+  li { border-bottom: 1px solid var(--rule); }
+  a.row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 24px;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 20px 8px;
+    min-height: 44px;
+    color: inherit;
+    text-decoration: none;
+  }
+  a.row:hover { background: var(--hover); }
+  a.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .tag {
+    font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent);
+  }
+  .name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .tool {
+    margin-left: 8px;
+    font: 400 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+  }
+  .desc { grid-column: 2; margin: 0; color: var(--muted); font-size: 14px; }
+  .arrow { grid-column: 3; grid-row: 1; text-align: right; color: var(--muted); }
+  a.row:hover .arrow { color: var(--accent); }
+  .note {
+    margin: 32px 0 0;
+    font: 400 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Review prototypes</p>
+  <h1>Homepage variants</h1>
+  <p class="lede">Each page opens in the same tab. Use the browser back button to return here. All quote data is sample data.</p>
+
+  <ul>
+    <li>
+      <a class="row" href="/v6/">
+        <span class="tag">v6</span>
+        <span class="name">Drawing in, part, six quotes out<span class="tool">v2 + v4 merged</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">One figure tells the whole story. Click lanes and callouts, explode the bracket, cut a section. Dark and light themes.</p>
+      </a>
+    </li>
+    <li>
+      <a class="row" href="/v2/">
+        <span class="tag">v2</span>
+        <span class="name">Quote bench<span class="tool">Anatomy</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">Light isometric machine. A scanner reads the drawing and six lanes slide to each provider's lead time and price.</p>
+      </a>
+    </li>
+    <li>
+      <a class="row" href="/v4/">
+        <span class="tag">v4</span>
+        <span class="name">Exploded bracket<span class="tool">ISO-GLOW</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">Dark page. FLT-BRACKET-01 explodes with a section cut and callouts, plus a price-to-speed slider.</p>
+      </a>
+    </li>
+    <li>
+      <a class="row" href="/v3/">
+        <span class="tag">v3</span>
+        <span class="name">Quoting bench landing page<span class="tool">Anatomy-Asset</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">The machine as an asset, with a separate drawing for each section of a full landing page.</p>
+      </a>
+    </li>
+    <li>
+      <a class="row" href="/v5/">
+        <span class="tag">v5</span>
+        <span class="name">3D CNC mill<span class="tool">Machine Skill</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">Real 3D machine you can orbit and explode, with a live X/Y/Z readout. The heaviest page.</p>
+      </a>
+    </li>
+    <li>
+      <a class="row" href="/">
+        <span class="tag">main</span>
+        <span class="name">React homepage<span class="tool">in the app</span></span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <p class="desc">The redesigned page with scripted demos, built from the app's own components.</p>
+      </a>
+    </li>
+  </ul>
+
+  <p class="note">Sample data · not live quotes. These pages are review prototypes, not production routes.</p>
+</main>
+</body>
+</html>
