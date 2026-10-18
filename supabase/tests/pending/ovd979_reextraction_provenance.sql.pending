@@ -1,0 +1,275 @@
+-- OVD-979: re-extraction provenance and drawing-attach extraction.
+--
+-- Targets the drafts docs/migration-drafts/ovd-979-a.sql (ownership in
+-- api_auto_approve_job_requirements) and docs/migration-drafts/ovd-979-b.sql
+-- (api_request_extraction queues one extraction when a drawing is attached to
+-- a CAD-only extracted part), applied in that order.
+-- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
+-- file carries a .pending suffix so the policy-test runner stages it but never
+-- executes it; the ephemeral-db stage (scripts/ephemeral-db-apply.mjs) applies
+-- the ovd979 draft family and runs it. In the approved window, the drafts are
+-- promoted and this file is renamed to
+-- supabase/tests/ovd979_reextraction_provenance.sql in the same change.
+-- Pre-apply observation (PGlite + pgTAP, exact migration bodies, stubbed
+-- tables): 12/17 pass and A2, A4, B1, B3, B5 fail (corrections overwritten by
+-- the extraction; 0 tasks queued on attach). With both drafts: 17/17.
+--
+-- The whole test is one transaction, so now() is constant. The worker's
+-- extraction writes are simulated as postgres with explicit updated_at values
+-- later than now(), which is what makes an extraction "newer" than the
+-- requirement in api_auto_approve_job_requirements.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+select plan(17);
+
+insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
+values (
+  '00000000-0000-4000-8000-000000979011', 'authenticated', 'authenticated',
+  'ovd979-owner@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb
+); -- NOSONAR: deterministic fixture identity
+
+insert into public.organizations (id, name, slug)
+values ('00000000-0000-4000-8000-000000979001', 'OVD 979 org', 'ovd979-org'); -- NOSONAR: deterministic fixture identifier
+
+insert into public.organization_memberships (organization_id, user_id, role)
+values ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'client');
+
+-- Job A (3f): CAD + drawing uploaded together, extraction pending.
+-- Job B (1b-b): CAD only first, drawing attached later.
+-- Job C: a non-worker extraction row ('v1' default) with a drawing (no re-queue).
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-0000009791a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 A', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 B', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009791c0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 C', 'uploaded');
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, file.original_name, 'ovd979-bracket', file.kind::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009791a1'::uuid, '00000000-0000-4000-8000-0000009791a0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009791a2'::uuid, '00000000-0000-4000-8000-0000009791a0'::uuid, 'bracket.pdf', 'drawing'),
+  ('00000000-0000-4000-8000-0000009791b1'::uuid, '00000000-0000-4000-8000-0000009791b0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009791c1'::uuid, '00000000-0000-4000-8000-0000009791c0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009791c2'::uuid, '00000000-0000-4000-8000-0000009791c0'::uuid, 'bracket.pdf', 'drawing')
+) as file(id, job_id, original_name, kind);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-0000009791a3', '00000000-0000-4000-8000-0000009791a0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791a1', '00000000-0000-4000-8000-0000009791a2'),
+  ('00000000-0000-4000-8000-0000009791b3', '00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791b1', null),
+  ('00000000-0000-4000-8000-0000009791c3', '00000000-0000-4000-8000-0000009791c0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791c1', '00000000-0000-4000-8000-0000009791c2');
+
+insert into public.drawing_extractions (part_id, organization_id, extraction)
+values ('00000000-0000-4000-8000-0000009791c3', '00000000-0000-4000-8000-000000979001', '{"source":"pre-OVD-979"}'::jsonb);
+
+create function pg_temp.ovd979_as_owner() returns void language sql as $$
+  select set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-4000-8000-000000979011","role":"authenticated","aal":"aal1"}', true);
+$$;
+
+-- Simulated worker completion: replace the extraction row with an explicit,
+-- later updated_at (the touch trigger would otherwise stamp the constant now()),
+-- complete the part's open extract_part tasks, then auto-approve.
+create function pg_temp.ovd979_worker_completes(p_job uuid, p_part uuid, p_version text, p_tag text, p_minutes integer)
+returns void language plpgsql as $$
+begin
+  delete from public.drawing_extractions where part_id = p_part;
+  insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status, created_at, updated_at)
+  values (p_part, '00000000-0000-4000-8000-000000979001', p_version,
+    jsonb_build_object(
+      'description', 'EXTRACTED DESC ' || p_tag, 'quoteDescription', 'EXTRACTED DESC ' || p_tag,
+      'partNumber', 'EX-PN-' || p_tag, 'revision', 'R' || p_tag,
+      'quoteFinish', 'EXTRACTED FINISH ' || p_tag,
+      'material', jsonb_build_object('normalized', 'Aluminum 6061-T6')),
+    -- Same clock expression as the touch trigger and the RPCs
+    -- (timezone('utc', now())), so the comparison holds in any session TimeZone.
+    'needs_review',
+    timezone('utc', now()) + make_interval(mins => p_minutes),
+    timezone('utc', now()) + make_interval(mins => p_minutes));
+  update public.work_queue set status = 'completed'
+  where part_id = p_part and task_type = 'extract_part' and status in ('queued', 'running');
+  perform public.api_auto_approve_job_requirements(p_job);
+end;
+$$;
+
+-- ---------------------------------------------------------------- part a (3f)
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791a0'), 1,
+  'A1 the new part queues one extraction'
+);
+
+-- The user saves corrections while that extraction is still queued.
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791a0',
+  p_description => 'USER DESC', p_part_number => 'USER-PN', p_revision => 'C',
+  p_material => 'Aluminum 6061-T6', p_finish => 'USER FINISH'
+);
+
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791a0', '00000000-0000-4000-8000-0000009791a3', 'worker-pdf-v3', '1', 1
+);
+
+select is(
+  (select array[description, part_number, revision, finish,
+      spec_snapshot ->> 'quoteDescription', spec_snapshot ->> 'quoteFinish']
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791a3'),
+  array['USER DESC', 'USER-PN', 'C', 'USER FINISH', 'USER DESC', 'USER FINISH'],
+  'A2 a correction saved while extraction was pending survives extraction completion'
+);
+
+-- Reset-to-auto for description only (behavior of the reset RPC is unchanged).
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_reset_client_part_property_overrides('00000000-0000-4000-8000-0000009791a0', array['description']);
+reset role;
+
+select ok(
+  not ((select spec_snapshot #> '{projectPartProperties,overrides}' from public.approved_part_requirements
+        where part_id = '00000000-0000-4000-8000-0000009791a3') ? 'description')
+  and ((select spec_snapshot #> '{projectPartProperties,overrides}' from public.approved_part_requirements
+        where part_id = '00000000-0000-4000-8000-0000009791a3') ?& array['partNumber', 'revision', 'finish']),
+  'A3 reset removes only the description override'
+);
+
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791a0', '00000000-0000-4000-8000-0000009791a3', 'worker-pdf-v3', '2', 2
+);
+
+select is(
+  (select array[description, part_number, revision, finish]
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791a3'),
+  array['EXTRACTED DESC 2', 'USER-PN', 'C', 'USER FINISH'],
+  'A4 the reset field is auto again (refreshed by a newer extraction); owned fields are kept'
+);
+
+-- ---------------------------------------------------------------- part b (1b-b)
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791b0'), 1,
+  'B0 the CAD-only part queues one extraction'
+);
+reset role;
+
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-0000009791b3', 'worker-sim-v1', 'cad', 1
+);
+
+-- The user corrects only the finish, then attaches a drawing.
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791b0',
+  p_description => 'EXTRACTED DESC cad', p_part_number => 'EX-PN-cad', p_revision => 'Rcad',
+  p_material => 'Aluminum 6061-T6', p_finish => 'USER FINISH'
+);
+reset role;
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+) values (
+  '00000000-0000-4000-8000-0000009791b2', '00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-000000979001',
+  '00000000-0000-4000-8000-000000979011', 'job-files', 'org/ovd979/attached.pdf', 'bracket.pdf', 'ovd979-bracket', 'drawing'
+);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791b0'), 1,
+  'B1 attaching a drawing to a CAD-only extracted part queues one extraction'
+);
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791b0'), 0,
+  'B2 a retry does not queue a duplicate'
+);
+reset role;
+
+select is(
+  (select count(*)::integer from public.work_queue
+   where part_id = '00000000-0000-4000-8000-0000009791b3' and task_type = 'extract_part'
+     and status = 'queued' and payload ->> 'reason' = 'drawing_attached'
+     and payload ->> 'drawingFileId' = '00000000-0000-4000-8000-0000009791b2'),
+  1,
+  'B3 exactly one queued drawing_attached task, naming the attached drawing'
+);
+
+select is(
+  (select drawing_file_id from public.parts where id = '00000000-0000-4000-8000-0000009791b3'),
+  '00000000-0000-4000-8000-0000009791b2'::uuid,
+  'B4 reconcile attached the drawing to the existing part'
+);
+
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-0000009791b3', 'worker-pdf-v3', 'dwg', 3
+);
+
+select is(
+  (select array[description, part_number, revision, finish]
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791b3'),
+  array['EXTRACTED DESC dwg', 'EX-PN-dwg', 'Rdwg', 'USER FINISH'],
+  'B5 the drawing extraction fills auto fields and keeps the user-owned finish'
+);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791b0'), 0,
+  'B6 nothing more is queued once the drawing was extracted'
+);
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791c0'), 0,
+  'B7 an extraction row not written by the CAD-only worker path is never re-queued'
+);
+reset role;
+
+-- ---------------------------------------------------------------- attributes and grants
+select ok(
+  (select bool_and(p.prosecdef and p.proconfig = array['search_path=public'])
+   from pg_proc p
+   where p.oid in ('public.api_auto_approve_job_requirements(uuid)'::regprocedure,
+                   'public.api_request_extraction(uuid)'::regprocedure)),
+  'G1 both functions stay SECURITY DEFINER with search_path=public'
+);
+select ok(
+  has_function_privilege('service_role', 'public.api_auto_approve_job_requirements(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.api_auto_approve_job_requirements(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_auto_approve_job_requirements(uuid)', 'execute'),
+  'G2 auto-approve stays service_role only (OVD-535)'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.api_request_extraction(uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.api_request_extraction(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_request_extraction(uuid)', 'execute'),
+  'G3 request_extraction stays authenticated + service_role, not anon (OVD-736)'
+);
+select ok(
+  not exists (
+    select 1 from pg_proc p, aclexplode(p.proacl) acl
+    where p.oid = 'public.api_request_extraction(uuid)'::regprocedure and acl.grantee = 0
+  ),
+  'G4 request_extraction has no PUBLIC grant'
+);
+select ok(
+  not exists (
+    select 1 from pg_proc p, aclexplode(p.proacl) acl
+    where p.oid = 'public.api_auto_approve_job_requirements(uuid)'::regprocedure and acl.grantee = 0
+  ),
+  'G5 auto-approve has no PUBLIC grant'
+);
+
+select * from finish();
+rollback;
