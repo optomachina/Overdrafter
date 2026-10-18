@@ -135,6 +135,13 @@ set its `channel_settings` row (`enabled`, `min_tier`), an admin action that req
 `src/features/jarvis/**` imports a worker or queue module, or anything outside the feature. Work
 reaches workers only through `DesignGraph`.
 
+Exactly two package allowances exist (OVD-804). `react` is allowed only for files under
+`src/features/jarvis/thread/`, and `@google/model-viewer` only for the single file
+`src/features/jarvis/thread/model-loader.ts`. Each applies only when the raw import specifier
+equals the package name, so a relative or `@/` spelling that resolves to the same string never
+qualifies. Everything else stays a violation, including `react-dom`, `react/jsx-runtime`, any
+other package, and every server, worker and queue import.
+
 ## Tests
 
 `src/features/jarvis/core/conversation-service.test.ts` covers CS-1..CS-14 from the OVD-798
