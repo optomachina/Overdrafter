@@ -97,11 +97,21 @@ async function withEnvironment<T>(
 }
 
 let errorSpy: ReturnType<typeof vi.spyOn>;
+let otherConsoleSpies: ReturnType<typeof vi.spyOn>[];
+
+// Every output channel, not only console.error: a leak through log, info,
+// warn or debug would be just as much a credential disclosure.
+function otherConsoleOutput(): unknown[][] {
+  return otherConsoleSpies.flatMap((spy) => spy.mock.calls);
+}
 
 // vite.config.ts sets mockReset/restoreMocks, so implementations are
 // installed per test rather than once at module scope.
 beforeEach(() => {
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  otherConsoleSpies = (["log", "info", "warn", "debug"] as const).map((method) =>
+    vi.spyOn(console, method).mockImplementation(() => {}),
+  );
   vi.mocked(loadMobileAuthRuntimeConfig).mockReturnValue(config as never);
   vi.mocked(createSupabaseMobileAuthRepository).mockReturnValue(
     repository as never,
@@ -251,6 +261,7 @@ describe("Vercel mobile authentication function", () => {
       // cookie, redirect or CSP headers the inner handler set.
       expect(response).toBe(delegated);
       expect(errorSpy).not.toHaveBeenCalled();
+      expect(otherConsoleOutput()).toEqual([]);
     });
 
     it.each([
@@ -267,6 +278,19 @@ describe("Vercel mobile authentication function", () => {
           vi.fn(() => {
             throw new Error(`upstream ${SECRET}`);
           }),
+      ],
+      [
+        "rejects with a TypeError (the fetch failed class)",
+        () =>
+          vi.fn(async () => {
+            throw new TypeError(`upstream fetch failed ${SECRET}`);
+          }),
+      ],
+      [
+        "rejects with a non-Error value",
+        () =>
+          // The catch-all must also hold for a non-Error rejection.
+          vi.fn(() => Promise.reject({ detail: `upstream ${SECRET}` })),
       ],
     ])("redacts delegation failures when the handler %s", async (_label, build) => {
       vi.mocked(createMobileAuthHandler).mockReturnValue(build() as never);
@@ -286,6 +310,7 @@ describe("Vercel mobile authentication function", () => {
         ["mobile-auth: request handling failed"],
       ]);
       expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SECRET);
+      expect(otherConsoleOutput()).toEqual([]);
 
       // A request-time failure leaves the cached handler in place.
       await mobileAuth.fetch(startRequest());
@@ -360,16 +385,11 @@ describe("Vercel mobile authentication function", () => {
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
       expect(response.headers.get("x-frame-options")).toBe("DENY");
-      const policy = response.headers.get("content-security-policy") ?? "";
-      for (const directive of [
-        "default-src 'none'",
-        "script-src 'none'",
-        "connect-src 'none'",
-        "form-action 'none'",
-        "frame-ancestors 'none'",
-      ]) {
-        expect(policy).toContain(directive);
-      }
+      // The whole policy, so weakening any single directive (including
+      // base-uri, img-src, style-src and object-src) fails here.
+      expect(response.headers.get("content-security-policy")).toBe(
+        "default-src 'none'; script-src 'none'; style-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'none'; object-src 'none';",
+      );
       // No cookie, redirect, script, or "ready" signal: a native client
       // cannot mistake this page for a completed sign-in.
       expect(response.headers.get("set-cookie")).toBeNull();
