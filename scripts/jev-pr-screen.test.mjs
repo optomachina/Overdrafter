@@ -173,7 +173,7 @@ describe("jev PR screen", () => {
       SKIP,
     );
     expect(record.pr).toBeNull();
-    
+
     const negativeRecord = decisionRecord(
       { pr: -5, sha: "def", deterministic: "low" },
       { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
@@ -595,6 +595,52 @@ describe("jev screen marker", () => {
       risky.replace("jev=normal", "jev=normal jev=low"),
     ];
     for (const text of duplicates) expect(parseMarkerDescription(text), text).toBeNull();
+  });
+
+  const CONTRADICTIONS = [["low", "normal"], ["low", "risky"], ["normal", "risky"]];
+
+  it("rejects a contradictory marker whose final tier is below its Jev tier, on read and on write", async () => {
+    for (const [tier, jevTier] of CONTRADICTIONS) {
+      const text = markerText({ tier, jevTier, confidence: 0.99 });
+      expect(parseMarkerDescription(text), text).toBeNull();
+      const github = fakeGitHub();
+      const marker = { tier, jevTier, confidence: 0.99, pIncident: 0, model: JEV_MODEL, questionHash: Q, filesHash: F };
+      expect(await writeMarker(SHA, marker, { run: github.run }), `${tier}/${jevTier}`).toEqual({ success: false, reason: "invalid_tier" });
+      expect(github.calls, `${tier}/${jevTier}`).toEqual([]);
+    }
+    // Equal and higher final tiers stay valid, on parse and on write.
+    for (const [tier, jevTier] of [["low", "low"], ["normal", "normal"], ["risky", "risky"], ["normal", "low"], ["risky", "low"], ["risky", "normal"]]) {
+      expect(parseMarkerDescription(markerText({ tier, jevTier })), `${tier}/${jevTier}`).toMatchObject({ tier, jevTier });
+      const github = fakeGitHub();
+      expect(await writeMarker(SHA, { tier, jevTier, confidence: 0.9, model: JEV_MODEL, questionHash: Q, filesHash: F }, { run: github.run })).toEqual({ success: true });
+    }
+  });
+
+  it("misses the whole read when a trusted marker is contradictory, in either order, and screen() runs fresh", async () => {
+    const sound = status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }));
+    for (const [tier, jevTier] of CONTRADICTIONS) {
+      const contradictory = status(markerText({ tier, jevTier, confidence: 0.99 }));
+      const sound2 = status(markerText({ tier, jevTier: tier, confidence: 0.99 }));
+      for (const [name, statuses] of [["contradictory newest", [contradictory, sound2]], ["contradictory oldest", [sound2, contradictory]]]) {
+        const label = `${tier}/${jevTier} ${name}`;
+        const read = fakeGitHub({ statuses: { [SHA]: statuses } });
+        expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: read.run }), label).toEqual({ found: false, reason: "rejected_marker" });
+        // A fresh risky answer is the result; the cache never decides, so nothing lowers it.
+        const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: statuses } });
+        const jev = countingJev("risky", 0.99, 0);
+        const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+        expect(jev.calls, label).toBe(1);
+        expect(record, label).toMatchObject({ cache_hit: false, marker_hit: false, final: "risky" });
+      }
+    }
+    // The Architect's reproducer: [tier=low jev=low, tier=low jev=risky], newest first, both c=0.99.
+    for (const statuses of [[sound, status(markerText({ tier: "low", jevTier: "risky", confidence: 0.99 }))], [status(markerText({ tier: "low", jevTier: "risky", confidence: 0.99 })), sound]]) {
+      const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: statuses } });
+      const jev = countingJev("risky", 0.99, 0);
+      const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+      expect(jev.calls).toBe(1);
+      expect(record).toMatchObject({ cache_hit: false, final: "risky" });
+    }
   });
 
   it("rejects malformed fields: hash format, confidence, incident, tier, version and extra junk", () => {

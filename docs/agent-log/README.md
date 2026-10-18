@@ -1,6 +1,6 @@
 # Agent decision log
 
-`jev-decisions.jsonl` (written to `~/work/claude-jobs/jev-decisions.jsonl`, 
+`jev-decisions.jsonl` (written to `~/work/claude-jobs/jev-decisions.jsonl`,
 outside the repository) records every Jev (TypeSafe, `jev-1.13.0`) decision the
 lead engineer uses to size review, one JSON object per line: PR, head SHA
 (`head_sha`), deterministic tier, the matched sensitive-path classes

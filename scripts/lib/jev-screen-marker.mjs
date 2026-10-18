@@ -51,6 +51,11 @@ const FIELD = /^([a-z]+)=([A-Za-z0-9._-]+)$/;
 /** The fields every marker carries, each exactly once and nothing else. */
 const MARKER_KEYS = Object.freeze(["tier", "jev", "c", "p", "model", "q", "screener", "f"]);
 
+/** Rank of a tier (low < normal < risky); -1 for an unknown tier. */
+const tierRank = (tier) => MARKER_TIERS.indexOf(tier);
+/** The final tier is Jev's tier raised, never lowered, so a final tier below the Jev tier cannot come from the writer. */
+const tierConsistent = (tier, jevTier) => tierRank(tier) >= tierRank(jevTier);
+
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const errorText = (error) => String(error?.message ?? error);
 const miss = (reason, extra = {}) => ({ found: false, reason, ...extra });
@@ -161,7 +166,8 @@ const probabilityText = (text) => (PROBABILITY_TEXT.test(text) ? Number(text) : 
 
 /**
  * Parse a marker description. Returns null unless the version matches, every
- * field appears exactly once with nothing extra, and the tiers, confidence,
+ * field appears exactly once with nothing extra, the final tier is not below
+ * the Jev tier (a writer never produces that), and the tiers, confidence,
  * incident probability, model, question hash and screener are all well formed.
  */
 export function parseMarkerDescription(description) {
@@ -173,6 +179,7 @@ export function parseMarkerDescription(description) {
   const wellFormed =
     MARKER_TIERS.includes(fields.tier) &&
     MARKER_TIERS.includes(fields.jev) &&
+    tierConsistent(fields.tier, fields.jev) &&
     confidence !== null &&
     (fields.p === "na" || pIncident !== null) &&
     TOKEN.test(fields.model) &&
@@ -247,7 +254,7 @@ function classifyTrusted(status, { sha, model, questionHash, filesHash }) {
  * so on a tie the earlier one wins.
  */
 function strongestMarker(markers) {
-  const rank = (marker) => MARKER_TIERS.indexOf(marker.tier);
+  const rank = (marker) => tierRank(marker.tier);
   return markers.slice(1).reduce((best, current) => (rank(current) > rank(best) ? current : best), markers[0]);
 }
 
@@ -280,6 +287,7 @@ function invalidWrite(sha, marker) {
   if (!isValidSha(sha)) return "invalid_sha";
   const { tier, jevTier, confidence, pIncident = null, model, questionHash, filesHash } = marker ?? {};
   if (!MARKER_TIERS.includes(tier) || !MARKER_TIERS.includes(jevTier)) return "invalid_tier";
+  if (!tierConsistent(tier, jevTier)) return "invalid_tier";
   if (!isProbability(confidence) || !(pIncident === null || isProbability(pIncident))) return "invalid_probability";
   if (!TOKEN.test(model ?? "") || !QUESTION_HASH.test(questionHash ?? "") || !FILE_HASH.test(filesHash ?? "")) return "invalid_key";
   return null;
