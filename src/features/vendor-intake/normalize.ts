@@ -12,6 +12,7 @@ export const VENDOR_INTAKE_LIMITS = {
 
 export type VendorIntakeReason =
   | "empty"
+  | "invalid_type"
   | "too_long"
   | "url_invalid"
   | "url_scheme_unsupported"
@@ -38,6 +39,7 @@ export type VendorIntakeFieldResult =
   | { ok: true; value: VendorIntakeValue }
   | { ok: false; field: "name" | "url" | "notes"; reason: VendorIntakeReason };
 
+const isString = (value: unknown): value is string => typeof value === "string";
 const fail = (reason: VendorIntakeReason): { ok: false; reason: VendorIntakeReason } => ({ ok: false, reason });
 
 const TRACKING_PARAM = /^(utm_.*|gclid|gbraid|wbraid|dclid|fbclid|msclkid|yclid|igshid|mc_cid|mc_eid|_hsenc|_hsmi)$/i;
@@ -117,7 +119,8 @@ function rawAuthority(input: string): string {
   return afterScheme.split(/[/?#]/, 1)[0] ?? "";
 }
 
-export function canonicalizeVendorUrl(raw: string): VendorIntakeResult<CanonicalVendorUrl> {
+export function canonicalizeVendorUrl(raw: unknown): VendorIntakeResult<CanonicalVendorUrl> {
+  if (!isString(raw)) return fail("invalid_type");
   const input = raw.trim();
   if (input === "") return fail("empty");
   if (input.length > VENDOR_INTAKE_LIMITS.urlMaxLength) return fail("too_long");
@@ -182,26 +185,32 @@ const CONTROL_AND_FORMAT = /[\p{Cc}\p{Cf}]/gu;
 // Same set, except the newline that notes keep.
 const NOTES_STRIP = /(?!\n)[\p{Cc}\p{Cf}]/gu;
 
-export function normalizeVendorName(raw: string): VendorIntakeResult<string> {
+export function normalizeVendorName(raw: unknown): VendorIntakeResult<string> {
+  if (!isString(raw)) return fail("invalid_type");
   const name = raw.normalize("NFKC").replace(/\s+/g, " ").replace(CONTROL_AND_FORMAT, "").replace(/\s+/g, " ").trim();
   if (name === "") return fail("empty");
   if ([...name].length > VENDOR_INTAKE_LIMITS.nameMaxLength) return fail("too_long");
   return { ok: true, value: name };
 }
 
-/** Notes are optional; newlines are kept, other control characters are removed. */
-export function validateVendorNotes(raw: string | null | undefined): VendorIntakeResult<string> {
-  const notes = (raw ?? "").normalize("NFKC").replace(/\r\n?/g, "\n").replace(NOTES_STRIP, "").trim();
+/** Notes are optional (null/undefined mean empty); newlines are kept, tabs become spaces, other control characters are removed. */
+export function validateVendorNotes(raw: unknown): VendorIntakeResult<string> {
+  if (raw !== null && raw !== undefined && !isString(raw)) return fail("invalid_type");
+  const notes = (isString(raw) ? raw : "").normalize("NFKC").replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(NOTES_STRIP, "").trim();
   if ([...notes].length > VENDOR_INTAKE_LIMITS.notesMaxLength) return fail("too_long");
   return { ok: true, value: notes };
 }
 
-export function normalizeVendorIntake(input: VendorIntakeInput): VendorIntakeFieldResult {
-  const name = normalizeVendorName(input.name);
+export function normalizeVendorIntake(input: unknown): VendorIntakeFieldResult {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return { ok: false, field: "url", reason: "invalid_type" };
+  }
+  const fields = input as Partial<Record<"name" | "url" | "notes", unknown>>;
+  const name = normalizeVendorName(fields.name);
   if (name.ok === false) return { ok: false, field: "name", reason: name.reason };
-  const url = canonicalizeVendorUrl(input.url);
+  const url = canonicalizeVendorUrl(fields.url);
   if (url.ok === false) return { ok: false, field: "url", reason: url.reason };
-  const notes = validateVendorNotes(input.notes);
+  const notes = validateVendorNotes(fields.notes);
   if (notes.ok === false) return { ok: false, field: "notes", reason: notes.reason };
   return { ok: true, value: { ...url.value, name: name.value, notes: notes.value } };
 }
