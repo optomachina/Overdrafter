@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
@@ -31,6 +31,7 @@ import {
   buildMarkerDescription,
   canonicalJson,
   hashQuestions,
+  hashVerifiedPaths,
   isValidSha,
   parseMarkerDescription,
   readMarker,
@@ -41,6 +42,8 @@ import {
 } from "./lib/jev-screen-marker.mjs";
 import { JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
+
+import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./jev-pr-screen-files.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -60,6 +63,22 @@ afterAll(() => {
   }
   rmSync(isolatedGhConfig, { recursive: true, force: true });
 });
+
+// Legacy classification/logging tests use explicit synthetic acquisition. The
+// authoritative transport and pre-PR boundaries are tested below with screen().
+async function fixtureScreen(prs, options) {
+  if (options.marker) return screen(prs, { files: () => ({ paths: ["README.md"], revalidate: () => {} }), ...options });
+  const fixtures = prs.map((pr, index) => ({ ...pr, pr: pr.pr ?? index + 1, sha: SHA }));
+  return screen(fixtures, {
+    files: (number) => {
+      const { paths, problem } = prFilePaths(fixtures.find((pr) => pr.pr === number).files);
+      if (problem) throw new Error(problem);
+      return { paths, revalidate: () => {} };
+    },
+    marker: { headSha: async () => SHA, read: async () => ({ found: false }), write: async () => ({ success: true }) },
+    ...options,
+  });
+}
 
 const temps = [];
 afterAll(() => {
@@ -212,13 +231,13 @@ describe("jev PR screen", () => {
     const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
     temps.push(dirname(tempLog));
     for (const value of [null, undefined]) {
-      const [low, risky] = await screen([plain, migration], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
+      const [low, risky] = await fixtureScreen([plain, migration], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
       expect(low, labelOf(value)).toMatchObject({ deterministic: "low", sensitiveClasses: [], sensitivePathsUnavailable: false, final: "low" });
       expect(risky, labelOf(value)).toMatchObject({ deterministic: "risky", sensitiveClasses: ["schema", "migrations"], sensitivePathsUnavailable: false, final: "risky" });
     }
     // ... and any other value that is not a valid list screens every PR risky, even when Jev answers low at 0.99.
     for (const value of invalid.filter((entry) => entry !== null && entry !== undefined)) {
-      const [record] = await screen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
+      const [record] = await fixtureScreen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
       expect(record, labelOf(value))
         .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
@@ -227,7 +246,7 @@ describe("jev PR screen", () => {
       expect(deterministicTier(plain, false, { skipSensitivePaths }), labelOf(skipSensitivePaths)).toEqual(unavailable);
       expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: 0, skipSensitivePaths }).final, labelOf(skipSensitivePaths)).toBe("risky");
     }
-    const [noOptOut] = await screen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
+    const [noOptOut] = await fixtureScreen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
     expect(noOptOut).toMatchObject({ deterministic: "risky", sensitivePathsUnavailable: true, final: "risky" });
     expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: false, ...SKIP })).toMatchObject({ deterministic: "low", sensitivePathsUnavailable: false });
   });
@@ -263,8 +282,8 @@ describe("jev PR screen", () => {
       const pr = { pr: 8, sha: "g", deterministic: "low", files };
       expect(deterministicTier(pr, sensitivePaths), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
       expect(deterministicTier(pr, SENSITIVE_PATHS_UNAVAILABLE), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
-      const [record] = await screen([pr], { ask: askLow, log: tempLog, append: () => {} });
-      expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: problem, final: "risky" });
+      const [record] = await fixtureScreen([pr], { ask: askLow, log: tempLog, append: () => {} });
+      expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: FILES_INCOMPLETE, final: "risky" });
     }
   });
 
@@ -272,10 +291,10 @@ describe("jev PR screen", () => {
     const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
     temps.push(dirname(tempLog));
     for (const file of ["scripts/lib/sensitive-paths.mjs", SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/jev-pr-screen.mjs", "scripts/jev-client.mjs", "scripts/validate-agent-contract.mjs", "scripts/fixtures/sensitive-paths/paths.json"]) {
-      const [record] = await screen([{ pr: 10, sha: "h", deterministic: "low", files: [file] }], { ask: askLow, log: tempLog, append: () => {} });
+      const [record] = await fixtureScreen([{ pr: 10, sha: "h", deterministic: "low", files: [file] }], { ask: askLow, log: tempLog, append: () => {} });
       expect(record, file).toMatchObject({ deterministic: "risky", sensitiveClasses: ["infra_ci"], filesProblem: null, final: "risky" });
     }
-    const [both] = await screen([{ pr: 11, sha: "i", deterministic: "low", files: [SENSITIVE_PATHS_FILE, "AGENTS.md"] }], { ask: askLow, log: tempLog, append: () => {} });
+    const [both] = await fixtureScreen([{ pr: 11, sha: "i", deterministic: "low", files: [SENSITIVE_PATHS_FILE, "AGENTS.md"] }], { ask: askLow, log: tempLog, append: () => {} });
     expect(both).toMatchObject({ deterministic: "risky", final: "risky" });
   });
 
@@ -284,15 +303,15 @@ describe("jev PR screen", () => {
     temps.push(dirname(tempLog));
     const lines = [];
     const ask = async () => ({ ok: false, reason: "timeout", latencyMs: 1 });
-    const records = await screen([{ pr: 3, sha: "c", deterministic: "risky" }], { ask, log: tempLog, append: (_p, line) => lines.push(line) });
+    const records = await fixtureScreen([{ pr: 3, sha: "c", deterministic: "risky" }], { ask, log: tempLog, append: (_p, line) => lines.push(line) });
     expect(records[0].final).toBe("risky");
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0])).toMatchObject({ pr: 3, final: "risky" });
     // The default screen reads docs/sensitive-paths.json, so a declared-low PR touching a lockfile is risky.
-    const [lockfile] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {} });
+    const [lockfile] = await fixtureScreen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {} });
     expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
     // sensitivePaths: null is not an opt-out of the path check.
-    const [optOut] = await screen([{ pr: 4, sha: "d2", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {}, sensitivePaths: null });
+    const [optOut] = await fixtureScreen([{ pr: 4, sha: "d2", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {}, sensitivePaths: null });
     expect(optOut).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
   });
 
@@ -303,15 +322,15 @@ describe("jev PR screen", () => {
     // The PR removes the .env glob and adds a .env file.
     const dir = baseAndHeadRepo(withoutGlob("**/.env*"));
     const pr = { pr: 5, sha: "e", deterministic: "low", files: [".env.production"] };
-    const [fromBase] = await screen([pr], { ask, root: dir, baseRef: "HEAD^1", log: tempLog, append: () => {} });
+    const [fromBase] = await fixtureScreen([pr], { ask, root: dir, baseRef: "HEAD^1", log: tempLog, append: () => {} });
     expect(fromBase).toMatchObject({ deterministic: "risky", sensitiveClasses: ["secrets"], sensitivePathsUnavailable: false, final: "risky" });
     // The working tree (the PR's own list) is what --base-ref replaces.
-    const [fromHead] = await screen([pr], { ask, root: dir, log: tempLog, append: () => {} });
+    const [fromHead] = await fixtureScreen([pr], { ask, root: dir, log: tempLog, append: () => {} });
     expect(fromHead).toMatchObject({ deterministic: "low", sensitiveClasses: [], final: "low" });
     // A base ref that cannot be read is never replaced by the head list: "" (an unset $BASE) included.
     for (const baseRef of ["no-such-ref", "", "HEAD~9"]) {
       expect(loadScreenSensitivePaths({ root: dir, baseRef }), JSON.stringify(baseRef)).toBe(SENSITIVE_PATHS_UNAVAILABLE);
-      const [record] = await screen([pr], { ask, root: dir, baseRef, log: tempLog, append: () => {} });
+      const [record] = await fixtureScreen([pr], { ask, root: dir, baseRef, log: tempLog, append: () => {} });
       expect(record, JSON.stringify(baseRef)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
   });
@@ -327,7 +346,7 @@ describe("jev PR screen", () => {
     mkdirSync(`${output}:docs`);
     for (const baseRef of ["no-such-ref", "", "HEAD^1", `--output=${output}`]) {
       expect(loadScreenSensitivePaths({ root: broken, baseRef }), baseRef).toBe(SENSITIVE_PATHS_UNAVAILABLE);
-      const [record] = await screen([pr], { ask, root: broken, baseRef, log: tempLog, append: () => {} });
+      const [record] = await fixtureScreen([pr], { ask, root: broken, baseRef, log: tempLog, append: () => {} });
       expect(record, baseRef).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
     // An option-like ref is never handed to git.
@@ -410,8 +429,8 @@ describe("jev PR screen", () => {
   it("logs Jev's token usage from screen() and null on a cache hit", async () => {
     const github = fakeGitHub({ heads: { 846: SHA } });
     const ask = async () => ({ ok: true, model: JEV_MODEL, answers: { tier: { type: "choice", choice: "normal", confidence: 0.9 }, incident: { type: "noul", noul: 0.1 } }, usage: { input_tokens: 300, output_tokens: 4 }, latencyMs: 50 });
-    const [first] = await screen([readme()], { ...quiet, ask, marker: github.io });
-    const [second] = await screen([readme()], { ...quiet, ask, marker: github.io });
+    const [first] = await fixtureScreen([readme()], { ...quiet, ask, marker: github.io });
+    const [second] = await fixtureScreen([readme()], { ...quiet, ask, marker: github.io });
     expect(first).toMatchObject({ cache_hit: false, tokens: { input_tokens: 300, output_tokens: 4 } });
     expect(second).toMatchObject({ cache_hit: true, tokens: null });
   });
@@ -434,7 +453,7 @@ describe("jev PR screen", () => {
       const failingAppend = () => {
         throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
       };
-      const records = await screen([{ pr: 3, sha: "c", deterministic: "low", title: "secret title", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: failingAppend });
+      const records = await fixtureScreen([{ pr: 3, sha: "c", deterministic: "low", title: "secret title", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: failingAppend });
       expect(records).toHaveLength(1);
       expect(records[0]).toMatchObject({ pr: 3, ok: true, final: "low" });
       const logLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
@@ -446,7 +465,7 @@ describe("jev PR screen", () => {
       const plain = () => {
         throw new Error("disk\nfull");
       };
-      const [record] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: plain });
+      const [record] = await fixtureScreen([{ pr: 4, sha: "d", deterministic: "low", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: plain });
       expect(record.final).toBe("low");
       const messageLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
       expect(messageLines).toEqual(["jev-pr-screen: decision log write failed (disk_full); the screen result stands"]);
@@ -474,8 +493,9 @@ describe("jev PR screen", () => {
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98";
 const Q = hashQuestions(SCREEN_QUESTIONS);
+const F = hashVerifiedPaths(["README.md"]);
 const markerText = (fields = {}) =>
-  buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, ...fields });
+  buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, filesHash: F, ...fields });
 const status = (description, { context = MARKER_CONTEXT, state = "success", login = "optomachina" } = {}) => ({ context, state, description, creator: { login } });
 const STATUSES_PATH = /^repos\/optomachina\/Overdrafter\/commits\/([0-9a-f]{40})\/statuses\?per_page=100&page=([1-9]\d*)$/;
 const statusesPage = (sha, page) => ["api", `repos/optomachina/Overdrafter/commits/${sha}/statuses?per_page=100&page=${page}`];
@@ -512,7 +532,7 @@ function fakeGitHub({ statuses = {}, heads = {}, failWrites = false } = {}) {
     throw new Error(`HTTP 404 for ${args.join(" ")}`);
   };
   const io = {
-    read: (sha, model, questionHash) => readMarker(sha, model, questionHash, { run }),
+    read: (sha, model, questionHash, filesHash) => readMarker(sha, model, questionHash, filesHash, { run }),
     write: (sha, marker) => writeMarker(sha, marker, { run }),
     headSha: (pr) => readPrHeadSha(pr, { run }),
   };
@@ -530,7 +550,7 @@ function countingJev(choice = "normal", confidence = 0.9, noul = 0.15) {
   return jev;
 }
 
-const quiet = { log: "/dev/null", append: () => {}, warn: () => {} };
+const quiet = { files: () => ({ paths: ["README.md"], revalidate: () => {} }), log: "/dev/null", append: () => {}, warn: () => {} };
 const readme = (pr = 846, sha = SHA) => ({ pr, sha, deterministic: "low", files: ["README.md"], title: "Docs" });
 
 describe("jev screen marker", () => {
@@ -552,9 +572,9 @@ describe("jev screen marker", () => {
 
   it("builds and parses marker descriptions", () => {
     const text = markerText({ tier: "risky", jevTier: "normal", confidence: 0.87654, pIncident: 0.12301, questionHash: "abc12345" });
-    expect(text).toBe("v1 tier=risky jev=normal c=0.876 p=0.124 model=jev-1.13.0 q=abc12345 screener=mjs");
+    expect(text).toBe(`v2 tier=risky jev=normal c=0.876 p=0.124 model=jev-1.13.0 q=abc12345 screener=mjs f=${F}`);
     expect(text.length).toBeLessThanOrEqual(140);
-    expect(parseMarkerDescription(text)).toEqual({ version: "v1", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs" });
+    expect(parseMarkerDescription(text)).toEqual({ version: "v2", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs", filesHash: F });
     expect(parseMarkerDescription(markerText({ pIncident: null })).pIncident).toBeNull();
     expect(parseMarkerDescription(markerText({ confidence: 1, pIncident: 0 }))).toMatchObject({ confidence: 1, pIncident: 0 });
     for (const bad of ["v2 tier=low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low c=1.5 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low p=na model=m q=abc12345 screener=mjs", "", null]) {
@@ -585,7 +605,7 @@ describe("jev screen marker", () => {
       confidence: [swap("c=0.9", "c=abc"), swap("c=0.9", "c=NaN"), swap("c=0.9", "c=-0.1"), swap("c=0.9", "c=1.5"), swap("c=0.9", "c=1.001"), swap("c=0.9", "c=0.9999"), swap("c=0.9", "c=1e-1"), swap("c=0.9", "c=.9"), swap("c=0.9", "c=0x1"), swap("c=0.9", "c=Infinity")],
       incident: [swap("p=0.1", "p=abc"), swap("p=0.1", "p=2"), swap("p=0.1", "p=-0"), swap("p=0.1", "p=NA"), swap("p=0.1", "p=null")],
       tier: [swap("tier=normal", "tier=high"), swap("tier=normal", "tier=Normal"), swap("jev=normal", "jev=critical"), swap("tier=normal", "tier=")],
-      version: [swap("v1 ", "v1.0 "), swap("v1 ", "V1 "), swap("v1 ", "")],
+      version: [swap("v2 ", "v1.0 "), swap("v2 ", "V1 "), swap("v2 ", "")],
       junk: [`${base} junk`, `${base} x=1`, `${base} a=b=c`, swap("tier=normal", "tier==normal"), swap("model=", "Model="), `${base} =`, swap(" c=0.9", " c=0.9;"), `${base} ${"x".repeat(140)}`],
       missing: [swap(" p=0.1", ""), swap(" screener=mjs", ""), swap(` q=${Q}`, "")],
     };
@@ -599,7 +619,7 @@ describe("jev screen marker", () => {
     const rejected = [`${risky} tier=low jev=low`, risky.replace(`q=${Q}`, "q=ABC12345"), risky.replace("c=0.9", "c=9"), risky.replace("tier=risky", "tier=extreme"), `${risky} junk`];
     for (const description of rejected) {
       const github = fakeGitHub({ statuses: { [SHA]: [status(description)] } });
-      expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run }), description).toEqual({ found: false, reason: "rejected_marker" });
+      expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run }), description).toEqual({ found: false, reason: "rejected_marker" });
     }
     // Through screen(): the tampered marker is a miss, so Jev runs and its answer stands.
     const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(`${risky} tier=low jev=low`)] } });
@@ -612,14 +632,14 @@ describe("jev screen marker", () => {
   it("rejects a bad SHA and a status that names another commit", async () => {
     const github = fakeGitHub({ statuses: { [SHA]: [status(markerText())] } });
     for (const sha of [SHA.slice(0, 39), `${SHA}0`, `${SHA.slice(0, 39)}g`, ` ${SHA}`, `${SHA}\n`, `${SHA}/statuses`, "", null, 123]) {
-      expect(await readMarker(sha, JEV_MODEL, Q, { run: github.run }), String(sha)).toEqual({ found: false, reason: "invalid_sha" });
+      expect(await readMarker(sha, JEV_MODEL, Q, F, { run: github.run }), String(sha)).toEqual({ found: false, reason: "invalid_sha" });
     }
     expect(github.calls).toEqual([]);
     const url = (sha) => `https://api.github.com/repos/optomachina/Overdrafter/statuses/${sha}`;
     const elsewhere = fakeGitHub({ statuses: { [SHA]: [{ ...status(markerText({ tier: "low", jevTier: "low" })), url: url(OTHER_SHA) }, { ...status(markerText()), url: 42 }] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: elsewhere.run })).toEqual({ found: false, reason: "rejected_marker" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: elsewhere.run })).toEqual({ found: false, reason: "rejected_marker" });
     const here = fakeGitHub({ statuses: { [SHA]: [{ ...status(markerText()), url: url(SHA.toUpperCase()) }] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: here.run })).toMatchObject({ found: true, tier: "normal" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: here.run })).toMatchObject({ found: true, tier: "normal" });
   });
 
   it("resolves gh only from the trusted directories, never PATH", () => {
@@ -646,17 +666,17 @@ describe("jev screen marker", () => {
         ],
       },
     });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: true, version: "v1", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: true, version: "v2", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs", filesHash: F });
     // Reads the raw JSON (no --jq filter, which made gh exit 1 on the array).
     expect(github.calls).toEqual([statusesPage(SHA, 1)]);
   });
 
   it("takes the highest tier when several markers match, then the newest", async () => {
     const github = fakeGitHub({ statuses: { [SHA]: [status(markerText({ tier: "normal" })), status(markerText({ tier: "risky" })), status(markerText({ tier: "low", jevTier: "low" }))] } });
-    expect((await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).tier).toBe("risky");
+    expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).tier).toBe("risky");
     // Statuses are newest first: on a tier tie the newest marker wins.
     const tie = fakeGitHub({ statuses: { [SHA]: [status(markerText({ tier: "risky", jevTier: "low", confidence: 0.7 })), status(markerText({ tier: "risky", jevTier: "risky", confidence: 0.95 }))] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: tie.run })).toMatchObject({ tier: "risky", jevTier: "low", confidence: 0.7 });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: tie.run })).toMatchObject({ tier: "risky", jevTier: "low", confidence: 0.7 });
   });
 
   it("reads every page of statuses, so a stronger marker past the first 100 is never missed", async () => {
@@ -664,21 +684,21 @@ describe("jev screen marker", () => {
     const low = status(markerText({ tier: "low", jevTier: "low" }));
     const risky = status(markerText({ tier: "risky" }));
     const pageTwo = fakeGitHub({ statuses: { [SHA]: [low, ...filler(99), risky, ...filler(5)] } });
-    expect((await readMarker(SHA, JEV_MODEL, Q, { run: pageTwo.run })).tier).toBe("risky");
+    expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: pageTwo.run })).tier).toBe("risky");
     // Page 1 is read again after the last page to catch a status added while paging.
     expect(pageTwo.calls).toEqual([statusesPage(SHA, 1), statusesPage(SHA, 2), statusesPage(SHA, 1)]);
     // 250 statuses: the strongest marker is on page 3 of 3.
     const pageThree = fakeGitHub({ statuses: { [SHA]: [low, ...filler(220), risky, ...filler(28)] } });
     expect(pageThree.store[SHA]).toHaveLength(250);
-    expect((await readMarker(SHA, JEV_MODEL, Q, { run: pageThree.run })).tier).toBe("risky");
+    expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: pageThree.run })).tier).toBe("risky");
     expect(pageThree.calls).toEqual([1, 2, 3, 1].map((page) => statusesPage(SHA, page)));
     // Exactly 100 statuses: a full page is never taken as the end, so page 2 (empty) is read too.
     const full = fakeGitHub({ statuses: { [SHA]: [low, ...filler(99)] } });
-    expect((await readMarker(SHA, JEV_MODEL, Q, { run: full.run })).tier).toBe("low");
+    expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: full.run })).tier).toBe("low");
     expect(full.calls).toEqual([statusesPage(SHA, 1), statusesPage(SHA, 2), statusesPage(SHA, 1)]);
     // The only marker sits on page 2.
     const onlyLater = fakeGitHub({ statuses: { [SHA]: [...filler(150), low] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: onlyLater.run })).toMatchObject({ found: true, tier: "low" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: onlyLater.run })).toMatchObject({ found: true, tier: "low" });
   });
 
   it("misses fail-safe when a later page fails, a page is oversized or the pages never end", async () => {
@@ -687,16 +707,16 @@ describe("jev screen marker", () => {
       if (args[1].endsWith("&page=1")) return JSON.stringify([low, ...filler(99)]);
       throw new Error("gh: HTTP 502");
     };
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: firstPageThenFail })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: firstPageThenFail })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
     const badSecondPage = (args) => (args[1].endsWith("&page=1") ? JSON.stringify([low, ...filler(99)]) : "{}");
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: badSecondPage })).toMatchObject({ found: false, reason: "api_error" });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => JSON.stringify([low, ...filler(100)]) })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: badSecondPage })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: () => JSON.stringify([low, ...filler(100)]) })).toMatchObject({ found: false, reason: "api_error" });
     let pages = 0;
     const endless = () => {
       pages += 1;
       return JSON.stringify([low, ...filler(99)]);
     };
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: endless })).toMatchObject({ found: false, reason: "api_error", error: `more than ${MAX_STATUS_PAGES} pages of statuses` });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: endless })).toMatchObject({ found: false, reason: "api_error", error: `more than ${MAX_STATUS_PAGES} pages of statuses` });
     expect(pages).toBe(MAX_STATUS_PAGES);
   });
 
@@ -718,7 +738,7 @@ describe("jev screen marker", () => {
     };
     for (const [name, statuses] of Object.entries(rejected)) {
       const github = fakeGitHub({ statuses: { [SHA]: statuses } });
-      expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run }), name).toEqual({ found: false, reason: "rejected_marker" });
+      expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run }), name).toEqual({ found: false, reason: "rejected_marker" });
     }
     // Through screen(): a rejected risky marker next to a valid low one is a miss, so Jev runs again.
     const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: rejected["risky in failure state"] } });
@@ -728,7 +748,7 @@ describe("jev screen marker", () => {
     expect(record).toMatchObject({ cache_hit: false, final: "normal" });
     // Not rejections: an untrusted author's status, and a well-formed trusted marker for another key.
     const otherKeys = fakeGitHub({ statuses: { [SHA]: [status(risky, { state: "failure", login: "mallory" }), status(markerText({ tier: "risky", model: "jev-1.12.0" })), validLow] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: otherKeys.run })).toMatchObject({ found: true, tier: "low" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: otherKeys.run })).toMatchObject({ found: true, tier: "low" });
   });
 
   it("misses when page 1 changes while paging, so a newly added marker is never hidden", async () => {
@@ -740,7 +760,7 @@ describe("jev screen marker", () => {
       if (args[1].endsWith("&page=2") && github.store[SHA][0] !== risky) github.store[SHA].unshift(risky);
       return github.run(args);
     };
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run })).toMatchObject({ found: false, reason: "statuses_changed" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run })).toMatchObject({ found: false, reason: "statuses_changed" });
     expect(github.calls).toEqual([statusesPage(SHA, 1), statusesPage(SHA, 2), statusesPage(SHA, 1)]);
     // Any change counts, even a status that is not a marker.
     const other = fakeGitHub({ statuses: { [SHA]: [low, ...filler(150)] } });
@@ -749,13 +769,13 @@ describe("jev screen marker", () => {
       return other.run(args);
     };
     other.store[SHA].push(...filler(60));
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: runOther })).toMatchObject({ found: false, reason: "statuses_changed" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: runOther })).toMatchObject({ found: false, reason: "statuses_changed" });
     // Through screen(): the shifted read is a miss, so Jev runs and the result is not the stale low marker.
     const shifted = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [low, ...filler(150)] } });
     const io = {
       ...shifted.io,
-      read: (sha, model, questionHash) =>
-        readMarker(sha, model, questionHash, {
+      read: (sha, model, questionHash, filesHash) =>
+        readMarker(sha, model, questionHash, filesHash, {
           run: (args) => {
             if (args[1].endsWith("&page=2") && shifted.store[SHA][0] !== risky) shifted.store[SHA].unshift(risky);
             return shifted.run(args);
@@ -779,26 +799,26 @@ describe("jev screen marker", () => {
 
   it("misses fail-safe on no marker, an invalid SHA, an API error or a bad response", async () => {
     const github = fakeGitHub({ statuses: { [SHA]: [status("all good", { context: "CodeRabbit" })] } });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
-    expect(await readMarker(OTHER_SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
-    expect(await readMarker("head", JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "invalid_sha" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
+    expect(await readMarker(OTHER_SHA, JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
+    expect(await readMarker("head", JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: false, reason: "invalid_sha" });
     expect(github.calls).toHaveLength(2);
     const failing = () => {
       throw new Error("gh: HTTP 502");
     };
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: failing })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => "{}" })).toMatchObject({ found: false, reason: "api_error" });
-    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => "not json" })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: failing })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: () => "{}" })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: () => "not json" })).toMatchObject({ found: false, reason: "api_error" });
   });
 
   it("writes a success marker and fails open", async () => {
     const github = fakeGitHub();
-    const marker = { tier: "risky", jevTier: "normal", confidence: 0.9, pIncident: 0.2, model: JEV_MODEL, questionHash: Q };
+    const marker = { tier: "risky", jevTier: "normal", confidence: 0.9, pIncident: 0.2, model: JEV_MODEL, questionHash: Q, filesHash: F };
     expect(await writeMarker(SHA, marker, { run: github.run })).toEqual({ success: true });
     expect(github.calls).toEqual([
       ["api", `repos/optomachina/Overdrafter/statuses/${SHA}`, "-X", "POST", "-f", "state=success", "-f", `description=${markerText({ tier: "risky", pIncident: 0.2 })}`, "-f", "context=jev-screen"],
     ]);
-    expect((await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).tier).toBe("risky");
+    expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).tier).toBe("risky");
     expect(await writeMarker("abc123", marker, { run: github.run })).toEqual({ success: false, reason: "invalid_sha" });
     expect(await writeMarker(SHA, { ...marker, tier: "high" }, { run: github.run })).toEqual({ success: false, reason: "invalid_tier" });
     expect(await writeMarker(SHA, { ...marker, confidence: 1.2 }, { run: github.run })).toEqual({ success: false, reason: "invalid_probability" });
@@ -878,8 +898,8 @@ describe("jev screen marker", () => {
     expect(floor).toMatchObject({ marker_hit: true, deterministic: "low", final: "risky" });
     // The local path tier still applies: a low marker cannot lower a migration.
     const lowMarker = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }))] } });
-    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io });
-    expect(migration).toMatchObject({ marker_hit: true, deterministic: "risky", final: "risky" });
+    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io, files: () => ({ paths: [MIGRATION_SQL], revalidate: () => {} }) });
+    expect(migration).toMatchObject({ marker_hit: false, deterministic: "risky", final: "risky" });
     // A stored confidence below the current floor is uncertain, so at least normal.
     const [stricter] = await screen([readme()], { ...quiet, ask: jev.ask, marker: lowMarker.io, minConfidence: 0.995 });
     expect(stricter).toMatchObject({ marker_hit: true, final: "normal" });
@@ -888,7 +908,7 @@ describe("jev screen marker", () => {
     const odd = { read: async () => ({ found: true, tier: "unknown", jevTier: "low", confidence: 0.99, pIncident: null, model: JEV_MODEL }), write: async () => ({ success: true }), headSha: async () => SHA };
     const [unknown] = await screen([readme()], { ...quiet, ask: jev.ask, marker: odd });
     expect(unknown).toMatchObject({ marker_hit: true, marker_tier: "risky", final: "risky" });
-    expect(jev.calls).toBe(0);
+    expect(jev.calls).toBe(1);
   });
 
   it("writes markers only for accepted answers, and a failed write keeps the result", async () => {
@@ -913,20 +933,21 @@ describe("jev screen marker", () => {
     const jev = countingJev("normal");
     const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: stale.io, warn: (line) => warnings.push(line) });
     expect(record.marker_hit).toBe(false);
-    expect(jev.calls).toBe(1);
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(jev.calls).toBe(0);
     expect(stale.calls.map((args) => args[1])).toEqual(["repos/optomachina/Overdrafter/pulls/846"]);
     expect(warnings.join("\n")).toMatch(/is not the PR head/);
 
     const unknownHead = fakeGitHub({ statuses: marked });
     await screen([readme()], { ...quiet, ask: jev.ask, marker: unknownHead.io });
     expect(unknownHead.posts()).toHaveLength(0);
-    expect(jev.calls).toBe(2);
+    expect(jev.calls).toBe(0);
 
     // No PR number or a short SHA: no GitHub call at all.
     const none = fakeGitHub({ heads: { 846: SHA }, statuses: marked });
     await screen([readme(0), readme(-1), readme(846, "abc123"), { ...readme(), pr: undefined }], { ...quiet, ask: jev.ask, marker: none.io });
     expect(none.calls).toEqual([]);
-    expect(jev.calls).toBe(6);
+    expect(jev.calls).toBe(0);
   });
 
   it("treats a throwing marker reader or head lookup as a miss", async () => {
@@ -936,6 +957,254 @@ describe("jev screen marker", () => {
     const jev = countingJev("normal");
     const [readFails] = await screen([readme()], { ...quiet, ask: jev.ask, marker: { read: boom, write: async () => ({ success: true }), headSha: async () => SHA } });
     const [headFails] = await screen([readme()], { ...quiet, ask: jev.ask, marker: { read: boom, write: boom, headSha: boom } });
-    expect([readFails.marker_hit, headFails.marker_hit, jev.calls]).toEqual([false, false, 2]);
+    expect([readFails.marker_hit, headFails.marker_hit, jev.calls]).toEqual([false, false, 1]);
+  });
+});
+
+/** Complete fake REST transport, including independently supplied metadata. */
+function fileTransport({ paths = ["README.md"], count = paths.length, pageError = 0, malformed = false, race = false, head = SHA, baseRace = false } = {}) {
+  const calls = [];
+  let snapshots = 0;
+  const run = (args) => {
+    calls.push(args);
+    const page = /\/files\?per_page=100&page=(\d+)$/.exec(args[1]);
+    if (page) {
+      const n = Number(page[1]);
+      if (n === pageError) throw new Error("HTTP 502");
+      if (malformed) return '{"message":"bad"}';
+      return JSON.stringify(paths.slice((n - 1) * 100, n * 100).map((filename) => ({ filename, status: "modified" })));
+    }
+    snapshots += 1;
+    return JSON.stringify({ head: { sha: race && snapshots > 1 ? OTHER_SHA : head }, base: { sha: baseRace && snapshots > 1 ? SHA : OTHER_SHA }, changed_files: count });
+  };
+  return { calls, files: (pr, sha) => verifiedPrFiles(pr, sha, { run }) };
+}
+
+describe("OVD-961 authoritative file boundaries", () => {
+  it("acquires page two and ignores a truncated caller list before cache/classification", async () => {
+    const paths = [...Array.from({ length: 100 }, (_, i) => `docs/${i}.md`), MIGRATION_SQL];
+    const transport = fileTransport({ paths });
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low" }))] } });
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([readme()], { ...quiet, files: transport.files, marker: github.io, ask });
+    expect(record).toMatchObject({ final: "risky", deterministic: "risky", cache_hit: false, filesProblem: null });
+    expect(ask.mock.calls[0][0].files).toEqual(paths);
+    expect(transport.calls.filter((args) => args[1].includes("/files?"))).toHaveLength(2);
+    expect(parseMarkerDescription(github.store[SHA][0].description).filesHash).toBe(hashVerifiedPaths(paths));
+  });
+
+  it.each([
+    ["count mismatch", { count: 2 }],
+    ["failed second page", { paths: Array.from({ length: 101 }, (_, i) => `docs/${i}`), pageError: 2 }],
+    ["malformed page", { malformed: true }],
+    ["invalid path", { paths: [null] }],
+    ["duplicate page", { paths: Array.from({ length: 101 }, () => "README.md") }],
+    ["exactly 3000 cap", { paths: Array.from({ length: 3000 }, (_, i) => `docs/${i}`) }],
+    ["underreported cap", { paths: Array.from({ length: 3000 }, (_, i) => `docs/${i}`), count: 2999 }],
+    ["head race", { race: true }],
+    ["base race", { baseRace: true }],
+    ["wrong requested head", { head: OTHER_SHA }],
+    ["malformed count", { count: "1" }],
+  ])("fails risky without cache or model calls: %s", async (_name, config) => {
+    const transport = fileTransport(config);
+    const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
+    const ask = vi.fn();
+    const [record] = await screen([readme()], { ...quiet, files: transport.files, marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(ask).not.toHaveBeenCalled();
+    for (const fn of Object.values(marker)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("checks the final page for exact multiples and rejects malformed JSON", () => {
+    const paths = Array.from({ length: 100 }, (_, i) => `docs/${i}`);
+    const transport = fileTransport({ paths });
+    expect(transport.files(846, SHA).paths).toEqual(paths);
+    expect(transport.calls.filter((args) => args[1].includes("/files?"))).toHaveLength(2);
+    expect(() => verifiedPrFiles(846, SHA, { run: () => "invalid" })).toThrow();
+  });
+
+  it("detects a head move during Jev before writing a marker", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    let calls = 0;
+    github.io.headSha = async () => ++calls === 1 ? SHA : OTHER_SHA;
+    const [record] = await screen([readme()], { ...quiet, files: fileTransport().files, marker: github.io, ask: countingJev("low").ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(github.posts()).toHaveLength(0);
+  });
+
+  it("hashes sorted paths stably and rejects v1, missing/mismatched hashes and oversized markers", async () => {
+    expect(hashVerifiedPaths(["b", "a"])).toBe(hashVerifiedPaths(["a", "b"]));
+    expect(hashVerifiedPaths(["a", "b"])).not.toBe(hashVerifiedPaths(["a"]));
+    expect(hashVerifiedPaths(["a\nb", "c"])).not.toBe(hashVerifiedPaths(["a", "b\nc"]));
+    for (const description of [markerText().replace("v2 ", "v1 "), markerText().replace(` f=${F}`, ""), markerText({ filesHash: hashVerifiedPaths(["different"]) })]) {
+      const github = fakeGitHub({ statuses: { [SHA]: [status(description)] } });
+      expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).found).toBe(false);
+    }
+    const github = fakeGitHub();
+    const marker = { tier: "risky", jevTier: "risky", confidence: 0.999, pIncident: 0.999, model: JEV_MODEL, questionHash: Q, filesHash: F };
+    expect(buildMarkerDescription(marker).length).toBeLessThanOrEqual(140);
+    expect(await writeMarker(SHA, { ...marker, model: "x".repeat(100) }, { run: github.run })).toEqual({ success: false, reason: "description_too_long" });
+    expect(github.calls).toEqual([]);
+  });
+
+  it("pre-PR derives a local diff, ignores supplied files, and performs zero cache operations", async () => {
+    const root = baseAndHeadRepo(withoutGlob("**/.env*"));
+    const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
+    const files = vi.fn();
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([{ ...readme(), pr: undefined }], { ...quiet, root, baseRef: "HEAD^", marker, files, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: null, cache_hit: false });
+    expect(ask.mock.calls[0][0].files).toEqual([SENSITIVE_PATHS_FILE]);
+    for (const fn of [...Object.values(marker), files]) expect(fn).not.toHaveBeenCalled();
+    for (const baseRef of [null, "", "no-such-ref", "--help"]) {
+      const [failed] = await screen([{ ...readme(), pr: undefined }], { ...quiet, root, baseRef, marker, files, ask });
+      expect(failed).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    }
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Mutable REST snapshot for rename and post-acquisition identity regressions. */
+function mutableAcquisition(records) {
+  const fixture = { snapshot: { head: { sha: SHA }, base: { sha: OTHER_SHA }, changed_files: records.length } };
+  fixture.files = (pr, sha) => verifiedPrFiles(pr, sha, { run: (args) => {
+    if (args[1].includes("/files?")) return JSON.stringify(records);
+    if (fixture.snapshot === null) throw new Error("snapshot unavailable");
+    return JSON.stringify(fixture.snapshot);
+  } });
+  return fixture;
+}
+
+describe("OVD-961 independent review regressions", () => {
+  const renamed = { filename: "docs/plain.md", previous_filename: ".github/workflows/required.yml", status: "renamed" };
+
+  it("preserves sensitive rename sources, reconciles records and hashes the complete affected set", async () => {
+    const acquisition = mutableAcquisition([renamed]);
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    const paths = [renamed.filename, renamed.previous_filename];
+    expect(record).toMatchObject({ final: "risky", deterministic: "risky", filesProblem: null });
+    expect(ask.mock.calls[0][0].files).toEqual(paths);
+    expect(parseMarkerDescription(github.store[SHA][0].description)).toMatchObject({ tier: "risky", filesHash: hashVerifiedPaths(paths) });
+    expect(acquisition.files(846, SHA).snapshot.count).toBe(1);
+    const chain = mutableAcquisition([renamed, { filename: "docs/next.md", previous_filename: renamed.filename, status: "renamed" }]);
+    expect(chain.files(846, SHA).paths).toEqual([...paths, "docs/next.md"]);
+  });
+
+  it.each([
+    { filename: "docs/plain.md", status: "renamed" },
+    { ...renamed, previous_filename: "" },
+    { ...renamed, previous_filename: null },
+    { ...renamed, previous_filename: 123 },
+    { ...renamed, previous_filename: "bad\0path" },
+    { ...renamed, previous_filename: renamed.filename },
+    { ...renamed, status: "modified" },
+  ])("rejects malformed rename metadata before cache or model access: %j", async (entry) => {
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const [record] = await screen([readme()], { ...quiet, files: mutableAcquisition([entry]).files, marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("preserves both sides of a real local rename even when git recognizes it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jev-rename-"));
+    temps.push(root);
+    const git = (...args) => execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    mkdirSync(join(root, ".github/workflows"), { recursive: true });
+    mkdirSync(join(root, "docs"));
+    writeFileSync(join(root, renamed.previous_filename), "name: required\non: push\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    git("mv", renamed.previous_filename, renamed.filename);
+    git("commit", "-qm", "rename");
+    expect(git("diff", "--name-status", "-M", "HEAD^...HEAD")).toContain("R100");
+    expect(new Set(localDiffFiles(root, "HEAD^"))).toEqual(new Set([renamed.filename, renamed.previous_filename]));
+    const ask = vi.fn(countingJev("low").ask);
+    const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
+    const [record] = await screen([{ ...readme(), pr: undefined }], { ...quiet, root, baseRef: "HEAD^", sensitivePaths: loadSensitivePaths({ root: repoRoot }), marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: null });
+    expect(new Set(ask.mock.calls[0][0].files)).toEqual(new Set([renamed.filename, renamed.previous_filename]));
+    for (const fn of Object.values(marker)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each(["fresh", "cached"].flatMap((mode) => ["base", "head", "count", "error"].map((change) => [mode, change])))
+  ("rejects %s result after post-acquisition %s change without a marker write", async (mode, change) => {
+    const acquisition = mutableAcquisition([{ filename: "README.md", status: "modified" }]);
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: mode === "cached" ? [status(markerText({ tier: "low", jevTier: "low" }))] : [] } });
+    const mutate = () => {
+      if (change === "error") acquisition.snapshot = null;
+      else if (change === "count") acquisition.snapshot.changed_files = 2;
+      else acquisition.snapshot[change].sha = "c".repeat(40);
+    };
+    const read = github.io.read;
+    github.io.read = async (...args) => { const result = await read(...args); if (mode === "cached") mutate(); return result; };
+    const ask = vi.fn(async () => { mutate(); return countingJev("low").ask(); });
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(github.posts()).toHaveLength(0);
+    expect(ask).toHaveBeenCalledTimes(mode === "fresh" ? 1 : 0);
+  });
+
+  it("protects the acquisition helper with the existing sensitive-path policy", () => {
+    const imported = readFileSync(new URL("./jev-pr-screen.mjs", import.meta.url), "utf8").match(/from "([^"]*screen-files\.mjs)"/)?.[1];
+    expect(imported).toBeTruthy();
+    const actualPath = relative(repoRoot, fileURLToPath(new URL(imported, new URL("./jev-pr-screen.mjs", import.meta.url))));
+    expect(deterministicTier({ deterministic: "low", files: [actualPath] }, loadSensitivePaths({ root: repoRoot })))
+      .toMatchObject({ tier: "risky", sensitiveClasses: ["infra_ci"] });
+  });
+});
+
+describe("OVD-961 malformed status admission", () => {
+  it.each([
+    ["absent", {}],
+    ["undefined", { status: undefined }],
+    ["null", { status: null }],
+    ["unknown", { status: "unknown" }],
+    ["empty", { status: "" }],
+    ["wrong case", { status: "RENAMED" }],
+    ["whitespace", { status: " modified " }],
+    ["number", { status: 1 }],
+    ["boolean", { status: true }],
+    ["array", { status: ["modified"] }],
+    ["object", { status: { value: "modified" } }],
+    ["prototype name", { status: "toString" }],
+  ])("fails closed before cache or Jev for %s status", async (_label, fields) => {
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const acquisition = mutableAcquisition([{ filename: "docs/retired.md", ...fields }]);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each(["added", "removed", "modified", "changed", "unchanged", "renamed", "copied"])
+  ("accepts supported %s status with complete affected paths", async (status) => {
+    const moves = status === "renamed" || status === "copied";
+    const entry = { filename: "docs/retired.md", status, ...(moves ? { previous_filename: ".github/workflows/required.yml" } : {}) };
+    const acquisition = mutableAcquisition([entry]);
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    expect(record).toMatchObject({ final: moves ? "risky" : "low", filesProblem: null });
+    const paths = moves ? [entry.filename, entry.previous_filename] : [entry.filename];
+    expect(ask.mock.calls[0][0].files).toEqual(paths);
+    expect(parseMarkerDescription(github.store[SHA][0].description).filesHash).toBe(hashVerifiedPaths(paths));
+  });
+
+  it("rejects a malformed status on a later page before any screening/cache calls", async () => {
+    const records = [...Array.from({ length: 100 }, (_, i) => ({ filename: `docs/${i}.md`, status: "modified" })), { filename: "docs/retired.md", status: null }];
+    const run = (args) => {
+      const page = /\/files\?per_page=100&page=(\d+)$/.exec(args[1]);
+      if (page) return JSON.stringify(records.slice((Number(page[1]) - 1) * 100, Number(page[1]) * 100));
+      return JSON.stringify({ head: { sha: SHA }, base: { sha: OTHER_SHA }, changed_files: records.length });
+    };
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const [record] = await screen([readme()], { ...quiet, files: (pr, sha) => verifiedPrFiles(pr, sha, { run }), marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
   });
 });
