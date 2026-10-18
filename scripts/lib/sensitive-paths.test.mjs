@@ -344,6 +344,31 @@ describe("AGENTS.md parity", () => {
   });
 });
 
+describe("import-boundary gate files", () => {
+  const gateFiles = [
+    "scripts/eslint-adapter-import-boundary.test.mjs",
+    "server/design-graph/import-boundary.test.ts",
+    "server/design-graph/import-boundary.ts",
+    "src/features/jarvis/import-boundary.test.ts",
+  ];
+  const nearMisses = ["docs/important-boundaries.md", "src/boundary-notes.ts", "src/features/import-export.ts"];
+  const withoutGlob = () => withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === "**/*import-boundary*"), 1));
+
+  it("classifies the import-boundary gate files as infra_ci", () => {
+    const matcher = createMatcher(config);
+    for (const file of gateFiles) expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+  });
+
+  it("does not match near-miss paths", () => {
+    const matcher = createMatcher(config);
+    for (const file of nearMisses) expect(matcher.classify(file), file).toEqual([]);
+  });
+
+  it("treats adding the glob as a tightening, not gate loosening", () => {
+    expect(findGateLoosening({ baseText: withoutGlob(), headText: configText })).toMatchObject({ detected: false, reasons: [] });
+  });
+});
+
 describe("gate loosening", () => {
   const migrationsGlob = `${MIGRATIONS_DIR}/**`;
   const codes = (result) => result.reasons.map((reason) => reason.code);
