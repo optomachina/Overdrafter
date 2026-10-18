@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ThreadDialog } from './ThreadDialog';
 
 afterEach(cleanup);
@@ -32,4 +32,32 @@ it('focuses primary KEEP COOKING in the cancel sheet and dismisses without cance
   fireEvent.keyDown(keep, { key: 'Escape' });
   fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
   expect(close).toHaveBeenCalledTimes(3);
+});
+
+it('falls back to the given element when the opener is disabled by the time the dialog closes', () => {
+  function Disabling() {
+    const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
+    const fallback = useRef<HTMLHeadingElement>(null);
+    const close = useCallback(() => setOpen(false), []);
+    return <>
+      <h1 ref={fallback} tabIndex={-1}>Home</h1>
+      <button disabled={busy} onClick={() => setOpen(true)}>OPEN</button>
+      {open && <ThreadDialog sheet close={close} fallbackFocus={fallback}><button onClick={() => { setBusy(true); setOpen(false); }}>GO</button></ThreadDialog>}</>;
+  }
+  render(<Disabling />);
+  const opener = screen.getByRole('button', { name: 'OPEN' }); opener.focus(); fireEvent.click(opener);
+  fireEvent.click(screen.getByRole('button', { name: 'GO' }));
+  expect(opener.hasAttribute('disabled')).toBe(true);
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Home' }));
+});
+it('prefers the opener over the fallback when the opener is still focusable', () => {
+  function Enabled() {
+    const [open, setOpen] = useState(false), fallback = useRef<HTMLHeadingElement>(null);
+    const close = useCallback(() => setOpen(false), []);
+    return <><h1 ref={fallback} tabIndex={-1}>Home</h1><button onClick={() => setOpen(true)}>OPEN</button>{open && <ThreadDialog close={close} fallbackFocus={fallback}><p>x</p></ThreadDialog>}</>;
+  }
+  render(<Enabled />);
+  const opener = screen.getByRole('button', { name: 'OPEN' }); opener.focus(); fireEvent.click(opener);
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+  expect(document.activeElement).toBe(opener);
 });

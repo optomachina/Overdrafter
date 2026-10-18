@@ -1,10 +1,10 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 
-export function ThreadDialog({ children, close, sheet = false }: Readonly<{ children: ReactNode; close(): void; sheet?: boolean }>) {
+export function ThreadDialog({ children, close, sheet = false, fallbackFocus }: Readonly<{ children: ReactNode; close(): void; sheet?: boolean; fallbackFocus?: RefObject<HTMLElement> }>) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement;
-    const root = ref.current!;
+    const root = ref.current!, fallback = fallbackFocus?.current;
     root.querySelector<HTMLElement>('button')?.focus();
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); close(); }
@@ -16,8 +16,13 @@ export function ThreadDialog({ children, close, sheet = false }: Readonly<{ chil
       }
     };
     document.addEventListener('keydown', keyboard);
-    return () => { document.removeEventListener('keydown', keyboard); opener?.focus(); };
-  }, [close]);
+    return () => {
+      document.removeEventListener('keydown', keyboard);
+      opener?.focus();
+      // A command in flight can disable the opener (CANCEL) before this runs; keep focus in the page, not on body.
+      if (opener && document.activeElement !== opener) fallback?.focus();
+    };
+  }, [close, fallbackFocus]);
   return <div className={`jt-overlay ${sheet ? 'jt-sheet' : ''}`}>
     <button type="button" className="jt-scrim" aria-label="Close dialog" tabIndex={-1} onClick={close} />
     <dialog open ref={ref} role={sheet ? 'alertdialog' : 'dialog'} aria-modal="true" aria-label={sheet ? 'Cancel request?' : '3D review'}>
