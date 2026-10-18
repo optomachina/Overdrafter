@@ -28,6 +28,7 @@ import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteInt
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
 import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
+import { SavedNeedByNotice } from "@/components/quotes/SavedNeedByNotice";
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
@@ -195,6 +196,7 @@ const ClientPart = () => {
     handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
+    handleNeedByFilterChange,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,
@@ -222,6 +224,8 @@ const ClientPart = () => {
     rankedQuoteOptions,
     removeJobMutation,
     requestSummaryRequestedByDate,
+    quoteViewRequestedByDate,
+    needByFilterIsViewOnly,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
@@ -946,7 +950,7 @@ const ClientPart = () => {
                     selectedOption={validSelectedQuoteOption}
                     previousSelectionUnavailable={previousQuoteSelectionUnavailable}
                     onSelect={handleWorkspaceOfferSelect}
-                    requestedByDate={requestSummaryRequestedByDate}
+                    requestedByDate={quoteViewRequestedByDate}
                     quoteDataStatus={quoteDataStatus}
                     quoteDataMessage={quoteDataMessage}
                     quoteDiagnostics={quoteDiagnostics}
@@ -992,20 +996,29 @@ const ClientPart = () => {
                       </>
                     }
                     controls={
-                      <QuoteSelectionFunctionBar
-                        scope={partPresetScope}
-                        requestedByDate={requestSummaryRequestedByDate}
-                        matchingOptionCount={
-                          requestSummaryRequestedByDate
-                            ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
-                            : null
-                        }
-                        totalOptionCount={rankedQuoteOptions.length}
-                        onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
-                        onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
-                        disabled={saveRequestMutation.isPending}
-                        dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
-                      />
+                      <>
+                        {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
+                          <SavedNeedByNotice
+                            requestedByDate={requestSummaryRequestedByDate}
+                            onRemove={() => handleSaveRequestPatch({ requestedByDate: null })}
+                            disabled={saveRequestMutation.isPending}
+                          />
+                        ) : null}
+                        <QuoteSelectionFunctionBar
+                          scope={partPresetScope}
+                          requestedByDate={quoteViewRequestedByDate}
+                          matchingOptionCount={
+                            quoteViewRequestedByDate
+                              ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
+                              : null
+                          }
+                          totalOptionCount={rankedQuoteOptions.length}
+                          onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
+                          onRequestedByDateChange={handleNeedByFilterChange}
+                          disabled={saveRequestMutation.isPending}
+                          dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
+                        />
+                      </>
                     }
                 />
                 {sourcingResult && sourcingResult.outcome !== "unsupported_package" ? (

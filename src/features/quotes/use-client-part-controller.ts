@@ -274,6 +274,8 @@ export function useClientPartController(
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
   const [excludedVendorKeys, setExcludedVendorKeys] = useState<VendorName[]>([]);
+  // undefined follows the request's own date; a value or null is the user's results filter (OVD-981).
+  const [viewRequestedByDate, setViewRequestedByDate] = useState<string | null | undefined>(undefined);
   const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
   const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
   const [partRenameValue, setPartRenameValue] = useState("");
@@ -928,6 +930,13 @@ export function useClientPartController(
     partDetail?.part?.approvedRequirement?.requested_by_date ??
     partDetail?.job.requested_by_date ??
     null;
+  // OVD-981: inside the controlled envelope the Need by filter on the results is view
+  // state. Persisting it would set requested_by_date, which every controlled dispatch denies.
+  const needByFilterIsViewOnly = quoteCollectionMode.automaticEnabled;
+  const quoteViewRequestedByDate =
+    needByFilterIsViewOnly && viewRequestedByDate !== undefined
+      ? viewRequestedByDate
+      : requestSummaryRequestedByDate;
   const vendorLabelMap = useMemo(
     () => buildVendorLabelMap(partDetail?.part?.vendorQuotes.map((quote) => quote.vendor) ?? []),
     [partDetail?.part?.vendorQuotes],
@@ -937,7 +946,7 @@ export function useClientPartController(
       partDetail?.part
         ? buildClientQuoteSelectionResult({
             vendorQuotes: partDetail.part.vendorQuotes,
-            requestedByDate: requestSummaryRequestedByDate,
+            requestedByDate: quoteViewRequestedByDate,
             excludedVendorKeys,
             vendorLabels: vendorLabelMap,
           })
@@ -945,7 +954,7 @@ export function useClientPartController(
             options: [] as ClientQuoteSelectionOption[],
             diagnostics: partDetail?.quoteDiagnostics ?? EMPTY_QUOTE_DIAGNOSTICS,
           },
-    [excludedVendorKeys, partDetail?.part, partDetail?.quoteDiagnostics, requestSummaryRequestedByDate, vendorLabelMap],
+    [excludedVendorKeys, partDetail?.part, partDetail?.quoteDiagnostics, quoteViewRequestedByDate, vendorLabelMap],
   );
   const quoteOptions = quoteSelectionResult.options;
   const quoteDiagnostics = quoteSelectionResult.diagnostics;
@@ -1010,11 +1019,11 @@ export function useClientPartController(
       candidates: sourcingCandidates,
       liveOfferKeys,
       publishedOptions: partDetail?.publishedQuoteOptions ?? [],
-      requestedByDate: requestSummaryRequestedByDate,
+      requestedByDate: quoteViewRequestedByDate,
     });
   }, [
     partDetail?.publishedQuoteOptions,
-    requestSummaryRequestedByDate,
+    quoteViewRequestedByDate,
     sourcingCandidates,
     sourcingResult,
   ]);
@@ -1108,6 +1117,7 @@ export function useClientPartController(
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
+    setViewRequestedByDate(undefined);
     patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
@@ -1566,6 +1576,15 @@ export function useClientPartController(
     saveRequestMutation.mutate(payload);
   };
 
+  /** Filters the results by delivery date; inside the controlled envelope this never writes the request. */
+  const handleNeedByFilterChange = (nextDate: string | null) => {
+    if (needByFilterIsViewOnly) {
+      setViewRequestedByDate(nextDate);
+      return;
+    }
+    handleSaveRequestPatch({ requestedByDate: nextDate });
+  };
+
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
     if (!fallbackRequestDraft) {
       return;
@@ -1863,6 +1882,7 @@ export function useClientPartController(
     handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
+    handleNeedByFilterChange,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,
@@ -1902,6 +1922,8 @@ export function useClientPartController(
     cancelQuoteRequestMutation,
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
+    quoteViewRequestedByDate,
+    needByFilterIsViewOnly,
     resolveSidebarProjectIdsForJob,
     navigationModel,
     revisionOptions,
