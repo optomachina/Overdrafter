@@ -1,6 +1,6 @@
 /** Authoritative file acquisition; callers' supplied lists are never evidence. */
 import { execFileSync } from "node:child_process";
-import { DEFAULT_OWNER, DEFAULT_REPO, isValidSha, runGh } from "./lib/jev-screen-marker.mjs";
+import { DEFAULT_OWNER, DEFAULT_REPO, FIXED_PATH, TRUSTED_BIN_DIRS, isValidSha, resolveTrustedExecutable, runGh } from "./lib/jev-screen-marker.mjs";
 
 export const FILES_INCOMPLETE = "files-incomplete";
 // GitHub REST diff-entry status values. Unknown values cannot prove path completeness.
@@ -57,9 +57,12 @@ export function verifiedPrFiles(pr, sha, { run = runGh, owner = DEFAULT_OWNER, r
 }
 
 /** Resolve an explicit base and derive raw NUL-delimited paths from the local diff. */
-export function localDiffFiles(root, baseRef) {
+export function localDiffFiles(root, baseRef, { dirs = TRUSTED_BIN_DIRS } = {}) {
   if (typeof baseRef !== "string" || !baseRef || baseRef.startsWith("-")) throw new Error(FILES_INCOMPLETE);
-  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+  // git is loaded only from trusted directories under a fixed PATH; PATH is never searched.
+  const gitPath = resolveTrustedExecutable("git", { dirs });
+  if (!gitPath) throw new Error(FILES_INCOMPLETE);
+  const git = (...args) => execFileSync(gitPath, args, { cwd: root, encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, PATH: FIXED_PATH } });
   const base = git("rev-parse", "--verify", "--end-of-options", `${baseRef}^{commit}`).trim();
   if (!isValidSha(base)) throw new Error(FILES_INCOMPLETE);
   const output = git("diff", "--no-renames", "--name-only", "-z", `${base}...HEAD`, "--");

@@ -1130,6 +1130,43 @@ describe("OVD-961 independent review regressions", () => {
     for (const fn of Object.values(marker)) expect(fn).not.toHaveBeenCalled();
   });
 
+  function changedRepo() {
+    const root = mkdtempSync(join(tmpdir(), "jev-trusted-git-"));
+    temps.push(root);
+    const git = (...args) => execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    writeFileSync(join(root, "a.txt"), "one\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    writeFileSync(join(root, "a.txt"), "two\n");
+    git("commit", "-qam", "change");
+    return root;
+  }
+
+  it("never executes a git planted first on PATH", () => {
+    const root = changedRepo();
+    const plant = mkdtempSync(join(tmpdir(), "jev-plant-"));
+    temps.push(plant);
+    const marker = join(plant, "executed");
+    writeFileSync(join(plant, "git"), `#!/bin/sh\necho planted > '${marker}'\nexit 1\n`, { mode: 0o755 });
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${plant}:${originalPath}`;
+    try {
+      expect(localDiffFiles(root, "HEAD^")).toEqual(["a.txt"]);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("fails closed when no trusted git exists", () => {
+    const root = changedRepo();
+    const empty = mkdtempSync(join(tmpdir(), "jev-nogit-"));
+    temps.push(empty);
+    expect(localDiffFiles(root, "HEAD^")).toEqual(["a.txt"]);
+    expect(() => localDiffFiles(root, "HEAD^", { dirs: [empty] })).toThrow(FILES_INCOMPLETE);
+  });
+
   it.each(["fresh", "cached"].flatMap((mode) => ["base", "head", "count", "error"].map((change) => [mode, change])))
   ("rejects %s result after post-acquisition %s change without a marker write", async (mode, change) => {
     const acquisition = mutableAcquisition([{ filename: "README.md", status: "modified" }]);
