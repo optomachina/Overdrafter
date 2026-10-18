@@ -14,7 +14,7 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /^cad in\s+parts out$/i;
+const guestLandingHeading = /^overdrafter is your manufacturing agent for building frontier hardware\.$/i;
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
@@ -314,13 +314,11 @@ async function submitPasswordLogin(email: string, password = "Overdrafter123!") 
 
 function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Multiple quotes. One obvious tradeoff." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Compare the best supplier for every part" })).toBeInTheDocument();
   expect(screen.getByTestId("anonymous-quote-chart")).toBeInTheDocument();
-  expect(screen.getByText("How it works")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Drop your part package." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Specs pulled from your drawing." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Start with useful supplier direction." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Compare and choose the best fit." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Agents turn drawings into quotes" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Works autonomously, quotes in parallel" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Quote the whole project at once" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^create account$/i })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /^get started free$/i })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();

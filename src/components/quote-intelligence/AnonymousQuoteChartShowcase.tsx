@@ -99,22 +99,21 @@ export function AnonymousQuoteChartShowcase({ onGetStarted }: AnonymousQuoteChar
   }, []);
 
   return (
-    <section className="mt-20" aria-labelledby="quote-chart-showcase-heading">
-      <div className="max-w-[720px]">
-        <p className="ws-section-label">Quote comparison</p>
+    <section className="mt-28 sm:mt-36" aria-labelledby="quote-chart-showcase-heading">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-end lg:gap-16">
         <h2
           id="quote-chart-showcase-heading"
-          className="mt-4 font-display text-[30px] font-bold leading-[1.08] tracking-[-0.035em] text-foreground sm:text-[42px]"
+          className="max-w-[640px] font-sans text-[30px] font-semibold leading-[1.08] tracking-[-0.035em] text-foreground [text-wrap:balance] sm:text-[40px]"
         >
-          Multiple quotes. One obvious tradeoff.
+          Compare the best supplier for every part
         </h2>
-        <p className="mt-4 max-w-[650px] text-[15px] leading-[1.65] text-muted-foreground sm:text-[16px]">
-          Price runs vertically. Lead time runs horizontally. The strongest options move toward the lower-left, so
+        <p className="text-[15px] leading-[1.6] text-muted-foreground sm:text-[16px]">
+          Price runs vertically and lead time runs horizontally. The strongest options move toward the lower-left, so
           the field makes sense before you choose.
         </p>
       </div>
 
-      <div className="mt-8 overflow-hidden rounded-surface-lg border border-ws-border-subtle bg-ws-card">
+      <div className="mt-10 overflow-hidden rounded-surface-lg border border-ws-border-subtle bg-ws-card">
         <div className="flex flex-col gap-3 border-b border-ws-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-red">

@@ -211,6 +211,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 
 - **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. Selecting a part reveals the canonical quote scatter and compact vendor table in the primary workspace; metadata and controls remain inline. No card grids. No zebra striping.
 - **Marketing surfaces:** if any exist, follow the same system. The bone background, hairline rules, and mono filenames hold up at landing-page scale.
+- **Anonymous homepage demos:** the homepage may show scripted product demos, each in one framed window (hairline border, no shadow) on a quiet tinted backdrop, left-aligned under a section headline. Demos are built from real product vocabulary and sample data, labelled as sample data, and show their final state without motion under `prefers-reduced-motion`. Logos, quotes, statistics, and integrations that do not ship are never shown. Decorative illustration layers and centered hero layouts remain forbidden.
 - **Settings / admin:** form fields use hairline borders, mono labels, no rounded inputs above 2px radius.
 - **Empty states:** plain mono text with one labelled action. No illustrations.
 
@@ -335,6 +336,7 @@ Reject any UI work that includes:
 | 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
 | 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |
 | 2026-10-16 | Jarvis phone app (`OVD-799`) uses a dark theme with `#FF7A1A` as its single accent, allows a chat thread as its primary surface, and shows inches by default (mm secondary) | Approved by Blaine. Chat as the primary surface is allowed only in the Jarvis phone app; the ban on AI assistant chat widgets as the primary information surface in the customer quote workspace still stands. Rest of the design system unchanged. Spec: `docs/design/jarvis-pwa/SPEC.md`. |
+| 2026-10-17 | Anonymous homepage adopts framed scripted demos under left-aligned section headlines (Cursor-style structure) | Blaine: "OverDrafter is your manufacturing agent for building frontier hardware." The page needs to show the product working. Identity (bone background, hairlines, mono type) is unchanged; no proof claims, integrations, or statistics are shown until they are real. |
 
 ---
 
