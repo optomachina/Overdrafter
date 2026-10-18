@@ -681,7 +681,7 @@ describe("PromptComposer drawing pairing notice", () => {
     await settle();
 
     expect(stagedChips("My Part_01.step")).toHaveLength(1);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("clears the notice when the unpaired drawing is removed", async () => {
@@ -689,10 +689,22 @@ describe("PromptComposer drawing pairing notice", () => {
 
     fireEvent.change(fileInput, { target: { files: [makeStepFile("PN.step"), pdf("PN Rev 02.pdf")] } });
     await settle();
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByRole("status")).not.toBeEmptyDOMElement();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove PN Rev 02.pdf" }));
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("keeps one status container while the notice appears and clears", async () => {
+    const { fileInput } = renderComposerWith();
+    const container = screen.getByRole("status");
+    expect(container).toBeEmptyDOMElement();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("PN.step"), pdf("PN Rev 02.pdf")] } });
+    await settle();
+
+    expect(screen.getByRole("status")).toBe(container);
+    expect(container).toHaveTextContent("PN Rev 02.pdf");
   });
 });
