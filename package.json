@@ -67,7 +67,7 @@
     "migrations:immutability": "node scripts/check-migration-immutability.mjs --base-ref origin/main --head-ref HEAD"
   },
   "dependencies": {
-    "@google/model-viewer": "^4.4.0",
+    "@google/model-viewer": "4.4.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",

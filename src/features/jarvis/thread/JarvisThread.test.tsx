@@ -4,9 +4,12 @@ import type { GraphEvent } from '../core/types';
 import { JarvisThread } from './JarvisThread';
 import { ModelView } from './ModelView';
 import type { EventSource } from './event-source';
+import { readFileSync } from 'node:fs';
 
 vi.mock('@google/model-viewer', () => ({}));
 afterEach(cleanup);
+// vitest stubs CSS imports, so read the stylesheet source for the layout contract test.
+const css = readFileSync('src/features/jarvis/thread/thread.css', 'utf8');
 const base = { runId: 'run', at: 1000, nodeId: 'domain_agent' as const };
 const decision: GraphEvent = { ...base, seq: 2, type: 'decision_requested', decisionId: 'd', question: 'Thickness?', options: ['Thin', 'Thick'], recommended: 'Thin', bestGuess: 'Thick', timeoutMs: 60000 };
 function setup() {
@@ -25,7 +28,7 @@ describe('web thread', () => {
     expect(screen.getByText('Making plate')).toBeTruthy();
     s.send(decision); expect(screen.getByRole('radiogroup')).toBeTruthy();
     s.send(artifact(3, 'png'), artifact(4, 'glb'), artifact(5, 'step'), { ...base, seq: 6, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate ready', picks: {}, artifacts: [{ kind: 'png', uri: '/png' }, { kind: 'glb', uri: '/glb' }, { kind: 'step', uri: '/step' }] });
-    expect(screen.getByText('Plate ready')).toBeTruthy(); expect(screen.getByRole('img', { name: 'Iso' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Plate ready' })).toBeTruthy(); expect(screen.getByRole('img', { name: 'Iso' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy(); expect(screen.getByText('4.000 × 4.000 × 0.250 in')).toBeTruthy();
   });
   it('labels the first picture Iso and the second Top view when there is no 3D model', () => {
@@ -189,4 +192,74 @@ it('handles a usdz artifact event without mislabelling it as the GLB review view
   const links = screen.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]);
   expect(links).toEqual(expect.arrayContaining([['.GLB REVIEW VIEW', '/glb'], ['.USDZ AR VIEW', '/usdz'], ['.STEP AUTHORITATIVE', '/step']]));
   expect(links.filter(([label]) => label === '.GLB REVIEW VIEW')).toHaveLength(1);
+});
+
+describe('pending decision with an applied pause or cancel', () => {
+  const applied = (kind: 'pause' | 'cancel'): GraphEvent => kind === 'pause'
+    ? { ...base, seq: 10, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind, state: 'paused' }
+    : { ...base, seq: 10, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind, state: 'cancelled', kept: [] };
+  const started: GraphEvent = { ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' };
+
+  it('is actionable before any pause or cancel', () => {
+    const s = setup(); s.send(started, decision);
+    expect(screen.getByRole('button', { name: 'APPROVE Thin' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText('WAITS FOR YOU')).toBeTruthy();
+    expect(document.querySelector('.jt-log')?.classList.contains('jt-has-bar')).toBe(true);
+  });
+  it.each([['pause', 'paused'], ['cancel', 'cancelled']] as const)('removes the controls and bar and labels the lane after %s', (kind, state) => {
+    const s = setup(); s.send(started, decision, applied(kind));
+    expect(screen.queryByRole('button', { name: /APPROVE/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SKIP' })).toBeNull();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(document.querySelector('.jt-actions')).toBeNull();
+    expect(document.querySelector('.jt-has-bar')).toBeNull();
+    expect(screen.queryByText('WAITS FOR YOU')).toBeNull();
+    expect(screen.getByText(state.toUpperCase())).toBeTruthy();
+    expect(screen.getByText(`No choice was recorded. The job is ${state}.`)).toBeTruthy();
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain(state);
+    expect(s.client.resolve).not.toHaveBeenCalled();
+  });
+  it('stays unanswerable when a cancel is requested after the pause was applied', () => {
+    const s = setup(); s.send(started, decision, applied('pause'), { ...base, seq: 11, type: 'control_requested', kind: 'cancel', commandId: 'd', actorId: 'owner', idempotencyKey: 'k' });
+    expect(screen.queryByRole('button', { name: /APPROVE/ })).toBeNull();
+  });
+  it('announces the result in the live region', () => {
+    const s = setup(); s.send(started, { ...base, seq: 5, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate review ready', picks: {}, artifacts: [] });
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe('Plate review ready');
+  });
+});
+
+describe('fixed decision bar layout contract (jsdom has no layout; the real-browser measurement is in the PR notes)', () => {
+  it('shares one bar-height property between the bar and the log reserve, and keeps the in-flow reserve', () => {
+    expect(css).toMatch(/\.jt-actions\s*\{[^}]*height:\s*var\(--jt-bar-h\)/);
+    expect(css).toMatch(/\.jt-actions\s*\{[^}]*bottom:\s*calc\(var\(--jt-footer-h\) \+ var\(--jt-safe-b\)\)/);
+    expect(css).toMatch(/\.jt-log\.jt-has-bar\s*\{\s*padding-bottom:\s*calc\(var\(--jt-bar-h\) \+ 16px\)/);
+    expect(css).toMatch(/\.jt footer\s*\{[^}]*min-height:\s*calc\(var\(--jt-footer-h\) \+ var\(--jt-safe-b\)\)/);
+    // No bottom padding on the root, so the sticky footer ends at the viewport edge and the bar sits exactly on it.
+    expect(css).toMatch(/\.jt\s*\{[^}]*padding:\s*16px 16px 0;/);
+    expect(css).toMatch(/--jt-bar-h:\s*\d+px/);
+  });
+  it('only reserves the bar space while a decision is pending and unresolved', () => {
+    const s = setup(); s.send(decision);
+    expect(document.querySelector('.jt-log')?.classList.contains('jt-has-bar')).toBe(true);
+    s.send({ ...base, seq: 3, type: 'decision_resolved', decisionId: 'd', choice: 'Thin', rationale: 'r', outcome: 'chosen' });
+    expect(document.querySelector('.jt-log')?.classList.contains('jt-has-bar')).toBe(false);
+  });
+});
+
+it('confirming CANCEL REQUEST moves focus to the heading, not body, because the opener is disabled in flight', () => {
+  const s = setup(); s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
+  const opener = screen.getByRole('button', { name: 'CANCEL' }); opener.focus(); fireEvent.click(opener);
+  fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
+  expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(true);
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Jarvis', level: 1 }));
+  expect(document.activeElement).not.toBe(document.body);
+});
+it.each(['KEEP COOKING', 'Close dialog', 'Escape'] as const)('dismissing the cancel sheet via %s restores focus to CANCEL', way => {
+  const s = setup(); s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
+  const opener = screen.getByRole('button', { name: 'CANCEL' }); opener.focus(); fireEvent.click(opener);
+  if (way === 'Escape') fireEvent.keyDown(document.activeElement!, { key: 'Escape' }); else fireEvent.click(screen.getByRole('button', { name: way }));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(s.client.control).not.toHaveBeenCalled();
 });

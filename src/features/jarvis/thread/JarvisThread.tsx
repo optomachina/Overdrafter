@@ -56,8 +56,8 @@ function controlState(control: ControlEvent | undefined, command: string): strin
   return command;
 }
 
-function laneLabel(node: string, pending: boolean, status: StatusEvent | undefined, offline: boolean, state: string, now: number, events: GraphEvent[]): string {
-  if (node === 'domain_agent' && pending) return 'WAITS FOR YOU';
+function laneLabel(node: string, pending: boolean, stopped: string | undefined, status: StatusEvent | undefined, offline: boolean, state: string, now: number, events: GraphEvent[]): string {
+  if (node === 'domain_agent' && pending) return stopped ? stopped.toUpperCase() : 'WAITS FOR YOU';
   if (status?.nodeId === node) return `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s`;
   return events.some(e => e.type === 'status' && e.nodeId === node && e.state === 'completed') ? 'DONE' : 'WAITING';
 }
@@ -77,7 +77,7 @@ function Dimensions({ artifacts }: Readonly<{ artifacts: Extract<GraphEvent, { t
   </>;
 }
 
-function Decision({ event, resolved, client, offline }: Readonly<{ event: GraphDecisionRequestedEvent; resolved?: GraphDecisionResolvedEvent; client: ThreadClient; offline: boolean }>) {
+function Decision({ event, resolved, client, offline, stopped }: Readonly<{ event: GraphDecisionRequestedEvent; resolved?: GraphDecisionResolvedEvent; client: ThreadClient; offline: boolean; stopped?: string }>) {
   const [selected, setSelected] = useState(event.recommended);
   const [pending, setPending] = useState(false), [error, setError] = useState('');
   const locked = useRef(false), key = useRef<string | null>(null);
@@ -94,7 +94,7 @@ function Decision({ event, resolved, client, offline }: Readonly<{ event: GraphD
       <p>{decisionLabel(resolved)} · {resolved.choice}</p>
       <p>{resolved.rationale}</p>
       <a href="#jarvis-message" onClick={() => document.getElementById("jarvis-message")?.focus()}>Change</a>
-    </> : <>
+    </> : stopped ? <p>No choice was recorded. The job is {stopped}.</p> : <>
       <div role="radiogroup" aria-label={event.question}>{event.options.map((option, i) => <button key={option} role="radio" aria-checked={selected === option} tabIndex={selected === option ? 0 : -1} disabled={pending || offline} onClick={() => setSelected(option)} onKeyDown={e => {
         if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
         e.preventDefault(); const next = nextOption(e.key, i, event.options.length);
@@ -122,6 +122,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   }, [source, runId]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const closeViewer = useCallback(() => setViewer(false), []), closeConfirm = useCallback(() => setConfirm(false), []);
+  const heading = useRef<HTMLHeadingElement>(null);
   const status = lastOf(events, (e): e is StatusEvent => e.type === 'status');
   const decisions = events.filter(e => e.type === 'decision_requested');
   const resolutions = events.filter(e => e.type === 'decision_resolved');
@@ -129,6 +130,9 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const control = lastOf(events, (e): e is ControlEvent => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected');
   useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; keys.current.delete(control.kind); setCommand(''); } }, [control]);
   const applied = control?.type === 'control_applied' ? control : undefined;
+  // Nothing resumes a job, so any applied pause or cancel leaves a pending decision unanswerable.
+  const stopped = lastOf(events, (e): e is Extract<GraphEvent, { type: 'control_applied' }> => e.type === 'control_applied')?.state;
+  const deciding = pending && !stopped;
   const result = events.find(e => e.type === 'result');
   const failure = events.find(e => e.type === 'error');
   const artifacts = events.filter(e => e.type === 'artifact').filter(a => safeArtifactUrl(a.uri));
@@ -145,18 +149,18 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   };
   return <main className="jt">
     <header>
-      <h1>Jarvis</h1>
+      <h1 ref={heading} tabIndex={-1}>Jarvis</h1>
     </header>
     <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <p aria-live="polite" className="sr-only">{status && `${({ concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' } as Record<string, string>)[status.nodeId] ?? status.nodeId} · ${pending ? 'WAITS FOR YOU' : state || status.state}`}</p>
-    <div className="jt-log">{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
+    <p aria-live="polite" className="sr-only">{result ? result.summary : status && `${({ concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' } as Record<string, string>)[status.nodeId] ?? status.nodeId} · ${deciding ? 'WAITS FOR YOU' : state || status.state}`}</p>
+    <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map((node, i) => <li key={node}>
         <span>{['Concept picks', 'CAD model', 'Independent check'][i]}</span>
-        <span>{laneLabel(node, pending, status, offline, state, now, events)}</span>
+        <span>{laneLabel(node, pending, stopped, status, offline, state, now, events)}</span>
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
-      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
+      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} stopped={stopped} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
         <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt={pictureAlt(i)} />)}{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
@@ -164,7 +168,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <p className="jt-muted">Preview only. Messages are not sent.</p>
     </footer>{viewer && glb && <ThreadDialog close={closeViewer}>
       <ModelView uri={glb.uri} pictures={pictures} step={step?.uri} />
-    </ThreadDialog>}{confirm && <ThreadDialog sheet close={closeConfirm}>
+    </ThreadDialog>}{confirm && <ThreadDialog sheet close={closeConfirm} fallbackFocus={heading}>
       <h2>Cancel request?</h2>
       <p>Jarvis stops at the next safe checkpoint. Work done so far stays in the thread.</p>
       <button disabled={inFlight.current} onClick={() => { void sendControl('cancel'); setConfirm(false); }}>CANCEL REQUEST</button>

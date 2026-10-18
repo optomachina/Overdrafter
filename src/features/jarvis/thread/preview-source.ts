@@ -9,6 +9,7 @@ import stepUrl from './preview-assets/plate.step?url';
 /** Exclusively synthetic preview. Every artifact is a local generated plate fixture. */
 export function createPreview() {
   let seq = 0;
+  let halted = false; // a pause or cancel stops the synthetic job; late decisions deliver nothing
   let deliver: (events: GraphEvent[]) => void = () => { };
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const envelope = () => ({ runId: 'plate-preview', seq: ++seq, at: Date.now() });
@@ -31,11 +32,13 @@ export function createPreview() {
   };
   const client: ThreadClient = {
     resolve(_run, decisionId, answer) {
+      if (halted) return Promise.resolve({ status: 409 });
       publish({ ...envelope(), type: 'decision_resolved', nodeId: 'concept_picks', decisionId, choice: answer.choice ?? '0.250 in', rationale: 'Default thickness for this synthetic plate preview.', ...(answer.resolution === 'chosen' ? { outcome: 'chosen' as const } : { outcome: 'skipped_best_guess' as const, cause: 'skip' as const }) });
       publish({ ...envelope(), type: 'status', nodeId: 'domain_agent', state: 'started', message: 'Preparing the CAD review' });
       later(result); return Promise.resolve({ status: 200 });
     },
     control(_run, command) {
+      halted = true;
       timers.forEach(clearTimeout); timers.clear();
       publish({ ...envelope(), type: 'control_requested', nodeId: 'domain_agent', commandId: command.idempotencyKey, actorId: 'sample', ...command });
       later(() => publish({ ...envelope(), type: 'control_applied', nodeId: 'domain_agent', commandId: command.idempotencyKey, checkpoint: 'agent', ...(command.kind === 'pause' ? { kind: 'pause' as const, state: 'paused' as const } : { kind: 'cancel' as const, state: 'cancelled' as const, kept: [artifacts[0]] }) }));
