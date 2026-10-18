@@ -1,0 +1,767 @@
+{
+  "about": "OVD-978. Rows that public.api_list_client_part_metadata returns for these inputs. 'inputs' are the database rows; each extraction.workerInput is a worker DrawingExtractionPayload that goes through the real buildStoredExtractionPayload (worker/src/extraction/sharedResult.ts) into drawing_extractions.extraction, and its warnings go into drawing_extractions.warnings, as worker/src/index.ts writes them. 'expected.draft' is the output of docs/migration-drafts/ovd-978.sql and 'expected.liveOvd670' the output of 20261011170000_fix_no_drawing_lifecycle.sql for the same rows. Both are generated and re-verified by the PGlite harness kept with the OVD-978 evidence (sql-drafts/OVD-978/harness.mjs); edit the inputs only together with a harness run.",
+  "organizationId": "97800000-0000-4000-8000-000000000001",
+  "jobId": "97800000-0000-4000-8000-000000000031",
+  "parts": [
+    {
+      "key": "partial",
+      "partId": "97800000-0000-4000-8000-000000000051",
+      "quantity": 1,
+      "hasCadFile": true,
+      "hasDrawingFile": true,
+      "requirement": {
+        "description": null,
+        "partNumber": null,
+        "revision": null,
+        "material": "Aluminum 6061-T6",
+        "finish": null,
+        "tightestToleranceInch": null,
+        "quantity": 5,
+        "quoteQuantities": [
+          5,
+          10,
+          5,
+          0
+        ],
+        "requestedByDate": "2026-11-20",
+        "specSnapshot": {},
+        "createdAt": "2026-10-18T10:00:00+00:00",
+        "updatedAt": "2026-10-18T10:05:00+00:00"
+      },
+      "extraction": {
+        "pageCount": 2,
+        "workerBuildVersion": "worker-test-build",
+        "updatedAt": "2026-10-18T10:10:00+00:00",
+        "workerInput": {
+          "partId": "97800000-0000-4000-8000-000000000051",
+          "description": "MOUNTING BRACKET",
+          "partNumber": "1093-05589",
+          "revision": null,
+          "modelFallbackUsed": false,
+          "modelName": null,
+          "modelPromptVersion": null,
+          "fieldSelections": {
+            "description": "parser",
+            "partNumber": "parser",
+            "finish": "review"
+          },
+          "extractedDescriptionRaw": {
+            "value": "MOUNTING BRACKET",
+            "confidence": 0.97,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedPartNumberRaw": {
+            "value": "1093-05589",
+            "confidence": 0.98,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedRevisionRaw": {
+            "value": null,
+            "confidence": 0,
+            "reviewNeeded": false,
+            "reasons": [
+              "not_found"
+            ],
+            "sourceRegion": null
+          },
+          "extractedFinishRaw": {
+            "value": "ANODIZE BLACK",
+            "confidence": 0.55,
+            "reviewNeeded": true,
+            "reasons": [
+              "low_confidence"
+            ],
+            "sourceRegion": null
+          },
+          "quoteDescription": "Mounting bracket",
+          "quoteFinish": "Black anodize",
+          "reviewFields": [
+            "finish"
+          ],
+          "material": {
+            "raw": "AL 6061-T6",
+            "normalized": "6061-T6 Aluminum",
+            "confidence": 0.93,
+            "reviewNeeded": false,
+            "reasons": []
+          },
+          "finish": {
+            "raw": "ANODIZE BLACK",
+            "normalized": "Black anodize",
+            "confidence": 0.55,
+            "reviewNeeded": true,
+            "reasons": [
+              "low_confidence"
+            ]
+          },
+          "generalTolerance": {
+            "raw": null,
+            "confidence": 0
+          },
+          "tightestTolerance": {
+            "raw": null,
+            "valueInch": null,
+            "confidence": 0
+          },
+          "notes": [
+            "BREAK ALL SHARP EDGES"
+          ],
+          "threads": [
+            "1/4-20 UNC",
+            " "
+          ],
+          "evidence": [
+            {
+              "field": "partNumber",
+              "page": 1,
+              "snippet": "1093-05589",
+              "confidence": 0.98
+            }
+          ],
+          "warnings": [
+            "Revision not found in the title block.",
+            "No tolerance callout was found."
+          ],
+          "debugCandidates": {},
+          "modelCandidates": {},
+          "status": "needs_review"
+        }
+      },
+      "task": {
+        "status": "completed",
+        "lastError": null,
+        "payload": {},
+        "createdAt": "2026-10-18T10:01:00+00:00",
+        "updatedAt": "2026-10-18T10:10:00+00:00"
+      }
+    },
+    {
+      "key": "complete",
+      "partId": "97800000-0000-4000-8000-000000000052",
+      "quantity": 3,
+      "hasCadFile": true,
+      "hasDrawingFile": true,
+      "requirement": null,
+      "extraction": {
+        "pageCount": 1,
+        "workerBuildVersion": "worker-test-build",
+        "updatedAt": "2026-10-18T10:20:00+00:00",
+        "workerInput": {
+          "partId": "97800000-0000-4000-8000-000000000052",
+          "description": "SPACER",
+          "partNumber": "SP-100",
+          "revision": "C",
+          "modelFallbackUsed": false,
+          "modelName": null,
+          "modelPromptVersion": null,
+          "fieldSelections": {},
+          "extractedDescriptionRaw": {
+            "value": "SPACER",
+            "confidence": 0.99,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedPartNumberRaw": {
+            "value": "SP-100",
+            "confidence": 0.99,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedRevisionRaw": {
+            "value": "C",
+            "confidence": 0.99,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedFinishRaw": {
+            "value": "PASSIVATE",
+            "confidence": 0.95,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "quoteDescription": "Spacer",
+          "quoteFinish": "Passivate",
+          "reviewFields": [],
+          "material": {
+            "raw": "SST 304",
+            "normalized": "304 Stainless Steel",
+            "confidence": 0.96,
+            "reviewNeeded": false,
+            "reasons": []
+          },
+          "finish": {
+            "raw": "PASSIVATE",
+            "normalized": "Passivate",
+            "confidence": 0.95,
+            "reviewNeeded": false,
+            "reasons": []
+          },
+          "generalTolerance": {
+            "raw": "±.005",
+            "confidence": 0.9
+          },
+          "tightestTolerance": {
+            "raw": "±.0005",
+            "valueInch": 0.0005,
+            "confidence": 0.9
+          },
+          "notes": [],
+          "threads": [],
+          "evidence": [],
+          "warnings": [],
+          "debugCandidates": {},
+          "modelCandidates": {},
+          "status": "approved"
+        }
+      },
+      "task": {
+        "status": "completed",
+        "lastError": null,
+        "payload": {},
+        "createdAt": "2026-10-18T10:11:00+00:00",
+        "updatedAt": "2026-10-18T10:20:00+00:00"
+      }
+    },
+    {
+      "key": "noDrawing",
+      "partId": "97800000-0000-4000-8000-000000000053",
+      "quantity": 1,
+      "hasCadFile": true,
+      "hasDrawingFile": false,
+      "requirement": null,
+      "extraction": {
+        "pageCount": 0,
+        "workerBuildVersion": "worker-test-build",
+        "updatedAt": "2026-10-18T10:30:00+00:00",
+        "workerInput": {
+          "partId": "97800000-0000-4000-8000-000000000053",
+          "description": "BLOCK",
+          "partNumber": "BLK-1",
+          "revision": null,
+          "modelFallbackUsed": false,
+          "modelName": null,
+          "modelPromptVersion": null,
+          "fieldSelections": {},
+          "extractedDescriptionRaw": {
+            "value": "BLOCK",
+            "confidence": 0.4,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedPartNumberRaw": {
+            "value": "BLK-1",
+            "confidence": 0.4,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedRevisionRaw": {
+            "value": null,
+            "confidence": 0,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "extractedFinishRaw": {
+            "value": null,
+            "confidence": 0,
+            "reviewNeeded": false,
+            "reasons": [],
+            "sourceRegion": null
+          },
+          "quoteDescription": "Block",
+          "quoteFinish": null,
+          "reviewFields": [],
+          "material": {
+            "raw": null,
+            "normalized": null,
+            "confidence": 0.15,
+            "reviewNeeded": false,
+            "reasons": []
+          },
+          "finish": {
+            "raw": null,
+            "normalized": null,
+            "confidence": 0,
+            "reviewNeeded": false,
+            "reasons": []
+          },
+          "generalTolerance": {
+            "raw": null,
+            "confidence": 0
+          },
+          "tightestTolerance": {
+            "raw": null,
+            "valueInch": null,
+            "confidence": 0
+          },
+          "notes": [],
+          "threads": [],
+          "evidence": [],
+          "warnings": [
+            "No PDF drawing was attached. Material, finish, and tolerance values require review."
+          ],
+          "debugCandidates": {},
+          "modelCandidates": {},
+          "status": "needs_review"
+        }
+      },
+      "task": {
+        "status": "completed",
+        "lastError": null,
+        "payload": {},
+        "createdAt": "2026-10-18T10:21:00+00:00",
+        "updatedAt": "2026-10-18T10:30:00+00:00"
+      }
+    },
+    {
+      "key": "queued",
+      "partId": "97800000-0000-4000-8000-000000000054",
+      "quantity": 1,
+      "hasCadFile": true,
+      "hasDrawingFile": true,
+      "requirement": null,
+      "extraction": null,
+      "task": {
+        "status": "queued",
+        "lastError": null,
+        "payload": {},
+        "createdAt": "2026-10-18T10:40:00+00:00",
+        "updatedAt": "2026-10-18T10:40:00+00:00"
+      }
+    },
+    {
+      "key": "failed",
+      "partId": "97800000-0000-4000-8000-000000000055",
+      "quantity": 1,
+      "hasCadFile": true,
+      "hasDrawingFile": true,
+      "requirement": null,
+      "extraction": null,
+      "task": {
+        "status": "failed",
+        "lastError": "The PDF could not be parsed.",
+        "payload": {
+          "failureCode": "pdf_parse_failed"
+        },
+        "createdAt": "2026-10-18T10:50:00+00:00",
+        "updatedAt": "2026-10-18T10:51:00+00:00"
+      }
+    }
+  ],
+  "expected": {
+    "draft": [
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": "Black anodize",
+        "partId": "97800000-0000-4000-8000-000000000051",
+        "process": null,
+        "threads": "1/4-20 UNC",
+        "failedAt": null,
+        "material": "Aluminum 6061-T6",
+        "quantity": 5,
+        "revision": null,
+        "warnings": [
+          "Revision not found in the title block.",
+          "No tolerance callout was found."
+        ],
+        "lifecycle": "partial",
+        "pageCount": 2,
+        "updatedAt": "2026-10-18T10:10:00+00:00",
+        "hasCadFile": true,
+        "partNumber": "1093-05589",
+        "description": "Mounting bracket",
+        "extractedAt": "2026-10-18T10:10:00+00:00",
+        "quoteFinish": null,
+        "reviewFields": [
+          "finish"
+        ],
+        "warningCount": 2,
+        "missingFields": [
+          "revision",
+          "tightestToleranceInch"
+        ],
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "lastFailureCode": null,
+        "quoteQuantities": [
+          5,
+          10
+        ],
+        "requestedByDate": "2026-11-20",
+        "quoteDescription": null,
+        "lastFailureMessage": null,
+        "projectPartProperties": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": "Passivate",
+        "partId": "97800000-0000-4000-8000-000000000052",
+        "process": null,
+        "threads": "",
+        "failedAt": null,
+        "material": "304 Stainless Steel",
+        "quantity": 3,
+        "revision": "C",
+        "warnings": [],
+        "lifecycle": "succeeded",
+        "pageCount": 1,
+        "updatedAt": "2026-10-18T10:20:00+00:00",
+        "hasCadFile": true,
+        "partNumber": "SP-100",
+        "description": "Spacer",
+        "extractedAt": "2026-10-18T10:20:00+00:00",
+        "quoteFinish": null,
+        "reviewFields": [],
+        "warningCount": 0,
+        "missingFields": [],
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "lastFailureCode": null,
+        "quoteQuantities": [
+          3
+        ],
+        "requestedByDate": null,
+        "quoteDescription": null,
+        "lastFailureMessage": null,
+        "projectPartProperties": null,
+        "tightestToleranceInch": 0.0005
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000053",
+        "process": null,
+        "threads": "",
+        "failedAt": null,
+        "material": null,
+        "quantity": 1,
+        "revision": null,
+        "warnings": [
+          "No PDF drawing was attached. Material, finish, and tolerance values require review."
+        ],
+        "lifecycle": "succeeded",
+        "pageCount": 0,
+        "updatedAt": "2026-10-18T10:30:00+00:00",
+        "hasCadFile": true,
+        "partNumber": "BLK-1",
+        "description": "Block",
+        "extractedAt": "2026-10-18T10:30:00+00:00",
+        "quoteFinish": null,
+        "reviewFields": [],
+        "warningCount": 1,
+        "missingFields": [
+          "revision",
+          "material",
+          "finish",
+          "tightestToleranceInch"
+        ],
+        "hasDrawingFile": false,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "lastFailureCode": null,
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "quoteDescription": null,
+        "lastFailureMessage": null,
+        "projectPartProperties": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000054",
+        "process": null,
+        "threads": "",
+        "failedAt": null,
+        "material": null,
+        "quantity": 1,
+        "revision": null,
+        "warnings": [],
+        "lifecycle": "queued",
+        "pageCount": 0,
+        "updatedAt": "2026-10-18T10:40:00+00:00",
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": null,
+        "extractedAt": null,
+        "quoteFinish": null,
+        "reviewFields": [],
+        "warningCount": 0,
+        "missingFields": [
+          "description",
+          "partNumber",
+          "revision",
+          "material",
+          "finish",
+          "tightestToleranceInch"
+        ],
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "lastFailureCode": null,
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "quoteDescription": null,
+        "lastFailureMessage": null,
+        "projectPartProperties": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000055",
+        "process": null,
+        "threads": "",
+        "failedAt": "2026-10-18T10:51:00+00:00",
+        "material": null,
+        "quantity": 1,
+        "revision": null,
+        "warnings": [],
+        "lifecycle": "failed",
+        "pageCount": 0,
+        "updatedAt": "2026-10-18T10:51:00+00:00",
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": null,
+        "extractedAt": null,
+        "quoteFinish": null,
+        "reviewFields": [],
+        "warningCount": 0,
+        "missingFields": [
+          "description",
+          "partNumber",
+          "revision",
+          "material",
+          "finish",
+          "tightestToleranceInch"
+        ],
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "lastFailureCode": "pdf_parse_failed",
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "quoteDescription": null,
+        "lastFailureMessage": "The PDF could not be parsed.",
+        "projectPartProperties": null,
+        "tightestToleranceInch": null
+      }
+    ],
+    "liveOvd670": [
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000051",
+        "process": null,
+        "threads": null,
+        "material": "Aluminum 6061-T6",
+        "quantity": 5,
+        "revision": null,
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": "Untitled part",
+        "quoteFinish": null,
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "quoteQuantities": [
+          5,
+          10,
+          5,
+          0
+        ],
+        "requestedByDate": "2026-11-20",
+        "clientExtraction": {
+          "failedAt": null,
+          "warnings": [],
+          "lifecycle": "partial",
+          "pageCount": 2,
+          "updatedAt": "2026-10-18T10:10:00+00:00",
+          "hasCadFile": true,
+          "extractedAt": "2026-10-18T10:10:00+00:00",
+          "reviewFields": [
+            "finish"
+          ],
+          "warningCount": 0,
+          "missingFields": [],
+          "hasDrawingFile": true,
+          "lastFailureCode": null,
+          "lastFailureMessage": null
+        },
+        "quoteDescription": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000052",
+        "process": null,
+        "threads": null,
+        "material": "Unknown material",
+        "quantity": 3,
+        "revision": null,
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": "Untitled part",
+        "quoteFinish": null,
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "quoteQuantities": [
+          3
+        ],
+        "requestedByDate": null,
+        "clientExtraction": {
+          "failedAt": null,
+          "warnings": [],
+          "lifecycle": "succeeded",
+          "pageCount": 1,
+          "updatedAt": "2026-10-18T10:20:00+00:00",
+          "hasCadFile": true,
+          "extractedAt": "2026-10-18T10:20:00+00:00",
+          "reviewFields": [],
+          "warningCount": 0,
+          "missingFields": [],
+          "hasDrawingFile": true,
+          "lastFailureCode": null,
+          "lastFailureMessage": null
+        },
+        "quoteDescription": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000053",
+        "process": null,
+        "threads": null,
+        "material": "Unknown material",
+        "quantity": 1,
+        "revision": null,
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": "Untitled part",
+        "quoteFinish": null,
+        "hasDrawingFile": false,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "clientExtraction": {
+          "failedAt": null,
+          "warnings": [],
+          "lifecycle": "succeeded",
+          "pageCount": 0,
+          "updatedAt": "2026-10-18T10:30:00+00:00",
+          "hasCadFile": true,
+          "extractedAt": "2026-10-18T10:30:00+00:00",
+          "reviewFields": [],
+          "warningCount": 0,
+          "missingFields": [],
+          "hasDrawingFile": false,
+          "lastFailureCode": null,
+          "lastFailureMessage": null
+        },
+        "quoteDescription": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000054",
+        "process": null,
+        "threads": null,
+        "material": "Unknown material",
+        "quantity": 1,
+        "revision": null,
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": "Untitled part",
+        "quoteFinish": null,
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "clientExtraction": {
+          "failedAt": null,
+          "warnings": [],
+          "lifecycle": "queued",
+          "pageCount": 0,
+          "updatedAt": "2026-10-18T10:40:00+00:00",
+          "hasCadFile": true,
+          "extractedAt": null,
+          "reviewFields": [],
+          "warningCount": 0,
+          "missingFields": [],
+          "hasDrawingFile": true,
+          "lastFailureCode": null,
+          "lastFailureMessage": null
+        },
+        "quoteDescription": null,
+        "tightestToleranceInch": null
+      },
+      {
+        "jobId": "97800000-0000-4000-8000-000000000031",
+        "notes": null,
+        "finish": null,
+        "partId": "97800000-0000-4000-8000-000000000055",
+        "process": null,
+        "threads": null,
+        "material": "Unknown material",
+        "quantity": 1,
+        "revision": null,
+        "hasCadFile": true,
+        "partNumber": null,
+        "description": "Untitled part",
+        "quoteFinish": null,
+        "hasDrawingFile": true,
+        "organizationId": "97800000-0000-4000-8000-000000000001",
+        "quoteQuantities": [
+          1
+        ],
+        "requestedByDate": null,
+        "clientExtraction": {
+          "failedAt": "2026-10-18T10:51:00+00:00",
+          "warnings": [],
+          "lifecycle": "failed",
+          "pageCount": 0,
+          "updatedAt": "2026-10-18T10:51:00+00:00",
+          "hasCadFile": true,
+          "extractedAt": null,
+          "reviewFields": [],
+          "warningCount": 0,
+          "missingFields": [],
+          "hasDrawingFile": true,
+          "lastFailureCode": "pdf_parse_failed",
+          "lastFailureMessage": "The PDF could not be parsed."
+        },
+        "quoteDescription": null,
+        "tightestToleranceInch": null
+      }
+    ]
+  }
+}
