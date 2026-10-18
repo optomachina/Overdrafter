@@ -232,7 +232,7 @@ RPCs:
 | `api_admin_create_vendor_intake_policy_revision(jsonb, text)` | `authenticated` (admin, AAL2) | Validated draft |
 | `api_admin_activate_vendor_intake_policy_revision(uuid, text, boolean)` | `authenticated` (admin, AAL2) | Four-eyes rule in [D3](#d3-who-may-change-the-policy) |
 | `api_admin_set_vendor_intake_settings(jsonb, text)` | `authenticated` (admin, AAL2) | Flags and limits; turning a flag **off** is always single-admin |
-| `api_service_submit_vendor_intake(jsonb, text)` | `service_role` | Anonymous variant only, called by an edge function ([D1](#d1-anonymous-or-authenticated-submission)) |
+| `api_service_submit_vendor_intake(jsonb, text)` | `service_role` | Anonymous variant only, called by an edge function; not built in the first release ([D1](#d1-anonymous-or-authenticated-submission), decided: authenticated first) |
 
 Owner-only helpers (revoked from every API role):
 `private.require_vendor_intake_admin()`, `private.vendor_intake_reason(text)`,
@@ -302,7 +302,7 @@ rejects unknown keys, unknown predicates and unknown actions, as
 
 ### Closed action allowlist
 
-| Action | Effect inside OverDrafter | Auto-eligible (recommended, D2) |
+| Action | Effect inside OverDrafter | Auto-eligible (D2, decided) |
 | --- | --- | --- |
 | `escalate` | status `escalated` | yes |
 | `needs_info` | status `needs_info`, fixed copy shown to the submitter | yes |
@@ -348,7 +348,7 @@ exact-file approval, admission and go-live keep all of their existing gates.
 | Evaluation cost | At most 50 rules and closed predicates, with no regex and no loops over user input. |
 | Personal data | No vendor contact fields in v1 ([D5](#d5-vendor-contact-data)). Notes are purgeable ([D6](#d6-retention-of-free-text)). |
 
-Anonymous variant (only if D1 chooses it): submission goes through an edge
+Anonymous variant (not in the first release: D1 was decided on 2026-10-18 as authenticated first, anonymous later behind `anonymous_enabled`): submission goes through an edge
 function that verifies a bot challenge and then calls the `service_role`-only
 `api_service_submit_vendor_intake`, so `anon` still executes no `SECURITY
 DEFINER` function (OVD-736). Limits are lower (per HMAC'd client address:
@@ -468,12 +468,15 @@ design. Each needs its own design note and Blaine's authorization.
 
 ## Open decisions
 
+Status 2026-10-18: D1 and D2 are decided by Blaine (recorded in Linear OVD-965). D3 to D7 are still open and keep their recommended defaults until Blaine changes them.
+
 ### D1. Anonymous or authenticated submission
 
 - Options: (a) authenticated with verified email only; (b) anonymous through
   an edge function with a bot challenge; (c) (a) now, (b) later behind
   `anonymous_enabled`.
 - **Recommendation: (c), shipping (a) only.**
+- **Decided 2026-10-18 (Blaine): (c), shipping (a) only.** Authenticated submission first. Anonymous submission stays off behind `anonymous_enabled` and is not built in the first release.
 - Consequence: vendors must create an account, which adds friction. In
   return, OVD-736's "anon executes no definer function" holds, status shows
   in-app with no email, and no new challenge vendor, secret or dependency is
@@ -488,6 +491,7 @@ design. Each needs its own design note and Blaine's authorization.
 - **Recommendation: (b) as the ceiling, launched with
   `auto_actions_enabled = false`** until the recommend-mode results have been
   reviewed.
+- **Decided 2026-10-18 (Blaine): (b) as the ceiling, launched with `auto_actions_enabled = false`.** `escalate`, `needs_info` and `mark_duplicate` may auto-run once enabled; `approve_internal` and `decline` always need an admin.
 - Consequence: no automatic path can accept or reject a vendor. Under (c) a
   false positive would silently reject a real vendor.
 
