@@ -397,5 +397,56 @@ describe("Vercel mobile authentication function", () => {
       expect(body).not.toMatch(/<script/i);
       expect(body).not.toContain("ready");
     });
+
+    it("serves the identical static page for every cause and request, building a fresh Response each time", async () => {
+      const reflected = "REFLECT_ME_FROM_THE_REQUEST";
+      const environmentValue = "service-role-value-that-must-never-appear";
+
+      // Cause A: configuration cannot load. Two consecutive failures from one
+      // module instance must both be readable (a hoisted, reused Response
+      // would throw "Body is unusable" on the second read).
+      vi.mocked(loadMobileAuthRuntimeConfig).mockImplementation(() => {
+        throw new Error(`config ${SECRET}`);
+      });
+      const configFailure = await freshEntry();
+      const first = await withEnvironment(
+        { SUPABASE_SERVICE_ROLE_KEY: environmentValue },
+        () =>
+          configFailure.fetch(
+            new Request(`https://app.example.com/auth/mobile/start?state=${reflected}`),
+          ),
+      );
+      const second = await configFailure.fetch(
+        new Request(`https://app.example.com/auth/mobile/callback?code=${reflected}`),
+      );
+      const firstBody = await first.text();
+      const secondBody = await second.text();
+
+      expect(first.status).toBe(503);
+      expect(second.status).toBe(503);
+      expect(secondBody).toBe(firstBody);
+
+      // Cause B: the delegate fails. The page is the same static page.
+      vi.mocked(loadMobileAuthRuntimeConfig).mockReturnValue(config as never);
+      vi.mocked(createMobileAuthHandler).mockReturnValue(
+        vi.fn(async () => {
+          throw new Error(`upstream ${SECRET}`);
+        }) as never,
+      );
+      const delegateFailure = await freshEntry();
+      const third = await delegateFailure.fetch(
+        new Request(`https://app.example.com/auth/mobile/complete?state=${reflected}`),
+      );
+      const thirdBody = await third.text();
+
+      expect(third.status).toBe(503);
+      expect(thirdBody).toBe(firstBody);
+      for (const text of [firstBody, secondBody, thirdBody]) {
+        expect(text).not.toContain(reflected);
+        expect(text).not.toContain(SECRET);
+        expect(text).not.toContain(environmentValue);
+        expect(text).not.toMatch(/<meta[^>]+http-equiv/i);
+      }
+    });
   });
 });
