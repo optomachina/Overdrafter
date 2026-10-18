@@ -19,7 +19,10 @@ export function summarizeExtractionOutcome(
     extraction.revision ? null : "revision",
     extraction.material.normalized || extraction.material.raw ? null : "material",
     extraction.finish.normalized || extraction.finish.raw ? null : "finish",
-    extraction.tightestTolerance.valueInch ?? extraction.tightestTolerance.raw ? null : "tightestToleranceInch",
+    extraction.tightestTolerance.valueInch !== null ||
+    (extraction.tightestTolerance.raw && extraction.tightestTolerance.unit !== "unknown")
+      ? null
+      : "tightestToleranceInch",
   ].filter((value): value is string => Boolean(value));
   const reviewFields = extraction.reviewFields.filter((field) => !missingFields.includes(field));
 
@@ -69,6 +72,10 @@ export function buildStoredExtractionPayload(
       general: extraction.generalTolerance.raw,
       tightest: extraction.tightestTolerance.raw,
       valueInch: extraction.tightestTolerance.valueInch,
+      // OVD-976: additive JSON keys. SQL reads only tolerances.valueInch and the client reads
+      // tightest/valueInch/confidence, so readers ignore these.
+      unit: extraction.tightestTolerance.unit ?? null,
+      drawingUnits: extraction.tightestTolerance.drawingUnits ?? null,
       confidence: extraction.tightestTolerance.confidence,
     },
     notes: extraction.notes,

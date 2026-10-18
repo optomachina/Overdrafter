@@ -5,7 +5,20 @@ import type { JobFileRecord, PartRecord, WorkerConfig } from "../types";
 import * as pdfDrawing from "./pdfDrawing";
 import { MODEL_FALLBACK_PROMPT_VERSION } from "./modelFallback";
 import { runHybridExtraction } from "./hybridExtraction";
+import { buildStoredExtractionPayload, summarizeExtractionOutcome } from "./sharedResult";
+import { selectToleranceTier } from "../adapters/xometry";
 import { ExportControlExtractionDeniedError, ExportControlLookupError } from "../exportControl";
+
+// The Xometry adapter is imported only for the pure selectToleranceTier function. Its browser
+// launchers are never called in this file, so they are stubbed instead of loaded.
+vi.mock("camoufox-js", () => ({ Camoufox: vi.fn(), launchOptions: vi.fn() }));
+vi.mock("patchright", () => ({ chromium: { launch: vi.fn(), launchPersistentContext: vi.fn() } }));
+vi.mock("playwright", () => ({
+  chromium: { launch: vi.fn(), launchPersistentContext: vi.fn() },
+  firefox: { launch: vi.fn(), launchPersistentContext: vi.fn() },
+}));
+vi.mock("../camoufoxAssets.js", () => ({ assertCamoufoxAssetsPresent: vi.fn() }));
+vi.mock("../camoufoxPersistentContext.js", () => ({ launchPersistentCamoufox: vi.fn() }));
 
 function makePart(overrides: Partial<PartRecord> = {}): PartRecord {
   return {
@@ -823,5 +836,78 @@ describe("runHybridExtraction", () => {
     expect(result.fieldSelections?.description).toBe("review");
     expect(result.reviewFields).toContain("description");
     expect(result.warnings).toContain("Description parser/model disagreement needs review.");
+  });
+});
+
+describe("drawing tolerance units through the stored extraction (OVD-976)", () => {
+  // supabase/migrations/20260815100000_add_xometry_beta_dispatch_permits.sql denies the Xometry
+  // beta permit for a NULL tolerance or one below 0.005 in (xometry_beta_standard_tolerance_required).
+  // That SQL function cannot be imported here, so its documented threshold is restated.
+  const BETA_MINIMUM_TOLERANCE_INCH = 0.005;
+
+  async function storedTolerances(lines: string[]) {
+    const extraction = await runHybridExtraction({
+      part: makePart({ cad_file_id: "file-1", drawing_file_id: "file-2" }),
+      cadFile: makeFile(),
+      drawingFile: makeFile({ id: "file-2", original_name: "probe.pdf", file_kind: "drawing" }),
+      pdfText: {
+        pageCount: 1,
+        pageCountKnown: true,
+        drawingFullyRead: true,
+        ocr: false,
+        pages: [{ page: 1, text: ["MATERIAL 6061-T6", "DWG. NO. 1000-1 REV A", ...lines].join("\n") }],
+      } as never,
+    });
+    return {
+      extraction,
+      stored: buildStoredExtractionPayload(extraction, 1, "test") as {
+        tolerances: {
+          tightest: string | null;
+          valueInch: number | null;
+          unit?: string | null;
+          drawingUnits?: string | null;
+        };
+      },
+    };
+  }
+
+  it("never lets a metric +/-0.1 mm drawing reach the looser tier or pass the beta gate as >= 0.005", async () => {
+    const { stored } = await storedTolerances(["DIMENSIONS ARE IN MILLIMETERS", "TOLERANCES ±0.1 mm"]);
+    const valueInch = stored.tolerances.valueInch;
+
+    expect(valueInch).toBeCloseTo(0.003937, 6);
+    expect(selectToleranceTier(valueInch).tier).toBe("tighter");
+    expect(valueInch !== null && valueInch >= BETA_MINIMUM_TOLERANCE_INCH).toBe(false);
+    expect(stored.tolerances).toMatchObject({ tightest: "±0.1 mm", unit: "mm", drawingUnits: "metric" });
+  });
+
+  it("stores a bare +/-0.1 on a millimeter drawing as converted inches, never 0.1", async () => {
+    const { stored } = await storedTolerances(["DIMENSIONS IN MM", "UNLESS OTHERWISE SPECIFIED TOLERANCES ±0.1"]);
+
+    expect(stored.tolerances.valueInch).not.toBe(0.1);
+    expect(selectToleranceTier(stored.tolerances.valueInch).tier).not.toBe("looser");
+  });
+
+  it("stores null with the raw text when units cannot be resolved, so the beta gate blocks it", async () => {
+    const { extraction, stored } = await storedTolerances(["TOLERANCES ±1"]);
+
+    expect(stored.tolerances).toMatchObject({ tightest: "±1", valueInch: null, unit: "unknown" });
+    expect(selectToleranceTier(stored.tolerances.valueInch).tier).toBeNull();
+    expect(extraction.tightestTolerance.valueInch).toBeNull();
+    expect(summarizeExtractionOutcome(extraction).missingFields).toContain("tightestToleranceInch");
+  });
+
+  it("keeps inch drawings unchanged", async () => {
+    const { stored, extraction } = await storedTolerances(["DIMENSIONS ARE IN INCHES", "THREE PLACE DECIMAL +.005"]);
+
+    expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: 0.005, unit: "in" });
+    expect(summarizeExtractionOutcome(extraction).missingFields).not.toContain("tightestToleranceInch");
+  });
+
+  it("stores no tolerance fields as numbers when only an angular tolerance is present", async () => {
+    const { stored } = await storedTolerances(["ANGULAR ±.005°"]);
+
+    expect(stored.tolerances.tightest).toBeNull();
+    expect(stored.tolerances.valueInch).toBeNull();
   });
 });

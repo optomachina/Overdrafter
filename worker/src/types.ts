@@ -202,7 +202,14 @@ export type DrawingExtractionPayload = {
     reasons: string[];
   };
   generalTolerance: { raw: string | null; confidence: number };
-  tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
+  tightestTolerance: {
+    raw: string | null;
+    valueInch: number | null;
+    confidence: number;
+    /** OVD-976: unit applied to the tightest value; "unknown" means valueInch is null on purpose. */
+    unit?: "in" | "mm" | "um" | "mil" | "unknown";
+    drawingUnits?: "inch" | "metric" | "mixed" | "unspecified";
+  };
   notes: string[];
   threads: string[];
   evidence: Array<{

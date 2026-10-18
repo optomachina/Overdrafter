@@ -146,6 +146,10 @@ export type ExtractedDrawingSignals = {
   process: ExtractedFieldSignal;
   generalTolerance: string | null;
   tightestTolerance: string | null;
+  /** OVD-976: tightest tolerance in inches; null when its units could not be resolved. */
+  tightestToleranceValueInch?: number | null;
+  tightestToleranceUnit?: ToleranceUnit | null;
+  tightestToleranceDrawingUnits?: DrawingUnits | null;
   quoteDescription: string | null;
   quoteFinish: string | null;
   reviewFields: SupportedReviewField[];
@@ -252,9 +256,32 @@ function collectThreads(text: string) {
   return [...new Set([...metricMatches, ...imperialMatches].map((match) => normalizeWhitespace(match)))].slice(0, 12);
 }
 
+export type ToleranceUnit = "in" | "mm" | "um" | "mil" | "unknown";
+export type DrawingUnits = "inch" | "metric" | "mixed" | "unspecified";
+
+type ToleranceCandidate = {
+  value: number;
+  start: number;
+  end: number;
+  unit: Exclude<ToleranceUnit, "unknown"> | null;
+  bracketed: boolean;
+  fromDecimalPhrase: boolean;
+};
+
+const UNIT_TO_INCH: Record<Exclude<ToleranceUnit, "unknown">, number> = {
+  in: 1,
+  mm: 1 / 25.4,
+  um: 1 / 25400,
+  mil: 1 / 1000,
+};
+const UNIT_LABEL: Record<Exclude<ToleranceUnit, "unknown">, string> = { in: "in", mm: "mm", um: "µm", mil: "mil" };
+// A bare value at or above this many inches is not a plausible machining tolerance, so an
+// unlabelled drawing is not allowed to default it to inches.
+const MAX_PLAUSIBLE_UNLABELLED_INCH_TOLERANCE = 0.1;
+
 function readLeadingToleranceValue(fragment: string) {
   let index = 0;
-  while (index < fragment.length && /[\s+#]/.test(fragment[index] ?? "")) {
+  while (index < fragment.length && index < 24 && /[\s+#]/.test(fragment[index] ?? "")) {
     index += 1;
   }
 
@@ -274,36 +301,157 @@ function readLeadingToleranceValue(fragment: string) {
   }
 
   const value = Number.parseFloat(valueText);
-  return Number.isFinite(value) ? value : null;
+  return Number.isFinite(value) ? { value, length: index } : null;
 }
 
-function estimateTightestTolerance(text: string) {
-  const parsed = [...text.matchAll(/(?:\+\/-|±)\s*((?:\d+(?:\.\d+)?|\.\d+))/g)]
-    .map((match) => Number.parseFloat(match[1] ?? ""))
-    .filter((value) => Number.isFinite(value));
+function detectDrawingUnits(text: string): DrawingUnits {
+  const metric = /\b(?:MILLIMET(?:ER|RE)S?|METRIC|MM)\b|\bISO\s*2768\b/i.test(text);
+  const inch = /\bINCH(?:ES)?\b|\bDIMENSIONS?\s+(?:ARE\s+)?IN\s+IN\b|\bUNITS?\s*[:=]?\s*IN\b/i.test(text);
+  if (metric && inch) {
+    return "mixed";
+  }
+  return metric ? "metric" : inch ? "inch" : "unspecified";
+}
+
+/** Reads a unit written right after a tolerance number; "angular" means a degree sign or DEG. */
+function readToleranceSuffix(text: string, from: number): Exclude<ToleranceUnit, "unknown"> | "angular" | null {
+  const suffix = text.slice(from, from + 14);
+  if (/^\s*(?:[°º˚]|deg(?![a-z]))/i.test(suffix)) {
+    return "angular";
+  }
+  if (/^\s*(?:mm|millimet(?:er|re)s?)(?![a-z])/i.test(suffix)) {
+    return "mm";
+  }
+  if (/^\s*(?:[µμ]m|um|microns?)(?![a-z])/i.test(suffix)) {
+    return "um";
+  }
+  if (/^\s*mils?(?![a-z])/i.test(suffix)) {
+    return "mil";
+  }
+  if (/^\s*(?:in(?:ch(?:es)?)?(?![a-z])|["”])/i.test(suffix)) {
+    return "in";
+  }
+  return null;
+}
+
+function collectToleranceCandidates(text: string) {
+  const candidates: ToleranceCandidate[] = [];
+  const push = (value: number, start: number, end: number, fromDecimalPhrase: boolean) => {
+    const suffix = readToleranceSuffix(text, end);
+    if (suffix === "angular") {
+      return;
+    }
+    const lineStart = text.lastIndexOf("\n", start) + 1;
+    if (/\b(?:ANGULAR|ANGLES?)\b/i.test(text.slice(Math.max(lineStart, start - 16), start))) {
+      return;
+    }
+    candidates.push({
+      value,
+      start,
+      end,
+      unit: suffix,
+      bracketed: /[[(]\s*$/.test(text.slice(Math.max(0, start - 3), start)),
+      fromDecimalPhrase,
+    });
+  };
+
+  for (const match of text.matchAll(/(?:\+\/-|±)\s*((?:\d+(?:\.\d+)?|\.\d+))/g)) {
+    const value = Number.parseFloat(match[1] ?? "");
+    if (Number.isFinite(value)) {
+      push(value, match.index ?? 0, (match.index ?? 0) + match[0].length, false);
+    }
+  }
 
   const upperText = text.toUpperCase();
   ["TWO PLACE DECIMAL", "THREE PLACE DECIMAL", "FOUR PLACE DECIMAL"].forEach((phrase) => {
     let searchIndex = upperText.indexOf(phrase);
     while (searchIndex >= 0) {
-      const value = readLeadingToleranceValue(text.slice(searchIndex + phrase.length, searchIndex + phrase.length + 24));
-      if (value !== null) {
-        parsed.push(value);
+      const from = searchIndex + phrase.length;
+      const read = readLeadingToleranceValue(text.slice(from, from + 36));
+      if (read !== null) {
+        push(read.value, searchIndex, from + read.length, true);
       }
 
-      searchIndex = upperText.indexOf(phrase, searchIndex + phrase.length);
+      searchIndex = upperText.indexOf(phrase, from);
     }
   });
 
-  parsed.sort((left, right) => left - right);
+  return candidates.sort((left, right) => left.start - right.start);
+}
 
-  if (parsed.length === 0) {
+/**
+ * OVD-976: resolve the tightest tolerance to inches. Units come from a suffix on the value, else
+ * from the drawing. Anything that cannot be resolved yields valueInch null with the raw text kept,
+ * so the OVD-683 gate blocks Xometry instead of quoting a mis-scaled tolerance.
+ */
+function estimateTightestTolerance(text: string) {
+  const drawingUnits = detectDrawingUnits(text);
+  const found = collectToleranceCandidates(text);
+
+  // A dual-dimension callout such as "±0.1 mm [±.004 in]" is one tolerance: keep the inch value.
+  const candidates: ToleranceCandidate[] = [];
+  for (const candidate of found) {
+    const previous = candidates[candidates.length - 1];
+    const closeToPrevious = previous !== undefined && candidate.start - previous.end <= 40;
+    const metric = (unit: ToleranceCandidate["unit"]) => unit === "mm" || unit === "um";
+    if (closeToPrevious && candidate.bracketed) {
+      if (metric(previous.unit) && (candidate.unit === null || candidate.unit === "in")) {
+        candidates[candidates.length - 1] = { ...candidate, unit: "in" };
+        continue;
+      }
+      if (previous.unit === "in" && metric(candidate.unit)) {
+        continue;
+      }
+    }
+    candidates.push(candidate);
+  }
+
+  if (candidates.length === 0) {
     return null;
   }
 
+  const resolved = candidates.map((candidate) => {
+    let unit = candidate.unit;
+    if (unit === null) {
+      if (drawingUnits === "metric") {
+        unit = "mm";
+      } else if (drawingUnits === "inch") {
+        unit = "in";
+      } else if (candidate.fromDecimalPhrase) {
+        unit = "in";
+      } else if (drawingUnits === "unspecified" && candidate.value < MAX_PLAUSIBLE_UNLABELLED_INCH_TOLERANCE) {
+        unit = "in";
+      }
+    }
+    return { candidate, unit };
+  });
+
+  const formatRaw = (candidate: ToleranceCandidate, unit: ToleranceCandidate["unit"], labelled: boolean) =>
+    `±${candidate.value}${labelled && unit !== null && unit !== "in" ? ` ${UNIT_LABEL[unit]}` : ""}`;
+
+  if (resolved.some((entry) => entry.unit === null)) {
+    const smallest = [...resolved].sort((left, right) => left.candidate.value - right.candidate.value)[0]!;
+    return {
+      raw: formatRaw(smallest.candidate, smallest.candidate.unit, true),
+      valueInch: null,
+      unit: "unknown" as const,
+      drawingUnits,
+    };
+  }
+
+  const inches = resolved.map((entry) => {
+    const unit = entry.unit as Exclude<ToleranceUnit, "unknown">;
+    const converted = unit === "in" ? entry.candidate.value : Number((entry.candidate.value * UNIT_TO_INCH[unit]).toFixed(6));
+    return { ...entry, unit, converted };
+  });
+  inches.sort((left, right) => left.converted - right.converted);
+  const tightest = inches[0]!;
+
   return {
-    raw: `±${parsed[0]}`,
-    valueInch: parsed[0],
+    raw: formatRaw(tightest.candidate, tightest.unit, true),
+    valueInch: tightest.converted,
+    unit: tightest.unit,
+    drawingUnits,
   };
 }
 
@@ -1629,7 +1777,10 @@ export function inferDrawingSignalsFromPdf(input: {
     finish: fieldResults.finish,
     process: fieldResults.process,
     generalTolerance: toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null,
-    tightestTolerance: inferredTightestTolerance?.raw ?? (toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null),
+    tightestTolerance: inferredTightestTolerance?.raw ?? null,
+    tightestToleranceValueInch: inferredTightestTolerance?.valueInch ?? null,
+    tightestToleranceUnit: inferredTightestTolerance?.unit ?? null,
+    tightestToleranceDrawingUnits: inferredTightestTolerance?.drawingUnits ?? null,
     quoteDescription: normalizeQuoteDescription(fieldResults.description.value),
     quoteFinish: normalizeQuoteFinish(fieldResults.finish.value),
     reviewFields,
