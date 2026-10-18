@@ -21,11 +21,19 @@ const CAD_EXTENSIONS = new Set([
   "xt",
 ]);
 
+/**
+ * Must return exactly what public.normalize_file_basename returns: strip the last extension,
+ * lowercase, turn each run of characters outside a-z0-9 into one "-", trim "-" from both ends.
+ * upload-stem-fixtures.json holds the shared cases. U+0130 is lowercased to "i" by a UTF-8
+ * database but to "i" plus a combining dot by JavaScript, so it is mapped first.
+ */
 export function normalizeUploadStem(fileName: string): string {
   return fileName
     .replace(/\.[^.]+$/, "")
-    .trim()
-    .toLowerCase();
+    .replace(/\u{130}/gu, "i")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function isCadUploadFile(fileName: string): boolean {
@@ -56,6 +64,35 @@ export function groupUploadFiles(files: File[]): UploadFileGroup[] {
   });
 
   return [...groups.values()].sort((left, right) => left.displayStem.localeCompare(right.displayStem));
+}
+
+export type UnpairedUploadFiles = {
+  drawingsWithoutPart: string[];
+  partsWithoutDrawing: string[];
+};
+
+/**
+ * Names the staged drawings with no part of the same stem and, once at least one drawing is
+ * staged, the parts with no drawing of the same stem. A selection of parts alone is a normal
+ * upload and reports nothing.
+ */
+export function findUnpairedUploadFiles(files: File[]): UnpairedUploadFiles {
+  const groups = groupUploadFiles(files);
+  const hasAnyDrawing = groups.some((group) => group.hasDrawing);
+  const namesIn = (group: UploadFileGroup, include: (name: string) => boolean) =>
+    group.files.map((file) => file.name).filter(include);
+  const isDrawing = (name: string) => name.toLowerCase().endsWith(".pdf");
+
+  return {
+    drawingsWithoutPart: groups
+      .filter((group) => group.hasDrawing && !group.hasCad)
+      .flatMap((group) => namesIn(group, isDrawing)),
+    partsWithoutDrawing: hasAnyDrawing
+      ? groups
+          .filter((group) => group.hasCad && !group.hasDrawing)
+          .flatMap((group) => namesIn(group, isCadUploadFile))
+      : [],
+  };
 }
 
 export function buildProjectNameFromLabels(labels: string[]): string {
