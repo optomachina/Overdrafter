@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OverDrafter: your manufacturing agent for building frontier hardware</title>
+<meta name="description" content="OverDrafter reads the specs on your drawing, requests quotes from manufacturing providers in parallel, and compares price and lead time.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0908'/%3E%3Cpath d='M8 2l6 3.5v5L8 14 2 10.5v-5z' fill='none' stroke='%23F27A45' stroke-width='1.5'/%3E%3C/svg%3E">
+<script>
+(function(){try{var t=localStorage.getItem('od-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
+</script>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0908;--panel:#110e0c;--ink:#f1e9e3;--muted:#b3a8a1;--dim:#978c85;
+  --hair:#2d2623;--hair2:#40362f;--line:#a89d96;
+  --ft:#5a4e47;--ff:#2e2723;--fs:#40362f;--hole:#070504;--hatch:#8c8079;
+  --bedt:#15110f;--bedf:#0e0b0a;--beds:#110e0c;--lanet:#201a17;--sheet:#2a231f;--sheetf:#171310;
+  --acc:#C2410C;--acct:#F27A45;--acc-top:#d8571d;--acc-side:#8e3009;--acc-soft:rgba(194,65,12,.24);--soft:rgba(241,233,227,.22);
+  --glowf:url(#glow);--btn-hover:#1b1613;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --pad:clamp(16px,4vw,48px);
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    color-scheme:light;
+    --bg:#F2EFE8;--panel:#F7F4ED;--ink:#1D1B17;--muted:#4A463E;--dim:#6F695D;
+    --hair:#CFC9BB;--hair2:#B9B3A4;--line:#3b372f;
+    --ft:#FBF9F3;--ff:#E3DECF;--fs:#D3CDBC;--hole:#B8B1A0;--hatch:#6F695D;
+    --bedt:#ECE8DD;--bedf:#DAD5C6;--beds:#E2DDCF;--lanet:#F7F4ED;--sheet:#FBF9F3;--sheetf:#DAD5C6;
+    --acc:#C2410C;--acct:#C2410C;--acc-top:#DC5A22;--acc-side:#92310A;--acc-soft:rgba(194,65,12,.16);--soft:rgba(29,27,23,.16);
+    --glowf:none;--btn-hover:#EAE6DB;
+  }
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#F2EFE8;--panel:#F7F4ED;--ink:#1D1B17;--muted:#4A463E;--dim:#6F695D;
+  --hair:#CFC9BB;--hair2:#B9B3A4;--line:#3b372f;
+  --ft:#FBF9F3;--ff:#E3DECF;--fs:#D3CDBC;--hole:#B8B1A0;--hatch:#6F695D;
+  --bedt:#ECE8DD;--bedf:#DAD5C6;--beds:#E2DDCF;--lanet:#F7F4ED;--sheet:#FBF9F3;--sheetf:#DAD5C6;
+  --acc:#C2410C;--acct:#C2410C;--acc-top:#DC5A22;--acc-side:#92310A;--acc-soft:rgba(194,65,12,.16);--soft:rgba(29,27,23,.16);
+  --glowf:none;--btn-hover:#EAE6DB;
+}
+*{box-sizing:border-box}
+html{background:var(--bg);scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+button{font:inherit;color:inherit}
+.wrap{max-width:1320px;margin:0 auto;padding:0 var(--pad)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--acct);outline-offset:3px}
+.mono{font-family:var(--mono)}
+
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:16px;padding-bottom:16px}
+.brand{font-weight:700;letter-spacing:.01em;text-decoration:none;display:flex;align-items:center;gap:10px;font-size:1.05rem;min-height:44px}
+.brand i{display:block;width:14px;height:14px;border:2px solid var(--acct);transform:rotate(45deg) skew(12deg,12deg)}
+.top-r{display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:2px;font:600 .95rem/1 var(--sans);text-decoration:none;cursor:pointer;border:1px solid var(--hair2);background:transparent;color:var(--ink)}
+.btn:hover{background:var(--btn-hover)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.primary:hover{background:#d4480f}
+.btn[aria-pressed="true"]{border-color:var(--acct);color:var(--acct)}
+.btn.sm{padding:0 14px;font-size:.88rem}
+
+.hero{padding-top:clamp(20px,4vw,56px)}
+.eyebrow{font:500 .78rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--acct);margin:0 0 18px}
+h1{font-size:clamp(2.1rem,5.2vw,4.3rem);line-height:1.05;letter-spacing:-.02em;margin:0;max-width:19ch;font-weight:700}
+.lede{color:var(--muted);font-size:clamp(1rem,1.4vw,1.2rem);max-width:58ch;margin:20px 0 0}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+.beta{color:var(--muted);font-size:.92rem;margin:14px 0 0;max-width:60ch}
+
+/* bench */
+.bench{margin-top:clamp(28px,4vw,48px);border-top:1px solid var(--hair)}
+.plate-head{display:flex;flex-wrap:wrap;gap:6px 24px;justify-content:space-between;padding:14px 0 10px;font:500 .78rem/1.35 var(--mono);color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+.plate-head b{color:var(--ink);font-weight:600}
+.sample{color:var(--acct)}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.steps li+li{border-left:1px solid var(--hair)}
+.steps button{display:flex;gap:10px;align-items:center;width:100%;min-height:48px;padding:6px 12px;background:transparent;border:0;cursor:pointer;text-align:left;font:500 .88rem/1.25 var(--sans);color:var(--dim)}
+.steps button .n{font:600 .82rem/1 var(--mono);width:24px;height:24px;border:1px solid var(--hair2);display:grid;place-items:center;flex:none}
+.steps button:hover{color:var(--ink)}
+.steps button[aria-current="step"]{color:var(--ink)}
+.steps button[aria-current="step"] .n{border-color:var(--acct);color:var(--acct)}
+.stagebox{position:relative;border-bottom:1px solid var(--hair);background:var(--panel);outline-offset:-3px}
+#fig{display:block;width:100%;height:auto;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:default}
+#fig.drag{cursor:grabbing}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 0 6px}
+.controls .hint{color:var(--dim);font:.76rem/1.4 var(--mono);margin-left:auto;max-width:56ch;text-align:right}
+.deck{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,5vw,72px);padding:22px 0 clamp(40px,6vw,72px)}
+h3.lab{font:600 .76rem/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:26px 0 10px}
+.readout{border:1px solid var(--hair2);padding:16px 18px;min-height:176px;background:var(--panel)}
+.readout .kick{font:600 .72rem/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--acct);margin:0 0 8px}
+.readout .name{font-size:1.35rem;font-weight:700;line-height:1.2;margin:0 0 12px}
+.readout dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font:.88rem/1.4 var(--mono)}
+.readout dt{color:var(--dim)}
+.readout dd{margin:0;color:var(--ink);overflow-wrap:anywhere}
+.readout p.sm{margin:12px 0 0;font:.76rem/1.4 var(--mono);color:var(--dim)}
+ul.rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
+ul.rows li{border-bottom:1px solid var(--hair)}
+.row{display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;gap:2px 14px;align-items:center;width:100%;min-height:52px;padding:8px 10px 8px 8px;background:transparent;border:0;border-left:3px solid transparent;cursor:pointer;text-align:left;color:var(--muted)}
+.row:hover{background:var(--btn-hover);color:var(--ink)}
+.row .n{font:600 .8rem/1 var(--mono);width:24px;height:24px;border:1px solid var(--hair2);display:grid;place-items:center;color:var(--ink)}
+.row .k{font:.92rem/1.3 var(--sans);overflow-wrap:anywhere}
+.row .k small{display:block;font:.72rem/1.3 var(--mono);color:var(--dim)}
+.row .v{font:600 .92rem/1.2 var(--mono);color:var(--ink);text-align:right;white-space:nowrap}
+.row[aria-pressed="true"]{border-left-color:var(--acct);color:var(--ink);background:var(--acc-soft)}
+.row[aria-pressed="true"] .n{border-color:var(--acct);color:var(--acct)}
+ul.rows.spec .row{grid-template-columns:28px minmax(0,1fr)}
+ul.rows.spec .row .k small{display:inline;margin-left:8px}
+.rhead{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin:26px 0 10px}
+.rhead h3.lab{margin:0}
+.seg{display:inline-flex;border:1px solid var(--hair2)}
+.seg button{min-height:44px;padding:0 14px;background:transparent;border:0;cursor:pointer;font:600 .8rem/1 var(--mono);color:var(--muted)}
+.seg button+button{border-left:1px solid var(--hair2)}
+.seg button[aria-pressed="true"]{color:var(--acct);box-shadow:inset 0 -2px 0 var(--acct)}
+.note{font:.76rem/1.45 var(--mono);color:var(--dim);margin:10px 0 0}
+
+/* figure vocabulary */
+#fig polygon,#fig polyline,#fig path,#fig circle,#fig rect,#fig line{vector-effect:non-scaling-stroke}
+#fig .t{fill:var(--ft)}#fig .f{fill:var(--ff)}#fig .s{fill:var(--fs)}
+#fig .t,#fig .f,#fig .s{stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#fig .hole{fill:var(--hole);stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#fig .bt{fill:var(--bedt)}#fig .bf{fill:var(--bedf)}#fig .bs{fill:var(--beds)}
+#fig .bt,#fig .bf,#fig .bs{stroke:var(--hair2);stroke-width:1;stroke-linejoin:round}
+#fig .lt{fill:var(--lanet);stroke:var(--hair2);stroke-width:1;stroke-linejoin:round}
+#fig .pt{fill:var(--sheet)}#fig .pf{fill:var(--sheetf)}
+#fig .pt,#fig .pf{stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#fig .mt{fill:var(--soft);stroke:var(--line);stroke-width:1}
+#fig .lit-t{fill:var(--acc-top)}#fig .lit-f{fill:var(--acc)}#fig .lit-s{fill:var(--acc-side)}
+#fig .lit-t,#fig .lit-f,#fig .lit-s{stroke:var(--acct);stroke-width:1;stroke-linejoin:round}
+#fig .glow{filter:var(--glowf)}
+#fig .hot .t,#fig .hot .f,#fig .hot .s,#fig .hot .fl,#fig .hot .el{stroke:var(--acct);stroke-width:1.6}
+#fig .hh .hole{stroke:var(--acct);stroke-width:2}
+#fig .hatch{fill:url(#hatch);stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#fig .hot .hatch{stroke:var(--acct);stroke-width:1.6}
+#fig .el{fill:none;stroke:var(--line);stroke-width:1;stroke-linejoin:round;stroke-linecap:round}
+#fig .ink{fill:none;stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#fig .faint{fill:none;stroke:var(--hair2);stroke-width:1}
+#fig .cell{fill:none;stroke:var(--hair2);stroke-width:1}
+#fig .cell.on{fill:var(--soft);stroke:var(--line)}
+#fig .cell.now{fill:var(--acc);stroke:var(--acct)}
+#fig .cell.sel{stroke:var(--acct);stroke-width:2}
+#fig .tick{fill:none;stroke:var(--line);stroke-width:1}
+#fig .tally{fill:var(--hair2);stroke:none}
+#fig .tally.on{fill:var(--ink)}
+#fig .hot .tally.on,#fig .tally.hot{fill:var(--acct)}
+#fig .beam{fill:var(--acc-soft);stroke:none}
+#fig .beamline{fill:none;stroke:var(--acct);stroke-width:2}
+#fig .guide{fill:none;stroke:var(--dim);stroke-width:1;stroke-dasharray:4 4}
+#fig .dot{fill:var(--bg);stroke:var(--ink);stroke-width:1.5}
+#fig .hotdot{fill:var(--acct);stroke:var(--acct);stroke-width:1.5}
+#fig .lead{fill:none;stroke:var(--dim);stroke-width:1}
+#fig .lead.hot{stroke:var(--acct)}
+#fig .bc{fill:var(--bg);stroke:var(--ink);stroke-width:1.5}
+#fig .badge.hot .bc{fill:var(--acc);stroke:var(--acct)}
+#fig .badge text,#fig .lbadge text{fill:var(--ink);font-family:var(--mono);font-weight:700;text-anchor:middle;dominant-baseline:central}
+#fig .badge.hot text,#fig .lbadge.hot text{fill:#fff}
+#fig .lbadge circle.bc{fill:var(--bg)}
+#fig .lbadge.hot circle.bc{fill:var(--acc);stroke:var(--acct)}
+#fig .hit{fill:transparent;stroke:none;pointer-events:all}
+#fig .lbl{fill:var(--muted);font-family:var(--mono)}
+#fig .cap{fill:var(--dim);font-family:var(--mono);font-weight:600;letter-spacing:.08em}
+#fig .cap.on{fill:var(--ink)}
+#fig .tip{fill:var(--acct);font-family:var(--mono);font-weight:700;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+#fig .wall{fill:var(--panel);fill-opacity:.55;stroke:var(--hair2);stroke-width:1}
+#fig .grid{fill:none;stroke:var(--hair2);stroke-width:1}
+#fig .plane{fill:none;stroke:var(--ink);stroke-width:1.2;stroke-dasharray:9 3 2 3}
+#fig [data-lane],#fig [data-spec],#fig [data-sheet]{cursor:pointer}
+#fig [data-part]{cursor:ew-resize}
+
+/* sections */
+section.s{border-top:1px solid var(--hair);padding:clamp(52px,8vw,112px) 0}
+.s-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,5vw,72px);align-items:start}
+.idx{font:500 .78rem/1 var(--mono);letter-spacing:.14em;color:var(--acct);margin:0 0 16px}
+h2{font-size:clamp(1.8rem,3.6vw,3rem);line-height:1.08;letter-spacing:-.015em;margin:0;font-weight:700;max-width:16ch}
+.copy p.sent{color:var(--muted);font-size:1.06rem;max-width:44ch;margin:16px 0 0}
+.panel{border:1px solid var(--hair);background:var(--panel)}
+.panel-head,.panel-foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px;padding:11px 14px;font:.72rem/1.35 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.panel-head{border-bottom:1px solid var(--hair)}
+.panel-foot{border-top:1px solid var(--hair)}
+.kv{margin:0;padding:0;list-style:none}
+.kv li{display:grid;grid-template-columns:minmax(0,9ch) minmax(0,1fr);gap:4px 16px;padding:12px 14px;border-bottom:1px solid var(--hair);font:.92rem/1.35 var(--mono)}
+.kv li:last-child{border-bottom:0}
+.kv .k{color:var(--dim);font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;padding-top:2px}
+.kv .v{color:var(--ink);overflow-wrap:anywhere}
+.par{list-style:none;margin:0;padding:0}
+.par li{border-bottom:1px solid var(--hair)}
+.par li:last-child{border-bottom:0}
+.par button{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:2px 14px;align-items:center;width:100%;min-height:52px;padding:8px 14px;background:transparent;border:0;border-left:3px solid transparent;cursor:pointer;text-align:left;color:var(--muted)}
+.par button:hover{background:var(--btn-hover)}
+.par .n{font:600 .8rem/1 var(--mono);width:24px;height:24px;border:1px solid var(--hair2);display:grid;place-items:center;color:var(--ink)}
+.par .k{font:.92rem/1.3 var(--sans)}
+.par .k small{display:block;font:.72rem/1.3 var(--mono);color:var(--dim)}
+.par .v{font:600 .9rem/1.2 var(--mono);color:var(--ink);text-align:right}
+.par button[aria-pressed="true"]{border-left-color:var(--acct);background:var(--acc-soft);color:var(--ink)}
+.par button[aria-pressed="true"] .n{border-color:var(--acct);color:var(--acct)}
+.plot{display:block;width:100%;height:auto}
+.plot .ax{fill:none;stroke:var(--hair2);stroke-width:1}
+.plot .gl{fill:none;stroke:var(--hair);stroke-width:1}
+.plot text{fill:var(--dim);font:14px var(--mono)}
+.plot .front{fill:none;stroke:var(--dim);stroke-width:1.2;stroke-dasharray:5 4}
+.plot .pt rect.mk{fill:var(--panel);stroke:var(--ink);stroke-width:1.5}
+.plot .pt text{fill:var(--ink);font-weight:700;font-size:14px}
+.plot .pt.dom rect.mk{stroke:var(--dim);stroke-dasharray:3 2}
+.plot .pt.dom text{fill:var(--dim)}
+.plot .pt[aria-pressed="true"] rect.mk{fill:var(--acc);stroke:var(--acct)}
+.plot .pt[aria-pressed="true"] text{fill:var(--acct)}
+.plot .pt{cursor:pointer;outline:none}
+.plot .pt:focus-visible rect.hit{stroke:var(--acct);stroke-width:2;stroke-dasharray:4 3}
+.plot rect.hit{fill:transparent;stroke:none}
+.picker{margin-top:22px;font:.82rem/1.3 var(--mono);color:var(--muted)}
+.picker label{display:flex;justify-content:space-between;margin-bottom:6px;gap:12px}
+.picker input[type=range]{width:100%;accent-color:var(--acc);height:44px;background:transparent;margin:0}
+.verdict{margin:8px 0 0;font:.9rem/1.45 var(--mono);color:var(--ink)}
+.verdict em{font-style:normal;color:var(--acct)}
+.ledger{list-style:none;margin:0;padding:0}
+.ledger li{border-bottom:1px solid var(--hair)}
+.ledger button{display:grid;grid-template-columns:28px minmax(0,1fr) minmax(0,1fr);gap:4px 16px;width:100%;min-height:56px;padding:12px 14px;background:transparent;border:0;border-left:3px solid transparent;cursor:pointer;text-align:left;color:var(--muted);align-items:start}
+.ledger button:hover{background:var(--btn-hover)}
+.ledger button[aria-pressed="true"]{border-left-color:var(--acct);background:var(--acc-soft);color:var(--ink)}
+.ledger .n{font:600 .8rem/1 var(--mono);width:24px;height:24px;border:1px solid var(--hair2);display:grid;place-items:center;color:var(--ink)}
+.ledger button[aria-pressed="true"] .n{border-color:var(--acct);color:var(--acct)}
+.ledger .pid{font:600 .92rem/1.3 var(--mono);color:var(--ink)}
+.ledger .pid small{display:block;font:.72rem/1.35 var(--mono);color:var(--dim);font-weight:400}
+.ledger .tagS{display:inline-block;margin-left:8px;padding:1px 6px;border:1px dashed var(--dim);font:600 .62rem/1.4 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase;vertical-align:1px}
+.ledger .q{font:.84rem/1.4 var(--mono)}
+.ledger .q small{display:block;color:var(--dim);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase}
+.totals{padding:12px 14px;border-top:1px solid var(--hair2);font:.84rem/1.5 var(--mono);color:var(--muted)}
+.totals div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 16px;padding:3px 0}
+.totals b{color:var(--ink)}
+#slabs{display:block;width:100%;height:auto;max-width:520px;margin:0 auto}
+#slabs polygon,#slabs polyline,#slabs path,#slabs circle,#slabs rect{vector-effect:non-scaling-stroke}
+#slabs .t{fill:var(--ft)}#slabs .f{fill:var(--ff)}#slabs .s{fill:var(--fs)}
+#slabs .t,#slabs .f,#slabs .s{stroke:var(--line);stroke-width:1;stroke-linejoin:round}
+#slabs .d .t,#slabs .d .f,#slabs .d .s{stroke-dasharray:5 3}
+#slabs .lit-t{fill:var(--acc-top)}#slabs .lit-f{fill:var(--acc)}#slabs .lit-s{fill:var(--acc-side)}
+#slabs .lit-t,#slabs .lit-f,#slabs .lit-s{stroke:var(--acct);stroke-width:1;stroke-linejoin:round}
+#slabs .dl{fill:none;stroke:var(--hair2);stroke-width:1}
+#slabs .on .dl{stroke:#ffd9c4}
+#slabs .bc{fill:var(--bg);stroke:var(--ink);stroke-width:1.5}
+#slabs .on .bc{fill:var(--acc);stroke:var(--acct)}
+#slabs text{fill:var(--ink);font-family:var(--mono);font-weight:700;text-anchor:middle;dominant-baseline:central}
+#slabs .on text{fill:#fff}
+#slabs .hit{fill:transparent;stroke:none}
+#slabs g[data-slab]{cursor:pointer}
+#slabs g[data-slab]:focus-visible{outline:none}
+#slabs g[data-slab]:focus-visible .bc{stroke:var(--acct);stroke-width:3}
+
+.final{border-top:1px solid var(--hair);padding:clamp(64px,10vw,128px) 0 clamp(52px,8vw,88px)}
+.final h2{font-size:clamp(2.2rem,5.4vw,4.2rem);max-width:12ch}
+footer{border-top:1px solid var(--hair);padding:22px 0 40px;color:var(--dim);font:.76rem/1.5 var(--mono);display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+
+@media (max-width:900px){
+  .s-grid,.deck{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:640px){
+  .plot text,.plot .pt text{font-size:20px}
+  .steps{grid-template-columns:minmax(0,1fr)}
+  .steps li+li{border-left:0;border-top:1px solid var(--hair)}
+  .controls .hint{margin-left:0;text-align:left;width:100%}
+  .row{grid-template-columns:28px minmax(0,1fr) auto;grid-template-areas:"n k k" "n v1 v2"}
+  .row .n{grid-area:n;align-self:start}.row .k{grid-area:k}
+  .row .v{text-align:left}
+  .kv li{grid-template-columns:minmax(0,1fr)}
+  .ledger button{grid-template-columns:28px minmax(0,1fr);grid-template-areas:"n p" "n a" "n b"}
+  .ledger .n{grid-area:n}
+  .btn{padding:0 16px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 .55 0 0 0  0 0 .25 0 0  0 0 0 .8 0" result="c"/>
+      <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+      <rect width="5" height="5" style="fill:var(--ft)"/>
+      <path d="M0 0V5" style="stroke:var(--hatch);stroke-width:1"/>
+    </pattern>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/" aria-label="OverDrafter home"><i aria-hidden="true"></i>OverDrafter</a>
+    <div class="top-r">
+      <button class="btn sm" id="theme" type="button" aria-label="Switch color theme"><span id="themeLbl">Light</span></button>
+      <a class="btn primary sm" href="/">Create account</a>
+    </div>
+  </header>
+</div>
+
+<main>
+<div class="wrap hero">
+  <p class="eyebrow">Drawing in. Quotes out.</p>
+  <h1>OverDrafter is your manufacturing agent for building frontier hardware.</h1>
+  <p class="lede">Hand it a drawing. It reads the specs, requests quotes from providers in parallel, and compares price and lead time.</p>
+  <div class="cta-row"><a class="btn primary" href="/">Create account</a><a class="btn" href="#bench">See it work</a></div>
+  <p class="beta">Automatic vendor collection is only in the free, invitation-only Founding Beta.</p>
+</div>
+
+<section class="bench" id="bench" aria-labelledby="bench-h">
+  <div class="wrap">
+    <h2 class="sr" id="bench-h">One figure: a drawing becomes a part, and the part becomes six quotes</h2>
+    <div class="plate-head">
+      <span><b>FLT-BRACKET-01</b> · Rev C · 6061-T6 Aluminum · ±0.005 in · 25 pcs</span>
+      <span class="sample">Sample data · not live quotes</span>
+    </div>
+    <ol class="steps" id="steps" aria-label="Story steps">
+      <li><button type="button" data-step="1"><span class="n">1</span>Read the drawing</button></li>
+      <li><button type="button" data-step="2"><span class="n">2</span>See the part</button></li>
+      <li><button type="button" data-step="3"><span class="n">3</span>Six quotes in parallel</button></li>
+    </ol>
+    <div class="stagebox" id="stage" tabindex="0" role="group" aria-label="Quote bench figure. Arrow keys, Home and End move the selection. Enter replays. E explodes the part. S toggles the section cut." aria-describedby="figdesc">
+      <svg id="fig" role="img" aria-label="Isometric machine, left to right. A drawing sheet is read. FLT-BRACKET-01 appears as a machined bracket with numbered callouts for material, finish, tolerance and quantity. Six provider lanes each carry a sample quote: the carriage sits at the lead time, the column rises to the price."></svg>
+      <p class="sr" id="figdesc">Sample data, not live quotes. The same information is available in the lists below the figure.</p>
+    </div>
+    <div class="controls">
+      <button class="btn" id="b-replay" type="button">Replay</button>
+      <button class="btn" id="b-explode" type="button" aria-pressed="false">Explode</button>
+      <button class="btn" id="b-section" type="button" aria-pressed="false">Section cut A–A</button>
+      <span class="hint">Drag the part sideways to explode · click the drawing to replay · hover or tap a lane or callout</span>
+    </div>
+    <div class="deck">
+      <div>
+        <div class="readout" id="readout" role="status" aria-live="polite" aria-atomic="true"></div>
+        <h3 class="lab">Read from the drawing (callouts 1 to 4)</h3>
+        <ul class="rows spec" id="specrows"></ul>
+      </div>
+      <div>
+        <div class="rhead">
+          <h3 class="lab">Six sample quotes · FLT-BRACKET-01 × 25</h3>
+          <div class="seg" role="group" aria-label="Sort quotes by"><button type="button" data-sort="price" aria-pressed="true">Price</button><button type="button" data-sort="lead" aria-pressed="false">Lead time</button></div>
+        </div>
+        <ul class="rows" id="provrows"></ul>
+        <p class="note">Sample data · not live quotes. Column height in the figure is price; carriage position is lead time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s1">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">01 / 04</p>
+      <h2>Agents turn drawings into quotes</h2>
+      <p class="sent">The agent reads the specs off the drawing and carries them into every quote request.</p>
+      <div class="cta-row"><button class="btn" type="button" data-go="1">Replay the reading</button></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>FLT-BRACKET-01 · title block</span><span class="sample">Sample data · not live quotes</span></div>
+      <ul class="kv" id="kv"></ul>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s2">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">02 / 04</p>
+      <h2>Works autonomously, quotes in parallel</h2>
+      <p class="sent">One request goes to every provider at once, so no one waits in line behind another.</p>
+      <div class="cta-row"><button class="btn" type="button" data-go="3">Replay the fan-out</button></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>6 requests · sent together</span><span class="sample">Sample data · not live quotes</span></div>
+      <ul class="par" id="par"></ul>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s3">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">03 / 04</p>
+      <h2>Compare the best supplier for every part</h2>
+      <p class="sent">Price and lead time on one plane. Weigh one against the other and see who wins.</p>
+      <div class="picker">
+        <label for="weight"><span>Lowest price</span><span>Fastest lead time</span></label>
+        <input id="weight" type="range" min="0" max="100" value="0" aria-describedby="verdict">
+      </div>
+      <p class="verdict" id="verdict" aria-live="polite"></p>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>Lead time × price · FLT-BRACKET-01 × 25</span><span class="sample">Sample data · not live quotes</span></div>
+      <svg class="plot" id="plot" viewBox="0 0 560 360" role="group" aria-label="Scatter plot of six sample providers: lead time across, price up. Select a point to select the provider."></svg>
+      <div class="panel-foot"><span>Dashed line: no provider beats these on both price and lead time</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s4">
+  <div class="wrap s-grid">
+    <div class="copy">
+      <p class="idx">04 / 04</p>
+      <h2>Quote the whole project at once</h2>
+      <p class="sent">Put every part of the build in one project. Each part gets its own set of quotes to compare.</p>
+      <svg id="slabs" role="img" aria-label="Five part slabs stacked in one project. The selected part is lit. Dashed slabs are invented sample parts."></svg>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>Project · five parts</span><span class="sample">Sample data · not live quotes</span></div>
+      <ul class="ledger" id="ledger"></ul>
+      <div class="totals" id="totals"></div>
+      <div class="panel-foot"><span>Part 1 is the bracket above. Parts 2 to 5 are invented sample parts; their quotes are computed from the same six sample providers.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Try OverDrafter now.</h2>
+    <div class="cta-row"><a class="btn primary" href="/">Create account</a></div>
+  </div>
+</section>
+</main>
+
+<div class="wrap">
+  <footer>
+    <span>OverDrafter</span>
+    <span class="sample">All figures on this page are sample data · not live quotes</span>
+  </footer>
+</div>
+
+<script>
+(()=>{
+'use strict';
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const mqRM=matchMedia('(prefers-reduced-motion: reduce)');
+let REDUCED=mqRM.matches;
+const C=Math.cos(Math.PI/6), HS=.5;
+const r1=n=>Math.round(n*10)/10;
+const P=(x,y,z)=>[(x-y)*C,(x+y)*HS-z];
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const seg=(t,a,b)=>clamp((t-a)/(b-a),0,1);
+const money=n=>'$'+n.toLocaleString('en-US');
+
+/* ---------- sample data model (single source for every number on the page) ---------- */
+const PART={id:'FLT-BRACKET-01',rev:'Rev C',material:'6061-T6 Aluminum',finish:'Clear Anodize Type II',tol:'±0.005 in',qty:25};
+const SPECS=[
+  {k:'Material',v:PART.material,note:'Read from the title block and sent with every request.'},
+  {k:'Finish',v:PART.finish,note:'Read from the drawing notes and sent with every request.'},
+  {k:'Tolerance',v:PART.tol,note:'Read from the drawing and applied to the toleranced features.'},
+  {k:'Quantity',v:PART.qty+' pcs',note:'The quantity every provider is asked to quote.'}
+];
+const PROV=[['Northline Manufacturing',445,16],['Apex CNC',487,12],['Mesa Precision',525,9],['ForgeWorks',558,11],['Axis Manufacturing',610,7],['Summit Prototype',690,5]]
+  .map(([name,price,lead],i)=>({i,name,price,lead,short:name.split(' ')[0]}));
+const minP=Math.min(...PROV.map(p=>p.price)), maxP=Math.max(...PROV.map(p=>p.price));
+const minL=Math.min(...PROV.map(p=>p.lead)), maxL=Math.max(...PROV.map(p=>p.lead));
+const beater=p=>PROV.find(q=>q!==p&&q.price<=p.price&&q.lead<=p.lead&&(q.price<p.price||q.lead<p.lead));
+const onFront=p=>!beater(p);
+const rankP=p=>PROV.filter(q=>q.price<p.price).length+1;
+const rankL=p=>PROV.filter(q=>q.lead<p.lead).length+1;
+const ord=n=>n+(n===1?'st':n===2?'nd':n===3?'rd':'th');
+function tierOf(p){
+  if(p.price===minP)return 'Lowest price';
+  if(p.lead===minL)return 'Fastest lead time';
+  const b=beater(p);
+  return b?'Beaten: '+b.name+' is cheaper and no slower':'On the frontier: none is both cheaper and faster';
+}
+const PARTS=[
+  {id:PART.id,rev:PART.rev,qty:PART.qty,desc:'Machined bracket · '+PART.material,real:true},
+  {id:'FLT-SPACER-02',rev:'Rev A',qty:100,desc:'Turned spacer · 303 Stainless',base:212,ls:.75},
+  {id:'FLT-HOUSING-03',rev:'Rev B',qty:10,desc:'Machined housing · 6061-T6 Aluminum',base:1380,ls:1.35},
+  {id:'FLT-PANEL-04',rev:'Rev A',qty:40,desc:'Sheet metal panel · 5052 Aluminum',base:640,ls:.85},
+  {id:'FLT-FRAME-05',rev:'Rev A',qty:5,desc:'Welded frame · mild steel',base:2150,ls:1.6}
+];
+function quotesFor(pi){
+  const pt=PARTS[pi];
+  return PROV.map((p,j)=>{
+    if(pt.real)return {price:p.price,lead:p.lead};
+    const w=1+(((pi*5+j*3)%7)-3)/100, lw=((pi*3+j*5)%5)-2;
+    return {price:Math.round(pt.base*p.price/445*w/5)*5, lead:Math.max(2,Math.round(p.lead*pt.ls)+(lw>1?1:lw<-1?-1:0))};
+  });
+}
+PARTS.forEach((pt,pi)=>{
+  const q=quotesFor(pi); pt.quotes=q;
+  let lo=0,fa=0;
+  q.forEach((x,j)=>{if(x.price<q[lo].price)lo=j;if(x.lead<q[fa].lead||(x.lead===q[fa].lead&&x.price<q[fa].price))fa=j});
+  pt.lo=lo;pt.fa=fa;
+});
+
+/* ---------- world layout (flow runs along +x, lanes spread along +y) ---------- */
+const ZB=18;
+const SHEET={x0:-70,x1:54,y0:55,y1:165};
+const PL={x0:175,x1:365,y0:55,y1:190,z1:ZB+6};
+const BR={x:190,y:65,z:PL.z1};
+const MAN={x0:365,x1:376,y0:6,y1:240};
+const BED={x0:-96,x1:742,y0:-14,y1:292};
+const LANE_END=722, LX0=405, DAYS=18, LANE_W=24, WALL_Y=0;
+const laneY=i=>18+i*42;
+const colH=p=>16+(p-400)/290*84;
+const zl=p=>ZB+2+5+colH(p);
+const LZ=ZB+2;
+const TALLY={x0:184,pitch:7,y:172};
+const OFFV={base:[0,0,0],web:[-10,0,58],gus:[52,0,40]};
+const CH=2.5, FR=6;
+
+/* ---------- state ---------- */
+const FINAL=Infinity;
+const T={SCAN0:300,SCAN1:3000,S1:3400,BELT0:3300,BELT1:4200,BUILD0:4000,BUILD1:6400,TALLY0:6200,TALLY1:7100,BADGE0:6300,S2:7600,SLIDE0:8000,SLIDE1:10200,COL0:9900,COL1:11300,END:11600};
+const S={t:REDUCED?FINAL:0,e:REDUCED?0:0,eT:0,sec:false,sel:{kind:'lane',i:0},userSel:false,sort:'price',playing:false,focus:0,manual:false};
+const fig=$('#fig'), stage=$('#stage');
+fig.innerHTML='<g id="scene"></g>';
+const scene=$('#scene');
+let pxW=1000, mobile=false, vb={x:0,y:0,w:1000,h:650}, vbT={...vb};
+
+/* ---------- drawing helpers ---------- */
+const ps=a=>a.map(p=>{const q=P(p[0],p[1],p[2]);return r1(q[0])+','+r1(q[1])}).join(' ');
+const pl=(a,c,x)=>`<polygon class="${c}" points="${ps(a)}"${x?' '+x:''}/>`;
+const pln=(a,c,x)=>`<polyline class="${c}" points="${ps(a)}"${x?' '+x:''}/>`;
+const BX={t:'t',f:'f',s:'s'}, BEDC={t:'bt',f:'bf',s:'bs'}, SHC={t:'pt',f:'pf',s:'pf'}, LIT={t:'lit-t',f:'lit-f',s:'lit-s'};
+function box(x,y,z,w,d,h,c=BX,ex=''){
+  return pl([[x,y+d,z],[x+w,y+d,z],[x+w,y+d,z+h],[x,y+d,z+h]],c.f,ex)+
+         pl([[x+w,y,z],[x+w,y+d,z],[x+w,y+d,z+h],[x+w,y,z+h]],c.s,ex)+
+         pl([[x,y,z+h],[x+w,y,z+h],[x+w,y+d,z+h],[x,y+d,z+h]],c.t,ex);
+}
+const ellipse3=(f,n=18)=>{const a=[];for(let k=0;k<n;k++){const th=2*Math.PI*k/n;a.push(f(Math.cos(th),Math.sin(th)))}return a};
+function stadium(v,cx,cy,len,wid,z){
+  const r=wid/2,h=(len-wid)/2,a=[];
+  for(let k=0;k<=8;k++){const t=-Math.PI/2+Math.PI*k/8;a.push(v(cx+h+r*Math.cos(t),cy+r*Math.sin(t),z))}
+  for(let k=0;k<=8;k++){const t=Math.PI/2+Math.PI*k/8;a.push(v(cx-h+r*Math.cos(t),cy+r*Math.sin(t),z))}
+  return a;
+}
+const sp=(x,y,z)=>P(x,y,z);
+
+/* ---------- bracket: one machined part (L-bracket with web, gusset, fillet, chamfers, holes, slots) ---------- */
+function mk(part,e,drop){const o=OFFV[part];return (x,y,z)=>[BR.x+x+o[0]*e,BR.y+y+o[1]*e,BR.z+z+o[2]*e+drop]}
+const FILN=6;
+const arcPt=k=>{const th=Math.PI/2*k/FILN;return [20-FR*Math.cos(th),18-FR*Math.sin(th)]};
+function bracketSVG(prog,hotAll,hotHoles){
+  const e=S.e, sec=S.sec, yb=sec?50:100;
+  const dr=i=>(1-prog[i])*36, op=i=>prog[i]>=1?'':` opacity="${r1(prog[i])}"`;
+  const hotC=i=>(hotAll||(prog[i]>0&&prog[i]<1))?' hot':'';
+  const hh=hotHoles?' hh':'';
+  let out='';
+  // base plate
+  if(prog[0]>0){
+    const v=mk('base',e,dr(0));
+    let s=pl([v(160,0,0),v(160,yb,0),v(160,yb,12-CH),v(160,0,12-CH)],'s');
+    if(!sec)s+=pl([v(0,100,0),v(160,100,0),v(160,100,12-CH),v(0,100,12-CH)],'f');
+    if(!sec){
+      s+=pl([v(0,0,12),v(160-CH,0,12),v(160-CH,100-CH,12),v(0,100-CH,12)],'t');
+      s+=pl([v(160-CH,0,12),v(160,0,12-CH),v(160,100,12-CH),v(160-CH,100-CH,12)],'t');
+      s+=pl([v(0,100-CH,12),v(160-CH,100-CH,12),v(160,100,12-CH),v(0,100,12-CH)],'t');
+    }else{
+      s+=pl([v(0,0,12),v(160-CH,0,12),v(160-CH,50,12),v(0,50,12)],'t');
+      s+=pl([v(160-CH,0,12),v(160,0,12-CH),v(160,50,12-CH),v(160-CH,50,12)],'t');
+    }
+    let hs='';
+    [[45,18],[130,18],[45,82],[130,82]].forEach(c=>{if(c[1]<yb-6)hs+=pl(stadium(v,c[0],c[1],28,9,12),'hole')});
+    s+=`<g class="${hh.trim()}">${hs}</g>`;
+    out+=`<g class="part${hotC(0)}" data-part="base"${op(0)}>${s}</g>`;
+  }
+  // web (upright)
+  if(prog[1]>0){
+    const v=mk('web',e,dr(1));
+    let s=pl([v(14,0,12),v(14,yb,12),v(14,yb,90-CH),v(14,0,90-CH)],'s');
+    s+=pl([v(14-CH,0,90),v(14,0,90-CH),v(14,yb,90-CH),v(14-CH,yb,90)],'t');
+    s+=pl([v(0,0,90),v(14-CH,0,90),v(14-CH,yb,90),v(0,yb,90)],'t');
+    if(!sec)s+=pl([v(0,100,12),v(14,100,12),v(14,100,90-CH),v(14-CH,100,90),v(0,100,90)],'f');
+    let hs='';
+    [25,75].forEach(cy=>{ if(cy<yb-7)[34,66].forEach(cz=>{hs+=pl(ellipse3((c,sn)=>v(14,cy+6*c,cz+6*sn)),'hole')}) });
+    s+=`<g class="${hh.trim()}">${hs}</g>`;
+    out+=`<g class="part${hotC(1)}" data-part="web"${op(1)}>${s}</g>`;
+  }
+  // fillet bead (belongs to the foot, drawn after the web)
+  if(prog[0]>0){
+    const v=mk('base',e,dr(0));
+    let s='';
+    for(let k=0;k<FILN;k++){
+      const a=arcPt(k),b=arcPt(k+1),pct=Math.round(100*Math.sin(Math.PI/2*(k+.5)/FILN));
+      const cm=`color-mix(in srgb,var(--ft) ${pct}%,var(--fs))`;
+      s+=pl([[a[0],0,a[1]],[a[0],yb,a[1]],[b[0],yb,b[1]],[b[0],0,b[1]]].map(q=>v(...q)),'fl',`style="fill:${cm};stroke:${cm};stroke-width:1"`);
+    }
+    if(!sec){
+      const prof=[[14,12]];for(let k=0;k<=FILN;k++)prof.push(arcPt(k));
+      s+=pl(prof.map(q=>v(q[0],100,q[1])),'f');
+    }
+    s+=pln([v(20,0,12),v(20,yb,12)],'el')+pln([v(14,0,18),v(14,yb,18)],'el');
+    out+=`<g class="part${hotC(0)}" data-part="base"${op(0)}>${s}</g>`;
+  }
+  // gusset rib
+  if(prog[2]>0){
+    const v=mk('gus',e,dr(2)), y1=46, y2=sec?50:54;
+    let s=pl([v(14,y1,70),v(14,y2,70),v(70,y2,12),v(70,y1,12)],'t');
+    if(!sec)s+=pl([v(14,y2,70),v(14,y2,12),v(70,y2,12)],'f');
+    out+=`<g class="part${hotC(2)}" data-part="gus"${op(2)}>${s}</g>`;
+  }
+  // section caps (hatched cut face at y=50)
+  if(sec){
+    const cap=(i,part,pts)=>{const v=mk(part,e,dr(i));return `<polygon class="hatch" points="${ps(pts.map(q=>v(q[0],50,q[1])))}"/>`};
+    const complete=prog[0]>=1&&prog[1]>=1&&prog[2]>=1;
+    const hotG=hotAll?' hot':'';
+    if(complete&&e<.01){
+      out+=`<g class="part${hotG}" data-part="base">${cap(0,'base',[[0,0],[160,0],[160,12-CH],[160-CH,12],[70,12],[14,70],[14,90-CH],[14-CH,90],[0,90]])}</g>`;
+    }else{
+      if(prog[0]>0){
+        const pts=[[0,0],[160,0],[160,12-CH],[160-CH,12],[20,12]];for(let k=1;k<=FILN;k++)pts.push(arcPt(k));pts.push([14,12],[0,12]);
+        out+=`<g class="part${hotG}" data-part="base"${op(0)}>${cap(0,'base',pts)}</g>`;
+      }
+      if(prog[1]>0)out+=`<g class="part${hotG}" data-part="web"${op(1)}>${cap(1,'web',[[0,12],[14,12],[14,90-CH],[14-CH,90],[0,90]])}</g>`;
+      if(prog[2]>0)out+=`<g class="part${hotG}" data-part="gus"${op(2)}>${cap(2,'gus',[[14,12],[70,12],[14,70]])}</g>`;
+    }
+  }
+  return out;
+}
+/* callout anchors: world points on visible faces, following their part */
+function anchors(prog){
+  const e=S.e;
+  const w=(part,i,x,y,z)=>mk(part,e,(1-prog[i])*36)(x,y,z);
+  return [
+    w('web',1,4,20,90),
+    w('base',0,100,30,12),
+    w('web',1,14,25,66),
+    [BR.x-BR.x+TALLY.x0+24*TALLY.pitch+2.2, TALLY.y+4, PL.z1]
+  ];
+}
+const BADGE_DIR=[[0,-1,58],[1,0,70],[.6,-.8,60],[-1,0,64]];
+
+/* ---------- static-ish environment ---------- */
+function bedSVG(){
+  let s=box(BED.x0,BED.y0,0,BED.x1-BED.x0,BED.y1-BED.y0,ZB,BEDC);
+  // wall behind the lanes (price scale)
+  const wt=zl(740), wx0=MAN.x1, wx1=LANE_END;
+  s+=pl([[wx0,WALL_Y,ZB],[wx1,WALL_Y,ZB],[wx1,WALL_Y,wt],[wx0,WALL_Y,wt]],'wall');
+  [450,550,650].forEach(p=>{s+=pln([[wx0,WALL_Y,zl(p)],[wx1,WALL_Y,zl(p)]],'grid')});
+  return s;
+}
+const BED_S=bedSVG();
+
+function sheetSVG(scan){
+  const W=SHEET.x1-SHEET.x0, D=SHEET.y1-SHEET.y0, z=ZB+2;
+  const X=u=>SHEET.x0+u, Y=v=>SHEET.y0+v;
+  let s=box(SHEET.x0,SHEET.y0,ZB,W,D,2,SHC);
+  s+=pln([[X(6),Y(6),z],[X(W-6),Y(6),z],[X(W-6),Y(D-6),z],[X(6),Y(D-6),z],[X(6),Y(6),z]],'faint');
+  // side view of the bracket, drawn from the same profile as the part
+  const mx=x=>X(14+x*.5), my=zz=>Y(58-zz*.5);
+  const prof=[[0,90],[14,90],[14,70],[70,12],[160,12],[160,0],[0,0]].map(q=>[mx(q[0]),my(q[1]),z]);
+  s+=pl(prof,'ink','style="fill:none"');
+  s+=pln([[mx(0),Y(68),z],[mx(160),Y(68),z]],'ink');
+  s+=pln([[mx(0),Y(65),z],[mx(0),Y(71),z]],'ink')+pln([[mx(160),Y(65),z],[mx(160),Y(71),z]],'ink');
+  s+=pln([[mx(0)-6,my(0),z],[mx(0)-6,my(90),z]],'ink')+pln([[mx(0)-9,my(0),z],[mx(0)-3,my(0),z]],'ink')+pln([[mx(0)-9,my(90),z],[mx(0)-3,my(90),z]],'ink');
+  // title block: five fields, read left to right
+  const cw=(W-12)/5; let n=0, now=-1;
+  const beamU=scan*W;
+  for(let i=0;i<5;i++){
+    const c0=6+i*cw, mid=c0+cw/2, lit=beamU>mid, isNow=scan>0&&scan<1&&lit&&beamU<mid+cw;
+    if(lit)n++; if(isNow)now=i;
+    const selc=(S.sel.kind==='spec'&&S.sel.i===i&&selShown())?' sel':'';
+    s+=pl([[X(c0),Y(80),z],[X(c0+cw),Y(80),z],[X(c0+cw),Y(100),z],[X(c0),Y(100),z]],'cell'+(lit?(isNow?' now':' on'):'')+selc);
+    s+=pln([[X(c0+3),Y(86),z],[X(c0+cw*.6),Y(86),z]],'ink')+pln([[X(c0+3),Y(93),z],[X(c0+cw*.8),Y(93),z]],'ink');
+  }
+  s=`<g data-sheet="1" role="presentation">${s}`;
+  if(scan>0&&scan<1){
+    const bx=SHEET.x0+beamU;
+    s+=pl([[bx,SHEET.y0,z],[bx,SHEET.y1,z],[bx,SHEET.y1,z+26],[bx,SHEET.y0,z+26]],'beam')+pln([[bx,SHEET.y0,z],[bx,SHEET.y1,z]],'beamline','class="beamline glow"');
+  }
+  return s+'</g>';
+}
+function beltSVG(k){
+  let s=box(SHEET.x1,100,ZB,PL.x0-SHEET.x1,30,2,{t:'lt',f:'bf',s:'bs'});
+  if(k>0&&k<1){const x=SHEET.x1+4+k*(PL.x0-SHEET.x1-20);s+=`<g class="glow">`+box(x,108,ZB+2,12,14,6,LIT)+`</g>`}
+  return s;
+}
+function plinthSVG(tn,hotQ){
+  let s=box(PL.x0,PL.y0,ZB,PL.x1-PL.x0,PL.y1-PL.y0,PL.z1-ZB,BX);
+  let t='';
+  for(let i=0;i<25;i++){
+    const x=TALLY.x0+i*TALLY.pitch;
+    t+=pl([[x,TALLY.y,PL.z1],[x+4.4,TALLY.y,PL.z1],[x+4.4,TALLY.y+8,PL.z1],[x,TALLY.y+8,PL.z1]],'tally'+(i<tn?' on':''));
+  }
+  s+=`<g class="${hotQ?'hot':''}">${t}</g>`;
+  return s;
+}
+function manSVG(lit){
+  return box(MAN.x0,MAN.y0,ZB,MAN.x1-MAN.x0,MAN.y1-MAN.y0,3,lit?{t:'mt',f:'f',s:'s'}:BX);
+}
+/* ---------- lanes ---------- */
+function laneSVG(i,car,col,selOn){
+  const p=PROV[i], yc=laneY(i);
+  const home=MAN.x1+2, xt=LX0+p.lead*DAYS;
+  const cx=home+(xt-home)*car, h=colH(p.price)*col;
+  let s=box(MAN.x1,yc-LANE_W/2,ZB,LANE_END-MAN.x1,LANE_W,2,selOn?{t:'lit-t',f:'lit-f',s:'lit-s'}:{t:'lt',f:'bf',s:'bs'},selOn?'style="fill-opacity:.35"':'');
+  const c=selOn?LIT:BX;
+  s+=`<g${selOn?' class="glow"':''}>`+box(cx,yc-7,LZ,18,14,5,c);
+  if(h>.6)s+=box(cx+4,yc-3,LZ+5,10,6,h,c);
+  s+='</g>';
+  return `<g data-lane="${i}">${s}</g>`;
+}
+function rulerSVG(U){
+  const y=252, xs=d=>LX0+d*DAYS+9;
+  let s=pln([[xs(4),y,ZB],[xs(17),y,ZB]],'tick');
+  const dots=[xs(4),xs(17)].map(x=>{const q=P(x,y,ZB);return `<circle class="dot" cx="${r1(q[0])}" cy="${r1(q[1])}" r="${r1(2.6*U)}"/>`}).join('');
+  let lbl='';
+  [5,10,15].forEach(d=>{
+    s+=pln([[xs(d),y,ZB],[xs(d),y+7,ZB]],'tick');
+    const q=P(xs(d),y+7,ZB);
+    lbl+=`<text class="lbl" data-lbl="ruler" x="${r1(q[0])}" y="${r1(q[1]+14*U)}" text-anchor="middle" style="font-size:${r1(12*U)}px">${d} d</text>`;
+  });
+  [450,550,650].forEach(p=>{
+    const q=P(MAN.x1,WALL_Y,zl(p));
+    lbl+=`<text class="lbl" data-lbl="wall" x="${r1(q[0]-9*U)}" y="${r1(q[1]+4*U)}" text-anchor="end" style="font-size:${r1(12*U)}px">${money(p)}</text>`;
+  });
+  return {s,dots,lbl};
+}
+function captionsSVG(stg,U){
+  const fs=9.5;
+  const floor=(x,y,txt,on)=>{const q=P(x,y,ZB);return `<text class="cap${on?' on':''}" data-lbl="cap" transform="matrix(${C} ${HS} ${-C} ${HS} ${r1(q[0])} ${r1(q[1])})" style="font-size:${fs}px">${txt}</text>`};
+  let s=floor(SHEET.x0+2,178,'1  READ THE DRAWING',stg===1);
+  s+=floor(PL.x0+4,214,'2  THE PART',stg===2);
+  const qz=P(MAN.x1+6,WALL_Y,zl(740)-11);
+  s+=`<text class="cap${stg===3?' on':''}" data-lbl="cap" transform="matrix(${C} ${HS} 0 1 ${r1(qz[0])} ${r1(qz[1])})" style="font-size:${fs}px">3  SIX QUOTES, IN PARALLEL</text>`;
+  return s;
+}
+
+/* ---------- selection ---------- */
+const ITEMS=[...SPECS.map((_,i)=>({kind:'spec',i})),...PROV.map((_,i)=>({kind:'lane',i}))];
+const itemIdx=s=>ITEMS.findIndex(x=>x.kind===s.kind&&x.i===s.i);
+const selShown=()=>S.t>=T.COL1||S.userSel;
+
+/* ---------- main draw ---------- */
+let lastAnch=null;
+function draw(){
+  const t=S.t, FIN=t===FINAL;
+  const U=vb.w/pxW;
+  const scan=FIN?1:seg(t,T.SCAN0,T.SCAN1);
+  const belt=FIN?0:seg(t,T.BELT0,T.BELT1);
+  const bp=FIN?1:seg(t,T.BUILD0,T.BUILD1);
+  const prog=[0,1,2].map(k=>FIN?1:ease(seg(bp,k*.28,k*.28+.44)));
+  const tn=FIN?25:Math.floor(25*seg(t,T.TALLY0,T.TALLY1));
+  const fan=FIN?false:(t>=T.S2&&t<T.SLIDE1);
+  const car=FIN?1:ease(seg(t,T.SLIDE0,T.SLIDE1));
+  const col=FIN?1:ease(seg(t,T.COL0,T.COL1));
+  const stg=FIN?3:(t<T.S1?1:t<T.S2?2:3);
+  const shown=selShown(), sel=S.sel;
+  const hotAll=shown&&sel.kind==='spec'&&sel.i<2;
+  const hotHoles=shown&&sel.kind==='spec'&&sel.i===2;
+  const hotQ=shown&&sel.kind==='spec'&&sel.i===3;
+  let s=BED_S;
+  s+=sheetSVG(scan);
+  s+=beltSVG(belt);
+  s+=plinthSVG(tn,hotQ);
+  s+=manSVG(fan);
+  // ghost footprint cue while the part is not yet built
+  const an=anchors(prog);
+  s+=bracketSVG(prog,hotAll,hotHoles);
+  for(let i=0;i<6;i++)s+=laneSVG(i,car,col,shown&&sel.kind==='lane'&&sel.i===i);
+  const rl=rulerSVG(U);
+  const showQ=!mobile||S.focus===3;
+  s+=rl.s+rl.dots+(showQ?rl.lbl:'');
+  if(!mobile)s+=captionsSVG(stg,U);
+  // lane badges
+  for(let i=0;i<6;i++){
+    const q=P(LANE_END+16,laneY(i),LZ), hot=shown&&sel.kind==='lane'&&sel.i===i;
+    s+=`<g class="lbadge${hot?' hot':''}" data-lane="${i}"><circle class="hit" cx="${r1(q[0])}" cy="${r1(q[1])}" r="${r1(22*U)}"/><circle class="bc" data-lbl="badge" cx="${r1(q[0])}" cy="${r1(q[1])}" r="${r1(12*U)}"/><text x="${r1(q[0])}" y="${r1(q[1])}" style="font-size:${r1(13*U)}px">${i+1}</text></g>`;
+  }
+  // selected lane price tag
+  if(shown&&sel.kind==='lane'&&col>.9){
+    const p=PROV[sel.i], yc=laneY(sel.i), q=P(LX0+p.lead*DAYS+9,yc,LZ+5+colH(p.price));
+    s+=`<text class="tip" data-lbl="tip" x="${r1(q[0])}" y="${r1(q[1]-9*U)}" text-anchor="middle" style="font-size:${r1(13*U)}px;stroke-width:${r1(4*U)}px">${money(p.price)} · ${p.lead} d</text>`;
+  }
+  // explode guides + section plane marks
+  const e=S.e, gd=[];
+  if(e>.02&&prog[1]>=1){
+    const mkr=(part,x,y,z)=>mk(part,0,0)(x,y,z);
+    const refs=[['web',[7,S.sec?40:85,90]],['gus',[40,48,43]]];
+    refs.forEach(([part,l])=>{
+      const a=mk(part,0,0)(...l), b=mk(part,e,0)(...l);
+      const A=P(...a),B=P(...b);
+      gd.push(`<path class="guide" d="M${r1(A[0])},${r1(A[1])}L${r1(B[0])},${r1(B[1])}" data-end="${r1(A[0])},${r1(A[1])};${r1(B[0])},${r1(B[1])}"/>`);
+      gd.push(`<circle class="dot" cx="${r1(A[0])}" cy="${r1(A[1])}" r="${r1(2.6*U)}"/><circle class="dot" cx="${r1(B[0])}" cy="${r1(B[1])}" r="${r1(2.6*U)}"/>`);
+    });
+  }
+  s+=gd.join('');
+  if(S.sec&&prog[0]>=1){
+    const v=mk('base',0,0), a=v(-12,50,12), b=v(172,50,12), A=P(...a), B=P(...b);
+    s+=`<path class="plane" d="M${r1(A[0])},${r1(A[1])}L${r1(B[0])},${r1(B[1])}"/>`;
+    s+=`<circle class="dot" cx="${r1(A[0])}" cy="${r1(A[1])}" r="${r1(2.8*U)}"/><circle class="dot" cx="${r1(B[0])}" cy="${r1(B[1])}" r="${r1(2.8*U)}"/>`;
+    s+=`<text class="lbl" data-lbl="aa" x="${r1(A[0]-14*U)}" y="${r1(A[1]-8*U)}" text-anchor="middle" style="font-size:${r1(13*U)}px;font-weight:700;fill:var(--ink)">A</text>`;
+    s+=`<text class="lbl" data-lbl="aa" x="${r1(B[0]+14*U)}" y="${r1(B[1]-8*U)}" text-anchor="middle" style="font-size:${r1(13*U)}px;font-weight:700;fill:var(--ink)">A</text>`;
+  }
+  // numbered callouts
+  const cs=[];
+  an.forEach((w,i)=>{
+    const a=P(...w);
+    const vis=(FIN||t>=T.BADGE0+i*260)&&!(mobile&&S.focus===3); if(!vis||(i<3&&prog[i===1||i===2?1:0]<1&&!FIN&&false))return;
+    const d=BADGE_DIR[i], L=d[2]*U, n=Math.hypot(d[0],d[1]);
+    const bx=a[0]+d[0]/n*L, by=a[1]+d[1]/n*L, R=12*U;
+    const ux=(bx-a[0])/L, uy=(by-a[1])/L;
+    const ex=bx-ux*R, ey=by-uy*R;
+    const hot=shown&&sel.kind==='spec'&&sel.i===i;
+    cs.push(`<g class="badge${hot?' hot':''}" data-spec="${i}"><path class="lead${hot?' hot':''}" data-leader="${i}" d="M${r1(a[0])},${r1(a[1])}L${r1(ex)},${r1(ey)}"/><circle class="${hot?'hotdot':'dot'}" data-anchor="${i}" cx="${r1(a[0])}" cy="${r1(a[1])}" r="${r1(3*U)}"/><circle class="hit" cx="${r1(bx)}" cy="${r1(by)}" r="${r1(22*U)}"/><circle class="bc" data-lbl="badge" cx="${r1(bx)}" cy="${r1(by)}" r="${r1(R)}"/><text x="${r1(bx)}" y="${r1(by)}" style="font-size:${r1(13*U)}px">${i+1}</text></g>`);
+  });
+  s+=cs.join('');
+  scene.innerHTML=s;
+  document.documentElement.dataset.stage=stg;
+  syncSteps(mobile&&(S.t===FINAL||S.manual)?S.focus:stg);
+}
+
+/* ---------- viewBox, focus, sizing ---------- */
+function bboxOf(pts,m){
+  let a=1e9,b=1e9,c=-1e9,d=-1e9;
+  pts.forEach(p=>{const q=P(...p);a=Math.min(a,q[0]);c=Math.max(c,q[0]);b=Math.min(b,q[1]);d=Math.max(d,q[1])});
+  return {x:a-m,y:b-m,w:c-a+2*m,h:d-b+2*m};
+}
+function fitAspect(r,asp){
+  let {x,y,w,h}=r; const cx=x+w/2, cy=y+h/2;
+  if(w/h<asp)w=h*asp; else h=w/asp;
+  return {x:cx-w/2,y:cy-h/2,w,h};
+}
+const bzTop=BR.z+90+OFFV.web[2]+20;
+const RECTS={
+  0:bboxOf([[BED.x0,BED.y0,ZB],[BED.x1,BED.y0,ZB],[BED.x1,BED.y1,0],[BED.x0,BED.y1,0],[BR.x-30,BR.y,bzTop+70]],34),
+  1:bboxOf([[SHEET.x0-6,SHEET.y0-6,ZB+30],[SHEET.x1+6,SHEET.y1+34,ZB],[SHEET.x1+6,SHEET.y0,ZB],[SHEET.x0,SHEET.y1+34,ZB]],44),
+  2:bboxOf([[PL.x0-10,PL.y1+34,ZB],[PL.x1,PL.y0,ZB],[BR.x-24,BR.y,bzTop+66],[BR.x+60,BR.y+100,BR.z],[PL.x1,PL.y1,ZB],[BR.x+190,BR.y,BR.z+130]],40),
+  3:bboxOf([[440,252,ZB],[MAN.x1,WALL_Y,zl(740)+10],[LANE_END+60,WALL_Y,ZB],[LANE_END+60,laneY(5)+30,ZB],[MAN.x1,laneY(5)+20,LZ+100]],30)
+};
+function setFocus(n,instant){
+  S.focus=n;
+  const asp=mobile?1.08:RECTS[0].w/RECTS[0].h;
+  vbT=fitAspect(RECTS[mobile?n:0],asp);
+  if(instant||REDUCED){vb={...vbT};applyVB()}
+  kick();
+}
+function applyVB(){fig.setAttribute('viewBox',`${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}`)}
+function layout(){
+  const w=stage.clientWidth||1000; pxW=w;
+  const m=w<760; const changed=m!==mobile; mobile=m;
+  const asp=mobile?1.08:RECTS[0].w/RECTS[0].h;
+  fig.style.aspectRatio=r1(asp*100)/100+'';
+  if(changed||!vb.w)S.focus=mobile?(REDUCED?2:1):0;
+  setFocus(mobile?(S.focus||2):0,true);
+  draw();
+}
+new ResizeObserver(()=>layout()).observe(stage);
+
+/* ---------- animation loop ---------- */
+let raf=0, visible=true, tPrev=0, t0=0;
+function needsFrame(){
+  const tw=Math.abs(vbT.x-vb.x)+Math.abs(vbT.y-vb.y)+Math.abs(vbT.w-vb.w)>.5;
+  return S.playing||tw||Math.abs(S.e-S.eT)>.002;
+}
+function frame(now){
+  raf=0; if(!visible)return;
+  if(S.playing){
+    S.t=now-t0;
+    if(S.t>=T.END){S.t=FINAL;S.playing=false}
+    if(mobile&&!S.manual&&S.t!==FINAL){const stg=S.t<T.S1?1:S.t<T.S2?2:3; if(stg!==S.focus)setFocus(stg)}
+  }
+  if(Math.abs(S.e-S.eT)>.002){
+    const dt=Math.min(.05,(now-(tPrev||now))/1000);
+    S.e+=(S.eT-S.e)*Math.min(1,dt*6); if(Math.abs(S.e-S.eT)<=.002)S.e=S.eT;
+  }
+  tPrev=now;
+  if(Math.abs(vbT.w-vb.w)+Math.abs(vbT.x-vb.x)+Math.abs(vbT.y-vb.y)>.5){
+    const k=.16;vb={x:vb.x+(vbT.x-vb.x)*k,y:vb.y+(vbT.y-vb.y)*k,w:vb.w+(vbT.w-vb.w)*k,h:vb.h+(vbT.h-vb.h)*k};applyVB();
+  }else if(vb.w!==vbT.w){vb={...vbT};applyVB()}
+  draw();
+  if(needsFrame())raf=requestAnimationFrame(frame);
+}
+function kick(){if(REDUCED){if(S.e!==S.eT)S.e=S.eT;vb={...vbT};applyVB();S.t=FINAL;S.playing=false;draw();return}
+  if(!raf&&visible)raf=requestAnimationFrame(frame);}
+function play(from=0){
+  if(REDUCED){S.t=FINAL;draw();return}
+  S.playing=true;S.t=from;S.manual=false;S.userSel=false;t0=performance.now()-from;tPrev=0;
+  if(mobile){setFocus(from<T.S1?1:from<T.S2?2:3,false)}
+  refreshSel();kick();
+}
+new IntersectionObserver(es=>{
+  const en=es[es.length-1]; const was=visible; visible=en.isIntersecting;
+  if(visible&&!was&&S.playing){t0=performance.now()-S.t;tPrev=0}
+  if(visible){ if(!started&&!REDUCED){started=true;play(0)} else kick() }
+  else if(raf){cancelAnimationFrame(raf);raf=0}
+},{threshold:.2}).observe(stage);
+let started=false;
+document.addEventListener('visibilitychange',()=>{if(document.hidden){if(raf){cancelAnimationFrame(raf);raf=0}}else{if(S.playing)t0=performance.now()-S.t;kick()}});
+mqRM.addEventListener('change',()=>{REDUCED=mqRM.matches;if(REDUCED){S.playing=false;S.t=FINAL;S.e=S.eT;setFocus(mobile?2:0,true)}draw();syncUI()});
+
+/* ---------- UI: rows, readout, steps ---------- */
+const specRows=$('#specrows'), provRows=$('#provrows'), readout=$('#readout');
+specRows.innerHTML=SPECS.map((s,i)=>`<li><button class="row" type="button" data-spec="${i}" aria-pressed="false"><span class="n">${i+1}</span><span class="k">${s.k}<small>${s.v}</small></span></button></li>`).join('');
+function renderProv(){
+  const arr=[...PROV].sort((a,b)=>S.sort==='lead'?(a.lead-b.lead||a.price-b.price):(a.price-b.price));
+  provRows.innerHTML=arr.map(p=>{
+    const tg=p.price===minP?'lowest price':p.lead===minL?'fastest':onFront(p)?'on the frontier':'beaten by '+beater(p).short;
+    return `<li><button class="row" type="button" data-lane="${p.i}" aria-pressed="false"><span class="n">${p.i+1}</span><span class="k">${p.name}<small>${tg}</small></span><span class="v">${money(p.price)}</span><span class="v">${p.lead} d</span></button></li>`}).join('');
+  refreshSel();
+}
+function refreshSel(){
+  const sel=S.sel;
+  $$('[data-spec].row').forEach(b=>b.setAttribute('aria-pressed',sel.kind==='spec'&&+b.dataset.spec===sel.i));
+  $$('[data-lane].row, .par [data-lane], .plot [data-lane]').forEach(b=>b.setAttribute('aria-pressed',sel.kind==='lane'&&+b.dataset.lane===sel.i));
+  const sl=$('#slabs');
+  readout.innerHTML=readoutHTML(sel);
+  const w=$('#weight');
+}
+function readoutHTML(sel){
+  if(sel.kind==='spec'){
+    const s=SPECS[sel.i];
+    return `<p class="kick">Callout ${sel.i+1} of 4 · read from the drawing</p><p class="name">${s.k}: ${s.v}</p><dl><dt>Part</dt><dd>${PART.id} · ${PART.rev}</dd><dt>Note</dt><dd>${s.note}</dd></dl><p class="sm">Sample data · not live quotes</p>`;
+  }
+  const p=PROV[sel.i], d=p.price-minP, dl=p.lead-minL;
+  return `<p class="kick">Provider ${p.i+1} of 6 · selected</p><p class="name">${p.name}</p><dl><dt>Sample price</dt><dd>${money(p.price)} for ${PART.qty} pcs · $${(p.price/PART.qty).toFixed(2)} each</dd><dt>Sample lead time</dt><dd>${p.lead} days</dd><dt>Tier</dt><dd>${tierOf(p)}</dd><dt>Rank</dt><dd>${ord(rankP(p))} lowest price · ${ord(rankL(p))} fastest${d?` · +${money(d)} vs lowest`:''}${dl?` · +${dl} d vs fastest`:''}</dd></dl><p class="sm">Sample data · not live quotes</p>`;
+}
+function select(kind,i,o={}){
+  S.sel={kind,i};S.userSel=true;
+  refreshSel();updatePlot();updatePar();
+  if(mobile&&!o.keep){S.manual=true;setFocus(kind==='lane'?3:2)}
+  if(o.focus){const b=$(`.row[data-${kind==='lane'?'lane':'spec'}="${i}"]`);if(b)b.focus({preventScroll:false})}
+  draw();
+}
+function syncSteps(stg){
+  $$('#steps button').forEach(b=>{if(+b.dataset.step===stg)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function syncUI(){
+  $('#b-replay').hidden=REDUCED;
+  $('#b-explode').setAttribute('aria-pressed',S.eT>.5);
+  $('#b-explode').textContent=S.eT>.5?'Assemble':'Explode';
+  $('#b-section').setAttribute('aria-pressed',S.sec);
+}
+$('#steps').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const n=+b.dataset.step;
+  if(REDUCED){S.manual=true;if(mobile)setFocus(n,true);return}
+  play(n===1?0:n===2?T.S1+100:T.S2+100);
+  if(mobile){S.manual=false}
+});
+$('#b-replay').addEventListener('click',()=>play(0));
+$('#b-explode').addEventListener('click',()=>{S.eT=S.eT>.5?0:1;syncUI();kick();});
+$('#b-section').addEventListener('click',()=>{S.sec=!S.sec;syncUI();draw();});
+$$('[data-sort]').forEach(b=>b.addEventListener('click',()=>{S.sort=b.dataset.sort;$$('[data-sort]').forEach(x=>x.setAttribute('aria-pressed',x===b));renderProv();}));
+$$('[data-go]').forEach(b=>b.addEventListener('click',()=>{
+  $('#bench').scrollIntoView({behavior:REDUCED?'auto':'smooth',block:'start'});
+  const n=+b.dataset.go; play(n===1?0:n===2?T.S1+100:T.S2+100);
+}));
+
+/* ---------- pointer + keyboard ---------- */
+document.addEventListener('click',e=>{
+  if(e.target.closest('#fig')&&dragMoved){return}
+  const sh=e.target.closest('#fig [data-sheet]');
+  if(sh&&!e.target.closest('[data-lane],[data-spec]')){play(0);return}
+  const l=e.target.closest('[data-lane]'), sp_=e.target.closest('[data-spec]');
+  if(l&&!l.closest('#slabs')){select('lane',+l.dataset.lane)}
+  else if(sp_&&!sp_.closest('#slabs')){select('spec',+sp_.dataset.spec)}
+});
+fig.addEventListener('pointerover',e=>{
+  if(e.pointerType!=='mouse'||S.drag)return;
+  const l=e.target.closest('[data-lane]'), sp_=e.target.closest('[data-spec]');
+  if(l){const i=+l.dataset.lane;if(S.sel.kind!=='lane'||S.sel.i!==i)select('lane',i,{keep:true})}
+  else if(sp_){const i=+sp_.dataset.spec;if(S.sel.kind!=='spec'||S.sel.i!==i)select('spec',i,{keep:true})}
+});
+let dragMoved=false;
+fig.addEventListener('pointerdown',e=>{
+  if(!e.target.closest('[data-part]'))return;
+  S.drag={x:e.clientX,e:S.e,w:fig.getBoundingClientRect().width,id:e.pointerId};dragMoved=false;
+});
+fig.addEventListener('pointermove',e=>{
+  const d=S.drag;if(!d)return;
+  const dx=e.clientX-d.x;
+  if(!dragMoved&&Math.abs(dx)>6){dragMoved=true;fig.classList.add('drag');try{fig.setPointerCapture(d.id)}catch(_){}}
+  if(dragMoved){S.e=clamp(d.e+dx/(d.w*.3),0,1);S.eT=S.e;syncUI();draw();}
+});
+const endDrag=()=>{
+  if(!S.drag)return;
+  const moved=dragMoved;S.drag=null;fig.classList.remove('drag');
+  if(moved){S.eT=S.e>.5?1:0;if(REDUCED)S.e=S.eT;syncUI();kick();setTimeout(()=>{dragMoved=false},0)}
+};
+fig.addEventListener('pointerup',endDrag);fig.addEventListener('pointercancel',endDrag);
+
+function move(delta,abs){
+  const n=ITEMS.length;let i=itemIdx(S.sel);
+  i=abs==='home'?0:abs==='end'?n-1:(i+delta+n)%n;
+  const it=ITEMS[i];select(it.kind,it.i,{focus:document.activeElement&&document.activeElement.classList.contains('row')});
+}
+$('#bench').addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const inRange=e.target.closest('input[type=range]');if(inRange)return;
+  const tgt=e.target, onStage=tgt===stage, onRow=tgt.classList&&tgt.classList.contains('row');
+  if(!(onStage||onRow))return;
+  const k=e.key;
+  if(k==='ArrowRight'||k==='ArrowDown'){e.preventDefault();move(1)}
+  else if(k==='ArrowLeft'||k==='ArrowUp'){e.preventDefault();move(-1)}
+  else if(k==='Home'){e.preventDefault();move(0,'home')}
+  else if(k==='End'){e.preventDefault();move(0,'end')}
+  else if(onStage&&(k==='Enter'||k===' ')){e.preventDefault();play(0)}
+  else if(onStage&&(k==='e'||k==='E')){$('#b-explode').click()}
+  else if(onStage&&(k==='s'||k==='S')){$('#b-section').click()}
+  else if(onStage&&(k==='r'||k==='R')){play(0)}
+});
+
+/* ---------- section 1: title block ---------- */
+$('#kv').innerHTML=[['Part',PART.id],['Revision',PART.rev],['Material',PART.material],['Finish',PART.finish],['Tolerance',PART.tol],['Quantity',PART.qty+' pcs']].map(r=>`<li><span class="k">${r[0]}</span><span class="v">${r[1]}</span></li>`).join('');
+
+/* ---------- section 2: parallel rows ---------- */
+const par=$('#par');
+par.innerHTML=PROV.map(p=>`<li><button type="button" data-lane="${p.i}" aria-pressed="false"><span class="n">${p.i+1}</span><span class="k">${p.name}<small>request sent · quote returned</small></span><span class="v">${money(p.price)} · ${p.lead} d</span></button></li>`).join('');
+function updatePar(){}
+
+/* ---------- section 3: plot + weighting ---------- */
+const plot=$('#plot');
+const PX0=64,PX1=536,PY0=24,PY1=308;
+const gx=l=>PX0+(l-3)/(18-3)*(PX1-PX0), gy=pr=>PY1-(pr-400)/(740-400)*(PY1-PY0);
+(function drawPlot(){
+  let s='';
+  [5,10,15].forEach(l=>{s+=`<path class="gl" d="M${r1(gx(l))},${PY0}V${PY1}"/><path class="ax" d="M${r1(gx(l))},${PY1}v6"/><text x="${r1(gx(l))}" y="${PY1+24}" text-anchor="middle">${l} d</text>`});
+  [450,550,650].forEach(p=>{s+=`<path class="gl" d="M${PX0},${r1(gy(p))}H${PX1}"/><path class="ax" d="M${PX0-6},${r1(gy(p))}h6"/><text x="${PX0-10}" y="${r1(gy(p)+4)}" text-anchor="end">${money(p)}</text>`});
+  s+=`<path class="ax" d="M${PX0},${PY0}V${PY1}H${PX1}"/>`;
+  s+=`<text x="${PX1}" y="${PY1+46}" text-anchor="end">Lead time, days</text><text x="${PX0}" y="${PY0-8}">Price, 25 pcs</text>`;
+  const fr=PROV.filter(onFront).sort((a,b)=>a.lead-b.lead);
+  s+=`<path class="front" d="M${fr.map(p=>r1(gx(p.lead))+','+r1(gy(p.price))).join('L')}"/>`;
+  PROV.forEach(p=>{
+    const x=gx(p.lead),y=gy(p.price);
+    s+=`<g class="pt${onFront(p)?'':' dom'}" data-lane="${p.i}" tabindex="0" role="button" aria-pressed="false" aria-label="${p.name}, ${money(p.price)}, ${p.lead} days"><rect class="hit" x="${r1(x-34)}" y="${r1(y-34)}" width="68" height="68"/><rect class="mk" x="${r1(x-8)}" y="${r1(y-8)}" width="16" height="16"/><text x="${r1(x)}" y="${r1(y+4.5)}" text-anchor="middle">${p.i+1}</text></g>`;
+  });
+  plot.innerHTML=s;
+  plot.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.dataset&&e.target.dataset.lane!=null){e.preventDefault();select('lane',+e.target.dataset.lane)}});
+})();
+function updatePlot(){}
+const wIn=$('#weight'), verdict=$('#verdict');
+function pick(wt){
+  let best=0,bs=1e9;
+  PROV.forEach((p,i)=>{const sc=(1-wt)*(p.price-minP)/(maxP-minP)+wt*(p.lead-minL)/(maxL-minL);if(sc<bs-1e-9){bs=sc;best=i}});
+  return PROV[best];
+}
+function setVerdict(){
+  const wt=+wIn.value/100,p=pick(wt);
+  const lab=wt<.2?'Weighted toward lowest price':wt>.8?'Weighted toward fastest lead time':'Balanced price and lead time';
+  verdict.innerHTML=`${lab}: <em>${p.name}</em>, ${money(p.price)} in ${p.lead} days.`;
+  return p;
+}
+wIn.addEventListener('input',()=>{const p=setVerdict();select('lane',p.i,{keep:true})});
+setVerdict();
+
+/* ---------- section 4: ledger + slabs ---------- */
+const ledger=$('#ledger'), totals=$('#totals'), slabs=$('#slabs');
+let partSel=0;
+function renderLedger(){
+  ledger.innerHTML=PARTS.map((pt,i)=>{
+    const lo=pt.quotes[pt.lo],fa=pt.quotes[pt.fa];
+    return `<li><button type="button" data-part-i="${i}" aria-pressed="${i===partSel}"><span class="n">${i+1}</span><span class="pid" style="grid-area:p">${pt.id} · ${pt.rev}${pt.real?'':'<span class="tagS">Sample part</span>'}<small>${pt.desc} · ${pt.qty} pcs</small></span><span class="q" style="grid-area:a"><small>Lowest price</small>${money(lo.price)} · ${lo.lead} d · ${PROV[pt.lo].short}</span><span class="q" style="grid-area:b"><small>Fastest</small>${money(fa.price)} · ${fa.lead} d · ${PROV[pt.fa].short}</span></button></li>`}).join('');
+  const sumLo=PARTS.reduce((a,p)=>a+p.quotes[p.lo].price,0), maxLoLead=Math.max(...PARTS.map(p=>p.quotes[p.lo].lead));
+  const sumFa=PARTS.reduce((a,p)=>a+p.quotes[p.fa].price,0), maxFaLead=Math.max(...PARTS.map(p=>p.quotes[p.fa].lead));
+  totals.innerHTML=`<div><span>Every part at its lowest price</span><b>${money(sumLo)} · last part in ${maxLoLead} d</b></div><div><span>Every part from its fastest provider</span><b>${money(sumFa)} · last part in ${maxFaLead} d</b></div>`;
+}
+const SLW=150,SLD=100,SLH=8,SLP=26;
+function renderSlabs(){
+  const pts=[];for(let i=0;i<5;i++){pts.push([-6,-6,i*SLP],[SLW+30,-6,i*SLP],[-6,SLD+6,i*SLP],[SLW+30,SLD+6,i*SLP+SLH+4])}
+  const bb=bboxOf(pts,16);
+  slabs.setAttribute('viewBox',`${r1(bb.x)} ${r1(bb.y)} ${r1(bb.w)} ${r1(bb.h)}`);
+  const U=bb.w/Math.min(520,slabs.clientWidth||520);
+  let s='';
+  for(let i=4;i>=0;i--){
+    const z=(4-i)*SLP, on=i===partSel, real=PARTS[i].real;
+    const c=on?LIT:BX;
+    let g=box(0,0,z,SLW,SLD,SLH,c);
+    g+=pln([[10,10,z+SLH],[SLW-10,10,z+SLH],[SLW-10,SLD-10,z+SLH],[10,SLD-10,z+SLH],[10,10,z+SLH]],'dl');
+    g+=pln([[24,32,z+SLH],[SLW-60,32,z+SLH]],'dl')+pln([[24,48,z+SLH],[SLW-90,48,z+SLH]],'dl')+pln([[24,64,z+SLH],[SLW-44,64,z+SLH]],'dl');
+    const q=P(SLW+16,12,z+SLH/2);
+    g+=`<circle class="hit" cx="${r1(q[0])}" cy="${r1(q[1])}" r="${r1(22*U)}"/><circle class="bc" cx="${r1(q[0])}" cy="${r1(q[1])}" r="${r1(12*U)}"/><text x="${r1(q[0])}" y="${r1(q[1])}" style="font-size:${r1(13*U)}px">${i+1}</text>`;
+    s+=`<g data-slab="${i}" class="${on?'on ':''}${real?'':'d'}" tabindex="0" role="button" aria-label="Part ${i+1}, ${PARTS[i].id}" aria-pressed="${on}">${g}</g>`;
+  }
+  slabs.innerHTML=s;
+}
+function setPart(i){partSel=i;renderLedger();renderSlabs()}
+ledger.addEventListener('click',e=>{const b=e.target.closest('[data-part-i]');if(b){setPart(+b.dataset.partI)}});
+slabs.addEventListener('click',e=>{const g=e.target.closest('[data-slab]');if(g)setPart(+g.dataset.slab)});
+slabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('[data-slab]');if(g){e.preventDefault();setPart(+g.dataset.slab);const n=slabs.querySelector(`[data-slab="${g.dataset.slab}"]`);if(n)n.focus()}}});
+renderLedger();renderSlabs();
+new ResizeObserver(()=>renderSlabs()).observe(slabs);
+
+/* ---------- theme ---------- */
+const root=document.documentElement;
+const effTheme=()=>root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+function themeLbl(){$('#themeLbl').textContent=effTheme()==='light'?'Dark':'Light'}
+$('#theme').addEventListener('click',()=>{
+  const n=effTheme()==='light'?'dark':'light';root.setAttribute('data-theme',n);
+  try{localStorage.setItem('od-theme',n)}catch(_){}
+  themeLbl();
+});
+matchMedia('(prefers-color-scheme: light)').addEventListener('change',themeLbl);
+themeLbl();
+
+/* ---------- init ---------- */
+renderProv();syncUI();layout();
+if(REDUCED){S.t=FINAL;draw()}
+})();
+</script>
+</body>
+</html>
