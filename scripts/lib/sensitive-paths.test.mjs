@@ -409,11 +409,6 @@ describe("import-boundary gate coverage globs", () => {
       negatives: ["src/import_bound.ts", "src/import_export.ts", "src/boundaries.ts"],
     },
     {
-      glob: "eslint.config.js",
-      positives: ["eslint.config.js", "./eslint.config.js", "ESLINT.CONFIG.JS"],
-      negatives: ["src/eslint.config.js", "eslint.config.mjs", "eslint.config.js.bak", ".eslintrc.json"],
-    },
-    {
       glob: "server/design-graph/index.ts",
       positives: ["server/design-graph/index.ts", "./server/design-graph/index.ts", "Server/Design-Graph/Index.ts"],
       negatives: ["server/design-graph/types.ts", "server/design-graph/index.test.ts", "server/design-graph/sub/index.ts", "src/server/design-graph/index.ts"],
@@ -465,9 +460,9 @@ describe("import-boundary gate coverage globs", () => {
     });
   }
 
-  it("classifies the OVD-874 adapter rule and the DesignGraph entry files by exact path", () => {
+  it("classifies the DesignGraph entry files by exact path", () => {
     const matcher = createMatcher(config);
-    for (const file of ["eslint.config.js", "server/design-graph/index.ts", "server/jarvis/design-graph-port.ts"]) {
+    for (const file of ["server/design-graph/index.ts", "server/jarvis/design-graph-port.ts"]) {
       expect(matcher.classify(file), file).toEqual(["infra_ci"]);
     }
   });

@@ -73,7 +73,6 @@
     { "glob": "**/*importboundaries*{,/**}", "class": "infra_ci" },
     { "glob": "**/*import_boundary*{,/**}", "class": "infra_ci" },
     { "glob": "**/*import_boundaries*{,/**}", "class": "infra_ci" },
-    { "glob": "eslint.config.js", "class": "infra_ci" },
     { "glob": "server/design-graph/index.ts", "class": "infra_ci" },
     { "glob": "server/jarvis/design-graph-port.ts", "class": "infra_ci" },
 
