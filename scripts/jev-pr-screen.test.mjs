@@ -27,11 +27,13 @@ import {
 import {
   FIXED_PATH,
   MARKER_CONTEXT,
+  MARKER_VERSION,
+  MAX_DESCRIPTION_LENGTH,
   MAX_STATUS_PAGES,
   buildMarkerDescription,
   canonicalJson,
   hashQuestions,
-  hashVerifiedPaths,
+  hashScreenState,
   isValidSha,
   parseMarkerDescription,
   readMarker,
@@ -67,13 +69,13 @@ afterAll(() => {
 // Legacy classification/logging tests use explicit synthetic acquisition. The
 // authoritative transport and pre-PR boundaries are tested below with screen().
 async function fixtureScreen(prs, options) {
-  if (options.marker) return screen(prs, { files: () => ({ paths: ["README.md"], revalidate: () => {} }), ...options });
+  if (options.marker) return screen(prs, { files: () => acq(["README.md"]), ...options });
   const fixtures = prs.map((pr, index) => ({ ...pr, pr: pr.pr ?? index + 1, sha: SHA }));
   return screen(fixtures, {
     files: (number) => {
       const { paths, problem } = prFilePaths(fixtures.find((pr) => pr.pr === number).files);
       if (problem) throw new Error(problem);
-      return { paths, revalidate: () => {} };
+      return acq(paths);
     },
     marker: { headSha: async () => SHA, read: async () => ({ found: false }), write: async () => ({ success: true }) },
     ...options,
@@ -492,10 +494,20 @@ describe("jev PR screen", () => {
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98";
+/** The base commit every synthetic acquisition reports (the real transport reads it from the PR). */
+const BASE = OTHER_SHA;
+/** A synthetic acquisition: paths plus the verified head/base snapshot the real transport returns. */
+function acq(paths, base = BASE) {
+  return { paths, snapshot: { head: SHA, base, count: paths.length }, revalidate: () => {} };
+}
+/** The state Jev is sent for readme() with the default quiet acquisition. */
+function defaultState(overrides = {}) {
+  return { title: "Docs", files: ["README.md"], additions: null, deletions: null, notes: "", ...overrides };
+}
 const Q = hashQuestions(SCREEN_QUESTIONS);
-const F = hashVerifiedPaths(["README.md"]);
+const F = hashScreenState(defaultState(), OTHER_SHA);
 const markerText = (fields = {}) =>
-  buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, filesHash: F, ...fields });
+  buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, stateHash: F, ...fields });
 const status = (description, { context = MARKER_CONTEXT, state = "success", login = "optomachina" } = {}) => ({ context, state, description, creator: { login } });
 const STATUSES_PATH = /^repos\/optomachina\/Overdrafter\/commits\/([0-9a-f]{40})\/statuses\?per_page=100&page=([1-9]\d*)$/;
 const statusesPage = (sha, page) => ["api", `repos/optomachina/Overdrafter/commits/${sha}/statuses?per_page=100&page=${page}`];
@@ -532,7 +544,7 @@ function fakeGitHub({ statuses = {}, heads = {}, failWrites = false } = {}) {
     throw new Error(`HTTP 404 for ${args.join(" ")}`);
   };
   const io = {
-    read: (sha, model, questionHash, filesHash) => readMarker(sha, model, questionHash, filesHash, { run }),
+    read: (sha, model, questionHash, stateHash) => readMarker(sha, model, questionHash, stateHash, { run }),
     write: (sha, marker) => writeMarker(sha, marker, { run }),
     headSha: (pr) => readPrHeadSha(pr, { run }),
   };
@@ -550,7 +562,7 @@ function countingJev(choice = "normal", confidence = 0.9, noul = 0.15) {
   return jev;
 }
 
-const quiet = { files: () => ({ paths: ["README.md"], revalidate: () => {} }), log: "/dev/null", append: () => {}, warn: () => {} };
+const quiet = { files: () => acq(["README.md"]), log: "/dev/null", append: () => {}, warn: () => {} };
 const readme = (pr = 846, sha = SHA) => ({ pr, sha, deterministic: "low", files: ["README.md"], title: "Docs" });
 
 describe("jev screen marker", () => {
@@ -572,12 +584,12 @@ describe("jev screen marker", () => {
 
   it("builds and parses marker descriptions", () => {
     const text = markerText({ tier: "risky", jevTier: "normal", confidence: 0.87654, pIncident: 0.12301, questionHash: "abc12345" });
-    expect(text).toBe(`v2 tier=risky jev=normal c=0.876 p=0.124 model=jev-1.13.0 q=abc12345 screener=mjs f=${F}`);
+    expect(text).toBe(`v3 tier=risky jev=normal c=0.876 p=0.124 model=jev-1.13.0 q=abc12345 screener=mjs s=${F}`);
     expect(text.length).toBeLessThanOrEqual(140);
-    expect(parseMarkerDescription(text)).toEqual({ version: "v2", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs", filesHash: F });
+    expect(parseMarkerDescription(text)).toEqual({ version: "v3", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs", stateHash: F });
     expect(parseMarkerDescription(markerText({ pIncident: null })).pIncident).toBeNull();
     expect(parseMarkerDescription(markerText({ confidence: 1, pIncident: 0 }))).toMatchObject({ confidence: 1, pIncident: 0 });
-    for (const bad of ["v2 tier=low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low c=1.5 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low p=na model=m q=abc12345 screener=mjs", "", null]) {
+    for (const bad of ["v3 tier=low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low c=1.5 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low p=na model=m q=abc12345 screener=mjs", "", null]) {
       expect(parseMarkerDescription(bad), String(bad)).toBeNull();
     }
   });
@@ -604,7 +616,7 @@ describe("jev screen marker", () => {
       const text = markerText({ tier, jevTier, confidence: 0.99 });
       expect(parseMarkerDescription(text), text).toBeNull();
       const github = fakeGitHub();
-      const marker = { tier, jevTier, confidence: 0.99, pIncident: 0, model: JEV_MODEL, questionHash: Q, filesHash: F };
+      const marker = { tier, jevTier, confidence: 0.99, pIncident: 0, model: JEV_MODEL, questionHash: Q, stateHash: F };
       expect(await writeMarker(SHA, marker, { run: github.run }), `${tier}/${jevTier}`).toEqual({ success: false, reason: "invalid_tier" });
       expect(github.calls, `${tier}/${jevTier}`).toEqual([]);
     }
@@ -612,7 +624,7 @@ describe("jev screen marker", () => {
     for (const [tier, jevTier] of [["low", "low"], ["normal", "normal"], ["risky", "risky"], ["normal", "low"], ["risky", "low"], ["risky", "normal"]]) {
       expect(parseMarkerDescription(markerText({ tier, jevTier })), `${tier}/${jevTier}`).toMatchObject({ tier, jevTier });
       const github = fakeGitHub();
-      expect(await writeMarker(SHA, { tier, jevTier, confidence: 0.9, model: JEV_MODEL, questionHash: Q, filesHash: F }, { run: github.run })).toEqual({ success: true });
+      expect(await writeMarker(SHA, { tier, jevTier, confidence: 0.9, model: JEV_MODEL, questionHash: Q, stateHash: F }, { run: github.run })).toEqual({ success: true });
     }
   });
 
@@ -651,7 +663,7 @@ describe("jev screen marker", () => {
       confidence: [swap("c=0.9", "c=abc"), swap("c=0.9", "c=NaN"), swap("c=0.9", "c=-0.1"), swap("c=0.9", "c=1.5"), swap("c=0.9", "c=1.001"), swap("c=0.9", "c=0.9999"), swap("c=0.9", "c=1e-1"), swap("c=0.9", "c=.9"), swap("c=0.9", "c=0x1"), swap("c=0.9", "c=Infinity")],
       incident: [swap("p=0.1", "p=abc"), swap("p=0.1", "p=2"), swap("p=0.1", "p=-0"), swap("p=0.1", "p=NA"), swap("p=0.1", "p=null")],
       tier: [swap("tier=normal", "tier=high"), swap("tier=normal", "tier=Normal"), swap("jev=normal", "jev=critical"), swap("tier=normal", "tier=")],
-      version: [swap("v2 ", "v1.0 "), swap("v2 ", "V1 "), swap("v2 ", "")],
+      version: [swap("v3 ", "v1.0 "), swap("v3 ", "V1 "), swap("v3 ", "")],
       junk: [`${base} junk`, `${base} x=1`, `${base} a=b=c`, swap("tier=normal", "tier==normal"), swap("model=", "Model="), `${base} =`, swap(" c=0.9", " c=0.9;"), `${base} ${"x".repeat(140)}`],
       missing: [swap(" p=0.1", ""), swap(" screener=mjs", ""), swap(` q=${Q}`, "")],
     };
@@ -712,7 +724,7 @@ describe("jev screen marker", () => {
         ],
       },
     });
-    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: true, version: "v2", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs", filesHash: F });
+    expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).toEqual({ found: true, version: "v3", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs", stateHash: F });
     // Reads the raw JSON (no --jq filter, which made gh exit 1 on the array).
     expect(github.calls).toEqual([statusesPage(SHA, 1)]);
   });
@@ -820,8 +832,8 @@ describe("jev screen marker", () => {
     const shifted = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [low, ...filler(150)] } });
     const io = {
       ...shifted.io,
-      read: (sha, model, questionHash, filesHash) =>
-        readMarker(sha, model, questionHash, filesHash, {
+      read: (sha, model, questionHash, stateHash) =>
+        readMarker(sha, model, questionHash, stateHash, {
           run: (args) => {
             if (args[1].endsWith("&page=2") && shifted.store[SHA][0] !== risky) shifted.store[SHA].unshift(risky);
             return shifted.run(args);
@@ -859,7 +871,7 @@ describe("jev screen marker", () => {
 
   it("writes a success marker and fails open", async () => {
     const github = fakeGitHub();
-    const marker = { tier: "risky", jevTier: "normal", confidence: 0.9, pIncident: 0.2, model: JEV_MODEL, questionHash: Q, filesHash: F };
+    const marker = { tier: "risky", jevTier: "normal", confidence: 0.9, pIncident: 0.2, model: JEV_MODEL, questionHash: Q, stateHash: F };
     expect(await writeMarker(SHA, marker, { run: github.run })).toEqual({ success: true });
     expect(github.calls).toEqual([
       ["api", `repos/optomachina/Overdrafter/statuses/${SHA}`, "-X", "POST", "-f", "state=success", "-f", `description=${markerText({ tier: "risky", pIncident: 0.2 })}`, "-f", "context=jev-screen"],
@@ -944,7 +956,7 @@ describe("jev screen marker", () => {
     expect(floor).toMatchObject({ marker_hit: true, deterministic: "low", final: "risky" });
     // The local path tier still applies: a low marker cannot lower a migration.
     const lowMarker = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }))] } });
-    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io, files: () => ({ paths: [MIGRATION_SQL], revalidate: () => {} }) });
+    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io, files: () => acq([MIGRATION_SQL]) });
     expect(migration).toMatchObject({ marker_hit: false, deterministic: "risky", final: "risky" });
     // A stored confidence below the current floor is uncertain, so at least normal.
     const [stricter] = await screen([readme()], { ...quiet, ask: jev.ask, marker: lowMarker.io, minConfidence: 0.995 });
@@ -1036,7 +1048,7 @@ describe("OVD-961 authoritative file boundaries", () => {
     expect(record).toMatchObject({ final: "risky", deterministic: "risky", cache_hit: false, filesProblem: null });
     expect(ask.mock.calls[0][0].files).toEqual(paths);
     expect(transport.calls.filter((args) => args[1].includes("/files?"))).toHaveLength(2);
-    expect(parseMarkerDescription(github.store[SHA][0].description).filesHash).toBe(hashVerifiedPaths(paths));
+    expect(parseMarkerDescription(github.store[SHA][0].description).stateHash).toBe(hashScreenState(ask.mock.calls[0][0], BASE));
   });
 
   it.each([
@@ -1078,21 +1090,6 @@ describe("OVD-961 authoritative file boundaries", () => {
     expect(github.posts()).toHaveLength(0);
   });
 
-  it("hashes sorted paths stably and rejects v1, missing/mismatched hashes and oversized markers", async () => {
-    expect(hashVerifiedPaths(["b", "a"])).toBe(hashVerifiedPaths(["a", "b"]));
-    expect(hashVerifiedPaths(["a", "b"])).not.toBe(hashVerifiedPaths(["a"]));
-    expect(hashVerifiedPaths(["a\nb", "c"])).not.toBe(hashVerifiedPaths(["a", "b\nc"]));
-    for (const description of [markerText().replace("v2 ", "v1 "), markerText().replace(` f=${F}`, ""), markerText({ filesHash: hashVerifiedPaths(["different"]) })]) {
-      const github = fakeGitHub({ statuses: { [SHA]: [status(description)] } });
-      expect((await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run })).found).toBe(false);
-    }
-    const github = fakeGitHub();
-    const marker = { tier: "risky", jevTier: "risky", confidence: 0.999, pIncident: 0.999, model: JEV_MODEL, questionHash: Q, filesHash: F };
-    expect(buildMarkerDescription(marker).length).toBeLessThanOrEqual(140);
-    expect(await writeMarker(SHA, { ...marker, model: "x".repeat(100) }, { run: github.run })).toEqual({ success: false, reason: "description_too_long" });
-    expect(github.calls).toEqual([]);
-  });
-
   it("pre-PR derives a local diff, ignores supplied files, and performs zero cache operations", async () => {
     const root = baseAndHeadRepo(withoutGlob("**/.env*"));
     const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
@@ -1132,7 +1129,7 @@ describe("OVD-961 independent review regressions", () => {
     const paths = [renamed.filename, renamed.previous_filename];
     expect(record).toMatchObject({ final: "risky", deterministic: "risky", filesProblem: null });
     expect(ask.mock.calls[0][0].files).toEqual(paths);
-    expect(parseMarkerDescription(github.store[SHA][0].description)).toMatchObject({ tier: "risky", filesHash: hashVerifiedPaths(paths) });
+    expect(parseMarkerDescription(github.store[SHA][0].description)).toMatchObject({ tier: "risky", stateHash: hashScreenState(ask.mock.calls[0][0], BASE) });
     expect(acquisition.files(846, SHA).snapshot.count).toBe(1);
     const chain = mutableAcquisition([renamed, { filename: "docs/next.md", previous_filename: renamed.filename, status: "renamed" }]);
     expect(chain.files(846, SHA).paths).toEqual([...paths, "docs/next.md"]);
@@ -1274,7 +1271,7 @@ describe("OVD-961 malformed status admission", () => {
     expect(record).toMatchObject({ final: moves ? "risky" : "low", filesProblem: null });
     const paths = moves ? [entry.filename, entry.previous_filename] : [entry.filename];
     expect(ask.mock.calls[0][0].files).toEqual(paths);
-    expect(parseMarkerDescription(github.store[SHA][0].description).filesHash).toBe(hashVerifiedPaths(paths));
+    expect(parseMarkerDescription(github.store[SHA][0].description).stateHash).toBe(hashScreenState(ask.mock.calls[0][0], BASE));
   });
 
   it("rejects a malformed status on a later page before any screening/cache calls", async () => {
@@ -1289,5 +1286,184 @@ describe("OVD-961 malformed status admission", () => {
     const [record] = await screen([readme()], { ...quiet, files: (pr, sha) => verifiedPrFiles(pr, sha, { run }), marker, ask });
     expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
     for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+/** A Jev stub that answers each call from a list (the last answer repeats) and records what it was sent. */
+function scriptedJev(...choices) {
+  const jev = { calls: 0, sent: [] };
+  jev.ask = async (state) => {
+    const choice = choices[Math.min(jev.calls, choices.length - 1)];
+    jev.calls += 1;
+    jev.sent.push(state);
+    return { ok: true, model: JEV_MODEL, answers: { tier: { type: "choice", choice, confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 };
+  };
+  return jev;
+}
+
+describe("OVD-934 screen state digest", () => {
+  const STATE = { title: "Docs", files: ["docs/a.md", "docs/b.md"], additions: 3, deletions: 2, notes: "n" };
+
+  it("hashes the exact state and base: every field, the file order and the base each change the digest", () => {
+    const digest = hashScreenState(STATE, BASE);
+    expect(digest).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(hashScreenState({ notes: "n", deletions: 2, additions: 3, files: ["docs/a.md", "docs/b.md"], title: "Docs" }, BASE)).toBe(digest);
+    const changed = [
+      { ...STATE, title: "Doc" },
+      { ...STATE, notes: "m" },
+      { ...STATE, additions: 4 },
+      { ...STATE, deletions: 3 },
+      { ...STATE, additions: null },
+      { ...STATE, files: ["docs/b.md", "docs/a.md"] },
+      { ...STATE, files: ["docs/a.md"] },
+      { ...STATE, files: ["docs/a.md\ndocs/b.md"] },
+    ];
+    for (const state of changed) expect(hashScreenState(state, BASE), JSON.stringify(state)).not.toBe(digest);
+    expect(hashScreenState(STATE, SHA)).not.toBe(digest);
+    expect(hashScreenState(STATE, null)).not.toBe(digest);
+    expect(hashScreenState({ ...STATE, files: ["a\nb", "c"] }, BASE)).not.toBe(hashScreenState({ ...STATE, files: ["a", "b\nc"] }, BASE));
+  });
+
+  /** Screen the same PR head with a given state, sharing one fake GitHub and one scripted Jev across calls. */
+  function harness() {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const jev = scriptedJev("low", "risky");
+    const run = async ({ pr = {}, paths = STATE.files, base = BASE } = {}) => {
+      const input = { ...readme(), title: STATE.title, notes: STATE.notes, additions: STATE.additions, deletions: STATE.deletions, ...pr };
+      const [record] = await screen([input], { ...quiet, files: () => acq(paths, base), ask: jev.ask, marker: github.io });
+      return record;
+    };
+    return { github, jev, run };
+  }
+
+  it("an unchanged input is a hit with zero further Jev calls", async () => {
+    const { github, jev, run } = harness();
+    expect(await run()).toMatchObject({ cache_hit: false, final: "low" });
+    expect(jev.calls).toBe(1);
+    expect(await run()).toMatchObject({ cache_hit: true, marker_hit: true, final: "low", tokens: null });
+    expect(jev.calls).toBe(1);
+    expect(github.posts()).toHaveLength(1);
+  });
+
+  it.each([
+    ["title", { pr: { title: "Docs, reworded" } }],
+    ["notes", { pr: { notes: "changed notes" } }],
+    ["additions", { pr: { additions: 4 } }],
+    ["deletions", { pr: { deletions: 3 } }],
+    ["base identity", { base: "1".repeat(40) }],
+    ["file order", { paths: ["docs/b.md", "docs/a.md"] }],
+    ["same paths retargeted to another base with other sizes", { base: "2".repeat(40), pr: { additions: 40, deletions: 30 } }],
+  ])("a changed %s alone is a miss and runs Jev again", async (_name, change) => {
+    const { jev, run } = harness();
+    expect(await run()).toMatchObject({ cache_hit: false, final: "low" });
+    const second = await run(change);
+    expect(jev.calls).toBe(2);
+    expect(second).toMatchObject({ cache_hit: false, marker_hit: false, final: "risky" });
+    // Jev was sent exactly the changed state, in the order given.
+    expect(jev.sent[1].files).toEqual(change.paths ?? STATE.files);
+  });
+
+  it("treats the rename-order example as a miss: same sorted paths, different Jev input", async () => {
+    const { github, jev } = harness();
+    const before = mutableAcquisition([{ filename: "docs/c.md", previous_filename: "docs/b.md", status: "renamed" }]);
+    const after = mutableAcquisition([{ filename: "docs/b.md", status: "removed" }, { filename: "docs/c.md", status: "modified" }]);
+    const screenWith = async (acquisition) => (await screen([readme()], { ...quiet, files: acquisition.files, ask: jev.ask, marker: github.io }))[0];
+    expect(await screenWith(before)).toMatchObject({ cache_hit: false, final: "low" });
+    expect(jev.sent[0].files).toEqual(["docs/c.md", "docs/b.md"]);
+    // Re-screening the rename is a hit; the removal plus modification is a different input.
+    expect(await screenWith(before)).toMatchObject({ cache_hit: true, final: "low" });
+    expect(jev.calls).toBe(1);
+    expect(await screenWith(after)).toMatchObject({ cache_hit: false, final: "risky" });
+    expect(jev.calls).toBe(2);
+    expect(jev.sent[1].files).toEqual(["docs/b.md", "docs/c.md"]);
+  });
+
+  it("uses one digest for the lookup, the write and the posted marker, and it is the digest of what Jev was sent", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const reads = [];
+    const writes = [];
+    const marker = {
+      ...github.io,
+      read: (...args) => {
+        reads.push(args);
+        return github.io.read(...args);
+      },
+      write: (sha, written) => {
+        writes.push(written);
+        return github.io.write(sha, written);
+      },
+    };
+    const jev = scriptedJev("low");
+    const input = { ...readme(), title: STATE.title, notes: STATE.notes, additions: STATE.additions, deletions: STATE.deletions };
+    await screen([input], { ...quiet, files: () => acq(STATE.files), ask: jev.ask, marker });
+    expect(reads).toHaveLength(1);
+    expect(writes).toHaveLength(1);
+    const expected = hashScreenState({ title: STATE.title, files: STATE.files, additions: 3, deletions: 2, notes: "n" }, BASE);
+    expect(reads[0][3]).toBe(expected);
+    expect(writes[0].stateHash).toBe(expected);
+    expect(parseMarkerDescription(github.store[SHA][0].description).stateHash).toBe(expected);
+    expect(hashScreenState(jev.sent[0], BASE)).toBe(expected);
+  });
+
+  it("fails closed, with no cache or Jev access, when the acquisition has no verified base commit", async () => {
+    for (const acquisition of [
+      { paths: ["README.md"], revalidate: () => {} },
+      { ...acq(["README.md"]), snapshot: undefined },
+      acq(["README.md"], null),
+      acq(["README.md"], "abc123"),
+      acq(["README.md"], `${BASE}0`),
+      acq(["README.md"], 42),
+    ]) {
+      const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
+      const ask = vi.fn();
+      const [record] = await screen([readme()], { ...quiet, files: () => acquisition, marker, ask });
+      expect(record, JSON.stringify(acquisition.snapshot)).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+      for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+    }
+    // The base is compared case-insensitively: an upper-case SHA is the same base.
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const jev = scriptedJev("low");
+    await screen([readme()], { ...quiet, files: () => acq(["README.md"], BASE.toUpperCase()), ask: jev.ask, marker: github.io });
+    const [again] = await screen([readme()], { ...quiet, files: () => acq(["README.md"], BASE), ask: jev.ask, marker: github.io });
+    expect(again).toMatchObject({ cache_hit: true });
+    expect(jev.calls).toBe(1);
+  });
+
+  it("rejects v1 and v2 markers as a whole-read miss, so they can never lower the tier", async () => {
+    const v2 = `v2 tier=low jev=low c=0.99 p=0 model=${JEV_MODEL} q=${Q} screener=mjs f=${F}`;
+    const v1 = `v1 tier=low jev=low c=0.99 p=0 model=${JEV_MODEL} q=${Q} screener=mjs`;
+    const sound = markerText({ tier: "low", jevTier: "low", confidence: 0.99 });
+    const v3WithOldField = sound.replace(" s=", " f=");
+    expect(MARKER_VERSION).toBe("v3");
+    expect(parseMarkerDescription(sound)).not.toBeNull();
+    for (const old of [v2, v1, v3WithOldField]) {
+      expect(parseMarkerDescription(old), old).toBeNull();
+      // Next to a sound v3 marker for the same key, the old marker still forces a miss.
+      for (const statuses of [[status(old), status(sound)], [status(sound), status(old)]]) {
+        const github = fakeGitHub({ statuses: { [SHA]: statuses } });
+        expect(await readMarker(SHA, JEV_MODEL, Q, F, { run: github.run }), old).toEqual({ found: false, reason: "rejected_marker" });
+      }
+      const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(old)] } });
+      const jev = scriptedJev("risky");
+      const [record] = await screen([readme()], { ...quiet, files: () => acq(["README.md"]), ask: jev.ask, marker: github.io });
+      expect(jev.calls, old).toBe(1);
+      expect(record, old).toMatchObject({ cache_hit: false, final: "risky" });
+    }
+  });
+
+  it("keeps the longest legal marker within GitHub's 140 character cap", async () => {
+    const longest = { tier: "normal", jevTier: "normal", confidence: 0.999, pIncident: 0.999, questionHash: "f".repeat(8), stateHash: F };
+    // "normal" is the longest tier name; a 22 character model is the longest that fits exactly.
+    expect(buildMarkerDescription({ ...longest, model: "m".repeat(22) })).toHaveLength(MAX_DESCRIPTION_LENGTH);
+    expect(buildMarkerDescription({ ...longest, model: JEV_MODEL }).length).toBeLessThan(MAX_DESCRIPTION_LENGTH);
+    expect(buildMarkerDescription({ ...longest, tier: "risky", jevTier: "normal", model: JEV_MODEL }).length).toBeLessThanOrEqual(MAX_DESCRIPTION_LENGTH);
+    const fits = fakeGitHub();
+    expect(await writeMarker(SHA, { ...longest, model: "m".repeat(22) }, { run: fits.run })).toEqual({ success: true });
+    expect(parseMarkerDescription(fits.store[SHA][0].description)).toMatchObject({ model: "m".repeat(22), stateHash: F });
+    const over = fakeGitHub();
+    expect(await writeMarker(SHA, { ...longest, model: "m".repeat(23) }, { run: over.run })).toEqual({ success: false, reason: "description_too_long" });
+    expect(over.calls).toEqual([]);
+    // A longer description is also refused on read.
+    expect(parseMarkerDescription(buildMarkerDescription({ ...longest, model: "m".repeat(23) }))).toBeNull();
   });
 });
