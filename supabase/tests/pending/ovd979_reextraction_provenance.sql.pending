@@ -11,11 +11,12 @@
 -- promoted and this file is renamed to
 -- supabase/tests/ovd979_reextraction_provenance.sql in the same change.
 -- Pre-apply observation (PGlite + pgTAP, exact migration bodies, stubbed
--- tables): without the drafts 14/29 pass (A2, A4, B1, B1b, B3, B5, D0-D5, Q1-Q3
--- fail: corrections overwritten, 0 tasks queued on attach, stale editor
--- defaults, placeholder material, tolerance filled, quoted jobs moved to
--- ready_to_quote). With the revision-0 drafts 21/29 (D1-D5, Q1-Q3 fail). With
--- the revision-1 drafts: 29/29. Sections D, E and Q cover review r0 R1-R4.
+-- tables): without the drafts 21/38 pass (A2, A4, B1, B1b, B3, B5, B9, D0-D5,
+-- Q1-Q3, F1 fail: corrections overwritten, 0 tasks queued on attach, stale
+-- editor defaults, placeholder material, tolerance filled, quoted jobs moved
+-- to ready_to_quote). With the revision-0 drafts 29/38. With the current
+-- drafts: 38/38. Sections D, E and Q cover review r0 R1-R4; B5b, B8, B9, D-1
+-- and the F, R, H, N jobs close the review r1 mutation gaps.
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
@@ -25,7 +26,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(29);
+select plan(38);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -270,6 +271,12 @@ select is(
   'B5 the drawing extraction fills auto fields and keeps the user-owned finish'
 );
 
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009791b0'),
+  'ready_to_quote',
+  'B5b a pre-quote job is rolled up to ready_to_quote after the drawing extraction'
+);
+
 set local role authenticated;
 select pg_temp.ovd979_as_owner();
 select is(
@@ -281,6 +288,33 @@ select is(
   'B7 an extraction row not written by the CAD-only worker path is never re-queued'
 );
 reset role;
+
+-- B's finish is user-owned: the defaults sync must not touch its default, so
+-- an unrelated save that resends the displayed values keeps the override.
+select is(
+  (select spec_snapshot #>> '{projectPartProperties,defaults,finish}'
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791b3'),
+  'EXTRACTED FINISH cad',
+  'B8 (R1) the default of a user-owned field is not changed by the extraction'
+);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791b0',
+  p_description => 'EXTRACTED DESC dwg', p_part_number => 'EX-PN-dwg', p_revision => 'Rdwg',
+  p_material => 'Aluminum 6061-T6', p_finish => 'USER FINISH', p_quantity => 5
+);
+reset role;
+
+select is(
+  (select coalesce(array_agg(key order by key), '{}'::text[])
+   from public.approved_part_requirements r,
+     jsonb_object_keys(r.spec_snapshot #> '{projectPartProperties,overrides}') key
+   where r.part_id = '00000000-0000-4000-8000-0000009791b3'),
+  array['finish', 'material'],
+  'B9 (R1) an unrelated save keeps the user-owned overrides'
+);
 
 -- ---------------------------------------------------------------- review r0: R1, R2, R3 (job D, job E)
 -- D: CAD-only extraction, then a save that changes nothing (this seeds the
@@ -299,6 +333,12 @@ select pg_temp.ovd979_worker_completes(
 
 set local role authenticated;
 select pg_temp.ovd979_as_owner();
+-- Each re-queue is a paid model run: a CAD-only part with no drawing must
+-- never be queued again.
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009791d0'), 0,
+  'D-1 a CAD-only extracted part with no drawing queues nothing'
+);
 select public.api_update_client_part_request(
   p_job_id => '00000000-0000-4000-8000-0000009791d0',
   p_description => 'EXTRACTED DESC cad', p_part_number => 'EX-PN-cad', p_revision => 'Rcad',
@@ -476,6 +516,132 @@ select is(
    where quoted.job_id = '00000000-0000-4000-8000-0000009792c0'),
   array['1', 'closed', 'closed', 'EXTRACTED DESC dwg'],
   'Q3 (R4) attach on a closed job keeps the job closed'
+);
+
+-- ---------------------------------------------------------------- review r1 nits (jobs F, R, H, N)
+-- F: a failed drawing_attached task, then a worker retry.
+-- R: a drawing_attached task completed without replacing the CAD-only row
+--    (trusted-reuse path).
+-- H: legacy fieldSources.material = 'user' over the placeholder.
+-- N: a never-extracted part on a published job.
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 F', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009793b0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 R', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009793d0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 H', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009793c0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 N', 'published');
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.step', 'ovd979-bracket', 'cad'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009793a1'::uuid, '00000000-0000-4000-8000-0000009793a0'::uuid),
+  ('00000000-0000-4000-8000-0000009793b1'::uuid, '00000000-0000-4000-8000-0000009793b0'::uuid),
+  ('00000000-0000-4000-8000-0000009793d1'::uuid, '00000000-0000-4000-8000-0000009793d0'::uuid),
+  ('00000000-0000-4000-8000-0000009793c1'::uuid, '00000000-0000-4000-8000-0000009793c0'::uuid)
+) as file(id, job_id);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+select file.part_id, file.job_id, '00000000-0000-4000-8000-000000979001',
+  'ovd979-bracket', 'ovd979-bracket', file.cad_id, null
+from (values
+  ('00000000-0000-4000-8000-0000009793a3'::uuid, '00000000-0000-4000-8000-0000009793a0'::uuid, '00000000-0000-4000-8000-0000009793a1'::uuid),
+  ('00000000-0000-4000-8000-0000009793b3'::uuid, '00000000-0000-4000-8000-0000009793b0'::uuid, '00000000-0000-4000-8000-0000009793b1'::uuid),
+  ('00000000-0000-4000-8000-0000009793d3'::uuid, '00000000-0000-4000-8000-0000009793d0'::uuid, '00000000-0000-4000-8000-0000009793d1'::uuid),
+  ('00000000-0000-4000-8000-0000009793c3'::uuid, '00000000-0000-4000-8000-0000009793c0'::uuid, '00000000-0000-4000-8000-0000009793c1'::uuid)
+) as file(part_id, job_id, cad_id);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-0000009793c0');
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-8000-0000009793b0',
+                  '00000000-0000-4000-8000-0000009793d0']::uuid[]) job_id;
+reset role;
+
+select is(
+  (select array[
+     (select count(*) from public.work_queue
+      where part_id = '00000000-0000-4000-8000-0000009793c3' and task_type = 'extract_part')::text,
+     (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793c0')]),
+  array['1', 'extracting'],
+  'N1 (R4) a never-extracted part on a published job still sets extracting, as on main'
+);
+
+select pg_temp.ovd979_worker_completes(job_id, part_id, 'worker-sim-v1', 'cad', 1)
+from (values
+  ('00000000-0000-4000-8000-0000009793a0'::uuid, '00000000-0000-4000-8000-0000009793a3'::uuid),
+  ('00000000-0000-4000-8000-0000009793b0'::uuid, '00000000-0000-4000-8000-0000009793b3'::uuid),
+  ('00000000-0000-4000-8000-0000009793d0'::uuid, '00000000-0000-4000-8000-0000009793d3'::uuid)
+) as v(job_id, part_id);
+
+-- H: legacy provenance marks material as user-owned (written after the
+-- CAD-only auto-approval, which rewrites fieldSources with four keys).
+update public.approved_part_requirements
+set spec_snapshot = jsonb_set(spec_snapshot, '{fieldSources,material}', '"user"'::jsonb)
+where part_id = '00000000-0000-4000-8000-0000009793d3';
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.pdf', 'ovd979-bracket', 'drawing'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009793a2'::uuid, '00000000-0000-4000-8000-0000009793a0'::uuid),
+  ('00000000-0000-4000-8000-0000009793b2'::uuid, '00000000-0000-4000-8000-0000009793b0'::uuid),
+  ('00000000-0000-4000-8000-0000009793d2'::uuid, '00000000-0000-4000-8000-0000009793d0'::uuid)
+) as file(id, job_id);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-8000-0000009793b0',
+                  '00000000-0000-4000-8000-0000009793d0']::uuid[]) job_id;
+reset role;
+
+-- F: the drawing task fails; the next auto-approval run (any part of the job)
+-- rolls the job up. Then the worker retries the task and it succeeds.
+update public.work_queue set status = 'failed'
+where part_id = '00000000-0000-4000-8000-0000009793a3' and task_type = 'extract_part' and status = 'queued';
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009793a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793a0'),
+  'needs_spec_review',
+  'F1 (R4) a failed drawing task rolls a pre-quote job up to needs_spec_review'
+);
+update public.work_queue set status = 'queued'
+where part_id = '00000000-0000-4000-8000-0000009793a3' and task_type = 'extract_part' and status = 'failed';
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-8000-0000009793a3', 'worker-pdf-v3', 'dwg', 3
+);
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793a0'),
+  'ready_to_quote',
+  'F2 (R4) a job in needs_spec_review is rolled up to ready_to_quote once the retry succeeds'
+);
+
+-- R: the task completes but the extraction row stays CAD-only.
+update public.work_queue set status = 'completed'
+where part_id = '00000000-0000-4000-8000-0000009793b3' and task_type = 'extract_part' and status = 'queued';
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009793b0'), 0,
+  'R1 a completed drawing task for the current drawing is not queued again, even if the row stays CAD-only'
+);
+reset role;
+
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009793d0', '00000000-0000-4000-8000-0000009793d3', 'worker-pdf-v3', 'dwg', 3
+);
+select is(
+  (select material from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009793d3'),
+  'Unknown material',
+  'H1 (R2) a placeholder material owned through legacy fieldSources.material is kept'
 );
 
 -- ---------------------------------------------------------------- attributes and grants

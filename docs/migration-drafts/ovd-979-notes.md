@@ -4,7 +4,10 @@ This is a draft. Nothing here has been applied to any Supabase project, and noth
 
 ## Apply-order prerequisites (read first)
 
-1. **OVD-976 must be deployed before `ovd-979-b.sql` is applied.** Draft b extracts drawings attached to CAD-only parts. Until the OVD-976 worker change (unit-aware tolerance parsing, branch `fix/ovd976-drawing-tolerance-units`) ships, a millimetre drawing ("±0.1") is stored as 0.1 in. Draft a now also refuses to fill tolerance from a drawing-attach extraction (R3 below), but that only stops the silent auto-fill; OVD-976 is the fix for the value itself.
+1. **OVD-976 must be deployed before `ovd-979-b.sql` is applied. This is the only real mitigation for mis-scaled tolerances.** Draft b extracts drawings attached to CAD-only parts. Until the OVD-976 worker change (Linear OVD-976, unit-aware tolerance parsing, branch `fix/ovd976-drawing-tolerance-units`) is deployed, a millimetre drawing ("±0.1") is stored as 0.1 in. Draft a's R3 rule only stops auto-approve from writing that value; the next client save can still adopt it (see R3 below). Verify the deploy before applying b, read-only:
+   - Read the worker build of recent extractions: `select extraction ->> 'workerBuildVersion', updated_at from public.drawing_extractions where extractor_version not like 'worker-sim-%' order by updated_at desc limit 5;` (the same value is in the completed task payload, `work_queue.payload ->> 'workerBuildVersion'`). It is the worker's `WORKER_BUILD_VERSION` (default `dev-local`, `worker/src/config.ts`); it proves the deploy only if the deployed value identifies a build that contains the OVD-976 merge commit. Running this on staging or production needs Blaine's OK.
+   - If the build value cannot prove it: a canary extraction on staging of a known metric drawing (for example ±0.1 mm) must give `tolerances.valueInch` near 0.0039, not 0.1. A staging extraction is a model run, so it also needs Blaine's OK.
+   - Client-side companion: OVD-984 (branch `fix/ovd984-client-tolerance-no-reparse`, commit `342790e6`) stops the client re-parsing raw tolerance text, which removes the client fallback described under R3. It does not remove the server-side lazy seed.
 2. `ovd-979-a.sql` before `ovd-979-b.sql`, never b alone. a alone is safe.
 3. The OVD-846 SECURITY DEFINER lint decision (R6) is made before promotion.
 
@@ -14,7 +17,7 @@ This is a draft. Nothing here has been applied to any Supabase project, and noth
 - `docs/migration-drafts/ovd-979-a.rollback.sql`: restores the 20260317013000 body verbatim, plus the OVD-535 ACL. Unchanged in revision 1.
 - `docs/migration-drafts/ovd-979-b.sql`: replaces `public.api_request_extraction(uuid)` (finding 1b-b, plus review R4).
 - `docs/migration-drafts/ovd-979-b.rollback.sql`: restores the 20260812042000 body verbatim, plus the OVD-736 ACL. Unchanged in revision 1.
-- `supabase/tests/pending/ovd979_reextraction_provenance.sql.pending`: 29 pgTAP assertions. Its header names both drafts, so the ephemeral-db stage (`scripts/ephemeral-db-apply.mjs`) applies the family in stem order (a, then b) and runs the test.
+- `supabase/tests/pending/ovd979_reextraction_provenance.sql.pending`: 38 pgTAP assertions. Its header names both drafts, so the ephemeral-db stage (`scripts/ephemeral-db-apply.mjs`) applies the family in stem order (a, then b) and runs the test.
 
 ## Problem (verified by reading the migrations in order and by execution)
 
@@ -52,7 +55,9 @@ A CAD-only auto-approval of a `manufacturing_quote` job stores `material = 'Unkn
 Decision: the conservative option. For a part that has any `extract_part` task with `payload.reason = 'drawing_attached'` (queued only by draft b), auto-approve keeps `tightest_tolerance_inch` at the requirement value instead of `coalesce(requirement, extraction)`. For a CAD-only part that value is null.
 
 - Why: until OVD-976 ships, a millimetre drawing is stored as inches, and a newly non-null tolerance could pass the OVD-683 Xometry gate at a looser tier (and could change SendCutSend eligibility if vendors were recomputed). Null fails closed today, so keeping null is the safe default.
-- Product effect: after an attach, description, part number, revision, finish and material fill in from the drawing, but tolerance stays empty until the user enters it, as for a CAD-only part today. The extracted value stays in `drawing_extractions`. If the user never saved before the attach, the editor seeds its tolerance default lazily from the extraction on the next save, so a user who saves the displayed value adopts it; that is an explicit user action, not a silent fill. `applicable_vendors` is not recomputed (unchanged rule: a stored non-empty list is kept).
+- Product effect: after an attach, description, part number, revision, finish and material fill in from the drawing, and auto-approve leaves tolerance at the stored value (null for a CAD-only part). `applicable_vendors` is not recomputed (unchanged rule: a stored non-empty list is kept).
+- **Limit (review r1, F1): the next save can still adopt the drawing tolerance without the user choosing it.** Two paths, both on main and outside these drafts: (1) the client draft falls back to the extraction tolerance when the requirement has none (`src/features/quotes/utils.ts` `buildRequirementDraft`), so an unrelated save sends 0.1; (2) when the user never saved before the attach, `api_update_client_part_request` seeds `defaults.tightestToleranceInch` lazily from the extraction (20260408120000 `seed_project_part_property_defaults`), and a null override resolves to that default. The reviewer's harness shows the column becoming 0.1000 after an unrelated save in both cases (save sends 0.1, or sends null with override `{tightestToleranceInch: null}`). Only when the user had saved before the attach and the save sends null does tolerance stay null. So R3 is defence in depth, not a mitigation: OVD-976 deployed first is the real one, and OVD-984 removes path (1).
+- Not done (considered): pinning `defaults.tightestToleranceInch` to the requirement value on an attach. When a defaults object already exists, the first save already seeded that key (null for a CAD-only part), so the pin changes nothing. Path (2) has no defaults object; creating a partial one would change what the client editor shows as defaults for every other field until the next save. Not worth it ahead of OVD-976.
 - Scope: only the attach path. A drawing uploaded together with the part still fills tolerance exactly as today (pgTAP A5); that path carries the same pre-OVD-976 risk on main and is OVD-976's to fix.
 - After OVD-976 is deployed this rule can be lifted in a follow-up (one `case` branch). It is deliberately not tied to OVD-976's output shape, which is not merged.
 - pgTAP D2.
@@ -95,8 +100,10 @@ The function header (signature through `as $$`) is byte-identical to the replace
 Harness: `/Users/blainewilson/Documents/Codex/2026-10-18/claude-primary/gmc/sql-drafts/OVD-979/` (PGlite 0.4.3 and pgTAP borrowed from `~/gbrain/node_modules/@electric-sql/pglite`; nothing installed; exact migration bodies over stubbed tables).
 
 - `node run.mjs <worktree>`: baseline reproduces both bugs (6 expected failures). Drafts 15/15. Both rollbacks restore the 0317 and 0812 bodies byte for byte and replay twice.
-- `node pgtap-run.mjs <worktree> draft|baseline`: 29/29 with the drafts; 14/29 without (A2, A4, B1, B1b, B3, B5, D0 to D5, Q1 to Q3 fail). The revision-0 drafts under this test: 21/29 (D1 to D5, Q1 to Q3 fail).
-- `node mutate-r1.mjs <worktree> <scratch>`: each new rule removed from a scratch copy of the drafts is caught: R1 sync (D1, D3, D4, D5), R2 placeholder (D1, D4), R2 ownership check (E1), R3 (D2), R4 rollup guard in a (Q1 to Q3), R4 guard in b (Q1 to Q3), b never flipping on an attach (B1b).
+- `node pgtap-run.mjs <worktree> draft|baseline`: 38/38 with the drafts; 21/38 without. The same with the reviewer's enum-typed `jobs.status` stub (`reviewer-r1/runtest.mjs`): 38/38 and 21/38. The revision-0 drafts under this test: 29/38.
+- Mutation testing: the harness `mutate-r1.mjs` (7 mutants) and the r1 reviewer's `reviewer-r1/mymut.mjs` (14 mutants). Every mutant is caught except N2 (placeholder compared case-insensitively: a harmless widening, no behaviour to assert against) and N14 (advisory lock removed: needs two concurrent connections, which PGlite does not have).
+- `node mutate-r1.mjs <worktree> <scratch>`: each new rule removed from a scratch copy of the drafts is caught: R1 sync (B9, D1, D3, D4, D5), R2 placeholder (D1, D4), R2 ownership checks (E1, H1), R3 (D2), R4 rollup guard in a (Q1 to Q3), R4 guard in b (Q1 to Q3), b never flipping on an attach (B1b).
+- Reviewer mutants and the assertions that catch them: N1 defaults written into overrides (test errors: material required), N3 allow-list without needs_spec_review (F2), N4 tolerance rule inverted (A5, D2), N5 new-part branch guarded (N1), N6 rollup disabled (B5b, F1, F2), N7 completed-task dedupe removed (R1), N8 `drawing_file_id is not null` dropped (D-1, D0), N9 override ownership dropped (A2, A4, B5, B8), N10 defaults sync also on owned fields (B8, B9), N11 attach marker ignores reason (A5), N12 placeholder ignores fieldSources.material (H1), N13 any extractor version re-queued (B7). N2 and N14 survive, as above.
 - The reviewer's harness (`adv.mjs`, `mat.mjs`): the C4 stale-defaults observations no longer reproduce; material becomes the drawing material and tolerance stays null after an attach.
 - Not verified: the real schema (triggers such as the canonical part version assignment and the part deadline history, the `job_status` enum type in place of the stub's text column), real access helpers, and real concurrency. The CI ephemeral-db stage covers the first two. The advisory lock has no concurrency test (single connection).
 
@@ -146,6 +153,10 @@ where trim(r.material) = 'Unknown material'
 
 Query 3 counts, per field, requirement rows whose stored override is a non-empty string different from the column (on main, an auto-approve refresh is the writer that produces this). It is a lower bound of reverted corrections: a revert followed by a fresh user save is no longer visible. It identifies affected rows; it does not repair them. Repairing them is a separate decision, because the user must confirm the value.
 
+## Why this cannot be split (for the PR body)
+
+Drafts a and b and the pending test are one change. b alone would re-extract attached drawings through the current auto-approve and overwrite user corrections; a's R3 and R4 rules read b's `drawing_attached` marker and status behaviour; and the single pending test (picked up as one draft family by `scripts/ephemeral-db-apply.mjs`) asserts both together, so splitting them would leave a test that cannot pass against either draft alone. The PR is over the 200-line guideline mostly because of that test.
+
 ## Apply order and window plan
 
 1. Confirm OVD-976 is deployed to the worker (prerequisite for b).
@@ -187,6 +198,7 @@ Also related, not conflicting: the `ovd-766-c` draft replaces `api_reconcile_job
 3. R4: whether auto-approve should also skip field refreshes (not only status) for jobs in quoting or later. Today and in this draft the requirement is refreshed; registered lanes are immutable, but undispatched lanes of the same run pick up refreshed values.
 4. R4: whether a brand-new part added to a quoted job should keep flipping the job to `extracting` (kept as on main in this draft).
 5. R3: lift the attach tolerance rule once OVD-976 is deployed (follow-up), or keep it.
+6. F4: accept that a failed drawing-attach task moves a pre-quote job to `needs_spec_review` (the user sees the job needing review although the CAD-only data was fine), or ignore `drawing_attached` failures in the rollup.
 
 ## What is NOT changed (and remaining risks, for backlog)
 
@@ -195,5 +207,6 @@ Also related, not conflicting: the `ovd-766-c` draft replaces `api_reconcile_job
 - Concurrency (from the review, low): auto-approve reads the requirement without `FOR UPDATE`. A user save that commits between that read and the upsert can be overwritten. This exists on main; not closed here. Backlog: read with `FOR UPDATE` after checking the lock order against `api_update_client_part_request` and `load_editable_project_part_context`.
 - Trusted reuse: if the new CAD-plus-drawing package exactly matches a completed version elsewhere in the organization, the worker takes the reuse path. Its `on conflict (part_id) do nothing` keeps the CAD-only row, so the drawing data is not copied. Draft b queues once and does not loop (harness S4), but that part still gets no drawing data. This needs a follow-up in `api_reuse_trusted_part_version_artifacts`.
 - A `drawing_attached` task that failed is queued again by the next request, the same as a never-extracted part today. A failed drawing task turns a previously succeeded part into "failed" in the lifecycle projection (20261011170000).
+- **Behaviour change (review r1, F4):** a failed `drawing_attached` task now makes the next auto-approve run move a pre-quote job (for example `ready_to_quote`) to `needs_spec_review`, because the rollup counts failed `extract_part` tasks for the job. On main, attaching a drawing queues nothing, so this cannot happen. A successful retry rolls it back to `ready_to_quote` (pgTAP F1, F2). Jobs in quoting or later are not moved (R4). Not changed here; see "Needs Blaine".
 - Replacing an existing drawing with a different one (the first extraction was pdf) is not re-queued. No provenance records which drawing an old extraction used.
 - Observation: the codebase stamps `timestamptz` columns with `timezone('utc', now())`, which is correct only in a UTC session (Supabase's default). The harness pins its fixtures to the same expression.
