@@ -4,7 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SupportedReviewField } from "../types.js";
-import { buildWordLines, parseBboxWords, type PdfWord } from "./pdfWords.js";
+import { buildWordLines, MAX_WORDS_TOTAL, parseBboxWords, type PdfWord } from "./pdfWords.js";
 import {
   isLabelLikeToken,
   readTitleBlockCells,
@@ -485,6 +485,8 @@ type ToleranceCandidate = {
    * is 3), or null for any other value (a callout on a feature, a note).
    */
   rowPlaces: number | null;
+  /** Where the printed number begins in the text. */
+  numberStart: number;
 };
 
 function buildCandidate(text: string, start: number, numberStart: number, number: string): ToleranceCandidate | null {
@@ -516,6 +518,7 @@ function buildCandidate(text: string, start: number, numberStart: number, number
     problem: printed.includes(",") ? "decimal-comma" : scientific ? "scientific" : null,
     pairedInch: false,
     rowPlaces: null,
+    numberStart,
   };
 }
 
@@ -598,29 +601,39 @@ function collectToleranceCandidates(text: string) {
  * A table such as "TWO PLACE DECIMAL .01 / THREE PLACE DECIMAL .005 / FOUR PLACE DECIMAL .0010" is a
  * default for dimensions printed with that many decimal places. A drawing whose dimensions use only two
  * and three places is not toleranced by the four-place row, so reading the tightest row as the
- * drawing's tightest tolerance denied every drawing made from a SolidWorks template that prints one.
+ * drawing's tightest tolerance denied every drawing made from a template that prints one.
  *
- * T1 Dimension text is read from lines that hold only dimension callouts (numbers, "2X", R, Ø, THRU,
- *    TYP, hole tags such as A1). The sheet is "readable" when at least MIN_READABLE_DIMENSIONS decimal
- *    numbers were read that way, no line was too long to scan, and the text layer is not OCR. A note
- *    such as "1 INCH = 25.4" or a title-block weight is not a dimension.
- * T2 When the sheet is readable, a table row applies only if some decimal number on it (any line that is
- *    not tolerance or title block text) has that many places; the other rows are dropped. An explicit
- *    "±" value that is not a table row is a tolerance on a feature and is always kept.
+ * The rule can only err towards a tighter value. A row is dropped on positive evidence alone, and a
+ * missing number never counts as evidence, so reading more of the sheet than needed is always safe:
+ *
+ * T1 Readable: the text layer is not OCR, no line was too long to scan, and at least MIN_READABLE_DIMENSIONS
+ *    decimal numbers sit on lines that hold only dimension callouts (numbers, "2X", R, Ø, THRU, TYP, hole
+ *    tags such as A1). This gate is strict on purpose: a miss only makes the sheet unreadable (T3).
+ * T2 Evidence: on a readable sheet, the most decimal places printed anywhere in the text, counting every
+ *    decimal number except the values of the table's own rows (".0010" in "FOUR PLACE DECIMAL .0010").
+ *    No line or word is skipped, and no number is dropped for what is glued to it ("Ø.1875", "SR.0625",
+ *    ".1875A", "1.2500"), so a dimension that shares a line with a note, a view label, a weight or the
+ *    table itself still counts. A row applies unless every decimal number printed has fewer places than
+ *    the row. An explicit "±" value that is not a table row is a tolerance on a feature and is kept.
  * T3 When the sheet is not readable, a row of four or more places is not assumed to apply: it becomes
  *    an unresolved value like any other unclear unit (P6), so the result is valueInch null, unless a
  *    tighter explicit tolerance exists, and the OVD-683 beta gate asks the user. Rows of one to three
  *    places are read as before (the tightest printed row), which is the safe direction for a quote and
  *    changes nothing for a table without a four-place row.
+ *
+ * Known limit: a dimension that is not in the text layer (outlined text, a raster view) is not seen. The
+ * OCR text is not used as evidence because it would also read the table's own ".0010".
  */
 const NON_DIMENSION_LINE =
   /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS|SCALE|SHEET|UNLESS\s+OTHERWISE|TOLERANC\w*|SURFACE|INTERPRET|ASME|ANSI|ISO|RA|RMS)\b|Y14|(?:^|[^A-Za-z0-9])X?\.X{1,4}(?![A-Za-z0-9])/i;
-const DECIMAL_NUMBER = /\d*\.\d+/g;
-// A "2X " multiplier and an R, C or diameter sign may sit directly before a dimension ("20XR.492").
-const DIMENSION_PREFIX = /(?:^|[^A-Za-z0-9])(?:\d{1,3}[ \t]?X[ \t]?)?[RCØ∅⌀]?[ \t]?$/i;
-const TOLERANCE_SIGN_BEFORE = /(?:±|∓|\+|\+[ \t]*\/[ \t]*-)[ \t]*$/;
+// A decimal separator and the digits after it. The digits before it are not matched: a pattern that starts
+// with \d* rescans a long digit run from every position in it, which is quadratic. `numberStartOf` finds the
+// start of the whole number by walking back, once per separator.
+const DECIMAL_NUMBER = /[.,]\d+/g;
 // What a line that holds only dimensions is made of: "20X R.425", ".656 THRU    2X    .089 THRU", "A1, A2".
-const DIMENSION_TOKEN = /^(?:\d{1,3}X)?[RCØ∅⌀]?(?:\d+\.?\d*|\.\d+)?$/i;
+// The number is \d+(?:\.\d*)? and not \d+\.?\d*: with the optional dot between them, a long digit run followed by
+// anything that is not a digit can be split between the two \d+ groups in as many ways as it has digits.
+const DIMENSION_TOKEN = /^(?:\d{1,3}X)?[RCØ∅⌀]?(?:\d+(?:\.\d*)?|\.\d+)?$/i;
 const CALLOUT_WORDS = new Set([
   "THRU", "ALL", "TYP", "TYPICAL", "DIA", "DIAMETER", "DEEP", "DP", "REF", "MAX", "MIN", "SQ", "SQUARE", "PLACES",
   "PL", "EQ", "SP", "SPACES", "BSC", "BASIC", "CSK", "CBORE", "X",
@@ -628,8 +641,21 @@ const CALLOUT_WORDS = new Set([
 const HOLE_TAG_OR_BORDER_LETTER = /^(?:[A-Z]\d{1,2}|[A-H])$/i;
 const MAX_EVIDENCE_LINE_LENGTH = 2_000;
 const MIN_READABLE_DIMENSIONS = 3;
-// T3: rows of more places than this need a dimension printed to that many places to be believed.
+// T3: rows of more places than this need a number printed to that many places to be believed.
 const MOST_PLACES_ASSUMED_IN_FORCE = 3;
+
+/** Where the number whose decimal separator is at `separator` begins: the digits before it belong to it. */
+function numberStartOf(text: string, separator: number): number {
+  let start = separator;
+  while (start > 0) {
+    const code = text.charCodeAt(start - 1);
+    if (code < 48 || code > 57) {
+      break;
+    }
+    start -= 1;
+  }
+  return start;
+}
 
 function isDimensionOnlyLine(line: string) {
   const tokens = line.split(/[\s,]+/).filter((token) => token.length > 0);
@@ -641,36 +667,43 @@ function isDimensionOnlyLine(line: string) {
   );
 }
 
-function readDimensionPlaces(text: string): { places: Set<number>; dimensions: number; complete: boolean } {
-  const places = new Set<number>();
+/** T1: whether the dimensions are in the text layer, counted on dimension-only lines outside the table's rows. */
+function countReadableDimensions(
+  text: string,
+  tableValueStarts: ReadonlySet<number>,
+): { dimensions: number; complete: boolean } {
   let dimensions = 0;
   let complete = true;
-  for (const line of text.split(/[\r\n]+/)) {
+  let lineStart = 0;
+  for (const line of text.split("\n")) {
+    const offset = lineStart;
+    lineStart += line.length + 1;
     if (line.length > MAX_EVIDENCE_LINE_LENGTH) {
       complete = false;
       continue;
     }
-    if (NON_DIMENSION_LINE.test(line)) {
+    if (NON_DIMENSION_LINE.test(line) || !isDimensionOnlyLine(line)) {
       continue;
     }
-    const dimensionOnly = isDimensionOnlyLine(line);
     for (const match of line.matchAll(DECIMAL_NUMBER)) {
-      const start = match.index ?? 0;
-      const end = start + match[0].length;
-      if (line.charAt(start - 1) === "." || /[A-Za-z.]/.test(line.charAt(end))) {
-        continue;
-      }
-      const before = line.slice(Math.max(0, start - 8), start);
-      if (TOLERANCE_SIGN_BEFORE.test(before) || !DIMENSION_PREFIX.test(before)) {
-        continue;
-      }
-      places.add(match[0].length - match[0].indexOf(".") - 1);
-      if (dimensionOnly) {
+      if (!tableValueStarts.has(offset + numberStartOf(line, match.index ?? 0))) {
         dimensions += 1;
       }
     }
   }
-  return { places, dimensions, complete };
+  return { dimensions, complete };
+}
+
+/** T2: the most decimal places printed anywhere in the text, except the values of the table's own rows. */
+function mostPlacesPrinted(text: string, tableValueStarts: ReadonlySet<number>): number {
+  let most = 0;
+  for (const match of text.matchAll(DECIMAL_NUMBER)) {
+    if (tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
+      continue;
+    }
+    most = Math.max(most, match[0].length - 1);
+  }
+  return most;
 }
 
 function selectApplicableToleranceRows(
@@ -683,10 +716,12 @@ function selectApplicableToleranceRows(
     return { candidates, unresolvedRows: new Set() };
   }
 
-  const used = dimensionsReadable ? readDimensionPlaces(text) : null;
-  if (used !== null && used.complete && used.dimensions >= MIN_READABLE_DIMENSIONS) {
+  const tableValueStarts = new Set(rows.map((row) => row.numberStart));
+  const readable = dimensionsReadable ? countReadableDimensions(text, tableValueStarts) : null;
+  if (readable !== null && readable.complete && readable.dimensions >= MIN_READABLE_DIMENSIONS) {
+    const most = mostPlacesPrinted(text, tableValueStarts);
     return {
-      candidates: candidates.filter((candidate) => candidate.rowPlaces === null || used.places.has(candidate.rowPlaces)),
+      candidates: candidates.filter((candidate) => candidate.rowPlaces === null || candidate.rowPlaces <= most),
       unresolvedRows: new Set(),
     };
   }
@@ -1109,21 +1144,36 @@ function selectTitleBlockLines(
   layoutLines: StructuredLine[],
   layoutBounds: Map<number, TitleBlockBounds>,
 ): TitleBlockTextLine[] {
+  // Grouped by page once: the number of pages is not bounded (pages past the text layer cap are empty), so
+  // looking up each page in the whole list of lines would be pages times lines.
+  const layoutByPage = new Map<number, StructuredLine[]>();
+  for (const line of layoutLines) {
+    const pageLines = layoutByPage.get(line.page);
+    if (pageLines === undefined) {
+      layoutByPage.set(line.page, [line]);
+    } else {
+      pageLines.push(line);
+    }
+  }
   const selected: TitleBlockTextLine[] = [];
   for (const page of pages) {
     if (page.words !== undefined && page.words.length > 0) {
       const wordLines = buildWordLines(page.words, page.page);
       const wordBounds = detectTitleBlockBounds(wordLines.map(structuredLineOf));
       if (wordBounds.has(page.page)) {
-        selected.push(...wordLines.filter((line) => isWithinTitleBlock(structuredLineOf(line), wordBounds)));
+        for (const line of wordLines) {
+          if (isWithinTitleBlock(structuredLineOf(line), wordBounds)) {
+            selected.push(line);
+          }
+        }
         continue;
       }
     }
-    selected.push(
-      ...layoutLines
-        .filter((line) => line.page === page.page && isWithinTitleBlock(line, layoutBounds))
-        .map((line) => ({ page: line.page, lineNumber: line.lineNumber, raw: line.raw })),
-    );
+    for (const line of layoutByPage.get(page.page) ?? []) {
+      if (isWithinTitleBlock(line, layoutBounds)) {
+        selected.push({ page: line.page, lineNumber: line.lineNumber, raw: line.raw });
+      }
+    }
   }
   return selected;
 }
@@ -1333,10 +1383,13 @@ function rescueOcrTitleBlockFields(input: {
     const extractedPartNumber = input.fields.partNumber.value?.trim() ?? "";
     const extractedRevision = input.fields.revision.value?.trim() ?? "";
     const partNumberMatch = PART_NUMBER_PATTERN.exec(extractedPartNumber)?.[0] ?? null;
+    // A number read from the DWG. NO. cell, with no review flag, is the drawing's own even when it is
+    // not shaped like a company number ("ACME-1093-05589"); only an unlabelled value must fit the shape.
+    const partNumberFromCell = input.fields.partNumber.reasons.includes("label_match");
     const partNumberWeak =
       !extractedPartNumber ||
       input.fields.partNumber.reviewNeeded ||
-      partNumberMatch !== extractedPartNumber;
+      (partNumberMatch !== extractedPartNumber && !partNumberFromCell);
     const revisionWeak =
       !extractedRevision ||
       input.fields.revision.reviewNeeded ||
@@ -1397,13 +1450,13 @@ function applyFieldPenalties(
 ) {
   const reasons = [...candidate.reasons];
   let score = candidate.score;
-  let value = candidate.value;
+  const value = candidate.value;
 
   if (field === "partNumber") {
-    const partNumberMatch = value.match(PART_NUMBER_PATTERN);
-
-    if (partNumberMatch) {
-      value = partNumberMatch[0];
+    // A company-style number is recognised only as the whole value. A match inside a longer identifier
+    // is not substituted for it: "ACME-1093-05589" is not "1093-05589", "1093-05589.01" is not
+    // "1093-05589", and "XYZ-0070-3333" is not "0070-3333".
+    if (PART_NUMBER_PATTERN.exec(value)?.[0] === value) {
       reasons.push("regex_fit");
     }
 
@@ -1505,7 +1558,13 @@ function pickBestCandidate(
 
   const ranked = [...deduped.values()].sort((left, right) => right.score - left.score);
   const top = ranked[0] ?? null;
-  const second = ranked[1] ?? null;
+  // A candidate with the same value as the winner agrees with it (the same title block printed on two
+  // sheets); only a different value is a rival that can make the choice uncertain.
+  const second =
+    ranked.find(
+      (candidate, index) =>
+        index > 0 && candidate.value.trim().toUpperCase() !== (top?.value ?? "").trim().toUpperCase(),
+    ) ?? null;
 
   if (!top || top.score <= 0) {
     return {
@@ -1683,9 +1742,12 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
 async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<PdfWord[] | undefined>> {
   const boxes: Array<PdfWord[] | undefined> = [];
   const deadline = Date.now() + PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
+  let totalWords = 0;
   for (let index = 0; index < layerTexts.length; index += 1) {
     const remainingMs = deadline - Date.now();
-    if (layerTexts[index]!.trim().length === 0 || remainingMs <= 0) {
+    // The geometry of a page costs memory until the task ends, so the words of all pages together are
+    // bounded; pages past the bound keep their layout text only.
+    if (layerTexts[index]!.trim().length === 0 || remainingMs <= 0 || totalWords >= MAX_WORDS_TOTAL) {
       boxes.push(undefined);
       continue;
     }
@@ -1696,7 +1758,8 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
         { maxBuffer: 32 * 1024 * 1024, timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remainingMs) },
       );
       const words = parseBboxWords(typeof stdout === "string" ? stdout : "");
-      boxes.push(words.length > 0 ? words : undefined);
+      totalWords += words.length;
+      boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL ? words : undefined);
     } catch {
       boxes.push(undefined);
     }
