@@ -169,7 +169,7 @@ describe("UploadPairingNotice", () => {
     });
   });
 
-  describe("same-name parts and names the server cannot pair", () => {
+  describe("parts that share a server name, and names with no a-z or 0-9", () => {
     it("tells the user a drawing pairs with one part when several parts share its name", () => {
       render(<UploadPairingNotice files={[makeFile("a-1.step"), makeFile("A 1.stp"), pdf("a_1.pdf")]} />);
 
@@ -194,14 +194,44 @@ describe("UploadPairingNotice", () => {
       );
     });
 
-    it("lists both a drawing and a part whose names have no a-z or 0-9 as unpaired", () => {
+    it("is empty for identical names that have no a-z or 0-9, because the drawing does pair", () => {
       render(<UploadPairingNotice files={[makeFile("日本語.step"), pdf("日本語.pdf")]} />);
 
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    });
+
+    it("lists a drawing and a part with different names that have no a-z or 0-9 as unpaired", () => {
+      render(<UploadPairingNotice files={[makeFile("部品.step"), pdf("零件.pdf")]} />);
+
       const notice = screen.getByRole("status");
-      expect(notice).toHaveTextContent("日本語.pdf");
-      expect(notice).toHaveTextContent("日本語.step");
+      expect(notice).toHaveTextContent("零件.pdf");
+      expect(notice).toHaveTextContent("部品.step");
       expect(notice).toHaveTextContent("This drawing has no part with a matching name");
       expect(notice).toHaveTextContent("This part has no drawing with a matching name");
+    });
+
+    it("never says a drawing has no matching part while a part with the identical name is staged", () => {
+      for (const files of [
+        [makeFile("Part_1.step"), pdf("Part_1.pdf")],
+        [makeFile("Part 1.step"), makeFile("Part_1.step"), pdf("Part_1.pdf")],
+        [makeFile("Деталь.step"), pdf("Деталь.pdf")],
+        [makeFile("部品.step"), makeFile("a.step"), pdf("部品.pdf")],
+      ]) {
+        const { unmount } = render(<UploadPairingNotice files={files} />);
+
+        expect(screen.getByRole("status")).not.toHaveTextContent("no part with a matching name");
+        unmount();
+      }
+    });
+
+    it("names the part with the other spelling, not the identically named one, when two parts collide", () => {
+      render(<UploadPairingNotice files={[makeFile("Part 1.step"), makeFile("Part_1.step"), pdf("Part_1.pdf")]} />);
+
+      const notice = screen.getByRole("status");
+      expect(notice).toHaveTextContent("This part shares a name with a part that already has the drawing");
+      expect(notice).toHaveTextContent("Part 1.step");
+      expect(notice).not.toHaveTextContent("Part_1");
+      expect(notice).not.toHaveTextContent("no part with a matching name");
     });
   });
 

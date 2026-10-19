@@ -40,11 +40,10 @@ describe("upload-groups", () => {
     ]);
 
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.normalizedStem).toBe("my-part-01");
     expect(groups[0]?.files.map((file) => file.name)).toEqual([
       "My Part_01.step",
-      "my-part.01.PDF",
       "My Part_01.pdf",
+      "my-part.01.PDF",
     ]);
     expect(groups[0]?.hasCad).toBe(true);
     expect(groups[0]?.hasDrawing).toBe(true);
@@ -53,7 +52,7 @@ describe("upload-groups", () => {
   it("keeps a drawing with an extra revision word apart from its part", () => {
     const groups = groupUploadFiles([makeFile("PN.step"), makeFile("PN Rev 02.pdf", "application/pdf")]);
 
-    expect(groups.map((group) => group.normalizedStem)).toEqual(["pn", "pn-rev-02"]);
+    expect(groups.map((group) => group.files.map((file) => file.name))).toEqual([["PN.step"], ["PN Rev 02.pdf"]]);
   });
 
   it("groups matching CAD and PDF files by basename", () => {
@@ -86,95 +85,180 @@ describe("upload-groups", () => {
     expect(groups[1]?.hasDrawing).toBe(true);
   });
 
-  describe("a group holds at most one CAD file and only files that can pair", () => {
+  describe("grouping by original stem, then pairing a CAD-less drawing by the server stem", () => {
     const groupNames = (files: File[]) => groupUploadFiles(files).map((group) => group.files.map((file) => file.name));
+    /** Groups and their files in a canonical order, for cases where only membership matters. */
+    const sets = (files: File[]) =>
+      groupNames(files)
+        .map((names) => [...names].sort())
+        .sort((left, right) => (left.join("|") < right.join("|") ? -1 : 1));
+    const pdf = (name: string) => makeFile(name, "application/pdf");
+    const stage =(names: string[]) => names.map((name) => (name.toLowerCase().endsWith(".pdf") ? pdf(name) : makeFile(name)));
 
-    it("keeps two different Cyrillic parts that share a number in separate groups", () => {
-      const groups = groupUploadFiles([makeFile("Деталь 1.step"), makeFile("Корпус 1.step")]);
+    describe("a drawing whose name differs only by spacing, case or punctuation joins the part", () => {
+      it.each([
+        ["spaces and underscores", ["My Part 01.step", "My Part_01.pdf"]],
+        ["hyphen and space", ["bracket-v2.step", "bracket v2.pdf"]],
+        ["brackets", ["Part (Rev B).step", "Part Rev B.pdf"]],
+        ["accented letter dropped", ["Café.step", "Caf.pdf"]],
+        ["dotted capital I", ["İstanbul.step", "istanbul.pdf"]],
+      ])("%s", (_label, names) => {
+        const groups = groupUploadFiles(stage(names));
 
-      expect(groups).toHaveLength(2);
-      expect(groups.every((group) => group.files.length === 1 && group.hasCad)).toBe(true);
-      expect(new Set(groups.map((group) => group.key)).size).toBe(2);
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.files.map((file) => file.name)).toEqual(names);
+        expect(groups[0]?.hasCad).toBe(true);
+        expect(groups[0]?.hasDrawing).toBe(true);
+      });
+
+      it("pairs a drawing staged before the part", () => {
+        expect(groupNames(stage(["a_1.pdf", "a-1.step"]))).toEqual([["a-1.step", "a_1.pdf"]]);
+      });
+
+      it("pairs several differently spelled drawings, and a same-stem drawing, with the one part", () => {
+        const groups = groupUploadFiles(stage(["x.step", "X_.pdf", "x.pdf", "x-.PDF"]));
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.files.map((file) => file.name).sort()).toEqual(["X_.pdf", "x-.PDF", "x.pdf", "x.step"]);
+      });
+
+      it("moves the images of the drawing's group with it", () => {
+        expect(groupNames([makeFile("a.step"), makeFile("a_.png", "image/png"), pdf("a_.pdf")])).toEqual([
+          ["a.step", "a_.png", "a_.pdf"],
+        ]);
+      });
+
+      it("leaves a group without a drawing alone even when its server stem matches a part", () => {
+        expect(groupNames([makeFile("a.step"), makeFile("a_.png", "image/png")])).toEqual([["a.step"], ["a_.png"]]);
+      });
     });
 
-    it("keeps parts that differ only by accents in separate groups", () => {
-      expect(groupNames([makeFile("café.step"), makeFile("cafè.step")]).sort()).toEqual([["cafè.step"], ["café.step"]].sort());
+    describe("a drawing with the identical name pairs with the identically named part", () => {
+      it("keeps Part_1.pdf with Part_1.step, not with the first part of that server stem", () => {
+        for (const names of [
+          ["Part 1.step", "Part_1.step", "Part_1.pdf"],
+          ["Part_1.step", "Part 1.step", "Part_1.pdf"],
+          ["Part_1.pdf", "Part 1.step", "Part_1.step"],
+        ]) {
+          expect(groupNames(stage(names)).map((group) => [...group].sort())).toEqual([
+            ["Part 1.step"],
+            ["Part_1.pdf", "Part_1.step"],
+          ]);
+        }
+      });
+
+      it("does the same for names whose only a-z or 0-9 is a digit (部件1 / 零件1)", () => {
+        for (const names of [
+          ["部件1.step", "零件1.step", "零件1.pdf"],
+          ["零件1.step", "部件1.step", "零件1.pdf"],
+        ]) {
+          expect(sets(stage(names))).toEqual([["部件1.step"], ["零件1.pdf", "零件1.step"]]);
+        }
+      });
     });
 
-    it("puts three CAD files with the same stem in three groups with distinct keys", () => {
-      const groups = groupUploadFiles([makeFile("Bracket 1.step"), makeFile("bracket_1.stp"), makeFile("BRACKET-1.iges")]);
+    describe("names with no a-z or 0-9 pair only when they are identical", () => {
+      it("pairs identical non-Latin names", () => {
+        expect(groupNames(stage(["Деталь.step", "Деталь.pdf"]))).toEqual([["Деталь.step", "Деталь.pdf"]]);
+        expect(groupNames(stage(["部品.step", "部品.pdf"]))).toEqual([["部品.step", "部品.pdf"]]);
+        expect(groupNames(stage(["---.step", "---.pdf"]))).toEqual([["---.step", "---.pdf"]]);
+      });
 
-      expect(groups).toHaveLength(3);
-      expect(groups.map((group) => group.files.length)).toEqual([1, 1, 1]);
-      expect(new Set(groups.map((group) => group.key)).size).toBe(3);
-      expect(groups.every((group) => group.normalizedStem === "bracket-1")).toBe(true);
+      it("keeps different non-Latin parts apart and pairs the drawing by its own name", () => {
+        expect(groupNames(stage(["Деталь.step", "Корпус.step", "Корпус.pdf"]))).toEqual([
+          ["Деталь.step"],
+          ["Корпус.step", "Корпус.pdf"],
+        ]);
+      });
+
+      it("does not pair different names that both reduce to an empty server stem", () => {
+        expect(groupNames(stage(["部品.step", "零件.pdf"])).sort()).toEqual([["部品.step"], ["零件.pdf"]]);
+        expect(groupNames(stage(["---.step", "___.pdf"])).sort()).toEqual([["---.step"], ["___.pdf"]]);
+      });
+
+      it("does not pair an empty-stem drawing with a part whose stem is a real word", () => {
+        expect(groupNames(stage(["a.step", "日本.pdf"])).sort()).toEqual([["a.step"], ["日本.pdf"]]);
+      });
     });
 
-    it("pairs a drawing with the first staged CAD file of that stem, whatever the drawing order", () => {
-      const cadFirst = groupUploadFiles([makeFile("a-1.step"), makeFile("A 1.stp"), makeFile("a_1.pdf", "application/pdf")]);
-      const drawingFirst = groupUploadFiles([makeFile("a_1.pdf", "application/pdf"), makeFile("a-1.step"), makeFile("A 1.stp")]);
-      const drawingBetween = groupUploadFiles([makeFile("a-1.step"), makeFile("a_1.pdf", "application/pdf"), makeFile("A 1.stp")]);
+    describe("files with the same original stem share one group, as on main", () => {
+      it("keeps a.step, a.stp and a.pdf in one group", () => {
+        expect(groupNames(stage(["a.step", "a.stp", "a.pdf"]))).toEqual([["a.step", "a.stp", "a.pdf"]]);
+      });
 
-      for (const groups of [cadFirst, drawingFirst, drawingBetween]) {
-        const paired = groups.find((group) => group.hasDrawing);
-        expect(paired?.files.map((file) => file.name)).toEqual(
-          expect.arrayContaining(["a-1.step", "a_1.pdf"]),
-        );
-        expect(paired?.files).toHaveLength(2);
-        expect(groups.filter((group) => group.hasCad)).toHaveLength(2);
-        expect(groups.flatMap((group) => group.files)).toHaveLength(3);
-      }
+      it("keeps two files with the same name in one group", () => {
+        expect(groupNames(stage(["a.step", "a.step"]))).toEqual([["a.step", "a.step"]]);
+      });
+
+      it("groups case-insensitively and across CAD extensions", () => {
+        expect(groupNames(stage(["a.step", "a.STEP"]))).toEqual([["a.step", "a.STEP"]]);
+        expect(groupNames(stage(["A.step", "a.STEP", "A.pdf"]))).toEqual([["A.step", "a.STEP", "A.pdf"]]);
+        expect(groupNames(stage(["a.step", "a.iges", "a.pdf"]))).toEqual([["a.step", "a.iges", "a.pdf"]]);
+      });
+
+      it("keeps three same-name CAD files and a drawing in one group", () => {
+        expect(groupNames(stage(["a.step", "a.step", "a.step", "a.pdf"]))).toEqual([["a.step", "a.step", "a.step", "a.pdf"]]);
+      });
+
+      it("groups an identical empty-stem name together", () => {
+        expect(groupNames(stage(["部品.step", "  部品.STEP", "部品.step"]))).toEqual([["部品.step", "  部品.STEP", "部品.step"]]);
+      });
     });
 
-    it("never puts two CAD files in one group, so the server keeps every part", () => {
-      const groups = groupUploadFiles([
-        makeFile("p.step"),
-        makeFile("P.stp"),
-        makeFile("p.pdf", "application/pdf"),
-        makeFile("p.prt"),
-        makeFile("P.PDF", "application/pdf"),
-      ]);
+    describe("a group that has a CAD file never absorbs another CAD group", () => {
+      it("keeps parts whose names differ only by punctuation in separate groups", () => {
+        expect(sets(stage(["a-1.step", "A 1.stp"]))).toEqual([["A 1.stp"], ["a-1.step"]]);
+        expect(groupNames(stage(["Bracket 1.step", "bracket_1.stp", "BRACKET-1.iges"]))).toHaveLength(3);
+      });
 
-      expect(groups).toHaveLength(3);
-      for (const group of groups) {
-        expect(group.files.filter((file) => isCadUploadFile(file.name)).length).toBeLessThanOrEqual(1);
-      }
+      it("keeps different Cyrillic parts that share a number in separate groups", () => {
+        expect(groupNames(stage(["Деталь 1.step", "Корпус 1.step"]))).toEqual([["Деталь 1.step"], ["Корпус 1.step"]]);
+      });
+
+      it("keeps parts that differ only by accents in separate groups", () => {
+        expect(groupNames(stage(["café.step", "cafè.step"])).sort()).toEqual([["cafè.step"], ["café.step"]].sort());
+      });
+
+      it("does not move a paired group into another part of the same server stem", () => {
+        expect(sets(stage(["a-1.step", "a_1.step", "a_1.pdf"]))).toEqual([["a-1.step"], ["a_1.pdf", "a_1.step"]]);
+      });
     });
 
-    it("gives a file with an empty stem its own group and never pairs it by the empty stem", () => {
-      const groups = groupUploadFiles([
-        makeFile("日本語.step"),
-        makeFile("日本語.pdf", "application/pdf"),
-        makeFile("---.step"),
-      ]);
+    describe("several parts share the drawing's server name (documented limitation)", () => {
+      it("pairs the drawing with the first staged of them, whatever the drawing's position", () => {
+        for (const names of [
+          ["a-1.step", "A 1.stp", "a_1.pdf"],
+          ["a_1.pdf", "a-1.step", "A 1.stp"],
+          ["a-1.step", "a_1.pdf", "A 1.stp"],
+        ]) {
+          expect(groupNames(stage(names)).map((group) => [...group].sort())).toEqual([["A 1.stp"], ["a-1.step", "a_1.pdf"]]);
+        }
+      });
 
-      expect(groups).toHaveLength(3);
-      expect(groups.every((group) => group.files.length === 1)).toBe(true);
-      expect(new Set(groups.map((group) => group.key)).size).toBe(3);
-      expect(groups.every((group) => group.normalizedStem === "")).toBe(true);
+      it("follows staging order, not file name order", () => {
+        expect(groupNames(stage(["A 1.stp", "a-1.step", "a_1.pdf"]))).toEqual([["A 1.stp", "a_1.pdf"], ["a-1.step"]]);
+      });
     });
 
-    it("keeps different empty-stem CAD files apart and derives the key from the lower-cased trimmed name", () => {
-      const groups = groupUploadFiles([makeFile("部品.step"), makeFile("  部品.STEP"), makeFile("部品.step")]);
-
-      expect(groups).toHaveLength(3);
-      expect(groups.every((group) => group.hasCad && group.files.length === 1)).toBe(true);
-      expect(new Set(groups.map((group) => group.key)).size).toBe(3);
-      expect(groups[0]?.key).toContain("部品.step");
+    it("does not pair a drawing with a file that is not a CAD file, even when the stems match", () => {
+      expect(sets(stage(["trailing.dot.", "trailing.dot.pdf"]))).toEqual([["trailing.dot."], ["trailing.dot.pdf"]]);
     });
 
-    it("does not let an empty-stem file join a group whose stem is a real word", () => {
-      expect(groupNames([makeFile("a.step"), makeFile("日本.pdf", "application/pdf")]).sort()).toEqual([
-        ["a.step"],
-        ["日本.pdf"],
-      ]);
+    it("leaves a drawing with no matching part in its own group", () => {
+      expect(groupNames(stage(["a.step", "b.pdf"]))).toEqual([["a.step"], ["b.pdf"]]);
+      expect(groupNames(stage(["PN.step", "PN Rev 02.pdf"]))).toEqual([["PN.step"], ["PN Rev 02.pdf"]]);
+    });
+
+    it("does not merge two drawings with each other when no part carries their server stem", () => {
+      expect(sets(stage(["b.pdf", "B_.pdf", "a.step"]))).toEqual([["B_.pdf"], ["a.step"], ["b.pdf"]]);
+    });
+
+    it("sorts the merged groups by display stem", () => {
+      expect(groupNames(stage(["b.step", "a.step", "B_.pdf"]))).toEqual([["a.step"], ["b.step", "B_.pdf"]]);
     });
 
     it("still groups an image with the CAD file of the same stem", () => {
-      const groups = groupUploadFiles([makeFile("a.step"), makeFile("a.png", "image/png")]);
-
-      expect(groups).toHaveLength(1);
-      expect(groups[0]?.files).toHaveLength(2);
+      expect(groupNames([makeFile("a.step"), makeFile("a.png", "image/png")])).toEqual([["a.step", "a.png"]]);
     });
   });
 
@@ -261,19 +345,51 @@ describe("findUnpairedUploadFiles", () => {
     expect(findUnpairedUploadFiles([])).toEqual(none);
   });
 
-  describe("names the server cannot pair", () => {
-    it("lists a drawing and a part whose names reduce to an empty stem as unpaired", () => {
-      expect(findUnpairedUploadFiles([makeFile("日本語.step"), pdf("日本語.pdf")])).toEqual({
+  describe("names that are not paired", () => {
+    it("pairs identical names that have no a-z or 0-9 and does not report them", () => {
+      expect(findUnpairedUploadFiles([makeFile("日本語.step"), pdf("日本語.pdf")])).toEqual(none);
+      expect(findUnpairedUploadFiles([makeFile("Деталь.step"), pdf("Деталь.pdf")])).toEqual(none);
+    });
+
+    it("lists different empty-stem names as unpaired", () => {
+      expect(findUnpairedUploadFiles([makeFile("部品.step"), pdf("零件.pdf")])).toEqual({
         ...none,
-        drawingsWithoutPart: ["日本語.pdf"],
-        partsWithoutDrawing: ["日本語.step"],
+        drawingsWithoutPart: ["零件.pdf"],
+        partsWithoutDrawing: ["部品.step"],
       });
+    });
+
+    it("never calls an empty-stem part a name-sharing part", () => {
+      expect(findUnpairedUploadFiles([makeFile("部品.step"), pdf("部品.pdf"), makeFile("零件.step")])).toEqual({
+        ...none,
+        partsWithoutDrawing: ["零件.step"],
+      });
+    });
+
+    it.each([
+      ["My Part 01.step", "My Part_01.pdf"],
+      ["Part 1.step", "Part_1.pdf"],
+      ["Café.step", "Caf.pdf"],
+      ["İstanbul.step", "istanbul.pdf"],
+      ["Деталь.step", "Деталь.pdf"],
+      ["部品.step", "部品.pdf"],
+      ["a.step", "a.pdf"],
+    ])("never says %s has no matching part for %s", (part, drawing) => {
+      expect(findUnpairedUploadFiles([makeFile(part), pdf(drawing)]).drawingsWithoutPart).toEqual([]);
+      expect(findUnpairedUploadFiles([pdf(drawing), makeFile(part)]).drawingsWithoutPart).toEqual([]);
     });
 
     it("pairs a drawing with the first same-stem part and reports the other parts as sharing its name", () => {
       expect(
         findUnpairedUploadFiles([makeFile("a-1.step"), makeFile("A 1.stp"), pdf("a_1.pdf"), makeFile("a.1.iges")]),
       ).toEqual({ ...none, partsSharingPairedName: ["A 1.stp", "a.1.iges"] });
+    });
+
+    it("reports the part with a different spelling, not the one with the identical name, when names collide", () => {
+      expect(findUnpairedUploadFiles([makeFile("Part 1.step"), makeFile("Part_1.step"), pdf("Part_1.pdf")])).toEqual({
+        ...none,
+        partsSharingPairedName: ["Part 1.step"],
+      });
     });
 
     it("does not call same-stem parts name-sharing when no drawing carries that stem", () => {

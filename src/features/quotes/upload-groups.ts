@@ -1,9 +1,7 @@
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 
 export type UploadFileGroup = {
-  /** Unique within one grouping. Equals normalizedStem unless a second CAD file or an empty stem needs its own key. */
-  key: string;
-  /** The server stem (public.normalize_file_basename) of the file that opened the group. Empty when no a-z0-9 survives. */
+  /** Trimmed, lower-cased original stem of the file that opened the group (not the server stem). */
   normalizedStem: string;
   displayStem: string;
   files: File[];
@@ -48,91 +46,100 @@ export function isDrawingUploadFile(fileName: string): boolean {
   return fileName.toLowerCase().endsWith(".pdf");
 }
 
+/** Every file of a group has the same original stem, so any file gives the group's server stem. */
+function serverStemOf(group: UploadFileGroup): string {
+  return normalizeUploadStem(group.files[0]!.name);
+}
+
 /**
- * Groups staged files into the sets that become one job each. The stem decides which drawing
- * pairs with which CAD file, with two limits that follow from the server keeping one part per
- * distinct normalized_name per job:
- * - a group holds at most one CAD file. A second CAD file with the same stem opens its own group,
- *   and a drawing of that stem pairs with the first staged CAD file;
- * - a file whose stem is empty (no a-z or 0-9 in the name) pairs with nothing and stays in its own
- *   group, keyed by its original name.
+ * Joins each group that holds a drawing and no CAD file to the CAD-bearing group whose server stem
+ * is equal and not empty. With several such CAD groups the first staged one wins: pairing follows the
+ * server's own rule, which cannot tell them apart. A group with CAD is never absorbed or merged.
+ */
+function mergeDrawingOnlyGroups(groups: UploadFileGroup[]): UploadFileGroup[] {
+  const cadGroupByServerStem = new Map<string, UploadFileGroup>();
+  for (const group of groups) {
+    const serverStem = group.hasCad ? serverStemOf(group) : "";
+    if (serverStem !== "" && !cadGroupByServerStem.has(serverStem)) {
+      cadGroupByServerStem.set(serverStem, group);
+    }
+  }
+
+  return groups.filter((group) => {
+    if (group.hasCad || !group.hasDrawing) {
+      return true;
+    }
+    const target = cadGroupByServerStem.get(serverStemOf(group));
+    if (!target) {
+      return true;
+    }
+    target.files.push(...group.files);
+    target.hasDrawing = true;
+    return false;
+  });
+}
+
+/**
+ * Groups staged files into the sets that become one job each.
+ *
+ * 1. Files group by their trimmed, lower-cased original stem, exactly as before OVD-980: identical
+ *    stems share a group (a.step, a.stp and a.pdf are one group), different stems never do. A drawing
+ *    whose own name matches a CAD file therefore always stays with that file.
+ * 2. A group that holds a drawing and no CAD file then joins the CAD-bearing group whose server stem
+ *    (normalizeUploadStem) is equal and not empty, because the server pairs a drawing to a CAD file by
+ *    that stem. Names with no a-z or 0-9 never pair across different names.
  */
 export function groupUploadFiles(files: File[]): UploadFileGroup[] {
-  const groups: UploadFileGroup[] = [];
-  const keys = new Set<string>();
-  const groupsByStem = new Map<string, UploadFileGroup[]>();
-
-  const uniqueKey = (base: string) => {
-    let key = base;
-    for (let suffix = 2; keys.has(key); suffix += 1) {
-      key = `${base}#${suffix}`;
-    }
-    keys.add(key);
-    return key;
-  };
-
-  const openGroup = (file: File, normalizedStem: string, keyBase: string) => {
-    const group: UploadFileGroup = {
-      key: uniqueKey(keyBase),
-      normalizedStem,
-      displayStem: file.name.replace(/\.[^.]+$/, ""),
-      files: [],
-      hasCad: false,
-      hasDrawing: false,
-    };
-    groups.push(group);
-    return group;
-  };
+  const groups = new Map<string, UploadFileGroup>();
 
   files.forEach((file) => {
-    const normalizedStem = normalizeUploadStem(file.name);
-    const isCad = isCadUploadFile(file.name);
-    let target: UploadFileGroup | undefined;
+    const normalizedStem = file.name.replace(/\.[^.]+$/, "").trim().toLowerCase();
+    const existing =
+      groups.get(normalizedStem) ??
+      {
+        normalizedStem,
+        displayStem: file.name.replace(/\.[^.]+$/, ""),
+        files: [],
+        hasCad: false,
+        hasDrawing: false,
+      };
 
-    if (normalizedStem === "") {
-      target = openGroup(file, normalizedStem, `empty:${file.name.trim().toLowerCase()}`);
-    } else {
-      const sameStem = groupsByStem.get(normalizedStem) ?? [];
-      // A CAD file takes a group that has none yet (a drawing staged first). Anything else joins the
-      // first CAD group of its stem, or the one CAD-less group of that stem.
-      target = isCad ? sameStem.find((group) => !group.hasCad) : (sameStem.find((group) => group.hasCad) ?? sameStem[0]);
-      if (!target) {
-        target = openGroup(file, normalizedStem, normalizedStem);
-        sameStem.push(target);
-        groupsByStem.set(normalizedStem, sameStem);
-      }
-    }
+    existing.files.push(file);
+    existing.hasCad ||= isCadUploadFile(file.name);
+    existing.hasDrawing ||= isDrawingUploadFile(file.name);
 
-    target.files.push(file);
-    target.hasCad ||= isCad;
-    target.hasDrawing ||= isDrawingUploadFile(file.name);
+    groups.set(normalizedStem, existing);
   });
 
-  return groups.sort((left, right) => left.displayStem.localeCompare(right.displayStem));
+  return mergeDrawingOnlyGroups([...groups.values()]).sort((left, right) =>
+    left.displayStem.localeCompare(right.displayStem),
+  );
 }
 
 export type UnpairedUploadFiles = {
   drawingsWithoutPart: string[];
   partsWithoutDrawing: string[];
-  /** Parts that share a stem with a part that already carries the drawing; a drawing pairs with one part only. */
+  /** Parts whose server name equals that of a part that already carries the drawing; a drawing pairs with one part only. */
   partsSharingPairedName: string[];
 };
 
 /**
- * Names the staged drawings with no part of the same stem and, once at least one drawing is
- * staged, the parts with no drawing. A selection of parts alone is a normal upload and reports
- * nothing. Files whose names reduce to an empty stem never pair, so they are reported as unpaired.
+ * Names the staged drawings with no part of the same name and, once at least one drawing is staged,
+ * the parts with no drawing. A selection of parts alone is a normal upload and reports nothing. A part
+ * whose server name equals that of a part that has the drawing is reported apart, because the drawing
+ * can go to only one of them.
  */
 export function findUnpairedUploadFiles(files: File[]): UnpairedUploadFiles {
   const groups = groupUploadFiles(files);
   const hasAnyDrawing = groups.some((group) => group.hasDrawing);
-  const pairedStems = new Set(
-    groups.filter((group) => group.hasCad && group.hasDrawing && group.normalizedStem !== "").map((group) => group.normalizedStem),
+  const pairedServerStems = new Set(
+    groups.filter((group) => group.hasCad && group.hasDrawing).map(serverStemOf),
   );
+  pairedServerStems.delete("");
   const namesIn = (group: UploadFileGroup, include: (name: string) => boolean) =>
     group.files.map((file) => file.name).filter(include);
   const cadGroupsWithoutDrawing = hasAnyDrawing ? groups.filter((group) => group.hasCad && !group.hasDrawing) : [];
-  const sharesPairedName = (group: UploadFileGroup) => pairedStems.has(group.normalizedStem);
+  const sharesPairedName = (group: UploadFileGroup) => pairedServerStems.has(serverStemOf(group));
 
   return {
     drawingsWithoutPart: groups
