@@ -113,3 +113,16 @@ spend. Reviewing and approving the one-time pinned skill sources in `studio.conf
 Nothing was run against real GitHub, Vercel or a model. The GitHub adapter, login, dispatch and worker are tested with a
 fake fetch and fake git; the Vercel `fetch` export and the `/api/:path*` rewrite follow Vercel's documented conventions but are
 unproven until the first deploy.
+
+## After every deploy: check the live site, not just the tests
+
+The local server and the e2e suite cannot see Vercel routing mistakes (a nested `/api/...` path answered a platform 404
+on the first hosted deploy while every test passed). Right after a deploy, fetch these through an authenticated Vercel
+CLI (`vercel curl <path> --deployment https://homepage-studio-sigma.vercel.app --scope optomachinas-projects`):
+
+- `/` , `/page.js`, `/core.js`, `/page.css` answer 200.
+- `/api/shared/lint`, `/api/shared/diff`, `/api/shared/page-protocol`, `/api/shared/page-parent`, `/api/shared/field-match`
+  answer 200 with a JavaScript content type, and `page-parent` imports `/api/shared/...` without `.mjs`.
+- A nested API path such as `/api/preview/baseline/v9` answers the studio's own JSON `401 unauthenticated` (not a
+  plain-text `NOT_FOUND`, which means the rewrite in `vercel.json` is not working).
+- `/api/me` shows `configured: true`.
