@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex">
+<title>Homepage Studio: Outline view</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/studio.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to preview</a>
+
+<header class="top">
+  <h1 class="brand" id="brand">Homepage Studio</h1>
+  <div class="controls">
+    <a class="btn" href="/" id="pageView">Page view</a>
+    <div class="ctl">
+      <label for="tool">Asset tool</label>
+      <select id="tool"></select>
+    </div>
+    <div class="ctl">
+      <label for="baseline">Baseline page</label>
+      <select id="baseline"></select>
+    </div>
+    <button type="button" id="theme" class="btn" role="switch" aria-checked="true"><span class="sw" aria-hidden="true"></span><span id="themeLabel">Dark mode</span></button>
+    <button type="button" id="logout" class="btn" hidden>Log out</button>
+  </div>
+</header>
+
+<div id="banner" class="banner" role="status" hidden></div>
+<p id="toolinfo" class="toolinfo" role="status"></p>
+
+<div class="layout">
+  <nav class="rail" aria-label="Page sections">
+    <div class="picker">
+      <label for="sectionPicker">Section</label>
+      <select id="sectionPicker"></select>
+    </div>
+    <ul id="sectionList" class="sections"></ul>
+    <div class="rail-actions">
+      <a id="exportCopy" class="btn" href="/api/export/copy.json" download="copy.json">Export current copy</a>
+      <button type="button" id="handoff" class="btn">Copy as handoff note</button>
+    </div>
+  </nav>
+
+  <main id="main" class="center" tabindex="-1">
+    <div class="stage-bar">
+      <p id="stageLabel" class="meta" aria-live="polite"></p>
+      <div class="row">
+        <button type="button" id="showBaseline" class="btn">Show baseline</button>
+        <button type="button" id="showAsset" class="btn">Show current asset</button>
+      </div>
+    </div>
+    <div class="stage">
+      <iframe id="preview" title="Preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <button type="button" id="historyBtn" class="hist" aria-label="Version history" hidden>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 4h10a2 2 0 0 1 2 2v12a2 2 0 0 0 2 2H8a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 4a2 2 0 0 0-2 2v1h2M10 9h5M10 13h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span id="histCount" class="count" aria-hidden="true"></span>
+      </button>
+    </div>
+  </main>
+
+  <aside class="panels" aria-label="Copy and generation">
+    <section class="panel" aria-labelledby="copyH">
+      <h2 id="copyH">Copy</h2>
+      <div id="copyFields"></div>
+    </section>
+    <section class="panel" aria-labelledby="genH">
+      <h2 id="genH">Generate asset</h2>
+      <div id="genPanel"></div>
+    </section>
+  </aside>
+</div>
+
+<div id="modalBk" class="modal-bk" hidden></div>
+<aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden tabindex="-1">
+  <div class="drawer-head">
+    <h2 id="drawerTitle">Version history</h2>
+    <button type="button" class="btn" data-close>Close</button>
+  </div>
+  <p id="drawerHint" class="meta"></p>
+  <ol id="drawerList" class="versions"></ol>
+</aside>
+
+<div id="compare" class="dialog" role="dialog" aria-modal="true" aria-labelledby="compareTitle" hidden tabindex="-1">
+  <div class="dialog-head">
+    <h2 id="compareTitle">Compare versions</h2>
+    <button type="button" class="btn" data-close>Close</button>
+  </div>
+  <div class="compare-grid">
+    <figure><figcaption id="cmpA" class="meta"></figcaption><iframe id="cmpFrameA" title="Version A" sandbox="allow-scripts"></iframe></figure>
+    <figure><figcaption id="cmpB" class="meta"></figcaption><iframe id="cmpFrameB" title="Version B" sandbox="allow-scripts"></iframe></figure>
+  </div>
+</div>
+
+<div id="note" class="dialog small" role="dialog" aria-modal="true" aria-labelledby="noteTitle" hidden tabindex="-1">
+  <div class="dialog-head">
+    <h2 id="noteTitle">Handoff note</h2>
+    <button type="button" class="btn" data-close>Close</button>
+  </div>
+  <textarea id="noteText" readonly rows="14" aria-label="Handoff note markdown"></textarea>
+  <div class="row"><button type="button" id="noteCopy" class="btn primary">Copy to clipboard</button><span id="noteMsg" class="meta" role="status"></span></div>
+</div>
+
+<div id="login" class="dialog small" role="dialog" aria-modal="true" aria-labelledby="loginTitle" hidden tabindex="-1">
+  <h2 id="loginTitle">Log in</h2>
+  <form id="loginForm">
+    <label for="loginPw">Studio password</label>
+    <input id="loginPw" type="password" autocomplete="current-password" required>
+    <p id="loginErr" class="err" role="alert"></p>
+    <button type="submit" class="btn primary">Log in</button>
+  </form>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/studio.js"></script>
+</body>
+</html>

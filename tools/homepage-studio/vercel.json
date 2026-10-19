@@ -6,7 +6,7 @@
   "outputDirectory": "ui",
   "functions": {
     "api/*.mjs": {
-      "includeFiles": "{lib/**,studio.config.json,data/seed.json}",
+      "includeFiles": "{lib/**,ui/page-editor.js,studio.config.json,data/seed.json}",
       "maxDuration": 60
     }
   },

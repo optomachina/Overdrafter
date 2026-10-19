@@ -17,7 +17,27 @@ The server binds `127.0.0.1` only and rejects any request whose Host or Origin i
 creates `data/project.json` from `data/seed.json` (copy seeded from `public/v9/index.html`). To re-seed without losing
 versions: `node tools/homepage-studio/scripts/seed.mjs`.
 
-## What is in the UI
+## Page mode (default) and Outline view
+
+`/` opens **Page mode**: a slim top bar (baseline page v6 to v9, tool, engine, Interact, dark/light, History, save status, Outline view link,
+Log out when hosted) and the chosen baseline page (default v9) full width in one sandboxed iframe. Tap any text to edit it in place
+(Save, Cancel, copy history, regenerate; the copy lint runs before every save and blocks errors inline). Each figure gets a version-history
+and a regenerate icon in its top-right corner; a generated figure replaces the built-in one live. History, figure versions and generate open
+as a right drawer (wide) or bottom sheet (narrow or touch). **Interact** switches editing off so the page's own prompt bar, panels and
+chapters work. The Outline view (`/outline.html`, the panel UI described below) stays as the secondary bulk-editing view.
+
+How it works: the API injects `ui/page-editor.js` (plus `lib/field-match.mjs` and `lib/page-protocol.mjs`) into BASELINE previews only
+(`?editor=0` opts out; generated assets are never instrumented). The page runs with `sandbox="allow-scripts"` and no same-origin, so it
+talks to the shell only by postMessage: the shell checks `event.source` is the iframe and `event.origin` is `"null"` and validates every
+message against a strict schema; the page checks the sender is its parent at the one origin it was told at load. Field matching runs in
+the live DOM after the page renders: texts are normalised (case, typography, whitespace), matched to the element whose own text equals the
+field text, disambiguated by section region and document order; the hero lockup is read from its three lines; example prompts are matched
+against the page's own `PROMPTS` data. Older saved texts are tried too, so saved wording is re-applied after the page re-renders. Fields
+that cannot be found are listed in History as "not editable in place yet: edit in Outline view". Limits: all 52 v9 fields match; older
+baselines (v6 to v8) have fewer matching fields; the roadmap "Coming soon" panel keeps the original example prompt until reload; the lockup's
+muted third line colour follows line position, not meaning; generated figures are passed to the page as `srcdoc` (the page cannot fetch).
+
+## What is in the Outline view
 
 - Left rail (a section picker on narrow screens): Hero, Chapter 1 to 7, Mission, Roadmap, Final CTA.
 - Center: sandboxed preview (`sandbox="allow-scripts"`, no same-origin) of the selected asset version, or the baseline page (v6 to v9).
@@ -70,5 +90,5 @@ HttpOnly cookie and fails closed when unconfigured.
 
 ## Not built / not verified
 
-No real GitHub, Vercel or model call has been made (all covered by fakes). Touch behavior was checked at iPad widths with a
-desktop browser, not on a device.
+No real GitHub, Vercel or model call has been made (all covered by fakes). Touch behavior was checked at iPad and phone widths with CDP touch emulation in desktop Chromium, not on a device (soft keyboard and
+Safari-specific contenteditable behavior are unverified).

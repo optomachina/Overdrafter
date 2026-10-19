@@ -15,6 +15,7 @@ import { seedProject } from "./seed.mjs";
 import { StorageError } from "./storage/common.mjs";
 import { SchemaError } from "./schema.mjs";
 import { JobError } from "./jobs.mjs";
+import { injectEditor } from "./editor-inject.mjs";
 
 const libDir = path.dirname(fileURLToPath(import.meta.url));
 export const MAX_BODY = 1_000_000;
@@ -41,8 +42,10 @@ export function injectTheme(html, theme) {
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + script) : script + html;
 }
 
-function previewResponse(html, theme) {
-  return new Response(injectTheme(html, theme), {
+function previewResponse(html, theme, editorOrigin = null) {
+  // The editor is appended last (before </body>) so the page's own scripts have already built their DOM.
+  const themed = injectTheme(html, theme);
+  return new Response(editorOrigin ? injectEditor(themed, editorOrigin) : themed, {
     status: 200,
     headers: { ...BASE_HEADERS, "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PREVIEW_CSP },
   });
@@ -173,6 +176,8 @@ export function createApi({ storage, jobs, config, engines, auth, mode = "local"
       return previewResponse(buf.toString("utf8"), theme);
     }
     assertId(id, "baseline id");
+    // Baseline pages (never generated assets) get the page editor unless the caller opts out with editor=0.
+    const editorOrigin = url.searchParams.get("editor") === "0" ? null : url.origin;
     const project = await ensureProject();
     const b = project.baselines.find((x) => x.id === id);
     if (!b) return fail(404, "not_found", "Unknown baseline page.");
@@ -180,11 +185,11 @@ export function createApi({ storage, jobs, config, engines, auth, mode = "local"
       const publicDir = path.join(repoRoot, "public");
       const file = path.resolve(studioRoot, b.path);
       if (file.startsWith(publicDir + path.sep) && fsImpl.existsSync(file)) {
-        return previewResponse(fsImpl.readFileSync(file, "utf8"), theme);
+        return previewResponse(fsImpl.readFileSync(file, "utf8"), theme, editorOrigin);
       }
     }
     const snap = await storage.readAsset(`baselines/${id}/index.html`);
-    if (snap) return previewResponse(snap.toString("utf8"), theme);
+    if (snap) return previewResponse(snap.toString("utf8"), theme, editorOrigin);
     return fail(404, "baseline_unavailable", "This baseline page is not available here. Run scripts/seed.mjs --with-baselines locally and copy data/baselines/ into the data repo.");
   }
 
@@ -194,7 +199,7 @@ export function createApi({ storage, jobs, config, engines, auth, mode = "local"
     let r;
 
     // Public: pure code the UI imports.
-    if (m === "GET" && (r = p.match(/^\/api\/shared\/(lint|diff)\.mjs$/))) {
+    if (m === "GET" && (r = p.match(/^\/api\/shared\/(lint|diff|field-match|page-protocol|page-parent)\.mjs$/))) {
       const body = fs.readFileSync(path.join(libDir, `${r[1]}.mjs`), "utf8");
       return new Response(body, { status: 200, headers: { ...BASE_HEADERS, "Content-Type": "text/javascript; charset=utf-8" } });
     }

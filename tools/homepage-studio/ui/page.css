@@ -1,0 +1,92 @@
+/* Page mode: a slim bar, then the landing page fills the viewport. Loaded after studio.css (tokens, .btn, .badge, .timeline...). */
+html, body.pagemode { height: 100%; }
+body.pagemode { overflow: hidden; }
+.shell { display: flex; flex-direction: column; height: 100vh; height: 100svh; height: 100dvh; }
+.stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg); }
+#pageFrame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+
+/* Top bar */
+.bar {
+  position: relative; z-index: 20; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 4px calc(10px + env(safe-area-inset-left, 0px));
+  min-height: 52px; background: var(--bg); border-bottom: 1px solid var(--rule);
+}
+.brand { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; display: flex; align-items: center; min-height: 44px; }
+.brand::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; background: var(--accent); flex: none; }
+.menu { display: flex; align-items: flex-end; gap: 10px; margin-left: 6px; min-width: 0; }
+.menu .ctl { display: flex; flex-direction: column; min-width: 0; }
+.menu label { margin: 0 0 1px; font-size: 10px; }
+.menu select { min-height: 40px; padding: 4px 8px; font-size: 14px; max-width: 200px; }
+.btn.small { min-height: 40px; padding: 4px 12px; font-size: 13px; }
+.bar-end { margin-left: auto; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ibtn { padding: 6px 10px; }
+.ibtn .lbl { font-size: 13px; }
+#settingsBtn { display: none; }
+.savestat { display: inline-flex; align-items: center; gap: 6px; font: 12px/1.2 var(--mono); color: var(--muted); padding: 0 6px; max-width: 28ch; min-height: 44px; }
+.savestat i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+.savestat[data-state="saving"] i { background: var(--accent-text); animation: blink 1s ease-in-out infinite; }
+.savestat[data-state="failed"] { color: var(--err); }
+.savestat[data-state="failed"] i { background: var(--err); }
+@keyframes blink { 50% { opacity: 0.3; } }
+.pill-job { min-height: 44px; border: 1px solid var(--accent-text); background: var(--panel); color: var(--accent-text); font: 600 12px/1.2 var(--mono); padding: 0 10px; cursor: pointer; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--rule); background: var(--panel); font-size: 14px; border-left: 4px solid var(--accent); }
+.strip.bad { color: var(--err); }
+
+/* Narrow: selects, Outline view and Log out move into a dropdown. Wide screens show them inline. */
+@media (max-width: 1279px) {
+  #settingsBtn { display: inline-flex; }
+  .menu { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 30; background: var(--bg); border-bottom: 1px solid var(--rule); padding: 10px calc(12px + env(safe-area-inset-right, 0px)) 12px calc(12px + env(safe-area-inset-left, 0px)); margin: 0; flex-wrap: wrap; }
+  .menu.open { display: flex; }
+  .menu .ctl { flex: 1 1 160px; }
+  .menu select { max-width: none; width: 100%; min-height: 44px; }
+  .menu .btn.small { min-height: 44px; }
+}
+@media (max-width: 760px) {
+  .ibtn .lbl { display: none; }
+  .brand-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .brand::before { margin-right: 0; }
+  .savestat { max-width: 14ch; }
+}
+
+/* Sheets: right drawer on wide pointer-fine screens, bottom sheet on narrow or touch layouts. */
+.sheet-bk { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.4); }
+.sheet {
+  position: fixed; z-index: 50; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+  top: 0; right: 0; bottom: 0; width: min(460px, 100vw); border-left: 1px solid var(--rule);
+  padding-right: env(safe-area-inset-right, 0px); padding-top: env(safe-area-inset-top, 0px);
+}
+.sheet[hidden], .sheet-bk[hidden] { display: none; }
+.sheet-grip { display: none; }
+.sheet-head { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.sheet-head h2 { font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
+.sheet-body { flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; padding: 12px 14px calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 14px; overscroll-behavior: contain; }
+.sheet-body h3 { font-size: 14px; }
+.sheet-body .field { border-bottom: 0; padding: 0; }
+@media (max-width: 899px), (pointer: coarse) {
+  .sheet {
+    top: auto; left: 0; right: 0; bottom: var(--kb, 0px); width: auto; border-left: 0; border-top: 1px solid var(--rule);
+    max-height: calc(var(--vvh, 100dvh) * 0.82); height: auto; padding-top: 0;
+    border-radius: 14px 14px 0 0; transition: transform 0.18s ease;
+  }
+  .sheet-grip { display: flex; justify-content: center; align-items: center; min-height: 28px; padding-top: 6px; touch-action: none; cursor: grab; }
+  .sheet-grip span { width: 44px; height: 5px; border-radius: 3px; background: var(--rule); }
+  .sheet-head { padding-top: 2px; }
+}
+@media (min-width: 900px) and (pointer: fine) {
+  .sheet-bk { background: transparent; pointer-events: none; display: none; }
+}
+
+/* Sheet content */
+.sheet .row .btn { flex: 0 1 auto; }
+.sheet textarea { min-height: 88px; }
+.sheet .thumb { width: 128px; height: 80px; }
+.sheet .versions .vprompt { font-size: 13px; }
+.sheet .unmatched li { border: 1px solid var(--rule); padding: 8px 10px; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.sheet ul.plain { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.sheet .jumprow { display: flex; flex-wrap: wrap; gap: 8px; }
+.sheet .lintout { min-height: 0; }
+
+.toast { left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 90; }
+@media (max-width: 899px), (pointer: coarse) { .toast { bottom: calc(12px + env(safe-area-inset-bottom, 0px) + 56px); } }
+.dialog.small { z-index: 80; }
+.modal-bk { z-index: 70; }

@@ -9,7 +9,10 @@ import { checkRequest } from "./lib/guard.mjs";
 import { MAX_BODY } from "./lib/api.mjs";
 
 const UI_DIR = path.join(studioRoot, "ui");
-const STATIC = { "/": "index.html", "/index.html": "index.html", "/studio.css": "studio.css", "/studio.js": "studio.js", "/favicon.svg": "favicon.svg" };
+const STATIC = {
+  "/": "index.html", "/index.html": "index.html", "/outline.html": "outline.html", "/outline": "outline.html",
+  "/studio.css": "studio.css", "/studio.js": "studio.js", "/core.js": "core.js", "/page.js": "page.js", "/page.css": "page.css", "/favicon.svg": "favicon.svg",
+};
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml" };
 export const UI_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";

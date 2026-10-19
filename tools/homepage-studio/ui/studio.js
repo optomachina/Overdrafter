@@ -1,12 +1,10 @@
 // Homepage Studio UI. Talks only to the JSON API (/api/*): no filesystem
 // assumptions, no local paths. Works locally and hosted, mouse, keyboard and touch.
 import { lintCopy, lintContextForField } from "/api/shared/lint.mjs";
-import { wordDiff } from "/api/shared/diff.mjs";
+import { h, api, onUnauthorized, makeToast, fmtTime, receipt, readStoredTheme, storeTheme, defaultEngineId, lintHtml, renderJob, jobKey, createJobTracker, copyTimelineItem, FINAL } from "/core.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const BASELINE_ANCHOR = { hero: "", mission: "#mission", roadmap: "#roadmap", final: "#try" };
-const FINAL = new Set(["succeeded", "failed", "blocked", "cancelled", "timed_out"]);
-const STATE_LABEL = { queued: "Queued", running: "Running", succeeded: "Succeeded", failed: "Failed", blocked: "Blocked", cancelled: "Cancelled", timed_out: "Timed out" };
 
 const state = {
   me: null, data: null, sectionId: "hero", baselineId: "v9", toolId: null, engineId: null, model: "sonnet",
@@ -14,52 +12,8 @@ const state = {
   open: new Set(), diffs: new Set(), cmp: [], confirm: new Set(),
 };
 
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v === undefined || v === null || v === false) continue;
-    if (k === "class") el.className = v;
-    else if (k === "text") el.textContent = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "value") el.value = v;
-    else el.setAttribute(k, v === true ? "" : v);
-  }
-  for (const kid of kids.flat()) if (kid !== undefined && kid !== null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
-  return el;
-}
-
-async function api(method, path, body) {
-  let res;
-  try {
-    res = await fetch(path, { method, credentials: "same-origin", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
-  } catch {
-    return { ok: false, status: 0, data: { message: "Network error: could not reach the studio." } };
-  }
-  let data = null;
-  try {
-    data = await res.json();
-  } catch {
-    /* non-json */
-  }
-  if (res.status === 401) showLogin();
-  return { ok: res.ok, status: res.status, data };
-}
-
-let toastTimer;
-function toast(msg, bad = false) {
-  const t = $("#toast");
-  t.replaceChildren(h("p", { class: bad ? "bad" : "", text: msg }));
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.replaceChildren(), 6000);
-}
-
-const fmtTime = (iso) => {
-  try {
-    return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return iso;
-  }
-};
+onUnauthorized(() => showLogin());
+const toast = makeToast($("#toast"));
 
 /* ---------- theme ---------- */
 function applyTheme(t, persist = true) {
@@ -68,13 +22,7 @@ function applyTheme(t, persist = true) {
   const b = $("#theme");
   b.setAttribute("aria-checked", String(t === "dark"));
   $("#themeLabel").textContent = t === "dark" ? "Dark mode" : "Light mode";
-  if (persist) {
-    try {
-      localStorage.setItem("od-studio-theme", t);
-    } catch {
-      /* storage may be blocked */
-    }
-  }
+  if (persist) storeTheme(t);
   postTheme();
 }
 function postTheme() {
@@ -87,13 +35,7 @@ function postTheme() {
   }
 }
 function initTheme() {
-  let t = null;
-  try {
-    t = localStorage.getItem("od-studio-theme");
-  } catch {
-    /* ignore */
-  }
-  if (t !== "dark" && t !== "light") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  const t = readStoredTheme();
   applyTheme(t, false);
   $("#theme").addEventListener("click", () => applyTheme(state.theme === "dark" ? "light" : "dark"));
 }
@@ -151,15 +93,6 @@ const toolById = (id) => state.data.tools.find((t) => t.id === id);
 const engineById = (id) => state.data.engines.find((e) => e.id === id);
 const fieldsOf = (sid = state.sectionId) => Object.values(project().fields).filter((f) => f.sectionId === sid);
 const curVer = (ent) => ent.versions.find((v) => v.id === ent.currentVersionId);
-
-function receipt(v) {
-  const bits = [v.engine, v.tool].filter((x) => x && x !== "none");
-  let s = bits.join(" / ");
-  if (v.model && v.model !== "none") s += (s ? " / " : "") + v.model;
-  const cost = v.usage && v.usage.total_cost_usd;
-  if (typeof cost === "number") s += ` / $${cost.toFixed(2)}`;
-  return s || "manual";
-}
 
 /* ---------- top bar ---------- */
 function renderTop() {
@@ -243,7 +176,7 @@ function renderStage() {
   } else {
     const anchor = state.sectionId.startsWith("ch") ? "#story" : BASELINE_ANCHOR[state.sectionId] || "";
     key = `baseline:${state.baselineId}`;
-    src = `/api/preview/baseline/${state.baselineId}?theme=${state.theme}${anchor}`;
+    src = `/api/preview/baseline/${state.baselineId}?theme=${state.theme}&editor=0${anchor}`;
     $("#stageLabel").textContent = `Baseline page ${state.baselineId} · ${section().label}`;
     frame.title = `Preview of baseline page ${state.baselineId}`;
   }
@@ -381,13 +314,6 @@ function toggleCompare(id) {
 for (const id of ["cmpFrameA", "cmpFrameB"]) document.getElementById(id).addEventListener("load", postTheme);
 
 /* ---------- copy panel ---------- */
-function lintHtml(res) {
-  const out = [];
-  for (const e of res.errors) out.push(h("p", { class: "e", text: e.message }));
-  for (const w of res.warnings) out.push(h("p", { class: "w", text: w.message }));
-  return out;
-}
-
 function renderCopy() {
   const host = $("#copyFields");
   host.replaceChildren(...fieldsOf().map(fieldCard));
@@ -450,7 +376,7 @@ function fieldCard(f) {
     ),
   );
   const job = state.jobs[`copy:${f.id}`];
-  if (job) renderJob(jobHost, job);
+  if (job) renderJobStatus(jobHost, job);
 
   const el = h("article", { class: "field" },
     h("div", {}, h("label", { for: tid, text: f.label }), h("span", { class: "meta", text: `v${hist} · ${cur.author} · ${cur.kind}` })),
@@ -466,32 +392,21 @@ function fieldCard(f) {
 
 function timelineItem(f, v, ta) {
   const diffKey = `${f.id}:${v.id}`;
-  const failed = v.kind === "failed";
-  const li = h("li", { class: v.isCurrent ? "cur" : "" },
-    h("div", { class: "row" },
-      h("span", { class: `badge ${failed ? "bad" : ""}`, text: v.kind }),
-      v.isCurrent ? h("span", { class: "badge cur", text: "current" }) : null,
-      v.starred ? h("span", { class: "badge", text: "starred" }) : null,
-      h("span", { class: "meta", text: `${v.author} · ${receipt(v)} · ${fmtTime(v.createdAt)}` }),
-    ),
-    h("p", { class: "txt", text: failed ? `Rejected candidate: ${v.text || "(none)"}` : v.text }),
-    v.prompt ? h("p", { class: "meta", text: `Prompt: ${v.prompt}` }) : null,
-    v.note ? h("p", { class: "meta", text: v.note }) : null,
-    v.lint?.warnings?.length ? h("p", { class: "meta", text: `Saved with warnings: ${v.lint.warnings.join(" ")}` }) : null,
-  );
-  if (state.diffs.has(diffKey) && !failed) {
-    const d = wordDiff(v.text, ta.value);
-    li.append(h("p", { class: "meta", text: "Changes from this version to the text in the editor:" }), h("p", { class: "diff" }, ...d.map((p) => (p.type === "ins" ? h("ins", { text: p.value }) : p.type === "del" ? h("del", { text: p.value }) : document.createTextNode(p.value)))));
-  }
-  li.append(
-    h("div", { class: "row" },
-      !failed ? h("button", { type: "button", class: "btn", "aria-pressed": String(state.diffs.has(diffKey)), onclick: () => { state.diffs.has(diffKey) ? state.diffs.delete(diffKey) : state.diffs.add(diffKey); renderCopy(); } }, "Diff vs editor") : null,
-      !failed && !v.isCurrent ? h("button", { type: "button", class: "btn", onclick: () => restoreCopy(f.id, v.id) }, "Restore") : null,
-      h("button", { type: "button", class: "btn", "aria-pressed": String(v.starred), onclick: () => starCopy(f.id, v.id, !v.starred) }, v.starred ? "Unstar" : "Star"),
-      v.prompt ? h("button", { type: "button", class: "btn", onclick: () => { state.instr[f.id] = v.prompt; state.open.add(`r:${f.id}`); renderCopy(); } }, "Use prompt") : null,
-    ),
-  );
-  return li;
+  return copyTimelineItem(v, {
+    editorText: ta.value,
+    diffOn: state.diffs.has(diffKey),
+    onDiff: () => {
+      state.diffs.has(diffKey) ? state.diffs.delete(diffKey) : state.diffs.add(diffKey);
+      renderCopy();
+    },
+    onRestore: () => restoreCopy(f.id, v.id),
+    onStar: (starred) => starCopy(f.id, v.id, starred),
+    onUsePrompt: (prompt) => {
+      state.instr[f.id] = prompt;
+      state.open.add(`r:${f.id}`);
+      renderCopy();
+    },
+  });
 }
 
 async function restoreCopy(fieldId, versionId) {
@@ -512,25 +427,17 @@ async function starCopy(fieldId, versionId, starred) {
 }
 
 /* ---------- jobs ---------- */
-function renderJob(host, job) {
-  const parts = [h("p", {}, h("span", { class: "pill", text: STATE_LABEL[job.state] || job.state }), job.demo ? " · demo engine, not generated by a model" : "", job.message ? ` · ${job.message}` : "")];
-  if (job.recovery && job.state !== "succeeded") parts.push(h("p", { text: `What to do: ${job.recovery}` }));
-  if (job.runUrl) parts.push(h("p", { class: "meta" }, h("a", { href: job.runUrl, target: "_blank", rel: "noopener noreferrer", text: "Open worker run" })));
-  const btns = [];
-  if (!FINAL.has(job.state) && job.engine !== "github-actions") btns.push(h("button", { type: "button", class: "btn", onclick: () => api("POST", `/api/jobs/${job.id}/cancel`).then((r) => !r.ok && toast(r.data?.message || "Cancel failed.", true)) }, "Cancel"));
-  if (["failed", "blocked", "timed_out", "cancelled"].includes(job.state)) {
-    btns.push(h("button", { type: "button", class: "btn", onclick: () => retryJob(job, {}) }, "Retry"));
-    if (job.engine !== "template-demo") btns.push(h("button", { type: "button", class: "btn", onclick: () => retryJob(job, { engine: "template-demo", tool: "hand-built" }) }, "Retry with demo engine"));
-  }
-  if (job.state === "succeeded" && job.kind === "asset") btns.push(h("button", { type: "button", class: "btn", onclick: () => { state.previewMode[job.sectionId] = "asset"; delete state.previewVersion[job.sectionId]; renderStage(); $("#main").focus(); } }, "Preview result"));
-  if (btns.length) parts.push(h("div", { class: "row" }, btns));
-  if (job.log?.length) parts.push(h("details", {}, h("summary", { text: "Log" }), h("div", { class: "inner" }, h("pre", { class: "log", text: job.log.join("\n") }))));
-  host.replaceChildren(h("div", { class: "status", "data-state": job.state }, parts));
-}
-
-function jobKey(job) {
-  return job.kind === "copy" ? `copy:${job.fieldId}` : `asset:${job.sectionId}`;
-}
+const jobActions = {
+  cancel: (job) => api("POST", `/api/jobs/${job.id}/cancel`).then((r) => !r.ok && toast(r.data?.message || "Cancel failed.", true)),
+  retry: (job, overrides) => retryJob(job, overrides),
+  preview: (job) => {
+    state.previewMode[job.sectionId] = "asset";
+    delete state.previewVersion[job.sectionId];
+    renderStage();
+    $("#main").focus();
+  },
+};
+const renderJobStatus = (host, job) => renderJob(host, job, jobActions);
 
 async function startJob(partial) {
   const body = { kind: "asset", sectionId: state.sectionId, tool: state.toolId, engine: state.engineId, model: state.model, ...partial };
@@ -544,23 +451,17 @@ async function retryJob(job, overrides) {
   trackJob(r.data.job);
 }
 
-const pollers = new Map();
-function trackJob(job) {
-  state.jobs[jobKey(job)] = job;
-  paintJob(job);
-  if (FINAL.has(job.state)) return finishJob(job);
-  clearTimeout(pollers.get(job.id));
-  const delay = job.engine === "github-actions" ? 5000 : 800;
-  pollers.set(job.id, setTimeout(async () => {
-    const r = await api("GET", `/api/jobs/${job.id}`);
-    if (r.ok) trackJob(r.data.job);
-    else if (r.status === 404) trackJob({ ...job, state: "failed", message: "Job record not found.", recovery: "Retry." });
-    else trackJob(job);
-  }, delay));
-}
+const tracker = createJobTracker({
+  onUpdate: (job) => {
+    state.jobs[jobKey(job)] = job;
+    paintJob(job);
+  },
+  onFinal: (job) => finishJob(job),
+});
+const trackJob = tracker.track;
 function paintJob(job) {
   const host = job.kind === "copy" ? document.getElementById(`job-copy-${job.fieldId}`) : $("#jobHost");
-  if (host && job.sectionId === state.sectionId) renderJob(host, job);
+  if (host && job.sectionId === state.sectionId) renderJobStatus(host, job);
 }
 async function finishJob(job) {
   if (job.state === "succeeded") {
@@ -592,7 +493,7 @@ function renderGen() {
   prompt.addEventListener("input", () => (state.prompts[state.sectionId] = prompt.value));
   const jobHost = h("div", { id: "jobHost", "aria-live": "polite" });
   const job = state.jobs[`asset:${state.sectionId}`];
-  if (job) renderJob(jobHost, job);
+  if (job) renderJobStatus(jobHost, job);
 
   host.replaceChildren(
     h("div", { class: "field" },
@@ -674,8 +575,12 @@ async function loadAll(rerender = true) {
   state.data = r.data;
   if (!state.toolId) state.toolId = r.data.defaultTool;
   if (!state.engineId) {
-    const pick = ["claude-cli", "github-actions", "template-demo"].find((id) => r.data.engines.find((e) => e.id === id && e.available));
-    state.engineId = pick || "template-demo";
+    state.engineId = defaultEngineId(r.data);
+  }
+  if (!state.hashRead) {
+    state.hashRead = true;
+    const want = location.hash.match(/section=([a-z0-9-]+)/);
+    if (want && project().sections.some((s) => s.id === want[1])) state.sectionId = want[1];
   }
   if (!project().sections.some((s) => s.id === state.sectionId)) state.sectionId = project().sections[0].id;
   if (rerender || true) {
@@ -702,7 +607,7 @@ async function boot() {
   if (me.data && me.data.authenticated === false) return showLogin();
   if (!(await loadAll())) return;
   const jr = await api("GET", "/api/jobs?limit=8");
-  if (jr.ok) for (const j of jr.data.jobs) if (!FINAL.has(j.state) && !pollers.has(j.id)) trackJob(j);
+  if (jr.ok) for (const j of jr.data.jobs) if (!FINAL.has(j.state) && !tracker.has(j.id)) trackJob(j);
 }
 
 initTheme();
