@@ -364,10 +364,12 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     selectedOption,
     activePreset,
     deadline,
+    requestedByDate,
     controls,
     headerActions,
     onSelect,
   }: {
+    requestedByDate?: string | null;
     options?: Array<{
       key?: string;
       vendorLabel?: string;
@@ -393,6 +395,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       selectedOption,
       activePreset,
       deadline,
+      requestedByDate,
       onSelect,
     };
 
@@ -623,7 +626,8 @@ function createXometryDispatchScope() {
 
 function renderPartControllerHook() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rendered = renderHook(() => useClientPartController("job-1", { warmNavigation: false }), {
+  const rendered = renderHook(({ jobId }) => useClientPartController(jobId, { warmNavigation: false }), {
+    initialProps: { jobId: "job-1" },
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
     ),
@@ -1321,6 +1325,42 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({
       optionCount: 1,
       totalPrices: [100],
+    });
+  });
+
+  describe("Need by display filter inside the controlled envelope (OVD-981)", () => {
+    it("re-ranks the options by the view date without writing the request", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      // The saved 2026-04-15 date is met by the fixture's offer (ships 2026-03-10).
+      expect(result.current.quoteViewRequestedByDate).toBe("2026-04-15");
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+      expect(result.current.requestSummaryRequestedByDate).toBe("2026-04-15");
+      expect(result.current.rankedQuoteOptions.some((option) => option.dueDateEligible)).toBe(false);
+
+      act(() => result.current.handleNeedByFilterChange(null));
+      expect(result.current.quoteViewRequestedByDate).toBeNull();
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    it("drops the view date when the part changes", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, rerender, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+
+      rerender({ jobId: "job-2" });
+      await waitFor(() => expect(result.current.quoteViewRequestedByDate).toBe("2026-04-15"));
+      queryClient.clear();
     });
   });
 
@@ -2643,7 +2683,8 @@ describe("ClientPart", () => {
     });
   });
 
-  it("saves a due date from the inline function bar", async () => {
+  it("saves a due date from the inline function bar outside the controlled envelope", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
@@ -2655,6 +2696,39 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
         expect.objectContaining({ jobId: "job-1", requestedByDate: "2026-04-22" }),
+      );
+    });
+    expect(screen.queryByRole("button", { name: "Remove Need by from request" })).toBeNull();
+  });
+
+  it("keeps the Need by display filter out of the request while the controlled envelope applies (OVD-981)", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-15");
+
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-22"));
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ requestedByDate: "2026-04-22" });
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue(""));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+  });
+
+  it("explains an already saved Need by date and removes it only on request (OVD-981)", async () => {
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByText(/does not support a Need by date/i)).toBeInTheDocument();
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
       );
     });
   });
@@ -2809,7 +2883,8 @@ describe("ClientPart", () => {
     expect(screen.queryByRole("heading", { name: "1093-05589 rev 2" })).toBeNull();
   });
 
-  it("clears the inline due date from the function bar", async () => {
+  it("clears the inline due date from the function bar outside the controlled envelope", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
@@ -3226,6 +3301,8 @@ describe("ClientPart", () => {
   });
 
   it("serializes a field reset after a pending partial save", async () => {
+    // The Need by filter only persists outside the controlled envelope (OVD-981).
+    mockQuoteCollectionMode.automaticEnabled = false;
     const baseDetail = createPartDetail();
     let persistedDescription: string | null = "Bracket";
     let resolvePatchRequest: (() => void) | null = null;

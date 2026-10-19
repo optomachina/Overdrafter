@@ -18,6 +18,19 @@ describe("getXometryBetaScopeDenialCode", () => {
       .toBe("xometry_beta_standard_tolerance_required");
   });
 
+  it.each([
+    "xometry_beta_quantity_one_required",
+    "xometry_beta_special_delivery_date_not_supported",
+    "xometry_beta_special_requirements_not_supported",
+    "provider_dispatch_special_requirements_not_supported",
+    "provider_dispatch_exact_scope_required",
+  ])("reads the OVD-981 field denial %s from a plain record and an Error", (code) => {
+    expect(getXometryBetaScopeDenialCode(postgrestError(code))).toBe(code);
+    expect(getXometryBetaScopeDenialCode(new Error(code))).toBe(code);
+    expect(getXometryBetaScopeDenialCode(postgrestError(`${code}_other`))).toBeNull();
+    expect(getXometryBetaScopeDenialCode(postgrestError(`prefix ${code}`))).toBeNull();
+  });
+
   it("ignores non-actionable, embedded, and unknown messages", () => {
     expect(getXometryBetaScopeDenialCode(postgrestError("xometry_beta_exact_scope_required"))).toBeNull();
     expect(getXometryBetaScopeDenialCode(new Error("prefix xometry_beta_confirmed_sourcing_address_required"))).toBeNull();
@@ -40,6 +53,35 @@ describe("getXometryBetaScopeFailureMessage", () => {
     const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_standard_tolerance_required"));
     expect(message).toContain("tightest tolerance");
     expect(message).toContain("±0.005 in");
+  });
+
+  it.each([
+    ["xometry_beta_quantity_one_required", ["quantity 1 only", "Set Qty to 1", "Quote quantities"]],
+    ["xometry_beta_special_delivery_date_not_supported", ["Need by", "Clear Need by"]],
+    ["xometry_beta_special_requirements_not_supported", ["Clear Notes", "Threads", "special requirements"]],
+    ["provider_dispatch_special_requirements_not_supported", ["Need by", "Notes", "Threads", "special requirements"]],
+    ["provider_dispatch_exact_scope_required", ["one part", "one quantity", "Set Qty to 1", "Quote quantities", "the files you uploaded"]],
+  ])("names the field to change for %s", (code, fragments) => {
+    const message = getXometryBetaScopeFailureMessage(postgrestError(code));
+    for (const fragment of fragments) {
+      expect(message).toContain(fragment);
+    }
+    expect(message).not.toContain("_required");
+    expect(message).not.toContain("_supported");
+    expect(message).not.toContain("not currently eligible");
+  });
+
+  it("names the configured provider in the OVD-981 field copy", () => {
+    expect(getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_exact_scope_required"), "fictiv")).toContain(
+      "controlled Fictiv beta",
+    );
+  });
+
+  it("keeps the generic copy for explicit denials without a field mapping", () => {
+    for (const code of ["provider_dispatch_job_busy", "provider_dispatch_scope_mismatch", "xometry_beta_cnc_milling_required"]) {
+      expect(getXometryBetaScopeFailureMessage(postgrestError(code)))
+        .toBe("This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.");
+    }
   });
 
   it("keeps bounded copy for other explicit server denials delivered as plain records", () => {

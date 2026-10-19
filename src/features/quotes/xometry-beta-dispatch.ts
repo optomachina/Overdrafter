@@ -112,11 +112,22 @@ export type XometryBetaDispatchDiagnosticCode =
 /** Server denials the customer can resolve directly from the dispatch dialog. */
 export type XometryBetaScopeDenialCode =
   | "xometry_beta_confirmed_sourcing_address_required"
-  | "xometry_beta_standard_tolerance_required";
+  | "xometry_beta_standard_tolerance_required"
+  // OVD-981: request fields the controlled beta envelope refuses, named in the dialog.
+  | "xometry_beta_quantity_one_required"
+  | "xometry_beta_special_delivery_date_not_supported"
+  | "xometry_beta_special_requirements_not_supported"
+  | "provider_dispatch_special_requirements_not_supported"
+  | "provider_dispatch_exact_scope_required";
 
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
+  "xometry_beta_quantity_one_required",
+  "xometry_beta_special_delivery_date_not_supported",
+  "xometry_beta_special_requirements_not_supported",
+  "provider_dispatch_special_requirements_not_supported",
+  "provider_dispatch_exact_scope_required",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -500,6 +511,16 @@ export function getXometryBetaScopeFailureMessage(
       return "Xometry needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.";
     case "xometry_beta_standard_tolerance_required":
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
+    case "xometry_beta_quantity_one_required":
+      return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+    case "xometry_beta_special_delivery_date_not_supported":
+      return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
+    case "xometry_beta_special_requirements_not_supported":
+      return `The controlled ${label} beta does not support special requirements. Clear Notes, Threads and any shipping, certification, sourcing or release notes in the request, then retry.`;
+    case "provider_dispatch_special_requirements_not_supported":
+      return `The controlled ${label} beta does not support a Need by date, Notes, Threads or other special requirements. Clear them in the request, then retry.`;
+    case "provider_dispatch_exact_scope_required":
+      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Set Qty to 1, clear extra Quote quantities, and check that the part and drawing are the files you uploaded, then retry.`;
     default:
       break;
   }
