@@ -34,6 +34,7 @@ import {
   PDF_TEXT_LAYER_MAX_PAGES,
   PDF_TEXT_LAYER_TOTAL_TIMEOUT_MS,
   PDF_TOOL_TIMEOUT_MS,
+  PDF_WORD_BOXES_TOTAL_TIMEOUT_MS,
   PDF_OCR_UNAVAILABLE_WARNING_CODE,
   renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
@@ -409,9 +410,10 @@ describe("pdfDrawing", () => {
 
     const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
-    expect(mockExecFileAsync.mock.calls.filter(([command]) => command === "pdftotext")).toHaveLength(
-      PDF_TEXT_LAYER_MAX_PAGES,
-    );
+    // The text layer is read with `-layout`; the word boxes of OVD-989 are a separate `-bbox` call.
+    expect(
+      mockExecFileAsync.mock.calls.filter(([command, args]) => command === "pdftotext" && args.includes("-layout")),
+    ).toHaveLength(PDF_TEXT_LAYER_MAX_PAGES);
     expect(result?.pages[PDF_TEXT_LAYER_MAX_PAGES].text).toBe("");
     expect(result?.drawingFullyRead).toBe(false);
   });
@@ -432,7 +434,9 @@ describe("pdfDrawing", () => {
 
       const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
-      const textCalls = mockExecFileAsync.mock.calls.filter(([command]) => command === "pdftotext");
+      const textCalls = mockExecFileAsync.mock.calls.filter(
+        ([command, args]) => command === "pdftotext" && args.includes("-layout"),
+      );
       expect(textCalls).toHaveLength(2);
       expect(textCalls[1][2]).toMatchObject({ timeout: PDF_TOOL_TIMEOUT_MS });
       expect(result?.pages.map((page) => page.text)).toEqual(["LAYER", "LAYER", ""]);
@@ -440,6 +444,97 @@ describe("pdfDrawing", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  describe("word boxes for the title block reader (OVD-989)", () => {
+    const BBOX = (text: string) =>
+      `<page width="1224" height="792"><word xMin="10" yMin="20" xMax="60" yMax="30">${text}</word></page>`;
+
+    function mockWordBoxes(options: { pages: number; layerText: (page: number) => string; bbox: (page: number) => string | Error }) {
+      mockPopplerAndTesseract({ pages: options.pages, layerText: options.layerText, ocrText: () => "OCR" });
+      const base = mockExecFileAsync.getMockImplementation()!;
+      mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+        if (command === "pdftotext" && args.includes("-bbox")) {
+          const result = options.bbox(Number(args[args.indexOf("-f") + 1]));
+          if (result instanceof Error) {
+            throw result;
+          }
+          return { stdout: result };
+        }
+        return base(command, args, ...rest);
+      });
+    }
+
+    const bboxCalls = () =>
+      mockExecFileAsync.mock.calls.filter(([command, args]) => command === "pdftotext" && args.includes("-bbox"));
+
+    it("reads the boxes of each page that has a text layer, bounded by the tool timeout", async () => {
+      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([["WORD1"], ["WORD2"]]);
+      expect(result?.pages[0].words?.[0]).toMatchObject({ xMin: 10, yMin: 20, xMax: 60, yMax: 30 });
+      expect(bboxCalls()).toHaveLength(2);
+      expect(bboxCalls()[0][1]).toEqual(["-bbox", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"]);
+      expect(bboxCalls()[0][2]).toMatchObject({ timeout: PDF_TOOL_TIMEOUT_MS });
+      expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
+      expect(result?.drawingFullyRead).toBe(true);
+    });
+
+    it("keeps the layout text and the fully read answer when poppler cannot print the boxes", async () => {
+      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => (page === 1 ? new Error("bbox failed") : "not markup") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words)).toEqual([undefined, undefined]);
+      expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
+      expect(result?.drawingFullyRead).toBe(true);
+      expect(result?.ocr).toBe(false);
+    });
+
+    it("does not read boxes for a page without a text layer", async () => {
+      mockWordBoxes({ pages: 2, layerText: (page) => (page === 1 ? "LAYER 1" : ""), bbox: () => BBOX("WORD") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words !== undefined)).toEqual([true, false]);
+      expect(bboxCalls()).toHaveLength(1);
+    });
+
+    it("reads no boxes from a scan, whose text is OCR", async () => {
+      mockWordBoxes({ pages: 1, layerText: () => "", bbox: () => BBOX("WORD") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.ocr).toBe(true);
+      expect(result?.pages[0].words).toBeUndefined();
+      expect(bboxCalls()).toHaveLength(0);
+    });
+
+    it("stops reading boxes at its own total budget, without touching the text layer", async () => {
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        mockWordBoxes({ pages: 3, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+          if (command === "pdftotext" && args.includes("-bbox")) {
+            now += PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
+          }
+          return base(command, args, ...rest);
+        });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(bboxCalls()).toHaveLength(1);
+        expect(result?.pages.map((page) => page.words !== undefined)).toEqual([true, false, false]);
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2", "LAYER 3"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+    });
   });
 
   it("is not fully read when pdftotext fails on a page", async () => {

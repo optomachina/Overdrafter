@@ -27,24 +27,24 @@
 // is wrong and fails the test.
 //
 // File name: when the upload is named 1093-05589-02.pdf, the correct part number
-// and revision are recovered from the FILENAME stem (rescueOcrTitleBlockFields in
-// pdfDrawing.ts), which would hide the title-block defect below. The test
-// therefore deliberately uses the neutral base name "upload.pdf".
+// and revision can also be recovered from the FILENAME stem (rescueOcrTitleBlockFields
+// in pdfDrawing.ts), which would hide a title-block defect. The checks below
+// therefore run under the neutral base names "upload.pdf" and "bracket.pdf", and a
+// separate case checks that the real name gives the same values (no regression).
 //
-// KNOWN DEFECT, Linear OVD-985 (observed 2026-10-18, poppler 26.05.0): the parser
-// reads the part number and revision as "Q.A." (an approvals-block label above the
-// DWG. NO. row) with reviewNeeded=false and status "approved". The three OVD-985
-// tests below (drawing number, revision, no silent approval) are wrapped in
-// `it.fails` so the suite stays green while OVD-985 is open, and so that once
-// OVD-985 is fixed they flip to red until the wrapper is removed. When OVD-985 is
-// closed, replace `knownDefect` with `it` so the wrapper cannot outlive its reason.
-// Set SAMPLE_DRAWING_STRICT=1 to run them as ordinary failing assertions.
+// OVD-985 (observed 2026-10-18, poppler 26.05.0, fixed with OVD-989): the parser
+// read the part number and revision as "Q.A." (an approvals-block label above the
+// DWG. NO. row) with reviewNeeded=false and status "approved". The three tests that
+// were `it.fails` pins while the defect was open are ordinary assertions now: the
+// drawing number, the revision, and no silent approval of a value that differs from
+// the drawing. A label-like token is never accepted (titleBlockCells.test.ts).
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, beforeAll } from "vitest";
+import { pdfTextOf, stretchColumns } from "../../test-support/titleBlockSheet";
 import type { DrawingExtractionPayload, JobFileRecord, PartRecord } from "../types";
 import { runHybridExtraction } from "./hybridExtraction";
 import { extractPdfText, type PdfTextExtraction } from "./pdfDrawing";
@@ -72,23 +72,20 @@ function hasBinary(name: string, args: string[]): boolean {
 // CI installs poppler-utils for the test job. Without it the text layer cannot be
 // read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
-const strict = process.env.SAMPLE_DRAWING_STRICT === "1";
-const knownDefect = strict ? it : it.fails;
 
 describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-text extraction", () => {
   let pdfText: PdfTextExtraction | null;
   let extraction: DrawingExtractionPayload;
+  let otherNeutralName: DrawingExtractionPayload;
+  let realName: DrawingExtractionPayload;
   const modelCalls: unknown[] = [];
 
-  beforeAll(async () => {
-    pdfText = await extractPdfText(FIXTURE);
-    extraction = await runHybridExtraction(
+  function extractAs(fileName: string) {
+    return runHybridExtraction(
       {
         part: { id: "part-sample", name: "sample" } as PartRecord,
         cadFile: null,
-        // The friend's upload keeps its own file name; use a neutral one so a
-        // filename fallback cannot supply the part number.
-        drawingFile: { original_name: "upload.pdf" } as JobFileRecord,
+        drawingFile: { original_name: fileName } as JobFileRecord,
         pdfText,
       },
       {
@@ -98,6 +95,15 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
         },
       },
     );
+  }
+
+  beforeAll(async () => {
+    pdfText = await extractPdfText(FIXTURE);
+    // The friend's upload keeps its own file name; use neutral ones so a filename
+    // fallback cannot supply the part number or the revision.
+    extraction = await extractAs("upload.pdf");
+    otherNeutralName = await extractAs("bracket.pdf");
+    realName = await extractAs("1093-05589-02.pdf");
   }, 120_000);
 
   it("reads the fixture the truth was established from", () => {
@@ -156,24 +162,81 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(["partial", "succeeded"]).toContain(summary.lifecycle);
   });
 
-  // KNOWN DEFECT OVD-985: observed value is "Q.A." for both, reviewNeeded=false.
-  // When OVD-985 is fixed these three tests flip to red: replace knownDefect with it.
-  knownDefect("OVD-985: extracts the drawing number 1093-05589", () => {
+  // OVD-985: the part number and revision are the values of the DWG. NO. and REV cells, not "Q.A.",
+  // the approvals label on the line under them. Under a neutral file name they must come from the drawing.
+  it("OVD-985: extracts the drawing number 1093-05589", () => {
     expect(extraction.partNumber).toBe(TRUTH.partNumber);
+    expect(extraction.extractedPartNumberRaw.reasons).toContain("label_match");
+    expect(extraction.extractedPartNumberRaw.reasons).not.toContain("filename_stem");
   });
 
-  knownDefect("OVD-985: extracts revision 02", () => {
+  it("OVD-985: extracts revision 02", () => {
     expect(extraction.revision).toBe(TRUTH.revision);
+    expect(extraction.extractedRevisionRaw.reasons).toContain("label_match");
+    expect(extraction.extractedRevisionRaw.reasons).not.toContain("filename_stem");
   });
 
-  // OVD-985 as well. Holds regardless of the defect above once it is fixed or
-  // mitigated: a value that differs from the drawing must at least be flagged for
-  // the user to edit, and the part must not be reported as approved.
-  knownDefect("OVD-985: never silently approves a part number or revision that differs from the drawing", () => {
-    const wrong = extraction.partNumber !== TRUTH.partNumber || extraction.revision !== TRUTH.revision;
-    if (wrong) {
-      expect(extraction.reviewFields).toEqual(expect.arrayContaining(["partNumber", "revision"]));
-      expect(extraction.status).not.toBe("approved");
+  // Holds even if a part number or revision were ever misread: a value that differs from the drawing
+  // must at least be flagged for the user to edit, and the part must not be reported as approved.
+  it("OVD-985: never silently approves a part number or revision that differs from the drawing", () => {
+    for (const result of [extraction, otherNeutralName, realName]) {
+      const wrong = result.partNumber !== TRUTH.partNumber || result.revision !== TRUTH.revision;
+      if (wrong) {
+        expect(result.reviewFields).toEqual(expect.arrayContaining(["partNumber", "revision"]));
+        expect(result.status).not.toBe("approved");
+      }
     }
+  });
+
+  it("OVD-985: never accepts an approvals-block label as the part number or revision", () => {
+    for (const result of [extraction, otherNeutralName, realName]) {
+      expect(result.partNumber).not.toMatch(/^(?:Q\.?A\.?|CHECKED|DRAWN|APPROVED|ENG|MFG)$/i);
+      expect(result.revision ?? "").not.toMatch(/^(?:Q\.?A\.?|CHECKED|DRAWN|APPROVED|ENG|MFG)$/i);
+    }
+  });
+
+  it("reads the same title block under another neutral file name", () => {
+    expect(otherNeutralName.partNumber).toBe(TRUTH.partNumber);
+    expect(otherNeutralName.revision).toBe(TRUTH.revision);
+    expect(otherNeutralName.material.raw).toBe(TRUTH.material);
+    expect(otherNeutralName.finish.raw).toBe(extraction.finish.raw);
+    expect(otherNeutralName.reviewFields).toEqual(extraction.reviewFields);
+    expect(otherNeutralName.status).toBe(extraction.status);
+  });
+
+  it("does not regress when the file is named after the part", () => {
+    expect(realName.partNumber).toBe(TRUTH.partNumber);
+    expect(realName.revision).toBe(TRUTH.revision);
+    expect(realName.material.raw).toBe(TRUTH.material);
+    expect(realName.finish.raw).toBe(extraction.finish.raw);
+    expect(realName.reviewFields).toEqual([]);
+    expect(realName.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+  });
+
+  // Other poppler versions lay the same page out with different character cells; the pairing must not depend
+  // on exact columns. The text layer poppler printed here is scaled and read again.
+  it.each([0.75, 0.9, 1.1, 1.25, 1.5])("reads the same title block with the layout scaled by %s", async (factor) => {
+    const scaled = pdfTextOf(stretchColumns(pdfText?.pages[0].text ?? "", factor));
+    const result = await runHybridExtraction(
+      {
+        part: { id: "part-sample", name: "sample" } as PartRecord,
+        cadFile: null,
+        drawingFile: { original_name: "upload.pdf" } as JobFileRecord,
+        pdfText: scaled,
+      },
+      { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
+    );
+    expect(result.partNumber).toBe(TRUTH.partNumber);
+    expect(result.revision).toBe(TRUTH.revision);
+    expect(result.material.raw).toBe(TRUTH.material);
+    expect(result.finish.raw).toBe(extraction.finish.raw);
+    expect(result.reviewFields).toEqual([]);
+    expect(result.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+  });
+
+  it("reads the title block without a review flag on the identity fields, material or finish", () => {
+    expect(extraction.reviewFields).toEqual([]);
+    expect(extraction.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+    expect(modelCalls).toHaveLength(0);
   });
 });
