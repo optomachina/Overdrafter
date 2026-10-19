@@ -314,6 +314,8 @@ export function createApi({ storage, jobs, config, engines, auth, mode = "local"
     } catch (e) {
       if (e instanceof PathError || e instanceof SchemaError || e instanceof JobError || e instanceof StorageError || e.status) {
         const status = e.status || 400;
+        // Upstream failures (GitHub token, repo, rate limit) must show up in the host's logs, not only in the response.
+        if (status >= 500) console.error(`[studio] ${e.code || e.name} (${status}): ${e.message}`);
         return fail(status, e.code || (e instanceof PathError ? "invalid" : "error"), e.message);
       }
       return fail(500, "internal", "Internal error. Check the server log.");

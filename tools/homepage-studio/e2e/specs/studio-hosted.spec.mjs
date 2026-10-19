@@ -209,6 +209,24 @@ test.describe("saving to the GitHub data repo", { tag: ["@studio-hosted"] }, () 
     expect(hosted.gh.json("project.json").fields["hero-eyebrow"].versions).toHaveLength(1);
   });
 
+  test("when the data repo cannot be read the studio says why and Retry recovers, never a blank page that says Saved", async ({ hsp, hosted, page, guard }) => {
+    guard.expectHttp(502);
+    await apiLogin(hsp);
+    hosted.gh.failNext({ method: "GET", path: /^\/contents\/project\.json/, status: 401, message: "Bad credentials", times: 5 });
+    await page.goto(`${hosted.url}/`);
+    await expect(page.locator("#strip")).toBeVisible();
+    await expect(page.locator("#strip")).toContainText(/Could not load the project: .*GitHub rejected GITHUB_TOKEN \(401\)/);
+    await expect(page.locator("#saveStatus")).toHaveAttribute("data-state", "failed");
+    await expect(page.locator("#saveText")).not.toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    // The cause goes away (a corrected token): Retry loads the studio without a manual reload.
+    hosted.gh.failures.length = 0;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.locator("#baseline option")).not.toHaveCount(0);
+    await expect(page.locator("#strip")).toBeHidden();
+    await expect(page.locator("#saveStatus")).toHaveAttribute("data-state", "saved");
+  });
+
   const FAILURES = [
     ["a GitHub rate limit (403)", { status: 403, message: "API rate limit exceeded for user", headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1893456000" } }, /GitHub rate limit reached\. Resets at 2030-01-01/],
     ["a token without permission (403)", { status: 403, message: "Resource not accessible by personal access token" }, /GITHUB_TOKEN lacks permission for the data repo/],

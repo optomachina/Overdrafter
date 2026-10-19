@@ -164,6 +164,17 @@ function updateStrip() {
   el.hidden = msgs.length === 0;
   el.textContent = msgs.join(" ");
   el.className = state.loadFail ? "strip bad" : "strip";
+  if (state.loadFail && state.retryable) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn";
+    b.textContent = "Retry";
+    b.addEventListener("click", () => {
+      setSave("saving");
+      boot();
+    });
+    el.append(" ", b);
+  }
 }
 
 async function saveFromPage(m) {
@@ -190,8 +201,25 @@ async function saveFromPage(m) {
 async function loadProject() {
   const r = await api("GET", "/api/project");
   if (!r.ok) {
-    if (r.status !== 401) toast(r.data?.message || "Could not load the project.", true);
+    if (r.status !== 401) {
+      // A failed load must never look like an empty studio that says "Saved": keep the reason on screen and offer Retry.
+      const why = r.data?.message || (r.status === 0 ? "Network error: could not reach the studio." : "Could not load the project.");
+      state.loadFail = `Could not load the project: ${why}`;
+      state.retryable = true;
+      setSave("failed", "the project did not load");
+      updateStrip();
+      toast(why, true);
+    }
     return false;
+  }
+  if (state.retryable) {
+    state.retryable = false;
+    state.loadFail = "";
+    updateStrip();
+  }
+  if (!state.loadedOnce) {
+    state.loadedOnce = true;
+    setSave("saved");
   }
   state.data = r.data;
   if (!state.toolId) state.toolId = r.data.defaultTool;
