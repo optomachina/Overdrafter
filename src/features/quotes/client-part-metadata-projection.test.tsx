@@ -5,8 +5,6 @@ import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtracti
 import { shouldPollClientWorkspaceState } from "@/features/quotes/client-workspace-polling";
 import { normalizeClientPartMetadata } from "@/features/quotes/utils";
 import type { Json } from "@/integrations/supabase/types";
-import { buildStoredExtractionPayload } from "../../../worker/src/extraction/sharedResult";
-import type { DrawingExtractionPayload } from "../../../worker/src/types";
 import fixture from "./client-part-metadata-projection.fixture.json";
 
 // OVD-978 end-to-end guard: worker payload -> api_list_client_part_metadata ->
@@ -15,6 +13,8 @@ import fixture from "./client-part-metadata-projection.fixture.json";
 // fixture inputs (docs/migration-drafts/ovd-978.sql and
 // 20261011170000_fix_no_drawing_lifecycle.sql respectively); a PGlite harness
 // inserts the real buildStoredExtractionPayload output and proves the rows match.
+// src/ must not import worker modules (server/design-graph/import-boundary.ts), so the
+// worker-payload assertions live in worker/src/extraction/clientMetadataProjectionPayload.test.ts.
 
 type FixturePart = (typeof fixture.parts)[number];
 
@@ -38,35 +38,6 @@ const userView = (rows: unknown[], key: string) => {
 
 const keepsPolling = (lifecycle: string) =>
   shouldPollClientWorkspaceState({ extractionLifecycle: lifecycle, quoteRequestStatus: null });
-
-describe("worker extraction payload (OVD-978)", () => {
-  it("never stores missingFields or warnings inside the extraction payload", () => {
-    for (const part of fixture.parts.filter((candidate) => candidate.extraction)) {
-      const { workerInput, pageCount, workerBuildVersion } = part.extraction!;
-      const stored = buildStoredExtractionPayload(
-        workerInput as unknown as DrawingExtractionPayload,
-        pageCount,
-        workerBuildVersion,
-      );
-
-      expect(stored).not.toHaveProperty("missingFields");
-      expect(stored).not.toHaveProperty("warnings");
-      expect(stored.pageCount).toBe(pageCount);
-    }
-  });
-
-  it("writes material and finish as objects even when nothing was found", () => {
-    const { workerInput, pageCount, workerBuildVersion } = partByKey("noDrawing").extraction!;
-    const stored = buildStoredExtractionPayload(
-      workerInput as unknown as DrawingExtractionPayload,
-      pageCount,
-      workerBuildVersion,
-    );
-
-    expect(stored.material).toMatchObject({ raw: null, normalized: null });
-    expect(stored.finish).toMatchObject({ raw: null, normalized: null });
-  });
-});
 
 describe("client part metadata projection (OVD-978 draft)", () => {
   const rows = fixture.expected.draft;
