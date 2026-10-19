@@ -93,7 +93,7 @@ function makeOffer(
 }
 
 describe("quotes utils", () => {
-  it("normalizes drawing extraction payloads and parses tolerance values", () => {
+  it("normalizes drawing extraction payloads and keeps a legacy raw-only tolerance unparsed", () => {
     const extraction = makeExtractionRecord({
       extraction: {
         desc: "Widget plate",
@@ -183,7 +183,9 @@ describe("quotes utils", () => {
       geometryProjection: null,
       tightestTolerance: {
         raw: "+/- .002 in",
-        valueInch: 0.002,
+        valueInch: null,
+        unit: null,
+        hint: "Check the drawing: the units could not be determined. Extracted text: +/- .002 in",
         confidence: 0.47,
       },
       evidence: [],
@@ -1104,5 +1106,195 @@ describe("quotes utils", () => {
 
     expect(projectedClientPrice(10.001)).toBe(12.01);
     expect(projectedClientPrice(null)).toBeNull();
+  });
+});
+
+describe("tolerance without re-parsing raw drawing text (OVD-984)", () => {
+  function partWithTolerances(
+    tolerances: Record<string, string | number | null>,
+    overrides: Partial<PartAggregate> = {},
+  ) {
+    return makePartAggregate({
+      extraction: makeExtractionRecord({
+        status: "approved",
+        extraction: {
+          description: "Optic bracket",
+          material: { raw: "6061", normalized: "6061 aluminum" },
+          tolerances,
+        },
+      }),
+      ...overrides,
+    });
+  }
+
+  const unresolvedRawCases: Array<[string, string]> = [
+    ["mixed mm and inch callouts", "±0.1 mm, ±.3"],
+    ["a fraction", "±1/64"],
+    ["a bare decimal", "±.3"],
+    ["a comma decimal", "0,05"],
+    ["a percentage", "±5%"],
+  ];
+
+  it.each(unresolvedRawCases)(
+    "never prefills a number for stored null with unit unknown (%s)",
+    (_label, raw) => {
+      const tolerances = { tightest: raw, valueInch: null, unit: "unknown" };
+      const extraction = normalizeDrawingExtraction(
+        makeExtractionRecord({ extraction: { tolerances } }),
+        "part-1",
+      );
+
+      expect(extraction.tightestTolerance.valueInch).toBeNull();
+      expect(extraction.tightestTolerance.unit).toBe("unknown");
+      expect(extraction.tightestTolerance.raw).toBe(raw);
+      expect(extraction.tightestTolerance.hint).toBe(
+        `Check the drawing: the units could not be determined. Extracted text: ${raw}`,
+      );
+
+      const requirement = buildRequirementDraft(partWithTolerances(tolerances));
+      expect(requirement.tightestToleranceInch).toBeNull();
+    },
+  );
+
+  it.each(["mm", "unknown", "", "UNKNOWN"])(
+    "does not derive a number when valueInch is null and unit is %j",
+    (unit) => {
+      const requirement = buildRequirementDraft(
+        partWithTolerances({ tightest: "±.3", valueInch: null, unit }),
+      );
+
+      expect(requirement.tightestToleranceInch).toBeNull();
+    },
+  );
+
+  it("does not derive a number when valueInch is null and the unit is absent", () => {
+    const tolerances = { tightest: "±.3", valueInch: null };
+
+    expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBeNull();
+    expect(
+      buildRequirementDraft(partWithTolerances({ tightest: "±.3" })).tightestToleranceInch,
+    ).toBeNull();
+    expect(
+      normalizeDrawingExtraction(makeExtractionRecord({ extraction: { tolerances } }), "part-1")
+        .tightestTolerance.hint,
+    ).toContain("±.3");
+  });
+
+  it("uses a distinct hint when the unit is inches but no value was stored", () => {
+    const extraction = normalizeDrawingExtraction(
+      makeExtractionRecord({
+        extraction: { tolerances: { tightest: "TYP", valueInch: null, unit: "in" } },
+      }),
+      "part-1",
+    );
+
+    expect(extraction.tightestTolerance.valueInch).toBeNull();
+    expect(extraction.tightestTolerance.hint).toBe(
+      "Check the drawing: the tolerance value could not be read. Extracted text: TYP",
+    );
+  });
+
+  it("has no hint when no raw text exists or a value is stored", () => {
+    const empty = normalizeDrawingExtraction(
+      makeExtractionRecord({ extraction: { tolerances: { valueInch: null, unit: "unknown" } } }),
+      "part-1",
+    );
+    const resolved = normalizeDrawingExtraction(
+      makeExtractionRecord({
+        extraction: { tolerances: { tightest: "±0.005", valueInch: 0.005, unit: "in" } },
+      }),
+      "part-1",
+    );
+
+    expect(empty.tightestTolerance.hint).toBeNull();
+    expect(resolved.tightestTolerance.hint).toBeNull();
+  });
+
+  it("prefills the stored value with unit in, as before", () => {
+    const tolerances = { tightest: "±0.002 in", valueInch: 0.002, unit: "in" };
+    const extraction = normalizeDrawingExtraction(
+      makeExtractionRecord({ extraction: { tolerances } }),
+      "part-1",
+    );
+
+    expect(extraction.tightestTolerance).toMatchObject({
+      raw: "±0.002 in",
+      valueInch: 0.002,
+      unit: "in",
+      hint: null,
+    });
+    expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBe(0.002);
+  });
+
+  it("prefills a legacy payload with a numeric valueInch and no unit, as before", () => {
+    const tolerances = { tightest: "±0.003", valueInch: 0.003 };
+    const extraction = normalizeDrawingExtraction(
+      makeExtractionRecord({ extraction: { tolerances } }),
+      "part-1",
+    );
+
+    expect(extraction.tightestTolerance).toMatchObject({
+      valueInch: 0.003,
+      unit: null,
+      hint: null,
+    });
+    expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBe(0.003);
+  });
+
+  it("lets a stored client or approved value outrank an unresolved extraction", () => {
+    const tolerances = { tightest: "±1/64", valueInch: null, unit: "unknown" };
+    const clientPart = partWithTolerances(tolerances, {
+      clientRequirement: { tightestToleranceInch: 0.01 },
+    } as Partial<PartAggregate>);
+    const approvedPart = partWithTolerances(tolerances, {
+      approvedRequirement: {
+        id: "req-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        material: "6061",
+        tightest_tolerance_inch: 0.02,
+        applicable_vendors: [],
+        spec_snapshot: {},
+      } as unknown as PartAggregate["approvedRequirement"],
+    });
+
+    expect(buildRequirementDraft(clientPart).tightestToleranceInch).toBe(0.01);
+    expect(buildRequirementDraft(approvedPart).tightestToleranceInch).toBe(0.02);
+  });
+
+  describe("vendor eligibility", () => {
+    it("does not treat a null tolerance as 0.005 for SendCutSend", () => {
+      const unresolved = buildRequirementDraft(
+        partWithTolerances({ tightest: "±.3", valueInch: null, unit: "unknown" }),
+      );
+      const noTolerance = buildRequirementDraft(partWithTolerances({}));
+
+      expect(unresolved.applicableVendors).not.toContain("sendcutsend");
+      expect(noTolerance.applicableVendors).not.toContain("sendcutsend");
+      expect(unresolved.applicableVendors).toEqual(["xometry", "fictiv", "protolabs", "emachineshop"]);
+    });
+
+    it("keeps SendCutSend eligible at and above 0.005 and excludes it below", () => {
+      const at = buildRequirementDraft(
+        partWithTolerances({ tightest: "±0.005", valueInch: 0.005, unit: "in" }),
+      );
+      const below = buildRequirementDraft(
+        partWithTolerances({ tightest: "±0.004", valueInch: 0.004, unit: "in" }),
+      );
+
+      expect(at.applicableVendors).toContain("sendcutsend");
+      expect(below.applicableVendors).not.toContain("sendcutsend");
+    });
+
+    it("judges eligibility on the resolved tolerance, so a user-entered value counts", () => {
+      const tolerances = { tightest: "±1/64", valueInch: null, unit: "unknown" };
+      const loose = buildRequirementDraft(
+        partWithTolerances(tolerances, {
+          clientRequirement: { tightestToleranceInch: 0.01 },
+        } as Partial<PartAggregate>),
+      );
+
+      expect(loose.applicableVendors).toContain("sendcutsend");
+    });
   });
 });
