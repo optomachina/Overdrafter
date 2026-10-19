@@ -1,15 +1,12 @@
 // A synthetic B-size title block, written for the tests (OVD-985, OVD-989). It carries no real drawing data:
-// every value is a placeholder. What it reproduces is the layout problem, in the order and at the columns
-// `pdftotext -layout` prints a SolidWorks B-size sheet:
+// every value and every note is a placeholder. What it reproduces is the layout problem of a text layer that
+// prints a title block row by row:
 //
-//  - a stack of MATERIAL and FINISH cells at the left, each value four or more lines below its label, with
-//    the proprietary notice and the SURFACE FINISH / plating notes beside and between them;
-//  - the SIZE / DWG. NO. / REV label row, whose DWG. NO. value sits eight lines below it, centred, on a line
-//    that shares no other text with it (so the FINISH label is the nearest label above it, in other columns);
-//  - an approvals column (DRAWN, CHECKED, ENG APPR., MFG APPR., QA APPR.) and a general-tolerance table in
-//    the columns between, with ONE to FOUR PLACE DECIMAL rows printed without a plus-minus sign;
-//  - a TITLE cell above the SIZE / DWG. NO. row, a SCALE / CAGE CODE / SHEET row under it, a revision table at
-//    the top and zone markers along the edges.
+//  - MATERIAL and FINISH cells stacked in one column, each value several lines below its label, with
+//    notes beside and between them;
+//  - a SIZE / DWG. NO. / REV label row whose DWG. NO. value sits several lines below it, centred;
+//  - an approvals column and a general-tolerance table with ONE to FOUR PLACE DECIMAL rows;
+//  - a TITLE cell, a SCALE / SHEET row, a revision table and zone markers along the edges.
 //
 // Tests build variants through the options; none of them needs a PDF, poppler or a model.
 import { layoutSheet, type Piece } from "./titleBlockSheet";
@@ -41,7 +38,7 @@ export type TitleBlockTemplateOptions = {
 };
 
 export const TEMPLATE_DEFAULTS = {
-  drawingNumber: "TPL-0001",
+  drawingNumber: "ABC-0001",
   revision: "B",
   material: "ALUMINUM 6061-T6",
   finish: "AS MACHINED",
@@ -106,31 +103,31 @@ export function titleBlockTemplateSheet(options: TitleBlockTemplateOptions = {})
     "",
     "",
     // The title block, from the SURFACE FINISH note down.
-    row([83, "SURFACE FINISH: 63"]),
-    row([105, "OR BETTER"]),
+    row([83, "SURFACE FINISH: SEE NOTE"]),
+    row([105, "AS SPECIFIED"]),
     row([121, "INTERPRET IN ACCORDANCE WITH:"]),
     row([125, options.standard ?? "ASME Y14.5M-2009"]),
     row([153, "UNLESS OTHERWISE SPECIFIED:"]),
     ...(units === null ? [] : [row([153, units])]),
     row([193, "NAME"], [202, "DATE"]),
-    row([237, "COMPANY"]),
-    row([230, "COMPANY ADDRESS"], [246, "COMPANY PHONE"]),
+    row([237, "ORG NAME"]),
+    row([230, "ORG ADDRESS"], [246, "ORG PHONE"]),
     row([153, "TOLERANCES:"], [185, "DRAWN"], [197, "ABC"], [204, "01/01/2026"]),
     row([85, "DIMENSIONS APPLY AFTER PLATING"]),
-    row([121, "THIRD ANGLE PROJECTION"], [153, "ANGULAR: MACH 0.5"], [217, "TITLE:"]),
+    row([121, "THIRD ANGLE PROJECTION"], [153, "ANGULAR: 0.5"], [217, "TITLE:"]),
     row([229, options.title ?? TEMPLATE_DEFAULTS.title]),
     row([166, "BEND 1.0"], [185, "CHECKED"]),
-    ...(inspectionNotes ? [row([85, "INSPECTION ENVIROMENT:"])] : []),
+    ...(inspectionNotes ? [row([85, "ENVIRONMENT NOTES:"])] : []),
     row([153, "ONE PLACE DECIMAL         .05"], [274, "A"]),
-    row(...(inspectionNotes ? ([[88, "ALL PARTS ARE TO BE"]] as Piece[]) : []), [153, "TWO PLACE DECIMAL         .01"], [185, "ENG APPR."]),
-    row(...(inspectionNotes ? ([[92, "INSPECTED AT"]] as Piece[]) : []), [153, "THREE PLACE DECIMAL .005"]),
+    row(...(inspectionNotes ? ([[88, "SAMPLE NOTE ONE"]] as Piece[]) : []), [153, "TWO PLACE DECIMAL         .01"], [185, "ENG APPR."]),
+    row(...(inspectionNotes ? ([[92, "SAMPLE NOTE TWO"]] as Piece[]) : []), [153, "THREE PLACE DECIMAL .005"]),
     row(
-      ...(inspectionNotes ? ([[95, "72°F ±3°F"]] as Piece[]) : []),
+      ...(inspectionNotes ? ([[95, "23°C ±2°C"]] as Piece[]) : []),
       ...(fourPlaceRow ? ([[153, "FOUR PLACE DECIMAL .0010"]] as Piece[]) : []),
       [185, "MFG APPR."],
     ),
-    row(...(inspectionNotes ? ([[93, "30% ±10% RH"]] as Piece[]) : []), [153, 'BREAK SHARP EDGES .020" MAX.']),
-    row([157, 'INSIDE RADII .010" MAX'], [185, "QA APPR."]),
+    row(...(inspectionNotes ? ([[93, "45% ±5% RH"]] as Piece[]) : []), [153, "SAMPLE EDGE NOTE"]),
+    row([157, "SAMPLE RADIUS NOTE"], [185, "QA APPR."]),
     row([84, "PROPRIETARY AND CONFIDENTIAL"]),
     ...(options.notice ?? []).map((note) => row([84, note])),
     row([119, "MATERIAL"]),
@@ -138,16 +135,16 @@ export function titleBlockTemplateSheet(options: TitleBlockTemplateOptions = {})
     ...(options.underLabelRow ? [options.underLabelRow] : []),
     "",
     row([217, "B"], [266, revision]),
-    row([84, "THE INFORMATION CONTAINED IN THIS"]),
+    row([84, "SAMPLE NOTICE TEXT, FIRST LINE"]),
     material === null ? "" : row([123, material]),
-    row([83, "DRAWING IS THE SOLE PROPERTY OF"]),
-    row([95, "COMPANY."]),
+    row([83, "SAMPLE NOTICE TEXT, SECOND LINE"]),
+    row([95, "ORG NAME."]),
     row([120, "FINISH"]),
     row([drawingNumberColumn(drawingNumber), drawingNumber]),
-    row([84, "ANY REPRODUCTION IN PART OR AS A"]),
-    row([83, "WHOLE WITHOUT THE WRITTEN PERMISSION"]),
+    row([84, "SAMPLE NOTICE TEXT, THIRD LINE"]),
+    row([83, "SAMPLE NOTICE TEXT, FOURTH LINE"]),
     finish === null ? "" : row([123, finish]),
-    row([92, "OF COMPANY IS PROHIBITED."], [217, "SCALE: NONE CAGE CODE: NONE"], [261, "SHEET 1 OF 1"]),
+    row([92, "SAMPLE NOTICE, LAST LINE."], [217, "SCALE: NONE CAGE CODE: NONE"], [261, "SHEET 1 OF 1"]),
     // Bottom border.
     row([93, "5"], [137, "4"], [179, "3"], [221, "2"]),
     row([279, "1"]),

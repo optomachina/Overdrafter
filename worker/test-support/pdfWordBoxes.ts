@@ -3,10 +3,13 @@
 import type { PdfWord } from "../src/extraction/pdfWords";
 
 const CHARACTER_WIDTH_IN_SIZES = 0.55;
+// poppler boxes a word from the font's descent to its ascent, which is a little more than the size (a 9 pt
+// word is about 10.9 pt tall in a real sheet). The reader sizes its columns from the median box height.
+const BOX_HEIGHT_IN_SIZES = 1.1;
 
 /** A word whose left edge is at `x` and whose top is at `y` (points), set at `size` points. */
 export function box(text: string, x: number, y: number, size = 9): PdfWord {
-  return { text, xMin: x, yMin: y, xMax: x + text.length * size * CHARACTER_WIDTH_IN_SIZES, yMax: y + size };
+  return { text, xMin: x, yMin: y, xMax: x + text.length * size * CHARACTER_WIDTH_IN_SIZES, yMax: y + size * BOX_HEIGHT_IN_SIZES };
 }
 
 /** The words of a phrase set on one line, left to right from `x`, with a space of `gap` points between them. */

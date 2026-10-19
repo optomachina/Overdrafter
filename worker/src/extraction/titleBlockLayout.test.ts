@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// OVD-989 and OVD-985: a SolidWorks B-size title block, in the order and at the columns `pdftotext -layout`
-// prints it, run through the deterministic extraction (no model, no network, no poppler).
+// OVD-989 and OVD-985: a B-size title block, in the order and at the columns `pdftotext -layout` prints it,
+// run through the deterministic extraction (no model, no network, no poppler).
 //
 // Tier: synthetic text layer (worker/test-support/titleBlockTemplateSheet.ts). It is written for the tests
 // and carries placeholder values only; it reproduces the layout problem, not any real drawing. The real
@@ -55,7 +55,7 @@ function expectDefaultFields(extraction: DrawingExtractionPayload) {
   expect(extraction.description).toBe(DEFAULTS.title);
 }
 
-describe("SolidWorks B-size title block layout", () => {
+describe("B-size title block layout", () => {
   describe("the sheet as printed", () => {
     it.each(NEUTRAL_NAMES)(
       "reads the part number, revision, material, finish and tolerance from their cells (%s)",
@@ -81,7 +81,7 @@ describe("SolidWorks B-size title block layout", () => {
       const { extraction } = await extract();
       // The TITLE cell, the SURFACE FINISH block and the plating note sit next to MATERIAL and FINISH.
       expect(extraction.material.raw).not.toContain(DEFAULTS.title);
-      expect(extraction.finish.raw).not.toMatch(/63|BETTER|INTERPRET|PLATING|ACCORDANCE/);
+      expect(extraction.finish.raw).not.toMatch(/SEE NOTE|AS SPECIFIED|INTERPRET|PLATING|ACCORDANCE/);
       expect(extraction.partNumber).not.toMatch(/^(?:UPLOAD|BRACKET)$/);
     });
 
@@ -99,7 +99,7 @@ describe("SolidWorks B-size title block layout", () => {
   describe("fields a drawing changes", () => {
     it.each([
       "X-1",
-      "TPL-0001-LONGER-NUMBER",
+      "ABC-0001-LONGER-NUMBER",
       "1093-05589",
       "ENG-1234",
       "REV-B",
@@ -209,6 +209,63 @@ describe("SolidWorks B-size title block layout", () => {
       expect(stored.tolerances.valueInch).toBe(valueInch);
     });
 
+    // The rows are dropped only on positive evidence. A dimension printed on the same layout line as a note
+    // (pdftotext puts text at the same height on one line, however far apart) is still a dimension.
+    describe("a dimension that shares its layout line with a note", () => {
+      const NOTES = [
+        "SURFACE FINISH: SEE NOTE",
+        "SCALE: 1:1",
+        "TOLERANCES:",
+        "UNLESS OTHERWISE SPECIFIED:",
+        "SHEET 1 OF 1",
+        "FITS PER ISO 286 UNLESS NOTED",
+        "WEIGHT: 0.5",
+      ];
+      // Appends `note` to the one layout line that contains `needle`, after `gap` spaces.
+      const withNote = (sheet: string, needle: string, note: string, gap: number) => {
+        const lines = sheet.split("\n");
+        const matches = lines.flatMap((line, index) => (line.includes(needle) ? [index] : []));
+        expect(matches).toHaveLength(1);
+        lines[matches[0]!] = `${lines[matches[0]!]}${" ".repeat(gap)}${note}`;
+        return lines.join("\n");
+      };
+
+      it.each(NOTES.flatMap((note) => [40, 80].map((gap) => [note, gap] as const)))(
+        "keeps the four-place row for a .0625 dimension followed by %s after %i spaces",
+        async (note, gap) => {
+          const { extraction, stored } = await extractSheet(
+            withNote(titleBlockTemplateSheet({ dimensions: "four_places" }), ".0625 THRU", note, gap),
+          );
+          expect(stored.tolerances.valueInch).toBe(0.001);
+          expectDefaultFields(extraction);
+        },
+      );
+
+      it.each(NOTES.flatMap((note) => [40, 80].map((gap) => [note, gap] as const)))(
+        "still drops the four-place row for a .140 dimension followed by %s after %i spaces",
+        async (note, gap) => {
+          const sheet = withNote(titleBlockTemplateSheet({ dimensions: "two_and_three_places" }), ".190 THRU", note, gap);
+          const { stored } = await extractSheet(sheet);
+          expect(stored.tolerances.valueInch).toBe(0.005);
+        },
+      );
+
+      it("keeps the four-place row when the four-place dimension is the only one glued to its callout", async () => {
+        const { stored } = await extractSheet(
+          withNote(titleBlockTemplateSheet({ dimensions: "four_places" }), ".0625 THRU", "SURFACE FINISH: SEE NOTE", 80).replace(
+            ".0625 THRU",
+            "SR.0625   ",
+          ),
+        );
+        expect(stored.tolerances.valueInch).toBe(0.001);
+      });
+
+      it("keeps a three-place edge note's row when the dimensions have two places", async () => {
+        const sheet = titleBlockTemplateSheet({ dimensions: "two_places" }).replace("SAMPLE EDGE NOTE", 'BREAK EDGES .020" MAX');
+        expect((await extractSheet(sheet)).stored.tolerances.valueInch).toBe(0.005);
+      });
+    });
+
     it("leaves the tolerance unresolved, with the four-place value kept, when no dimension can be read", async () => {
       const { stored, missing } = await extract({ dimensions: "none" });
       expect(stored.tolerances).toMatchObject({ tightest: "±0.001", valueInch: null, unit: "unknown" });
@@ -260,18 +317,20 @@ describe("SolidWorks B-size title block layout", () => {
   });
 
   describe("poppler lays the same page out with other character cells", () => {
-    // Other poppler versions scale the gaps. The cells stay in the same order, so the pairing must not
-    // depend on exact columns.
-    it.each([0.75, 0.9, 1.1, 1.25, 1.5, 2])("reads the same fields with the layout scaled by %s", async (factor) => {
+    // Other poppler versions place the same text at other columns (every piece of text at its column times
+    // the factor, text widths unchanged). The cells stay in the same order and aligned, so the pairing must
+    // not depend on exact columns, within the reach a value may start from its label (LAYOUT_REACH).
+    it.each([0.75, 0.9, 1.1, 1.25, 1.5])("reads the same fields with the layout scaled by %s", async (factor) => {
       const { extraction, stored } = await extractSheet(stretchColumns(titleBlockTemplateSheet(), factor));
       expectDefaultFields(extraction);
       expect(extraction.reviewFields).toEqual([]);
       expect(stored.tolerances.valueInch).toBe(0.005);
     });
 
-    // A compression no poppler version produces (the text no longer fits its cell): a field may be lost,
-    // but never replaced by another cell's text without a review flag.
-    it.each([0.3, 0.45, 0.6, 0.7])("never reports a wrong value without a review flag when squeezed to %s", async (factor) => {
+    // A compression no poppler version produces (the text no longer fits its cell), and a stretch past the
+    // reach a value may start from its label: a field may be lost, but never replaced by another cell's
+    // text without a review flag.
+    it.each([0.3, 0.45, 0.6, 0.7, 2, 3])("never reports a wrong value without a review flag when squeezed to %s", async (factor) => {
       const { extraction } = await extractSheet(stretchColumns(titleBlockTemplateSheet(), factor));
       const read: Record<string, string | null> = {
         partNumber: extraction.partNumber,

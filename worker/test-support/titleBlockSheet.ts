@@ -76,20 +76,23 @@ export function replaceAtColumn(text: string, lineNumber: number, column: number
 }
 
 /**
- * Scales every run of spaces by `factor`, as if poppler had laid the same page out with wider or narrower
- * character cells (different poppler versions do). Gaps of two or more spaces stay at least two, so cells
- * that were apart stay apart; single spaces inside a text run are left alone.
+ * Lays the same page out with character cells `factor` times as wide, as another poppler version (or
+ * another character-cell estimate) would: every piece of text (a run of words one space apart) moves to
+ * its column scaled by `factor`, so pieces that were aligned on different lines stay aligned. Text does
+ * not change width, so two pieces never come closer than two spaces.
  */
 export function stretchColumns(text: string, factor: number): string {
   return text
     .split("\n")
-    .map((line) =>
-      line.replace(/ +/g, (spaces, offset: number) =>
-        spaces.length >= 2 || offset === 0
-          ? " ".repeat(Math.max(offset === 0 ? 0 : 2, Math.round(spaces.length * factor)))
-          : spaces,
-      ),
-    )
+    .map((line) => {
+      let result = "";
+      for (const piece of line.matchAll(/\S+(?: \S+)*/g)) {
+        const wanted = Math.round((piece.index ?? 0) * factor);
+        const column = result.length === 0 ? wanted : Math.max(wanted, result.length + 2);
+        result = `${result.padEnd(column)}${piece[0]}`;
+      }
+      return result;
+    })
     .join("\n");
 }
 

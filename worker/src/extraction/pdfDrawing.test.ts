@@ -40,6 +40,7 @@ import {
   renderPdfPreviewAssets,
   renderPdfTitleBlockCrop,
 } from "./pdfDrawing";
+import { MAX_WORDS_TOTAL } from "./pdfWords";
 
 const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
 const TEST_QB00002_PDF_PATH = "/safe-test/input/1093-05589-02.pdf";
@@ -448,7 +449,7 @@ describe("pdfDrawing", () => {
 
   describe("word boxes for the title block reader (OVD-989)", () => {
     const BBOX = (text: string) =>
-      `<page width="1224" height="792"><word xMin="10" yMin="20" xMax="60" yMax="30">${text}</word></page>`;
+      `<html><body><doc><page width="1224" height="792"><word xMin="10" yMin="20" xMax="60" yMax="30">${text}</word></page></doc></body></html>`;
 
     function mockWordBoxes(options: { pages: number; layerText: (page: number) => string; bbox: (page: number) => string | Error }) {
       mockPopplerAndTesseract({ pages: options.pages, layerText: options.layerText, ocrText: () => "OCR" });
@@ -477,7 +478,9 @@ describe("pdfDrawing", () => {
       expect(result?.pages[0].words?.[0]).toMatchObject({ xMin: 10, yMin: 20, xMax: 60, yMax: 30 });
       expect(bboxCalls()).toHaveLength(2);
       expect(bboxCalls()[0][1]).toEqual(["-bbox", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"]);
-      expect(bboxCalls()[0][2]).toMatchObject({ timeout: PDF_TOOL_TIMEOUT_MS });
+      // The options are pinned by value, not through the constants: a call without a timeout or with a
+      // bigger buffer than 32 MiB is what an attacker's file would use.
+      expect(bboxCalls()[0][2]).toEqual({ maxBuffer: 32 * 1024 * 1024, timeout: PDF_TOOL_TIMEOUT_MS });
       expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
       expect(result?.drawingFullyRead).toBe(true);
     });
@@ -512,7 +515,10 @@ describe("pdfDrawing", () => {
       expect(bboxCalls()).toHaveLength(0);
     });
 
-    it("stops reading boxes at its own total budget, without touching the text layer", async () => {
+    it("stops reading boxes at its own total budget of 30 seconds, without touching the text layer", async () => {
+      // The budget is pinned by value as well: the clock below moves by 30 s, not by the constant, so a
+      // budget made larger is not followed by the test.
+      expect(PDF_WORD_BOXES_TOTAL_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
       let now = 1_000_000;
       const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
       try {
@@ -520,7 +526,7 @@ describe("pdfDrawing", () => {
         const base = mockExecFileAsync.getMockImplementation()!;
         mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
           if (command === "pdftotext" && args.includes("-bbox")) {
-            now += PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
+            now += 30_000;
           }
           return base(command, args, ...rest);
         });
@@ -534,6 +540,65 @@ describe("pdfDrawing", () => {
       } finally {
         clock.mockRestore();
       }
+    });
+
+    it("gives a box call only the time left of the budget", async () => {
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+          if (command === "pdftotext" && args.includes("-bbox")) {
+            now += 25_000;
+          }
+          return base(command, args, ...rest);
+        });
+
+        await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(bboxCalls()).toHaveLength(2);
+        expect((bboxCalls()[0][2] as { timeout: number }).timeout).toBe(PDF_TOOL_TIMEOUT_MS);
+        expect((bboxCalls()[1][2] as { timeout: number }).timeout).toBe(5_000);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("trusts no words from markup that stops before the end of the document", async () => {
+      const whole = BBOX("WORD");
+      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => (page === 1 ? whole.slice(0, whole.indexOf("</page>")) : whole) });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([undefined, ["WORD"]]);
+    });
+
+    describe("the words of all pages together are bounded", () => {
+      const manyWords = (count: number) =>
+        `<html><body><doc><page width="1224" height="792">${'<word xMin="1" yMin="2" xMax="30" yMax="12">w</word>'.repeat(count)}</page></doc></body></html>`;
+
+      it("reads no more pages once the words held reach the bound, and keeps their layout text", async () => {
+        mockWordBoxes({ pages: 6, layerText: (page) => `LAYER ${page}`, bbox: () => manyWords(15_000) });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(MAX_WORDS_TOTAL).toBe(60_000);
+        expect(result?.pages.map((page) => page.words?.length)).toEqual([15_000, 15_000, 15_000, 15_000, undefined, undefined]);
+        expect(bboxCalls()).toHaveLength(4);
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2", "LAYER 3", "LAYER 4", "LAYER 5", "LAYER 6"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      });
+
+      it("drops the page that would pass the bound and reads no further", async () => {
+        mockWordBoxes({ pages: 5, layerText: (page) => `LAYER ${page}`, bbox: (page) => manyWords(page === 3 ? 20_000 : 15_000) });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        // 15,000 + 15,000 + 20,000 fit; the fourth page would make 65,000.
+        expect(result?.pages.map((page) => page.words?.length)).toEqual([15_000, 15_000, 20_000, undefined, undefined]);
+        expect(bboxCalls()).toHaveLength(4);
+      });
     });
   });
 
@@ -1484,5 +1549,47 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(() => read(text)).not.toThrow();
       expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
     });
+  });
+});
+
+describe("title block lines of a document with many pages (OVD-989)", () => {
+  // Pages past the text layer cap have no text but are still pages, and their number is not bounded by
+  // anything the reader controls. Looking up each page in the whole list of lines made the selection
+  // pages times lines.
+  const textPage = (page: number) => ({
+    page,
+    text: Array.from({ length: 2_000 }, (_, line) => (line === 100 ? "DWG. NO." : line === 103 ? "   1000-00001" : `NOTE ${line} TEXT`)).join("\n"),
+    ocrText: "",
+    ocrStatus: "ok" as const,
+  });
+  const document = (pages: number) => ({
+    pageCount: pages,
+    pageCountKnown: true,
+    drawingFullyRead: false,
+    ocr: false,
+    pages: Array.from({ length: pages }, (_, index) =>
+      index < 50 ? textPage(index + 1) : { page: index + 1, text: "", ocrText: "", ocrStatus: "ok" as const },
+    ),
+  });
+  const time = (pages: number) => {
+    const pdfText = document(pages);
+    const started = performance.now();
+    const signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
+    return { ms: performance.now() - started, signals };
+  };
+
+  it("reads a document of 32,000 pages, 50 of them with text, in well under a second", () => {
+    time(2_000);
+    const { ms, signals } = time(32_000);
+    expect(ms).toBeLessThan(1_000);
+    expect(signals.partNumber.value).toBe("1000-00001");
+  });
+
+  it("does not take longer for 16 times as many empty pages than for the few it needs", () => {
+    const few = time(2_000).ms;
+    const many = time(32_000).ms;
+    // Pages without text cost a loop step each: about 16 times as much for 16 times the pages, with a floor
+    // for noise. Pages times lines would be 16 times that again.
+    expect(many / Math.max(few, 40)).toBeLessThan(12);
   });
 });

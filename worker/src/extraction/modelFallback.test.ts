@@ -421,7 +421,7 @@ describe("modelFallback", () => {
 
   it.each([
     ["partNumber", "1093-05589"],
-    ["partNumber", "TPL-0001"],
+    ["partNumber", "ABC-0001"],
     ["partNumber", "ENG-1234"],
     ["revision", "02"],
     ["revision", "B"],
