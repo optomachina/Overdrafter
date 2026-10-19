@@ -15,6 +15,9 @@ inventory.
   [OverDrafter Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
   is the single detailed home for deferred feature ideas.
 - Incubator projects are routing categories, not implementation queues.
+- [`docs/product-vision.md`](docs/product-vision.md) records the mission and the
+  founder-confirmed capability intents that the public homepage may show. It is
+  intent, not scope.
 
 Git history preserves the superseded horizon, capability-map, TODO, and
 speculative roadmap documents removed during the August 2026 consolidation.
