@@ -47,8 +47,10 @@
 -- drawing tolerance parsing in the worker) is deployed, and only after
 -- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
 -- null tolerance, but OVD-976 is the fix for the mis-scaled value itself.
--- Security: SECURITY DEFINER and set search_path = public kept exactly;
--- require_verified_auth() and user_can_edit_job() unchanged and still run
+-- Security: SECURITY DEFINER kept; set search_path = pg_catalog, public
+-- (Blaine decision, 2026-10-18: the previous "public" fails the security-definer
+-- lint; every relation in the body is schema-qualified, so behavior is the
+-- same); require_verified_auth() and user_can_edit_job() unchanged and still run
 -- before anything else; CREATE OR REPLACE keeps owner and ACL; the OVD-736
 -- revoke/grant is restated verbatim (EXECUTE for authenticated and
 -- service_role, not PUBLIC or anon). No grant is widened.
@@ -62,7 +64,7 @@ create or replace function public.api_request_extraction(p_job_id uuid)
 returns integer
 language plpgsql
 security definer
-set search_path = public
+set search_path = pg_catalog, public
 as $$
 declare
   v_job public.jobs%rowtype;

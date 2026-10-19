@@ -40,8 +40,10 @@
 -- audit event, return value, and the fieldSources / fieldOverrides values
 -- written back (still the legacy provenance, so a reset that removes an
 -- override key is not made sticky).
--- Security: SECURITY DEFINER and set search_path = public kept exactly;
--- CREATE OR REPLACE keeps owner and ACL; the OVD-535 revoke/grant is restated
+-- Security: SECURITY DEFINER kept; set search_path = pg_catalog, public
+-- (Blaine decision, 2026-10-18: the previous "public" fails the security-definer
+-- lint; every relation in the body is schema-qualified, so behavior is the
+-- same); CREATE OR REPLACE keeps owner and ACL; the OVD-535 revoke/grant is restated
 -- verbatim (EXECUTE for service_role only). No grant is widened.
 -- =====================================================================
 
@@ -51,7 +53,7 @@ create or replace function public.api_auto_approve_job_requirements(p_job_id uui
 returns integer
 language plpgsql
 security definer
-set search_path = public
+set search_path = pg_catalog, public
 as $$
 declare
   v_job public.jobs%rowtype;

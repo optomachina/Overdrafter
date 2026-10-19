@@ -646,11 +646,11 @@ select is(
 
 -- ---------------------------------------------------------------- attributes and grants
 select ok(
-  (select bool_and(p.prosecdef and p.proconfig = array['search_path=public'])
+  (select bool_and(p.prosecdef and p.proconfig = array['search_path=pg_catalog, public'])
    from pg_proc p
    where p.oid in ('public.api_auto_approve_job_requirements(uuid)'::regprocedure,
                    'public.api_request_extraction(uuid)'::regprocedure)),
-  'G1 both functions stay SECURITY DEFINER with search_path=public'
+  'G1 both functions stay SECURITY DEFINER with search_path=pg_catalog, public'
 );
 select ok(
   has_function_privilege('service_role', 'public.api_auto_approve_job_requirements(uuid)', 'execute')
