@@ -14,7 +14,7 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /^overdrafter is your manufacturing agent for building frontier hardware\.$/i;
+const guestLandingHeading = /^overdrafter is your agent for building hardware\.$/i;
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,

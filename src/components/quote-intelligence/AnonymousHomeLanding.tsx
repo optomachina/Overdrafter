@@ -42,8 +42,8 @@ export function AnonymousHomeLanding({ onSignUp }: AnonymousHomeLandingProps) {
     <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-6 pb-20">
       <section className="pt-8 sm:pt-12">
         <h1 className="max-w-[860px] font-sans text-[38px] font-semibold leading-[1.04] tracking-[-0.04em] text-foreground [text-wrap:balance] sm:text-[52px] lg:text-[60px]">
-          OverDrafter is your manufacturing agent for building{" "}
-          <span className="text-muted-foreground">frontier hardware.</span>
+          OverDrafter is your agent for{" "}
+          <span className="text-muted-foreground">building hardware.</span>
         </h1>
 
         <Button type="button" className="mt-9 min-h-11" onClick={onSignUp}>

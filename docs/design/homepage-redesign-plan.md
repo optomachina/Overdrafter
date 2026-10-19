@@ -4,7 +4,7 @@ Status: draft for Blaine's review. No code changed.
 
 ## Decisions so far
 
-- Headline: **OverDrafter is your manufacturing agent for building frontier hardware.**
+- Headline: **OverDrafter is your agent for building hardware.** (superseded the earlier "manufacturing agent for building frontier hardware" on 2026-10-18)
 - Structure and motion borrowed from cursor.com; OverDrafter identity kept (bone background, hairlines, mono type).
 - Hero demo: the real UI, scripted (built from app components, not a video or a mock).
 - Proof: none yet. No logos, quotes, stats or timelines.
