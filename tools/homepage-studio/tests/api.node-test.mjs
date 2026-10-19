@@ -209,7 +209,7 @@ test("vercel function wrapper delegates Request objects to the shared handlers",
   globalThis.fetch = gh.fetch;
   resetApp();
   try {
-    const mod = await import("../api/[...route].mjs");
+    const mod = await import("../api/index.mjs");
     assert.equal(typeof mod.default.fetch, "function");
     const r1 = await mod.default.fetch(new Request(HOST + "/api/me"));
     assert.equal(r1.status, 200);
@@ -239,7 +239,7 @@ test("vercel function wrapper fails closed without configuration", async () => {
   delete process.env.STUDIO_SESSION_SECRET;
   resetApp();
   try {
-    const mod = await import("../api/[...route].mjs");
+    const mod = await import("../api/index.mjs");
     const r = await mod.default.fetch(new Request(HOST + "/api/project"));
     assert.equal(r.status, 503);
     assert.match((await r.json()).message, /not configured/);

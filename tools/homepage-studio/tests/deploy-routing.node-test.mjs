@@ -35,3 +35,15 @@ test("every shared module the UI imports is served extension-less as JavaScript 
     assert.doesNotMatch(body, /from\s+"\.\/[a-z-]+\.mjs"/, `${name} still has a relative .mjs import`);
   }
 });
+
+test("vercel.json sends every /api/* path (nested ones too) to the single function api/index.mjs", () => {
+  // Found on the live deployment: with a [...route] catch-all file only single-segment paths such as /api/me reached
+  // the function; /api/shared/lint, /api/preview/... and every other nested route answered the platform 404.
+  const cfg = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  assert.ok(fs.existsSync(path.join(root, "api", "index.mjs")), "api/index.mjs must exist");
+  assert.deepEqual(fs.readdirSync(path.join(root, "api")), ["index.mjs"], "one function only; extra files in api/ become extra routes");
+  assert.ok(
+    (cfg.rewrites || []).some((r) => r.source === "/api/:path*" && r.destination === "/api/index"),
+    "vercel.json needs the /api/:path* -> /api/index rewrite",
+  );
+});

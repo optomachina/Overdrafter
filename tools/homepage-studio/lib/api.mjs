@@ -1,5 +1,5 @@
 // Pure request handlers on Web-standard Request/Response. Mounted by server.mjs
-// (local node:http adapter) and by api/[...route].mjs (Vercel). No filesystem
+// (local node:http adapter) and by api/index.mjs (Vercel). No filesystem
 // assumptions leak to the UI: it only ever talks JSON to /api/*.
 import fs from "node:fs";
 import path from "node:path";

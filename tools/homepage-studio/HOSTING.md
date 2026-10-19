@@ -7,7 +7,7 @@ below is performed by the owner (or by the orchestrator after the owner authoriz
 ## How it fits together
 
 ```
-iPad Safari  ->  Vercel project "homepage-studio" (static UI + api/[...route].mjs)
+iPad Safari  ->  Vercel project "homepage-studio" (static UI + api/index.mjs)
                     |  GitHub REST API (GITHUB_TOKEN, one private repo)
                     v
               PRIVATE data repo  <--  GitHub Actions workflow studio-generate.yml
@@ -111,5 +111,5 @@ spend. Reviewing and approving the one-time pinned skill sources in `studio.conf
 
 ## Not verified here
 Nothing was run against real GitHub, Vercel or a model. The GitHub adapter, login, dispatch and worker are tested with a
-fake fetch and fake git; the Vercel `fetch` export and `[...route]` catch-all follow Vercel's documented conventions but are
+fake fetch and fake git; the Vercel `fetch` export and the `/api/:path*` rewrite follow Vercel's documented conventions but are
 unproven until the first deploy.
