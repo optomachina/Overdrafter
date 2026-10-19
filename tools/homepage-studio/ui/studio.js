@@ -1,6 +1,6 @@
 // Homepage Studio UI. Talks only to the JSON API (/api/*): no filesystem
 // assumptions, no local paths. Works locally and hosted, mouse, keyboard and touch.
-import { lintCopy, lintContextForField } from "/api/shared/lint.mjs";
+import { lintCopy, lintContextForField } from "/api/shared/lint";
 import { h, api, onUnauthorized, makeToast, fmtTime, receipt, readStoredTheme, storeTheme, defaultEngineId, lintHtml, renderJob, jobKey, createJobTracker, copyTimelineItem, FINAL } from "/core.js";
 
 const $ = (s, r = document) => r.querySelector(s);

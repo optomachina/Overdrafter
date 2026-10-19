@@ -1,6 +1,6 @@
 // Code shared by Page mode (page.js) and the Outline view (studio.js): DOM helper, JSON API client,
 // theme storage, job status rendering, receipts. Talks only to /api/*; no filesystem or path knowledge.
-import { wordDiff } from "/api/shared/diff.mjs";
+import { wordDiff } from "/api/shared/diff";
 
 export const FINAL = new Set(["succeeded", "failed", "blocked", "cancelled", "timed_out"]);
 export const STATE_LABEL = { queued: "Queued", running: "Running", succeeded: "Succeeded", failed: "Failed", blocked: "Blocked", cancelled: "Cancelled", timed_out: "Timed out" };

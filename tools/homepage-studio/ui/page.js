@@ -2,9 +2,9 @@
 // place. The page editor (ui/page-editor.js, injected by the API into baseline previews only) and this shell
 // talk ONLY through validated postMessage (lib/page-protocol.mjs). All data goes through the same /api/*
 // endpoints as the Outline view.
-import { lintCopy, lintContextForField } from "/api/shared/lint.mjs";
-import { validatePageMessage, isTrustedMessage, makeMessage, MAX_HTML } from "/api/shared/page-protocol.mjs";
-import { handleLintRequest, saveResultMessage, fieldsForPage, currentValues } from "/api/shared/page-parent.mjs";
+import { lintCopy, lintContextForField } from "/api/shared/lint";
+import { validatePageMessage, isTrustedMessage, makeMessage, MAX_HTML } from "/api/shared/page-protocol";
+import { handleLintRequest, saveResultMessage, fieldsForPage, currentValues } from "/api/shared/page-parent";
 import { h, api, onUnauthorized, makeToast, fmtTime, receipt, readStoredTheme, storeTheme, defaultEngineId, lintHtml, renderJob, jobKey, createJobTracker, copyTimelineItem, FINAL } from "/core.js";
 
 const $ = (s, r = document) => r.querySelector(s);

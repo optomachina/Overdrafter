@@ -199,8 +199,13 @@ export function createApi({ storage, jobs, config, engines, auth, mode = "local"
     let r;
 
     // Public: pure code the UI imports.
-    if (m === "GET" && (r = p.match(/^\/api\/shared\/(lint|diff|field-match|page-protocol|page-parent)\.mjs$/))) {
-      const body = fs.readFileSync(path.join(libDir, `${r[1]}.mjs`), "utf8");
+    // The UI imports these WITHOUT an extension: on Vercel a path ending in .mjs under /api is treated as a function
+    // file and answers 404 before this catch-all runs (the page then silently fails to start). The .mjs form stays
+    // valid for the local server and tests. Relative imports between shared modules are rewritten to the same form.
+    if (m === "GET" && (r = p.match(/^\/api\/shared\/(lint|diff|field-match|page-protocol|page-parent)(?:\.mjs)?$/))) {
+      const body = fs
+        .readFileSync(path.join(libDir, `${r[1]}.mjs`), "utf8")
+        .replace(/(from\s+")\.\/([a-z-]+)\.mjs(")/g, "$1/api/shared/$2$3");
       return new Response(body, { status: 200, headers: { ...BASE_HEADERS, "Content-Type": "text/javascript; charset=utf-8" } });
     }
 
