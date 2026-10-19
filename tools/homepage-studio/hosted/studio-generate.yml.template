@@ -1,0 +1,87 @@
+# Homepage Studio generation worker. TEMPLATE: inert while it lives under tools/.
+# The owner copies it into the PRIVATE DATA REPO as .github/workflows/studio-generate.yml.
+# See tools/homepage-studio/HOSTING.md.
+#
+# Design choices (see HOSTING.md for the reasons):
+#  - No third-party GitHub Actions at all. Plain git, curl and the pinned Claude CLI.
+#  - Secrets used: CLAUDE_CODE_OAUTH_TOKEN (primary, from `claude setup-token`) OR
+#    ANTHROPIC_API_KEY (alternative). The built-in GITHUB_TOKEN pushes the result.
+#  - One job at a time per data repo; 30 minute hard timeout.
+#  - The model process receives ONLY the model credential, never GITHUB_TOKEN.
+name: studio-generate
+run-name: studio ${{ inputs.jobId }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobId:
+        description: Job id (the prompt itself lives in jobs/<jobId>.json, not here)
+        required: true
+        type: string
+      section:
+        required: true
+        type: string
+      tool:
+        required: true
+        type: string
+      engine:
+        required: true
+        type: string
+      promptRef:
+        description: Path of the job file holding the prompt
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: studio-generate-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Pin the CLI version. Change it deliberately, never to "latest".
+      CLAUDE_CODE_VERSION: "2.1.289"
+      JOB_ID: ${{ inputs.jobId }}
+      PROMPT_REF: ${{ inputs.promptRef }}
+    steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${JOB_ID}" =~ ^[a-z0-9-]+$ ]] || { echo "bad job id"; exit 1; }
+          [[ "${PROMPT_REF}" == "jobs/${JOB_ID}.json" ]] || { echo "bad promptRef"; exit 1; }
+
+      - name: Check out the data repo (plain git, token not stored in .git/config)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASIC=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+          git -c "http.https://github.com/.extraheader=Authorization: Basic ${BASIC}" \
+            clone --quiet --depth 1 --branch "${GITHUB_REF_NAME}" \
+            "https://github.com/${GITHUB_REPOSITORY}.git" data
+
+      - name: Install the Claude CLI (pinned npm version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+
+      - name: Run the job
+        shell: bash
+        working-directory: data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Either secret may be set. If neither is, the job is recorded as BLOCKED
+          # with the exact message "No model credential configured in the data repo:
+          # add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN" and nothing is fabricated.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node studio/hosted/worker.mjs

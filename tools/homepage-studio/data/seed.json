@@ -1,0 +1,782 @@
+{
+  "seededFrom": "public/v9/index.html",
+  "sections": [
+    {
+      "id": "hero",
+      "label": "Hero"
+    },
+    {
+      "id": "ch1",
+      "label": "Chapter 1"
+    },
+    {
+      "id": "ch2",
+      "label": "Chapter 2"
+    },
+    {
+      "id": "ch3",
+      "label": "Chapter 3"
+    },
+    {
+      "id": "ch4",
+      "label": "Chapter 4"
+    },
+    {
+      "id": "ch5",
+      "label": "Chapter 5"
+    },
+    {
+      "id": "ch6",
+      "label": "Chapter 6"
+    },
+    {
+      "id": "ch7",
+      "label": "Chapter 7"
+    },
+    {
+      "id": "mission",
+      "label": "Mission"
+    },
+    {
+      "id": "roadmap",
+      "label": "Roadmap"
+    },
+    {
+      "id": "final",
+      "label": "Final CTA"
+    }
+  ],
+  "baselines": [
+    {
+      "id": "v6",
+      "label": "v6 Drawing in, six quotes out",
+      "path": "../../public/v6/index.html"
+    },
+    {
+      "id": "v7",
+      "label": "v7 Scroll story + roadmap wires",
+      "path": "../../public/v7/index.html"
+    },
+    {
+      "id": "v8",
+      "label": "v8 Dialed-in scroll story",
+      "path": "../../public/v8/index.html"
+    },
+    {
+      "id": "v9",
+      "label": "v9 Prompt bar + coming-soon panel",
+      "path": "../../public/v9/index.html"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "specs",
+      "label": "Reads specs from drawings",
+      "status": "live",
+      "phrases": [
+        "reads specs from drawings",
+        "reads material"
+      ]
+    },
+    {
+      "id": "quotes",
+      "label": "Quotes in parallel, compared on price and lead time",
+      "status": "live",
+      "phrases": [
+        "quotes in parallel",
+        "compared on price and lead time"
+      ]
+    },
+    {
+      "id": "text2cad",
+      "label": "Text to CAD",
+      "status": "planned",
+      "phrases": [
+        "text to CAD"
+      ]
+    },
+    {
+      "id": "cad2drawing",
+      "label": "CAD to drawing",
+      "status": "planned",
+      "phrases": [
+        "CAD to drawing"
+      ]
+    },
+    {
+      "id": "assembly",
+      "label": "Assembly",
+      "status": "planned",
+      "phrases": []
+    },
+    {
+      "id": "fulfillment",
+      "label": "Fulfillment",
+      "status": "planned",
+      "phrases": [
+        "fulfillment"
+      ]
+    },
+    {
+      "id": "marketplace",
+      "label": "Marketplace",
+      "status": "planned",
+      "phrases": [
+        "marketplace"
+      ]
+    },
+    {
+      "id": "texttocad-controlyourcad",
+      "label": "Control your CAD seat",
+      "status": "planned",
+      "phrases": [
+        "control your CAD seat"
+      ]
+    },
+    {
+      "id": "texttocad-controlanycad",
+      "label": "Control any CAD seat",
+      "status": "planned",
+      "phrases": [
+        "control any CAD seat"
+      ]
+    },
+    {
+      "id": "texttocad-open-sourcecad",
+      "label": "Open-source CAD",
+      "status": "planned",
+      "phrases": [
+        "open-source CAD"
+      ]
+    },
+    {
+      "id": "texttocad-anyclosed-sour",
+      "label": "Any closed-source CAD editor",
+      "status": "planned",
+      "phrases": []
+    },
+    {
+      "id": "texttocad-vrcad",
+      "label": "VR CAD",
+      "status": "planned",
+      "phrases": [
+        "VR CAD"
+      ]
+    },
+    {
+      "id": "drawings-drawingcreatio",
+      "label": "Drawing creation",
+      "status": "planned",
+      "phrases": [
+        "drawing creation"
+      ]
+    },
+    {
+      "id": "drawings-drawingcheckin",
+      "label": "Drawing checking",
+      "status": "planned",
+      "phrases": [
+        "drawing checking"
+      ]
+    },
+    {
+      "id": "drawings-datumselection",
+      "label": "Datum selection",
+      "status": "planned",
+      "phrases": [
+        "datum selection"
+      ]
+    },
+    {
+      "id": "drawings-viewselection",
+      "label": "View selection",
+      "status": "planned",
+      "phrases": [
+        "view selection"
+      ]
+    },
+    {
+      "id": "drawings-detailandsecti",
+      "label": "Detail and section views",
+      "status": "planned",
+      "phrases": [
+        "detail and section views"
+      ]
+    },
+    {
+      "id": "drawings-notes",
+      "label": "Notes",
+      "status": "planned",
+      "phrases": []
+    },
+    {
+      "id": "sourcing-bestdealonstan",
+      "label": "Best deal on standardized hardware",
+      "status": "planned",
+      "phrases": [
+        "best deal on standardized hardware"
+      ]
+    },
+    {
+      "id": "analysis-toleranceanaly",
+      "label": "Tolerance analysis",
+      "status": "planned",
+      "phrases": [
+        "tolerance analysis"
+      ]
+    },
+    {
+      "id": "analysis-everykindofana",
+      "label": "Every kind of analysis",
+      "status": "planned",
+      "phrases": [
+        "every kind of analysis"
+      ]
+    },
+    {
+      "id": "analysis-cfd",
+      "label": "CFD",
+      "status": "planned",
+      "phrases": [
+        "CFD"
+      ]
+    },
+    {
+      "id": "analysis-dfm",
+      "label": "DFM",
+      "status": "planned",
+      "phrases": [
+        "DFM"
+      ]
+    },
+    {
+      "id": "analysis-dfa",
+      "label": "DFA",
+      "status": "planned",
+      "phrases": [
+        "DFA"
+      ]
+    },
+    {
+      "id": "build-assemblyinstru",
+      "label": "Assembly instructions",
+      "status": "planned",
+      "phrases": [
+        "assembly instructions"
+      ]
+    },
+    {
+      "id": "build-inspection",
+      "label": "Inspection",
+      "status": "planned",
+      "phrases": [
+        "inspection"
+      ]
+    },
+    {
+      "id": "enterprise-pdm",
+      "label": "PDM",
+      "status": "planned",
+      "phrases": [
+        "PDM"
+      ]
+    },
+    {
+      "id": "enterprise-eco",
+      "label": "ECO",
+      "status": "planned",
+      "phrases": [
+        "ECO"
+      ]
+    },
+    {
+      "id": "enterprise-erpintegration",
+      "label": "ERP integration",
+      "status": "planned",
+      "phrases": [
+        "ERP integration"
+      ]
+    },
+    {
+      "id": "enterprise-extensibletoan",
+      "label": "Extensible to anything",
+      "status": "planned",
+      "phrases": []
+    },
+    {
+      "id": "channels-chatbots",
+      "label": "Chat bots",
+      "status": "planned",
+      "phrases": [
+        "chat bots"
+      ]
+    },
+    {
+      "id": "channels-teamchat",
+      "label": "Team chat apps",
+      "status": "planned",
+      "phrases": [
+        "team chat apps"
+      ]
+    },
+    {
+      "id": "channels-otherbots",
+      "label": "Other bots",
+      "status": "planned",
+      "phrases": []
+    },
+    {
+      "id": "product-providerexpans",
+      "label": "Provider expansion",
+      "status": "planned",
+      "phrases": [
+        "provider expansion"
+      ]
+    },
+    {
+      "id": "product-teamprocuremen",
+      "label": "Team procurement",
+      "status": "planned",
+      "phrases": [
+        "team procurement"
+      ]
+    },
+    {
+      "id": "product-nativeapps",
+      "label": "Native apps",
+      "status": "planned",
+      "phrases": [
+        "native apps"
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "id": "hero-eyebrow",
+      "sectionId": "hero",
+      "label": "Eyebrow",
+      "role": "eyebrow",
+      "text": "One part, idea to shelf",
+      "multiline": false
+    },
+    {
+      "id": "hero-headline",
+      "sectionId": "hero",
+      "label": "Headline lockup (one line per row)",
+      "role": "headline",
+      "text": "OverDrafter\nYour agent for\nBuilding hardware",
+      "multiline": true
+    },
+    {
+      "id": "hero-lede",
+      "sectionId": "hero",
+      "label": "Lede",
+      "role": "body",
+      "text": "From idea to part to assembly to shelf. Today it reads your drawing and requests quotes from providers in parallel.",
+      "multiline": true
+    },
+    {
+      "id": "hero-cta-primary",
+      "sectionId": "hero",
+      "label": "Primary button label",
+      "role": "cta",
+      "text": "Create account",
+      "multiline": false
+    },
+    {
+      "id": "hero-cta-secondary",
+      "sectionId": "hero",
+      "label": "Secondary button label",
+      "role": "cta",
+      "text": "Follow one part",
+      "multiline": false
+    },
+    {
+      "id": "hero-beta-note",
+      "sectionId": "hero",
+      "label": "Beta note",
+      "role": "body",
+      "text": "Automatic vendor collection is only in the free, invitation-only Founding Beta.",
+      "multiline": true
+    },
+    {
+      "id": "ch1-band",
+      "sectionId": "ch1",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "You bring",
+      "multiline": false
+    },
+    {
+      "id": "ch1-headline",
+      "sectionId": "ch1",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Agents turn ideas into models",
+      "multiline": false
+    },
+    {
+      "id": "ch1-sentence",
+      "sectionId": "ch1",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Coming soon: describe a part and an agent drafts the model. Today you bring a model from your own CAD tool.",
+      "multiline": true
+    },
+    {
+      "id": "ch2-band",
+      "sectionId": "ch2",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "You bring",
+      "multiline": false
+    },
+    {
+      "id": "ch2-headline",
+      "sectionId": "ch2",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Agents turn parts into assemblies",
+      "multiline": false
+    },
+    {
+      "id": "ch2-sentence",
+      "sectionId": "ch2",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Coming soon: agents mate parts into an assembly. Today you bring parts you have already designed, like this sample assembly, FLT-GIMBAL.",
+      "multiline": true
+    },
+    {
+      "id": "ch3-band",
+      "sectionId": "ch3",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "OverDrafter does this",
+      "multiline": false
+    },
+    {
+      "id": "ch3-headline",
+      "sectionId": "ch3",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Agents turn drawings into quotes",
+      "multiline": false
+    },
+    {
+      "id": "ch3-sentence",
+      "sectionId": "ch3",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "The agent reads material, finish, tolerance and quantity off the drawing and carries them into every request.",
+      "multiline": true
+    },
+    {
+      "id": "ch4-band",
+      "sectionId": "ch4",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "OverDrafter does this",
+      "multiline": false
+    },
+    {
+      "id": "ch4-headline",
+      "sectionId": "ch4",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Works autonomously, quotes in parallel",
+      "multiline": false
+    },
+    {
+      "id": "ch4-sentence",
+      "sectionId": "ch4",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "One request goes to all six providers at once, so none waits in line behind another.",
+      "multiline": true
+    },
+    {
+      "id": "ch5-band",
+      "sectionId": "ch5",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "OverDrafter does this",
+      "multiline": false
+    },
+    {
+      "id": "ch5-headline",
+      "sectionId": "ch5",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Compare the best supplier for every part",
+      "multiline": false
+    },
+    {
+      "id": "ch5-sentence",
+      "sectionId": "ch5",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Price and lead time sit side by side, so the best fit for each part is easy to see.",
+      "multiline": true
+    },
+    {
+      "id": "ch6-band",
+      "sectionId": "ch6",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "OverDrafter does this",
+      "multiline": false
+    },
+    {
+      "id": "ch6-headline",
+      "sectionId": "ch6",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Quote the whole project at once",
+      "multiline": false
+    },
+    {
+      "id": "ch6-sentence",
+      "sectionId": "ch6",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Put every part of the build in one project, and each part gets its own six quotes to compare.",
+      "multiline": true
+    },
+    {
+      "id": "ch7-band",
+      "sectionId": "ch7",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "What you get · The goal · illustration",
+      "multiline": false
+    },
+    {
+      "id": "ch7-headline",
+      "sectionId": "ch7",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Agents turn quotes into hardware",
+      "multiline": false
+    },
+    {
+      "id": "ch7-sentence",
+      "sectionId": "ch7",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Coming soon: the finished part, then the assembly, then out on the shelf. This is the goal, not a feature today.",
+      "multiline": true
+    },
+    {
+      "id": "ch7-beat1-title",
+      "sectionId": "ch7",
+      "label": "Beat 1 title",
+      "role": "headline",
+      "text": "First part finished",
+      "multiline": false
+    },
+    {
+      "id": "ch7-beat1-body",
+      "sectionId": "ch7",
+      "label": "Beat 1 body",
+      "role": "body",
+      "text": "A finished bracket, machined to what the drawing says.",
+      "multiline": false
+    },
+    {
+      "id": "ch7-beat2-title",
+      "sectionId": "ch7",
+      "label": "Beat 2 title",
+      "role": "headline",
+      "text": "Five parts assembled as FLT-GIMBAL",
+      "multiline": false
+    },
+    {
+      "id": "ch7-beat2-body",
+      "sectionId": "ch7",
+      "label": "Beat 2 body",
+      "role": "body",
+      "text": "With every part in hand, the five parts come together.",
+      "multiline": false
+    },
+    {
+      "id": "ch7-beat3-title",
+      "sectionId": "ch7",
+      "label": "Beat 3 title",
+      "role": "headline",
+      "text": "Out on the shelf",
+      "multiline": false
+    },
+    {
+      "id": "ch7-beat3-body",
+      "sectionId": "ch7",
+      "label": "Beat 3 body",
+      "role": "body",
+      "text": "The finished unit rides a conveyor to a shelf, which is where your build is going.",
+      "multiline": true
+    },
+    {
+      "id": "ch1-prompt-plate",
+      "sectionId": "ch1",
+      "label": "Example prompt (plate)",
+      "role": "prompt",
+      "text": "Design me a 4x4 in plate, 1/4 in thick, with a 3x3 square hole pattern in the middle.",
+      "multiline": true,
+      "status": "planned"
+    },
+    {
+      "id": "ch2-prompt-breadboard",
+      "sectionId": "ch2",
+      "label": "Example prompt (breadboard)",
+      "role": "prompt",
+      "text": "Create an assembly with a 4x8 in breadboard and the following optomechanical components arrayed on the top.",
+      "multiline": true,
+      "status": "planned"
+    },
+    {
+      "id": "ch3-prompt-read",
+      "sectionId": "ch3",
+      "label": "Example prompt (read)",
+      "role": "prompt",
+      "text": "Read the material, finish and tolerances off this drawing.",
+      "multiline": false,
+      "status": "live"
+    },
+    {
+      "id": "ch3-prompt-create",
+      "sectionId": "ch3",
+      "label": "Example prompt (create)",
+      "role": "prompt",
+      "text": "Create a drawing from this part",
+      "multiline": false,
+      "status": "planned"
+    },
+    {
+      "id": "ch3-prompt-check",
+      "sectionId": "ch3",
+      "label": "Example prompt (check)",
+      "role": "prompt",
+      "text": "Check the following drawing",
+      "multiline": false,
+      "status": "planned"
+    },
+    {
+      "id": "ch4-prompt-quote",
+      "sectionId": "ch4",
+      "label": "Example prompt (quote)",
+      "role": "prompt",
+      "text": "Quote part abc123, quantity 20, to arrive within a month.",
+      "multiline": false,
+      "status": "live"
+    },
+    {
+      "id": "ch5-prompt-compare",
+      "sectionId": "ch5",
+      "label": "Example prompt (compare)",
+      "role": "prompt",
+      "text": "Compare the six quotes on price and lead time.",
+      "multiline": false,
+      "status": "live"
+    },
+    {
+      "id": "ch6-prompt-assembly",
+      "sectionId": "ch6",
+      "label": "Example prompt (assembly)",
+      "role": "prompt",
+      "text": "Quote assembly abc123, quantity 20, to arrive within a month.",
+      "multiline": false,
+      "status": "live"
+    },
+    {
+      "id": "ch7-prompt-instr",
+      "sectionId": "ch7",
+      "label": "Example prompt (instr)",
+      "role": "prompt",
+      "text": "Create assembly instructions for assy abc123.",
+      "multiline": false,
+      "status": "planned"
+    },
+    {
+      "id": "ch7-prompt-inspect",
+      "sectionId": "ch7",
+      "label": "Example prompt (inspect)",
+      "role": "prompt",
+      "text": "Create an inspection plan for assy abc123.",
+      "multiline": false,
+      "status": "planned"
+    },
+    {
+      "id": "mission-eyebrow",
+      "sectionId": "mission",
+      "label": "Label",
+      "role": "eyebrow",
+      "text": "Our mission",
+      "multiline": false
+    },
+    {
+      "id": "mission-text",
+      "sectionId": "mission",
+      "label": "Mission statement (a goal, not progress)",
+      "role": "body",
+      "text": "Reduce the time to Mars by 10% through creative and efficient deployment of engineering resources.",
+      "multiline": true
+    },
+    {
+      "id": "roadmap-band",
+      "sectionId": "roadmap",
+      "label": "Band tag",
+      "role": "eyebrow",
+      "text": "Roadmap · intentions, not commitments",
+      "multiline": false
+    },
+    {
+      "id": "roadmap-headline",
+      "sectionId": "roadmap",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Capabilities we intend to build",
+      "multiline": false
+    },
+    {
+      "id": "roadmap-sentence",
+      "sectionId": "roadmap",
+      "label": "Body sentence",
+      "role": "body",
+      "text": "Each cluster branches from the OverDrafter mark. Select a cluster to see what is inside.",
+      "multiline": true
+    },
+    {
+      "id": "final-closing",
+      "sectionId": "final",
+      "label": "Closing statement (required wording)",
+      "role": "body",
+      "text": "Powered nodes are live in the invitation-only Founding Beta. Unpowered nodes are our intentions, not commitments.",
+      "multiline": true,
+      "mustEqual": "Powered nodes are live in the invitation-only Founding Beta. Unpowered nodes are our intentions, not commitments."
+    },
+    {
+      "id": "final-headline",
+      "sectionId": "final",
+      "label": "Headline",
+      "role": "headline",
+      "text": "Try OverDrafter now.",
+      "multiline": false
+    },
+    {
+      "id": "final-cta-primary",
+      "sectionId": "final",
+      "label": "Primary button label",
+      "role": "cta",
+      "text": "Create account",
+      "multiline": false
+    },
+    {
+      "id": "final-cta-secondary",
+      "sectionId": "final",
+      "label": "Secondary button label",
+      "role": "cta",
+      "text": "Replay the story",
+      "multiline": false
+    }
+  ]
+}

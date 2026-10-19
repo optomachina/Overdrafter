@@ -1,0 +1,54 @@
+{
+  "studioName": "OverDrafter Homepage Studio",
+  "jobTimeoutMinutes": 20,
+  "workerTimeoutMinutes": 30,
+  "defaultTool": "hand-built",
+  "workflowFile": "studio-generate.yml",
+  "tools": [
+    {
+      "id": "hand-built",
+      "label": "Hand-built (no skill)",
+      "skillPath": null,
+      "entry": null,
+      "source": null,
+      "description": "No skill. The model builds plain HTML, CSS and SVG from the brief.",
+      "goodFor": "Small figures, copy-adjacent graphics, quick experiments."
+    },
+    {
+      "id": "anatomy",
+      "label": "Anatomy",
+      "skillPath": "~/.homepage-studio/skills/anatomy",
+      "entry": "SKILL.md",
+      "source": { "type": "git", "repo": "https://github.com/wheresryan22/anatomy", "commit": "be2fa9b47a7e4b05dec468be9ffc42e830c2101c", "subpath": "anatomy", "note": "Commit read from the archive comment of the reviewed zip; confirm before first hosted use." },
+      "description": "Crafted isometric SVG explainer figures built as a real physical object.",
+      "goodFor": "A light isometric machine for the hero or a quoting figure (the v2 look)."
+    },
+    {
+      "id": "anatomy-asset",
+      "label": "Anatomy-Asset",
+      "skillPath": "~/.homepage-studio/skills/anatomy-asset",
+      "entry": "SKILL.md",
+      "source": { "type": "git", "repo": "https://github.com/Teddarific/skills", "commit": "7e897b2c35b4b6c5a70410d9e4a976efa288d265", "subpath": "skills/anatomy-asset" },
+      "description": "Anatomy variant that produces one standalone asset per landing-page section.",
+      "goodFor": "A separate drawing for each section of a landing page (the v3 look)."
+    },
+    {
+      "id": "isoglow",
+      "label": "ISO-GLOW",
+      "skillPath": "~/.homepage-studio/skills/isoglow",
+      "entry": "SKILL.md",
+      "source": { "type": "zip", "url": "https://isoglow.dev/iso-glow.zip", "sha256": "6c88dba1424bada2ee651a1b273095f9a13b82dd9362f9bc873600b5bff6b0a1", "subpath": "iso-glow" },
+      "description": "Dark, glowing isometric exploded-part figures with section cuts and callouts.",
+      "goodFor": "Dark-page exploded bracket scenes (the v4 look)."
+    },
+    {
+      "id": "machine",
+      "label": "Machine Skill",
+      "skillPath": "~/.homepage-studio/skills/machine",
+      "entry": "SKILL.md",
+      "source": { "type": "git", "repo": "https://github.com/AirsupHQ/machine-skill", "commit": "e0bd066ac5beaf48512935de2fc0f0e55636853a", "subpath": "." },
+      "description": "Real 3D machine scenes you can orbit and explode, with a live readout.",
+      "goodFor": "A heavy interactive 3D machine (the v5 look). Largest output."
+    }
+  ]
+}
