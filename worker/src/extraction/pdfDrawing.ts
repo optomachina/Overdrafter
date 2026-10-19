@@ -307,7 +307,9 @@ const DUAL_DIMENSION_RELATIVE_TOLERANCE = 0.05;
 
 const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|MILIMETROS?|METRIC|INCH(?:ES)?)(?![A-Z0-9])`;
 // DIMENSIONS/UNITS/TOLERANCES (and the German, French and Spanish words), then optional linking words.
-const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN))*`;
+// The linking words are bounded: an unbounded repeat overflows the regexp stack on a line of a few
+// million separators, and a real declaration uses at most a few of them.
+const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN)){0,8}`;
 // A second unit word right after the first one on the declaration line, so the drawing declares
 // both systems ("DIMENSIONS IN INCHES [MM]", "UNITS: INCH / MM", and a units field that lists both
 // options, "UNITS: INCH MM", "UNITS: MM X INCH", or a checkbox or OCR rendering of one such as
@@ -343,12 +345,15 @@ const METRIC_TOLERANCE_STANDARD = /\b(?:ISO[ \t]*2768|DIN[ \t]*7168|JIS[ \t]*B[ 
 
 /**
  * Folds width variants, diacritics ("millimètres", "MILÍMETROS"), OCR homoglyphs and degree
- * look-alikes so unit words match one spelling.
+ * look-alikes so unit words match one spelling. Combining marks are dropped before the
+ * decomposition as well as after it: canonical reordering is quadratic on a long run of marks of
+ * mixed classes, and every mark decomposes only to marks, so the result is the same.
  */
 function normalizeUnitText(text: string) {
   return (
     text
       .replace(/[º˚]/g, "°")
+      .replace(/\p{M}+/gu, "")
       .normalize("NFKD")
       .replace(/\p{M}+/gu, "")
       // Two Greek capital mu are a homoglyph of MM; a single one is the upper case of the micro sign.

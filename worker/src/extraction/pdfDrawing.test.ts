@@ -1357,12 +1357,37 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       ...blankCases,
       ["100k marks after a declared unit", () => `UNITS: INCH${run("| ")}x`],
       ["100k marks and tabs between two declared units", () => `UNITS: INCH${run("\t|\t☐")}MM`],
+      // Unicode canonical reordering is quadratic on a long run of combining marks of mixed classes.
+      [
+        "a letter, 40k grave accents and 40k overlay marks",
+        () => `a${"̀".repeat(40_000)}${"̴".repeat(40_000)}`,
+      ],
+      ["40k ypogegrammeni and 40k grave accents", () => `x${"ͅ".repeat(40_000)}${"̀".repeat(40_000)}`],
+      [
+        "40k overlay and grave mark pairs after a declared tolerance",
+        () => `UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`,
+      ],
     ] as Array<[string, () => string]>)("reads %s within the bound", (_label, build) => {
       const text = build();
       warm();
       const started = performance.now();
       read(text);
       expect(performance.now() - started).toBeLessThan(BOUND_MS);
+    });
+
+    it("still reads the declared tolerance before a long run of combining marks", () => {
+      const result = read(`UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`);
+      expect(result.tightestToleranceValueInch).toBe(0.005);
+      expect(result.tightestToleranceDrawingUnits).toBe("inch");
+    });
+
+    // An unbounded repeat of the separators after UNITS overflowed the regexp stack on this line.
+    it("reads a 4M-character line of separators after UNITS without throwing", () => {
+      const text = `UNITS${":".repeat(4_000_000)}`;
+      warm();
+      const started = performance.now();
+      expect(() => read(text)).not.toThrow();
+      expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
     });
   });
 });
