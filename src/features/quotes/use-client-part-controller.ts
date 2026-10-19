@@ -109,6 +109,8 @@ import {
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
+  DrawingExtractionData,
+  PartAggregate,
   PartDetailAggregate,
   QuoteDataStatus,
   QuoteDiagnostics,
@@ -236,6 +238,36 @@ function applyResetFields(
   });
 
   return nextDraft;
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * The Threads value the request falls back to when its Threads field is cleared:
+ * the stored property defaults when present, otherwise the drawing's thread callouts.
+ * Mirrors the defaults the part workspace shows beside the Threads field.
+ */
+function getRequestThreadDefault(
+  part: PartAggregate | null,
+  extraction: DrawingExtractionData | null,
+): string | null {
+  const defaults = part?.clientRequirement?.projectPartProperties?.defaults;
+  if (defaults && "threads" in defaults) {
+    return typeof defaults.threads === "string" ? defaults.threads : null;
+  }
+  return extraction?.threads?.join(", ") ?? null;
+}
+
+/** Threads already stored on the approved request, which the server scope checks read. */
+function getSavedRequestThreads(part: PartAggregate | null): string | null {
+  const snapshot = part?.approvedRequirement?.spec_snapshot;
+  const snapshotThreads =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.threads : null;
+  const clientThreads = part?.clientRequirement?.threads;
+  if (hasText(clientThreads)) return clientThreads;
+  return hasText(snapshotThreads) ? snapshotThreads : null;
 }
 
 function requestDraftIncludesPatch(
@@ -930,9 +962,19 @@ export function useClientPartController(
     partDetail?.part?.approvedRequirement?.requested_by_date ??
     partDetail?.job.requested_by_date ??
     null;
-  // OVD-981: inside the controlled envelope the Need by filter on the results is view
-  // state. Persisting it would set requested_by_date, which every controlled dispatch denies.
-  const needByFilterIsViewOnly = quoteCollectionMode.automaticEnabled;
+  // OVD-981/OVD-991: the Need by filter on the results is view state. Persisting it would set
+  // requested_by_date, which every controlled dispatch denies, so it persists only when quote
+  // access is known to be blocked (outside the controlled envelope) and settled. Loading,
+  // refetching, errored and eligible access all stay view-only (fail closed).
+  const needByFilterIsViewOnly = !(
+    quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
+  );
+  // OVD-991: Threads falls back to the drawing's thread callouts when cleared, and any full
+  // save of the request records them. Both server scope checks deny a non-blank Threads value.
+  const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
+  const drawingHasThreads = hasText(requestThreadDefault);
+  const needByRemovalSavesDrawingThreads =
+    drawingHasThreads && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
   const quoteViewRequestedByDate =
     needByFilterIsViewOnly && viewRequestedByDate !== undefined
       ? viewRequestedByDate
@@ -1796,7 +1838,9 @@ export function useClientPartController(
   }
   // RPC failures arrive as plain PostgrestError records, not Error instances.
   const xometryDispatchScopeError = xometryDispatchScopeQuery.error
-    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider, {
+        drawingThreads: drawingHasThreads,
+      })
     : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
@@ -1924,6 +1968,7 @@ export function useClientPartController(
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
+    needByRemovalSavesDrawingThreads,
     resolveSidebarProjectIdsForJob,
     navigationModel,
     revisionOptions,

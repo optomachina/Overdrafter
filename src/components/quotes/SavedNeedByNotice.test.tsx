@@ -25,4 +25,18 @@ describe("SavedNeedByNotice", () => {
     render(<SavedNeedByNotice requestedByDate="2026-04-15" onRemove={vi.fn()} disabled />);
     expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeDisabled();
   });
+
+  it("keeps removal enabled by default", () => {
+    render(<SavedNeedByNotice requestedByDate="2026-04-15" onRemove={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeEnabled();
+  });
+
+  it("warns that removing the date also saves the drawing's thread callouts as Threads (OVD-991)", () => {
+    const { rerender } = render(<SavedNeedByNotice requestedByDate="2026-04-15" onRemove={vi.fn()} />);
+    expect(screen.queryByText(/thread callouts/i)).not.toBeInTheDocument();
+
+    rerender(<SavedNeedByNotice requestedByDate="2026-04-15" onRemove={vi.fn()} savesDrawingThreads />);
+    expect(screen.getByText(/records the thread callouts read from the drawing as Threads/)).toBeInTheDocument();
+    expect(screen.getByText(/does not support Threads either/)).toBeInTheDocument();
+  });
 });
