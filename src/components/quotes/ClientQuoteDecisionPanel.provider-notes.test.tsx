@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 import { PROVIDER_NOTES_MAX_CHARS, sanitizeProviderNotes } from "@/features/quotes/provider-notes";
+import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import { makeClientQuoteOption } from "./test-option-factory";
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
@@ -10,8 +11,13 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: () => <div>Quote Chart</div>,
 }));
 
-async function renderPanel(notes: string | null) {
-  const option = makeClientQuoteOption({ notes });
+// `providerNotes` is the projection of offer notes that the worker marked as provider-written
+// (src/features/quotes/provider-notes.ts); the block renders nothing else (OVD-982).
+async function renderPanel(
+  providerNotes: string | null,
+  overrides: Partial<ClientQuoteSelectionOption> = {},
+) {
+  const option = makeClientQuoteOption({ notes: providerNotes, providerNotes, ...overrides });
   render(
     <ClientQuoteDecisionPanel
       options={[option]}
@@ -61,6 +67,26 @@ describe("ClientQuoteDecisionPanel provider notes", () => {
     vi.stubEnv("VITE_ENABLE_QUOTE_PROVIDER_NOTES", "1");
     await renderPanel(null);
     expect(within(screen.getByTestId("provider-notes")).getByText("No provider notes")).toBeInTheDocument();
+  });
+
+  it("never shows worker automation text from notes without a provider marker, even with the flag on", async () => {
+    vi.stubEnv("VITE_ENABLE_QUOTE_PROVIDER_NOTES", "1");
+    const automation = "Live Xometry quote captured via Playwright.";
+    await renderPanel(null, { notes: automation, rawPayload: { workerNotes: [automation] } });
+    const block = screen.getByTestId("provider-notes");
+    expect(within(block).getByText("No provider notes")).toBeInTheDocument();
+    expect(screen.queryByText(/Playwright/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/captured/)).not.toBeInTheDocument();
+  });
+
+  it("does not render raw_payload content, including worker notes, anywhere in the notes block", async () => {
+    vi.stubEnv("VITE_ENABLE_QUOTE_PROVIDER_NOTES", "1");
+    await renderPanel("Provider says ship early", {
+      rawPayload: { notesSource: "provider", workerNotes: ["Xometry flagged the part for manual review"] },
+    });
+    const block = screen.getByTestId("provider-notes");
+    expect(block).toHaveTextContent("Provider says ship early");
+    expect(block.textContent).not.toContain("manual review");
   });
 
   it("renders markup as inert plain text, never as elements", async () => {
