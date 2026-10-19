@@ -63,12 +63,15 @@ milestones.
 These bind the homepage and any other marketing surface that shows this list.
 
 1. **Live** means exactly "Live in Founding Beta". Never a bare "Live".
-2. Planned items are labelled "Planned · not available yet" and are visibly
-   unpowered (dashed, with an open gap), never distinguished by colour alone.
-3. No dates, quarters, years, timelines, percentages, or words such as "next",
-   "later", "soon", or "next year". Sequence is shown only by position.
-4. Never imply a planned item exists. Never name third-party hardware or product
-   brands for planned items.
+2. Planned items are labelled "Coming soon" (founder decision, October 18, 2026)
+   and are visibly unpowered (dashed, with an open gap), never distinguished by
+   colour alone. Assistive technology hears "Planned, not available yet".
+3. No dates, quarters, years, timelines, or percentages. "Coming soon" is the
+   only timing word allowed; "next", "later", and "next year" are not. Sequence
+   is shown only by position.
+4. Never imply a planned item exists. Never name third-party hardware or
+   product brands on the public homepage, including CAD tools (founder
+   decision: use generic CAD wording; internal documents may name them).
 5. The mission is shown only as a labelled goal.
 6. Required closing statement: "Powered nodes are live in the invitation-only
    Founding Beta. Unpowered nodes are our intentions, not commitments."
@@ -76,6 +79,17 @@ These bind the homepage and any other marketing surface that shows this list.
    (`status: "live" | "planned"`) so promoting a capability changes one word.
    A capability may be flipped to live only when it ships and its release gate
    in `ROADMAP.md` is met.
+8. Example prompts are labelled "Example prompt". A prompt is shown as live only
+   when the product really does what it asks. The natural-language quote prompt
+   ("Quote part abc123, quantity 20, to arrive within a month", also for
+   assemblies) is shown as live on the founder's statement, but the repository
+   does not yet evidence it (`docs/DESIGN.md` still lists Ask OverDrafter as a
+   roadmap item). Verify before production; the prototype keeps this behind one
+   flag.
+9. A "Tell me when it ships" form on a coming-soon capability needs a real
+   backend before it ships: a table, a consent record, double opt-in, and a
+   privacy review, and production data changes need the existing authorization.
+   Until then the prototype must store nothing and must say so.
 
 See also: `docs/design/homepage-redesign-plan.md`, `docs/DESIGN.md` (marketing
 demo exception), and the truthfulness rule that marketing surfaces carry no
