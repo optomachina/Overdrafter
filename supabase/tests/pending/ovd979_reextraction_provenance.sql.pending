@@ -11,8 +11,11 @@
 -- promoted and this file is renamed to
 -- supabase/tests/ovd979_reextraction_provenance.sql in the same change.
 -- Pre-apply observation (PGlite + pgTAP, exact migration bodies, stubbed
--- tables): 12/17 pass and A2, A4, B1, B3, B5 fail (corrections overwritten by
--- the extraction; 0 tasks queued on attach). With both drafts: 17/17.
+-- tables): without the drafts 14/29 pass (A2, A4, B1, B1b, B3, B5, D0-D5, Q1-Q3
+-- fail: corrections overwritten, 0 tasks queued on attach, stale editor
+-- defaults, placeholder material, tolerance filled, quoted jobs moved to
+-- ready_to_quote). With the revision-0 drafts 21/29 (D1-D5, Q1-Q3 fail). With
+-- the revision-1 drafts: 29/29. Sections D, E and Q cover review r0 R1-R4.
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
@@ -22,7 +25,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(17);
+select plan(29);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -39,11 +42,21 @@ values ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-0000009
 -- Job A (3f): CAD + drawing uploaded together, extraction pending.
 -- Job B (1b-b): CAD only first, drawing attached later.
 -- Job C: a non-worker extraction row ('v1' default) with a drawing (no re-queue).
+-- Job D (R1-R3): CAD-only, the user saves without changing anything, then a
+--   drawing is attached.
+-- Job E (R2): CAD-only, the user explicitly stored 'Unknown material'.
+-- Jobs P, S, X (R4): CAD-only, then published / client_selected / closed,
+--   then a drawing is attached.
 insert into public.jobs (id, organization_id, created_by, title, status)
 values
   ('00000000-0000-4000-8000-0000009791a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 A', 'uploaded'),
   ('00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 B', 'uploaded'),
-  ('00000000-0000-4000-8000-0000009791c0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 C', 'uploaded');
+  ('00000000-0000-4000-8000-0000009791c0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 C', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 D', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009791e0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 E', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009792a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 P', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009792b0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 S', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009792c0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 X', 'uploaded');
 
 insert into public.job_files (
   id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
@@ -56,7 +69,12 @@ from (values
   ('00000000-0000-4000-8000-0000009791a2'::uuid, '00000000-0000-4000-8000-0000009791a0'::uuid, 'bracket.pdf', 'drawing'),
   ('00000000-0000-4000-8000-0000009791b1'::uuid, '00000000-0000-4000-8000-0000009791b0'::uuid, 'bracket.step', 'cad'),
   ('00000000-0000-4000-8000-0000009791c1'::uuid, '00000000-0000-4000-8000-0000009791c0'::uuid, 'bracket.step', 'cad'),
-  ('00000000-0000-4000-8000-0000009791c2'::uuid, '00000000-0000-4000-8000-0000009791c0'::uuid, 'bracket.pdf', 'drawing')
+  ('00000000-0000-4000-8000-0000009791c2'::uuid, '00000000-0000-4000-8000-0000009791c0'::uuid, 'bracket.pdf', 'drawing'),
+  ('00000000-0000-4000-8000-0000009791d1'::uuid, '00000000-0000-4000-8000-0000009791d0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009791e1'::uuid, '00000000-0000-4000-8000-0000009791e0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009792a1'::uuid, '00000000-0000-4000-8000-0000009792a0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009792b1'::uuid, '00000000-0000-4000-8000-0000009792b0'::uuid, 'bracket.step', 'cad'),
+  ('00000000-0000-4000-8000-0000009792c1'::uuid, '00000000-0000-4000-8000-0000009792c0'::uuid, 'bracket.step', 'cad')
 ) as file(id, job_id, original_name, kind);
 
 insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
@@ -66,7 +84,17 @@ values
   ('00000000-0000-4000-8000-0000009791b3', '00000000-0000-4000-8000-0000009791b0', '00000000-0000-4000-8000-000000979001',
     'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791b1', null),
   ('00000000-0000-4000-8000-0000009791c3', '00000000-0000-4000-8000-0000009791c0', '00000000-0000-4000-8000-000000979001',
-    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791c1', '00000000-0000-4000-8000-0000009791c2');
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791c1', '00000000-0000-4000-8000-0000009791c2'),
+  ('00000000-0000-4000-8000-0000009791d3', '00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791d1', null),
+  ('00000000-0000-4000-8000-0000009791e3', '00000000-0000-4000-8000-0000009791e0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009791e1', null),
+  ('00000000-0000-4000-8000-0000009792a3', '00000000-0000-4000-8000-0000009792a0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009792a1', null),
+  ('00000000-0000-4000-8000-0000009792b3', '00000000-0000-4000-8000-0000009792b0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009792b1', null),
+  ('00000000-0000-4000-8000-0000009792c3', '00000000-0000-4000-8000-0000009792c0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009792c1', null);
 
 insert into public.drawing_extractions (part_id, organization_id, extraction)
 values ('00000000-0000-4000-8000-0000009791c3', '00000000-0000-4000-8000-000000979001', '{"source":"pre-OVD-979"}'::jsonb);
@@ -79,6 +107,9 @@ $$;
 -- Simulated worker completion: replace the extraction row with an explicit,
 -- later updated_at (the touch trigger would otherwise stamp the constant now()),
 -- complete the part's open extract_part tasks, then auto-approve.
+-- A CAD-only run (extractor_version 'worker-sim-%') reads no drawing, so it
+-- carries no material and no tolerance; a drawing run carries both (the
+-- tolerance is 0.1 in, the value a millimetre drawing gives before OVD-976).
 create function pg_temp.ovd979_worker_completes(p_job uuid, p_part uuid, p_version text, p_tag text, p_minutes integer)
 returns void language plpgsql as $$
 begin
@@ -88,8 +119,10 @@ begin
     jsonb_build_object(
       'description', 'EXTRACTED DESC ' || p_tag, 'quoteDescription', 'EXTRACTED DESC ' || p_tag,
       'partNumber', 'EX-PN-' || p_tag, 'revision', 'R' || p_tag,
-      'quoteFinish', 'EXTRACTED FINISH ' || p_tag,
-      'material', jsonb_build_object('normalized', 'Aluminum 6061-T6')),
+      'quoteFinish', 'EXTRACTED FINISH ' || p_tag)
+    || case when p_version like 'worker-sim-%' then '{}'::jsonb else jsonb_build_object(
+      'material', jsonb_build_object('normalized', 'Aluminum 6061-T6'),
+      'tolerances', jsonb_build_object('valueInch', 0.1)) end,
     -- Same clock expression as the touch trigger and the RPCs
     -- (timezone('utc', now())), so the comparison holds in any session TimeZone.
     'needs_review',
@@ -128,6 +161,13 @@ select is(
    from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791a3'),
   array['USER DESC', 'USER-PN', 'C', 'USER FINISH', 'USER DESC', 'USER FINISH'],
   'A2 a correction saved while extraction was pending survives extraction completion'
+);
+
+select is(
+  (select tightest_tolerance_inch from public.approved_part_requirements
+   where part_id = '00000000-0000-4000-8000-0000009791a3'),
+  0.1::numeric,
+  'A5 a drawing uploaded with the part still fills a null tolerance (R3 applies only to an attach)'
 );
 
 -- Reset-to-auto for description only (behavior of the reset RPC is unchanged).
@@ -199,6 +239,12 @@ select is(
 reset role;
 
 select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009791b0'),
+  'extracting',
+  'B1b an attach on a job that has not started quoting (ready_to_quote) still sets extracting'
+);
+
+select is(
   (select count(*)::integer from public.work_queue
    where part_id = '00000000-0000-4000-8000-0000009791b3' and task_type = 'extract_part'
      and status = 'queued' and payload ->> 'reason' = 'drawing_attached'
@@ -235,6 +281,202 @@ select is(
   'B7 an extraction row not written by the CAD-only worker path is never re-queued'
 );
 reset role;
+
+-- ---------------------------------------------------------------- review r0: R1, R2, R3 (job D, job E)
+-- D: CAD-only extraction, then a save that changes nothing (this seeds the
+-- CAD-only editor defaults), then a drawing is attached and extracted.
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-0000009791e0']::uuid[]) job_id;
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-0000009791d3', 'worker-sim-v1', 'cad', 1
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791e0', '00000000-0000-4000-8000-0000009791e3', 'worker-sim-v1', 'cad', 1
+);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791d0',
+  p_description => 'EXTRACTED DESC cad', p_part_number => 'EX-PN-cad', p_revision => 'Rcad',
+  p_material => 'Unknown material', p_finish => 'EXTRACTED FINISH cad'
+);
+reset role;
+
+-- E: the user explicitly stores 'Unknown material' (the editor default was
+-- another material, so the save records a material override).
+update public.approved_part_requirements set material = 'Steel 1018'
+where part_id = '00000000-0000-4000-8000-0000009791e3';
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791e0',
+  p_description => 'EXTRACTED DESC cad', p_part_number => 'EX-PN-cad', p_revision => 'Rcad',
+  p_material => 'Unknown material', p_finish => 'EXTRACTED FINISH cad'
+);
+reset role;
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.pdf', 'ovd979-bracket', 'drawing'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009791d2'::uuid, '00000000-0000-4000-8000-0000009791d0'::uuid),
+  ('00000000-0000-4000-8000-0000009791e2'::uuid, '00000000-0000-4000-8000-0000009791e0'::uuid)
+) as file(id, job_id);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  (select array_agg(public.api_request_extraction(job_id) order by job_id)
+   from unnest(array['00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-0000009791e0']::uuid[]) job_id),
+  array[1, 1],
+  'D0 attaching a drawing queues one extraction for each of D and E'
+);
+reset role;
+
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791d0', '00000000-0000-4000-8000-0000009791d3', 'worker-pdf-v3', 'dwg', 3
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009791e0', '00000000-0000-4000-8000-0000009791e3', 'worker-pdf-v3', 'dwg', 3
+);
+
+select is(
+  (select array[material, spec_snapshot #>> '{projectPartProperties,defaults,material}']
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791d3'),
+  array['Aluminum 6061-T6', 'Aluminum 6061-T6'],
+  'D1 (R2) the drawing material replaces the Unknown material placeholder, and the editor default follows'
+);
+
+select is(
+  (select tightest_tolerance_inch from public.approved_part_requirements
+   where part_id = '00000000-0000-4000-8000-0000009791d3'),
+  null::numeric,
+  'D2 (R3) a drawing-attach extraction does not fill the null tolerance (left for the user to confirm)'
+);
+
+select is(
+  (select array[description, spec_snapshot #>> '{projectPartProperties,defaults,description}',
+      spec_snapshot #>> '{projectPartProperties,defaults,partNumber}',
+      spec_snapshot #>> '{projectPartProperties,defaults,revision}',
+      spec_snapshot #>> '{projectPartProperties,defaults,finish}']
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791d3'),
+  array['EXTRACTED DESC dwg', 'EXTRACTED DESC dwg', 'EX-PN-dwg', 'Rdwg', 'EXTRACTED FINISH dwg'],
+  'D3 (R1) refreshed fields also refresh the editor defaults'
+);
+
+-- An unrelated save (quantity only) that resends the displayed values.
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_update_client_part_request(
+  p_job_id => '00000000-0000-4000-8000-0000009791d0',
+  p_description => 'EXTRACTED DESC dwg', p_part_number => 'EX-PN-dwg', p_revision => 'Rdwg',
+  p_material => 'Aluminum 6061-T6', p_finish => 'EXTRACTED FINISH dwg', p_quantity => 5
+);
+reset role;
+
+select is(
+  (select coalesce(array_agg(key order by key), '{}'::text[])
+   from public.approved_part_requirements r,
+     jsonb_object_keys(r.spec_snapshot #> '{projectPartProperties,overrides}') key
+   where r.part_id = '00000000-0000-4000-8000-0000009791d3'),
+  '{}'::text[],
+  'D4 (R1) an unrelated save after the refresh records no override keys'
+);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_reset_client_part_property_overrides('00000000-0000-4000-8000-0000009791d0', array['description']);
+reset role;
+
+select is(
+  (select description from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791d3'),
+  'EXTRACTED DESC dwg',
+  'D5 (R1) reset after the attach resolves to the drawing value, not the CAD-only default'
+);
+
+select is(
+  (select array[material, spec_snapshot #>> '{projectPartProperties,overrides,material}']
+   from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-0000009791e3'),
+  array['Unknown material', 'Unknown material'],
+  'E1 (R2) an Unknown material value the user stored as an override is kept'
+);
+
+-- ---------------------------------------------------------------- review r0: R4 (jobs P, S, X)
+create temp table ovd979_quoted (job_id uuid primary key, part_id uuid, queued integer, status_after_request text);
+grant all on ovd979_quoted to authenticated;
+insert into ovd979_quoted (job_id, part_id) values
+  ('00000000-0000-4000-8000-0000009792a0', '00000000-0000-4000-8000-0000009792a3'),
+  ('00000000-0000-4000-8000-0000009792b0', '00000000-0000-4000-8000-0000009792b3'),
+  ('00000000-0000-4000-8000-0000009792c0', '00000000-0000-4000-8000-0000009792c3');
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id) from ovd979_quoted;
+reset role;
+select pg_temp.ovd979_worker_completes(job_id, part_id, 'worker-sim-v1', 'cad', 1) from ovd979_quoted;
+
+update public.jobs set status = 'published' where id = '00000000-0000-4000-8000-0000009792a0';
+update public.jobs set status = 'client_selected' where id = '00000000-0000-4000-8000-0000009792b0';
+update public.jobs set status = 'closed' where id = '00000000-0000-4000-8000-0000009792c0';
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.pdf', 'ovd979-bracket', 'drawing'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009792a2'::uuid, '00000000-0000-4000-8000-0000009792a0'::uuid),
+  ('00000000-0000-4000-8000-0000009792b2'::uuid, '00000000-0000-4000-8000-0000009792b0'::uuid),
+  ('00000000-0000-4000-8000-0000009792c2'::uuid, '00000000-0000-4000-8000-0000009792c0'::uuid)
+) as file(id, job_id);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+update ovd979_quoted set queued = public.api_request_extraction(job_id);
+reset role;
+update ovd979_quoted quoted set status_after_request = job.status::text
+from public.jobs job where job.id = quoted.job_id;
+select pg_temp.ovd979_worker_completes(job_id, part_id, 'worker-pdf-v3', 'dwg', 3) from ovd979_quoted;
+
+-- Each row: tasks queued by the attach, job status after the request, job
+-- status after the extraction completed, and the refreshed requirement
+-- description (the requirement is refreshed; registered quote lanes keep
+-- their immutable scope, OVD-345).
+select is(
+  (select array[quoted.queued::text, quoted.status_after_request, job.status::text, requirement.description]
+   from ovd979_quoted quoted
+   join public.jobs job on job.id = quoted.job_id
+   join public.approved_part_requirements requirement on requirement.part_id = quoted.part_id
+   where quoted.job_id = '00000000-0000-4000-8000-0000009792a0'),
+  array['1', 'published', 'published', 'EXTRACTED DESC dwg'],
+  'Q1 (R4) attach on a published job queues the extraction and keeps the job published'
+);
+select is(
+  (select array[quoted.queued::text, quoted.status_after_request, job.status::text, requirement.description]
+   from ovd979_quoted quoted
+   join public.jobs job on job.id = quoted.job_id
+   join public.approved_part_requirements requirement on requirement.part_id = quoted.part_id
+   where quoted.job_id = '00000000-0000-4000-8000-0000009792b0'),
+  array['1', 'client_selected', 'client_selected', 'EXTRACTED DESC dwg'],
+  'Q2 (R4) attach on a client_selected job keeps the job client_selected'
+);
+select is(
+  (select array[quoted.queued::text, quoted.status_after_request, job.status::text, requirement.description]
+   from ovd979_quoted quoted
+   join public.jobs job on job.id = quoted.job_id
+   join public.approved_part_requirements requirement on requirement.part_id = quoted.part_id
+   where quoted.job_id = '00000000-0000-4000-8000-0000009792c0'),
+  array['1', 'closed', 'closed', 'EXTRACTED DESC dwg'],
+  'Q3 (R4) attach on a closed job keeps the job closed'
+);
 
 -- ---------------------------------------------------------------- attributes and grants
 select ok(

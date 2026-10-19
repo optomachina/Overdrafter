@@ -17,16 +17,29 @@
 -- than the requirement) overwrites description, part number, revision and
 -- finish (and quoteDescription / quoteFinish) with extracted values.
 --
--- Change (option (b) of the issue), and nothing else:
---   user_owned(field) := fieldSources[field] <> 'auto'
---                        OR projectPartProperties.overrides ? field
---   and each "refresh from newer extraction" branch now tests
---   "not user_owned" instead of "source = 'auto'".
+-- Changes (revision 1), and nothing else:
+--   1. Ownership (option (b) of the issue):
+--        user_owned(field) := fieldSources[field] <> 'auto'
+--                             OR projectPartProperties.overrides ? field
+--      and each "refresh from newer extraction" branch tests
+--        refresh(field) := not user_owned and extraction newer and no review.
+--   2. When a field is refreshed, projectPartProperties.defaults[field] gets
+--      the refreshed value (only when a defaults object exists), so reset
+--      resolves to it and a later save records no spurious override (R1).
+--   3. A requirement material equal to the 'Unknown material' placeholder is
+--      replaced by the extracted material when the extraction has one and
+--      material is not user-owned (no overrides.material key,
+--      fieldSources.material absent or 'auto'); the default follows (R2).
+--   4. For a part that has an extract_part task with reason 'drawing_attached'
+--      (queued by ovd-979-b.sql, any status), tolerance is never filled from
+--      the extraction; it keeps the requirement value (R3, OVD-976).
+--   5. The job status rollup only updates jobs in uploaded, extracting,
+--      needs_spec_review or ready_to_quote; quoting and later are kept (R4).
 -- Body otherwise verbatim from 20260317013000 (generated and diffed by
--- gen-draft-a.mjs in the OVD-979 harness). Not changed: material, tolerance,
--- quantities, vendors, status rollup, audit event, and the fieldSources /
--- fieldOverrides values written back (still the legacy provenance, so a reset
--- that removes an override key is not made sticky).
+-- gen-draft-a.mjs in the OVD-979 harness). Not changed: quantities, vendors,
+-- audit event, return value, and the fieldSources / fieldOverrides values
+-- written back (still the legacy provenance, so a reset that removes an
+-- override key is not made sticky).
 -- Security: SECURITY DEFINER and set search_path = public kept exactly;
 -- CREATE OR REPLACE keeps owner and ACL; the OVD-535 revoke/grant is restated
 -- verbatim (EXECUTE for service_role only). No grant is widened.
@@ -78,6 +91,19 @@ declare
   v_part_number_user_owned boolean := false;
   v_revision_user_owned boolean := false;
   v_finish_user_owned boolean := false;
+  -- OVD-979: a field is refreshed from the extraction when it is not
+  -- user-owned, the extraction is newer and the field needs no review.
+  v_description_refresh boolean := false;
+  v_part_number_refresh boolean := false;
+  v_revision_refresh boolean := false;
+  v_finish_refresh boolean := false;
+  -- OVD-979: the 'Unknown material' placeholder is replaced by an extracted
+  -- material unless the user owns material.
+  v_material_placeholder_replaced boolean := false;
+  -- OVD-979: the part has (ever had) an extract_part task queued by a drawing
+  -- attach (api_request_extraction, reason 'drawing_attached').
+  v_drawing_attached boolean := false;
+  v_property_defaults jsonb;
   v_description_review_needed boolean := false;
   v_part_number_review_needed boolean := false;
   v_revision_review_needed boolean := false;
@@ -167,9 +193,29 @@ begin
     v_part_number_user_owned := v_part_number_source <> 'auto' or v_property_overrides ? 'partNumber';
     v_revision_user_owned := v_revision_source <> 'auto' or v_property_overrides ? 'revision';
     v_finish_user_owned := v_finish_source <> 'auto' or v_property_overrides ? 'finish';
+    v_description_refresh := not v_description_user_owned and v_extraction_newer and not v_description_review_needed;
+    v_part_number_refresh := not v_part_number_user_owned and v_extraction_newer and not v_part_number_review_needed;
+    v_revision_refresh := not v_revision_user_owned and v_extraction_newer and not v_revision_review_needed;
+    v_finish_refresh := not v_finish_user_owned and v_extraction_newer and not v_finish_review_needed;
+    v_material_placeholder_replaced := trim(coalesce(v_requirement.material, '')) = 'Unknown material'
+      and not (v_property_overrides ? 'material')
+      and coalesce(nullif(trim(coalesce(v_requirement.spec_snapshot #>> '{fieldSources,material}', '')), ''), 'auto') = 'auto'
+      and nullif(trim(coalesce(
+        v_extraction.extraction #>> '{material,normalized}',
+        v_extraction.extraction #>> '{material,raw}',
+        v_extraction.extraction #>> '{material,raw_text}',
+        ''
+      )), '') is not null;
+    v_drawing_attached := exists (
+      select 1
+      from public.work_queue queue
+      where queue.part_id = v_part.id
+        and queue.task_type = 'extract_part'
+        and queue.payload ->> 'reason' = 'drawing_attached'
+    );
 
     v_description := case
-      when not v_description_user_owned and v_extraction_newer and not v_description_review_needed then
+      when v_description_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'quoteDescription', '')), ''),
           nullif(trim(coalesce(v_extraction.extraction ->> 'description', v_extraction.extraction ->> 'desc', '')), ''),
@@ -186,7 +232,7 @@ begin
         )
     end;
     v_part_number := case
-      when not v_part_number_user_owned and v_extraction_newer and not v_part_number_review_needed then
+      when v_part_number_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'partNumber', v_extraction.extraction ->> 'pn', '')), ''),
           nullif(trim(coalesce(v_requirement.part_number, '')), ''),
@@ -200,7 +246,7 @@ begin
         )
     end;
     v_revision := case
-      when not v_revision_user_owned and v_extraction_newer and not v_revision_review_needed then
+      when v_revision_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'revision', v_extraction.extraction ->> 'rev', '')), ''),
           nullif(trim(coalesce(v_requirement.revision, '')), ''),
@@ -214,7 +260,10 @@ begin
         )
     end;
     v_material := coalesce(
-      nullif(trim(coalesce(v_requirement.material, '')), ''),
+      -- OVD-979: 'Unknown material' written by an earlier auto-approval is
+      -- replaced by an extracted material unless the user owns material.
+      case when v_material_placeholder_replaced then null
+        else nullif(trim(coalesce(v_requirement.material, '')), '') end,
       nullif(trim(coalesce(
         v_extraction.extraction #>> '{material,normalized}',
         v_extraction.extraction #>> '{material,raw}',
@@ -224,7 +273,7 @@ begin
       case when v_requires_material then 'Unknown material' else '' end
     );
     v_finish := case
-      when not v_finish_user_owned and v_extraction_newer and not v_finish_review_needed then
+      when v_finish_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'quoteFinish', '')), ''),
           nullif(trim(coalesce(
@@ -251,7 +300,7 @@ begin
         )
     end;
     v_quote_description := case
-      when not v_description_user_owned and v_extraction_newer and not v_description_review_needed then
+      when v_description_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'quoteDescription', '')), ''),
           nullif(trim(coalesce(v_extraction.extraction ->> 'description', v_extraction.extraction ->> 'desc', '')), ''),
@@ -265,7 +314,7 @@ begin
         )
     end;
     v_quote_finish := case
-      when not v_finish_user_owned and v_extraction_newer and not v_finish_review_needed then
+      when v_finish_refresh then
         coalesce(
           nullif(trim(coalesce(v_extraction.extraction ->> 'quoteFinish', '')), ''),
           nullif(trim(coalesce(
@@ -283,10 +332,16 @@ begin
           v_finish
         )
     end;
-    v_tightest_tolerance_inch := coalesce(
-      v_requirement.tightest_tolerance_inch,
-      nullif(v_extraction.extraction #>> '{tolerances,valueInch}', '')::numeric
-    );
+    -- OVD-979: after a drawing attach, tolerance keeps the requirement value
+    -- (null for a CAD-only part) and is left for the user to confirm. Until
+    -- OVD-976 ships, a millimetre drawing is read as inches (OVD-683 gate).
+    v_tightest_tolerance_inch := case
+      when v_drawing_attached then v_requirement.tightest_tolerance_inch
+      else coalesce(
+        v_requirement.tightest_tolerance_inch,
+        nullif(v_extraction.extraction #>> '{tolerances,valueInch}', '')::numeric
+      )
+    end;
     v_quantity := greatest(
       coalesce(v_requirement.quantity, v_part.quantity, v_job.requested_quote_quantities[1], 1),
       1
@@ -361,6 +416,31 @@ begin
         'sourcing', coalesce(v_requirement.spec_snapshot -> 'sourcing', '{}'::jsonb),
         'release', coalesce(v_requirement.spec_snapshot -> 'release', '{}'::jsonb)
       );
+
+    -- OVD-979: a field refreshed from the extraction (or a replaced material
+    -- placeholder) also becomes the editor's default for that field, so a
+    -- reset resolves to the refreshed value and a later save that resends the
+    -- displayed values records no override. Only an existing defaults object
+    -- is changed; a missing one is seeded later from the refreshed columns.
+    if jsonb_typeof(v_spec_snapshot #> '{projectPartProperties,defaults}') = 'object' then
+      v_property_defaults := v_spec_snapshot #> '{projectPartProperties,defaults}';
+      if v_description_refresh then
+        v_property_defaults := v_property_defaults || jsonb_build_object('description', coalesce(v_quote_description, v_description));
+      end if;
+      if v_part_number_refresh then
+        v_property_defaults := v_property_defaults || jsonb_build_object('partNumber', v_part_number);
+      end if;
+      if v_revision_refresh then
+        v_property_defaults := v_property_defaults || jsonb_build_object('revision', v_revision);
+      end if;
+      if v_finish_refresh then
+        v_property_defaults := v_property_defaults || jsonb_build_object('finish', coalesce(v_quote_finish, v_finish));
+      end if;
+      if v_material_placeholder_replaced then
+        v_property_defaults := v_property_defaults || jsonb_build_object('material', coalesce(v_material, ''));
+      end if;
+      v_spec_snapshot := jsonb_set(v_spec_snapshot, '{projectPartProperties,defaults}', v_property_defaults);
+    end if;
 
     insert into public.approved_part_requirements (
       part_id,
@@ -445,18 +525,24 @@ begin
     and (part.cad_file_id is not null or part.drawing_file_id is not null)
     and requirement.id is null;
 
+  -- OVD-979: only jobs that have not started quoting change status here
+  -- (job_status order: uploaded, extracting, needs_spec_review, ready_to_quote,
+  -- then quoting and later). A job in quoting or later keeps its status.
   if v_pending_extract_tasks > 0 then
     update public.jobs
     set status = 'extracting'
-    where id = p_job_id;
+    where id = p_job_id
+      and status in ('uploaded', 'extracting', 'needs_spec_review', 'ready_to_quote');
   elsif v_failed_extract_tasks > 0 or v_unapproved_parts > 0 then
     update public.jobs
     set status = 'needs_spec_review'
-    where id = p_job_id;
+    where id = p_job_id
+      and status in ('uploaded', 'extracting', 'needs_spec_review', 'ready_to_quote');
   elsif v_count > 0 then
     update public.jobs
     set status = 'ready_to_quote'
-    where id = p_job_id;
+    where id = p_job_id
+      and status in ('uploaded', 'extracting', 'needs_spec_review', 'ready_to_quote');
   end if;
 
   perform public.log_audit_event(

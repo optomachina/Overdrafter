@@ -38,6 +38,15 @@
 --      dedupe also holds under concurrency (same pattern as
 --      private.lock_job_export_state). It takes no row lock, so it cannot
 --      invert the parts -> jobs lock order that api_auto_approve uses.
+--   5. Job status: a request that queued at least one never-extracted part
+--      sets 'extracting' exactly as before. A request that queued only
+--      drawing_attached tasks sets 'extracting' only for a job in uploaded,
+--      extracting, needs_spec_review or ready_to_quote; a job in quoting or a
+--      later state keeps its status (the task is still queued and runs).
+-- ORDERING (blocks apply): apply this file only after OVD-976 (unit-aware
+-- drawing tolerance parsing in the worker) is deployed, and only after
+-- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
+-- null tolerance, but OVD-976 is the fix for the mis-scaled value itself.
 -- Security: SECURITY DEFINER and set search_path = public kept exactly;
 -- require_verified_auth() and user_can_edit_job() unchanged and still run
 -- before anything else; CREATE OR REPLACE keeps owner and ACL; the OVD-736
@@ -58,6 +67,7 @@ as $$
 declare
   v_job public.jobs%rowtype;
   v_count integer := 0;
+  v_new_part_count integer := 0;
 begin
   perform public.require_verified_auth();
 
@@ -118,12 +128,23 @@ begin
           and queue.task_type = 'extract_part'
           and queue.status in ('queued', 'running')
       )
-    returning id
+    returning id, payload ->> 'reason' as reason
   )
-  select count(*)::integer into v_count from enqueued;
+  select count(*)::integer, (count(*) filter (where reason is null))::integer
+  into v_count, v_new_part_count
+  from enqueued;
 
+  -- OVD-979: a queued new part sets 'extracting' as before. A request that
+  -- queued only drawing_attached tasks changes the status only for a job that
+  -- has not started quoting; quoting and later keep their status, and the
+  -- queued extraction still runs.
   update public.jobs
-  set status = case when v_count > 0 then 'extracting' else status end
+  set status = case
+    when v_new_part_count > 0 then 'extracting'
+    when v_count > 0 and status in ('uploaded', 'extracting', 'needs_spec_review', 'ready_to_quote')
+      then 'extracting'
+    else status
+  end
   where id = p_job_id;
 
   perform public.log_audit_event(
