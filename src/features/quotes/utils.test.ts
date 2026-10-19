@@ -1053,6 +1053,26 @@ describe("quotes utils", () => {
     ]);
   });
 
+  it("carries worker automation notes from the offer raw_payload for internal views only (OVD-982)", () => {
+    const quote = {
+      raw_payload: {},
+      offers: [
+        makeOffer({
+          id: "offer-1",
+          offer_key: "lane-a",
+          notes: null,
+          raw_payload: { workerNotes: ["Live Xometry quote captured via Playwright."] },
+        }),
+        makeOffer({ id: "offer-2", offer_key: "lane-b", sort_rank: 1, raw_payload: {} }),
+      ],
+    } as unknown as VendorQuoteAggregate;
+
+    const [first, second] = getImportedVendorOffers(quote);
+    expect(first?.notes).toBeNull();
+    expect(first?.workerNotes).toEqual(["Live Xometry quote captured via Playwright."]);
+    expect(second?.workerNotes).toEqual([]);
+  });
+
   it("falls back to raw payload offers and filters out invalid price rows", () => {
     const quote = {
       id: "quote-1",
