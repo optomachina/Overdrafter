@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>OverDrafter tagline lockups</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #F2EFE8;
+    color: #1C1B19;
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 48px 16px 80px; }
+  .eyebrow {
+    margin: 0 0 12px;
+    font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #C2410C;
+  }
+  h1.page { margin: 0; font-size: clamp(26px, 5vw, 38px); line-height: 1.1; letter-spacing: -0.03em; font-weight: 600; }
+  .lede { margin: 12px 0 0; max-width: 560px; color: #5B5850; }
+  .grid { display: grid; gap: 16px; margin-top: 32px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+  .panel { padding: 28px 24px 32px; border: 1px solid #D6D1C4; }
+  .panel.dark { background: #0E0E0D; color: #F2EFE8; border-color: #2C2B28; }
+  .tag {
+    margin: 0 0 20px;
+    font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #5B5850;
+  }
+  .dark .tag { color: #A8A397; }
+  .lockup {
+    margin: 0;
+    font-size: clamp(36px, 7vw, 60px);
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .lockup .muted { color: #5B5850; }
+  .dark .lockup .muted { color: #A8A397; }
+  .lockup .brand .colon { color: #C2410C; }
+  .note { margin: 32px 0 0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #5B5850; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Review prototype</p>
+  <h1 class="page">Tagline lockup options</h1>
+  <p class="lede">The same stacked lockup with and without the colon after the brand name, in both themes. Pick one and every page follows.</p>
+
+  <div class="grid">
+    <section class="panel" aria-label="Without colon, light">
+      <p class="tag">Without colon · light</p>
+      <h2 class="lockup"><span class="brand">OverDrafter</span><br>Your agent for<br><span class="muted">Building hardware</span></h2>
+    </section>
+    <section class="panel dark" aria-label="Without colon, dark">
+      <p class="tag">Without colon · dark</p>
+      <h2 class="lockup"><span class="brand">OverDrafter</span><br>Your agent for<br><span class="muted">Building hardware</span></h2>
+    </section>
+    <section class="panel" aria-label="With colon, light">
+      <p class="tag">With colon · light</p>
+      <h2 class="lockup"><span class="brand">OverDrafter<span class="colon">:</span></span><br>Your agent for<br><span class="muted">Building hardware</span></h2>
+    </section>
+    <section class="panel dark" aria-label="With colon, dark">
+      <p class="tag">With colon · dark</p>
+      <h2 class="lockup"><span class="brand">OverDrafter<span class="colon">:</span></span><br>Your agent for<br><span class="muted">Building hardware</span></h2>
+    </section>
+  </div>
+
+  <p class="note"><a href="/variants/">Back to the variants index</a></p>
+</main>
+</body>
+</html>

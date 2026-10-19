@@ -10,7 +10,7 @@ describe("AnonymousHomeLanding", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "OverDrafter is your agent for building hardware.",
+        name: "OverDrafter Your agent for Building hardware",
       }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agents turn drawings into quotes" })).toBeInTheDocument();
