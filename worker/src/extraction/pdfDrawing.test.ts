@@ -973,8 +973,37 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       ["UNITS: MM, INCH", "TOLERANCES ±.005"],
       ["UNITS: MM IN", "TOLERANCES ±.005"],
       ["UNITS: MM X IN.", "TOLERANCES ±.005"],
+      ["UNITS: MM, IN", "TOLERANCES ±.005"],
+      [`UNITS: INCH${" ".repeat(24)}MM`, "TOLERANCES ±0.1"],
     ])("treats %s, listing both units, as mixed", (declaration, line) => {
       expect(tolerance([declaration, line])).toMatchObject({ valueInch: null, unit: "unknown", drawingUnits: "mixed" });
+    });
+
+    // Checkbox and OCR renderings of a units field that lists both systems: any marks (up to 12, not
+    // letters or digits) between the two words. Which box is ticked is not read, so they fail closed.
+    it.each([
+      ["UNITS: INCH [ ] MM [X]"],
+      ["UNITS: INCH [X] MM"],
+      ["UNITS: INCH ☐ MM ☒"],
+      ["UNITS: INCH □ MM ■"],
+      ["UNITS: INCH ✔ MM"],
+      ["UNITS: INCH ✓ / MM"],
+      ["UNITS: INCH | MM"],
+      ["UNITS: INCH - MM"],
+      ["UNITS: INCH . MM"],
+      ["UNITS: INCH;MM"],
+      ["UNITS: INCH / MM"],
+      ["UNITS: INCH & MM"],
+      ["UNITS: INCH OR MM"],
+      ["UNITS: INCH ] MM"],
+    ])("treats the units field %s as mixed", (declaration) => {
+      for (const lines of [["TOLERANCES ±0.1", "HOLES ±0.05"], [".XX ±.01", ".XXX ±.005"]]) {
+        expect(tolerance([declaration, ...lines])).toMatchObject({
+          valueInch: null,
+          unit: "unknown",
+          drawingUnits: "mixed",
+        });
+      }
     });
 
     it("does not read a unit later on the declaration line as a second declaration", () => {
@@ -986,9 +1015,19 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
         valueInch: 0.1,
         drawingUnits: "inch",
       });
-      // A bare IN after blanks is the preposition unless it ends the phrase.
+      // A digit ends the marks between two unit words.
+      expect(tolerance(["UNITS: INCH; 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      // A bare IN after blanks or a comma is the preposition unless it ends the phrase.
       expect(tolerance(["DIMENSIONS IN MM IN ACCORDANCE WITH ISO 129", "TOLERANCES ±0.1"])).toMatchObject({
         valueInch: 0.0039,
+        drawingUnits: "metric",
+      });
+      expect(tolerance(["ALL DIMENSIONS IN MM, IN ACCORDANCE WITH ISO 129-1", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.0039,
+        unit: "mm",
         drawingUnits: "metric",
       });
     });
@@ -1288,19 +1327,41 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   // seconds before round 3 (quadratic backtracking or a backward scan per value); the bound is loose.
   describe("linear time on hostile text", () => {
     const BOUND_MS = 500;
+    const read = (text: string) =>
+      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+    // V8 can compile a regex differently depending on the first long text it reads in the process: a
+    // lookbehind over blanks was linear after a text with blanks and quadratic on a run of tabs after
+    // a blank-free one. Each case reads a blank-free text of 2000 characters first (and the block does
+    // so once while the file is collected, before any test runs), so a timing does not depend on which
+    // tests ran before it.
+    const warm = () => read("a".repeat(2_000));
+    warm();
+
+    const run = (unit: string, length = 100_000) => unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
+    const blankCases = Object.entries({ spaces: " ", tabs: "\t", "mixed blanks": " \t \t  " }).flatMap(
+      ([kind, unit]): Array<[string, () => string]> => [
+        [`a line of 100k leading ${kind}`, () => `${run(unit)}x`],
+        [`a line of only 100k ${kind}`, () => run(unit)],
+        [`100k ${kind} after a declared unit`, () => `UNITS: MM${run(unit)}x`],
+        [`100k ${kind} after a declared IN`, () => `UNITS: IN${run(unit)}x`],
+        [`100k ${kind} between two declared units`, () => `UNITS: INCH${run(unit)}MM`],
+        [`100k ${kind} before a bracket`, () => `1${run(unit)}(`],
+        [`100k ${kind} before a bracketed unit`, () => `${run(unit)}[MM]`],
+        [`100k ${kind} inside a bracket`, () => `[${run(unit)}x`],
+      ],
+    );
 
     it.each([
       ["a 200 KB single line of ±1", () => "±1".repeat(100_000)],
       ["a 200 KB single line of ±1 and blanks", () => "±1 ".repeat(66_667)],
-      ["a line of 100k leading spaces", () => `${" ".repeat(100_000)}x`],
-      ["a line of 100k leading tabs", () => `${"\t".repeat(100_000)}x`],
-      ["100k blanks after a declared unit", () => `UNITS: MM${" ".repeat(100_000)}x`],
-      ["100k blanks after a declared IN", () => `UNITS: IN${" ".repeat(100_000)}x`],
-      ["100k blanks before a bracket", () => `1${" ".repeat(100_000)}(`],
-    ])("reads %s within the bound", (_label, build) => {
+      ...blankCases,
+      ["100k marks after a declared unit", () => `UNITS: INCH${run("| ")}x`],
+      ["100k marks and tabs between two declared units", () => `UNITS: INCH${run("\t|\t☐")}MM`],
+    ] as Array<[string, () => string]>)("reads %s within the bound", (_label, build) => {
       const text = build();
+      warm();
       const started = performance.now();
-      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+      read(text);
       expect(performance.now() - started).toBeLessThan(BOUND_MS);
     });
   });

@@ -1168,13 +1168,20 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
     ["R09 IN after blanks is a preposition", mm(0.1), 0.0039, [["DIMENSIONS IN MM IN ACCORDANCE WITH ISO 129", "TOLERANCES ±0.1"]]],
     ["R10 Cotes en millimètres", mm(0.025), 0.0009, [["Cotes en millimètres", "Ø6 ±0.025"]]],
     ["R11 MEDIDAS EN MILÍMETROS", mm(0.025), 0.0009, [["MEDIDAS EN MILÍMETROS", "Ø6 ±0.025"]]],
+    // Round 4: checkbox and OCR renderings of a units field that lists both systems.
+    ["R12 checkbox field, MM ticked", mm(0.05), null, [["UNITS: INCH ☐ MM ☒", "LINEAR ±0.1  HOLES ±0.05"]]],
+    ["R13 bracket checkboxes, MM ticked", mm(0.05), null, [["UNITS: INCH [ ] MM [X]", "TOLERANCES ±0.1", "HOLES ±0.05"]]],
+    ["R14 OCR cell border between units", mm(0.1), null, [["UNITS: INCH | MM", "TOLERANCES ±0.1"]]],
+    ["R15 ticked INCH box fails closed", 0.005, null, [["UNITS: INCH ✓ / MM", ".XX ±.01", ".XXX ±.005"]]],
+    ["R16 IN after a comma is a preposition", mm(0.1), 0.0039, [["ALL DIMENSIONS IN MM, IN ACCORDANCE WITH ISO 129-1", "TOLERANCES ±0.1"]]],
+    ["R17 digit after the mark ends the field", 0.005, 0.005, [["UNITS: INCH; 6 MM DOWEL", "TOLERANCES ±.005"]]],
   ];
 
   it("covers the whole review corpus", () => {
     expect(corpus.filter(([id]) => id.startsWith("H"))).toHaveLength(35);
     expect(corpus.filter(([id]) => id.startsWith("X"))).toHaveLength(13);
     expect(corpus.filter(([id]) => id.startsWith("N"))).toHaveLength(103);
-    expect(corpus.filter(([id]) => id.startsWith("R"))).toHaveLength(11);
+    expect(corpus.filter(([id]) => id.startsWith("R"))).toHaveLength(17);
   });
 
   it.each(corpus)("%s", async (_id, truth, expected, pages, oos) => {

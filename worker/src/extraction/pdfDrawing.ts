@@ -310,12 +310,16 @@ const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|MILIMETROS?|METRIC|IN
 const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN))*`;
 // A second unit word right after the first one on the declaration line, so the drawing declares
 // both systems ("DIMENSIONS IN INCHES [MM]", "UNITS: INCH / MM", and a units field that lists both
-// options, "UNITS: INCH MM" or "UNITS: MM X INCH"). Only a bracket, whitespace, comma, /, &, X, AND
-// or OR may sit between the two words, so a unit later on the line ("UNITS: INCH; NOTE 6 MM DOWEL")
-// is not a second declaration. A bare IN counts after an explicit separator, or after whitespace
-// only when it ends the phrase ("DIMENSIONS IN MM IN ACCORDANCE WITH" stays metric). Each piece
-// after the single leading [ \t]* starts with a non-blank character, which keeps the match linear.
-const SECOND_DECLARED_UNIT = String.raw`(?:[ \t]*(?:[\])][ \t]*)?(?:(?:[[(/&,]|(?:X|AND|OR)(?![A-Z0-9]))[ \t]*(${UNIT_WORD}|IN\b)|(${UNIT_WORD}|IN\.?(?=[ \t]*(?:[\r\n,;:)\]]|$)))))?`;
+// options, "UNITS: INCH MM", "UNITS: MM X INCH", or a checkbox or OCR rendering of one such as
+// "UNITS: INCH ☐ MM ☒", "UNITS: INCH [ ] MM [X]" or "UNITS: INCH | MM"). Only blanks and at most 12
+// marks (any character but a letter, digit or line break, or the words X, AND and OR) may sit
+// between the two words, so a unit later on the line ("UNITS: INCH; NOTE 6 MM DOWEL", "UNITS: INCH;
+// 6 MM DOWEL") is not a second declaration. A bare IN counts only when it ends the phrase, after
+// blanks or after a mark ("DIMENSIONS IN MM IN ACCORDANCE WITH" and "DIMENSIONS IN MM, IN ACCORDANCE
+// WITH" stay metric). Each repeated piece after the single leading [ \t]* starts with a non-blank
+// character and the marks are bounded, which keeps the match linear.
+const UNIT_LIST_MARK = String.raw`(?:[^A-Za-z0-9 \t\r\n]|(?:X|AND|OR)(?![A-Z0-9]))`;
+const SECOND_DECLARED_UNIT = String.raw`(?:[ \t]*(?:${UNIT_LIST_MARK}[ \t]*){0,12}(${UNIT_WORD}|IN\.?(?=[ \t]*(?:[\r\n,;:)\]]|$))))?`;
 const DECLARATION_PATTERNS = [
   // "DIMENSIONS ARE IN MILLIMETERS", "UNITS: MM", "UNITS - MM", "DIMENSIONS IN INCHES [MM]".
   new RegExp(
@@ -328,10 +332,11 @@ const DECLARATION_PATTERNS = [
     String.raw`${DECLARATION_INTRODUCER}(?:[ \t]+IN[ \t]+|[ \t]*[:=–—-][ \t]*|[ \t]*[[(][ \t]*)(IN)\.?(?=[ \t]*(?:$|[,;:)\][(/&]|(?:X|AND|OR)(?![A-Z0-9])))${SECOND_DECLARED_UNIT}`,
     "gim",
   ),
-  // A unit bracketed but not attached to a number ("UNITS [MM]", "ALL DIMENSIONS (mm)"); "±0.05 [mm]"
-  // and "216 (MM)" are not declarations. (The lookbehind measures linear on long blank runs.)
-  new RegExp(String.raw`(?<![\d.][ \t]*)[[(][ \t]*(${UNIT_WORD})[ \t]*[\])]`, "gi"),
 ];
+// A unit bracketed but not attached to a number ("UNITS [MM]", "ALL DIMENSIONS (mm)"); "±0.05 [mm]"
+// and "216 (MM)" are not declarations, which followsNumber checks in code. A lookbehind such as
+// (?<![\d.][ \t]*) is quadratic on a long run of tabs once V8 has compiled the regex natively.
+const BRACKETED_UNIT = new RegExp(String.raw`[[(][ \t]*(${UNIT_WORD})[ \t]*[\])]`, "gi");
 // A unit word alone on its line ("METRIC", "mm", "[mm]"), matched against each trimmed line.
 const UNIT_ALONE_ON_LINE = new RegExp(String.raw`^[[(]?[ \t]*(${UNIT_WORD})[ \t]*[\])]?$`, "i");
 const METRIC_TOLERANCE_STANDARD = /\b(?:ISO[ \t]*2768|DIN[ \t]*7168|JIS[ \t]*B[ \t]*0405|EN[ \t]*22768)\b/i;
@@ -352,6 +357,16 @@ function normalizeUnitText(text: string) {
   );
 }
 
+// Whether the nearest character before index, past spaces and tabs, is a digit or a decimal point.
+// Each blank run is scanned at most once, for the bracket that ends it, so the check stays linear.
+function followsNumber(text: string, index: number) {
+  let position = index - 1;
+  while (position >= 0 && (text.charAt(position) === " " || text.charAt(position) === "\t")) {
+    position -= 1;
+  }
+  return position >= 0 && /[\d.]/.test(text.charAt(position));
+}
+
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
   const declare = (word: string | undefined) => {
@@ -362,6 +377,11 @@ function detectDeclaredUnits(text: string) {
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
       match.slice(1).forEach(declare);
+    }
+  }
+  for (const match of text.matchAll(BRACKETED_UNIT)) {
+    if (!followsNumber(text, match.index ?? 0)) {
+      declare(match[1]);
     }
   }
   // Line by line rather than one multiline regex, whose blank runs around the optional bracket
