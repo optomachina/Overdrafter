@@ -23,6 +23,7 @@ import type {
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { normalizeImportedPartNumber } from "@/features/quotes/part-reference";
+import { readWorkerNotes } from "@/features/quotes/provider-notes";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import {
   formatRequestedQuoteQuantitiesInput,
@@ -1028,6 +1029,8 @@ export type ImportedVendorOffer = {
   threadCallouts: string | null;
   threadMatchNotes: string | null;
   notes: string | null;
+  /** Worker automation status from raw_payload.workerNotes. Internal views only, never customer-visible. */
+  workerNotes?: string[];
 };
 
 function parseLooseCurrencyValue(value: unknown): number {
@@ -1115,6 +1118,7 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
     threadCallouts: offer.thread_callouts,
     threadMatchNotes: offer.thread_match_notes,
     notes: offer.notes,
+    workerNotes: readWorkerNotes(offer.raw_payload),
   };
 }
 
