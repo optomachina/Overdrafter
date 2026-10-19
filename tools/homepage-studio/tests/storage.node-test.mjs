@@ -171,3 +171,35 @@ test("storage factory: hosted without a data repo uses flagged temporary storage
   assert.equal(local.kind, "fs");
   assert.equal(local.ephemeral, false);
 });
+
+test("github: STUDIO_GITHUB_API_BASE is honoured only for a loopback http URL with STUDIO_ALLOW_TEST_API_BASE=1", async () => {
+  const { resolveApiBase } = await import("../lib/storage/github.mjs");
+  const REAL = "https://api.github.com";
+  const on = { STUDIO_ALLOW_TEST_API_BASE: "1" };
+  assert.equal(resolveApiBase({ ...on, STUDIO_GITHUB_API_BASE: "http://127.0.0.1:4555" }), "http://127.0.0.1:4555");
+  assert.equal(resolveApiBase({ ...on, STUDIO_GITHUB_API_BASE: "http://localhost:9/x/y" }), "http://localhost:9");
+  assert.equal(resolveApiBase({ ...on, STUDIO_GITHUB_API_BASE: "http://[::1]:7" }), "http://[::1]:7");
+  // Ignored: gate missing or not exactly "1".
+  assert.equal(resolveApiBase({ STUDIO_GITHUB_API_BASE: "http://127.0.0.1:4555" }), REAL);
+  assert.equal(resolveApiBase({ STUDIO_ALLOW_TEST_API_BASE: "true", STUDIO_GITHUB_API_BASE: "http://127.0.0.1:4555" }), REAL);
+  // Ignored: not loopback, not http, tricky hosts, credentials, garbage.
+  for (const bad of ["http://evil.example", "https://127.0.0.1:4555", "http://127.0.0.1.evil.example", "http://evil.example@127.0.0.1", "http://user:pw@127.0.0.1:1", "http://169.254.169.254", "http://0.0.0.0:1", "ftp://127.0.0.1", "not a url", ""]) {
+    assert.equal(resolveApiBase({ ...on, STUDIO_GITHUB_API_BASE: bad }), REAL, bad);
+  }
+  assert.equal(resolveApiBase({}), REAL);
+});
+
+test("github: the adapter sends requests (and the token) to the resolved base only", async () => {
+  const seen = [];
+  const fetchImpl = async (url) => {
+    seen.push(String(url));
+    return new Response(JSON.stringify({ object: { sha: "c0" } }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const s = createGithubStorage({ repo: "o/r", token: "t", fetchImpl, apiBase: "http://127.0.0.1:1" });
+  await s.listVersions("field", "x").catch(() => {});
+  assert.ok(seen.every((u) => u.startsWith("http://127.0.0.1:1/repos/o/r")), seen.join(","));
+  const real = createGithubStorage({ repo: "o/r", token: "t", fetchImpl });
+  seen.length = 0;
+  await real.listVersions("field", "x").catch(() => {});
+  assert.ok(seen.every((u) => u.startsWith("https://api.github.com/repos/o/r")));
+});

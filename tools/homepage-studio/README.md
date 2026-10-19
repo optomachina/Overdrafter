@@ -88,6 +88,11 @@ Loopback only and same-origin checks locally; ids are `/^[a-z0-9-]+$/` and all p
 previews are served with their own strict CSP (`sandbox allow-scripts`, no network). Hosted adds password login with a signed
 HttpOnly cookie and fails closed when unconfigured.
 
+## End-to-end tests
+
+`npx playwright test -c tools/homepage-studio/e2e/playwright.config.mjs` from the repo root runs a real-browser suite against the studio (local and
+hosted-with-fake-GitHub) and the prototype pages. See `e2e/README.md` for projects, isolation and what is not covered.
+
 ## Not built / not verified
 
 No real GitHub, Vercel or model call has been made (all covered by fakes). Touch behavior was checked at iPad and phone widths with CDP touch emulation in desktop Chromium, not on a device (soft keyboard and

@@ -87,9 +87,16 @@ export class JobManager {
 
     const initial = { ...job };
     const entry = { controller: new AbortController(), log: [], flags: {} };
-    entry.promise = this.runInline(job, engine, tool, project, entry).finally(() => this.live.delete(job.id));
+    // The queued record must land BEFORE the run starts: runInline writes "running" first thing, and both writes
+    // share one serialized queue, so the other order leaves the job file stuck on "queued" for the whole run.
+    let started;
+    entry.promise = new Promise((resolve) => (started = resolve));
     this.live.set(job.id, entry);
-    if (this.storage.cheapWrites) await this.storage.writeJob(initial, `queued ${kind} ${sectionId} ${job.id}`);
+    try {
+      if (this.storage.cheapWrites) await this.storage.writeJob(initial, `queued ${kind} ${sectionId} ${job.id}`);
+    } finally {
+      started(this.runInline(job, engine, tool, project, entry).finally(() => this.live.delete(job.id)));
+    }
     if (this.awaitInline) {
       await entry.promise;
       return this.get(job.id);

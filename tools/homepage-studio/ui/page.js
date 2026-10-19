@@ -29,7 +29,7 @@ let saveSeq = 0;
 function setSave(kind, detail = "") {
   const el = $("#saveStatus");
   el.dataset.state = kind;
-  $("#saveText").textContent = kind === "saved" ? "Saved" : kind === "saving" ? "Saving..." : `Failed: ${detail}`;
+  $("#saveText").textContent = kind === "saved" ? "Saved" : kind === "saving" ? "Saving..." : kind === "unsaved" ? "Not saved" : `Failed: ${detail}`;
   el.title = detail || "";
 }
 
@@ -177,9 +177,13 @@ async function saveFromPage(m) {
     if (!r.data?.unchanged) toast("Saved as a new version.");
     await loadProject();
     pushCopy();
-  } else if (r.status === 422 || r.status === 409) {
-    if (seq === saveSeq) setSave("saved"); // nothing was written; the page shows the lint message
-  } else if (seq === saveSeq) setSave("failed", r.data?.message || "could not save");
+  } else if (r.status === 422 || (r.status === 409 && r.data?.needsConfirm)) {
+    // A lint outcome: nothing was written, so never claim "Saved". The page keeps the edit open and shows the lint message.
+    if (seq === saveSeq) setSave("unsaved", "the copy check needs attention");
+  } else if (seq === saveSeq) {
+    setSave("failed", r.data?.message || "could not save");
+  }
+  // Any other failure (including a 409 conflict_exhausted) is a real failed write: "Failed: <reason>"; the edit stays open.
 }
 
 /* ---------- loading ---------- */
@@ -315,10 +319,30 @@ function closeSheet() {
 }
 $("#sheetClose").addEventListener("click", closeSheet);
 $("#sheetBk").addEventListener("click", closeSheet);
+const SHEET_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && state.sheet) {
+  if (!state.sheet) return;
+  if (e.key === "Escape") {
     e.preventDefault();
     closeSheet();
+  } else if (e.key === "Tab" && $("#sheet").getAttribute("aria-modal") === "true") {
+    // Focus trap for the modal (bottom sheet) layout: Tab and Shift+Tab loop inside the sheet. The wide drawer is not modal and is not trapped.
+    const sheet = $("#sheet");
+    const items = [...sheet.querySelectorAll(SHEET_FOCUSABLE)].filter((x) => x.offsetParent !== null);
+    if (!items.length) return e.preventDefault();
+    const first = items[0];
+    const last = items[items.length - 1];
+    const a = document.activeElement;
+    if (!sheet.contains(a)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && (a === first || a === sheet)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && a === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 });
 // Drag handle: swipe down to close.
@@ -446,7 +470,7 @@ function copyView(f) {
     setSave("saving");
     const r = await api("POST", `/api/copy/${f.id}/save`, { text: ta.value, note: note.value, overrideWarnings: res.warnings.length > 0 });
     if (r.status === 422) {
-      setSave("saved");
+      setSave("unsaved", "the copy check needs attention");
       return lintOut.replaceChildren(...lintHtml(r.data.lint));
     }
     if (!r.ok) {
@@ -471,7 +495,7 @@ function copyView(f) {
   regen.append(h("div", { class: "inner" },
     h("label", { for: "regenInstr", text: "Instruction" }), instr,
     h("p", { class: "meta", text: `Uses the engine and tool in the top bar (${en?.label || state.engineId}).` }),
-    h("div", { class: "row" }, h("button", { type: "button", class: "btn", onclick: () => startJob({ kind: "copy", fieldId: f.id, prompt: instr.value }) }, "Regenerate")),
+    h("div", { class: "row" }, h("button", { type: "button", class: "btn", onclick: () => startJob({ kind: "copy", sectionId: f.sectionId, fieldId: f.id, prompt: instr.value }) }, "Regenerate")),
     jobHost,
   ));
 

@@ -86,6 +86,19 @@ test("cancel aborts a running job", async () => {
   assert.equal(done.state, "cancelled");
 });
 
+test("a started inline job is stored and reported as running, with startedAt, not queued", async () => {
+  const { jobs, storage } = await setup({ behavior: "hang" });
+  const j = await jobs.submit(params());
+  assert.equal(j.state, "queued");
+  await new Promise((r) => setTimeout(r, 30));
+  const stored = await storage.readJob(j.id);
+  assert.equal(stored.state, "running", "the queued record must land before the running record");
+  assert.ok(stored.startedAt);
+  assert.equal((await jobs.get(j.id)).state, "running");
+  await jobs.cancel(j.id);
+  await jobs.idle();
+});
+
 test("busy: a second job for the same target is refused while one runs", async () => {
   const { jobs } = await setup({ behavior: "hang" });
   const j = await jobs.submit(params());

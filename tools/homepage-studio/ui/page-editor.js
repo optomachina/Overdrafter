@@ -383,6 +383,13 @@ function odEditorMain() {
       ev.preventDefault();
       ev.stopPropagation();
       cancelEdit();
+    } else if (ev.key === "Tab" && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      // The toolbar lives at the end of the document, so the natural Tab order would skip it: go editable -> toolbar buttons.
+      const first = toolbarButtons()[0];
+      if (first) {
+        ev.preventDefault();
+        first.focus();
+      }
     } else if (ev.key === "Enter") {
       if (!e.f.multiline || ev.metaKey || ev.ctrlKey) {
         ev.preventDefault();
@@ -408,6 +415,7 @@ function odEditorMain() {
     const e = S.editing;
     if (!e) return;
     e.warnShown = false;
+    e.failure = ""; // the user changed the text: the earlier failed-save notice no longer applies
     updateSaveState();
     scheduleLint();
   }
@@ -452,7 +460,7 @@ function odEditorMain() {
     }
     p.resolve(res);
   }
-  function renderMsg(extra) {
+  function renderMsg(extra, cls = "w") {
     const e = S.editing;
     const box = tbq("msg");
     box.textContent = "";
@@ -462,7 +470,8 @@ function odEditorMain() {
       p.textContent = text;
       box.appendChild(p);
     };
-    if (extra) add("w", extra);
+    if (extra) add(cls, extra);
+    else if (e && e.failure) add("e", e.failure); // sticky: a later lint re-render must not hide a failed save
     if (e && e.lint) {
       e.lint.errors.forEach((m) => add("e", m));
       e.lint.warnings.forEach((m) => add("w", m));
@@ -504,6 +513,7 @@ function odEditorMain() {
       return;
     }
     e.saving = true;
+    e.failure = "";
     updateSaveState();
     const reqId = newReq();
     S.pendingSave[reqId] = { text, timer: setTimeout(() => onSaveResult({ reqId, ok: false, message: "The save did not finish. Check the status in the top bar." }), 20000) };
@@ -525,8 +535,12 @@ function odEditorMain() {
       e.lint = { errors: m.errors || [], warnings: m.warnings || [] };
       e.lintText = p.text;
       e.warnShown = !!m.needsConfirm;
+      renderMsg(m.message);
+      return;
     }
-    renderMsg(m.message);
+    // A real failed write (for example conflict_exhausted): never imply it was saved; the edit stays open and Save stays available to retry.
+    e.failure = `Not saved. ${m.message || "The save failed."}`;
+    renderMsg();
   }
 
   /* ---------- toolbar placement (stays in view with the soft keyboard) ---------- */
@@ -577,6 +591,32 @@ function odEditorMain() {
   }
 
   tb.root.addEventListener("mousedown", (ev) => ev.preventDefault()); // keep the caret and the keyboard
+  function toolbarButtons() {
+    return [...tb.root.querySelectorAll("button")].filter((b) => !b.disabled);
+  }
+  // Focus order: editable -> Save, Cancel, Copy history, Regenerate copy -> back to the editable (Shift+Tab goes the other way). Esc cancels.
+  tb.root.addEventListener("keydown", (ev) => {
+    const e = S.editing;
+    if (!e) return;
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelEdit();
+      return;
+    }
+    if (ev.key === "Tab" && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      const btns = toolbarButtons();
+      const cur = tb.root.activeElement;
+      if (ev.shiftKey && cur === btns[0]) {
+        ev.preventDefault();
+        e.target.focus({ preventScroll: true });
+      } else if (!ev.shiftKey && cur === btns[btns.length - 1]) {
+        ev.preventDefault();
+        e.target.focus({ preventScroll: true });
+      }
+    }
+    ev.stopPropagation(); // the page's own key handlers never see toolbar keys
+  });
   tbq("save").addEventListener("click", save);
   tbq("cancel").addEventListener("click", cancelEdit);
   tbq("hist").addEventListener("click", () => S.editing && post("open-copy-history", { fieldId: S.editing.fieldId }));

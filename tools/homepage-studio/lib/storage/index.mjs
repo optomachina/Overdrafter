@@ -10,7 +10,7 @@
 import os from "node:os";
 import path from "node:path";
 import { createFsStorage } from "./fs.mjs";
-import { createGithubStorage } from "./github.mjs";
+import { createGithubStorage, resolveApiBase } from "./github.mjs";
 import { appendVersion as opsAppend } from "../ops.mjs";
 import { StorageError } from "./common.mjs";
 
@@ -29,7 +29,7 @@ export function createStorage({ env = process.env, mode, dataDir, fetchImpl, wor
   if (mode === "hosted") {
     if (env.STUDIO_DATA_REPO && env.GITHUB_TOKEN) {
       return withAppendVersion(
-        createGithubStorage({ repo: env.STUDIO_DATA_REPO, branch: env.STUDIO_DATA_BRANCH || "main", token: env.GITHUB_TOKEN, fetchImpl, workflowFile }),
+        createGithubStorage({ repo: env.STUDIO_DATA_REPO, branch: env.STUDIO_DATA_BRANCH || "main", token: env.GITHUB_TOKEN, fetchImpl, workflowFile, apiBase: resolveApiBase(env) }),
       );
     }
     // No data repo configured: temporary storage so the demo flow can be tried. Clearly flagged in the UI.

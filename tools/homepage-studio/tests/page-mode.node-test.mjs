@@ -110,6 +110,12 @@ test("lint-request handling uses the real copy lint and answers every request", 
   const warn = saveResultMessage("r6", { ok: false, status: 409, data: { needsConfirm: true, lint: { warnings: [{ message: "w" }] } } });
   assert.equal(warn.needsConfirm, true);
   assert.ok(validateParentMessage(warn).ok);
+  // A 409 that is a real failed write (conflict_exhausted) is a plain failure message, not a lint outcome.
+  const exhausted = saveResultMessage("r7", { ok: false, status: 409, data: { error: "conflict_exhausted", message: "Could not save after 3 retries: the data repo kept changing. Try again." } });
+  assert.equal(exhausted.ok, false);
+  assert.ok(!exhausted.needsConfirm && !exhausted.warnings && !exhausted.errors);
+  assert.match(exhausted.message, /Could not save after 3 retries/);
+  assert.ok(validateParentMessage(exhausted).ok);
   assert.equal(fieldsForPage(project).length, 52);
   assert.ok(validateParentMessage(makeMessage("init", { fields: fieldsForPage(project), values: {}, theme: "dark", editMode: true, hintDismissed: false, assets: {} })).ok);
 });

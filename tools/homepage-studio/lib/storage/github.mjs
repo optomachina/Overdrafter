@@ -6,14 +6,31 @@ import { StorageError, planUpdate, jobFile, serializeProject, newestFirst } from
 import { isAllowedStoragePath, assertId } from "../paths.mjs";
 
 const API = "https://api.github.com";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-export function createGithubStorage({ repo, branch = "main", token, fetchImpl = globalThis.fetch, maxRetries = 3, workflowFile = "studio-generate.yml" }) {
+/**
+ * GitHub API base URL. Always https://api.github.com unless BOTH STUDIO_ALLOW_TEST_API_BASE=1 and
+ * STUDIO_GITHUB_API_BASE is a plain http URL on a loopback host (used only by the e2e suite). Anything else is ignored,
+ * so this can never send a real token to another host.
+ */
+export function resolveApiBase(env = process.env) {
+  if (env.STUDIO_ALLOW_TEST_API_BASE !== "1" || !env.STUDIO_GITHUB_API_BASE) return API;
+  try {
+    const u = new URL(env.STUDIO_GITHUB_API_BASE);
+    if (u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && !u.username && !u.password) return u.origin;
+  } catch {
+    /* not a URL: ignored */
+  }
+  return API;
+}
+
+export function createGithubStorage({ repo, branch = "main", token, fetchImpl = globalThis.fetch, maxRetries = 3, workflowFile = "studio-generate.yml", apiBase = API }) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo || "")) throw new StorageError("invalid", "STUDIO_DATA_REPO must look like owner/name.", 500);
   if (!token) throw new StorageError("bad_credentials", "GITHUB_TOKEN is not set.", 503);
   let queue = Promise.resolve();
 
   async function gh(method, urlPath, { body, raw = false, okStatuses = [] } = {}) {
-    const res = await fetchImpl(`${API}/repos/${repo}${urlPath}`, {
+    const res = await fetchImpl(`${apiBase}/repos/${repo}${urlPath}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,

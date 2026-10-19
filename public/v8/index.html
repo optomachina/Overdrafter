@@ -350,6 +350,7 @@ footer{border-top:1px solid var(--hair);padding:22px 0 40px;color:var(--dim);fon
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
+  [data-replay],#replay,#replay2{display:none!important}
   *{transition:none!important;animation:none!important}
   .trunk .tdot,.stub .pd{display:none}
   .story{display:block}
@@ -611,8 +612,8 @@ const CAPABILITIES=window.CAPABILITIES=[
   {id:'enterprise-erpintegration', label:'ERP integration', group:'Enterprise', status:'planned'},
   {id:'enterprise-extensibletoan', label:'Extensible to anything', group:'Enterprise', status:'planned'},
   {id:'channels-chatbots', label:'Chat bots', group:'Channels', status:'planned'},
-  {id:'channels-teams', label:'Teams', group:'Channels', status:'planned'},
-  {id:'channels-slackandotherb', label:'Slack and other bots', group:'Channels', status:'planned'},
+  {id:'channels-teamchat', label:'Team chat apps', group:'Channels', status:'planned'},
+  {id:'channels-otherbots', label:'Other bots', group:'Channels', status:'planned'},
   {id:'product-providerexpans', label:'Provider expansion', group:'Product', status:'planned'},
   {id:'product-teamprocuremen', label:'Team procurement', group:'Product', status:'planned'},
   {id:'product-nativeapps', label:'Native apps', group:'Product', status:'planned'}

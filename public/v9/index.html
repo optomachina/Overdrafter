@@ -60,7 +60,7 @@ header.top .wrap{display:flex;align-items:center;justify-content:space-between;g
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:2px;font:600 .95rem/1 var(--sans);text-decoration:none;cursor:pointer;border:1px solid var(--hair2);background:transparent;color:var(--ink)}
 .btn:hover{background:var(--btn-hover)}
 .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
-.btn.primary:hover{background:#d4480f}
+.btn.primary:hover{background:#a8370a}
 .btn[aria-pressed="true"]{border-color:var(--acct);color:var(--acct)}
 .btn.sm{padding:0 14px;font-size:.88rem}
 
@@ -444,6 +444,7 @@ footer{border-top:1px solid var(--hair);padding:22px 0 40px;color:var(--dim);fon
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
+  [data-replay],#replay,#replay2{display:none!important}
   *{transition:none!important;animation:none!important}
   .trunk .tdot,.stub .pd{display:none}
   .story{display:block}
