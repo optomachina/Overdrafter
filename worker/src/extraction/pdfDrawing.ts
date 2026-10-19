@@ -268,7 +268,8 @@ type LengthUnit = Exclude<ToleranceUnit, "unknown">;
  * P1 Drawing units come only from explicit declarations: a unit word after DIMENSIONS/UNITS/
  *    TOLERANCES ("DIMENSIONS ARE IN INCHES", "UNITS: MM", "UNITS [MM]"), a unit word alone on its
  *    line or bracketed on its own ("METRIC", "[mm]"), or a metric general-tolerance standard
- *    (ISO 2768, DIN 7168, JIS B 0405, EN 22768).
+ *    (ISO 2768, DIN 7168, JIS B 0405, EN 22768). A declaration that lists a second unit word right
+ *    after the first ("UNITS: INCH MM", "DIMENSIONS IN INCHES [MM]") declares both systems.
  * P2 Any other unit token (a 6 MM dowel pin, Ra 0.8 µm, 10mm in a revision note, MM/DD/YY) is not a
  *    declaration and never changes the drawing units.
  * P3 A unit on the same line right after the value (optionally in one bracket pair) beats the drawing
@@ -304,10 +305,17 @@ const MAX_STORED_TOLERANCE_INCH = 1_000;
 const SMALLEST_BARE_READING = UNIT_TO_INCH.mm;
 const DUAL_DIMENSION_RELATIVE_TOLERANCE = 0.05;
 
-const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|METRIC|INCH(?:ES)?)(?![A-Z0-9])`;
+const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|MILIMETROS?|METRIC|INCH(?:ES)?)(?![A-Z0-9])`;
 // DIMENSIONS/UNITS/TOLERANCES (and the German, French and Spanish words), then optional linking words.
 const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN))*`;
-const SECOND_DECLARED_UNIT = String.raw`(?:[ \t]*[\])]?[ \t]*(?:[[(/&]|AND\b|OR\b)[ \t]*(${UNIT_WORD}|IN\b))?`;
+// A second unit word right after the first one on the declaration line, so the drawing declares
+// both systems ("DIMENSIONS IN INCHES [MM]", "UNITS: INCH / MM", and a units field that lists both
+// options, "UNITS: INCH MM" or "UNITS: MM X INCH"). Only a bracket, whitespace, comma, /, &, X, AND
+// or OR may sit between the two words, so a unit later on the line ("UNITS: INCH; NOTE 6 MM DOWEL")
+// is not a second declaration. A bare IN counts after an explicit separator, or after whitespace
+// only when it ends the phrase ("DIMENSIONS IN MM IN ACCORDANCE WITH" stays metric). Each piece
+// after the single leading [ \t]* starts with a non-blank character, which keeps the match linear.
+const SECOND_DECLARED_UNIT = String.raw`(?:[ \t]*(?:[\])][ \t]*)?(?:(?:[[(/&,]|(?:X|AND|OR)(?![A-Z0-9]))[ \t]*(${UNIT_WORD}|IN\b)|(${UNIT_WORD}|IN\.?(?=[ \t]*(?:[\r\n,;:)\]]|$)))))?`;
 const DECLARATION_PATTERNS = [
   // "DIMENSIONS ARE IN MILLIMETERS", "UNITS: MM", "UNITS - MM", "DIMENSIONS IN INCHES [MM]".
   new RegExp(
@@ -317,22 +325,27 @@ const DECLARATION_PATTERNS = [
   // The bare word IN is a unit only after a separator, a bracket or another IN ("UNITS: IN",
   // "DIMENSIONS IN IN"), and only when it ends the phrase; "DIMENSIONS ARE IN" is a preposition.
   new RegExp(
-    String.raw`${DECLARATION_INTRODUCER}(?:[ \t]+IN[ \t]+|[ \t]*[:=–—-][ \t]*|[ \t]*[[(][ \t]*)(IN)\.?(?=[ \t]*(?:$|[,;:)\][(/&]|AND\b|OR\b))${SECOND_DECLARED_UNIT}`,
+    String.raw`${DECLARATION_INTRODUCER}(?:[ \t]+IN[ \t]+|[ \t]*[:=–—-][ \t]*|[ \t]*[[(][ \t]*)(IN)\.?(?=[ \t]*(?:$|[,;:)\][(/&]|(?:X|AND|OR)(?![A-Z0-9])))${SECOND_DECLARED_UNIT}`,
     "gim",
   ),
-  // A unit word alone on its line ("METRIC", "mm"), or bracketed but not attached to a number
-  // ("UNITS [MM]", "ALL DIMENSIONS (mm)"); "±0.05 [mm]" and "216 (MM)" are not declarations.
-  new RegExp(String.raw`^[ \t]*[[(]?[ \t]*(${UNIT_WORD})[ \t]*[\])]?[ \t]*$`, "gim"),
+  // A unit bracketed but not attached to a number ("UNITS [MM]", "ALL DIMENSIONS (mm)"); "±0.05 [mm]"
+  // and "216 (MM)" are not declarations. (The lookbehind measures linear on long blank runs.)
   new RegExp(String.raw`(?<![\d.][ \t]*)[[(][ \t]*(${UNIT_WORD})[ \t]*[\])]`, "gi"),
 ];
+// A unit word alone on its line ("METRIC", "mm", "[mm]"), matched against each trimmed line.
+const UNIT_ALONE_ON_LINE = new RegExp(String.raw`^[[(]?[ \t]*(${UNIT_WORD})[ \t]*[\])]?$`, "i");
 const METRIC_TOLERANCE_STANDARD = /\b(?:ISO[ \t]*2768|DIN[ \t]*7168|JIS[ \t]*B[ \t]*0405|EN[ \t]*22768)\b/i;
 
-/** Folds width variants, OCR homoglyphs and degree look-alikes so unit words match one spelling. */
+/**
+ * Folds width variants, diacritics ("millimètres", "MILÍMETROS"), OCR homoglyphs and degree
+ * look-alikes so unit words match one spelling.
+ */
 function normalizeUnitText(text: string) {
   return (
     text
       .replace(/[º˚]/g, "°")
-      .normalize("NFKC")
+      .normalize("NFKD")
+      .replace(/\p{M}+/gu, "")
       // Two Greek capital mu are a homoglyph of MM; a single one is the upper case of the micro sign.
       .replace(/ΜΜ/g, "MM")
       .replace(/[мМ]/g, (letter) => (letter === "м" ? "m" : "M"))
@@ -341,14 +354,20 @@ function normalizeUnitText(text: string) {
 
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
+  const declare = (word: string | undefined) => {
+    if (word !== undefined) {
+      declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
+    }
+  };
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
-      for (const word of [match[1], match[2]]) {
-        if (word !== undefined) {
-          declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
-        }
-      }
+      match.slice(1).forEach(declare);
     }
+  }
+  // Line by line rather than one multiline regex, whose blank runs around the optional bracket
+  // backtrack quadratically on a long line of spaces.
+  for (const line of text.split(/[\n\r\u2028\u2029]/)) {
+    declare(UNIT_ALONE_ON_LINE.exec(line.trim())?.[1]);
   }
   return declared;
 }
@@ -466,10 +485,11 @@ function collectToleranceCandidates(text: string) {
   for (const match of text.matchAll(PLUS_MINUS_VALUE)) {
     const start = match.index ?? 0;
     const number = match[1] ?? "";
-    // An angle label applies to the values after it on its line, up to the previous value.
-    const labelStart = Math.max(text.lastIndexOf("\n", start - 1) + 1, previousEnd);
+    // An angle label applies to the values after it on its line, up to the previous value. Only the
+    // text since the previous value is searched, so a long line with many values stays linear.
+    const sincePrevious = text.slice(previousEnd, start);
     previousEnd = start + match[0].length;
-    if (ANGULAR_LABEL.test(text.slice(labelStart, start))) {
+    if (ANGULAR_LABEL.test(sincePrevious.slice(sincePrevious.lastIndexOf("\n") + 1))) {
       continue;
     }
     const candidate = buildCandidate(text, start, previousEnd - number.length, number);

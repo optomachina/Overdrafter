@@ -1156,12 +1156,25 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
     ["N101 zero + ±.005", 0.005, null, [[D, "DATUM ±0", "TOLERANCES ±.005"]]],
     ["N102 phrase then next line", 0.01, null, [["TWO PLACE DECIMAL", ".01"]]],
     ["N103 no unit anywhere", "amb", null, [["BORE ±0.05"]]],
+    // Round 3: units fields that list both options, and accented metric declarations.
+    ["R01 UNITS: INCH MM", mm(0.1), null, [["UNITS: INCH MM", "TOLERANCES ±0.1"]]],
+    ["R02 UNITS: INCH MM, wide", mm(0.1), null, [["UNITS:  INCH    MM", "TOLERANCES ±0.1"]]],
+    ["R03 DIMENSIONS: INCH METRIC", mm(0.1), null, [["DIMENSIONS: INCH METRIC", "TOLERANCES ±0.1"]]],
+    ["R04 sheet metal, both listed", mm(0.1), null, [["UNITS: INCH MM", "FLAT ±0.2", "HOLES ±0.1"]]],
+    ["R05 UNITS: INCHES MILLIMETERS", mm(0.05), null, [["UNITS: INCHES MILLIMETERS", "TOLERANCES ±0.05"]]],
+    ["R06 UNITS: INCH X MM", mm(0.02), null, [["UNITS: INCH X MM", "GENERAL ±0.05", "BORE ±0.02"]]],
+    ["R07 UNITS: MM INCH on an inch drawing", 0.005, null, [["UNITS: MM INCH", "TOLERANCES ±.005"]]],
+    ["R08 unit later on the units line", 0.005, 0.005, [["UNITS: INCH; NOTE 6 MM DOWEL", "TOLERANCES ±.005"]]],
+    ["R09 IN after blanks is a preposition", mm(0.1), 0.0039, [["DIMENSIONS IN MM IN ACCORDANCE WITH ISO 129", "TOLERANCES ±0.1"]]],
+    ["R10 Cotes en millimètres", mm(0.025), 0.0009, [["Cotes en millimètres", "Ø6 ±0.025"]]],
+    ["R11 MEDIDAS EN MILÍMETROS", mm(0.025), 0.0009, [["MEDIDAS EN MILÍMETROS", "Ø6 ±0.025"]]],
   ];
 
   it("covers the whole review corpus", () => {
     expect(corpus.filter(([id]) => id.startsWith("H"))).toHaveLength(35);
     expect(corpus.filter(([id]) => id.startsWith("X"))).toHaveLength(13);
     expect(corpus.filter(([id]) => id.startsWith("N"))).toHaveLength(103);
+    expect(corpus.filter(([id]) => id.startsWith("R"))).toHaveLength(11);
   });
 
   it.each(corpus)("%s", async (_id, truth, expected, pages, oos) => {

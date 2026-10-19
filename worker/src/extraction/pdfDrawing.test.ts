@@ -913,6 +913,10 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       ["DIMENSIONS: IN MM"],
       ["Maße in mm"],
       ["COTES EN MM"],
+      ["Cotes en millimètres"],
+      ["MEDIDAS EN MILÍMETROS"],
+      ["  \t mm  "],
+      ["\t( METRIC )"],
     ])("reads %s as a metric declaration", (declaration) => {
       expect(tolerance([declaration, "BORE ±0.05"])).toMatchObject({
         valueInch: 0.0019,
@@ -954,6 +958,39 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       }
       // Two pages, one declared in each system.
       expect(tolerance([INCH, "TOLERANCES ±.005", METRIC, "VENDOR ITEM ±0.1"]).valueInch).toBeNull();
+    });
+
+    // A units field that lists both options becomes text with only blanks (or X) between the words.
+    it.each([
+      ["UNITS: INCH MM", "TOLERANCES ±0.1"],
+      ["UNITS:  INCH    MM", "TOLERANCES ±0.1"],
+      ["DIMENSIONS: INCH METRIC", "TOLERANCES ±0.1"],
+      ["UNITS: INCHES MILLIMETERS", "TOLERANCES ±0.05"],
+      ["UNITS: INCH X MM", "TOLERANCES ±0.02"],
+      ["UNITS: INCH, MM", "TOLERANCES ±0.1"],
+      ["UNITS: IN X MM", "TOLERANCES ±0.1"],
+      ["UNITS: MM INCH", "TOLERANCES ±.005"],
+      ["UNITS: MM, INCH", "TOLERANCES ±.005"],
+      ["UNITS: MM IN", "TOLERANCES ±.005"],
+      ["UNITS: MM X IN.", "TOLERANCES ±.005"],
+    ])("treats %s, listing both units, as mixed", (declaration, line) => {
+      expect(tolerance([declaration, line])).toMatchObject({ valueInch: null, unit: "unknown", drawingUnits: "mixed" });
+    });
+
+    it("does not read a unit later on the declaration line as a second declaration", () => {
+      expect(tolerance(["UNITS: INCH; NOTE 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      expect(tolerance(["UNITS: INCH  ITEM 3 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      // A bare IN after blanks is the preposition unless it ends the phrase.
+      expect(tolerance(["DIMENSIONS IN MM IN ACCORDANCE WITH ISO 129", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.0039,
+        drawingUnits: "metric",
+      });
     });
 
     it("does not read the preposition IN as an inch declaration", () => {
@@ -1245,5 +1282,26 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
         expect(tolerance(lines)).toMatchObject({ valueInch: null, unit: "unknown" });
       },
     );
+  });
+
+  // The parse is synchronous on customer text, so hostile text must stay linear. Each of these took
+  // seconds before round 3 (quadratic backtracking or a backward scan per value); the bound is loose.
+  describe("linear time on hostile text", () => {
+    const BOUND_MS = 500;
+
+    it.each([
+      ["a 200 KB single line of ±1", () => "±1".repeat(100_000)],
+      ["a 200 KB single line of ±1 and blanks", () => "±1 ".repeat(66_667)],
+      ["a line of 100k leading spaces", () => `${" ".repeat(100_000)}x`],
+      ["a line of 100k leading tabs", () => `${"\t".repeat(100_000)}x`],
+      ["100k blanks after a declared unit", () => `UNITS: MM${" ".repeat(100_000)}x`],
+      ["100k blanks after a declared IN", () => `UNITS: IN${" ".repeat(100_000)}x`],
+      ["100k blanks before a bracket", () => `1${" ".repeat(100_000)}(`],
+    ])("reads %s within the bound", (_label, build) => {
+      const text = build();
+      const started = performance.now();
+      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+      expect(performance.now() - started).toBeLessThan(BOUND_MS);
+    });
   });
 });
