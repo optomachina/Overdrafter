@@ -70,7 +70,7 @@ const OSHCUT_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
   manualReview: [/manual review|engineering review|requires review/i],
   // The cart row's "Select material" link on its own line, not the open
   // slideover heading ("Select Material - <file>").
-  configurationRequired: [/^[^\S\r\n]*select material[^\S\r\n]*$/im, /configure (?:your )?part/i],
+  configurationRequired: [/^[ \t\u00a0]*select material[ \t\u00a0]*$/im, /configure (?:your )?part/i],
   unavailable: [/service unavailable|maintenance/i],
 };
 
