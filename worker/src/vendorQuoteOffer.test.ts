@@ -75,10 +75,12 @@ describe("buildVendorQuoteOfferPayload", () => {
       material: "6061 Alloy",
       finish: "Black Anodize, Type II",
       tightest_tolerance: "0.005",
-      notes: "Instant quote",
+      // Adapter `notes` are automation status, not provider-written text (OVD-982).
+      notes: null,
       sort_rank: 0,
       raw_payload: {
         source: "simulate",
+        workerNotes: ["Instant quote"],
         providerOptionId: "10",
         providerLabel: "xometry quote",
         quoteUrl: "https://example.com/quote/1",

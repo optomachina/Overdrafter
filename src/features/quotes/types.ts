@@ -214,6 +214,10 @@ export type DrawingExtractionData = {
   tightestTolerance: {
     raw: string | null;
     valueInch: number | null;
+    /** Stored unit, "unknown" when the worker could not resolve it; null on legacy payloads. */
+    unit: string | null;
+    /** Shown when valueInch is null and raw text exists; never prefilled as a value. */
+    hint: string | null;
     confidence: number;
   };
   evidence: EvidenceItem[];
