@@ -35,11 +35,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseQuantityScope(value: unknown, identity: QuantityScopeIdentity): QuantityScope {
   const invalid = () => new TypeError("Quantity scope could not be verified.");
-  if (
-    !isRecord(value) ||
-    Object.keys(value).length !== FIELDS.length ||
-    !FIELDS.every((key) => Object.prototype.hasOwnProperty.call(value, key))
-  ) {
+  const keys = isRecord(value) ? Object.keys(value) : [];
+  if (!isRecord(value) || keys.length !== FIELDS.length || !FIELDS.every((key) => keys.includes(key))) {
     throw invalid();
   }
   if (
