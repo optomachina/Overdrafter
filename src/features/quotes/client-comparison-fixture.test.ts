@@ -82,6 +82,17 @@ describe("client-comparison fixture scenario", () => {
     window.history.replaceState({}, "", "/");
   });
 
+  it("marks the fixture offers' lane-label notes as provider-sourced so the notes block (and its e2e) can show them", async () => {
+    const detail = await loadComparisonPartDetail();
+    const { options } = buildComparisonPipeline(detail, NOW);
+
+    expect(options.length).toBeGreaterThan(0);
+    for (const option of options) {
+      expect(option.providerNotes).toBe(option.notes);
+      expect(option.providerNotes).toBeTruthy();
+    }
+  });
+
   it("adds a part-route scenario after the existing scenarios", () => {
     expect(CLIENT_WORKSPACE_FIXTURE_SCENARIOS.map((scenario) => scenario.id)).toEqual([
       "landing-anonymous",
