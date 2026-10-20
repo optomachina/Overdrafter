@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { minimalPdf, syntheticSheet, type MinimalPdfOptions, type PdfTextItem, type SyntheticSheetOptions } from "../../test-support/minimalPdf";
+import { dimensionField, minimalPdf, syntheticSheet, type MinimalPdfOptions, type PdfTextItem, type SyntheticSheetOptions } from "../../test-support/minimalPdf";
 import { extractPdfText, inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 
 function hasBinary(name: string): boolean {
@@ -26,7 +26,9 @@ function hasBinary(name: string): boolean {
 }
 const hasPoppler = hasBinary("pdfinfo") && hasBinary("pdftotext");
 
-describe.skipIf(!hasPoppler)("synthetic sheets through poppler", () => {
+// Every test writes a PDF and reads it with poppler and, when it is installed, tesseract: about a second each on
+// an idle machine, several on a loaded one, so the default 5 seconds is not a bound the tests can keep.
+describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_000 }, () => {
   let directory = "";
   let counter = 0;
 
@@ -137,6 +139,80 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", () => {
       const { signals } = await read({ drawingNumber: "XYZ-1093-05589" });
       expect(signals.partNumber).toMatchObject({ value: "XYZ-1093-05589", reviewNeeded: false });
       expect(signals.partNumber.reasons).not.toContain("regex_fit");
+    });
+  });
+
+  // A label the vocabulary does not know, beside a cell that is empty, is another cell's: its text is neither the
+  // value nor part of it, and the field is flagged. The labels are 6 pt, the values under them 9 pt.
+  describe("an unlisted label beside an empty cell", () => {
+    const heatTreat: PdfTextItem[] = [
+      { x: 380, y: 720, size: 6, text: "HEAT TREAT" },
+      { x: 385, y: 732, size: 9, text: "RC 40-45" },
+    ];
+    const treatment: PdfTextItem[] = [
+      { x: 370, y: 750, size: 6, text: "TREATMENT" },
+      { x: 375, y: 760, size: 9, text: "STRESS RELIEVE" },
+    ];
+
+    it("leaves MATERIAL empty and flagged, not 'HEAT TREAT RC 40-45'", async () => {
+      const { signals } = await read({ material: null, extra: heatTreat });
+      expect(signals.material.value).toBeNull();
+      expect(signals.material.reviewNeeded).toBe(true);
+      expect(signals.reviewFields).toContain("material");
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+    });
+
+    it("leaves FINISH empty and flagged, not 'TREATMENT STRESS'", async () => {
+      const { signals } = await read({ finish: null, extra: treatment });
+      expect(signals.finish.value).toBeNull();
+      expect(signals.finish.reviewNeeded).toBe(true);
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+    });
+
+    // The same sheets as layout text alone (the word-box pass failed or was skipped): no heights, so the cells are
+    // told apart by their shapes. Never the unlisted cell's text, never unflagged.
+    it("holds on layout text alone (no word boxes)", async () => {
+      const layoutOnly = async (items: PdfTextItem[]) => {
+        const pdfText = await pdfTextOf(items);
+        for (const page of pdfText.pages) {
+          delete (page as { words?: unknown }).words;
+        }
+        return inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      };
+      const emptyMaterial = await layoutOnly(syntheticSheet({ material: null, extra: heatTreat }));
+      expect(emptyMaterial.material).toMatchObject({ value: null, reviewNeeded: true });
+      const emptyFinish = await layoutOnly(syntheticSheet({ finish: null, extra: treatment }));
+      expect(emptyFinish.finish).toMatchObject({ value: null, reviewNeeded: true });
+      for (const size of [10, 12, 14, 16]) {
+        const swept = await layoutOnly([
+          ...dimensionField(size),
+          ...syntheticSheet({ material: null, extra: [{ x: 430, y: 720, size: 6, text: "HEAT TREAT" }, { x: 440, y: 732, size: 9, text: "RC 40-45" }] }),
+        ]);
+        expect(swept.material, `material at ${size} pt`).toMatchObject({ value: null, reviewNeeded: true });
+      }
+      const control = await layoutOnly(syntheticSheet());
+      expect(control.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+      expect(control.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+    });
+
+    it("never reports the unlisted cell's text for a filled MATERIAL either", async () => {
+      const { signals } = await read({ extra: [{ x: 380, y: 720, size: 6, text: "HEAT TREAT" }, { x: 420, y: 732, size: 9, text: "RC 40-45" }] });
+      expect(signals.material.reviewNeeded || signals.material.value === "AL 6061-T6").toBe(true);
+      expect(signals.material.value ?? "").not.toMatch(/HEAT|RC 40/);
+    });
+
+    // The column of the reader is a fraction of the median text height of the page, so it widens on a page of large
+    // dimensions; a label 74 pt from the MATERIAL label is not in its inline window at any of these sizes.
+    it.each([10, 12, 13, 14, 16, 18])("holds on a page whose dimensions are set in %i pt", async (size) => {
+      const label: PdfTextItem[] = [
+        { x: 430, y: 720, size: 6, text: "HEAT TREAT" },
+        { x: 440, y: 732, size: 9, text: "RC 40-45" },
+      ];
+      const items = [...dimensionField(size), ...syntheticSheet({ material: null, extra: label })];
+      const pdfText = await pdfTextOf(items);
+      const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      expect(signals.material.value).toBeNull();
+      expect(signals.material.reviewNeeded).toBe(true);
     });
   });
 

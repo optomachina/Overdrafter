@@ -8,7 +8,7 @@
 // titleBlockCells.hostile.test.ts. No model, no network, no poppler.
 
 import { describe, expect, it } from "vitest";
-import { phrase } from "../../test-support/pdfWordBoxes";
+import { box, phrase } from "../../test-support/pdfWordBoxes";
 import { layoutSheet, pdfTextOf, type Piece } from "../../test-support/titleBlockSheet";
 import { inferDrawingSignalsFromPdf } from "./pdfDrawing";
 import { buildWordLines, type PdfWord } from "./pdfWords";
@@ -20,6 +20,13 @@ function read(text: string): CellRead[] {
 
 function cell(text: string, field: CellField): CellRead {
   const reads = read(text).filter((candidate) => candidate.field === field);
+  expect(reads, `one ${field} label`).toHaveLength(1);
+  return reads[0]!;
+}
+
+/** The cell of a field read from word boxes (true positions, in points). */
+function wordRead(words: PdfWord[], field: CellField): CellRead {
+  const reads = readTitleBlockCells(buildWordLines(words, 1)).filter((candidate) => candidate.field === field);
   expect(reads, `one ${field} label`).toHaveLength(1);
   return reads[0]!;
 }
@@ -318,8 +325,7 @@ describe("title block cells", () => {
     });
   });
 
-  // OVD-985 and OVD-989, repair round 1: a value is assigned to a label only when it sits in that label's
-  // cell. Text that belongs to no label (a company name, a note, a zone letter, the value of a label the
+  // OVD-985 and OVD-989: a value is assigned to a label only when it sits in that label's cell. Text that belongs to no label (a company name, a note, a zone letter, the value of a label the
   // vocabulary does not know) is never assigned, so an empty cell stays empty and flagged.
   describe("text that belongs to no label is never assigned", () => {
     const FIELDS = [
@@ -355,11 +361,11 @@ describe("title block cells", () => {
         expect(cell(sheet, field)).toMatchObject({ status: "value", value });
       });
 
-      it("does not read a cell's far run as part of its value (join gap)", () => {
-        // 'AB' under the label and 'CD' 15 columns on, still inside the label's reach: the gap is wider than
-        // the space inside a value, so CD is another cell.
+      it("takes no value when a run of the cell was left over: layout text cannot tell the rest of a value from another cell (join gap)", () => {
+        // 'AB' under the label and 'CD' 15 columns on, still inside the label's reach. In layout text the gap
+        // may be the rest of the same value spread apart (a fine pitch), so the cell is flagged, not cut.
         const sheet = layoutSheet([[0, "MATERIAL"]], [[0, "AB"], [17, "CD"]]);
-        expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "AB" });
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
       });
 
       it("joins runs of one value that are a few columns apart (join gap)", () => {
@@ -367,9 +373,34 @@ describe("title block cells", () => {
         expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "ANODIZE TYPE II" });
       });
 
-      it("takes the stray text beside a value for another cell, however it is spaced", () => {
+      it("flags a value with text left over to its right on layout text: it may be the rest of the value", () => {
+        // At a fine pitch the words of one value are tens of columns apart, as cells are, so layout text cannot
+        // tell the rest of a value from a neighbour. Word boxes can (the twin test below).
         const sheet = layoutSheet([[0, "FINISH"]], [[2, "AS MACHINED"], [45, "STRAY CELL TEXT"]], [[2, "CLASS 2"]]);
-        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED CLASS 2" });
+        expect(cell(sheet, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
+      });
+
+      it("does not flag a value whose neighbour text is far off (beyond the trailing window)", () => {
+        const sheet = layoutSheet([[0, "FINISH"]], [[2, "AS MACHINED"], [120, "STRAY CELL TEXT"]]);
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("flags a value whose next word was taken by the band of another label above it (a fine pitch)", () => {
+        // The company line above holds a label (MFG) whose band reaches the second word of the value.
+        const sheet = layoutSheet([[14, "MFG"]], [[0, "MATERIAL"]], [[0, "6061"], [10, "ALLOY"]]);
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
+      });
+
+      it("takes no value from layout text whose own labels are spread apart (a fine pitch)", () => {
+        const sheet = layoutSheet([[0, "DWG.     NO."], [40, "MATERIAL"]], "", [[0, "1000-1"], [40, "STEEL 1018"]]);
+        expect(cell(sheet, "partNumber")).toMatchObject({ status: "ambiguous", value: null, reason: "fine_pitch" });
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "fine_pitch" });
+      });
+
+      it("reads the same sheet whose labels are single spaced", () => {
+        const sheet = layoutSheet([[0, "DWG. NO."], [40, "MATERIAL"]], "", [[0, "1000-1"], [40, "STEEL 1018"]]);
+        expect(cell(sheet, "partNumber")).toMatchObject({ status: "value", value: "1000-1" });
+        expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "STEEL 1018" });
       });
     });
 
@@ -388,6 +419,11 @@ describe("title block cells", () => {
         const value = field === "partNumber" ? "1000-1" : field === "revision" ? "B" : "6061 ALLOY";
         const words = [...phrase(label, 100, 100), ...phrase(value, 101, 115), ...phrase(stray, 340, 130), ...phrase("SOME TEXT", 700, 300)];
         expect(wordCell(words, field)).toMatchObject({ status: "value", value });
+      });
+
+      it("reads a value whose neighbour text is far off, which word boxes place exactly", () => {
+        const words = [...phrase("FINISH", 100, 100), ...phrase("AS MACHINED", 101, 115), ...phrase("STRAY CELL TEXT", 400, 115)];
+        expect(wordCell(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
       });
 
       it("stops a value at a cell break: a word set apart from it is another cell's", () => {
@@ -410,8 +446,11 @@ describe("title block cells", () => {
 
     it("does not take the text of an unlisted label beside MATERIAL for its value", () => {
       // The unlisted cell HEAT TREAT, with its own label and value, sits right of MATERIAL on the label row.
+      // Word boxes place the cells exactly and read the material; layout text flags it.
       const sheet = layoutSheet([[0, "MATERIAL"], [30, "HEAT TREAT"]], [[2, "AL 6061-T6"], [30, "RC 40-45"]]);
-      expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
+      const words = [...phrase("MATERIAL", 100, 100), ...phrase("HEAT TREAT", 300, 100), ...phrase("AL 6061-T6", 101, 115), ...phrase("RC 40-45", 301, 115)];
+      expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
     });
 
     it("leaves MATERIAL empty when only the unlisted cell beside it has text", () => {
@@ -433,9 +472,9 @@ describe("title block cells", () => {
       expect(cell(sheet, "partNumber").status).toBe(status);
     });
 
-    it("keeps a value that is more than 3 lines under the previous line out of the value", () => {
+    it("does not join a line more than 3 lines under the previous one, and flags the cell on layout text", () => {
       const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], "", "", "", [[2, "CLASS 2"]]);
-      expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "ANODIZE" });
+      expect(cell(sheet, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
       const near = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], "", [[2, "CLASS 2"]]);
       expect(cell(near, "finish")).toMatchObject({ status: "value", value: "ANODIZE CLASS 2" });
     });
@@ -507,13 +546,65 @@ describe("title block cells", () => {
       expect(cell(sheet, "material")).toMatchObject({ status: "rejected", reason: "label_in_value" });
     });
 
-    it.each(["ZINC PLATING PER ASTM B633", "BLACK COATING", "SEE FINISH NOTE 3"])(
-      "keeps the finish %s, whose words are finish labels or fences",
+    it.each(["ZINC PLATING PER ASTM B633", "BLACK COATING", "ANODIZE PER MIL-A-8625 TYPE II"])(
+      "keeps the finish %s, whose words are finish labels or specifications",
       (finish) => {
         const sheet = layoutSheet([[0, "FINISH"], [8, finish]]);
         expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: finish });
       },
     );
+  });
+
+  // A cell that points elsewhere ("SEE NOTE 1") names no material or finish: nothing is stored for the part.
+  describe("a value that is a pointer", () => {
+    it.each([
+      "SEE NOTE 1",
+      "SEE NOTES 2 AND 3",
+      "SEE BOM",
+      "SEE SPEC",
+      "PER SPEC",
+      "PER SPECIFICATION",
+      "PER NOTE 2",
+      "PER DWG",
+      "PER THE BOM",
+      "REFER TO NOTE 4",
+      "REFER TO DWG",
+      "AS NOTED",
+      "AS SPECIFIED",
+      "SEE FINISH NOTE 3",
+      "BLACK ANODIZE SEE NOTE 3",
+      "see note 1",
+    ])("takes no material or finish from %s", (value) => {
+      for (const [field, label] of [["material", "MATERIAL"], ["finish", "FINISH"]] as const) {
+        expect(cell(layoutSheet([[0, label], [10, value]]), field)).toMatchObject({ status: "rejected", value: null, reason: "pointer" });
+        // flagged, and not filled from anywhere else, by the full signal path
+        const signals = infer(layoutSheet([[0, label], [10, value]], [[40, "SCALE 1:1"]]));
+        expect(signals[field].value).toBeNull();
+        expect(signals[field].reviewNeeded).toBe(true);
+      }
+    });
+
+    it.each(["6061-T6 PER AMS 4027", "STEEL, SEEDED", "NOTED STEEL 1018", "SEEDED STEEL"])("keeps the material %s", (value) => {
+      expect(cell(layoutSheet([[0, "MATERIAL"], [10, value]]), "material")).toMatchObject({ status: "value", value });
+    });
+
+    it.each(["ANODIZE PER MIL-A-8625F", "ZINC PLATING PER ASTM B633", "AS MACHINED"])("keeps the finish %s", (value) => {
+      expect(cell(layoutSheet([[0, "FINISH"], [10, value]]), "finish")).toMatchObject({ status: "value", value });
+    });
+  });
+
+  // A value that stops in the middle was cut short by the text around it.
+  describe("a value that ends in the middle", () => {
+    it.each(["ANODIZE, CLASS", "ANODIZE, BLACK,", "6061 -", "ALUMINUM 6061-T6 (", "STEEL AND", "ANODIZE TYPE", "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS", "BLACK OXIDE PER", "ZINC /"])(
+      "takes no value from %s",
+      (value) => {
+        expect(cell(layoutSheet([[0, "FINISH"], [8, value]]), "finish")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      },
+    );
+
+    it.each(["ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "6061 Alloy", "ANODIZE TYPE II", "GRADE 5 ZINC", "BLACK OXIDE, 1.2 MIL"])("keeps %s", (value) => {
+      expect(cell(layoutSheet([[0, "FINISH"], [8, value]]), "finish")).toMatchObject({ status: "value", value });
+    });
   });
 
   describe("centred labels over left aligned values", () => {
@@ -586,6 +677,50 @@ describe("title block cells", () => {
     });
   });
 
+  describe("a single character under a label", () => {
+    // A lone character is a zone marker or a stray letter, never a material, finish or drawing number (R06).
+    it.each([
+      ["MATERIAL", "material"],
+      ["FINISH", "finish"],
+      ["DWG. NO.", "partNumber"],
+    ] as const)("is no value of %s, and the field is flagged", (label, field) => {
+      const sheet = layoutSheet([[0, label]], [[2, "X"]], [[40, "SCALE 1:1"]]);
+      expect(cell(sheet, field)).toMatchObject({ status: "rejected", value: null, reason: "bad_shape" });
+      expect(infer(sheet)[field].value).not.toBe("X");
+      expect(infer(sheet)[field].reviewNeeded).toBe(true);
+    });
+
+    it("is a value of REV, whose values are short", () => {
+      expect(cell(layoutSheet([[0, "REV"]], [[0, "X"]], [[40, "SCALE 1:1"]]), "revision")).toMatchObject({ status: "value", value: "X" });
+    });
+  });
+
+  describe("a file name that looks like a part number", () => {
+    // The stem of 1093-05589-02.pdf names a part and a revision, but it is no reason to replace the drawing's own
+    // number when that number was read from its cell and is not flagged (S16). Only an empty, flagged or
+    // unlabelled value gives way to the stem.
+    const sheet = (partNumber: string) =>
+      layoutSheet([[0, "MATERIAL"], [40, "DWG. NO."], [80, "REV"]], "", [[2, "AL 6061-T6"], [42, partNumber], [81, "C"]], [[40, "SCALE 1:1"]]);
+
+    it("keeps a number read from the DWG. NO. cell that is not shaped like a company number", () => {
+      const signals = infer(sheet("XYZ-77"), "1093-05589-02");
+      expect(signals.partNumber).toMatchObject({ value: "XYZ-77", reviewNeeded: false });
+      expect(signals.partNumber.reasons).not.toContain("filename_stem");
+      expect(signals.revision).toMatchObject({ value: "C", reviewNeeded: false });
+    });
+
+    it("keeps a company-shaped number read from the cell, and does not call it the stem", () => {
+      const signals = infer(sheet("2222-33333"), "1093-05589-02");
+      expect(signals.partNumber).toMatchObject({ value: "2222-33333", reviewNeeded: false });
+    });
+
+    it("gives way to the stem when the cell is empty", () => {
+      const signals = infer(sheet(""), "1093-05589-02");
+      expect(signals.partNumber.value).toBe("1093-05589");
+      expect(signals.partNumber.reasons).toContain("filename_stem");
+    });
+  });
+
   describe("the label vocabulary", () => {
     it.each([
       ["MATL.", "MATL.  6061-T6", "material", "6061-T6"],
@@ -652,6 +787,117 @@ describe("title block cells", () => {
 
     it("is not a date", () => {
       expect(cell(layoutSheet([[0, "DWG. NO."]], [[0, "10/29/2013"]]), "partNumber")).toMatchObject({ status: "rejected", reason: "bad_shape" });
+    });
+  });
+
+  // An unlisted label beside an empty cell is another cell's: the field stays empty and flagged, and the text of that
+  // cell is neither the value nor part of it.
+  describe("a label the vocabulary does not know, beside an empty cell", () => {
+    describe("on layout text", () => {
+      it.each([
+        ["MATERIAL", "material", [[12, "HEAT TREAT"]], [[12, "RC 40-45"]]],
+        ["FINISH", "finish", [[10, "TREATMENT"]], [[10, "STRESS RELIEVE"]]],
+        ["MATERIAL", "material", [[18, "HARDNESS"]], [[18, "RC 40-45"]]],
+      ] as const)("leaves %s empty and flagged when an unlisted label with its value under it follows on its line (%j)", (label, field, beside, under) => {
+        const sheet = layoutSheet([[0, label], ...beside], "", [...under]);
+        expect(cell(sheet, field)).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+        expect(infer(layoutSheet([[0, label], ...beside], "", [...under], [[40, "SCALE 1:1"]]))[field]).toMatchObject({
+          value: null,
+          reviewNeeded: true,
+        });
+      });
+
+      it("treats a short run of letters with text under it as a label even when the text follows on the next line", () => {
+        // Layout text has no heights: "HEAT TREAT" over "RC 40-45" is a label over its value, where the wrapped
+        // value of a finish ("ANODIZE, BLACK" over "CLASS 2") has commas and digits.
+        const sheet = layoutSheet([[0, "MATERIAL"], [12, "HEAT TREAT"]], [[14, "RC 40-45"]]);
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+        const finish = layoutSheet([[0, "FINISH"], [10, "TREATMENT"]], [[12, "STRESS RELIEVE"]]);
+        expect(cell(finish, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+
+      it("treats an inline run with text under it after a blank line as a label, whatever it is made of", () => {
+        // Not letters only (a digit), so the shape rule does not apply; the blank line between is what separates a
+        // label over its value from a wrapped value.
+        const sheet = layoutSheet([[0, "MATERIAL"], [12, "HT 2 PROCESS"]], "", [[12, "RC 40-45"]]);
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+
+      it("does not call a short run of letters a label when nothing is under it", () => {
+        expect(cell(layoutSheet([[0, "MATERIAL"], [10, "ALUMINUM"]]), "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+        const noteElsewhere = layoutSheet([[0, "MATERIAL"], [10, "ALUMINUM"]], [[60, "SOME NOTE"]]);
+        expect(cell(noteElsewhere, "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+      });
+
+      it("treats a run that ends in a colon as a label of its own, with or without text under it", () => {
+        const sheet = layoutSheet([[0, "MATERIAL"], [10, "TREATMENT:"], [24, "STRESS"]]);
+        expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+
+      it("does not treat a wrapped value as a label: its second line follows directly", () => {
+        const sheet = layoutSheet([[0, "FINISH"], [8, "ANODIZE, BLACK"]], [[8, "CLASS 2"]]);
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK CLASS 2" });
+      });
+
+      it("does not treat inline text with unrelated text two lines under it as a label when that text is not aligned with it", () => {
+        const sheet = layoutSheet([[0, "FINISH"], [8, "AS MACHINED"]], "", [[60, "SOME NOTE"]]);
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("takes a part number from an inline value, and flags an unlisted label with its own value under it", () => {
+        expect(cell(layoutSheet([[0, "DWG. NO."], [10, "1000-1"]]), "partNumber")).toMatchObject({ status: "value", value: "1000-1" });
+        const sheet = layoutSheet([[0, "DWG. NO."], [10, "CODE"]], "", [[10, "1ABC2"]]);
+        expect(cell(sheet, "partNumber")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+    });
+
+    describe("on word boxes", () => {
+      // The labels are set in 6 pt and the values under them in 9 pt, as in a title block.
+      const label = (text: string, x: number, y = 720) => phrase(text, x, y, 6);
+      const value = (text: string, x: number, y = 732) => phrase(text, x, y, 9);
+
+      it("leaves MATERIAL empty and flagged when HEAT TREAT (a 6 pt label, 24 pt on) has RC 40-45 (9 pt) under it", () => {
+        const words = [...label("MATERIAL", 330), ...label("HEAT TREAT", 380), ...value("RC 40-45", 385)];
+        expect(wordRead(words, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+
+      it("leaves FINISH empty and flagged when TREATMENT (24 pt on) has STRESS RELIEVE under it", () => {
+        const words = [...label("FINISH", 330, 750), ...label("TREATMENT", 370, 750), ...value("STRESS RELIEVE", 375, 762)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      });
+
+      it("does not call a wrapped value a label: both lines are the same size", () => {
+        const words = [...label("FINISH", 330, 750), ...value("ANODIZE, BLACK", 360, 750), ...value("CLASS 2", 360, 762)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK CLASS 2" });
+      });
+
+      it("does not call text a label that is only as tall as the text under it", () => {
+        const words = [...value("MATERIAL", 330), ...value("ALUMINUM", 400), ...value("6061 T6", 401, 745)];
+        // MATERIAL set in 9 pt like the text under its value: nothing is taller than anything, so the second line wraps.
+        expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061 T6" });
+      });
+
+      // The page text sets the size of a column (0.4 of a text height). A label 74 pt on from a 6 pt label is out
+      // of its inline window whatever the page text size is, and its text is no value of MATERIAL.
+      describe.each([10, 12, 13, 14, 16, 18])("on a page whose text is %i pt", (size) => {
+        const page = () =>
+          Array.from({ length: 90 }, (_, index) => box(`.${100 + ((index * 7) % 900)}`, 60 + (index % 9) * 45, 90 + Math.floor(index / 9) * (size + 14), size));
+
+        it("does not read a label 74 pt on from an empty MATERIAL as its value", () => {
+          const words = [...page(), ...label("MATERIAL", 330), ...label("PROCESS", 430), ...value("ZINC", 436)];
+          expect(wordRead(words, "material").value).toBeNull();
+        });
+
+        it("does not read it when the label is alone on its row either", () => {
+          const words = [...page(), ...label("MATERIAL", 330), ...label("PROCESS ZINC", 430)];
+          expect(wordRead(words, "material")).toMatchObject({ status: "empty", value: null });
+        });
+
+        it("still reads a value that follows the label closely", () => {
+          const words = [...page(), ...label("MATERIAL", 330), ...value("ALUMINUM", 362, 720)];
+          expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+        });
+      });
     });
   });
 

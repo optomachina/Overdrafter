@@ -12,14 +12,16 @@
 //          text has fewer places than the row. Nothing is skipped: not a whole line, not a number with a
 //          letter or symbol glued to it (Ø.1875, n.1875, SR.0625, .1875A, 1.2500). Only the values of the
 //          table's own rows are left out. A number that is not a dimension (a weight, an edge-break note)
-//          therefore keeps a row: the tighter value is the safe error;
+//          therefore keeps a row: the tighter value is the safe error. A decimal the text layer garbled
+//          (a space after the point, digits split by a space, a mantissa and an exponent, a middle dot for the
+//          point) counts as the places it may carry;
 //   T3     when the sheet cannot be read (OCR, too few dimensions, a line too long to scan), a row of four or
 //          more places is not assumed in force: it is an unresolved value (valueInch null unless a tighter
 //          explicit tolerance exists, so the OVD-683 beta gate asks the user). Rows of one to three places
 //          are read as before.
 // Explicit tolerances on features (a plus-minus value that is not a table row) are never dropped, and the
-// OVD-976 unit policy is untouched. No model, no network, no poppler (generalToleranceRowsPdf.test.ts runs
-// the same shapes through poppler when it is installed).
+// OVD-976 unit policy is untouched. No model, no network, no poppler (syntheticPdf.test.ts runs the main
+// shapes through poppler when it is installed).
 
 import { describe, expect, it } from "vitest";
 import { pdfTextOf } from "../../test-support/titleBlockSheet";
@@ -121,11 +123,11 @@ describe("general tolerance rows (OVD-989)", () => {
       });
     });
 
-    // A deliberate change from the first version of this rule, which skipped whole lines it took for notes
-    // (a weight, an edge break, a surface finish, the angular row). A skipped line can hide a real
-    // dimension that shares it, and a missed four-place dimension reads a LOOSER tolerance than the part
-    // has. Only the table's own values are left out; any other number with that many places keeps the row,
-    // which is the safe error (tighter, never looser).
+    // A number that is not a dimension (a weight, an edge break, a surface finish, the angular row) with as many
+    // places as a row keeps that row. Skipping the lines that look like notes would hide a real dimension that
+    // shares one, and a missed four-place dimension reads a LOOSER tolerance than the part has. Only the table's
+    // own values are left out; any other number with that many places keeps the row, which is the safe error
+    // (tighter, never looser).
     it.each([
       ["a weight with four places", "SCALE: 1:1    WEIGHT: 0.0831    SHEET 1 OF 1"],
       ["an edge-break note", 'BREAK SHARP EDGES .0050" MAX'],
@@ -150,13 +152,13 @@ describe("general tolerance rows (OVD-989)", () => {
 
     it("keeps the four-place row when an unclassified note prints a four-place number", () => {
       expect(toleranceOf([...DIMENSIONS_2_AND_3, "FLATNESS .0005", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.001 });
-      expect(toleranceOf([...DIMENSIONS_2_AND_3, "HOLE SPACING 1.7500 REF", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.001 });
+      expect(toleranceOf([...DIMENSIONS_2_AND_3, "HOLE SPACING 1.2500 REF", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.001 });
     });
   });
 
-  // OVD-989 repair round 1: a four-place dimension must keep the four-place row wherever it is printed. The
-  // first version only counted places on lines that hold nothing but callouts and skipped any line that
-  // mentioned a note word, so each of these read 0.005 on a part with a 0.001 dimension.
+  // OVD-989: a four-place dimension must keep the four-place row wherever it is printed. Counting places only on
+  // lines that hold nothing but callouts, or skipping any line that mentions a note word, reads 0.005 on a part
+  // with a 0.001 dimension for each of these.
   describe("a four-place dimension keeps the four-place row wherever it is printed", () => {
     const apart = (left: string, right: string, gap = 40) => `${left}${" ".repeat(gap)}${right}`;
 
@@ -248,15 +250,108 @@ describe("general tolerance rows (OVD-989)", () => {
       expect(toleranceOf(lines)).toMatchObject({ valueInch: 0.01 });
     });
 
-    // Known limits that the first version of the rule shared with main: a limit dimension (".5005/.5000") and an
-    // unequal bilateral tolerance ("+.0005/-.0000") are not read as an explicit tolerance of their own, so a
-    // part whose tightest tolerance is one of those reads the table value. Not changed by OVD-989.
+    // Known limits, the same on main: a limit dimension (".5005/.5000") and an unequal bilateral tolerance
+    // ("+.0005/-.0000") are not read as an explicit tolerance of their own, so a part whose tightest tolerance is
+    // one of those reads the table value. Not changed by OVD-989.
     it.fails("reads a limit dimension as a tolerance", () => {
       expect(toleranceOf([...DIMENSIONS_2_AND_3, ".5005/.5000  RA 32", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.0005 });
     });
 
     it.fails("reads an unequal bilateral tolerance", () => {
       expect(toleranceOf([".18", ".75", "1.25", "2.50", "Ø.500 +.0005/-.0000", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.0005 });
+    });
+  });
+
+  // A text layer can garble a decimal. The garbled four-place dimension must still keep the four-place row: the
+  // matcher cannot read it as a complete decimal, so what it may carry counts. (Main reads 0.001 on all of these,
+  // through the row; dropping the row here would store a looser tolerance than the part has.)
+  describe("a garbled four-place dimension keeps the four-place row", () => {
+    it.each([
+      ["a space after the point (U08)", "Ø. 1875 THRU"],
+      ["digits split by a space (U12)", ".18 75"],
+      ["a middle dot for the point (U25)", "Ø·1875 THRU"],
+      ["a mantissa and an exponent (U04)", "1.875E-1"],
+      ["a space on both sides of the point", "Ø . 1875 THRU"],
+      ["two spaces after the point", "Ø.  1875 THRU"],
+      ["a radius sign, a point and a space", "R. 0625"],
+      ["a comma and a space", "Ø, 1875"],
+      ["a no-break space after the point", "Ø.\u00a01875"],
+      ["digits split by two spaces", ".18  75"],
+      ["digits split after one digit", ".1 875"],
+      ["a whole part, a point and a space", "3. 1875"],
+      ["a count after a three-place dimension, which may be a split digit", ".125 5"],
+      ["a numbered note that starts with four digits, which may be a dimension", "1. 1234 PLACES"],
+      ["digits split before the last", ".187 5"],
+      ["digits split by a no-break space", ".18\u00a075"],
+      ["a bullet for the point", "Ø\u20221875 THRU"],
+      ["the dot operator for the point", "Ø\u22c51875 THRU"],
+      ["a bullet operator for the point", "Ø\u22191875 THRU"],
+      ["the Arabic decimal separator", "Ø\u066b1875 THRU"],
+      ["an ideographic full stop", "Ø\u30021875 THRU"],
+      ["a katakana middle dot", "Ø\u30fb1875 THRU"],
+      ["a one dot leader", "Ø\u20241875 THRU"],
+      ["a lower case exponent", "1.875e-1"],
+      ["an exponent with a leading zero", "1.875E-01"],
+      ["a mantissa with no whole part", ".1875E0"],
+      ["a larger mantissa and exponent", "18.75E-2"],
+      ["a whole mantissa", "1875E-4"],
+    ])("keeps the row for %s", (_name, line) => {
+      expect(toleranceOf([...DIMENSIONS_2_AND_3, line, INCHES, ...ROWS])).toMatchObject({ valueInch: 0.001 });
+    });
+
+    it.each([
+      ["a sentence full stop after a numbered note", "NOTE 3. 25 HOLES AS SHOWN"],
+      ["a drawing number after NO.", "DWG. NO. 1093-05589 SHEET 1 OF 1"],
+      ["a callout after a dimension", ".75 2X"],
+      ["a count after a radius", "R.50 4 PLACES"],
+      ["an exponent that moves the point right", "2E3 LBS"],
+      ["a digit group after the table's own value", "FOUR PLACE DECIMAL .0010 5"],
+    ])("still drops the row when the sheet only has %s", (_name, line) => {
+      expect(toleranceOf([...DIMENSIONS_2_AND_3, line, INCHES, ...ROWS])).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it("keeps the row on a metric drawing for a garbled four-place dimension", () => {
+      const MM = "DIMENSIONS ARE IN MILLIMETERS";
+      const METRIC_ROWS = ["TOLERANCES:", "LINEAR: X.X 0.3", "X.XX 0.10", "X.XXX 0.030", "X.XXXX 0.0100"];
+      const dims = ["4.49", "16.67 THRU", "2X 2.26 THRU", "19.05", "R12.7", "9.77", "42"];
+      expect(toleranceOf([...dims, "3. 1750 THRU", MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0003 });
+      expect(toleranceOf([...dims, "3.17 50 THRU", MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0003 });
+      expect(toleranceOf([...dims, MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0039 });
+    });
+
+    it("counts a garbled fragment next to the table's own value only when it is not that value", () => {
+      // The row's value ".0010" followed by a digit group is the row, not a dimension split in two.
+      expect(toleranceOf([...DIMENSIONS_2_AND_3, INCHES, ...ROWS.slice(0, 2), "FOUR PLACE DECIMAL .0010 75"])).toMatchObject({
+        valueInch: 0.005,
+      });
+    });
+
+    it("reads a garbled fragment in linear time", () => {
+      const started = performance.now();
+      const result = toleranceOf([
+        ...DIMENSIONS_2_AND_3,
+        ...Array.from({ length: 300 }, () => ". 1".repeat(600)),
+        ...Array.from({ length: 300 }, () => `.1 ${"1".repeat(1_900)}`),
+        ...Array.from({ length: 300 }, () => `${"1".repeat(1_000)}E${"1".repeat(900)}`),
+        INCHES,
+        ...ROWS,
+      ]);
+      expect(performance.now() - started).toBeLessThan(5_000);
+      expect(result.valueInch === null || result.valueInch <= 0.005).toBe(true);
+    });
+  });
+
+  // The table's own values must not make a sheet readable: with the phrase and the value on separate lines the
+  // values look like dimension-only lines.
+  describe("a table whose values sit on lines of their own", () => {
+    it("is not readable on the strength of its own values (N47)", () => {
+      const lines = [".18", INCHES, "TWO PLACE DECIMAL", "   .01", "THREE PLACE DECIMAL", "   .005", "FOUR PLACE DECIMAL", "   .0010"];
+      expect(toleranceOf(lines)).toMatchObject({ valueInch: null, unit: "unknown" });
+    });
+
+    it("is read when real dimensions make it readable", () => {
+      const lines = [...DIMENSIONS_2_AND_3, INCHES, "TWO PLACE DECIMAL", "   .01", "THREE PLACE DECIMAL", "   .005", "FOUR PLACE DECIMAL", "   .0010"];
+      expect(toleranceOf(lines)).toMatchObject({ valueInch: 0.005 });
     });
   });
 
@@ -347,7 +442,7 @@ describe("general tolerance rows (OVD-989)", () => {
       ["a surface finish note", "SURFACE FINISH: 63"],
       ["the scale and sheet cells", "SCALE: 1:1  SHEET 1 OF 1"],
     ])("reads a three-place dimension that shares its line with %s", (_name, note) => {
-      // The first version skipped the whole line and read the 0.1 mm row for a part with a 3.175 feature.
+      // Skipping the whole line would read the 0.1 mm row for a part with a 3.175 feature.
       const line = `${"   3.175 THRU".padEnd(60)}${note}`;
       expect(toleranceOf([...METRIC_DIMENSIONS_2_PLACES, line, MM, ...METRIC_ROWS])).toMatchObject({
         raw: "±0.03 mm",
@@ -413,19 +508,36 @@ describe("general tolerance rows (OVD-989)", () => {
     });
   });
 
+  // The time limits in this block are an order of magnitude from both sides: the linear reader takes tens of
+  // milliseconds, the quadratic one seconds to a minute on the same text. Each time is the fastest of several runs
+  // (a loaded machine slows a run down and never speeds it up).
   describe("hostile text", () => {
+    const fastest = (runs: number, work: () => void) => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < runs; run += 1) {
+        const started = performance.now();
+        work();
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+
     it("scans a very long line of decimals once and stays fast", () => {
-      const started = Date.now();
-      const result = toleranceOf([`${"1.5 ".repeat(100_000)}`, INCHES, ...ROWS]);
-      expect(Date.now() - started).toBeLessThan(2_000);
+      let result = toleranceOf([]);
+      const ms = fastest(2, () => {
+        result = toleranceOf([`${"1.5 ".repeat(100_000)}`, INCHES, ...ROWS]);
+      });
+      expect(ms).toBeLessThan(10_000);
       expect(result.valueInch).toBeNull();
     });
 
     it("scans many short lines of decimals and stays fast", () => {
       const lines = Array.from({ length: 50_000 }, () => ".125 THRU");
-      const started = Date.now();
-      const result = toleranceOf([...lines, INCHES, ...ROWS]);
-      expect(Date.now() - started).toBeLessThan(3_000);
+      let result = toleranceOf([]);
+      const ms = fastest(2, () => {
+        result = toleranceOf([...lines, INCHES, ...ROWS]);
+      });
+      expect(ms).toBeLessThan(15_000);
       expect(result.valueInch).toBe(0.005);
     });
 
@@ -443,33 +555,34 @@ describe("general tolerance rows (OVD-989)", () => {
       ["decimals and dots", ".1.1.1.1.1.1.".repeat(150)],
       ["400 decimals", "1.25 ".repeat(399)],
       ["a long glued token", `R.${"5".repeat(1_900)}THRU`],
+      ["660 repeats of a point, a space and a digit", ". 1".repeat(660)],
+      ["a decimal, a space and 1,900 digits", `.1 ${"1".repeat(1_900)}`],
+      ["1,000 digits, an E and 900 digits", `${"1".repeat(1_000)}E${"1".repeat(900)}`],
     ];
-    // The fastest of a few runs: a loaded machine slows a run down, never speeds it up.
-    const timeLines = (line: string, count: number) => {
+    const timeLines = (line: string, count: number, runs: number) => {
       const lines = [...DIMENSIONS_2_AND_3, ...bigLines(line, count), INCHES, ...ROWS];
       let result = toleranceOf(lines);
-      let ms = Number.POSITIVE_INFINITY;
-      for (let run = 0; run < 3; run += 1) {
-        const started = performance.now();
+      const ms = fastest(runs, () => {
         result = toleranceOf(lines);
-        ms = Math.min(ms, performance.now() - started);
-      }
+      });
       return { ms, result };
     };
 
-    it.each(HOSTILE_LINES)("reads 1,000 lines of %s in well under a second", (_name, line) => {
+    it.each(HOSTILE_LINES)("reads 1,500 lines of %s in seconds, where a quadratic scan takes a minute", (_name, line) => {
       expect(line.length).toBeLessThanOrEqual(2_000);
-      const { ms, result } = timeLines(line, 1_000);
-      expect(ms).toBeLessThan(1_000);
+      const { ms, result } = timeLines(line, 1_500, 2);
+      expect(ms).toBeLessThan(5_000);
       // Whatever the text, the answer is a tolerance of the sheet, never a crash or a value looser than the rows.
       expect(result.valueInch === null || result.valueInch <= 0.005).toBe(true);
     });
 
-    it.each(HOSTILE_LINES)("takes about 4 times as long for 4 times as many lines of %s", (_name, line) => {
-      const small = timeLines(line, 250).ms;
-      const large = timeLines(line, 1_000).ms;
-      // Linear is about 4. The floor keeps a few milliseconds of noise from deciding the ratio.
-      expect(large / Math.max(small, 8)).toBeLessThan(10);
+    // The cost of a line is compared with the cost of the same line cut to a quarter of the length... eight times
+    // shorter: linear work is a ratio of about 8, quadratic work about 64. The floor keeps a few milliseconds of
+    // noise from deciding the ratio.
+    it.each(HOSTILE_LINES)("takes about 8 times as long for lines 8 times as long: %s", (_name, line) => {
+      const short = timeLines(line.slice(0, 250), 400, 5).ms;
+      const long = timeLines(line, 400, 5).ms;
+      expect(long / Math.max(short, 6)).toBeLessThan(30);
     });
   });
 });

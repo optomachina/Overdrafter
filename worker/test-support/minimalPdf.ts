@@ -61,6 +61,20 @@ export function minimalPdf(items: readonly PdfTextItem[], options: MinimalPdfOpt
   return Buffer.concat(parts);
 }
 
+/**
+ * A field of `count` three-digit dimensions set in `size` points, nine to a row. The size of the text of a
+ * page sets the column of the word-box reader (a fraction of the median text height), so a sheet of mostly
+ * large dimensions has wider columns than the same title block on a sheet of small ones.
+ */
+export function dimensionField(size: number, count = 90): PdfTextItem[] {
+  return Array.from({ length: count }, (_, index) => ({
+    x: 60 + (index % 9) * 45,
+    y: 90 + Math.floor(index / 9) * (size + 14),
+    size,
+    text: `.${100 + ((index * 7) % 900)}`,
+  }));
+}
+
 export type SyntheticSheetOptions = {
   /** null leaves the MATERIAL cell empty. */
   material?: string | null;

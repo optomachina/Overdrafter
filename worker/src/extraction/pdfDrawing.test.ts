@@ -1571,25 +1571,31 @@ describe("title block lines of a document with many pages (OVD-989)", () => {
       index < 50 ? textPage(index + 1) : { page: index + 1, text: "", ocrText: "", ocrStatus: "ok" as const },
     ),
   });
-  const time = (pages: number) => {
+  // The fastest of several runs: a loaded machine slows a run down and never speeds it up.
+  const time = (pages: number, runs = 3) => {
     const pdfText = document(pages);
-    const started = performance.now();
-    const signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
-    return { ms: performance.now() - started, signals };
+    let ms = Number.POSITIVE_INFINITY;
+    let signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
+    for (let run = 0; run < runs; run += 1) {
+      const started = performance.now();
+      signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
+      ms = Math.min(ms, performance.now() - started);
+    }
+    return { ms, signals };
   };
 
-  it("reads a document of 32,000 pages, 50 of them with text, in well under a second", () => {
-    time(2_000);
-    const { ms, signals } = time(32_000);
-    expect(ms).toBeLessThan(1_000);
+  it("reads a document of 32,000 pages, 50 of them with text, and finds the part number", () => {
+    const { ms, signals } = time(32_000, 2);
     expect(signals.partNumber.value).toBe("1000-00001");
+    // Pages times lines (100,000 lines, 32,000 pages) is minutes of work; the lines and the pages once are tenths of a second.
+    expect(ms).toBeLessThan(10_000);
   });
 
   it("does not take longer for 16 times as many empty pages than for the few it needs", () => {
     const few = time(2_000).ms;
     const many = time(32_000).ms;
-    // Pages without text cost a loop step each: about 16 times as much for 16 times the pages, with a floor
-    // for noise. Pages times lines would be 16 times that again.
-    expect(many / Math.max(few, 40)).toBeLessThan(12);
+    // Pages without text cost a loop step each, so the ratio is about 1 (the 50 pages with text are the same). Pages
+    // times lines would be 16 times that again, at any speed of machine. The floor keeps noise from deciding it.
+    expect(many / Math.max(few, 40)).toBeLessThan(8);
   });
 });

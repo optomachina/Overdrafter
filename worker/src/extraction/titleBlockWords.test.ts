@@ -15,6 +15,7 @@ import {
   buildWordLines,
   FALLBACK_POINTS_PER_COLUMN,
   MAX_WORDS_PER_PAGE,
+  MIN_POINTS_PER_COLUMN,
   parseBboxWords,
   pointsPerColumn,
   type PdfWord,
@@ -194,7 +195,67 @@ describe("title block from word boxes", () => {
     });
   });
 
+  describe("pointsPerColumn", () => {
+    const sized = (height: number) => ({ text: "x", xMin: 0, yMin: 0, xMax: 3, yMax: height });
+
+    it("is 0.4 of the median word height", () => {
+      expect(pointsPerColumn([sized(10), sized(10), sized(30)])).toBeCloseTo(4, 9);
+    });
+
+    it("never gives a column smaller than MIN_POINTS_PER_COLUMN, whatever the text size", () => {
+      for (const height of [5e-324, 1e-300, 1e-10, 1e-5]) {
+        const column = pointsPerColumn([sized(height), sized(height), sized(height)]);
+        expect(column).toBe(MIN_POINTS_PER_COLUMN);
+        expect(Number.isFinite(1_000 / column)).toBe(true);
+      }
+    });
+
+    it("falls back to the B-size column for heights that are not usable: zero, negative, NaN, infinite", () => {
+      const unusable = [0, -4, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+      for (const height of unusable) {
+        expect(pointsPerColumn([sized(height)])).toBe(FALLBACK_POINTS_PER_COLUMN);
+      }
+      expect(pointsPerColumn([{ text: "x", xMin: 0, yMin: Number.NaN, xMax: 3, yMax: 9 }])).toBe(FALLBACK_POINTS_PER_COLUMN);
+    });
+
+    it("takes the median over the usable heights only", () => {
+      expect(pointsPerColumn([sized(Number.NaN), sized(0), sized(10), sized(20), sized(20)])).toBeCloseTo(8, 9);
+    });
+
+    it("gives finite positions for a page of denormal-height words", () => {
+      const words = ["DWG.", "NO.", "1000-1"].map((text, index) => ({ text, xMin: 100 * index, yMin: 0, xMax: 100 * index + 50, yMax: 5e-324 }));
+      const lines = buildWordLines(words, 1);
+      expect(lines[0]!.words!.every((word) => Number.isFinite(word.x0) && Number.isFinite(word.x1))).toBe(true);
+      expect(lines[0]!.pointsPerColumn).toBe(MIN_POINTS_PER_COLUMN);
+    });
+  });
+
   describe("parseBboxWords", () => {
+    const wrap = (body: string) => `<html><body><doc><page width="612" height="792">${body}</page></doc></body></html>`;
+    const word = (xMin: string, yMin: string, xMax: string, yMax: string, text = "w") =>
+      `<word xMin="${xMin}" yMin="${yMin}" xMax="${xMax}" yMax="${yMax}">${text}</word>`;
+
+    it("skips a word whose coordinates are not finite numbers", () => {
+      const markup = wrap(
+        [word("NaN", "1", "5", "9"), word("1", "Infinity", "5", "9"), word("1", "1", "-Infinity", "9"), word("1", "1", "5", "1e999"), word("1", "2", "5", "9", "ok")].join(""),
+      );
+      expect(parseBboxWords(markup).map((entry) => entry.text)).toEqual(["ok"]);
+    });
+
+    it("skips a word whose box runs backwards", () => {
+      expect(parseBboxWords(wrap([word("9", "1", "5", "9"), word("1", "9", "5", "1"), word("1", "1", "5", "9", "ok")].join(""))).map((entry) => entry.text)).toEqual(["ok"]);
+    });
+
+    it("trusts nothing from markup that stops before the end of the document", () => {
+      const whole = wrap(word("1", "1", "5", "9", "ok"));
+      expect(parseBboxWords(whole)).toHaveLength(1);
+      for (const cut of [whole.indexOf("</page>"), whole.indexOf("</doc>"), whole.indexOf("</body>"), whole.length - 8]) {
+        expect(parseBboxWords(whole.slice(0, cut))).toEqual([]);
+      }
+    });
+  });
+
+  describe("parseBboxWords, entities", () => {
     it("reads the words with their boxes and decodes the markup", () => {
       const words = parseBboxWords(
         bboxMarkup([box("DWG.", 10, 20), box("A&B", 50, 20), box("<TYP>", 90, 20), { text: "Né", xMin: 1, yMin: 2, xMax: 3, yMax: 4 }]),

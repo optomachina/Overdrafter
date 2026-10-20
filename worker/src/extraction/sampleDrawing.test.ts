@@ -47,7 +47,8 @@ import { describe, expect, it, beforeAll } from "vitest";
 import { pdfTextOf, stretchColumns } from "../../test-support/titleBlockSheet";
 import type { DrawingExtractionPayload, JobFileRecord, PartRecord } from "../types";
 import { runHybridExtraction } from "./hybridExtraction";
-import { extractPdfText, type PdfTextExtraction } from "./pdfDrawing";
+import { extractPdfText, inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
+import { readTitleBlockCells } from "./titleBlockCells";
 import { buildStoredExtractionPayload, summarizeExtractionOutcome } from "./sharedResult";
 
 const FIXTURE = path.resolve(__dirname, "../../../test-fixtures/quoted-sample/1093-05589-02.pdf");
@@ -57,8 +58,16 @@ const TRUTH = {
   partNumber: "1093-05589",
   revision: "02",
   material: "6061 Alloy",
+  finish: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
   tightestLinearToleranceInch: 0.005,
 } as const;
+
+const TRUTH_FIELDS = {
+  partNumber: TRUTH.partNumber,
+  revision: TRUTH.revision,
+  material: TRUTH.material,
+  finish: TRUTH.finish,
+};
 
 function hasBinary(name: string, args: string[]): boolean {
   try {
@@ -232,6 +241,50 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.finish.raw).toBe(extraction.finish.raw);
     expect(result.reviewFields).toEqual([]);
     expect(result.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+  });
+
+  // Without word boxes (a failed or skipped -bbox pass) the reader has only pdftotext's layout text, and a fine
+  // pitch spreads the words of one value apart as cells are: "ANODIZE," and "CLASS 2" are tens of columns from the
+  // rest. Whatever the pitch, a value is either the whole of what the drawing prints or it is flagged (F9).
+  describe("laid out at other pitches, as layout text only (pdftotext -fixed)", () => {
+    const layoutAt = (pitch: number) =>
+      execFileSync("pdftotext", ["-layout", "-fixed", String(pitch), "-enc", "UTF-8", FIXTURE, "-"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const same = (left: string | null, right: string) => left !== null && left.toUpperCase() === right.toUpperCase();
+
+    it.each([0.8, 1, 1.2, 1.5, 1.8, 2, 2.5, 3])("never reports a wrong field without a review flag at -fixed %s", (pitch) => {
+      const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: pdfTextOf(layoutAt(pitch)) });
+      const truth: Record<"partNumber" | "revision" | "material" | "finish", string> = TRUTH_FIELDS;
+      for (const field of Object.keys(truth) as Array<keyof typeof truth>) {
+        const signal = signals[field];
+        expect(signal.reviewNeeded || same(signal.value, truth[field]), `${field} read as ${signal.value} at -fixed ${pitch}`).toBe(true);
+      }
+    });
+
+    it.each([0.8, 1, 1.2, 1.5, 1.8, 2, 2.5, 3, 4, 4.4, 5, 6, 8])("never reads part of a value from the cells at -fixed %s", (pitch) => {
+      const lines = layoutAt(pitch).split("\n").map((raw, index) => ({ page: 1, lineNumber: index + 1, raw }));
+      for (const read of readTitleBlockCells(lines)) {
+        if (read.status === "value") {
+          expect(
+            [TRUTH.partNumber, TRUTH.revision, TRUTH.material, TRUTH.finish].some((value) => same(read.value, value)),
+            `${read.field} cell read ${read.value} at -fixed ${pitch}`,
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("flags the finish and the material, not truncates them, at the pitches that cut them (-fixed 1.5 and 1)", () => {
+      const at = (pitch: number) => readTitleBlockCells(layoutAt(pitch).split("\n").map((raw, index) => ({ page: 1, lineNumber: index + 1, raw })));
+      expect(at(1.5).find((read) => read.field === "finish")).toMatchObject({ status: expect.stringMatching(/ambiguous|rejected/), value: null });
+      expect(at(1).find((read) => read.field === "material")).toMatchObject({ status: "ambiguous", value: null });
+    });
+
+    it("reads every cell whole at the default pitch of the page", () => {
+      const reads = readTitleBlockCells((pdfText?.pages[0].text ?? "").split("\n").map((raw, index) => ({ page: 1, lineNumber: index + 1, raw })));
+      const value = (field: string) => reads.find((read) => read.field === field && read.status === "value")?.value;
+      expect(value("partNumber")).toBe(TRUTH.partNumber);
+      expect(value("material")).toBe(TRUTH.material);
+      expect(value("finish")).toBe(TRUTH.finish);
+    });
   });
 
   it("reads the title block without a review flag on the identity fields, material or finish", () => {
