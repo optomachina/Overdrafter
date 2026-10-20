@@ -82,12 +82,14 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 10. A re-run starts from step 8 with the same `REVIEWED_HEAD`, not step 4: after an update-branch the local branch is behind its remote, so step 4's push would be rejected. A re-run reads the head afresh from GitHub and pins it only if it is `REVIEWED_HEAD` or a proven, diff-unchanged update of it, so an update an earlier run sent is verified before any merge. A PR that already merged stops at the precondition check (exit 2) instead of verifying a head against itself, so check a merged PR's head by hand against the SHA the earlier run pinned.
 11. `python3 .codex/skills/land/land_watch.py` is an optional read-only status view. It does not merge and does not replace step 8. It never reports mergeable for behind, closed, draft or conflicted PRs.
 
-12. After merge, report:
+12. Read the merge back. `MERGED` is PR state, not proof. After exit 0, the helper's last line is `land: merged and verified: head <pin> landed as <squash sha>`. Pass that `<squash sha>`, and pass `REVIEWED_HEAD` as `<verified head sha>`, because the plan binds the head its verdict names. A pin that the helper brought up to date has an unchanged `diff_id`, so the rebased read-back checks it against `REVIEWED_HEAD`. Run `git fetch origin main`, then run `node scripts/merge-readback.mjs readback --repo . --main origin/main --merge-sha <squash sha> --verified-head <verified head sha> --log <stack tsv> --plan <plan json> --pr "$PR_NUMBER" --prior <latest digest json> --digest-out <digest json>` as described in [the merge plan procedure](../../../docs/recurring-workflows.md#release-bot-merge-plan-and-decision-log). Only this plan-bound form counts as proof; `readback` without `--log` is a diagnostic. Whatever the exit code, record the digest the command wrote to `--digest-out` (it is written on a pass and on a `tree_match=false` stop) in the merge-plan comment before doing anything else, and use that recorded digest as `--prior` on the next `plan`, `readback`, `readback-run`, or `stop-ack` for this log. A refusal writes no digest and appends nothing, so the previous recorded digest stays current. If it exits non-zero (`tree_match=false`, including `verified-base-not-ancestor-of-head`, `bottom-base-differs-from-merge-base`, or `lower-merge-not-ancestor-of-parent`, or a refusal because the PR is not in the plan at that SHA, `plan.json` does not match the log's `plan-land` or `plan-digest` row, the log no longer matches the latest saved digest, or an earlier stop is unacknowledged), stop, flag it to Grok Bot, and do not auto-revert. Merge the next PR in the stack only after this read-back passes.
+13. After merge and read-back, report:
    - PR URL
    - merge method
+   - merge SHA and read-back result
    - final status
-13. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge.
-14. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
+14. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge and the read-back passes.
+15. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
 
 ## Guardrails
 
