@@ -82,12 +82,14 @@ done
 ```
 
    - If required checks fail, the PR closes without merging, or the bounded wait expires, stop and report the blocker.
-12. After merge, report:
+12. Read the merge back. `MERGED` is PR state, not proof. Run `git fetch origin main`, then run `node scripts/merge-readback.mjs readback --repo . --main origin/main --merge-sha <squash sha> --verified-head <verified head sha> --log <stack tsv> --plan <plan json> --pr "$PR_NUMBER" --prior <latest digest json> --digest-out <digest json>` as described in [the merge plan procedure](../../../docs/recurring-workflows.md#release-bot-merge-plan-and-decision-log). Only this plan-bound form counts as proof; `readback` without `--log` is a diagnostic. Whatever the exit code, record the digest the command wrote to `--digest-out` (it is written on a pass and on a `tree_match=false` stop) in the merge-plan comment before doing anything else, and use that recorded digest as `--prior` on the next `plan`, `readback`, `readback-run`, or `stop-ack` for this log. A refusal writes no digest and appends nothing, so the previous recorded digest stays current. If it exits non-zero (`tree_match=false`, including `verified-base-not-ancestor-of-head`, `bottom-base-differs-from-merge-base`, or `lower-merge-not-ancestor-of-parent`, or a refusal because the PR is not in the plan at that SHA, `plan.json` does not match the log's `plan-land` or `plan-digest` row, the log no longer matches the latest saved digest, or an earlier stop is unacknowledged), stop, flag it to Grok Bot, and do not auto-revert. Merge the next PR in the stack only after this read-back passes.
+13. After merge and read-back, report:
    - PR URL
    - merge method
+   - merge SHA and read-back result
    - final status
-13. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge.
-14. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
+14. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge and the read-back passes.
+15. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
 
 ## Guardrails
 
