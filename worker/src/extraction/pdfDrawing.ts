@@ -669,7 +669,12 @@ const DECIMAL_NUMBER = /[.,]\d+/g;
 // What a line that holds only dimensions is made of: "20X R.425", ".656 THRU    2X    .089 THRU", "A1, A2".
 // The number is \d+(?:\.\d*)? and not \d+\.?\d*: with the optional dot between them, a long digit run followed by
 // anything that is not a digit can be split between the two \d+ groups in as many ways as it has digits.
-const DIMENSION_TOKEN = /^(?:\d{1,3}X)?[RCØ∅⌀]?(?:\d+(?:\.\d*)?|\.\d+)?$/i;
+const DIMENSION_PREFIX = /^(?:\d{1,3}X)?[RCØ∅⌀]?/i;
+const DIMENSION_NUMBER = /^(?:\d+(?:\.\d*)?|\.\d+)?$/;
+// A token is a count ("2X"), a radius, diameter or chamfer sign, and a number, each optional. The prefix is taken first
+// and the rest must be a number or nothing: the optional prefix and the number never compete for the same characters,
+// so there is nothing to backtrack over.
+const isDimensionToken = (token: string) => DIMENSION_NUMBER.test(token.replace(DIMENSION_PREFIX, ""));
 const CALLOUT_WORDS = new Set([
   "THRU", "ALL", "TYP", "TYPICAL", "DIA", "DIAMETER", "DEEP", "DP", "REF", "MAX", "MIN", "SQ", "SQUARE", "PLACES",
   "PL", "EQ", "SP", "SPACES", "BSC", "BASIC", "CSK", "CBORE", "X",
@@ -698,7 +703,7 @@ function isDimensionOnlyLine(line: string) {
   return (
     tokens.length > 0 &&
     tokens.every(
-      (token) => DIMENSION_TOKEN.test(token) || CALLOUT_WORDS.has(token.toUpperCase()) || HOLE_TAG_OR_BORDER_LETTER.test(token),
+      (token) => isDimensionToken(token) || CALLOUT_WORDS.has(token.toUpperCase()) || HOLE_TAG_OR_BORDER_LETTER.test(token),
     )
   );
 }

@@ -173,8 +173,8 @@ const LABEL_SPECS: readonly LabelSpec[] = [
 // A label is a whole word: a letter, digit or hyphen on either side means the text is something else
 // ("ENG-1234" and "REV-B" are values, not the labels ENG and REV).
 // One capture group per spec, so the index of the group that matched names the spec.
-const NOT_AFTER_LABEL_CHARACTER = String.raw`(?<![A-Za-z0-9-])`;
-const NOT_BEFORE_LABEL_CHARACTER = String.raw`(?![A-Za-z0-9-])`;
+const NOT_AFTER_LABEL_CHARACTER = "(?<![A-Za-z0-9-])";
+const NOT_BEFORE_LABEL_CHARACTER = "(?![A-Za-z0-9-])";
 const LABEL_ALTERNATION = LABEL_SPECS.map((spec) => `(${spec.source}:?)`).join("|");
 const LABEL_PATTERN = new RegExp(`${NOT_AFTER_LABEL_CHARACTER}(?:${LABEL_ALTERNATION})${NOT_BEFORE_LABEL_CHARACTER}`, "gi");
 // The same alternation, used to test whether a whole value is only labels.
@@ -684,7 +684,8 @@ const POINTER_AT_START = new RegExp(
   String.raw`^(?:SEE\b|REFER\b|REF\.?\s|AS\s+(?:NOTED|SPECIFIED|SHOWN|REQUIRED|STATED)\b|PER\s+(?:THE\s+)?(?:NOTES?|DWGS?|DRAWINGS?|BOM|PRINTS?|CUSTOMER)\b|PER\s+(?:THE\s+)?SPEC(?:S|IFICATIONS?)?\b(?!${SPEC_DESIGNATOR_FOLLOWS}))`,
   "i",
 );
-const POINTER_ANYWHERE = /\b(?:SEE|REFER\s+TO)\s+(?:NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW)\b/i;
+const POINTER_TARGETS = "NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW";
+const POINTER_ANYWHERE = new RegExp(String.raw`\b(?:SEE|REFER\s+TO)\s+(?:${POINTER_TARGETS})\b`, "i");
 // A value that ends in a separator, an open bracket or a word that is always followed by more.
 const DANGLING_END = /(?:[,;:\-–([/]|\b(?:CLASS|TYPE|GRADE|COND(?:ITION)?|PER|AND|OR|TO|OF|WITH|NO\.?))\s*$/i;
 
@@ -789,13 +790,50 @@ function joinContiguousRuns(runs: Run[]): Run[] {
 /** A run left of this many columns past its label's left edge is left aligned under the label. */
 const ALIGNED_UNDER_LABEL = 4;
 
+type ValueLine = { line: number; runs: Run[] };
+
+/**
+ * Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the runs the
+ * cell owns but the value did not take may be the rest of the value, and so may text that no cell owns on the
+ * value's line, a little after it (material and finish). Word boxes give true positions and leave no such doubt;
+ * text that is left over there is another cell's.
+ */
+function leavesTextUnconsumed(
+  field: CellField,
+  owned: readonly Run[],
+  chosen: readonly ValueLine[],
+  leftoverByLine: ReadonlyMap<number, Run[]>,
+): boolean {
+  const taken = new Set<Run>();
+  for (const entry of chosen) {
+    for (const run of entry.runs) {
+      taken.add(run);
+    }
+  }
+  if (owned.some((run) => !run.fromWords && !taken.has(run) && alphanumericCount(run.text) >= 2)) {
+    return true;
+  }
+  return (field === "material" || field === "finish") && chosen.some((entry) => hasTrailingLeftover(entry, leftoverByLine));
+}
+
+/** Layout text only: text that no cell owns follows the value on its line within LAYOUT_TRAILING_WINDOW columns. */
+function hasTrailingLeftover(entry: ValueLine, leftoverByLine: ReadonlyMap<number, Run[]>): boolean {
+  if (!entry.runs.every((run) => !run.fromWords)) {
+    return false;
+  }
+  const end = Math.max(...entry.runs.map((run) => run.end));
+  return (leftoverByLine.get(entry.line) ?? []).some(
+    (run) => run.start >= end - 1 && run.start - end <= LAYOUT_TRAILING_WINDOW && alphanumericCount(run.text) >= 2,
+  );
+}
+
 /**
  * The lines that make up a cell's value: the first line the cell owns, and each line after it that continues it
  * (under it, overlapping its columns, within MAX_LINE_GAP lines).
  */
-function chooseValueLines(byLine: ReadonlyMap<number, Run[]>): Array<{ line: number; runs: Run[] }> {
+function chooseValueLines(byLine: ReadonlyMap<number, Run[]>): ValueLine[] {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
-  const chosen: Array<{ line: number; runs: Run[] }> = [];
+  const chosen: ValueLine[] = [];
   for (const line of lines) {
     const lineRuns = byLine.get(line) ?? [];
     const previous = chosen.at(-1);
@@ -848,15 +886,6 @@ function readOne(
     valueLines,
   });
 
-  const byLine = new Map<number, Run[]>();
-  for (const run of owned) {
-    const lineRuns = byLine.get(run.line);
-    if (lineRuns === undefined) {
-      byLine.set(run.line, [run]);
-    } else {
-      lineRuns.push(run);
-    }
-  }
   // The text on the label's own line is another cell's label, with its own value (under it) or its own
   // colon: the field has no value of its own to read, and nothing is taken from the neighbouring cell.
   if (fenced) {
@@ -867,7 +896,7 @@ function readOne(
   if (doubt !== null) {
     return empty("ambiguous", doubt);
   }
-  const chosen = chooseValueLines(byLine);
+  const chosen = chooseValueLines(groupByLine(owned));
   if (chosen.length === 0) {
     return empty("empty", "no_value");
   }
@@ -884,31 +913,8 @@ function readOne(
     // is not one clean value, so none is taken.
     return empty("ambiguous", "multiple_values", valueLines);
   }
-  // Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the
-  // runs the cell owns but the value did not take may be the rest of the value. Word boxes give true
-  // positions and leave no such doubt; text that is left over there is another cell's.
-  const taken = new Set<Run>();
-  for (const entry of chosen) {
-    for (const run of entry.runs) {
-      taken.add(run);
-    }
-  }
-  if (owned.some((run) => !run.fromWords && !taken.has(run) && alphanumericCount(run.text) >= 2)) {
+  if (leavesTextUnconsumed(label.field, owned, chosen, leftoverByLine)) {
     return empty("ambiguous", "unconsumed_text", valueLines);
-  }
-  if (label.field === "material" || label.field === "finish") {
-    for (const entry of chosen) {
-      const end = Math.max(...entry.runs.map((run) => run.end));
-      const layoutLine = entry.runs.every((run) => !run.fromWords);
-      if (
-        layoutLine &&
-        (leftoverByLine.get(entry.line) ?? []).some(
-          (run) => run.start >= end - 1 && run.start - end <= LAYOUT_TRAILING_WINDOW && alphanumericCount(run.text) >= 2,
-        )
-      ) {
-        return empty("ambiguous", "unconsumed_text", valueLines);
-      }
-    }
   }
 
   const value = normalizeWhitespace(chosen.map((entry) => entry.runs.map((run) => run.text).join(" ")).join(" "));
@@ -921,9 +927,10 @@ function readOne(
 
 /**
  * Whether the text that follows a label on its own line is the label of another cell rather than the label's
- * value: it ends in a colon, or it has text of its own continuing underneath it, left aligned with it, that
- * is taller (word boxes: a 6 pt label over a 9 pt value), that starts after a blank line (layout text), or
- * that sits under a short run of letters only (layout text: "HEAT TREAT" over "RC 40-45").
+ * value: it holds a colon, or starts with a word that heads another cell (NEIGHBOUR_CELL_LABELS), or it has text
+ * of its own continuing underneath it, left aligned with it, that is taller (word boxes: a 6 pt label over a
+ * 9 pt value), that starts after a blank line (layout text), or that sits under a short run of letters only
+ * (layout text: "LOT CODE" over "RC 40-45").
  * A wrapped value is not that: its second line follows directly and has the same size ("ANODIZE, BLACK, ..."
  * over "CLASS 2"). The field is then empty and flagged, and the label's neighbour keeps its own text.
  */
