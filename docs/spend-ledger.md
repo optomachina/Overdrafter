@@ -165,9 +165,11 @@ pr/issue/agent, source and pool; stderr reports skipped unvalued lines. Without
 weekly JSON. Export removes model/tokens/subscription metadata.
 Every exported line also carries `exportUnvaluedRecords`, the integer count of
 excluded unvalued records, and `exportComplete`, true only when that count is zero.
-No header or trailer is emitted. When all records are unvalued, output is empty
-and the CLI exits 3 with `No valued records to export; N unvalued` on stderr.
-An empty ledger still exits 0 with empty output.
+No header or trailer is emitted. When all records are unvalued, nothing is
+written (stdout stays empty and `--out` creates or changes no file, so an empty
+file can never be read as a $0 export) and the CLI exits 3 with
+`No valued records to export; N unvalued` on stderr. An empty ledger still exits
+0 with empty output.
 
 Both gh and git are resolved only from `/usr/bin`, `/bin`, `/usr/local/bin`, and
 `/opt/homebrew/bin`. Their environment contains only PATH set to `/usr/bin:/bin`

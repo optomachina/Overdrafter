@@ -223,9 +223,15 @@ describe("export completeness and executable resolution", () => {
     expect(result.err).toContain("No valued records to export; 1 unvalued");
     const out = path.join(dir, "empty.jsonl");
     expect(invoke([...args, "--out", out]).code).toBe(3);
-    expect(fs.readFileSync(out, "utf8")).toBe("");
+    // Exit 3 must not leave an empty file that a consumer ignoring the exit code could read as $0.
+    expect(fs.existsSync(out)).toBe(false);
+    fs.writeFileSync(out, "previous export\n");
+    expect(invoke([...args, "--out", out]).code).toBe(3);
+    expect(fs.readFileSync(out, "utf8")).toBe("previous export\n");
     fs.writeFileSync(ledger, "");
     expect(invoke(args)).toMatchObject({ code: 0, out: "" });
+    expect(invoke([...args, "--out", out]).code).toBe(0);
+    expect(fs.readFileSync(out, "utf8")).toBe("");
   }));
   it("resolves only absolute standard executable paths or null", () => {
     for (const name of ["git", "gh"]) {

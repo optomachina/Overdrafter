@@ -36,6 +36,123 @@ const allowed = {
   weekly: ["ledger", "from", "to", "prs-json", "repo", "attribution", "min-sample", "generated-at", "format"],
   "export-evals": ["ledger", "out"],
 };
+const REPEATABLE = ["input", "ledger"];
+const isFlag = (value) => typeof value === "string" && value.startsWith("--");
+const readText = (file) => fs.readFileSync(file, "utf8");
+function readJSON(file) {
+  try { return JSON.parse(readText(file)); } catch (error) {
+    if (error instanceof SyntaxError) throw new UsageError(`${file}:1: invalid JSON`);
+    throw error;
+  }
+}
+function writeAtomic(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const directory = fs.mkdtempSync(`${file}.`);
+  const temporary = path.join(directory, "pending");
+  try {
+    fs.writeFileSync(temporary, content, { flag: "wx", mode: 0o600 });
+    fs.renameSync(temporary, file);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+function loadLedgers(files, missingOK = false) {
+  return files.flatMap((file) => (missingOK && !fs.existsSync(file) ? [] : parseLines(readText(file), file, validateLedger)));
+}
+function optionKey(command, token) {
+  const key = token.slice(2);
+  if (!token.startsWith("--") || !allowed[command].includes(key)) throw new UsageError("unknown argument");
+  return key;
+}
+/** Collect `--key value` pairs into arrays; only input and ledger may repeat. */
+function parseOptions(command, rest) {
+  const options = {};
+  for (let i = 0; i < rest.length; i++) {
+    const key = optionKey(command, rest[i]);
+    const value = key === "dry-run" ? true : rest[++i];
+    if (value === undefined || isFlag(value)) throw new UsageError(`--${key} needs a value`);
+    if (options[key] && !REPEATABLE.includes(key)) throw new UsageError(`duplicate --${key}`);
+    options[key] = [...(options[key] ?? []), value];
+  }
+  return options;
+}
+function findRepoRoot(deps, cwd) {
+  if (deps.repoRoot) return deps.repoRoot;
+  try {
+    const git = (deps.resolveBin ?? resolveBin)("git");
+    if (!git) throw new Error("git unavailable");
+    return (deps.execFile ?? execFileSync)(git, ["rev-parse", "--show-toplevel"], { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch { return fileURLToPath(new URL("../", import.meta.url)); }
+}
+function runCollect({ options, one, ledgerFiles, resolve, stdout }) {
+  if (!options.input?.length || ledgerFiles.length !== 1) throw new UsageError("collect requires --input and one ledger");
+  const incoming = options.input.flatMap((file) => {
+    const seen = new Set();
+    return parseLines(readText(resolve(file)), file, (record, location) => {
+      const row = usageToLedger(record, location);
+      const key = ledgerKey(row);
+      if (seen.has(key)) throw new UsageError(`${location}: duplicate ledger key`);
+      seen.add(key);
+      return row;
+    });
+  });
+  const merged = mergeLedger(loadLedgers(ledgerFiles, true), incoming);
+  if (!one("dry-run")) writeAtomic(ledgerFiles[0], jsonl(merged));
+  stdout.write(`${JSON.stringify({ records: merged.length, valued: merged.filter((r) => r.usd !== null).length, unvalued: merged.filter((r) => r.usd === null).length, dryRun: !!one("dry-run") })}\n`);
+  return 0;
+}
+function runExportEvals({ one, ledgerFiles, resolve, stdout, stderr }) {
+  const rows = mergeLedger([], loadLedgers(ledgerFiles));
+  const exported = exportEvals(rows);
+  const unvalued = rows.filter((r) => r.usd === null).length;
+  // An all-unvalued ledger exports nothing: write no file either, so an empty
+  // output can never be read later as a $0 export by a consumer that ignores the exit code.
+  const allUnvalued = !exported.length && unvalued > 0;
+  if (!allUnvalued) {
+    const output = jsonl(exported);
+    if (one("out")) writeAtomic(resolve(one("out")), output); else stdout.write(output);
+  }
+  stderr.write(`Skipped ${unvalued} unvalued lines\n`);
+  if (allUnvalued) {
+    stderr.write(`No valued records to export; ${unvalued} unvalued\n`);
+    return 3;
+  }
+  return 0;
+}
+/** Read-only gh call: absolute binary from a fixed directory and a minimal environment. */
+function execGh(deps, cwd, argv) {
+  const gh = (deps.resolveBin ?? resolveBin)("gh");
+  if (!gh) throw new UsageError("gh was not found in standard locations; use --prs-json");
+  return (deps.execFile ?? execFileSync)(gh, argv, { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+/** Merged PRs for the window from --prs-json, or from a read-only `gh pr list`. */
+function fetchMergedPRs({ one, resolve, cwd, deps }) {
+  if (one("prs-json")) return readJSON(resolve(one("prs-json")));
+  const ghArgs = ["pr", "list", ...(one("repo") ? ["--repo", one("repo")] : []), "--state", "merged", "--base", "main", "--search", `merged:${one("from")}..${one("to")}`, "--limit", "1000", "--json", "number,title,mergedAt,labels,headRefName,body,author"];
+  const response = (deps.runGh ?? ((argv) => execGh(deps, cwd, argv)))(ghArgs);
+  let prs;
+  try { prs = typeof response === "string" || Buffer.isBuffer(response) ? JSON.parse(String(response)) : response; }
+  catch { throw new Error("gh returned invalid JSON"); }
+  if (Array.isArray(prs) && prs.length >= 1000) throw new Error("gh result reached 1000; use --prs-json to avoid truncation");
+  return prs;
+}
+function runWeekly(context) {
+  const { one, ledgerFiles, resolve, stdout } = context;
+  if (!one("from") || !one("to")) throw new UsageError("weekly requires --from and --to");
+  if (one("prs-json") && one("repo")) throw new UsageError("choose --prs-json or --repo");
+  if (one("format") && !["json", "md"].includes(one("format"))) throw new UsageError("invalid format");
+  const rows = loadLedgers(ledgerFiles);
+  const attribution = one("attribution") ? parseAttribution(readJSON(resolve(one("attribution")))) : {};
+  const reportOptions = { ledger: rows, prs: [], from: one("from"), to: one("to"), attribution,
+    minSample: one("min-sample") === undefined ? 5 : Number(one("min-sample")), generatedAt: one("generated-at") };
+  // Validate before invoking gh, including search dates.
+  weeklyReport(reportOptions);
+  const prs = fetchMergedPRs(context);
+  const report = weeklyReport({ ...reportOptions, prs, sources: { ledgerFiles: ledgerFiles.length, ledgerLines: rows.length, prSource: one("prs-json") ? "prs-json" : "gh", attributionLoaded: !!one("attribution") } });
+  stdout.write(one("format") === "md" ? markdownReport(report) : `${JSON.stringify(report, null, 2)}\n`);
+  return 0;
+}
+const COMMANDS = { collect: runCollect, "export-evals": runExportEvals, weekly: runWeekly };
 /** Execute with injected streams, paths and gh runner. No network needed in tests. */
 export function main(args, deps = {}) {
   const stdout = deps.stdout ?? process.stdout;
@@ -45,103 +162,11 @@ export function main(args, deps = {}) {
     if (args.includes("--help")) { stdout.write(HELP); return 0; }
     const [command, ...rest] = args;
     if (!allowed[command]) throw new UsageError("expected collect, weekly or export-evals");
-    const options = {};
-    for (let i = 0; i < rest.length; i++) {
-      const key = rest[i].slice(2);
-      if (!rest[i].startsWith("--") || !allowed[command].includes(key)) throw new UsageError("unknown argument");
-      const value = key === "dry-run" ? true : rest[++i];
-      if (value === undefined || (typeof value === "string" && value.startsWith("--"))) throw new UsageError(`--${key} needs a value`);
-      if (options[key] && !["input", "ledger"].includes(key)) throw new UsageError(`duplicate --${key}`);
-      options[key] = [...(options[key] ?? []), value];
-    }
-    const one = (key) => options[key]?.[0];
-    let repoRoot = deps.repoRoot;
-    if (!repoRoot) {
-      try {
-        const git = (deps.resolveBin ?? resolveBin)("git");
-        if (!git) throw new Error("git unavailable");
-        repoRoot = (deps.execFile ?? execFileSync)(git, ["rev-parse", "--show-toplevel"], { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-      }
-      catch { repoRoot = fileURLToPath(new URL("../", import.meta.url)); }
-    }
+    const options = parseOptions(command, rest);
+    const repoRoot = findRepoRoot(deps, cwd);
     const resolve = (file) => path.resolve(cwd, file);
     const ledgerFiles = (options.ledger ?? [path.join(repoRoot, "evals/spend-ledger/ledger.jsonl")]).map(resolve);
-    const read = (file) => fs.readFileSync(file, "utf8");
-    const readJSON = (file) => {
-      try { return JSON.parse(read(file)); } catch (error) {
-        if (error instanceof SyntaxError) throw new UsageError(`${file}:1: invalid JSON`);
-        throw error;
-      }
-    };
-    const load = (missingOK = false) => ledgerFiles.flatMap((file) => {
-      if (missingOK && !fs.existsSync(file)) return [];
-      return parseLines(read(file), file, validateLedger);
-    });
-    const writeAtomic = (file, content) => {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const directory = fs.mkdtempSync(`${file}.`);
-      const temporary = path.join(directory, "pending");
-      try {
-        fs.writeFileSync(temporary, content, { flag: "wx", mode: 0o600 });
-        fs.renameSync(temporary, file);
-      } finally {
-        fs.rmSync(directory, { recursive: true, force: true });
-      }
-    };
-    if (command === "collect") {
-      if (!options.input?.length || ledgerFiles.length !== 1) throw new UsageError("collect requires --input and one ledger");
-      const incoming = options.input.flatMap((file) => {
-        const seen = new Set();
-        return parseLines(read(resolve(file)), file, (record, location) => {
-          const row = usageToLedger(record, location);
-          const key = ledgerKey(row);
-          if (seen.has(key)) throw new UsageError(`${location}: duplicate ledger key`);
-          seen.add(key);
-          return row;
-        });
-      });
-      const merged = mergeLedger(load(true), incoming);
-      if (!one("dry-run")) writeAtomic(ledgerFiles[0], jsonl(merged));
-      stdout.write(`${JSON.stringify({ records: merged.length, valued: merged.filter((r) => r.usd !== null).length, unvalued: merged.filter((r) => r.usd === null).length, dryRun: !!one("dry-run") })}\n`);
-    } else if (command === "export-evals") {
-      const rows = mergeLedger([], load());
-      const exported = exportEvals(rows);
-      const output = jsonl(exported);
-      const unvalued = rows.filter((r) => r.usd === null).length;
-      if (one("out")) writeAtomic(resolve(one("out")), output); else stdout.write(output);
-      stderr.write(`Skipped ${unvalued} unvalued lines\n`);
-      if (!exported.length && unvalued > 0) {
-        stderr.write(`No valued records to export; ${unvalued} unvalued\n`);
-        return 3;
-      }
-    } else {
-      if (!one("from") || !one("to")) throw new UsageError("weekly requires --from and --to");
-      if (one("prs-json") && one("repo")) throw new UsageError("choose --prs-json or --repo");
-      if (one("format") && !["json", "md"].includes(one("format"))) throw new UsageError("invalid format");
-      const rows = load();
-      const attribution = one("attribution") ? parseAttribution(readJSON(resolve(one("attribution")))) : {};
-      const reportOptions = { ledger: rows, prs: [], from: one("from"), to: one("to"), attribution,
-        minSample: one("min-sample") === undefined ? 5 : Number(one("min-sample")), generatedAt: one("generated-at") };
-      // Validate before invoking gh, including search dates.
-      weeklyReport(reportOptions);
-      let prs;
-      if (one("prs-json")) prs = readJSON(resolve(one("prs-json")));
-      else {
-        const ghArgs = ["pr", "list", ...(one("repo") ? ["--repo", one("repo")] : []), "--state", "merged", "--base", "main", "--search", `merged:${one("from")}..${one("to")}`, "--limit", "1000", "--json", "number,title,mergedAt,labels,headRefName,body,author"];
-        const runGh = deps.runGh ?? ((argv) => {
-          const gh = (deps.resolveBin ?? resolveBin)("gh");
-          if (!gh) throw new UsageError("gh was not found in standard locations; use --prs-json");
-          return (deps.execFile ?? execFileSync)(gh, argv, { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-        });
-        const response = runGh(ghArgs);
-        try { prs = typeof response === "string" || Buffer.isBuffer(response) ? JSON.parse(String(response)) : response; }
-        catch { throw new Error("gh returned invalid JSON"); }
-        if (Array.isArray(prs) && prs.length >= 1000) throw new Error("gh result reached 1000; use --prs-json to avoid truncation");
-      }
-      const report = weeklyReport({ ...reportOptions, prs, sources: { ledgerFiles: ledgerFiles.length, ledgerLines: rows.length, prSource: one("prs-json") ? "prs-json" : "gh", attributionLoaded: !!one("attribution") } });
-      stdout.write(one("format") === "md" ? markdownReport(report) : `${JSON.stringify(report, null, 2)}\n`);
-    }
-    return 0;
+    return COMMANDS[command]({ options, one: (key) => options[key]?.[0], ledgerFiles, resolve, cwd, deps, stdout, stderr });
   } catch (error) {
     // Do not echo file contents or gh stderr (which may contain credentials).
     stderr.write(`${error instanceof UsageError ? error.message : "File or gh operation failed"}\n`);

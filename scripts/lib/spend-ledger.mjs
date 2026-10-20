@@ -18,14 +18,16 @@ export function validDate(value) {
 const nextDay = (day, n = 1) => new Date(Date.parse(day) + n * 86400000).toISOString().slice(0, 10);
 const short = (v) => v.slice(0, 64);
 const zonedTimestamp = (v) => typeof v === "string" && v.includes("T") && (v.endsWith("Z") || /[+-]\d\d:\d\d$/.test(v)) && Number.isFinite(Date.parse(v));
-/** Validate usage and whitelist fields into the canonical ledger shape. */
-export function usageToLedger(record, location = "input:1") {
-  const check = (condition, message) => { if (!condition) fail(`${location}: ${message}`); };
+const checker = (location) => (condition, message) => { if (!condition) fail(`${location}: ${message}`); };
+function checkUsageShape(record, check) {
   check(object(record), "expected object");
   check(record.schema === "token-watcher-usage.v1", "bad schema");
   check(POOLS.includes(record.pool), "bad pool");
   check(validDate(record.period), "bad period date");
   check(typeof record.source === "string" && record.source.trim().length > 0, "source required");
+}
+/** Validate that at most one valuation input is present and well formed. */
+function checkValuationInputs(record, check) {
   const dollars = present(record.dollars), share = present(record.subscriptionShare);
   check(!(dollars && share), "dollars and subscriptionShare are mutually exclusive");
   if (dollars) check(money(record.dollars), "invalid dollars");
@@ -34,15 +36,30 @@ export function usageToLedger(record, location = "input:1") {
     check(money(record.subscriptionUsd) && record.subscriptionUsd > 0, "subscriptionUsd required and positive");
     check(Number.isFinite(record.subscriptionShare * record.subscriptionUsd), "nonfinite valuation");
   }
-  const tokens = record.tokens ?? null;
+  return { dollars, share };
+}
+function checkOptionalFields(record, tokens, check) {
   check(tokens === null || integer(tokens) || (object(tokens) && Object.values(tokens).every(integer)), "invalid tokens");
   if (present(record.pr)) check(integer(record.pr) && record.pr > 0, "invalid pr");
   if (present(record.issue)) check(typeof record.issue === "string" && /^OVD-\d+$/.test(record.issue), "invalid issue");
   for (const key of ["bot", "model"]) if (present(record[key])) check(typeof record[key] === "string", `invalid ${key}`);
+}
+/** Dollars are metered, a subscription share is priced at share x plan, anything else is unvalued (never 0). */
+function valuate(record, dollars, share) {
+  if (dollars) return { usd: record.dollars, valuation: "metered" };
+  if (share) return { usd: record.subscriptionShare * record.subscriptionUsd, valuation: "subscription-share" };
+  return { usd: null, valuation: "unvalued" };
+}
+/** Validate usage and whitelist fields into the canonical ledger shape. */
+export function usageToLedger(record, location = "input:1") {
+  const check = checker(location);
+  checkUsageShape(record, check);
+  const { dollars, share } = checkValuationInputs(record, check);
+  const tokens = record.tokens ?? null;
+  checkOptionalFields(record, tokens, check);
   const result = {
     schema: "spend-ledger.v1", ts: `${record.period}T00:00:00Z`, period: record.period, pool: record.pool,
-    usd: dollars ? record.dollars : share ? record.subscriptionShare * record.subscriptionUsd : null,
-    valuation: dollars ? "metered" : share ? "subscription-share" : "unvalued",
+    ...valuate(record, dollars, share),
     ...(share ? { subscriptionShare: record.subscriptionShare, subscriptionUsd: record.subscriptionUsd } : {}),
     tokens: object(tokens) ? Object.fromEntries(Object.entries(tokens).sort(([a], [b]) => compare(a, b))) : tokens, source: short(record.source),
   };
@@ -74,7 +91,10 @@ export function uniqueUsage(rows, location = "input:1") {
   }
   return rows;
 }
-const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const compare = (a, b) => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
 /** Canonical merge: later records replace earlier records. */
 export function mergeLedger(existing, incoming) {
   const map = new Map();
@@ -138,6 +158,10 @@ function metrics(usd, count, minSample, partial = false) {
   if (partial) flags.push("partial");
   return { usdPerMergedPR: ratio(usd, count), status: flags[0] ?? "ok", flags };
 }
+function coverageOf(own, valued, valuedDays, dayCount) {
+  if (!own.length) return "missing";
+  return valuedDays.size === dayCount && valued.length === own.length ? "complete" : "partial";
+}
 /** Compute weekly and whole-window results using only the supplied records. */
 export function weeklyReport({ ledger, prs, from, to, attribution = {}, minSample = 5, generatedAt = `${to}T23:59:59Z`, sources = {} }) {
   if (!validDate(from) || !validDate(to) || from > to) fail("invalid from/to window");
@@ -167,7 +191,7 @@ export function weeklyReport({ ledger, prs, from, to, attribution = {}, minSampl
       const own = records.filter((r) => r.pool === pool);
       const valued = own.filter((r) => r.usd !== null);
       const data = new Set(own.map((r) => r.period)), valuedDays = new Set(valued.map((r) => r.period));
-      const coverage = !own.length ? "missing" : valuedDays.size === days.length && valued.length === own.length ? "complete" : "partial";
+      const coverage = coverageOf(own, valued, valuedDays, days.length);
       const usd = valued.length ? valued.reduce((sum, r) => sum + r.usd, 0) : null;
       const mergedPRs = merges.filter((pr) => pr.pool === pool).length;
       const result = metrics(usd, mergedPRs, minSample, coverage === "partial");
@@ -224,16 +248,22 @@ export function exportEvals(rows) {
     return result;
   });
 }
+const spend = (usd) => usd === null ? "unknown" : `$${usd.toFixed(2)}`;
+/** Cost per merged PR as text: unknown spend and no merges are never shown as $0. */
+function costLabel(usd, mergedPRs, lowerBound, perPR) {
+  if (usd === null) return "unknown";
+  if (!mergedPRs) return "n/a (no merges)";
+  return lowerBound ? `≥ ${spend(perPR)} (partial)` : spend(perPR);
+}
 /** Human view; JSON remains the Evaluator contract. */
 export function markdownReport(report) {
-  const spend = (usd) => usd === null ? "unknown" : `$${usd.toFixed(2)}`;
   const sections = report.weeks.map((week) => {
     const lines = week.pools.map((p) => {
-      const cost = p.usd === null ? "unknown" : !p.mergedPRs ? "n/a (no merges)" : p.lowerBound ? `≥ ${spend(p.usdPerMergedPR)} (partial)` : spend(p.usdPerMergedPR);
+      const cost = costLabel(p.usd, p.mergedPRs, p.lowerBound, p.usdPerMergedPR);
       return `| ${p.pool} | ${spend(p.usd)} | ${p.mergedPRs} | ${cost} | ${p.status} | ${p.coverage} |`;
     });
     const o = week.overall;
-    const overallCost = o.totalUsd === null ? "unknown" : !o.mergedPRs ? "n/a (no merges)" : o.lowerBound ? `≥ ${spend(o.usdPerMergedPR)} (partial)` : spend(o.usdPerMergedPR);
+    const overallCost = costLabel(o.totalUsd, o.mergedPRs, o.lowerBound, o.usdPerMergedPR);
     const gaps = [...o.missingPools.map((p) => `${p} missing`), ...o.partialPools.map((p) => `${p} partial`)].join(", ") || "complete";
     lines.push(`| **all pools** | ${spend(o.totalUsd)} | ${o.mergedPRs} (${o.unattributedPRs} unattributed) | ${overallCost} | ${o.flags.join(", ") || "ok"} | ${gaps} |`);
     return `## ${week.week}\n\n| Pool | Spend | Merged PRs | $/merged PR | Status | Coverage |\n| --- | --- | --- | --- | --- | --- |\n${lines.join("\n")}`;
