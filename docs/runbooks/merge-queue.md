@@ -397,3 +397,25 @@ JSON
 3. Update the second branch; confirm `ci` and `provider-go-live` rerun on the
    new head, then merge it.
 4. Close any throwaway PR and delete its branch.
+
+## Readiness report before requiring a check (OVD-921, report only)
+
+From a clean `origin/main` worktree, inspect the local workflow and recent PR
+head reporting before requesting approval to require a check:
+
+```bash
+node scripts/required-check-readiness.mjs --check proof-check --workflow .github/workflows/proof-check.yml --heads 20 --dry-run-merged 20 --json
+```
+
+The JSON reports workflow shape, exact check name/app coverage and optional
+merged-PR replay. `--job` is the job id in the workflow and defaults to the
+check name; that job's `name:` must equal the `--check` name. `--repo` defaults
+to `optomachina/Overdrafter`. A trusted local `--evaluator` module may export a
+synchronous `evaluate(pr)` returning `{ applicable, block, reason }`. Without
+one, replay entries say `no evaluator on main`; they never count as passes.
+Only run evaluator code reviewed on main.
+
+This tool reads GitHub data and changes no settings. It exits 0 by default even
+when not ready or reads fail (2 for usage errors). The standalone opt-in
+`--exit-nonzero-when-not-ready` returns 1 for not-ready reports; no CI or gate
+invokes it. This report does not implement `ovd-merge-gate` (OVD-845).
