@@ -58,3 +58,6 @@ worker/#
 
 # verify-overdrafter skill evidence
 /artifacts/verify-overdrafter/
+
+# Jev decisions log (now written outside the repo)
+/docs/agent-log/jev-decisions.jsonl

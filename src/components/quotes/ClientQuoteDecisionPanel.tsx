@@ -17,6 +17,8 @@ const ClientQuoteComparisonChart = lazy(() =>
     default: m.ClientQuoteComparisonChart,
   })),
 );
+import { ProviderNotes } from "@/components/quotes/ProviderNotes";
+import { isQuoteProviderNotesEnabled } from "@/lib/quote-provider-notes-flag";
 import { QuoteStatsBar } from "@/components/quotes/QuoteStatsBar";
 import { VendorPurchasingLinkButton } from "@/components/quotes/VendorPurchasingLinkButton";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
@@ -290,6 +292,7 @@ function SelectedOptionSummary({
           value={`${collectedRecently ? "Recently collected" : "Previously collected"} · ${validityLabel}`}
         />
       </dl>
+      {isQuoteProviderNotesEnabled() ? <ProviderNotes notes={option.providerNotes} /> : null}
       <details className="mt-3 border-t border-border pt-2">
         <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
           Response source facts
