@@ -25,10 +25,10 @@
  * it takes a schema-only pg_dump, applies that family's drafts, re-applies only
  * drafts whose header declares `-- ovd: idempotent`, runs the family's pending
  * pgTAP, applies the rollbacks newest first twice (the second pass must succeed),
- * and requires an empty DM-1R diff against the first dump. A family with no
- * rollback files is reported as rollback "none" and does not fail the run.
+ * and requires an empty DM-1R diff against the baseline after each pass. A family
+ * with no rollback files fails the run.
  * Pending tests tagged `-- ovd: post-rollback` in their leading comments run
- * after each rollback pass; the second run follows the DM-1R dump/diff.
+ * after each rollback pass, following its DM-1R dump/diff.
  * The ovd849.ephemeral-db.v1 report records their aggregate status in
  * families[].rollback.postRollbackPgtap (pass, fail, or skipped).
  * Every family runs and is reported (dm1r, replay, reapply, pgtap) even after
@@ -255,7 +255,7 @@ export function rollbacksNewestFirst(drafts, rollbackFiles) {
   const stems = new Set(drafts.map((path) => draftStem(path)));
   return rollbackFiles
     .filter((path) => stems.has(rollbackStem(path)))
-    .sort((left, right) => (rollbackStem(left) < rollbackStem(right) ? 1 : rollbackStem(left) > rollbackStem(right) ? -1 : 0));
+    .sort((left, right) => compareStrings(rollbackStem(right), rollbackStem(left)));
 }
 
 /** True when the leading comment block declares `-- ovd: idempotent` on its own line. */
@@ -307,7 +307,7 @@ function dumpSchema({ exec, psql, dbUrl, root }) {
 
 function familyRollbackOk(family) {
   const rollback = family?.rollback;
-  if (rollback == null || rollback === "none" || rollback === "not-run") return true;
+  if (rollback == null) return false;
   return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped") && rollback.pgtap !== "fail" && rollback.postRollbackPgtap !== "fail";
 }
 
@@ -319,7 +319,7 @@ function recordRollbackError(rollback, message) {
   rollback.errors.push(message);
 }
 
-function replayFamily(family, applyFile, rollback, afterFirstPass) {
+function replayFamily(family, applyFile, rollback, afterPass) {
   for (const pass of [1, 2]) {
     const rolled = applyInOrder(family.rollbacks, applyFile);
     if (rolled.failed) {
@@ -327,7 +327,7 @@ function replayFamily(family, applyFile, rollback, afterFirstPass) {
       recordRollbackError(rollback, `family ${family.id}: rollback replay failed on pass ${pass} (${rolled.failed.file}): ${rolled.failed.error}`);
       return;
     }
-    if (pass === 1) afterFirstPass();
+    afterPass(pass);
   }
   rollback.replay = "pass";
 }
@@ -353,25 +353,29 @@ function checkFamilyPending({ root, family, workDir, exec, project, rollback }) 
   return { ...tap, files: expectedFiles };
 }
 
-function checkFamilyDiff(options, before, rollback) {
-  if (rollback.replay !== "pass") return;
+function checkFamilyDiff(options, before, rollback, pass) {
   const after = dumpSchema(options);
+  const alreadyFailed = rollback.dm1r === "fail";
   rollback.dm1r = "fail";
   if (!after.ok) {
-    recordRollbackError(rollback, `family ${options.family.id}: post-rollback pg_dump failed: ${after.error}`);
+    recordRollbackError(rollback, `family ${options.family.id}: post-rollback pg_dump after pass ${pass} failed: ${after.error}`);
     return;
   }
   const diff = schemaDiff(before.text, after.text);
-  if (diff) recordRollbackError(rollback, `family ${options.family.id}: ${diff}`);
-  else rollback.dm1r = "pass";
+  if (diff) recordRollbackError(rollback, `family ${options.family.id}: pass ${pass}: ${diff}`);
+  else if (!alreadyFailed) rollback.dm1r = "pass";
 }
 
 function rollbackOneFamily(options) {
   const { family, applyFile, log = () => {} } = options;
-  if (family.rollbacks.length === 0) return { result: { ...family, rollback: "none" }, applied: [] };
   log(`rollback family ${family.id}`);
   const rollback = skippedRollback();
   const outcome = { result: { ...family, rollback }, applied: [] };
+  if (family.rollbacks.length === 0) {
+    rollback.dm1r = "fail";
+    recordRollbackError(rollback, `family ${family.id}: no rollback file`);
+    return outcome;
+  }
   const before = dumpSchema(options);
   if (!before.ok) {
     rollback.dm1r = "fail";
@@ -398,18 +402,19 @@ function rollbackOneFamily(options) {
     if (rollback.postRollbackPgtap !== "fail") rollback.postRollbackPgtap = tap.status;
     if (tap.status !== "pass") recordRollbackError(rollback, `family ${family.id}: post-rollback pgTAP after pass ${pass} failed: ${tap.error ?? "unknown"}`);
   };
-  replayFamily(family, applyFile, rollback, () => postRollbackTests(1));
-  checkFamilyDiff(options, before, rollback);
-  if (rollback.replay === "pass") postRollbackTests(2);
+  replayFamily(family, applyFile, rollback, (pass) => {
+    checkFamilyDiff(options, before, rollback, pass);
+    postRollbackTests(pass);
+  });
   return outcome;
 }
 
 /**
  * Proves every resolved family against its own pre-draft schema baseline:
  * dump, apply, re-apply idempotent drafts, pending pgTAP, rollbacks newest-first
- * twice, dump, empty DM-1R diff. A failing family does not stop the loop; later
- * families carry `afterFailedFamily` because their baseline may hold leftovers.
- * Families with no rollback files are `rollback: "none"`.
+ * twice with a dump and empty DM-1R diff after each pass. A failing family does
+ * not stop the loop; later families carry `afterFailedFamily` because their baseline may hold leftovers.
+ * Families with no rollback files fail DM-1R.
  */
 export function runFamilyRollbacks(options) {
   const applied = [];
@@ -466,9 +471,13 @@ export function applyInOrder(files, applyFile) {
  * New migrations run with --single-transaction, as the migration runner wraps
  * each file in one transaction. A statement that cannot run in a transaction
  * block (`create index concurrently`) therefore fails here; the report adds a
- * distinct warning for it (see transactionBlockWarning). Drafts run without it,
- * as the ovdNNN-pending-pgtap.yml workflows apply them, so drafts carrying their
- * own begin/commit behave the same in both places.
+ * distinct warning for it (see transactionBlockWarning). The rollback stage
+ * applies drafts, idempotent re-applies and rollbacks the same way, as the
+ * ovd707 workflow and the ovd797/829/831 DM-1R steps did and as each rollback
+ * file documents (`psql ... --single-transaction`); a draft that only works
+ * outside one transaction would otherwise pass the stage and fail when promoted.
+ * A draft carrying its own begin/commit only makes psql warn. The apply stage
+ * still applies drafts without it, as the ovdNNN-pending-pgtap.yml apply steps do.
  */
 export function psqlCommand({ psql, root, dbUrl, file, singleTransaction = true }) {
   const args = ["-v", "ON_ERROR_STOP=1", "-X", "-q", ...(singleTransaction ? ["--single-transaction"] : [])];
@@ -536,14 +545,14 @@ export function emptyReport({ mode, base, head, checkerSource = "unknown", stage
 
 /** "pass" only when every phase that ran passed and nothing stopped early. */
 export function decideResult(report) {
-  const familiesOk = (report.families ?? []).every(familyRollbackOk);
   const rollbackStage = report.stage === "rollback";
+  const familiesOk = (report.families ?? []).every((family) =>
+    (!rollbackStage && family.rollback === "not-run") || familyRollbackOk(family));
   const policyOk = rollbackStage
     ? report.policyTests.status === "pass" || report.policyTests.status === "skipped"
     : report.policyTests.status === "pass";
-  // The rollback stage runs pending pgTAP only for families that have rollback
-  // files. A family reported "none" still has selected tests from the apply
-  // path; skipping them here must not fail the stage.
+  // Missing rollbacks fail through familiesOk. Families with no pending tests
+  // may skip pgTAP, but must still prove schema restoration and replay.
   const pendingOk = rollbackStage
     ? report.pendingTests.status !== "fail"
     : report.pendingTests.status === "pass" || (report.pendingTests.status === "skipped" && report.pendingTests.selected.length === 0);
@@ -557,6 +566,63 @@ export function decideResult(report) {
   return ok ? "pass" : "fail";
 }
 
+function gitRunner(exec, root) {
+  return (...args) => {
+    const result = exec("git", args, { cwd: root });
+    if (result.error || result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${errorExcerpt(result)}`);
+    return result.stdout ?? "";
+  };
+}
+
+function recordChangeWarnings({ warn, checkerSource, changes, families, baseFilenames }) {
+  if (checkerSource === "head") warn("checker scripts came from the PR head, not the base; this run does not prove an unmodified gate");
+  for (const path of changes.modifiedMigrations) warn(`${path} edits a migration already on the base; production will not re-run it`);
+  for (const path of changes.deletedMigrations) warn(`${path} deletes a migration already on the base`);
+  for (const path of findOutOfOrder(changes.migrations, baseFilenames)) warn(`${path} is not newer than the latest base migration`);
+  for (const path of changes.invalidMigrations) warn(`${path} is not a valid migration filename and was not applied`);
+  for (const { file, reason } of families.excluded) warn(`${file} was not applied: ${reason}`);
+}
+
+/**
+ * Unpacks the base tree into a scratch project directory and starts the local
+ * database from it, so only the base migrations are applied. Returns the project
+ * directory and the start failure excerpt (null when the start succeeded).
+ */
+function startBaseDatabase({ git, exec, root, workDir, log, base }) {
+  const project = join(workDir, "base-project");
+  mkdirSync(project, { recursive: true });
+  git("archive", "--format=tar", `--output=${join(workDir, "base.tar")}`, base, "supabase");
+  const untar = exec("tar", ["-xf", join(workDir, "base.tar"), "-C", project], { cwd: root });
+  if (untar.error || untar.status !== 0) throw new Error(`extracting the base tree failed: ${errorExcerpt(untar)}`);
+  if (existsSync(join(project, "supabase/.temp/project-ref"))) throw new Error("base tree carries a linked project ref; refusing to start");
+  log(`starting the local database from the base tree (${project})`);
+  const start = exec("supabase", ["db", "start", "--workdir", project], { cwd: root });
+  return { project, startFailure: start.error || start.status !== 0 ? errorExcerpt(start) : null };
+}
+
+/** Apply stage after the migrations: policy pgTAP, then the families' drafts and their pending pgTAP. */
+function runApplyStage({ report, root, families, exec, project, workDir, applyFile, pendingTests, log }) {
+  log("running policy pgTAP");
+  try {
+    const receipt = stagePolicyTests(join(root, "supabase/tests"), join(workDir, "policy-tests"));
+    report.policyTests = { ...runPgTap({ exec, root, project, dir: join(workDir, "policy-tests"), expectedFiles: receipt.selectedSql.length }), staged: receipt.selectedSql.length };
+  } catch (error) {
+    report.policyTests = { status: "fail", error: error.message };
+  }
+
+  report.drafts = { ...report.drafts, ...applyInOrder(families.drafts, applyFile) };
+  if (report.drafts.failed) {
+    report.pendingTests = pendingTests(skippedTests(`draft ${report.drafts.failed.file} failed`));
+  } else if (families.pendingTests.length === 0) {
+    report.pendingTests = pendingTests(skippedTests("no pending tests in the touched draft families"));
+  } else {
+    log("running the draft families' pending pgTAP");
+    const dir = join(workDir, "pending-tests");
+    const expectedFiles = stagePendingTests(root, families.pendingTests, dir);
+    report.pendingTests = pendingTests(runPgTap({ exec, root, project, dir, expectedFiles }));
+  }
+}
+
 /**
  * Runs the whole flow with an injected `exec(cmd, args, { cwd }) -> { status, stdout, stderr }`.
  * Returns the report; never throws for a database or test failure.
@@ -565,11 +631,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   const report = emptyReport({ mode, base, head, checkerSource, stage: rollback ? "rollback" : "apply" });
   assertAllowedTarget(report.target);
   assertLocalDatabaseUrl(dbUrl);
-  const git = (...args) => {
-    const result = exec("git", args, { cwd: root });
-    if (result.error || result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${errorExcerpt(result)}`);
-    return result.stdout ?? "";
-  };
+  const git = gitRunner(exec, root);
 
   const changes = selectChanges(parseNameStatus(git("diff", "--name-status", "--no-renames", base, head)), paths);
   const families = resolveDraftFamilies({ touched: [...changes.touchedDrafts, ...changes.touchedPendingTests], ...readDraftInventory(root, paths) });
@@ -587,12 +649,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   const pendingTests = (result) => ({ touched: changes.touchedPendingTests, selected: families.pendingTests, ...result });
   report.pendingTests = pendingTests(skippedTests("not run"));
   const warn = (message) => { report.warnings.push(message); log(`warning: ${message}`); };
-  if (checkerSource === "head") warn("checker scripts came from the PR head, not the base; this run does not prove an unmodified gate");
-  for (const path of changes.modifiedMigrations) warn(`${path} edits a migration already on the base; production will not re-run it`);
-  for (const path of changes.deletedMigrations) warn(`${path} deletes a migration already on the base`);
-  for (const path of findOutOfOrder(changes.migrations, baseFilenames)) warn(`${path} is not newer than the latest base migration`);
-  for (const path of changes.invalidMigrations) warn(`${path} is not a valid migration filename and was not applied`);
-  for (const { file, reason } of families.excluded) warn(`${file} was not applied: ${reason}`);
+  recordChangeWarnings({ warn, checkerSource, changes, families, baseFilenames });
   const usedPaths = [...changes.migrations, ...families.drafts, ...families.pendingTests];
   if (rollback) usedPaths.push(...familyRecords.flatMap((family) => family.rollbacks));
   const unsafePaths = findUnsafePaths(usedPaths);
@@ -607,16 +664,9 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   }
 
   // Base tree in a scratch project directory: db start applies only the base migrations.
-  const project = join(workDir, "base-project");
-  mkdirSync(project, { recursive: true });
-  git("archive", "--format=tar", `--output=${join(workDir, "base.tar")}`, base, "supabase");
-  const untar = exec("tar", ["-xf", join(workDir, "base.tar"), "-C", project], { cwd: root });
-  if (untar.error || untar.status !== 0) throw new Error(`extracting the base tree failed: ${errorExcerpt(untar)}`);
-  if (existsSync(join(project, "supabase/.temp/project-ref"))) throw new Error("base tree carries a linked project ref; refusing to start");
-  log(`starting the local database from the base tree (${project})`);
-  const start = exec("supabase", ["db", "start", "--workdir", project], { cwd: root });
-  if (start.error || start.status !== 0) {
-    report.baseline = { ...report.baseline, status: "fail", error: errorExcerpt(start) };
+  const { project, startFailure } = startBaseDatabase({ git, exec, root, workDir, log, base });
+  if (startFailure) {
+    report.baseline = { ...report.baseline, status: "fail", error: startFailure };
     return { ...report, result: "fail" };
   }
   report.baseline.status = "pass";
@@ -647,7 +697,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
       workDir,
       project,
       log,
-      applyFile: applyWith(false),
+      applyFile: applyWith(true),
     });
     report.families = outcome.families;
     report.drafts = { ...report.drafts, applied: outcome.applied, failed: outcome.draftFailed, skipped: outcome.skipped };
@@ -655,25 +705,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
     return { ...report, result: decideResult(report) };
   }
 
-  log("running policy pgTAP");
-  try {
-    const receipt = stagePolicyTests(join(root, "supabase/tests"), join(workDir, "policy-tests"));
-    report.policyTests = { ...runPgTap({ exec, root, project, dir: join(workDir, "policy-tests"), expectedFiles: receipt.selectedSql.length }), staged: receipt.selectedSql.length };
-  } catch (error) {
-    report.policyTests = { status: "fail", error: error.message };
-  }
-
-  report.drafts = { ...report.drafts, ...applyInOrder(families.drafts, applyWith(false)) };
-  if (report.drafts.failed) {
-    report.pendingTests = pendingTests(skippedTests(`draft ${report.drafts.failed.file} failed`));
-  } else if (families.pendingTests.length === 0) {
-    report.pendingTests = pendingTests(skippedTests("no pending tests in the touched draft families"));
-  } else {
-    log("running the draft families' pending pgTAP");
-    const dir = join(workDir, "pending-tests");
-    const expectedFiles = stagePendingTests(root, families.pendingTests, dir);
-    report.pendingTests = pendingTests(runPgTap({ exec, root, project, dir, expectedFiles }));
-  }
+  runApplyStage({ report, root, families, exec, project, workDir, applyFile: applyWith(false), pendingTests, log });
   return { ...report, result: decideResult(report) };
 }
 
@@ -729,30 +761,39 @@ function spawnExec(cmd, args, { cwd }) {
   return spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 64_000_000, timeout: 19 * 60_000 });
 }
 
+/** A run that threw before it could build a report becomes an "error" report. */
+function runGuarded(options, mode, workDir) {
+  try {
+    return runEphemeralDb({ ...options, mode, exec: spawnExec, workDir, log: (line) => console.log(`[ephemeral-db] ${line}`) });
+  } catch (error) {
+    return {
+      ...emptyReport({ mode, base: options.base, head: options.head, checkerSource: options.checkerSource, stage: options.rollback ? "rollback" : "apply" }),
+      result: "error",
+      error: error.message,
+    };
+  }
+}
+
+/** GitHub Actions error annotations for the failures a reader should see first. */
+function printAnnotations(report) {
+  if (report.migrations.failed) console.log(`::error file=${report.migrations.failed.file}::migration failed in the ephemeral database`);
+  for (const family of report.families ?? []) {
+    if (family.rollback?.error) console.log(`::error::${family.rollback.error.split("\n")[0]}`);
+  }
+  if (report.error) console.log(`::error::ephemeral-db: ${report.error}`);
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const mode = options.enforce ? "enforce" : "report";
   // The workflow passes --work-dir so its stop step can find <work-dir>/base-project.
   const workDir = options.workDir ? resolve(options.workDir) : mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), "ephemeral-db-"));
   mkdirSync(workDir, { recursive: true });
-  let report;
-  try {
-    report = runEphemeralDb({ ...options, mode, exec: spawnExec, workDir, log: (line) => console.log(`[ephemeral-db] ${line}`) });
-  } catch (error) {
-    report = {
-      ...emptyReport({ mode, base: options.base, head: options.head, checkerSource: options.checkerSource, stage: options.rollback ? "rollback" : "apply" }),
-      result: "error",
-      error: error.message,
-    };
-  }
+  const report = runGuarded(options, mode, workDir);
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (options.report) writeFileSync(options.report, json);
   console.log(json);
-  if (report.migrations.failed) console.log(`::error file=${report.migrations.failed.file}::migration failed in the ephemeral database`);
-  for (const family of report.families ?? []) {
-    if (family.rollback?.error) console.log(`::error::${family.rollback.error.split("\n")[0]}`);
-  }
-  if (report.error) console.log(`::error::ephemeral-db: ${report.error}`);
+  printAnnotations(report);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, renderSummary(report));
   const passed = report.result === "pass" || report.result === "planned";
   const blocks = options.enforce || options.rollback;

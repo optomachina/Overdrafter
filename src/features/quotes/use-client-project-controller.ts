@@ -1558,7 +1558,7 @@ export function useClientProjectController() {
                   primaryServiceKind: requestIntake.primaryServiceKind,
                   serviceNotes: requestIntake.serviceNotes,
                   requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-                  requestedByDate: requestIntake.requestedByDate,
+                  // OVD-992: a parsed need-by date is a display filter only, never saved on the job.
                 });
               })(),
             ],

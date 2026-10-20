@@ -79,7 +79,7 @@ export function workflowRunsEndpoint(repo, day) {
 }
 
 export function runJobsEndpoint(repo, runId) {
-  return `repos/${repo}/actions/runs/${runId}/jobs?per_page=100`;
+  return `repos/${repo}/actions/runs/${runId}/jobs?per_page=100&filter=all`;
 }
 
 /** `gh api` GET. No `--method`, so the call stays read-only. */
@@ -89,6 +89,13 @@ export function ghApiArgs(endpoint, jq) {
 
 function emptyBucket(number) {
   return { number, runs: 0, jobs: 0, minutes: 0 };
+}
+
+/** Code-unit order, so the workflow table sorts the same on every machine. */
+function compareText(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 /**
@@ -118,11 +125,10 @@ export function attributeUsage(runs, jobsByRunId) {
     flow.minutes += minutes;
     workflows.set(name, flow);
   }
-  const byName = (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
   return {
     pullRequests: [...byPr.values()].sort((left, right) => left.number - right.number),
     unattributed: { runs: unattributed.runs, jobs: unattributed.jobs, minutes: unattributed.minutes },
-    workflows: [...workflows.values()].sort(byName),
+    workflows: [...workflows.values()].sort((left, right) => compareText(left.name, right.name)),
   };
 }
 
@@ -178,33 +184,55 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withRateLimitRetry(label, fn) {
-  let lastError;
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      const stderr = typeof error?.stderr === "string" ? error.stderr : error?.stderr?.toString?.() ?? "";
-      const message = `${stderr}\n${error?.message ?? error}`;
-      if (attempt === 5 || !/rate limit|HTTP 403|HTTP 429|secondary rate/i.test(message)) break;
-      await sleep(attempt * 2000);
-    }
+const MAX_ATTEMPTS = 5;
+const RATE_LIMIT_PATTERN = /rate limit|HTTP 403|HTTP 429|secondary rate/i;
+
+function isRateLimited(error) {
+  const stderr = typeof error?.stderr === "string" ? error.stderr : error?.stderr?.toString?.() ?? "";
+  return RATE_LIMIT_PATTERN.test(`${stderr}\n${error?.message ?? error}`);
+}
+
+/**
+ * Runs `fn`, pausing and retrying a rate-limited call up to MAX_ATTEMPTS times.
+ * Any other failure, and the last rate-limited one, throws at once. The retry
+ * recurses instead of looping, so each pause is awaited outside a loop.
+ */
+export async function withRateLimitRetry(label, fn, { pause = sleep, attempt = 1 } = {}) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (attempt >= MAX_ATTEMPTS || !isRateLimited(error)) throw new Error(`${label} failed: ${error?.stderr || error?.message || error}`);
+    await pause(attempt * 2000);
+    return withRateLimitRetry(label, fn, { pause, attempt: attempt + 1 });
   }
-  throw new Error(`${label} failed: ${lastError?.stderr || lastError?.message || lastError}`);
+}
+
+/**
+ * Runs `worker` on every item with at most `limit` calls in flight. A lane takes
+ * the next item when its last call settles, so `limit` 1 keeps the input order.
+ * The lane recurses instead of looping, so each call is awaited outside a loop.
+ */
+export async function forEachLimited(items, limit, worker) {
+  const queue = [...items];
+  const lane = async () => {
+    if (queue.length === 0) return;
+    await worker(queue.shift());
+    await lane();
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, lane));
 }
 
 export async function fetchUsage({ repo, since, until }) {
   const runs = [];
   const seen = new Set();
-  for (const day of eachDay(since, until)) {
+  const fetchDay = async (day) => {
     const endpoint = workflowRunsEndpoint(repo, day);
     const head = JSON.parse(await withRateLimitRetry(`runs ${day}`, () => ghText(["api", endpoint])));
     const total = head.total_count ?? 0;
     if (total > 1000) throw new Error(`day ${day} has ${total} workflow runs, above the 1000-run API cap`);
     if (total === 0) {
       console.error(`runs ${day}: 0`);
-      continue;
+      return;
     }
     const page = await withRateLimitRetry(`runs ${day} page`, () => ghText(ghApiArgs(endpoint, RUN_JQ)).then(parseJsonLines));
     console.error(`runs ${day}: ${page.length} of ${total}`);
@@ -213,20 +241,17 @@ export async function fetchUsage({ repo, since, until }) {
       seen.add(run.id);
       runs.push(run);
     }
-  }
+  };
+  // One day at a time, oldest first, so the run list keeps the window's order.
+  await forEachLimited(eachDay(since, until), 1, fetchDay);
   const jobsByRunId = new Map();
-  const queue = [...runs];
   let finished = 0;
-  const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
-    while (queue.length) {
-      const run = queue.shift();
-      const jobs = await withRateLimitRetry(`jobs ${run.id}`, () => ghText(ghApiArgs(runJobsEndpoint(repo, run.id), JOB_JQ)).then(parseJsonLines));
-      jobsByRunId.set(run.id, jobs);
-      finished += 1;
-      if (finished % 50 === 0 || finished === runs.length) console.error(`jobs ${finished}/${runs.length}`);
-    }
+  await forEachLimited(runs, 4, async (run) => {
+    const jobs = await withRateLimitRetry(`jobs ${run.id}`, () => ghText(ghApiArgs(runJobsEndpoint(repo, run.id), JOB_JQ)).then(parseJsonLines));
+    jobsByRunId.set(run.id, jobs);
+    finished += 1;
+    if (finished % 50 === 0 || finished === runs.length) console.error(`jobs ${finished}/${runs.length}`);
   });
-  await Promise.all(workers);
   return { runs, jobsByRunId };
 }
 
@@ -235,8 +260,9 @@ function parseArgs(argv) {
   const valued = { "--repo": "repo", "--since": "since", "--until": "until", "--out": "out", "--runs-json": "runsJson", "--jobs-json": "jobsJson" };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (valued[arg] && index + 1 < argv.length) options[valued[arg]] = argv[(index += 1)];
-    else throw new Error(`unknown or incomplete argument: ${arg}`);
+    if (!valued[arg] || index + 1 >= argv.length) throw new Error(`unknown or incomplete argument: ${arg}`);
+    index += 1;
+    options[valued[arg]] = argv[index];
   }
   if (!options.until) options.until = new Date().toISOString().slice(0, 10);
   if (!options.since) options.since = sevenDayWindow(options.until).since;
@@ -261,8 +287,10 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch((error) => {
+  try {
+    await main();
+  } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  });
+  }
 }
