@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { box, phrase } from "../../test-support/pdfWordBoxes";
-import { layoutSheet, pdfTextOf, type Piece } from "../../test-support/titleBlockSheet";
+import { layoutLine, layoutSheet, pdfTextOf, type Piece } from "../../test-support/titleBlockSheet";
 import { inferDrawingSignalsFromPdf } from "./pdfDrawing";
 import { buildWordLines, type PdfWord } from "./pdfWords";
 import { isLabelLikeToken, readTitleBlockCells, type CellField, type CellRead } from "./titleBlockCells";
@@ -960,6 +960,235 @@ describe("title block cells", () => {
       const sheet = layoutSheet([[0, "MATERIAL"], [12, "STAINLESS STEEL"]], [[0, "FINISH"], [12, "AS MACHINED"]]);
       expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "STAINLESS STEEL" });
       expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+    });
+  });
+
+  // An unlisted cell is as often stacked under MATERIAL or FINISH, in the same columns, as it is printed beside them
+  // (OVD-985, OVD-989). Its label and value are owned by the cell above it, and are neither that cell's value nor a
+  // wrapped line of it: an empty MATERIAL over HEAT TREAT / RC 40-45 has no material, and a material over an empty
+  // HEAT TREAT cell is the material alone. Layout text has no sizes to tell a label from a wrapped line, so it flags.
+  describe("a word that heads another cell, stacked under MATERIAL or FINISH", () => {
+    const STACKED = ["HEAT TREAT", "HEAT TREATMENT", "TREATMENT", "HARDNESS", "COLOR", "COLOUR", "PROCESS", "SPEC", "TEMPER", "CONDITION"];
+    const FLAGGED = { status: "ambiguous", value: null, reason: "unlisted_label" } as const;
+
+    describe("on layout text", () => {
+      it.each(STACKED)("leaves an empty MATERIAL empty and flagged, not '%s RC 40-45'", (word) => {
+        const sheet = layoutSheet([[6, "MATERIAL"]], "", [[6, word]], [[6, "RC 40-45"]], [[6, "FINISH"], [20, "AS MACHINED"]]);
+        expect(cell(sheet, "material")).toMatchObject(FLAGGED);
+        expect(infer(sheet).material).toMatchObject({ value: null, reviewNeeded: true });
+        // The next cell of the stack keeps its own value.
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it.each(STACKED)("leaves an empty FINISH empty and flagged, not '%s N/A'", (word) => {
+        const sheet = layoutSheet([[6, "MATERIAL"]], [[6, "AL 6061-T6"]], [[6, "FINISH"]], "", [[6, word]], [[6, "N/A"]], [[100, "SIZE"]]);
+        expect(cell(sheet, "finish")).toMatchObject(FLAGGED);
+        expect(infer(sheet).finish).toMatchObject({ value: null, reviewNeeded: true });
+        expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      });
+
+      it("leaves an empty FINISH empty and flagged when the stacked word has nothing under it", () => {
+        const sheet = layoutSheet([[6, "MATERIAL"]], [[6, "AL 6061-T6"]], [[6, "FINISH"]], "", [[6, "HEAT TREAT"]], [[100, "SIZE"]]);
+        expect(cell(sheet, "finish")).toMatchObject(FLAGGED);
+      });
+
+      it("never joins the stacked word to a material or finish that has a value, and flags the cell", () => {
+        const material = layoutSheet([[6, "MATERIAL"]], [[6, "AL 6061-T6"]], [[6, "HEAT TREAT"]], "", [[6, "FINISH"], [20, "AS MACHINED"]]);
+        expect(cell(material, "material")).toMatchObject(FLAGGED);
+        expect(infer(material).material).toMatchObject({ value: null, reviewNeeded: true });
+        const finish = layoutSheet([[6, "MATERIAL"], [20, "AL 6061-T6"]], [[6, "FINISH"]], [[6, "AS MACHINED"]], [[6, "HEAT TREAT"]], [[6, "NONE"]], [[100, "SIZE"]]);
+        expect(cell(finish, "finish")).toMatchObject(FLAGGED);
+        expect(infer(finish).finish).toMatchObject({ value: null, reviewNeeded: true });
+        expect(cell(finish, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      });
+
+      it("treats a label that ends in a colon, or has one in its text, as the next cell too", () => {
+        for (const text of ["LOT NO:", "LOT NO: 4412", "HT:", "RC: 40-45"]) {
+          const empty = layoutSheet([[6, "MATERIAL"]], "", [[6, text]], [[6, "FINISH"], [20, "AS MACHINED"]]);
+          expect(cell(empty, "material"), text).toMatchObject(FLAGGED);
+          const filled = layoutSheet([[6, "FINISH"]], [[6, "AS MACHINED"]], [[6, text]], [[100, "SIZE"]]);
+          expect(cell(filled, "finish"), text).toMatchObject(FLAGGED);
+        }
+      });
+
+      it("reads a wrapped line that only starts like such a word, and the text a stacked cell is not", () => {
+        expect(cell(layoutSheet([[6, "MATERIAL"]], [[6, "ALUMINUM 6061"]], [[6, "TEMPERED T6"]]), "material")).toMatchObject({
+          status: "value",
+          value: "ALUMINUM 6061 TEMPERED T6",
+        });
+        expect(cell(layoutSheet([[6, "FINISH"]], [[6, "ANODIZE, BLACK"]], [[6, "CLASS 2"]]), "finish")).toMatchObject({
+          status: "value",
+          value: "ANODIZE, BLACK CLASS 2",
+        });
+      });
+
+      it("does not look under an identifier: a part number and a revision are not fenced this way", () => {
+        const sheet = layoutSheet([[6, "DWG. NO."], [20, "ABC-001"]], [[6, "REV"]], [[6, "A"]], [[100, "SIZE"]]);
+        expect(cell(sheet, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
+      });
+    });
+
+    describe("on word boxes", () => {
+      // The labels are set in 6 pt and the values in 9 pt, as in a title block.
+      const label = (text: string, x: number, y: number) => phrase(text, x, y, 6);
+      const value = (text: string, x: number, y: number) => phrase(text, x, y, 9);
+
+      it("leaves an empty MATERIAL empty and flagged, not 'HEAT TREAT RC 40-45'", () => {
+        const words = [
+          ...label("MATERIAL", 330, 720),
+          ...label("HEAT TREAT", 332, 736),
+          ...value("RC 40-45", 336, 743),
+          ...label("FINISH", 330, 760),
+          ...value("AS MACHINED", 340, 770),
+        ];
+        expect(wordRead(words, "material")).toMatchObject(FLAGGED);
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("leaves an empty FINISH empty and flagged, not 'HEAT TREAT N/A'", () => {
+        const words = [
+          ...label("MATERIAL", 330, 720),
+          ...value("AL 6061-T6", 340, 728),
+          ...label("FINISH", 330, 750),
+          ...label("HEAT TREAT", 332, 766),
+          ...value("N/A", 336, 773),
+        ];
+        expect(wordRead(words, "finish")).toMatchObject(FLAGGED);
+        expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      });
+
+      it("reads a material over a stacked cell that is set smaller than the value, without the cell's label", () => {
+        const words = [
+          ...label("MATERIAL", 330, 720),
+          ...value("AL 6061-T6", 340, 728),
+          ...label("HEAT TREAT", 332, 741),
+          ...label("FINISH", 330, 760),
+          ...value("AS MACHINED", 340, 768),
+        ];
+        expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "AL 6061-T6", valueLines: [2] });
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("reads a value on the label's line over a stacked cell set smaller than it: the cell is not a second value", () => {
+        const words = [...label("MATERIAL", 330, 720), ...value("AL 6061-T6", 362, 720), ...label("HEAT TREAT", 332, 736), ...value("RC 40-45", 336, 743)];
+        expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      });
+
+      it("reads a finish over a stacked cell with its own value, without either", () => {
+        const words = [
+          ...label("MATERIAL", 330, 700),
+          ...value("AL 6061-T6", 340, 708),
+          ...label("FINISH", 330, 730),
+          ...value("AS MACHINED", 340, 738),
+          ...label("HEAT TREAT", 332, 752),
+          ...value("NONE", 336, 760),
+          ...label("SIZE", 600, 700),
+        ];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("stops at a stacked label with a colon, set smaller than the value", () => {
+        const words = [...label("FINISH", 330, 730), ...value("AS MACHINED", 340, 738), ...label("LOT:", 332, 752), ...value("A123", 336, 760)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it.each(["COLOR BLACK", "TEMPER T6", "SPEC MIL-A-8625", "HARDNESS RC 40"])(
+        "does not cut a value short at a wrapped line set as large as the value that starts with %s",
+        (wrapped) => {
+          // The same size as the value above it: a wrapped line of the value, or another cell's label, and which one
+          // it is cannot be told. The cell gives no value, where reading "ANODIZE TYPE II" would drop the rest.
+          const words = [...label("FINISH", 330, 730), ...value("ANODIZE TYPE II", 340, 738), ...value(wrapped, 340, 750)];
+          expect(wordRead(words, "finish")).toMatchObject(FLAGGED);
+        },
+      );
+
+      it("still reads a wrapped line that does not start with such a word", () => {
+        const words = [...label("FINISH", 330, 730), ...value("ANODIZE TYPE II", 340, 738), ...value("CLASS 2 BLACK", 340, 750)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE TYPE II CLASS 2 BLACK" });
+      });
+    });
+  });
+
+  // A wrapped line is read to its end (OVD-989 review): the words after the first one that sits under the line above
+  // continue it along their own line, even when they run past where the line above ends.
+  describe("a wrapped line that is wider than the line above it", () => {
+    const label = (text: string, x: number, y: number) => phrase(text, x, y, 6);
+    const value = (text: string, x: number, y: number) => phrase(text, x, y, 9);
+
+    it("reads 'ANODIZE' over 'MIL-A-8625 TYPE III' whole", () => {
+      const words = [...label("FINISH", 330, 730), ...value("ANODIZE", 340, 738), ...value("MIL-A-8625 TYPE III", 340, 750)];
+      expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE MIL-A-8625 TYPE III", valueLines: [2, 3] });
+    });
+
+    it("reads it whole through the signals, and does not store a cut specification", () => {
+      const words = [...label("FINISH", 330, 730), ...value("ANODIZE", 340, 738), ...value("MIL-A-8625 TYPE III", 340, 750)];
+      const signals = inferDrawingSignalsFromPdf({
+        baseName: "upload",
+        pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", words }] },
+      });
+      expect(signals.finish).toMatchObject({ value: "ANODIZE MIL-A-8625 TYPE III", reviewNeeded: false });
+    });
+
+    it("reads three lines, each wider than the one above", () => {
+      const words = [
+        ...label("FINISH", 330, 730),
+        ...value("BLACK", 340, 738),
+        ...value("ANODIZE TYPE II", 340, 750),
+        ...value("PER MIL-A-8625 CLASS 2", 340, 762),
+      ];
+      expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "BLACK ANODIZE TYPE II PER MIL-A-8625 CLASS 2" });
+    });
+
+    it("gives no value when a word the cell owns is too far along the line to be part of the value", () => {
+      // A wide label ("FINISH/COATING") has a wide cell, so a word far along the line is still in it; the value
+      // has no way to take it, and a value that left it out would be cut short.
+      const words = [...label("FINISH/COATING", 20, 100), ...value("AB", 24, 115), ...value("CD", 90, 115)];
+      expect(wordRead(words, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
+    });
+
+    it("keeps layout text as it was: a run apart from the line above is flagged, not joined", () => {
+      const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], [[2, "MIL-A-8625"], [20, "TYPE III"]]);
+      expect(cell(sheet, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
+    });
+  });
+
+  // The last line of a block is a revision as often as it is a zone marker: "A" under REV is read, and the border's
+  // "1" is not (OVD-985 review). Only the marker row above it says which.
+  describe("a single character on the last line of the block", () => {
+    const MARKER_ROW: Piece[] = [[0, "8"], [20, "7"], [40, "6"], [60, "5"], [80, "4"]];
+
+    it.each([
+      ["directly under REV", layoutSheet([[0, "DWG. NO."], [12, "ABC-001"]], [[0, "REV"]], [[0, "A"]]), "A"],
+      ["under REV after a blank line", layoutSheet([[0, "DWG. NO."], [12, "ABC-001"]], [[0, "REV"]], "", [[0, "A"]]), "A"],
+      ["a digit under REV", layoutSheet([[0, "DWG. NO."], [12, "ABC-001"]], [[0, "REV"]], [[0, "2"]]), "2"],
+    ])("reads the revision %s, whether or not a line follows it", (_name, sheet, value) => {
+      expect(cell(sheet, "revision")).toMatchObject({ status: "value", value });
+      expect(cell(sheet, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
+      expect(cell(`${sheet}\n${layoutLine([60, "SHEET 1 OF 1"])}`, "revision")).toMatchObject({ status: "value", value });
+      expect(infer(sheet).revision).toMatchObject({ value, reviewNeeded: false });
+    });
+
+    it("reads the revision under REV from word boxes when it is the last line", () => {
+      const words = [...phrase("DWG. NO.", 20, 600, 6), ...phrase("ABC-001", 60, 600, 9), ...phrase("REV", 20, 620, 6), ...phrase("A", 20, 632, 9)];
+      expect(wordRead(words, "revision")).toMatchObject({ status: "value", value: "A" });
+      expect(wordRead(words, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
+    });
+
+    it("still drops the border's lone marker when the marker row is the line above it", () => {
+      const sheet = layoutSheet([[0, "DWG. NO."], [12, "ABC-001"], [40, "REV"]], "", MARKER_ROW, [[41, "1"]]);
+      expect(cell(sheet, "revision")).toMatchObject({ status: "empty", value: null });
+      expect(infer(sheet).revision.reviewNeeded).toBe(true);
+    });
+
+    it("drops the lone marker from word boxes too", () => {
+      const words = [
+        ...phrase("DWG. NO.", 20, 600, 6),
+        ...phrase("ABC-001", 60, 600, 9),
+        ...phrase("REV", 300, 600, 6),
+        ...["8", "7", "6", "5", "4", "3", "2"].map((mark, index) => box(mark, 40 + index * 45, 700, 7)),
+        box("1", 302, 712, 7),
+      ];
+      expect(wordRead(words, "revision")).toMatchObject({ status: "empty", value: null });
     });
   });
 

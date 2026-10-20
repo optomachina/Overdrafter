@@ -216,6 +216,113 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     });
   });
 
+  // An unlisted cell is as often stacked under MATERIAL or FINISH as beside it (OVD-985, OVD-989 review). Its label
+  // (6 pt) is not part of the value of the cell above it (9 pt), and when that cell is empty the unlisted cell's label
+  // and value are not its value. Through poppler's own boxes the label is set smaller than the value, so a material
+  // over an empty cell is the material alone; as layout text alone, which has no sizes, the cell is flagged.
+  describe("an unlisted cell stacked under MATERIAL or FINISH", () => {
+    const heatTreatOverRc: PdfTextItem[] = [
+      { x: 332, y: 734, size: 6, text: "HEAT TREAT" },
+      { x: 336, y: 741, size: 9, text: "RC 40-45" },
+    ];
+    const heatTreatAlone: PdfTextItem[] = [{ x: 332, y: 743, size: 6, text: "HEAT TREAT" }];
+    const heatTreatOverNa: PdfTextItem[] = [
+      { x: 332, y: 762, size: 6, text: "HEAT TREAT" },
+      { x: 336, y: 769, size: 9, text: "N/A" },
+    ];
+    const heatTreatOverNone: PdfTextItem[] = [
+      { x: 332, y: 772, size: 6, text: "HEAT TREAT" },
+      { x: 336, y: 780, size: 9, text: "NONE" },
+    ];
+
+    async function layoutOnly(sheet: SyntheticSheetOptions) {
+      const pdfText = await pdfTextOf(syntheticSheet(sheet));
+      for (const page of pdfText.pages) {
+        delete (page as { words?: unknown }).words;
+      }
+      return inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+    }
+
+    it("leaves an empty MATERIAL empty and flagged, not 'HEAT TREAT RC 40-45'", async () => {
+      const { signals } = await read({ material: null, extra: heatTreatOverRc });
+      expect(signals.material).toMatchObject({ value: null, reviewNeeded: true });
+      expect(signals.reviewFields).toContain("material");
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+    });
+
+    it("leaves an empty FINISH empty and flagged, not 'HEAT TREAT N/A'", async () => {
+      const { signals } = await read({ finish: null, extra: heatTreatOverNa });
+      expect(signals.finish).toMatchObject({ value: null, reviewNeeded: true });
+      expect(signals.reviewFields).toContain("finish");
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+    });
+
+    it("reads a MATERIAL that has an empty HEAT TREAT cell under it as the material alone", async () => {
+      const { signals } = await read({ extra: heatTreatAlone });
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+    });
+
+    it("reads a FINISH that has HEAT TREAT and its value under it as the finish alone", async () => {
+      const { signals } = await read({ extra: heatTreatOverNone });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+    });
+
+    it("holds on layout text alone: no sizes, so a cell with the stacked cell under it is flagged, never joined", async () => {
+      const emptyMaterial = await layoutOnly({ material: null, extra: heatTreatOverRc });
+      expect(emptyMaterial.material).toMatchObject({ value: null, reviewNeeded: true });
+      const emptyFinish = await layoutOnly({ finish: null, extra: heatTreatOverNa });
+      expect(emptyFinish.finish).toMatchObject({ value: null, reviewNeeded: true });
+      const filledMaterial = await layoutOnly({ extra: heatTreatAlone });
+      expect(filledMaterial.material.value ?? "").not.toMatch(/HEAT/);
+      expect(filledMaterial.material.value === "AL 6061-T6" || filledMaterial.material.reviewNeeded).toBe(true);
+      const filledFinish = await layoutOnly({ extra: heatTreatOverNone });
+      expect(filledFinish.finish.value ?? "").not.toMatch(/HEAT|NONE/);
+      expect(filledFinish.finish.value === "AS MACHINED" || filledFinish.finish.reviewNeeded).toBe(true);
+    });
+  });
+
+  // A revision is the last text of a block as often as the border's marker is: "A" under REV is read, where the
+  // border's "1" after a row of markers is not (OVD-985 review).
+  describe("a revision that is the last line of the block", () => {
+    const block: PdfTextItem[] = [
+      { x: 700, y: 720, size: 6, text: "DWG. NO." },
+      { x: 760, y: 735, size: 24, text: "ABC-1001" },
+      { x: 900, y: 720, size: 6, text: "REV" },
+    ];
+
+    it("is read under REV from poppler's word boxes, with a 24 pt number beside it", async () => {
+      const pdfText = await pdfTextOf([...block, { x: 900, y: 735, size: 24, text: "A" }]);
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: false });
+    });
+
+    it("is read under REV from layout text alone when the values are set like the labels around them", async () => {
+      const pdfText = await pdfTextOf([
+        { x: 700, y: 720, size: 9, text: "DWG. NO." },
+        { x: 760, y: 735, size: 9, text: "ABC-1001" },
+        { x: 900, y: 720, size: 9, text: "REV" },
+        { x: 900, y: 735, size: 9, text: "A" },
+      ]);
+      for (const page of pdfText.pages) {
+        delete (page as { words?: unknown }).words;
+      }
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: false });
+    });
+
+    it("is not the border's marker: the row of markers and its last marker under an empty REV are dropped", async () => {
+      const markers = ["8", "7", "6", "5", "4", "3", "2"].map((text, index): PdfTextItem => ({ x: 100 + index * 140, y: 790, size: 7, text }));
+      const pdfText = await pdfTextOf([...block, ...markers, { x: 905, y: 800, size: 7, text: "1" }], { height: 820 });
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision.value).not.toBe("1");
+      for (const page of pdfText.pages) {
+        delete (page as { words?: unknown }).words;
+      }
+      const layout = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      expect(layout.revision.value).not.toBe("1");
+      expect(layout.revision.reviewNeeded).toBe(true);
+    });
+  });
+
   describe("another size and a rotated page", () => {
     it.each([0.5, 0.65, 2])("reads the same fields from a sheet drawn at scale %s", async (scale) => {
       const { signals } = await read({ scale }, { width: 1224 * Math.max(1, scale), height: 792 * Math.max(1, scale) });

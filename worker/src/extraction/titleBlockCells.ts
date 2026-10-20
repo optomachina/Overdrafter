@@ -29,7 +29,9 @@
  *     cell of the same stack: FINISH under MATERIAL, SCALE under DWG. NO.). Of the labels that fit, the
  *     nearest on the left wins. A run that fits no label belongs to none and is not read.
  *  4. Words after the first word of a value continue it along the line (no label between, no wide gap);
- *     the line under a value continues it when it overlaps its columns and is still in the label's columns.
+ *     the line under a value continues it when it overlaps its columns and is still in the label's columns,
+ *     and with word boxes the words after the first one that overlaps continue it too, even where they run
+ *     past the end of the line above.
  *  5. Within one line the runs a label owns must be contiguous (gap of at most GAP_JOIN columns); a
  *     farther run belongs to another cell. A second line joins a value only when it sits under the
  *     first and holds more than a single character.
@@ -45,6 +47,11 @@
  * flagged when a cell owns a run its value did not take, when text no cell owns follows a material or finish,
  * when a run of another label's band follows it directly, and for every cell of a page whose own labels are
  * spread apart (`spread` on a Label).
+ *
+ * A material or finish has an unlisted cell stacked under it as often as beside it. A line of its cell that opens
+ * another cell (HEAT TREAT, HARDNESS or any text with a colon) is that cell's label, so where the first line of the
+ * value would be there is none, and under a value it ends the value when it is set smaller than the value (word
+ * boxes) and gives no value when it is not: see chooseValueLines.
  *
  * Every loop is bounded by the caps below, and the work per line is linear in its length.
  *
@@ -755,12 +762,23 @@ function rejectionFor(field: CellField, value: string): string | null {
  */
 const BORDER_MARKER_TAIL_LINES = 3;
 
-/** Only single characters: three or more of them in a row ("5 4 3 2"), or one alone on the last line ("1"). */
-function isBorderMarkerLine(raw: string, isLastLine: boolean) {
+/** The tokens of a line when every one of them is a single character ("5 4 3 2"), else null. */
+function singleCharacterTokens(raw: string): string[] | null {
   const tokens = raw.trim().split(/\s+/);
-  return tokens.every((token) => /^[A-Za-z0-9]$/.test(token)) && (tokens.length >= 3 || (isLastLine && tokens.length === 1));
+  return tokens.every((token) => /^[A-Za-z0-9]$/.test(token)) ? tokens : null;
 }
 
+/** Three or more single characters on a line: a row of the border's zone markers. */
+function isBorderMarkerRow(raw: string) {
+  return (singleCharacterTokens(raw)?.length ?? 0) >= 3;
+}
+
+/**
+ * A row of markers, and the one marker of the row that poppler prints a line lower ("8 7 6 5 4 3 2" over "1").
+ * That lone character is a border marker only because the marker row is the line just above it: a single
+ * character on the last line of a block is also a revision under REV ("DWG. NO. ABC-001", "REV", "A"), and
+ * nothing but the row tells the two apart.
+ */
 function withoutBorderMarkers(lines: readonly TitleBlockTextLine[]): TitleBlockTextLine[] {
   const tail = lines
     .filter((line) => line.raw.trim().length > 0)
@@ -769,7 +787,11 @@ function withoutBorderMarkers(lines: readonly TitleBlockTextLine[]): TitleBlockT
   if (tail.length < 2) {
     return [...lines];
   }
-  const markers = new Set(tail.filter((line, index) => isBorderMarkerLine(line.raw, index === 0)));
+  const markers = new Set(tail.filter((line) => isBorderMarkerRow(line.raw)));
+  const [last, aboveLast] = tail as [TitleBlockTextLine, TitleBlockTextLine];
+  if (markers.has(aboveLast) && singleCharacterTokens(last.raw)?.length === 1) {
+    markers.add(last);
+  }
   return lines.filter((line) => !markers.has(line));
 }
 
@@ -795,8 +817,10 @@ type ValueLine = { line: number; runs: Run[] };
 /**
  * Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the runs the
  * cell owns but the value did not take may be the rest of the value, and so may text that no cell owns on the
- * value's line, a little after it (material and finish). Word boxes give true positions and leave no such doubt;
- * text that is left over there is another cell's.
+ * value's line, a little after it (material and finish). Word boxes give true positions: the text that is left
+ * over there is another cell's, except on a line the value was read from, where a word the cell owns and the
+ * value did not take is the rest of that line ("ANODIZE" over "MIL-A-8625  TYPE III" with a wide gap) and the
+ * value would be cut short.
  */
 function leavesTextUnconsumed(
   field: CellField,
@@ -805,12 +829,14 @@ function leavesTextUnconsumed(
   leftoverByLine: ReadonlyMap<number, Run[]>,
 ): boolean {
   const taken = new Set<Run>();
+  const chosenLines = new Set<number>();
   for (const entry of chosen) {
+    chosenLines.add(entry.line);
     for (const run of entry.runs) {
       taken.add(run);
     }
   }
-  if (owned.some((run) => !run.fromWords && !taken.has(run) && alphanumericCount(run.text) >= 2)) {
+  if (owned.some((run) => !taken.has(run) && alphanumericCount(run.text) >= 2 && (!run.fromWords || chosenLines.has(run.line)))) {
     return true;
   }
   return (field === "material" || field === "finish") && chosen.some((entry) => hasTrailingLeftover(entry, leftoverByLine));
@@ -827,38 +853,100 @@ function hasTrailingLeftover(entry: ValueLine, leftoverByLine: ReadonlyMap<numbe
   );
 }
 
+/** The tallest word of a run of text, or undefined when no word has a height (layout text has none). */
+function tallestOf(runs: readonly Run[]): number | undefined {
+  let tallest: number | undefined;
+  for (const run of runs) {
+    if (run.height !== undefined && (tallest === undefined || run.height > tallest)) {
+      tallest = run.height;
+    }
+  }
+  return tallest;
+}
+
+/**
+ * Whether a line of a cell opens the next cell of the stack (HEAT TREAT, HARDNESS, ... under MATERIAL or FINISH): it
+ * holds a colon, or starts with a word that heads another cell of a title block (NEIGHBOUR_CELL_LABELS).
+ * Neither is the label of the vocabulary, so the text is owned by the cell above it; it is that cell's own label
+ * and value, not a line of this cell's value.
+ */
+function opensAnotherCell(text: string): boolean {
+  return text.includes(":") || NEIGHBOUR_CELL_LABELS.some((pattern) => pattern.test(text));
+}
+
+type ValueChoice = {
+  lines: ValueLine[];
+  /** A line that opens another cell of the stack came where the value was, or where its wrapped line was. */
+  stackedLabel: boolean;
+  /** The first line the value did not take because it was the label of the cell under it; Infinity when there is none. */
+  stoppedAt: number;
+};
+
+/** The text of one line of a cell: the runs that join the leftmost one, in order. */
+function lineTextOf(lineRuns: readonly Run[]): string {
+  return normalizeWhitespace(joinContiguousRuns([...lineRuns]).map((run) => run.text).join(" "));
+}
+
+/**
+ * What a line that opens another cell (opensAnotherCell) does to the value above it. As the first line there is no value.
+ * Under a value, with word boxes, it ends the value when it is set smaller than the value (a 6 pt label under 9 pt
+ * text); set as large, it may as well be the value's wrapped line ("ANODIZE" over "COLOR BLACK"), and which one it is
+ * is not known, so there is no value. Layout text has no sizes, so it always gives none.
+ */
+function stackedLabelChoice(chosen: ValueLine[], lineRuns: readonly Run[], line: number): ValueChoice {
+  const previous = chosen.at(-1);
+  const valueHeight = previous === undefined ? undefined : tallestOf(previous.runs);
+  const labelHeight = tallestOf(lineRuns);
+  const smaller = valueHeight !== undefined && labelHeight !== undefined && valueHeight > VALUE_TEXT_TALLER_THAN_LABEL * labelHeight;
+  return smaller ? { lines: chosen, stackedLabel: false, stoppedAt: line } : { lines: chosen, stackedLabel: true, stoppedAt: Number.POSITIVE_INFINITY };
+}
+
 /**
  * The lines that make up a cell's value: the first line the cell owns, and each line after it that continues it
- * (under it, overlapping its columns, within MAX_LINE_GAP lines).
+ * (under it, overlapping its columns, within MAX_LINE_GAP lines). With `fenceStack` (material and finish: the
+ * cells that have an unlisted cell stacked under them), a line that opens another cell (opensAnotherCell) is not
+ * a line of the value: see stackedLabelChoice.
  */
-function chooseValueLines(byLine: ReadonlyMap<number, Run[]>): ValueLine[] {
+function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, fenceStack: boolean): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: ValueLine[] = [];
   for (const line of lines) {
     const lineRuns = byLine.get(line) ?? [];
     const previous = chosen.at(-1);
-    if (previous === undefined) {
-      chosen.push({ line, runs: joinContiguousRuns(lineRuns) });
-      continue;
-    }
-    if (line - previous.line > MAX_LINE_GAP) {
+    if (previous !== undefined && line - previous.line > MAX_LINE_GAP) {
       break;
+    }
+    if (fenceStack && opensAnotherCell(lineTextOf(lineRuns))) {
+      return stackedLabelChoice(chosen, lineRuns, line);
     }
     // A wrapped value continues directly under the line above it ("CLASS 2" under "ANODIZE, BLACK ...").
     // Text that does not overlap the previous line's columns is another cell, and a single character is
     // a sheet-border zone marker ("4" under the FINISH value), so neither joins the value.
-    let spanStart = Number.POSITIVE_INFINITY;
-    let spanEnd = Number.NEGATIVE_INFINITY;
-    for (const run of previous.runs) {
-      spanStart = Math.min(spanStart, run.start);
-      spanEnd = Math.max(spanEnd, run.end);
-    }
-    const continuing = joinContiguousRuns(lineRuns.filter((run) => run.start < spanEnd && run.end > spanStart));
-    if (continuing.some((run) => alphanumericCount(run.text) >= 2)) {
-      chosen.push({ line, runs: continuing });
+    const runs = previous === undefined ? joinContiguousRuns(lineRuns) : continuationRuns(lineRuns, previous.runs);
+    if (previous === undefined || runs.some((run) => alphanumericCount(run.text) >= 2)) {
+      chosen.push({ line, runs });
     }
   }
-  return chosen;
+  return { lines: chosen, stackedLabel: false, stoppedAt: Number.POSITIVE_INFINITY };
+}
+
+/**
+ * The runs of a line that continue the value on the line above (`above`): the first run that overlaps its columns,
+ * and the runs that follow it. Layout text keeps only the runs that overlap, because a run it prints apart from them
+ * may be another cell (and is flagged). Word boxes make every word a run, so the words after the first one that
+ * overlaps continue it along the line even where they start past the end of the line above ("MIL-A-8625 TYPE III"
+ * under "ANODIZE").
+ */
+function continuationRuns(lineRuns: readonly Run[], above: readonly Run[]): Run[] {
+  const spanStart = Math.min(...above.map((run) => run.start));
+  const spanEnd = Math.max(...above.map((run) => run.end));
+  const overlaps = (run: Run) => run.start < spanEnd && run.end > spanStart;
+  const sorted = [...lineRuns].sort((left, right) => left.start - right.start);
+  const first = sorted.findIndex(overlaps);
+  if (first < 0) {
+    return [];
+  }
+  return joinContiguousRuns(sorted.slice(first).filter((run) => run.fromWords || overlaps(run)));
 }
 
 function readOne(
@@ -896,15 +984,23 @@ function readOne(
   if (doubt !== null) {
     return empty("ambiguous", doubt);
   }
-  const chosen = chooseValueLines(groupByLine(owned));
+  const choice = chooseValueLines(groupByLine(owned), label.field === "material" || label.field === "finish");
+  const chosen = choice.lines;
+  const valueLines = chosen.map((entry) => entry.line);
+  // The cell under this one is an unlisted cell of its own ("HEAT TREAT" over "RC 40-45" under an empty MATERIAL):
+  // its text is not this field's value, and where this cell's own value would have been there is none.
+  if (choice.stackedLabel) {
+    return empty("ambiguous", "unlisted_label", valueLines);
+  }
   if (chosen.length === 0) {
     return empty("empty", "no_value");
   }
-  const valueLines = chosen.map((entry) => entry.line);
+  // Text under the value that heads the cell below it is that cell's, and does not count against this one.
+  const considered = owned.filter((run) => run.line < choice.stoppedAt);
   // Text on the label's own line AND text left aligned under the label: one of them belongs to a cell
   // the vocabulary does not know ("HEAT TREAT RC 40-45" beside MATERIAL), and which one is not known.
-  const hasInline = owned.some((run) => inlineRuns.has(run));
-  const alignedBelow = owned.some((run) => !inlineRuns.has(run) && run.start <= label.start + ALIGNED_UNDER_LABEL);
+  const hasInline = considered.some((run) => inlineRuns.has(run));
+  const alignedBelow = considered.some((run) => !inlineRuns.has(run) && run.start <= label.start + ALIGNED_UNDER_LABEL);
   if (hasInline && alignedBelow) {
     return empty("ambiguous", "multiple_values", valueLines);
   }
@@ -913,7 +1009,7 @@ function readOne(
     // is not one clean value, so none is taken.
     return empty("ambiguous", "multiple_values", valueLines);
   }
-  if (leavesTextUnconsumed(label.field, owned, chosen, leftoverByLine)) {
+  if (leavesTextUnconsumed(label.field, considered, chosen, leftoverByLine)) {
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
 
@@ -954,7 +1050,7 @@ function hasOwnCellOnItsLine(
     .join(" ");
   // A colon anywhere in it ("HEAT TREAT: RC 40-45"), or a word that heads another cell of a title block, however
   // it is spelled out: the text is that cell's label and value, not this one's.
-  if (inlineText.includes(":") || NEIGHBOUR_CELL_LABELS.some((pattern) => pattern.test(inlineText))) {
+  if (opensAnotherCell(inlineText)) {
     return true;
   }
   const limit = Math.min(lead.line + MAX_LINE_GAP, caps.get(label) ?? Number.POSITIVE_INFINITY);
