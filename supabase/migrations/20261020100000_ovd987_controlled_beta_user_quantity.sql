@@ -22,18 +22,22 @@
 -- Notes, body diff and read-only hosted checks:
 -- docs/migration-drafts/ovd-987-notes.md.
 --
--- Transaction: this file has no begin/commit of its own. The migration
--- runner wraps it in one transaction (the Supabase CLI does). By hand:
+-- Transaction: this file has no begin/commit of its own. Apply it as one
+-- transaction when the runner allows it. By hand:
 --   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
--- The LOCK TABLE statements below error outside a transaction block, so a
--- runner that does not wrap the file stops there, before any change.
+-- A runner that sends the statements one at a time (the CI fixture does; the
+-- Supabase CLI warns that SET LOCAL is outside a transaction block) gets no
+-- lock timeout and releases the table locks below at once; the file still
+-- applies there, and every statement can be re-run.
 -- No enum value, no CONCURRENTLY, no extension. The two capability CHECKs are
 -- replaced, which takes ACCESS EXCLUSIVE on the two small rollout-control
 -- tables; lock_timeout makes a busy table fail fast and roll back whole.
 -- Lock order: the two tables are locked explicitly, the events first and the
 -- controls second, right after the precondition and before any change. The
--- audited setter reads the events (its idempotency lookup) before it locks a
--- control row, so altering the controls first and the events last deadlocked
+-- locks sit in a DO block because a top-level LOCK TABLE errors outside a
+-- transaction block, which is what a one-statement-at-a-time runner gives it.
+-- The audited setter reads the events (its idempotency lookup) before it locks
+-- a control row, so altering the controls first and the events last deadlocked
 -- with a setter call in flight (it held the events read lock and waited for the
 -- control row while this transaction waited for the events table). With the
 -- events first the setter waits at its first read and holds nothing this
@@ -140,8 +144,12 @@ $ovd987_precondition$;
 
 -- Lock the two rollout tables up front, the events first (see "Lock order" in
 -- the header). The ALTER TABLEs below need exactly these modes anyway.
-lock table private.commercial_rollout_control_events in access exclusive mode;
-lock table private.commercial_rollout_controls in access exclusive mode;
+do $ovd987_locks$
+begin
+  lock table private.commercial_rollout_control_events in access exclusive mode;
+  lock table private.commercial_rollout_controls in access exclusive mode;
+end;
+$ovd987_locks$;
 
 -- 1. Capability: CHECK lists and the default-off seed.
 alter table private.commercial_rollout_controls

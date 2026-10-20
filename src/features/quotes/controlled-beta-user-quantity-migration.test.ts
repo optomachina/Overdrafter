@@ -180,21 +180,26 @@ describe("OVD-987 migration precondition", () => {
 });
 
 describe("OVD-987 migration locks", () => {
-  const block = doBlock(migrationSql, "ovd987_precondition");
-  const eventsLock = "\nlock table private.commercial_rollout_control_events in access exclusive mode;\n";
-  const controlsLock = "\nlock table private.commercial_rollout_controls in access exclusive mode;\n";
+  const precondition = doBlock(migrationSql, "ovd987_precondition");
+  const locks = doBlock(migrationSql, "ovd987_locks");
+  const eventsLock = "lock table private.commercial_rollout_control_events in access exclusive mode;";
+  const controlsLock = "lock table private.commercial_rollout_controls in access exclusive mode;";
 
   it("locks the control events, then the controls, after the precondition and before any change", () => {
     // The setter reads the events (idempotency lookup) before it locks a control row, so the events
     // lock must come first: altering the controls first deadlocked with a setter call in flight.
-    const events = migrationSql.indexOf(eventsLock);
-    const controls = migrationSql.indexOf(controlsLock);
-    expect(events).toBeGreaterThan(block.end);
-    expect(controls).toBeGreaterThan(events);
-    expect(migrationSql.match(/^lock table /gm)).toHaveLength(2);
+    expect(locks.text).toContain(`begin ${eventsLock} ${controlsLock} end;`);
+    expect(locks.text.match(/lock table /g)).toHaveLength(2);
+    expect(migrationSql.match(/^\s*lock table /gm)).toHaveLength(2);
+    expect(locks.start).toBeGreaterThan(precondition.end);
     // Neither rollout table is touched by a statement before its lock (the first ALTER TABLE follows both).
-    expect(migrationSql.search(/^(?:alter table|insert into|create or replace function|drop |revoke |grant )/m)).toBeGreaterThan(controls);
-    expect(migrationSql.search(/^alter table private\.commercial_rollout_control/m)).toBeGreaterThan(controls);
+    expect(migrationSql.search(/^(?:alter table|insert into|create or replace function|drop |revoke |grant )/m)).toBeGreaterThan(locks.end);
+    expect(migrationSql.search(/^alter table private\.commercial_rollout_control/m)).toBeGreaterThan(locks.end);
+  });
+
+  it("keeps the locks inside a DO block, because a top-level LOCK TABLE errors where the runner sends one statement at a time", () => {
+    // The Supabase CLI and the CI fixture apply a migration statement by statement, outside a transaction block.
+    expect(migrationSql).not.toMatch(/^lock table /m);
   });
 
   it("matches the order in which the setter itself reads the two tables, and the rollback's", () => {
@@ -203,8 +208,9 @@ describe("OVD-987 migration locks", () => {
     const locksControl = setter.indexOf("from private.commercial_rollout_controls control where control.capability = p_capability for update");
     expect(readsEvents).toBeGreaterThan(0);
     expect(locksControl).toBeGreaterThan(readsEvents);
-    expect(rollbackSql.indexOf(eventsLock)).toBeGreaterThan(0);
-    expect(rollbackSql.indexOf(controlsLock)).toBeGreaterThan(rollbackSql.indexOf(eventsLock));
+    const rollbackEvents = rollbackSql.indexOf(`\n${eventsLock}\n`);
+    expect(rollbackEvents).toBeGreaterThan(0);
+    expect(rollbackSql.indexOf(`\n${controlsLock}\n`)).toBeGreaterThan(rollbackEvents);
   });
 });
 

@@ -136,7 +136,8 @@ Turn off the same way with `false`. What to expect:
 ## Apply locks (review round 1, finding 2)
 
 Right after the md5 precondition (which reads only `pg_proc`) and before any
-change, the migration takes, under `lock_timeout = '5s'`, ACCESS EXCLUSIVE on
+change, the migration takes ACCESS EXCLUSIVE (under `lock_timeout = '5s'` where the
+runner gives the file one transaction; see the last paragraph) on
 `private.commercial_rollout_control_events`, then on
 `private.commercial_rollout_controls`: the modes its two CHECK replacements take
 anyway, now taken in the order the audited setter needs. The setter reads the
@@ -144,8 +145,8 @@ events (its idempotency lookup) before it locks a control row. The first version
 of this file replaced the controls CHECK first and the events CHECK last; a setter
 call in flight held the events read lock and waited for the control row while the
 migration waited for the events table: a deadlock. PostgreSQL aborts one of the
-two, so either the apply or the operator's rollout-disable call fails; the apply
-is one transaction, so nothing is left partial.
+two, so either the apply or the operator's rollout-disable call fails; applied as
+one transaction, the recommended mode, nothing is left partial.
 
 Two-session evidence (local Postgres 17.11 container, the real 154 migrations
 replayed, the real file re-run as the second session, the real setter and read
@@ -160,7 +161,7 @@ connection that already compiled it goes straight to the events read.
 | Warm setter call lands during a 2 s gap between the two table changes | `deadlock detected`; the setter was the victim at a 2 s gap, the migration at 3.5 s | Setter waits at its first read, both finish, no error (2 s and 3.5 s gap) |
 | Cold setter session, same gap | No deadlock (it waits on the controls at compile and holds nothing) | No deadlock |
 | Real file re-run 60 times, unwidened, while a warm setter session loops (4,400 to 4,900 calls) | 8 of 60 runs aborted by `deadlock detected`, 8 setter calls aborted | 0 of 60, 0 setter errors |
-| Same, plus a warm read-API session looping (4,900 to 5,500 calls, roughly 100 a second) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 3 of 60 runs aborted, 0 setter errors, 4 read-API calls aborted |
+| Same, plus a warm read-API session looping (about 5,000 calls per 60 re-runs, roughly 100 a second) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 0 of 60 and 1 of 150 runs aborted (two samples, about 12,000 setter calls in all), 0 setter errors, 4 read-API calls aborted |
 
 `md5(prosrc)` of the seven functions after the replay equal the table in
 "Ordering with other work"; the migration's pgTAP (111 assertions) and
@@ -183,13 +184,19 @@ a lane above 1, a setter call for the switch, and this transaction) needs a lane
 above 1 in flight, which cannot exist before the first apply, so run a re-apply
 only with none in flight.
 
-The file also needs a transaction block now: `LOCK TABLE` errors outside one, so
-a runner that does not wrap the file stops at the first lock, before any change
-(`psql -f` without `--single-transaction` did exactly that in the drill). Before,
-`set local lock_timeout` only warned in that case and the file applied statement
-by statement. `psql --single-transaction` and the whole file sent as one
-multi-statement query (how a payload runner sends it) both applied it in the drill;
-the Supabase CLI wraps it too, as the header says.
+The locks are inside a `DO` block on purpose. A top-level `LOCK TABLE` errors
+outside a transaction block, and the Supabase CLI (CI logs show it warning that
+`SET LOCAL` is outside a transaction block) and the CI fixture's `psql` apply a
+migration one statement at a time. The first version of this fix used top-level
+`LOCK TABLE` statements, and the CLI-based `test` job failed on them with
+"LOCK TABLE can only be used in transaction blocks". In a `DO` block the
+statement works in every runner. Where the runner gives the file one transaction
+(`psql --single-transaction`, the whole file sent as one multi-statement query)
+the locks are held to its end; where it gives each statement its own they are
+released at once, which is also why `set local lock_timeout` does nothing there.
+The drill applied the final file after a rollback in all three modes (statement
+by statement, `--single-transaction`, one query) and every one succeeded; a pin
+test keeps the locks inside the block.
 
 ## Rollback order (design 5.4)
 
