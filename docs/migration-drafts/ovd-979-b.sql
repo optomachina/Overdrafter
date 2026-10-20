@@ -25,14 +25,16 @@
 --      (extractor_version like 'worker-sim-%'; the worker sets
 --      currentExtractorVersion(false) = SIM_EXTRACTOR_VERSION in
 --      worker/src/extraction/sharedResult.ts). Rows from other producers
---      ('v1' default, importers, pdf extractions) are never re-queued.
+--      ('v1' default, importers, pdf extractions) are never re-queued, except
+--      as rule 7 says.
 --   2. That task's payload adds reason = 'drawing_attached' and drawingFileId;
 --      the original payload for a never-extracted part is byte-identical.
 --   3. Dedupe: the existing rule (no extract_part queued or running for the
 --      part) still applies to both branches; the new branch is also skipped
 --      when an extract_part task for the same part and the same drawingFileId
 --      already completed (exactly one extraction per attached drawing). A
---      failed task may be queued again by a later call, as for a new part.
+--      failed task may be queued again by a later call, as for a new part (and,
+--      for an attach task, also after its extraction was stored: rule 7).
 --   4. A transaction-scoped advisory lock per job, taken after the access
 --      checks, serializes concurrent calls for the same job so the not-exists
 --      dedupe also holds under concurrency (same pattern as
@@ -52,6 +54,17 @@
 --      part that has a drawing when that row is CAD-only (worker-sim-%) with
 --      the source version's extraction. Every other row stays as it was. The
 --      rest of that function is verbatim from 20260812042000, ACL restated.
+--   7. Review r6 (Codex): the worker stores the drawing_extractions row
+--      (extractor_version 'worker-pdf-v3', so no longer worker-sim-%) before it
+--      persists the previews and auto-approves (handleExtractTask in
+--      worker/src/index.ts). An attach task that failed or was cancelled after
+--      that point left a row that rule 1 no longer matched: the part could not
+--      be retried, this function returned 0, and the approval and the previews
+--      never finished. A part with a drawing is therefore also queued when a
+--      failed or cancelled extract_part task for the same part and the same
+--      drawingFileId exists, whatever extractor_version the row now has. Rule 3
+--      still holds for it: nothing is queued while a task is queued or running,
+--      and nothing once a task for this drawing has completed.
 -- ORDERING (blocks apply): apply this file only after OVD-976 (unit-aware
 -- drawing tolerance parsing in the worker) is deployed, and only after
 -- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
@@ -125,7 +138,22 @@ begin
         -- OVD-979: a drawing attached after a CAD-only extraction.
         or (
           part.drawing_file_id is not null
-          and placement_extraction.extractor_version like 'worker-sim-%'
+          and (
+            placement_extraction.extractor_version like 'worker-sim-%'
+            -- OVD-979 (review r6): the worker stores the extraction row before it
+            -- persists the previews and auto-approves, so an attach task that
+            -- failed or was cancelled after that point left a row that is no
+            -- longer CAD-only. The part is retried for as long as no task for
+            -- this drawing has completed. Only attach tasks carry drawingFileId.
+            or exists (
+              select 1 from public.work_queue unsuccessful
+              where unsuccessful.job_id = p_job_id
+                and unsuccessful.part_id = part.id
+                and unsuccessful.task_type = 'extract_part'
+                and unsuccessful.status in ('failed', 'cancelled')
+                and unsuccessful.payload ->> 'drawingFileId' = part.drawing_file_id::text
+            )
+          )
           and not exists (
             select 1 from public.work_queue done
             where done.job_id = p_job_id

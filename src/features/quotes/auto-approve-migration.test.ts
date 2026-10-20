@@ -222,9 +222,39 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
   });
 
   it("queues a drawing attach once: not while queued or running, and not again for a completed drawing", () => {
-    expect(requestSql).toContain("and placement_extraction.extractor_version like 'worker-sim-%'");
+    expect(requestSql).toContain("placement_extraction.extractor_version like 'worker-sim-%'");
     expect(requestSql).toContain("and done.payload ->> 'drawingFileId' = part.drawing_file_id::text");
     expect(requestSql).toMatch(/and queue\.status in \('queued', 'running'\)/);
+  });
+
+  it("retries an attach task that failed or was cancelled after the worker stored its extraction (review r6)", () => {
+    // The extraction row is no longer CAD-only by then, so the CAD-only test alone never matches the
+    // part again. The retry test is an alternative to it, for the same drawing only, and the
+    // completed-task guard still applies to both.
+    const request = extractFunction(requestSql, "api_request_extraction");
+    expect(request).toMatch(
+      /part\.drawing_file_id is not null\s+and \(\s+placement_extraction\.extractor_version like 'worker-sim-%'\s+(?:--[^\n]*\n\s+)*or exists \(\s+select 1 from public\.work_queue unsuccessful\s+where unsuccessful\.job_id = p_job_id\s+and unsuccessful\.part_id = part\.id\s+and unsuccessful\.task_type = 'extract_part'\s+and unsuccessful\.status in \('failed', 'cancelled'\)\s+and unsuccessful\.payload ->> 'drawingFileId' = part\.drawing_file_id::text\s+\)\s+\)\s+and not exists \(\s+select 1 from public\.work_queue done\s+where done\.job_id = p_job_id\s+and done\.part_id = part\.id\s+and done\.task_type = 'extract_part'\s+and done\.status = 'completed'\s+and done\.payload ->> 'drawingFileId' = part\.drawing_file_id::text\s+\)/,
+    );
+  });
+
+  it("rests on the worker storing the extraction before the previews and the auto-approval (review r6)", () => {
+    // If the worker ever stored the extraction last, a failure could no longer leave a non-CAD-only row
+    // behind and the retry predicate above would be dead weight; if it moved the status change earlier,
+    // re-check the retry test.
+    const worker = readFileSync(path.join(process.cwd(), "worker/src/index.ts"), "utf8");
+    const start = worker.indexOf("async function handleExtractTask(");
+    const end = worker.indexOf("async function handleGenerateCadPreviewTask(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const handler = worker.slice(start, end);
+    const stored = handler.indexOf('from("drawing_extractions").upsert(');
+    const previews = handler.indexOf("await persistDrawingPreviewAssets(");
+    const approved = handler.lastIndexOf("await autoApproveJobRequirements(");
+    const completed = handler.lastIndexOf("await markTaskCompleted(");
+    expect(stored).toBeGreaterThan(0);
+    expect(previews).toBeGreaterThan(stored);
+    expect(approved).toBeGreaterThan(previews);
+    expect(completed).toBeGreaterThan(approved);
   });
 
   it("keeps the worker-only check, SECURITY DEFINER, search_path and service_role-only ACL of the reuse function", () => {
