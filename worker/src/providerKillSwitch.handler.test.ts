@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cleanupPaths } from "./files";
+import { DISPATCH_QUANTITY_NOT_ADMITTED_NOTE } from "./dispatchRouting";
 import { createWorkerRuntimeState } from "./httpServer";
 import { handleVendorQuoteTask, processClaimedTask } from "./index";
 import { XometryAdapter } from "./adapters/xometry";
@@ -187,6 +188,27 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(db.writes).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "failed" }) }),
     ]));
+  });
+
+  // OVD-998 (OVD-987 S4): a lane above quantity 1 that the server refuses keeps its own reason and note.
+  it("the server preflight denying dispatch_quantity_not_admitted names the quantity on the manual follow-up lane", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.denyPreflight({ authorized: false, reasonCode: "dispatch_quantity_not_admitted" });
+    await handleVendorQuoteTask(db.client, task, live);
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
+        status: "manual_vendor_followup",
+        notes: [DISPATCH_QUANTITY_NOT_ADMITTED_NOTE],
+        raw_payload: expect.objectContaining({
+          failureCode: "dispatch_quantity_not_admitted",
+          manualFollowUpReason: "dispatch_quantity_not_admitted",
+          requiresManualVendorFollowUp: true,
+        }),
+      }) }),
+    ]));
+    expect(JSON.stringify(db.writes)).not.toContain("dispatch_authorization_denied");
   });
 
   it("a retryable error after the kill switch cancel never requeues the cancelled task (no revival)", async () => {

@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { readdirSync, readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
@@ -223,5 +224,41 @@ describe("quoteWithDispatchPreflight", () => {
     expect(rpc).not.toHaveBeenCalled();
     expect(quote).toHaveBeenCalledTimes(1);
     expect(quote.mock.calls[0]?.[0].xometryDispatchAuthorization).toBeUndefined();
+  });
+});
+
+/**
+ * OVD-998: a reason the server returns but the worker does not list collapses to
+ * dispatch_authorization_denied, which hides the cause from operators. OVD-987 (P3)
+ * adds dispatch_quantity_not_admitted to the preflight. This reads the latest preflight
+ * definition and fails when it returns a reason the worker would not keep.
+ */
+describe("worker names every reason the latest preflight returns", () => {
+  const MIGRATIONS = new URL("../../supabase/migrations/", import.meta.url);
+  const SIGNATURE = "create or replace function public.api_authorize_xometry_beta_worker_dispatch(";
+  const latestFile = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()
+    .filter((name) => readFileSync(new URL(name, MIGRATIONS), "utf8").includes(SIGNATURE))
+    .at(-1)!;
+  const sql = readFileSync(new URL(latestFile, MIGRATIONS), "utf8");
+  const start = sql.lastIndexOf(SIGNATURE);
+  const bodyOpen = sql.indexOf("$$", start);
+  const body = sql.slice(bodyOpen, sql.indexOf("$$", bodyOpen + 2));
+  const declared = [...body.matchAll(/v_reason_key\s*,\s*'(dispatch_[a-z_]+)'/g)].map((match) => match[1]);
+  // dispatch_quantity_not_admitted (OVD-987 S4) is listed by name so it is covered before its migration is in the tree.
+  const reasons = [...new Set([...declared, "dispatch_quantity_not_admitted"])];
+
+  it("finds the reasons the definition returns", () => {
+    expect(declared.length).toBeGreaterThanOrEqual(13);
+    expect(declared).toContain("dispatch_rollout_disabled");
+  });
+
+  it.each(reasons)("keeps %s instead of collapsing it to dispatch_authorization_denied", async (reasonCode) => {
+    const { client } = makeSupabase({ authorized: false, reasonCode });
+    const quote = vi.fn();
+
+    await expect(quoteWithDispatchPreflight(makeInvocation(client, quote))).rejects.toMatchObject({ reasonCode });
+    expect(quote).not.toHaveBeenCalled();
   });
 });
