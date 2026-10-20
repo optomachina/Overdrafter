@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GraphEvent } from '../core/types';
 import { JarvisThread } from './JarvisThread';
+import type { ThreadClient } from './client';
 import type { EventSource } from './event-source';
 import { createPreview } from './preview-source';
 import { readFileSync } from 'node:fs';
@@ -444,6 +445,111 @@ it('closes an open cancel confirmation when the run changes so it cannot cancel 
   view.rerender(<JarvisThread source={source} client={client} runId="other" />);
   expect(screen.queryByRole('alertdialog')).toBeNull();
   expect(client.control).not.toHaveBeenCalled();
+});
+
+// A control request outlives a run switch. Its result belongs to the run it was issued for, so it must never release the lock,
+// clear the pending state or show an error on the run that is on screen now.
+describe('a control result that arrives after the run changed', () => {
+  type Reply = { status: number };
+  type Deferred = { promise: Promise<Reply>; settle: (reply: Reply) => void; fail: (reason: unknown) => void };
+  const deferred = (): Deferred => {
+    let settle: Deferred['settle'] = () => { }, fail: Deferred['fail'] = () => { };
+    const promise = new Promise<Reply>((resolve, reject) => { settle = resolve; fail = reject; });
+    return { promise, settle, fail };
+  };
+  const started = (runId: string): GraphEvent => ({ ...base, runId, seq: 1, type: 'status', state: 'started', message: `Making plate ${runId}` });
+  const buttons = () => screen.queryAllByRole('button').map(b => `${b.textContent}${b.hasAttribute('disabled') ? ' (disabled)' : ''}`);
+  const idle = ['PAUSE', 'CANCEL'];
+  const pausing = ['Pausing (disabled)', 'CANCEL (disabled)'];
+  const failed = 'Control request failed. Try again.';
+
+  // The source hands each listener its own push, as a per-run subscription does; only the newest listener belongs to the shown run.
+  function mount() {
+    const pushes: ((events: GraphEvent[]) => void)[] = [];
+    const source: EventSource = { listen: fn => { pushes.push(fn); return () => { }; }, retry: vi.fn() };
+    const replies: Deferred[] = [];
+    const client = { resolve: vi.fn(), control: vi.fn<ThreadClient['control']>(() => { const reply = deferred(); replies.push(reply); return reply.promise; }) };
+    const view = render(<JarvisThread source={source} client={client} runId="run" />);
+    return {
+      client, replies,
+      show: (runId: string) => view.rerender(<JarvisThread source={source} client={client} runId={runId} />),
+      deliver: (...events: GraphEvent[]) => act(() => pushes[pushes.length - 1](events)),
+    };
+  }
+
+  it.each([
+    ['rejects', (reply: Deferred) => reply.fail(new Error('network down'))],
+    ['answers with an error status', (reply: Deferred) => reply.settle({ status: 500 })],
+  ] as const)('does not release the other run\'s in-flight control when the old request %s', async (_how, fail) => {
+    const m = mount();
+    m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(m.client.control).toHaveBeenLastCalledWith('run', { kind: 'pause', idempotencyKey: expect.any(String) });
+    m.show('other'); m.deliver(started('other'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(m.client.control).toHaveBeenLastCalledWith('other', { kind: 'pause', idempotencyKey: expect.any(String) });
+    expect(buttons()).toEqual(pausing);
+
+    await act(async () => fail(m.replies[0]));
+    expect(buttons()).toEqual(pausing);
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Only the new run's own result may release it.
+    await act(async () => m.replies[1].fail(new Error('network down')));
+    expect(buttons()).toEqual(idle);
+    expect(screen.getByRole('alert').textContent).toBe(failed);
+  });
+
+  it('still releases a run\'s own control when its request fails while that run is shown, and retries with the same key', async () => {
+    const m = mount();
+    m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(buttons()).toEqual(pausing);
+    await act(async () => m.replies[0].fail(new Error('network down')));
+    expect(buttons()).toEqual(idle);
+    expect(screen.getByRole('alert').textContent).toBe(failed);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(m.client.control.mock.calls[1][1].idempotencyKey).toBe(m.client.control.mock.calls[0][1].idempotencyKey);
+  });
+
+  it('shows no error on the new run for a request that failed after the switch, and leaves its controls usable', async () => {
+    const m = mount();
+    m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    m.show('other'); m.deliver(started('other'));
+    expect(buttons()).toEqual(idle);
+    await act(async () => m.replies[0].fail(new Error('network down')));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(buttons()).toEqual(idle);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(m.client.control).toHaveBeenCalledTimes(2);
+    expect(m.client.control).toHaveBeenLastCalledWith('other', { kind: 'pause', idempotencyKey: expect.any(String) });
+  });
+
+  it('drops the error the old run was showing when the run changes', async () => {
+    const m = mount();
+    m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    await act(async () => m.replies[0].fail(new Error('network down')));
+    expect(screen.getByRole('alert').textContent).toBe(failed);
+    m.show('other'); m.deliver(started('other'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps a request from an earlier visit to the same run from releasing the current visit', async () => {
+    const m = mount();
+    m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    m.show('other'); m.show('run'); m.deliver(started('run'));
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(m.client.control).toHaveBeenCalledTimes(2);
+    expect(buttons()).toEqual(pausing);
+    await act(async () => m.replies[0].fail(new Error('network down')));
+    expect(buttons()).toEqual(pausing);
+    expect(screen.queryByRole('alert')).toBeNull();
+    await act(async () => m.replies[1].fail(new Error('network down')));
+    expect(buttons()).toEqual(idle);
+    expect(screen.getByRole('alert').textContent).toBe(failed);
+  });
 });
 
 it('orders events by sequence when batches arrive out of order', () => {

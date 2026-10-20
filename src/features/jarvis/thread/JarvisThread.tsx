@@ -135,6 +135,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
   const inFlight = useRef(false), keys = useRef(new Map<string, string>());
+  const epoch = useRef(0);
   useEffect(() => {
     // An open cancel confirmation belongs to the run it was opened for; confirming it after a switch would cancel the new run.
     setEvents([]); setCommand(''); setConfirm(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
@@ -143,6 +144,10 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       return [...byId.values()].sort((a, b) => a.seq - b.seq);
     }), setOffline);
   }, [source, runId]);
+  // A control request outlives a run switch, and its result belongs to the run it was issued for. Leaving a run (a switch or an unmount)
+  // ends the epoch each request captured when it was issued, so a late result is ignored instead of clearing the lock, the pending state
+  // or the error of whatever run is shown now. It is an epoch, not the run id: a request from an earlier visit to the same run is stale too.
+  useEffect(() => { setError(''); return () => { epoch.current += 1; }; }, [source, runId]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const closeConfirm = useCallback(() => setConfirm(false), []);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -173,10 +178,15 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const lane: LaneContext = { pending, stopped, status, offline, state, now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
+    const issued = epoch.current;
     inFlight.current = true; setCommand(kind === 'pause' ? 'Pausing' : 'Cancelling'); setError('');
     const key = keys.current.get(kind) ?? createKey(); keys.current.set(kind, key);
     try { const response = await client.control(runId, { kind, idempotencyKey: key }); if (response.status >= 400) throw new Error('Control request failed.'); }
-    catch { inFlight.current = false; setCommand(''); setError('Control request failed. Try again.'); }
+    catch {
+      // Issued for a run that is no longer shown: that run's lock, command and error are already gone, and the shown run's are not this request's.
+      if (epoch.current !== issued) return;
+      inFlight.current = false; setCommand(''); setError('Control request failed. Try again.');
+    }
   };
   return <main className="jt">
     <header>
