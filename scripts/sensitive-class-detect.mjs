@@ -359,52 +359,100 @@ export function sqlWords(text, depth = 0, budget = newSqlBudget()) {
   checkSqlChars(sql);
   const words = [];
   let index = 0;
+  while (index < sql.length) index = scanSqlToken(sql, index, words, depth, budget);
+  return words;
+}
+
+/** Scan the token (or comment, or quoted run) at `index`, pushing its words; returns the next index. */
+function scanSqlToken(sql, index, words, depth, budget) {
+  const char = sql[index];
+  const next = sql[index + 1];
+  if (char === "-" && next === "-") return skipLineComment(sql, index);
+  if (char === "/" && next === "*") return skipBlockComment(sql, index);
+  if (char === "'" || char === '"') return scanQuoted(sql, index, words, depth, budget);
+  const tag = dollarTagAt(sql, index);
+  if (tag) return scanDollarQuoted(sql, index, tag, words, depth, budget);
+  if (/[A-Za-z_]/.test(char)) {
+    const word = /^[A-Za-z_][\w$]*/.exec(sql.slice(index, index + 256))[0];
+    addSqlTokens(words, budget, [word.toLowerCase()]);
+    return index + word.length;
+  }
+  if (!/\s/.test(char)) addSqlTokens(words, budget, [char]);
+  return index + 1;
+}
+
+/** The index after a `--` comment and its line ending (Postgres ends a line comment at CR as well as LF). */
+function skipLineComment(sql, index) {
+  let end = index;
+  while (end < sql.length && sql[end] !== "\n" && sql[end] !== "\r") end += 1;
+  return end + 1;
+}
+
+/** The index after the (possibly nested) block comment that starts at `index`. */
+function skipBlockComment(sql, index) {
+  let level = 1;
+  let end = index + 2;
+  while (end < sql.length && level > 0) {
+    const pair = sql.slice(end, end + 2);
+    if (pair === "/*") level += 1;
+    if (pair === "*/") level -= 1;
+    end += pair === "/*" || pair === "*/" ? 2 : 1;
+  }
+  return end;
+}
+
+/** The `$tag$` (or `$$`) that opens a dollar-quoted string at `index`, or null. */
+function dollarTagAt(sql, index) {
+  if (sql[index] !== "$" || /\w/.test(sql[index - 1] ?? "")) return null;
+  return DOLLAR_TAG.exec(sql.slice(index, index + 64))?.[0] ?? null;
+}
+
+/** A single-quoted, E'' or double-quoted run at `index`: its words (single-quoted only) and the index after it. */
+function scanQuoted(sql, index, words, depth, budget) {
+  const quote = sql[index];
+  const backslash = quote === "'" && /e/i.test(sql[index - 1] ?? "") && !/\w/.test(sql[index - 2] ?? "");
+  if (backslash && words.at(-1) === "e") {
+    words.pop();
+    budget.left += 1;
+  }
+  const { body, end } = readQuoted(sql, index + 1, quote, backslash);
+  if (quote === "'") addSqlTokens(words, budget, sqlBodyWords(body, depth, budget));
+  return end;
+}
+
+/** What an E'' backslash escape at `index` stands for: a separator for a letter escape (\n, \t, \x41), else the escaped character. */
+function escapedText(sql, index) {
+  return /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2);
+}
+
+/** Read a quoted body from `start`: a doubled quote is the quote itself, and in an E'' string a backslash starts an escape. */
+function readQuoted(sql, start, quote, backslash) {
+  let index = start;
+  let body = "";
   while (index < sql.length) {
-    const char = sql[index];
-    const next = sql[index + 1];
-    if (char === "-" && next === "-") {
-      // Postgres ends a line comment at CR as well as LF.
-      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
-      index += 1;
-    } else if (char === "/" && next === "*") {
-      let level = 1;
+    if (backslash && sql[index] === "\\") {
+      body += escapedText(sql, index);
       index += 2;
-      while (index < sql.length && level > 0) {
-        if (sql[index] === "/" && sql[index + 1] === "*") (level += 1), (index += 2);
-        else if (sql[index] === "*" && sql[index + 1] === "/") (level -= 1), (index += 2);
-        else index += 1;
-      }
-    } else if (char === "'" || char === '"') {
-      const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") (words.pop(), (budget.left += 1));
-      index += 1;
-      let body = "";
-      while (index < sql.length) {
-        // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
-        if (backslash && sql[index] === "\\") (body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2)), (index += 2);
-        else if (sql[index] === char && sql[index + 1] === char) (body += char), (index += 2);
-        else if (sql[index] === char) {
-          index += 1;
-          break;
-        } else (body += sql[index]), (index += 1);
-      }
-      if (char === "'") addSqlTokens(words, budget, sqlBodyWords(body, depth, budget));
-    } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
-      const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
-      const bodyStart = index + tag.length;
-      const close = sql.indexOf(tag, bodyStart);
-      addSqlTokens(words, budget, sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth, budget));
-      index = close === -1 ? sql.length : close + tag.length;
-    } else if (/[A-Za-z_]/.test(char)) {
-      const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      addSqlTokens(words, budget, [match[0].toLowerCase()]);
-      index += match[0].length;
+    } else if (sql[index] === quote && sql[index + 1] === quote) {
+      body += quote;
+      index += 2;
+    } else if (sql[index] === quote) {
+      return { body, end: index + 1 };
     } else {
-      if (!/\s/.test(char)) addSqlTokens(words, budget, [char]);
+      body += sql[index];
       index += 1;
     }
   }
-  return words;
+  return { body, end: index };
+}
+
+/** A dollar-quoted body opened by `tag` at `index`: its words and the index after the closing tag. */
+function scanDollarQuoted(sql, index, tag, words, depth, budget) {
+  const bodyStart = index + tag.length;
+  const close = sql.indexOf(tag, bodyStart);
+  const bodyEnd = close === -1 ? sql.length : close;
+  addSqlTokens(words, budget, sqlBodyWords(sql.slice(bodyStart, bodyEnd), depth, budget));
+  return close === -1 ? sql.length : close + tag.length;
 }
 
 function sqlBodyWords(body, depth, budget) {
