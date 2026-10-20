@@ -20,22 +20,23 @@ export function createFlagOnServer(port: number, flags: Record<string, string>):
   const origin = `http://127.0.0.1:${port}`;
   let child: ChildProcess | undefined;
 
-  async function waitForServer() {
-    const deadline = Date.now() + FLAG_ON_SERVER_START_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (child?.exitCode !== null && child?.exitCode !== undefined) {
-        throw new Error(`flag-on dev server exited early with code ${child.exitCode}`);
-      }
-      try {
-        if ((await fetch(origin)).ok) {
-          return;
-        }
-      } catch {
-        // not listening yet
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  // Polls one step at a time (recursion, not a loop): each step must finish before the next starts.
+  async function waitForServer(deadline = Date.now() + FLAG_ON_SERVER_START_TIMEOUT_MS): Promise<void> {
+    if (child?.exitCode !== null && child?.exitCode !== undefined) {
+      throw new Error(`flag-on dev server exited early with code ${child.exitCode}`);
     }
-    throw new Error(`flag-on dev server did not answer at ${origin}`);
+    if (Date.now() >= deadline) {
+      throw new Error(`flag-on dev server did not answer at ${origin}`);
+    }
+    try {
+      if ((await fetch(origin)).ok) {
+        return;
+      }
+    } catch {
+      // not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return waitForServer(deadline);
   }
 
   return {
