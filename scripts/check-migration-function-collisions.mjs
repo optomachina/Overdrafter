@@ -26,7 +26,7 @@ export const SUPERSESSIONS_FILE = "docs/migration-drafts/function-supersessions.
 const MD5_PATTERN = /^[0-9a-f]{32}$/;
 const WORD_START = /[A-Za-z_\u{80}-\u{10FFFF}]/u;
 const WORD_PART = /[A-Za-z_0-9$\u{80}-\u{10FFFF}]/u;
-const DIGIT = /[0-9]/;
+const DIGIT = /\d/;
 const DOLLAR_TAG = /^\$(?:[A-Za-z_\u{80}-\u{10FFFF}][A-Za-z_0-9\u{80}-\u{10FFFF}]*)?\$/u;
 
 const ARGUMENT_MODES = ["in", "out", "inout", "variadic"];
@@ -56,8 +56,13 @@ const TYPE_ALIASES = new Map([
   ["time without time zone", "time"],
 ]);
 
-function md5(text) {
-  return createHash("md5").update(text, "utf8").digest("hex");
+/**
+ * md5 of a function body, the value `md5(pg_proc.prosrc)` returns. It is a
+ * fingerprint that matches what operators read from a database and write in the
+ * notes, not a security control.
+ */
+export function bodyMd5(body) {
+  return createHash("md5").update(body, "utf8").digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -203,18 +208,34 @@ function identifierValue(token) {
   return token.type === "ident" ? token.value : token.value.toLowerCase();
 }
 
-function canonicalType(text) {
-  let type = text.toLowerCase().replace(/\s+/g, " ").trim();
-  type = type.replace(/\s*\.\s*/g, ".").replace(/\s*\[\s*\d*\s*\]/g, "[]");
-  type = type.replace(/\b(?:public|pg_catalog)\./g, "");
-  let suffix = "";
-  while (type.endsWith("[]")) {
-    suffix += "[]";
-    type = type.slice(0, -2).trim();
+/**
+ * Canonical type text from the type's tokens: lower case, `public.` and
+ * `pg_catalog.` dropped, any array dimensions as one `[]`, and a length,
+ * precision or scale dropped because it never changes which function is meant.
+ */
+function canonicalType(tokens) {
+  let text = "";
+  let depth = 0;
+  let isArray = false;
+  for (const token of tokens) {
+    if (isPunct(token, "(")) {
+      depth += 1;
+    } else if (isPunct(token, ")")) {
+      depth -= 1;
+    } else if (depth > 0 || token.type === "number" || isPunct(token, "]")) {
+      continue;
+    } else if (isPunct(token, "[")) {
+      isArray = true;
+    } else if (isPunct(token, ".")) {
+      text += ".";
+    } else {
+      text += `${text === "" || text.endsWith(".") ? "" : " "}${token.value.toLowerCase()}`;
+    }
   }
-  // A length, precision or scale never changes which function is meant.
-  type = type.replace(/\s*\(\s*\d+\s*(?:,\s*\d+\s*)?\)/g, "");
-  return `${TYPE_ALIASES.get(type) ?? type}${suffix}`;
+  for (const schema of ["public.", "pg_catalog."]) {
+    if (text.startsWith(schema)) text = text.slice(schema.length);
+  }
+  return `${TYPE_ALIASES.get(text) ?? text}${isArray ? "[]" : ""}`;
 }
 
 function startsMultiwordType(first, second) {
@@ -235,7 +256,7 @@ function argumentType(argumentTokens) {
       || startsMultiwordType(first, second);
     if (!typeStartsHere) tokens = tokens.slice(1);
   }
-  return canonicalType(tokens.map((token) => token.value).join(" "));
+  return canonicalType(tokens);
 }
 
 function splitTopLevel(tokens) {
@@ -310,7 +331,7 @@ function readCreate(tokens, position) {
   return {
     action: "define",
     signature: identity.signature,
-    bodyMd5: body === null ? null : md5(body),
+    bodyMd5: body === null ? null : bodyMd5(body),
     bodyBytes: body === null ? null : Buffer.byteLength(body, "utf8"),
     line: tokens[position].line,
   };

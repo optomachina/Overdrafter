@@ -1,6 +1,5 @@
 /** Offline function collision messages only. Reads SQL text; never applies or rewrites migrations. */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   SUPERSESSIONS_FILE,
+  bodyMd5,
   findFunctionCollisions,
   inspectFunctionCollisions,
   parseSupersessions,
@@ -18,8 +18,6 @@ import {
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "check-migration-function-collisions.mjs");
 const S4 = "public.api_authorize_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)";
 const S4_HEAD = "public.api_authorize_worker_dispatch(p_task uuid, p_lane uuid, p_payload jsonb, p_reason text, p_now timestamptz)";
-
-const md5 = (text) => createHash("md5").update(text, "utf8").digest("hex");
 
 /** A create or replace function statement whose stored body is exactly `body`. */
 function fn(head, body, tag = "$$") {
@@ -60,12 +58,22 @@ const draftS4 = `${DRAFTS}/ovd-762-fanout.sql`;
 
 // ---- scanning ---------------------------------------------------------------
 
-test("a body hashes to md5(pg_proc.prosrc): the exact text between the dollar quotes", () => {
-  const [event] = scanFunctionEvents(fn(S4_HEAD, BODY_V1));
-  assert.equal(event.signature, S4);
-  assert.equal(event.bodyMd5, md5(BODY_V1));
-  assert.equal(event.bodyBytes, Buffer.byteLength(BODY_V1, "utf8"));
-  assert.equal(event.action, "define");
+test("a body hashes to bodyMd5(pg_proc.prosrc): the exact text between the dollar quotes", () => {
+  // RFC 1321 test vectors, so the expected values do not come from the code under test.
+  for (const [body, expected] of [
+    ["", "d41d8cd98f00b204e9800998ecf8427e"],
+    ["abc", "900150983cd24fb0d6963f7d28e17f72"],
+    ["message digest", "f96b697d7cb7938d525a2f31aaf161d0"],
+  ]) {
+    const [event] = scanFunctionEvents(fn(S4_HEAD, body));
+    assert.equal(event.signature, S4);
+    assert.equal(event.bodyMd5, expected);
+    assert.equal(event.bodyBytes, Buffer.byteLength(body, "utf8"));
+    assert.equal(event.action, "define");
+  }
+  const [padded] = scanFunctionEvents(fn(S4_HEAD, BODY_V1));
+  assert.notEqual(padded.bodyMd5, bodyMd5(BODY_V1.trim()), "leading and trailing whitespace inside the quotes is part of the body");
+  assert.equal(padded.bodyMd5, bodyMd5(BODY_V1));
 });
 
 test("argument names, modes, defaults and type spellings reduce to one canonical signature", () => {
@@ -95,7 +103,7 @@ test("comments, strings and bodies never produce a definition", () => {
     "-- create or replace function public.in_line_comment() returns int as $$ x $$;",
     "/* create function public.in_block_comment() returns int as $$ x $$; /* nested */ still a comment */",
     "select 'create function public.in_string() returns int as $$ x $$;';",
-    "select E'it\\'s create function public.in_escape_string()';",
+    String.raw`select E'it\'s create function public.in_escape_string()';`,
     'do $do$ begin execute $q$create function public.in_do_block() returns int as $b$ x $b$$q$; end $do$;',
     fn("public.real_one()", "select 1;", "$body$"),
   ].join("\n");
@@ -105,13 +113,13 @@ test("comments, strings and bodies never produce a definition", () => {
 test("a dollar quoted body may contain other dollar quotes and semicolons", () => {
   const body = "\nbegin\n  perform $inner$ a; b; $inner$;\nend;\n";
   const [event] = scanFunctionEvents(fn("public.outer_fn()", body, "$outer$"));
-  assert.equal(event.bodyMd5, md5(body));
+  assert.equal(event.bodyMd5, bodyMd5(body));
 });
 
 test("a single quoted body unescapes doubled quotes", () => {
   const sql = "create function public.quoted() returns text language sql as 'select ''hi'';';";
   const [event] = scanFunctionEvents(sql);
-  assert.equal(event.bodyMd5, md5("select 'hi';"));
+  assert.equal(event.bodyMd5, bodyMd5("select 'hi';"));
 });
 
 test("create, replace and drop are reported in source order with line numbers", () => {
@@ -154,8 +162,8 @@ test("a draft restating the deployed function with a different body fails and pr
   const violations = inspectFunctionCollisions(root);
   assert.equal(violations.length, 1);
   assert.match(violations[0], /^public\.api_authorize_worker_dispatch\(uuid,uuid,jsonb,text,timestamptz\): docs\/migration-drafts\/ovd-762-fanout\.sql/);
-  assert.ok(violations[0].includes(`(md5 ${md5(BODY_DRAFT)}) would replace the deployed body from ${migrationV1} (md5 ${md5(BODY_V1)})`));
-  assert.ok(violations[0].includes(`"supersedesMd5":"${md5(BODY_V1)}"`));
+  assert.ok(violations[0].includes(`(md5 ${bodyMd5(BODY_DRAFT)}) would replace the deployed body from ${migrationV1} (md5 ${bodyMd5(BODY_V1)})`));
+  assert.ok(violations[0].includes(`"supersedesMd5":"${bodyMd5(BODY_V1)}"`));
   assert.ok(violations[0].includes(SUPERSESSIONS_FILE));
 });
 
@@ -163,7 +171,7 @@ test("naming the superseded md5 in the allowlist clears the draft", () => {
   const root = makeTree({
     [migrationV1]: fn(S4_HEAD, BODY_V1),
     [draftS4]: fn(S4_HEAD, BODY_DRAFT),
-    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, md5(BODY_V1)]),
+    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, bodyMd5(BODY_V1)]),
   });
   assert.deepEqual(inspectFunctionCollisions(root), []);
 });
@@ -172,20 +180,20 @@ test("OVD-762 against OVD-987: a newer migration body makes the old entry stale 
   const files = {
     [migrationV1]: fn(S4_HEAD, BODY_V1),
     [draftS4]: fn(S4_HEAD, BODY_DRAFT),
-    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, md5(BODY_V1)]),
+    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, bodyMd5(BODY_V1)]),
   };
   assert.deepEqual(inspectFunctionCollisions(makeTree(files)), []);
 
   const quantityLands = makeTree({ ...files, [migrationV2]: fn(S4_HEAD, BODY_V2) });
   const violations = inspectFunctionCollisions(quantityLands);
   assert.equal(violations.length, 2);
-  assert.ok(violations.some((line) => line.includes(`would replace the deployed body from ${migrationV2} (md5 ${md5(BODY_V2)})`)));
-  assert.ok(violations.some((line) => line.includes(`unused entry for ${S4} in ${draftS4} naming md5 ${md5(BODY_V1)}`)));
+  assert.ok(violations.some((line) => line.includes(`would replace the deployed body from ${migrationV2} (md5 ${bodyMd5(BODY_V2)})`)));
+  assert.ok(violations.some((line) => line.includes(`unused entry for ${S4} in ${draftS4} naming md5 ${bodyMd5(BODY_V1)}`)));
 
   const rebased = makeTree({
     ...files,
     [migrationV2]: fn(S4_HEAD, BODY_V2),
-    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, md5(BODY_V2)]),
+    [SUPERSESSIONS_FILE]: allowlist([S4, draftS4, bodyMd5(BODY_V2)]),
   });
   assert.deepEqual(inspectFunctionCollisions(rebased), []);
 });
@@ -211,11 +219,11 @@ test("two promotable drafts with different bodies fail, and an entry on either s
   assert.equal(violations.length, 1);
   assert.match(violations[0], /define it differently, and whichever is promoted second replaces the other/);
   assert.deepEqual(
-    inspectFunctionCollisions(makeTree({ ...files, [SUPERSESSIONS_FILE]: allowlist([S4, second, md5(BODY_V1)]) })),
+    inspectFunctionCollisions(makeTree({ ...files, [SUPERSESSIONS_FILE]: allowlist([S4, second, bodyMd5(BODY_V1)]) })),
     [],
   );
   assert.deepEqual(
-    inspectFunctionCollisions(makeTree({ ...files, [SUPERSESSIONS_FILE]: allowlist([S4, first, md5(BODY_V2)]) })),
+    inspectFunctionCollisions(makeTree({ ...files, [SUPERSESSIONS_FILE]: allowlist([S4, first, bodyMd5(BODY_V2)]) })),
     [],
   );
 });
@@ -254,7 +262,7 @@ test("a function recreated after a drop is deployed again", () => {
   });
   const violations = inspectFunctionCollisions(root);
   assert.equal(violations.length, 1);
-  assert.ok(violations[0].includes(`(md5 ${md5(BODY_V2)})`));
+  assert.ok(violations[0].includes(`(md5 ${bodyMd5(BODY_V2)})`));
 });
 
 test("the last definition in a draft file is the one that would be promoted", () => {
@@ -286,7 +294,7 @@ test("different argument types are another function and never collide", () => {
 test("an entry nothing needs is reported, whether the draft changed or went away", () => {
   const root = makeTree({
     [migrationV1]: fn(S4_HEAD, BODY_V1),
-    [SUPERSESSIONS_FILE]: allowlist([S4, `${DRAFTS}/deleted-draft.sql`, md5(BODY_V1)]),
+    [SUPERSESSIONS_FILE]: allowlist([S4, `${DRAFTS}/deleted-draft.sql`, bodyMd5(BODY_V1)]),
   });
   const violations = inspectFunctionCollisions(root);
   assert.equal(violations.length, 1);
@@ -304,7 +312,7 @@ test("the allowlist must be versioned JSON whose entries name file, signature, m
   assert.throws(() => parseSupersessions("{"), /not valid JSON/);
   assert.throws(() => parseSupersessions('{"version": 2, "supersessions": []}'), /must be \{"version": 1/);
   assert.throws(() => parseSupersessions('{"version": 1}'), /must be \{"version": 1/);
-  const entry = { signature: S4, file: draftS4, supersedesMd5: md5("x"), reason: "why" };
+  const entry = { signature: S4, file: draftS4, supersedesMd5: bodyMd5("x"), reason: "why" };
   for (const field of ["signature", "file", "supersedesMd5", "reason"]) {
     const broken = { ...entry, [field]: "  " };
     assert.throws(
