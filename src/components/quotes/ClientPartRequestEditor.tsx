@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  QUANTITY_ALLOWED_COPY,
+  QUANTITY_CHECKING_COPY,
+  QUANTITY_FIXED_COPY,
+  QUANTITY_FORMAT_ERROR,
+  describeSavedQuantities,
+  parseRequestQuantityText,
+  type SingleQuantityState,
+} from "@/features/quotes/single-quantity";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 
@@ -20,6 +29,11 @@ type ClientPartRequestEditorProps = {
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
   onResetAllFields?: () => void;
   fieldDefaults?: FieldDefaults;
+  /**
+   * OVD-997: set to replace Qty and Quote quantities with one Quantity field. Left unset (flag off),
+   * the editor keeps both fields as they were.
+   */
+  singleQuantity?: SingleQuantityState;
 };
 
 function numberFieldValue(value: number | null | undefined): string {
@@ -112,6 +126,7 @@ export function ClientPartRequestEditor({
   onResetField,
   onResetAllFields,
   fieldDefaults,
+  singleQuantity,
 }: ClientPartRequestEditorProps) {
   const materialRequired = true;
   // The tolerance field keeps the typed text locally: round-tripping through the numeric draft would
@@ -131,6 +146,30 @@ export function ClientPartRequestEditor({
   // error is held back until the field loses focus, so valid typing does not flash an assertive alert.
   const toleranceIncomplete = /^\s*0*\.?0*\s*$/.test(toleranceText);
   const toleranceInvalid = toleranceBlocked && (!toleranceIncomplete || toleranceTouched);
+  // Single Quantity mode keeps the typed text locally for the same reason as the tolerance: clearing the
+  // field to retype must not snap back to a number on every keystroke.
+  const [quantityText, setQuantityText] = useState(() => numberFieldValue(draft.quantity));
+  const [seenQuantity, setSeenQuantity] = useState(draft.quantity);
+  if (!Object.is(draft.quantity, seenQuantity)) {
+    setSeenQuantity(draft.quantity);
+    if (parseRequestQuantityText(quantityText) !== draft.quantity) {
+      setQuantityText(numberFieldValue(draft.quantity));
+    }
+  }
+  const [quantityTouched, setQuantityTouched] = useState(false);
+  const quantityEditable = Boolean(singleQuantity?.allowAboveOne) && !singleQuantity?.loading;
+  const quantityBlocked =
+    singleQuantity !== undefined &&
+    (singleQuantity.loading || (quantityEditable && parseRequestQuantityText(quantityText) === null));
+  const quantityInvalid =
+    quantityBlocked && !singleQuantity?.loading && (quantityText.trim().length > 0 || quantityTouched);
+  const savedQuantitiesNote = singleQuantity ? describeSavedQuantities(draft, singleQuantity) : null;
+  let quantityHelp = QUANTITY_FIXED_COPY;
+  if (singleQuantity?.loading) {
+    quantityHelp = QUANTITY_CHECKING_COPY;
+  } else if (singleQuantity?.allowAboveOne) {
+    quantityHelp = QUANTITY_ALLOWED_COPY;
+  }
 
   return (
     <div className="min-w-0 space-y-4">
@@ -251,30 +290,70 @@ export function ClientPartRequestEditor({
             <FieldResetButton field="process" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="client-request-qty">Qty</Label>
-          <Input
-            id="client-request-qty"
-            value={numberFieldValue(draft.quantity)}
-            onChange={(event) =>
-              onChange({
-                quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
-              })
-            }
-            className="border-border bg-muted text-foreground"
-            inputMode="numeric"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="client-request-quote-quantities">Quote quantities</Label>
-          <Input
-            id="client-request-quote-quantities"
-            value={quoteQuantityInput}
-            onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
-            className="border-border bg-muted text-foreground"
-            placeholder="10 / 25 / 50"
-          />
-        </div>
+        {singleQuantity ? (
+          <div className="space-y-2">
+            <Label htmlFor="client-request-quantity">Quantity</Label>
+            <Input
+              id="client-request-quantity"
+              value={quantityEditable || singleQuantity.loading ? quantityText : "1"}
+              onChange={(event) => {
+                if (!quantityEditable) {
+                  return;
+                }
+                const text = event.target.value;
+                setQuantityText(text);
+                setQuantityTouched(false);
+                // Only a whole number reaches the draft, so a half typed value can never be saved.
+                const parsed = parseRequestQuantityText(text);
+                if (parsed !== null) {
+                  onChange({ quantity: parsed });
+                }
+              }}
+              onBlur={() => setQuantityTouched(true)}
+              readOnly={!quantityEditable}
+              aria-invalid={quantityInvalid ? true : undefined}
+              aria-describedby="client-request-quantity-help"
+              className="border-border bg-muted text-foreground read-only:cursor-not-allowed read-only:opacity-70"
+              inputMode="numeric"
+            />
+            <p id="client-request-quantity-help" className="text-xs text-muted-foreground">
+              {quantityHelp}
+            </p>
+            {quantityInvalid ? (
+              <p role="alert" className="text-xs text-destructive">
+                {QUANTITY_FORMAT_ERROR}
+              </p>
+            ) : null}
+            {savedQuantitiesNote ? <p className="text-xs text-muted-foreground">{savedQuantitiesNote}</p> : null}
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="client-request-qty">Qty</Label>
+              <Input
+                id="client-request-qty"
+                value={numberFieldValue(draft.quantity)}
+                onChange={(event) =>
+                  onChange({
+                    quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
+                  })
+                }
+                className="border-border bg-muted text-foreground"
+                inputMode="numeric"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="client-request-quote-quantities">Quote quantities</Label>
+              <Input
+                id="client-request-quote-quantities"
+                value={quoteQuantityInput}
+                onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
+                className="border-border bg-muted text-foreground"
+                placeholder="10 / 25 / 50"
+              />
+            </div>
+          </>
+        )}
         <div className="space-y-2">
           <Label htmlFor="client-request-date">Need by</Label>
           <Input
@@ -345,7 +424,7 @@ export function ClientPartRequestEditor({
           type="button"
           className="rounded-full"
           onClick={onSave}
-          disabled={isSaving || toleranceBlocked || (materialRequired && !draft.material.trim())}
+          disabled={isSaving || toleranceBlocked || quantityBlocked || (materialRequired && !draft.material.trim())}
         >
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save request details

@@ -12,6 +12,7 @@ import ClientPart from "./ClientPart";
 const {
   api,
   mockQuoteCollectionMode,
+  mockQuantityScope,
   mockUseAppSession,
   mockUsePartDeadline,
   prefetchProjectPage,
@@ -78,6 +79,7 @@ const {
     setAutomaticEnabled: vi.fn(),
     refresh: vi.fn(),
   },
+  mockQuantityScope: { status: "single_only" as "loading" | "single_only" | "multiple_allowed" },
   mockUseAppSession: vi.fn(),
   mockUsePartDeadline: vi.fn(),
   prefetchProjectPage: vi.fn(),
@@ -150,6 +152,10 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
 });
 vi.mock("@/features/quotes/quote-access", () => ({
   useQuoteAccess: () => mockQuoteCollectionMode,
+}));
+// The server read behind the single Quantity field (OVD-997) is controlled per test.
+vi.mock("@/features/quotes/quantity-scope", () => ({
+  useQuantityScope: () => mockQuantityScope,
 }));
 // Enrollment is explicit fixture data; it must never make a real RPC from this
 // page suite. Success, non-enrollment, and unavailable cases are covered below.
@@ -967,6 +973,7 @@ describe("ClientPart", () => {
     mockQuoteCollectionMode.isLoading = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
     mockQuoteCollectionMode.plan = "pro";
+    mockQuantityScope.status = "single_only";
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       writable: true,
@@ -1501,6 +1508,129 @@ describe("ClientPart", () => {
       expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
       expect(api.updateClientPartRequest).not.toHaveBeenCalled();
       queryClient.clear();
+    });
+  });
+
+  describe("single Quantity field (OVD-997)", () => {
+    /** A saved request at quantity 1: the case where a changed Qty used to be discarded. */
+    function createSavedQuantityOneDetail() {
+      const detail = createPartDetail();
+      return {
+        ...detail,
+        job: { ...detail.job, requested_quote_quantities: [1] },
+        summary: { ...detail.summary, quantity: 1, requestedQuoteQuantities: [1] },
+        part: {
+          ...detail.part,
+          quantity: 1,
+          approvedRequirement: { ...detail.part.approvedRequirement, quantity: 1, quote_quantities: [1] },
+        },
+      };
+    }
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("is off by default: the controller offers no single Quantity state and saves the typed list as before", async () => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toBeUndefined();
+
+      act(() => {
+        result.current.setQuoteQuantityInput("10/25");
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 10,
+        requestedQuoteQuantities: [10, 25],
+      });
+    });
+
+    it("saves [5] when only Quantity changed from a saved [1], for a participant the server scoped", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "multiple_allowed";
+      api.fetchPartDetailByJobId.mockResolvedValue(createSavedQuantityOneDetail());
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedQuoteQuantities).toEqual([1]));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: true, loading: false });
+
+      act(() => {
+        result.current.handleDraftChange({ quantity: 5 });
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        jobId: "job-1",
+        quantity: 5,
+        requestedQuoteQuantities: [5],
+      });
+    });
+
+    it("saves exactly one quantity even when several were saved, ignoring the hidden Quote quantities text", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "multiple_allowed";
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => {
+        result.current.setQuoteQuantityInput("10/25/50");
+      });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 10,
+        requestedQuoteQuantities: [10],
+      });
+    });
+
+    it("fixes the saved quantity at 1 when the server did not scope a larger quantity", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "single_only";
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 1,
+        requestedQuoteQuantities: [1],
+      });
+    });
+
+    it("does not save while the server answer is pending, and never saves an unusable quantity", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "loading";
+      const { result, rerender } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: true });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      mockQuantityScope.status = "multiple_allowed";
+      rerender({ jobId: "job-1" });
+      act(() => {
+        result.current.handleDraftChange({ quantity: 0 });
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
     });
   });
 
