@@ -13,8 +13,9 @@
 //          letter or symbol glued to it (Ø.1875, n.1875, SR.0625, .1875A, 1.2500). Only the values of the
 //          table's own rows are left out. A number that is not a dimension (a weight, an edge-break note)
 //          therefore keeps a row: the tighter value is the safe error. A decimal the text layer garbled
-//          (a space after the point, digits split by a space, a mantissa and an exponent, a middle dot for the
-//          point) counts as the places it may carry;
+//          (one blank after the point, digits split by one blank, a mantissa and an exponent, a middle dot for the
+//          point) counts as the places it may carry; ordinary lines that only look like one (a callout a layout
+//          column after a dimension, a numbered note, a written date) do not;
 //   T3     when the sheet cannot be read (OCR, too few dimensions, a line too long to scan), a row of four or
 //          more places is not assumed in force: it is an unresolved value (valueInch null unless a tighter
 //          explicit tolerance exists, so the OVD-683 beta gate asks the user). Rows of one to three places
