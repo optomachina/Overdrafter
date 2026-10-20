@@ -1,15 +1,16 @@
 -- OVD-979: re-extraction provenance and drawing-attach extraction.
 --
--- Targets the drafts docs/migration-drafts/ovd-979-a.sql (ownership in
--- api_auto_approve_job_requirements) and docs/migration-drafts/ovd-979-b.sql
--- (api_request_extraction queues one extraction when a drawing is attached to
--- a CAD-only extracted part), applied in that order.
--- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
--- file carries a .pending suffix so the policy-test runner stages it but never
--- executes it; the ephemeral-db stage (scripts/ephemeral-db-apply.mjs) applies
--- the ovd979 draft family and runs it. In the approved window, the drafts are
--- promoted and this file is renamed to
--- supabase/tests/ovd979_reextraction_provenance.sql in the same change.
+-- Targets these migrations, applied in this order:
+--   supabase/migrations/20261020002126_ovd979_auto_approve_keep_user_corrections.sql
+--     (ownership in api_auto_approve_job_requirements), then
+--   supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql
+--     (api_request_extraction queues one extraction when a drawing is attached
+--     to a CAD-only extracted part).
+-- Both files are byte copies of the reviewed drafts docs/migration-drafts/
+-- ovd-979-a.sql and ovd-979-b.sql (rollbacks: ovd-979-a.rollback.sql and
+-- ovd-979-b.rollback.sql, notes: ovd-979-notes.md). This test was promoted from
+-- supabase/tests/pending/ovd979_reextraction_provenance.sql.pending, so the
+-- policy-test runner and the ephemeral-db stage run it against the migrations.
 -- Pre-apply observation (PGlite + pgTAP, exact migration bodies, stubbed
 -- tables): without the drafts 21/38 pass (A2, A4, B1, B1b, B3, B5, B9, D0-D5,
 -- Q1-Q3, F1 fail: corrections overwritten, 0 tasks queued on attach, stale
