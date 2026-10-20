@@ -371,6 +371,25 @@ describe("bot attribution", () => {
     expect(attributePullRequest(normalizePullRequest({ body }))).toEqual({ bot: "opus", status: "attributed", sources: ["body"] });
   });
 
+  it.each([
+    "Model: model:codex",
+    "- Model: model:codex",
+    "Model: MODEL:Codex",
+    "Model: model:codex.",
+    "Model: model:codex (built by hand)",
+    "Builder model: model:codex, per Release",
+  ])("reads a body line that restates the label syntax: %s", (body) => {
+    expect(attributePullRequest({ body })).toEqual({ bot: "codex", status: "attributed", sources: ["body"] });
+    expect(attributePullRequest({ body, labels: ["model:codex"] })).toEqual({ bot: "codex", status: "attributed", sources: ["body", "label"] });
+    expect(attributePullRequest({ body, labels: ["model:opus"] })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body", "label"] });
+  });
+
+  it("removes only one leading model: from the explicit token", () => {
+    for (const body of ["Model: model:model:codex", "Model: model:", "Model: model: codex"]) {
+      expect(attributePullRequest({ body })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body"] });
+    }
+  });
+
   it("preserves complete bot keys in body evidence", () => {
     expect(attributePullRequest({ body: "Model: z_bot", labels: ["model:z_bot"] })).toEqual({ bot: "z_bot", status: "attributed", sources: ["body", "label"] });
     expect(attributePullRequest({ body: "Model: bot-" })).toEqual({ bot: "bot-", status: "attributed", sources: ["body"] });

@@ -129,7 +129,10 @@ Each merged PR collects builder candidates from three sources:
   `Model: codex_` credits `codex_` (so label `model:codex` plus body
   `Model: codex_` is conflicting). An unpaired leading `_Model: opus`
   supplies no signal because its prefix does not match. Match the prefix `/^(?:build(?:er)?\s+)?model\s*:\s*/i`,
-  then take the whole next whitespace-delimited token. Remove trailing
+  remove one leading `model:` (case-insensitive) so a body that restates the
+  label syntax, such as `Model: model:codex`, credits `codex`, then take the
+  whole next whitespace-delimited token. A second `model:` is not removed, and
+  `Model: model:` leaves an empty token, which is conflicting. Remove trailing
   punctuation from the set `, ; : ) ·`; also remove a single trailing `.`
   only when the line ends immediately after it (never a run of periods).
   The whole remaining token must match the bot key pattern, case-insensitively,

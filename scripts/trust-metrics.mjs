@@ -174,7 +174,8 @@ function parseBodyModelToken(line) {
   const text = stripMarkdown(line.trim().replace(/^[-*+]\s+/, "")).replace(/^[-+]\s+/, "");
   const match = /^(?:build(?:er)?\s+)?model\s*:\s*/i.exec(text);
   if (!match) return null;
-  const remainder = text.slice(match[0].length);
+  // PR bodies often restate the label syntax ("Model: model:codex"); judge the key after one leading "model:".
+  const remainder = text.slice(match[0].length).replace(/^model:/i, "");
   let token = /^\S*/.exec(remainder)[0];
   if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
   while (token.length > 0 && ",;:)·".includes(token.at(-1))) token = token.slice(0, -1);
