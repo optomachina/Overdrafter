@@ -879,23 +879,13 @@ describe("ClientProject", () => {
 
   // OVD-992: a need-by date typed in the Add part prompt is a display filter only. The draft must not
   // carry it, because the approved requirement copies it and every controlled dispatch denies it.
-  it.each([
-    {
-      label: "relative weekday",
-      prompt: "Please quote 25 of these, need by next Friday",
-      quantities: [25],
-    },
-    {
-      label: "slash date",
-      prompt: "Need 50 of these, needed by 11/20",
-      quantities: [50],
-    },
-    {
-      label: "month name",
-      prompt: "Quote qty 10/50/100, deliver by Dec 5",
-      quantities: [10, 50, 100],
-    },
-  ])("does not save a $label need-by date from the Add part prompt", async ({ prompt, quantities }) => {
+  const ADD_PART_PROMPTS: Array<[label: string, prompt: string, quantities: number[]]> = [
+    ["relative weekday", "Please quote 25 of these, need by next Friday", [25]],
+    ["slash date", "Need 50 of these, needed by 11/20", [50]],
+    ["month name", "Quote qty 10/50/100, deliver by Dec 5", [10, 50, 100]],
+  ];
+
+  it.each(ADD_PART_PROMPTS)("does not save a %s need-by date from the Add part prompt", async (_label, prompt, quantities) => {
     // The parser still reads a date from the prompt, so the call site is what must drop it.
     expect(parseRequestIntake(prompt).requestedByDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     api.createClientDraft.mockResolvedValue("job-9");

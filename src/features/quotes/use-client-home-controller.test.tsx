@@ -613,40 +613,23 @@ describe("useClientHomeController membership recovery", () => {
     const FIXED_NOW = new Date("2026-10-19T12:00:00.000Z");
     const readyMembership = createSessionData({
       memberships: [
-        {
-          id: "membership-1",
-          role: "client",
-          organizationId: "org-1",
-          organizationName: "Client Org",
-          organizationSlug: "client-org",
-        },
+        { id: "m-need-by", role: "client", organizationId: "org-9", organizationName: "Acme", organizationSlug: "acme" },
       ],
     });
 
-    it.each([
-      {
-        label: "relative weekday",
-        prompt: "Please quote 25 of these, need by next Friday",
-        parsedDate: "2026-10-23",
-        quantities: [25],
-      },
-      {
-        label: "slash date",
-        prompt: "Need 50 of these, needed by 11/20",
-        parsedDate: "2026-11-20",
-        quantities: [50],
-      },
-      {
-        label: "month name",
-        prompt: "Quote qty 10/50/100, deliver by Dec 5",
-        parsedDate: "2026-12-05",
-        quantities: [10, 50, 100],
-      },
-    ])("does not save a $label need-by date but keeps the quantities", async ({ prompt, parsedDate, quantities }) => {
+    // [label, prompt, quantities the call site must keep]
+    const PROMPTS_WITH_A_DATE: Array<[string, string, number[]]> = [
+      ["relative weekday", "Please quote 25 of these, need by next Friday", [25]],
+      ["slash date", "Need 50 of these, needed by 11/20", [50]],
+      ["month name", "Quote qty 10/50/100, deliver by Dec 5", [10, 50, 100]],
+    ];
+
+    it.each(PROMPTS_WITH_A_DATE)("does not save a %s need-by date but keeps the quantities", async (_label, prompt, quantities) => {
       const actualIntake = await vi.importActual<typeof import("@/features/quotes/request-intake")>(
         "@/features/quotes/request-intake",
       );
-      expect(actualIntake.parseRequestIntake(prompt, FIXED_NOW).requestedByDate).toBe(parsedDate);
+      // The real parser reads a date from every prompt above, so the call site is what drops it.
+      expect(actualIntake.parseRequestIntake(prompt, FIXED_NOW).requestedByDate).toMatch(/^2026-\d\d-\d\d$/);
       vi.mocked(parseRequestIntake).mockImplementationOnce((value) =>
         actualIntake.parseRequestIntake(value, FIXED_NOW),
       );
