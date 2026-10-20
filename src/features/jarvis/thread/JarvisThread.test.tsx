@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphEvent } from '../core/types';
 import { JarvisThread } from './JarvisThread';
 import { ModelView } from './ModelView';
@@ -301,4 +301,35 @@ it('stops listening to the source when it unmounts or the run changes', () => {
   expect(unsubscribe).toHaveBeenCalledTimes(1);
   view.unmount();
   expect(unsubscribe).toHaveBeenCalledTimes(2);
+});
+
+describe('3D viewer dialog and the run it belongs to', () => {
+  // jsdom has no WebGL; answer the viewer's capability probe quietly so it shows its picture fallback.
+  beforeEach(() => { vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); });
+  afterEach(() => vi.restoreAllMocks());
+  function openViewer() {
+    let push: (events: GraphEvent[]) => void = () => { };
+    const source: EventSource = { listen: fn => { push = fn; return () => { }; }, retry: vi.fn() };
+    const client = { resolve: vi.fn(), control: vi.fn() };
+    const view = render(<JarvisThread source={source} client={client} runId="run" />);
+    act(() => push([artifact(1, 'png'), artifact(2, 'glb'), artifact(3, 'step')]));
+    const opener = screen.getByRole('button', { name: 'OPEN 3D VIEW' }); opener.focus(); fireEvent.click(opener);
+    return { view, source, client, deliver: (events: GraphEvent[]) => act(() => push(events)) };
+  }
+
+  it('closes when the run changes and gives focus to the page heading instead of dropping it to the body', () => {
+    const { view, source, client } = openViewer();
+    expect(screen.getByRole('dialog', { name: '3D review' })).toBeTruthy();
+    view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Jarvis' }));
+  });
+
+  it('stays closed when the new run later delivers its own model', () => {
+    const { view, source, client, deliver } = openViewer();
+    view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+    deliver([{ ...artifact(1, 'png'), runId: 'other' }, { ...artifact(2, 'glb'), runId: 'other' }]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy();
+  });
 });

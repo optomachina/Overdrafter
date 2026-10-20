@@ -135,7 +135,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const inFlight = useRef(false), keys = useRef(new Map<string, string>());
   useEffect(() => {
     // An open cancel confirmation belongs to the run it was opened for; confirming it after a switch would cancel the new run.
-    setEvents([]); setCommand(''); setConfirm(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
+    // The same holds for the 3D viewer: it must not pop open on the new run's model the moment that model arrives.
+    setEvents([]); setCommand(''); setConfirm(false); setViewer(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
       const byId = new Map(previous.map(e => [`${e.runId}:${e.seq}`, e]));
       batch.filter(e => e.runId === runId).forEach(e => byId.set(`${e.runId}:${e.seq}`, e));
       return [...byId.values()].sort((a, b) => a.seq - b.seq);
@@ -188,7 +189,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />
       <p className="jt-muted">Preview only. Messages are not sent.</p>
-    </footer>{viewer && glb && <ThreadDialog close={closeViewer}>
+    </footer>{viewer && glb && <ThreadDialog close={closeViewer} fallbackFocus={heading}>
       <ModelView uri={glb.uri} pictures={pictures} step={step?.uri} />
     </ThreadDialog>}{confirm && <ThreadDialog sheet close={closeConfirm} fallbackFocus={heading}>
       <h2>Cancel request?</h2>
