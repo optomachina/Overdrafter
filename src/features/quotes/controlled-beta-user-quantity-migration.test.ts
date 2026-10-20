@@ -108,6 +108,21 @@ describe("OVD-987 controlled beta user quantity migration", () => {
     expect(preflight).toContain("and candidate.requested_quantity = v_lane.requested_quantity;");
   });
 
+  it("binds the quantity the worker browses with (result row and payload key) to the lane", () => {
+    const preflight = flat(body(migrationSql, "public.api_authorize_xometry_beta_worker_dispatch"));
+    const binding =
+      "or v_lane.requested_quantity::text is distinct from (v_lane.scope_snapshot ->> 'quantity') " +
+      "or v_result.requested_quantity is distinct from v_lane.requested_quantity " +
+      "or (v_task.payload ? 'requestedQuantity' and v_task.payload ->> 'requestedQuantity' is distinct from v_lane.requested_quantity::text) " +
+      "or v_lane.scope_version <> v_permit.scope_version";
+    expect(preflight).toContain(binding);
+    // Inside the lane identity block, so it returns the existing reason.
+    const at = preflight.indexOf(binding);
+    expect(at).toBeGreaterThan(preflight.indexOf("select lane_row.* into v_lane"));
+    expect(at).toBeLessThan(preflight.indexOf("v_reason_key, 'dispatch_lane_identity_mismatch'"));
+    expect(preflight.indexOf("select result_row.* into v_result")).toBeLessThan(at);
+  });
+
   it("never lets the free-beta meter read the switch, so a permit issued at N still settles", () => {
     for (const qualified of [
       "private.record_quote_access_admission",
@@ -121,5 +136,109 @@ describe("OVD-987 controlled beta user quantity migration", () => {
       expect(meter, qualified).toContain("requested_quantity::text");
       expect(meter, qualified).toContain("scope_snapshot ->> 'quantity')");
     }
+  });
+});
+
+/** The text of a dollar-quoted DO block, from its opening line to its closing tag. */
+function doBlock(sql: string, tag: string): { start: number; end: number; text: string } {
+  const start = sql.indexOf(`\ndo $${tag}$\n`);
+  const end = sql.indexOf(`\n$${tag}$;\n`);
+  expect(start, tag).toBeGreaterThan(0);
+  expect(end, tag).toBeGreaterThan(start);
+  return { start, end, text: flat(sql.slice(start, end)) };
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** One VALUES row of a guard: ('<signature>', '<md5>', '<md5>'). */
+const guardRow = (qualified: string, first: string, second: string) =>
+  new RegExp(`\\('${escapeRegExp(qualified)}\\([^)]*\\)', '${first}', '${second}'\\)`);
+const GUARD_ROW = /\('[a-z_]+\.[a-z_]+\([^)]*\)', '[0-9a-f]{32}', '[0-9a-f]{32}'\)/g;
+
+describe("OVD-987 migration precondition", () => {
+  const block = doBlock(migrationSql, "ovd987_precondition");
+
+  it("runs after lock_timeout and before any change", () => {
+    expect(block.start).toBeGreaterThan(migrationSql.indexOf("\nset local lock_timeout = '5s';\n"));
+    expect(migrationSql.search(/^(?:alter table|insert into|create or replace function|drop |revoke |grant )/m)).toBeGreaterThan(block.end);
+  });
+
+  it.each(RESTATED)("accepts only the reviewed previous body or this file's body of %s", (qualified, source) => {
+    const previous = md5(body(readFileSync(`${MIGRATIONS}/${source}`, "utf8"), qualified));
+    const next = md5(body(migrationSql, qualified));
+    expect(block.text).toMatch(guardRow(qualified, previous, next));
+  });
+
+  it("checks exactly the seven restated functions and raises on a missing or unknown body", () => {
+    expect(block.text.match(GUARD_ROW)).toHaveLength(RESTATED.length);
+    expect(block.text).toContain(
+      "select pg_catalog.md5(p.prosrc) into v_md5 from pg_catalog.pg_proc p where p.oid = pg_catalog.to_regprocedure(v_expected.signature);",
+    );
+    expect(block.text).toContain(
+      "if v_md5 is null or v_md5 not in (v_expected.previous_md5, v_expected.applied_md5) then raise exception 'OVD-987 refused:",
+    );
+  });
+});
+
+describe("OVD-987 rollback guard", () => {
+  const guard = doBlock(rollbackSql, "ovd987_rollback_guard");
+
+  it("locks the rollout controls, then the permits, then guards, before restoring anything", () => {
+    const lockTimeout = rollbackSql.indexOf("\nset local lock_timeout = '5s';\n");
+    const controls = rollbackSql.indexOf("\nlock table private.commercial_rollout_controls in access exclusive mode;\n");
+    const permits = rollbackSql.indexOf("\nlock table private.xometry_beta_dispatch_permits in share mode;\n");
+    expect(lockTimeout).toBeGreaterThan(0);
+    expect(controls).toBeGreaterThan(lockTimeout);
+    expect(permits).toBeGreaterThan(controls);
+    expect(guard.start).toBeGreaterThan(permits);
+    expect(rollbackSql.search(/^(?:alter table|delete from|create or replace function|drop )/m)).toBeGreaterThan(guard.end);
+  });
+
+  it("refuses while the switch is on", () => {
+    expect(guard.text).toContain(
+      "if private.commercial_rollout_enabled('controlled_beta_user_quantity') then raise exception 'OVD-987 rollback refused: controlled_beta_user_quantity is on;",
+    );
+  });
+
+  it("refuses while a Xometry permit above quantity 1 has a reserved admission, an open request or an open task", () => {
+    expect(guard.text).toContain(
+      "if exists ( select 1 from private.xometry_beta_dispatch_permits permit " +
+        "join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id " +
+        "left join public.quote_requests request_row on request_row.id = permit.quote_request_id " +
+        "left join public.work_queue task on task.id = permit.work_queue_task_id " +
+        "left join private.quote_access_admissions admission on admission.permit_id = permit.id " +
+        "where lane.requested_quantity <> 1 " +
+        "and (admission.state = 'reserved' " +
+        "or request_row.status::text in ('queued', 'requesting') " +
+        "or task.status::text in ('queued', 'running')) ) " +
+        "then raise exception 'OVD-987 rollback refused: a Xometry beta permit above quantity 1 is still in flight;",
+    );
+  });
+
+  it.each(RESTATED)("refuses when %s is neither this migration's body nor the original", (qualified, source) => {
+    const previous = md5(body(readFileSync(`${MIGRATIONS}/${source}`, "utf8"), qualified));
+    const next = md5(body(migrationSql, qualified));
+    expect(guard.text).toMatch(guardRow(qualified, next, previous));
+  });
+
+  it("checks exactly the seven restated functions and raises on a missing or unknown body", () => {
+    expect(guard.text.match(GUARD_ROW)).toHaveLength(RESTATED.length);
+    expect(guard.text).toContain(
+      "select pg_catalog.md5(p.prosrc) into v_md5 from pg_catalog.pg_proc p where p.oid = pg_catalog.to_regprocedure(v_expected.signature);",
+    );
+    expect(guard.text).toContain(
+      "if v_md5 is null or v_md5 not in (v_expected.applied_md5, v_expected.previous_md5) then raise exception 'OVD-987 rollback refused: % was replaced by a later migration",
+    );
+  });
+
+  it("deletes only a disabled control row and keeps the events CHECK while immutable events exist", () => {
+    const flatRollback = flat(rollbackSql);
+    expect(flatRollback).toContain(
+      "delete from private.commercial_rollout_controls where capability = 'controlled_beta_user_quantity' and not enabled;",
+    );
+    const events = doBlock(rollbackSql, "ovd987_rollback_events");
+    expect(events.text).toContain(
+      "if exists ( select 1 from private.commercial_rollout_control_events where capability = 'controlled_beta_user_quantity' ) then raise notice",
+    );
+    expect(events.text.indexOf("raise notice")).toBeLessThan(events.text.indexOf("else alter table private.commercial_rollout_control_events"));
   });
 });

@@ -39,10 +39,25 @@
 -- are (all terminal, by the guard). Re-applying the migration re-seeds the
 -- control OFF at revision 0.
 --
+-- Locks: before the guard reads anything, this transaction locks the rollout
+-- controls (ACCESS EXCLUSIVE, the mode the CHECK replacement below needs anyway)
+-- and then the Xometry beta permits (SHARE). Every request reads the controls
+-- before it inserts a permit, so a request that read the switch while it was on
+-- holds a lock this waits for: its permit and reservation are committed (and the
+-- guard sees them) or rolled back before the guard runs, and a request that
+-- starts later reads the controls only after this transaction ends, under the
+-- restored quantity-1 rules. Locking the controls first keeps the order every
+-- request uses (controls, then permits), so there is no lock cycle with it. No
+-- advisory lock is taken, so there is no cycle with the setter's exclusive or the
+-- worker preflight's shared advisory locks. lock_timeout bounds the wait.
+--
 -- Idempotent: a second run is a no-op. Transaction: no begin/commit of its own.
 -- =====================================================================
 
 set local lock_timeout = '5s';
+
+lock table private.commercial_rollout_controls in access exclusive mode;
+lock table private.xometry_beta_dispatch_permits in share mode;
 
 do $ovd987_rollback_guard$
 declare
@@ -75,7 +90,7 @@ begin
       ('public.api_set_commercial_rollout_control(text,boolean,text,text,bigint,text)', '2a2b6b6980abb0dd113b64b3dcd57041', 'eb741ed4f0be63d3189486959cdccdac'),
       ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '916594293cfc4e66053acf4c7414b2ba', '0d4abcf48f054aced6dd3d531a1114bb'),
       ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '28c932e1ccf964302ffed42d9ce4bc0b', 'b633e6921485eefc211ab238bab10e43'),
-      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', 'aa54ed4353e52ea527649ab31276c476', 'eb659d92aa927555f4c4fe93591fa9d1'),
+      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19', 'eb659d92aa927555f4c4fe93591fa9d1'),
       ('private.record_quote_access_admission(uuid,uuid,text,uuid)', '7c5f710bccffddd8562974ae489e803c', '92b05edef3ec774fdb704e21efdc392d'),
       ('private.finalize_free_quote_job(uuid)', 'b76415a18a9bb15659ec388cc4da2880', '66021f1fc65ee7fa7d5c24666c858512'),
       ('public.api_reconcile_terminal_free_quote_tasks(uuid,integer)', 'edcca1ef0dd3cf45a7ff9c202696f185', '30208617d8ea6ec756e268d1b31ad4c9')
@@ -95,6 +110,7 @@ $ovd987_rollback_guard$;
 
 -- Previous definitions, byte for byte (only "create" became "create or
 -- replace" where the original created the function).
+-- Previous api_set_commercial_rollout_control (20260802020349).
 create or replace function public.api_set_commercial_rollout_control(
   p_capability text,
   p_enabled boolean,
@@ -267,6 +283,7 @@ grant execute on function public.api_set_commercial_rollout_control(
 )
 to service_role;
 
+-- Previous S1 (20261010230000).
 create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(
   p_job_id uuid,
   p_declared_model_units text,
@@ -504,6 +521,7 @@ $$;
 revoke all on function private.resolve_xometry_beta_dispatch_scope_with_access(uuid, text, uuid)
   from public, anon, authenticated, service_role;
 
+-- Previous S3 (20261004100000).
 create or replace function public.api_request_xometry_beta_dispatch(
   p_job_id uuid,
   p_declared_model_units text,
@@ -686,6 +704,7 @@ grant execute on function public.api_request_xometry_beta_dispatch(
   uuid, text, text, text, uuid, boolean, boolean, boolean
 ) to authenticated;
 
+-- Previous S4 (20261002182910).
 create or replace function public.api_authorize_xometry_beta_worker_dispatch(
   p_work_queue_task_id uuid,
   p_vendor_quote_result_id uuid,
@@ -971,6 +990,7 @@ grant execute on function public.api_authorize_xometry_beta_worker_dispatch(
   uuid, uuid, jsonb, text, timestamptz
 ) to service_role;
 
+-- Previous S5 and S6 (20261002182714).
 create or replace function private.record_quote_access_admission(
   p_quote_request_id uuid, p_approval_reference uuid, p_admission_source text, p_bucket_id uuid
 )
@@ -1149,6 +1169,7 @@ revoke all on function private.record_quote_access_admission(uuid,uuid,text,uuid
   private.finalize_free_quote_job(uuid)
   from public, anon, authenticated, service_role;
 
+-- Previous S7 (20261003011148).
 create or replace function public.api_reconcile_terminal_free_quote_tasks(
   p_after_admission_id uuid default null,
   p_limit integer default 100
@@ -1281,6 +1302,7 @@ revoke all on function public.api_reconcile_terminal_free_quote_tasks(uuid,integ
   from public, anon, authenticated;
 grant execute on function public.api_reconcile_terminal_free_quote_tasks(uuid,integer) to service_role;
 
+-- The helper, the control row and the capability in the CHECKs.
 drop function if exists private.xometry_beta_user_quantity_enabled();
 
 delete from private.commercial_rollout_controls

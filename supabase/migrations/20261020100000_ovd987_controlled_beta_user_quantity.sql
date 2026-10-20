@@ -55,6 +55,12 @@
 --      commercial-rollout:controlled_beta_user_quantity, whose only exclusive
 --      holder is the setter, so an audited disable waits for an in-flight
 --      authorization and later ones see it. Quantity-1 lanes take no new lock.
+--      S4 also binds the quantity the worker browses with: the result's
+--      requested_quantity, and the task payload's requestedQuantity when the
+--      payload has that key, must equal the lane's quantity, else
+--      dispatch_lane_identity_mismatch. Rows the server writes always agree,
+--      so with the switch off this tightening changes the answer only for a
+--      task or result row edited after enqueue.
 --      S5 to S7 (the free-beta meter) never read the switch. They bind the
 --      lane quantity to the lane's own scope snapshot and the result quantity
 --      to the lane, so a permit issued at N still settles (consumed or
@@ -70,6 +76,20 @@
 --      quantity-agnostic).
 --   Security attributes, search_path, owner, revokes and grants of every
 --   restated function are unchanged and restated.
+--
+-- Operating the switch (details in the notes file):
+--   * Change one rollout capability per transaction. S4 takes the shared
+--     lock of automatic_quote_collection and then, for a lane above 1, this
+--     switch's; a transaction that sets this switch and then
+--     automatic_quote_collection can deadlock with it. If both must change
+--     together, change automatic_quote_collection first.
+--   * Turning the switch off stops a lane above 1 at its next preflight; a
+--     lane that already passed S4 still launches.
+--   * After a turn-off, replaying a committed quantity-N request raises
+--     xometry_beta_quantity_one_required instead of returning deduplicated
+--     (S3 runs the resolver before its replay return).
+--   * Rolling back and re-applying re-seeds the control at revision 0, so a
+--     (capability, revision) pair can repeat in the immutable audit log.
 --
 -- Precondition: the block below refuses unless each replaced function is the
 -- definition this file was reviewed against, or already this file's, so a
@@ -89,7 +109,7 @@ begin
       ('public.api_set_commercial_rollout_control(text,boolean,text,text,bigint,text)', 'eb741ed4f0be63d3189486959cdccdac', '2a2b6b6980abb0dd113b64b3dcd57041'),
       ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '0d4abcf48f054aced6dd3d531a1114bb', '916594293cfc4e66053acf4c7414b2ba'),
       ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', 'b633e6921485eefc211ab238bab10e43', '28c932e1ccf964302ffed42d9ce4bc0b'),
-      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', 'eb659d92aa927555f4c4fe93591fa9d1', 'aa54ed4353e52ea527649ab31276c476'),
+      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', 'eb659d92aa927555f4c4fe93591fa9d1', '0fef772880a4122f72475a9905b7ed19'),
       ('private.record_quote_access_admission(uuid,uuid,text,uuid)', '92b05edef3ec774fdb704e21efdc392d', '7c5f710bccffddd8562974ae489e803c'),
       ('private.finalize_free_quote_job(uuid)', '66021f1fc65ee7fa7d5c24666c858512', 'b76415a18a9bb15659ec388cc4da2880'),
       ('public.api_reconcile_terminal_free_quote_tasks(uuid,integer)', '30208617d8ea6ec756e268d1b31ad4c9', 'edcca1ef0dd3cf45a7ff9c202696f185')
@@ -898,8 +918,12 @@ begin
     or v_lane.vendor_quote_result_id <> v_permit.vendor_quote_result_id
     or v_lane.part_id <> v_permit.part_id
     or v_lane.vendor <> v_provider
-    -- OVD-987: the lane quantity must be the one its own scope snapshot states.
+    -- OVD-987: the lane quantity must be the one its own scope snapshot states,
+    -- and the result and the task payload the worker reads must name it too.
     or v_lane.requested_quantity::text is distinct from (v_lane.scope_snapshot ->> 'quantity')
+    or v_result.requested_quantity is distinct from v_lane.requested_quantity
+    or (v_task.payload ? 'requestedQuantity'
+      and v_task.payload ->> 'requestedQuantity' is distinct from v_lane.requested_quantity::text)
     or v_lane.scope_version <> v_permit.scope_version
     or v_lane.scope_fingerprint <> v_permit.scope_fingerprint
     or v_task.payload ->> 'quoteLaneScopeFingerprint' is distinct from v_permit.scope_fingerprint then

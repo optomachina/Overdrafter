@@ -5,7 +5,7 @@
 -- refuses it, and the free-beta meter still settles every hold.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(92);
+select plan(111);
 \set meter_fixture_limit 20
 \ir fixtures/free_quote_meter_setup.inc
 
@@ -168,6 +168,33 @@ begin
   from public.job_files file
   cross join (values ('drawing_text'), ('step_header')) as source(name)
   where file.job_id = ovd987_fixture.job(p_name) and file.content_sha256 ~ '^[0-9a-f]{64}$';
+end;
+$$;
+
+-- Defence-in-depth drills: rows edited inside the request transaction, as a racing
+-- writer or a direct edit by the owner would. Each trigger lives in a savepoint.
+create function ovd987_fixture.tamper_lane_snapshot()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Fires on the permit insert, after S3 checked the lane and before S5 reserves.
+  update public.quote_request_lanes
+  set scope_snapshot = pg_catalog.jsonb_set(scope_snapshot, '{quantity}', pg_catalog.to_jsonb(requested_quantity + 1))
+  where id = new.quote_request_lane_id;
+  return new;
+end;
+$$;
+
+create function ovd987_fixture.flip_switch_off()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Fires once the lanes exist, after S1 read the switch as on: the switch-off race.
+  update private.commercial_rollout_controls set enabled = false
+  where capability = 'controlled_beta_user_quantity';
+  return null;
 end;
 $$;
 
@@ -400,6 +427,37 @@ select is(ovd987_fixture.authorize('five') ->> 'reasonCode', 'dispatch_lane_iden
   'on: a lane whose quantity differs from its own snapshot is refused');
 rollback to savepoint ovd987_lane_identity;
 release savepoint ovd987_lane_identity;
+
+-- S4 binds what the worker browses with: the result row and the payload key it reads.
+select is(
+  (select payload ->> 'requestedQuantity' from public.work_queue where id = ovd987_fixture.task_id('five')),
+  '5', 'on: the server-written payload names the lane quantity');
+savepoint ovd987_binding;
+update public.work_queue set payload = pg_catalog.jsonb_set(payload, '{requestedQuantity}', '999999'::jsonb)
+where id = ovd987_fixture.task_id('five');
+select is(ovd987_fixture.authorize('five') ->> 'reasonCode', 'dispatch_lane_identity_mismatch',
+  'on: a task payload naming another quantity is refused');
+rollback to savepoint ovd987_binding;
+update public.vendor_quote_results set requested_quantity = 999999 where id = ovd987_fixture.result_id('five');
+select is(ovd987_fixture.authorize('five') ->> 'reasonCode', 'dispatch_lane_identity_mismatch',
+  'on: a result row at another quantity is refused');
+rollback to savepoint ovd987_binding;
+update public.work_queue set payload = pg_catalog.jsonb_set(payload, '{requestedQuantity}', '999999'::jsonb)
+where id = ovd987_fixture.task_id('five');
+update public.vendor_quote_results set requested_quantity = 999999 where id = ovd987_fixture.result_id('five');
+select is(ovd987_fixture.authorize('five') ->> 'reasonCode', 'dispatch_lane_identity_mismatch',
+  'on: payload and result both rewritten to another quantity are refused');
+rollback to savepoint ovd987_binding;
+update public.work_queue set payload = payload - 'requestedQuantity' where id = ovd987_fixture.task_id('five');
+select is(ovd987_fixture.authorize('five') ->> 'authorized', 'true',
+  'on: a payload without requestedQuantity still authorizes (the worker then reads the bound result)');
+rollback to savepoint ovd987_binding;
+update public.work_queue set payload = pg_catalog.jsonb_set(payload, '{requestedQuantity}', '"5"'::jsonb)
+where id = ovd987_fixture.task_id('five');
+select is(ovd987_fixture.authorize('five') ->> 'authorized', 'true',
+  'on: a payload naming the lane quantity as a string still authorizes');
+rollback to savepoint ovd987_binding;
+release savepoint ovd987_binding;
 select is(
   (select public.api_check_export_control_dispatch(ovd987_fixture.task_id('five'), 'xometry') ->> 'allowed'),
   'false', 'on: the export-control dispatch check still refuses an undeclared quantity-5 job (OVD-723)');
@@ -427,6 +485,29 @@ select is(
      and admission.state = 'reserved'),
   7, 'on: each holds one reserved allowance');
 
+-- S5 refuses to reserve for a lane whose quantity differs from its own snapshot.
+select ovd987_fixture.new_job('s5-tamper', array[5], 5);
+savepoint ovd987_s5;
+create trigger ovd987_tamper_lane_snapshot before insert on private.xometry_beta_dispatch_permits
+  for each row execute function ovd987_fixture.tamper_lane_snapshot();
+select throws_ok($$select ovd987_fixture.request('s5-tamper')$$, 'P0001', 'quote_access_identity_mismatch',
+  'on: S5 refuses to reserve for a quantity-5 lane whose snapshot was edited to 6');
+rollback to savepoint ovd987_s5;
+release savepoint ovd987_s5;
+select is(ovd987_fixture.created_rows('s5-tamper'), 0, 'on: the refused S5 reservation left no request, task or permit');
+
+-- S3 refuses a lane above 1 if the switch reads off by the time the lane exists.
+select ovd987_fixture.new_job('s3-flip', array[5], 5);
+savepoint ovd987_s3;
+create trigger ovd987_flip_switch_off after insert on public.quote_request_lanes
+  for each statement execute function ovd987_fixture.flip_switch_off();
+select throws_ok($$select ovd987_fixture.request('s3-flip')$$, 'P0001', 'xometry_beta_created_lane_mismatch',
+  'on: S3 refuses a quantity-5 lane when the switch was turned off after the resolver read it');
+rollback to savepoint ovd987_s3;
+release savepoint ovd987_s3;
+select is(private.xometry_beta_user_quantity_enabled(), true, 'on: the drill left the switch on');
+select is(ovd987_fixture.created_rows('s3-flip'), 0, 'on: the refused request left no request, task or permit');
+
 -- ---------------------------------------------------------------- D. switch turned OFF with quantity-5 work in flight
 select is(
   ovd987_fixture.set_switch(false, 'ovd987-pgtap-disable-0001') -> 'revision',
@@ -442,6 +523,39 @@ select is(ovd987_fixture.authorize('queued') ->> 'authorized', 'false', 'off aga
 select is(ovd987_fixture.authorize('five') ->> 'reasonCode', 'dispatch_quantity_not_admitted',
   'off again: an already authorized quantity-5 lane is refused on its next preflight');
 select is(ovd987_fixture.authorize('one') ->> 'authorized', 'true', 'off again: a quantity-1 lane still authorizes');
+
+-- With the switch off the S4 binding is a tightening that only edited rows meet.
+select is(
+  (select payload ->> 'requestedQuantity' from public.work_queue where id = ovd987_fixture.task_id('one')),
+  '1', 'off: the server-written quantity-1 payload names 1');
+savepoint ovd987_binding_one;
+update public.work_queue set payload = pg_catalog.jsonb_set(payload, '{requestedQuantity}', '999999'::jsonb)
+where id = ovd987_fixture.task_id('one');
+select is(ovd987_fixture.authorize('one') ->> 'reasonCode', 'dispatch_lane_identity_mismatch',
+  'off: a quantity-1 lane whose payload was rewritten to 999999 is refused');
+rollback to savepoint ovd987_binding_one;
+update public.vendor_quote_results set requested_quantity = 999999 where id = ovd987_fixture.result_id('one');
+select is(ovd987_fixture.authorize('one') ->> 'reasonCode', 'dispatch_lane_identity_mismatch',
+  'off: a quantity-1 lane whose result was rewritten to 999999 is refused');
+rollback to savepoint ovd987_binding_one;
+update public.work_queue set payload = payload - 'requestedQuantity' where id = ovd987_fixture.task_id('one');
+select is(ovd987_fixture.authorize('one') ->> 'authorized', 'true',
+  'off: a quantity-1 payload without requestedQuantity still authorizes');
+rollback to savepoint ovd987_binding_one;
+release savepoint ovd987_binding_one;
+
+-- With the switch off S5 now also binds a quantity-1 lane to its snapshot (edited rows only).
+select ovd987_fixture.new_job('s5-tamper-one', array[1], 1);
+savepoint ovd987_s5_one;
+create trigger ovd987_tamper_lane_snapshot before insert on private.xometry_beta_dispatch_permits
+  for each row execute function ovd987_fixture.tamper_lane_snapshot();
+select throws_ok($$select ovd987_fixture.request('s5-tamper-one')$$, 'P0001', 'quote_access_identity_mismatch',
+  'off: S5 refuses to reserve for a quantity-1 lane whose snapshot was edited to 2');
+rollback to savepoint ovd987_s5_one;
+select ok((ovd987_fixture.request('s5-tamper-one') ->> 'created')::boolean,
+  'off: the same quantity-1 request without the edit is created (then rolled back)');
+rollback to savepoint ovd987_s5_one;
+release savepoint ovd987_s5_one;
 
 -- Cancellation is quantity-agnostic and still releases.
 select is(public.api_cancel_quote_request(ovd987_fixture.request_id('cancel')) ->> 'canceled', 'true',
@@ -491,6 +605,13 @@ select is(ovd987_fixture.admission_state('tampered-lane'), 'reserved',
   'S7 keeps the hold of a lane whose quantity differs from its snapshot');
 select is(ovd987_fixture.admission_state('tampered-result'), 'reserved',
   'S7 keeps the hold of a result whose quantity differs from its lane');
+-- S6 would also refuse these two, so only the untouched result status proves S7 stopped first.
+select is(
+  (select status::text from public.vendor_quote_results where id = ovd987_fixture.result_id('tampered-lane')),
+  'queued', 'S7 does not terminalize the result of a lane whose quantity differs from its snapshot');
+select is(
+  (select status::text from public.vendor_quote_results where id = ovd987_fixture.result_id('tampered-result')),
+  'queued', 'S7 does not terminalize a result whose quantity differs from its lane');
 select is(
   (select pg_catalog.jsonb_build_object('reconciled', summary -> 'reconciled', 'indeterminate', summary -> 'indeterminate',
      'deferred', summary -> 'deferred') from ovd987_reconcile),
