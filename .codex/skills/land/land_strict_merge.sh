@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# land_strict_merge.sh <pr-number>
+# land_strict_merge.sh <pr-number> <reviewed-head-sha>
 #
 # Lands one OverDrafter PR under strict branch protection (OVD-889). Run it from
-# inside the repo checkout. It never merges unless one pinned head SHA is OPEN,
-# contains the current base, has the protection-required checks successful on
-# that exact SHA, and is still the PR head right before the merge. If this run
-# had to update the branch, it merges only when that update left the reviewable
-# diff unchanged. A changed diff stops the run. Do not land that head until a
-# fresh review and QA verdict exist there.
+# inside the repo checkout. <reviewed-head-sha> is the full head SHA that the
+# passing review and QA verdict name. It never merges unless one pinned head SHA
+# is OPEN, contains the current base, has the protection-required checks
+# successful on that exact SHA, and is still the PR head right before the merge.
+# The pinned head is the reviewed head, or the reviewed head brought up to date
+# by update merges that left the reviewable diff unchanged. A changed diff
+# stops the run. Do not land that head until a fresh review and QA verdict
+# exist there.
 #
-#   1. Read the PR once and pin its head SHA.
+#   1. Read the PR once. Pin its head if it is the reviewed head. Pin any other
+#      head only if it is the reviewed head brought up to date by update merges
+#      alone (each has two parents: the head before it, then a commit already
+#      on the base) and its diff_id equals the reviewed head's. A changed diff
+#      stops with exit 11; any other history stops with exit 5. So a re-run
+#      re-verifies an update that an earlier run sent but did not see finish,
+#      or that someone made with GitHub's "Update branch" button.
 #   2. If the head does not contain a freshly fetched origin/<base>, update it
 #      with the REST update-branch API. Git decides: GitHub's BEHIND can be
 #      stale right after an update, so it only triggers a re-check. That API
@@ -37,18 +45,20 @@
 #
 # Exit codes (SKILL.md step 9 routes on these):
 #   0  merged and verified
-#   2  usage or precondition (bad PR number, missing tool, not OPEN, draft,
-#      wrong base, not in a git work tree, bad configuration)
+#   2  usage or precondition (bad PR number or reviewed head SHA, missing
+#      tool, not OPEN, draft, wrong base, not in a git work tree, bad
+#      configuration)
 #   3  a required check failed on the pinned head            -> Rework
 #   4  bounded wait timed out (head, checks, mergeability, merge confirmation)
-#   5  head changed, malformed SHA, unexpected history, unknown state, merge
-#      refused or not verified                                -> Human Review
+#   5  head changed, head is neither the reviewed head nor a proven update of
+#      it, malformed SHA, unexpected history, unknown state, merge refused or
+#      not verified                                           -> Human Review
 #   6  merge conflict (DIRTY, or update-branch refused for a conflict) -> Rework
 #   7  update round cap exceeded because the base kept moving
 #   8  overall deadline exceeded; if merge sent, inspect PR by hand
 #   9  merged but post-merge read-back failed or exceeded deadline -> Human Review; never auto-revert
 #   10 reserved for the future ovd-merge-gate check (OVD-845); this script does not exit 10
-#   11 updated, and the PR diff changed; a fresh review and QA verdict at the new head are required before landing
+#   11 the head is an update of the reviewed head (made by this run or earlier) and the PR diff changed; a fresh review and QA verdict at the new head are required before landing
 #
 # Settings (non-negative integers unless noted; defaults in brackets):
 #   LAND_POLL_INTERVAL [15] seconds between polls   LAND_HEAD_POLLS [24]
@@ -69,12 +79,19 @@ export LC_ALL=C
 MERGE_SENT=false
 MERGED_SEEN=false
 DEADLINE_AT=2147483647
+REVIEWED=''
+# The pin an update-branch was sent from, until this run proves the new head;
+# empty otherwise.
+UPDATE_FROM=''
 stop() {
   local code="$1" reason="$2"
   if { [ "$code" = 4 ] || [ "$code" = 5 ]; } && [ "$SECONDS" -ge "$DEADLINE_AT" ]; then code=8; fi
   if [ "$code" = 8 ] && [ "$MERGED_SEEN" = true ]; then
     code=9
     reason='MERGED but the post-merge read-back did not finish before the overall deadline; do not mark Done, do NOT auto-revert, escalate to Human Review'
+  fi
+  if [ -n "$UPDATE_FROM" ] && { [ "$code" = 4 ] || [ "$code" = 8 ]; }; then
+    reason="$reason; update-branch was sent from $UPDATE_FROM and not verified; re-run with the reviewed head $REVIEWED, which verifies the update before any merge"
   fi
   if [ "$code" = 8 ]; then
     reason="$reason; overall deadline of ${LAND_DEADLINE} s exceeded"
@@ -221,12 +238,53 @@ base_in_pin() {
   case "$BASE_IN_PIN" in 0|1) ;; *) stop 5 'git ancestry check failed' ;; esac
 }
 
+# prove_update <from> <to> <max> <label>: proves <to> is <from> brought up to
+# date by update merges alone, then compares their reviewable diffs. Walking
+# first parents from <to>, every commit before <from> must have exactly two
+# parents with the second already on origin/<base> (BASE_TIP), and <from> must
+# be reached within <max> merges. A rebase, force push or any other push stops
+# with exit 5. OLD_DIFF is then the diff_id of <from> and DIFF_ID that of <to>,
+# both against UPDATE_P2, the second parent of <to> (the newest base merged
+# in): the OVD-845 rebase-reuse ranges. Returns 0 when the two are equal and 1
+# when the diff changed. The caller fetches <to> and the base first.
+prove_update() {
+  local from="$1" to="$2" max="$3" label="$4" cur="$2" prev='' hops=0 parents value old_base
+  UPDATE_P2=''
+  while [ "$cur" != "$from" ]; do
+    [ "$hops" -lt "$max" ] || stop 5 "unexpected history: first parent of $prev is $cur, not the $label $from"
+    parents="$(git rev-list --parents -n 1 "$cur")" || stop 5 "history of $cur unreadable"
+    set -f
+    # shellcheck disable=SC2086  # split "<commit> <p1> <p2>" on spaces; globbing is off
+    set -- $parents
+    set +f
+    [ "$#" -eq 3 ] || stop 5 "unexpected history: $cur is not a two-parent update merge"
+    for value in "$1" "$2" "$3"; do is_sha "$value" || stop 5 'malformed SHA in history'; done
+    [ "$1" = "$cur" ] || stop 5 'unexpected history: rev-list returned another commit'
+    git merge-base --is-ancestor "$3" "$BASE_TIP" \
+      || stop 5 "unexpected history: second parent $3 of $cur is not on origin/$LAND_BASE"
+    [ -n "$UPDATE_P2" ] || UPDATE_P2="$3"
+    prev="$cur"; cur="$2"; hops=$((hops + 1))
+  done
+  [ -n "$UPDATE_P2" ] || stop 5 'no update merge to verify; not merging'
+  old_base="$(git merge-base "$from" "$UPDATE_P2")" || stop 5 'could not read the pre-update merge-base; not merging'
+  is_sha "$old_base" || stop 5 'malformed pre-update merge-base; not merging'
+  if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    stop 5 'could not hash the diff (no sha256sum or shasum); not merging'
+  fi
+  review_diff_id "$old_base" "$from" || stop 5 'could not read the pre-update diff; not merging'
+  OLD_DIFF="$DIFF_ID"
+  review_diff_id "$UPDATE_P2" "$to" || stop 5 'could not read the post-update diff; not merging'
+  [ "$OLD_DIFF" = "$DIFF_ID" ]
+}
+
 # ---- arguments, tools, settings -------------------------------------------
 
-[ "$#" -eq 1 ] || stop 2 'usage: land_strict_merge.sh <pr-number>'
+[ "$#" -eq 2 ] || stop 2 'usage: land_strict_merge.sh <pr-number> <reviewed-head-sha>'
 case "$1" in ''|*[!0-9]*|0*) stop 2 'PR number must be a positive integer without leading zeros' ;; esac
 [ "${#1}" -le 9 ] || stop 2 'PR number out of range'
 PR="$1"
+is_sha "$2" || stop 2 'reviewed head must be a full 40-character lowercase commit SHA'
+REVIEWED="$2"
 
 for tool in "${LAND_GH:-gh}" jq git; do
   command -v "$tool" >/dev/null 2>&1 || stop 2 "missing required tool: $tool"
@@ -273,6 +331,20 @@ read_pr || stop 5 'PR unreadable'
 [ "$MS" != DRAFT ] || stop 2 'PR is draft; mark it ready first'
 [ "$DRAFT" = false ] || stop 2 'PR is draft; mark it ready first'
 [ "$BASE" = "$LAND_BASE" ] || stop 2 "PR base is '$BASE', expected '$LAND_BASE'"
+chain=''
+if [ "$HEAD" != "$REVIEWED" ]; then
+  # Another run, or GitHub's "Update branch" button, may have updated the
+  # reviewed head since review. Pin that head only after the same proof this
+  # run applies to its own update; 20 merges is far more than landing needs.
+  note "PR head $HEAD is not the reviewed head $REVIEWED; checking it is a diff-unchanged update of it"
+  fetch_base
+  fetch_sha "$HEAD"
+  if ! prove_update "$REVIEWED" "$HEAD" 20 reviewed; then
+    stop 11 "PR head $HEAD is an update of the reviewed head $REVIEWED and the PR diff changed (diff_id $OLD_DIFF -> $DIFF_ID); a fresh review and QA verdict at $HEAD are required before landing"
+  fi
+  note "PR head $HEAD is the reviewed head $REVIEWED brought up to date before this run; diff unchanged"
+  chain="$REVIEWED -> $HEAD (updated before this run; $LAND_BASE $UPDATE_P2)"
+fi
 PIN="$HEAD"
 note "pinned head $PIN"
 
@@ -297,7 +369,6 @@ fi
 checks=()
 while IFS= read -r entry; do checks+=("$entry"); done < <(printf '%s' "$required" | jq -c '.[]')
 note "required checks from protection: $(printf '%s' "$required" | jq -r 'map(.context + "(app " + (.app_id | tostring) + ")") | join(" ")')"
-chain=''
 
 round=0
 while :; do
@@ -311,6 +382,8 @@ while :; do
   if [ "$BASE_IN_PIN" -eq 1 ]; then
     [ "$round" -lt "$LAND_MAX_UPDATES" ] || stop 7 "base kept moving; $LAND_MAX_UPDATES update rounds used"
     note "head $PIN does not contain origin/$LAND_BASE $BASE_TIP; updating with a merge"
+    # Set before the PUT: a call that times out may still have been applied.
+    UPDATE_FROM="$PIN"
     if ! output="$(gh_cmd api -X PUT "repos/{owner}/{repo}/pulls/$PR/update-branch" -f "expected_head_sha=$PIN" 2>&1)"; then
       lower="$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')"
       case "$lower" in
@@ -335,41 +408,21 @@ while :; do
     [ "$moved" = true ] || stop 4 'timed out waiting for the updated head'
     NEW="$HEAD"
 
-    # Prove NEW is exactly the update merge: two parents, the first is the old
-    # pin, the second is already on the base. A rebase, force push or any other
-    # push fails this.
+    # Prove NEW is exactly the update merge: one merge on top of the old pin
+    # whose second parent is already on the base. A rebase, force push or any
+    # other push fails this. Same diff_id means the update did not change the
+    # reviewable diff, so the head that was already reviewed can still be
+    # merged after checks pass on the new SHA. A different diff_id needs a
+    # fresh review; do not merge it in this run.
     fetch_sha "$NEW"
     fetch_base
-    parents="$(git rev-list --parents -n 1 "$NEW")" || stop 5 'history of the updated head unreadable'
-    set -f
-    # shellcheck disable=SC2086  # split "<new> <p1> <p2>" on spaces; globbing is off
-    set -- $parents
-    set +f
-    [ "$#" -eq 3 ] || stop 5 "unexpected history: $NEW is not a two-parent update merge"
-    for value in "$1" "$2" "$3"; do is_sha "$value" || stop 5 'malformed SHA in history'; done
-    [ "$1" = "$NEW" ] || stop 5 'unexpected history: rev-list returned another commit'
-    [ "$2" = "$PIN" ] || stop 5 "unexpected history: first parent of $NEW is $2, not the pinned $PIN"
-    git merge-base --is-ancestor "$3" "$BASE_TIP" \
-      || stop 5 "unexpected history: second parent $3 is not on origin/$LAND_BASE"
-
-    # Same diff_id means the update did not change the reviewable diff, so the
-    # head that was already reviewed can still be merged after checks pass on
-    # the new SHA. A different diff_id needs a fresh review; do not merge it
-    # in this run.
-    old_base="$(git merge-base "$PIN" "$3")" || stop 5 'could not read the pre-update merge-base; not merging'
-    is_sha "$old_base" || stop 5 'malformed pre-update merge-base; not merging'
-    if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
-      stop 5 'could not hash the diff (no sha256sum or shasum); not merging'
+    if ! prove_update "$PIN" "$NEW" 1 pinned; then
+      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $UPDATE_P2); diff changed ($OLD_DIFF -> $DIFF_ID)"
+      stop 11 "updated $PIN -> $NEW and the PR diff changed (diff_id $OLD_DIFF -> $DIFF_ID); a fresh review and QA verdict at $NEW are required before landing"
     fi
-    review_diff_id "$old_base" "$PIN" || stop 5 'could not read the pre-update diff; not merging'
-    old_diff="$DIFF_ID"
-    review_diff_id "$3" "$NEW" || stop 5 'could not read the post-update diff; not merging'
-    if [ "$old_diff" != "$DIFF_ID" ]; then
-      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff changed ($old_diff -> $DIFF_ID)"
-      stop 11 "updated $PIN -> $NEW and the PR diff changed (diff_id $old_diff -> $DIFF_ID); a fresh review and QA verdict at $NEW are required before landing"
-    fi
+    UPDATE_FROM=''
 
-    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff unchanged"
+    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $UPDATE_P2); diff unchanged"
     chain="${chain}${chain:+; }$PIN -> $NEW ($LAND_BASE $BASE_TIP)"
     PIN="$NEW"   # the only re-pin, and only after the history and diff checks above
     round=$((round + 1))

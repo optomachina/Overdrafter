@@ -16,6 +16,10 @@ out-of-date PR current with the update-branch API as a merge (never a rebase or
 force push) and proves the new head is that merge. If that update changes the
 reviewable diff (`diff_id`), it stops without merging (exit 11). Do not re-run
 land at the new head until a passing review and QA verdict exist at that head.
+The helper takes the head SHA that the passing review and QA verdict name. It
+pins any other PR head only when that head is the reviewed head brought up to
+date by update merges with the `diff_id` unchanged, so a re-run after a timeout
+verifies an update an earlier run sent before it merges.
 If the diff is unchanged, it waits for the required checks
 read from branch protection (`ci` and `provider-go-live` today) on the new
 head, and merges with
