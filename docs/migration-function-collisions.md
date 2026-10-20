@@ -33,14 +33,17 @@ read-only checks print.
 
 - `supabase/migrations/*.sql`, in filename order. The last definition is the deployed
   body (a trailing `drop function` leaves none). Migrations restating each other are
-  history and are never compared.
+  history and are not compared with each other (see "Not covered").
 - `docs/migration-drafts/*.sql` are the promotable bodies, except:
   - `*.rollback.sql` (restores the body it replaced, runs only as the inverse of its
     own forward file);
   - a draft whose header says `SUPERSEDED` or "Do not apply this draft" (the same
-    rule `scripts/ephemeral-db-apply.mjs` uses);
-  - a draft whose body equals a body some migration already carries: that is an
-    archived copy of something promoted.
+    rule `scripts/ephemeral-db-apply.mjs` uses). This header is the explicit
+    evidence that a draft will not be promoted;
+  - a draft whose body equals the body deployed right now: an archived copy, because
+    promoting it changes nothing. A body that only an older migration carried does
+    not count. It would put the older body back, so it is compared like any other
+    draft.
 
 A promotable draft body fails the check when:
 
@@ -75,6 +78,10 @@ rebased onto the OVD-987 S4 body:
   newer migration changes the function, or another draft changes its body, the entry
   stops matching and the check fails again until the draft is rebased and the md5
   updated. That is the point: a documented supersession is pinned to a body.
+- The same holds for an archived copy. A draft equal to the deployed body passes
+  without an entry, and fails with the entry to add as soon as a newer migration
+  changes the function. Retire the draft with a `SUPERSEDED` header or delete it,
+  or rebase it onto the new body and add the entry.
 - An entry that nothing needs any more (the draft was promoted, deleted or rebased) is
   reported as unused. Remove it in the same change.
 - `reason` is required. Say why replacing that body is intended.
@@ -89,12 +96,22 @@ check was added, each written against the body deployed at that time.
 | A new draft restates a deployed function | Write the draft against the deployed body and add an entry naming its md5. The failure prints the entry. |
 | A migration lands that changes a function a draft restates | Rebase the draft onto the new body (add an md5 precondition to the draft the way the OVD-987 migration does), then update the entry's `supersedesMd5`. Do not change the md5 without rebasing: the entry is a claim that the draft was written against that body. |
 | Two drafts restate one function | Decide the promotion order, rebase the second onto the first, and add the entry. |
-| A draft is promoted into `supabase/migrations` | Delete its entries (reported as unused). Drafts that still restate the promoted function now fail against the new deployed body until they are rebased. |
+| A draft is promoted into `supabase/migrations` | Delete its entries (reported as unused). Drafts that still restate the promoted function, including verbatim copies of the body it replaced, now fail against the new deployed body until they are rebased or retired. |
 
 The failure message prints the md5 of both bodies and the entry to add.
 
 ## Not covered
 
+- Two migrations that restate one function from the same base (the concurrent
+  migration form of the hazard). Base body V1, a migration on main changes it to V1
+  plus A, and a second migration written against V1 and dated later changes it to V1
+  plus B. Applying the second replaces the whole body and silently drops A. Every
+  migration restatement is treated as history, so nothing here compares the pair, and
+  the merge queue does not catch it either. The scope of this check is a draft against
+  the deployed body or against another draft. For migrations, the safeguard is what
+  the OVD-987 notes already require by hand: an md5 precondition inside the
+  migration, so it fails on apply when the body it replaces is not the one it was
+  written against, and a reviewer comparing the body with the one on main.
 - Functions created through dynamic SQL (`execute` inside a `do` block) and bodies in
   a form with no `AS` string (`begin atomic`). A definition with no readable body is
   reported rather than skipped.

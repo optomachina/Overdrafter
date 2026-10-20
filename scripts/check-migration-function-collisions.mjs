@@ -15,6 +15,12 @@ import { headerText, isRetiredDraft } from "./ephemeral-db-apply.mjs";
  * written after the draft was copied. This check finds those draft restatements
  * and fails unless the draft names the body it was written against.
  *
+ * Scope: pairs that involve a draft (draft against the deployed migration body,
+ * draft against draft). Two migrations that restate one function from the same
+ * base are not compared: the later one silently drops the earlier one's change on
+ * apply. This file does not guard that case; see "Not covered" in
+ * docs/migration-function-collisions.md.
+ *
  * Offline and read only: it reads SQL text, never connects to a database and
  * never runs SQL. See docs/migration-function-collisions.md.
  */
@@ -451,28 +457,28 @@ function byFileThenLine(left, right) {
 
 /**
  * Migrations apply in filename order, so the deployed body is the last migration
- * event (a trailing drop leaves none). Every body any migration ever carried is
- * history: a draft equal to one of them is an archived copy of something already
- * promoted, not a promotion candidate. What is left, one definition per draft
- * file, is the set of bodies that can still be promoted.
+ * event (a trailing drop leaves none). A draft whose body equals the deployed body
+ * is an archived copy: promoting it changes nothing. A body that only an older
+ * migration carried is not an archived copy, it is a stale one: promoting it would
+ * put the older body back over the deployed one. So only equality with the body
+ * deployed right now excuses a draft. Because the deployed body moves whenever a
+ * migration lands, a copy that was harmless yesterday starts failing the day a
+ * newer migration changes the function, until its author retires the draft (a
+ * `SUPERSEDED` or "Do not apply this draft" header, which collectFunctionEvents
+ * honours) or deletes it. What is left, one definition per draft file, is the set
+ * of bodies that can still be promoted.
  */
 function classifySignature(group) {
-  const history = new Set();
   let deployed = null;
   for (const event of group.filter((item) => item.kind === "migration").sort(byFileThenLine)) {
-    if (event.action === "define") {
-      history.add(event.bodyMd5);
-      deployed = event;
-    } else {
-      deployed = null;
-    }
+    deployed = event.action === "define" ? event : null;
   }
   const lastPerDraft = new Map();
   for (const event of group.filter((item) => item.kind === "draft" && item.action === "define").sort(byFileThenLine)) {
     lastPerDraft.set(event.file, event);
   }
   const pending = [...lastPerDraft.values()]
-    .filter((event) => !history.has(event.bodyMd5))
+    .filter((event) => event.bodyMd5 !== deployed?.bodyMd5)
     .sort(byFileThenLine);
   return { deployed, pending };
 }

@@ -146,10 +146,14 @@ test("a function without a readable AS body is reported as unreadable, not skipp
 
 // ---- decisions on whole trees -----------------------------------------------
 
-test("migrations that restate each other are history, not a collision", () => {
+test("migrations that restate each other are history, not a collision (a deliberate scope limit)", () => {
+  // The check covers pairs that involve a draft. Two migrations that restate one
+  // function from the same base (the concurrent-migration case) are not compared;
+  // docs/migration-function-collisions.md lists that under "Not covered".
   const root = makeTree({
     [migrationV1]: fn(S4_HEAD, BODY_V1),
     [migrationV2]: fn(S4_HEAD, BODY_V2),
+    [`${MIGRATIONS}/20261020110000_s4_other_branch.sql`]: fn(S4_HEAD, BODY_DRAFT),
   });
   assert.deepEqual(inspectFunctionCollisions(root), []);
 });
@@ -198,12 +202,92 @@ test("OVD-762 against OVD-987: a newer migration body makes the old entry stale 
   assert.deepEqual(inspectFunctionCollisions(rebased), []);
 });
 
-test("a draft that equals the deployed body, or any earlier migration body, is an archived copy", () => {
+test("a draft that equals the deployed body is an archived copy", () => {
   const root = makeTree({
     [migrationV1]: fn(S4_HEAD, BODY_V1),
     [migrationV2]: fn(S4_HEAD, BODY_V2),
     [`${DRAFTS}/promoted-copy.sql`]: fn(S4_HEAD, BODY_V2),
-    [`${DRAFTS}/older-copy.sql`]: fn(S4_HEAD, BODY_V1),
+  });
+  assert.deepEqual(inspectFunctionCollisions(root), []);
+});
+
+test("a draft that only equals an older migration body is stale and fails against the deployed body", () => {
+  const olderCopy = `${DRAFTS}/older-copy.sql`;
+  const files = {
+    [migrationV1]: fn(S4_HEAD, BODY_V1),
+    [migrationV2]: fn(S4_HEAD, BODY_V2),
+    [olderCopy]: fn(S4_HEAD, BODY_V1),
+  };
+  const violations = inspectFunctionCollisions(makeTree(files));
+  assert.equal(violations.length, 1);
+  assert.ok(violations[0].includes(`${olderCopy} (md5 ${bodyMd5(BODY_V1)}) would replace the deployed body from ${migrationV2} (md5 ${bodyMd5(BODY_V2)})`));
+  assert.deepEqual(
+    inspectFunctionCollisions(makeTree({ ...files, [SUPERSESSIONS_FILE]: allowlist([S4, olderCopy, bodyMd5(BODY_V2)]) })),
+    [],
+    "naming the deployed md5 is the documented way to accept the replacement",
+  );
+  assert.deepEqual(
+    inspectFunctionCollisions(makeTree({
+      ...files,
+      [olderCopy]: `-- SUPERSEDED by ${migrationV2}. Kept as history only.\n${fn(S4_HEAD, BODY_V1)}`,
+    })),
+    [],
+    "a retirement header is explicit evidence that the copy will not be promoted",
+  );
+});
+
+test("a verbatim copy of the deployed body starts failing once a newer migration changes the function", () => {
+  const copy = `${DRAFTS}/verbatim-copy.sql`;
+  const files = {
+    [migrationV1]: fn(S4_HEAD, BODY_V1),
+    [copy]: fn(S4_HEAD, BODY_V1),
+  };
+  assert.deepEqual(inspectFunctionCollisions(makeTree(files)), []);
+
+  const violations = inspectFunctionCollisions(makeTree({ ...files, [migrationV2]: fn(S4_HEAD, BODY_V2) }));
+  assert.equal(violations.length, 1);
+  assert.ok(violations[0].includes(`${copy} (md5 ${bodyMd5(BODY_V1)}) would replace the deployed body from ${migrationV2}`));
+});
+
+test("a stale draft that restores an older body over a newer one fails without a supersession entry", () => {
+  const root = makeTree({
+    [migrationV1]: fn("public.flag()", "select true;"),
+    [migrationV2]: fn("public.flag()", "select false;"),
+    [draftS4]: fn("public.flag()", "select true;"),
+  });
+  const violations = inspectFunctionCollisions(root);
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /^public\.flag\(\): .* would replace the deployed body from /);
+  assert.ok(violations[0].includes(`"supersedesMd5":"${bodyMd5("select false;")}"`));
+});
+
+test("a copy of the deployed body is compared again once the draft it sat beside is promoted", () => {
+  const copy = `${DRAFTS}/archived-copy.sql`;
+  const rebased = `${DRAFTS}/ovd-762-fanout.sql`;
+  const beforePromotion = {
+    [migrationV1]: fn(S4_HEAD, BODY_V1),
+    [copy]: fn(S4_HEAD, BODY_V1),
+    [rebased]: fn(S4_HEAD, BODY_V2),
+    [SUPERSESSIONS_FILE]: allowlist([S4, rebased, bodyMd5(BODY_V1)]),
+  };
+  assert.deepEqual(inspectFunctionCollisions(makeTree(beforePromotion)), []);
+
+  // The rebased draft is promoted: its file moves into supabase/migrations and its entry is removed.
+  const afterPromotion = {
+    [migrationV1]: beforePromotion[migrationV1],
+    [migrationV2]: fn(S4_HEAD, BODY_V2),
+    [copy]: beforePromotion[copy],
+  };
+  const violations = inspectFunctionCollisions(makeTree(afterPromotion));
+  assert.equal(violations.length, 1);
+  assert.ok(violations[0].includes(`${copy} (md5 ${bodyMd5(BODY_V1)}) would replace the deployed body from ${migrationV2}`));
+});
+
+test("a draft equal to the body a migration later dropped has nothing deployed to replace", () => {
+  const root = makeTree({
+    [migrationV1]: fn(S4_HEAD, BODY_V1),
+    [migrationV2]: `drop function if exists ${S4};\n`,
+    [draftS4]: fn(S4_HEAD, BODY_V1),
   });
   assert.deepEqual(inspectFunctionCollisions(root), []);
 });
