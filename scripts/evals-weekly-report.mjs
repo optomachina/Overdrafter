@@ -295,11 +295,11 @@ function finalizeOptions(o) {
 export function parseArgs(args) {
   return finalizeOptions(readOptions(args));
 }
-const MATCH_KEYS = ['issues', 'prLabels', 'linearLabels', 'titleRegex'];
+const MATCH_KEYS = new Set(['issues', 'prLabels', 'linearLabels', 'titleRegex']);
 const MATCH_LIST_KEYS = ['issues', 'prLabels', 'linearLabels'];
 const isStringList = (v) => Array.isArray(v) && v.every((item) => typeof item === 'string');
 function validateMatch(match) {
-  const unknownKey = Object.keys(match).find((key) => !MATCH_KEYS.includes(key));
+  const unknownKey = Object.keys(match).find((key) => !MATCH_KEYS.has(key));
   if (unknownKey !== undefined) throw new UsageError(`Unknown match key: ${unknownKey}`);
   const badList = MATCH_LIST_KEYS.find((key) => match[key] && !isStringList(match[key]));
   if (badList !== undefined) throw new UsageError(`Invalid match ${badList}`);
