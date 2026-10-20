@@ -1,4 +1,4 @@
-# Trust metrics (OVD-785)
+# Trust metrics (OVD-785, OVD-786)
 
 `scripts/trust-metrics.mjs` builds a versioned JSON snapshot of delivery trust
 metrics and writes it to `docs/trust/snapshot-<window-end>.json`. The OVD-787
@@ -87,10 +87,117 @@ All paths are relative to the snapshot root.
 | `liveQuotes[].status` | string or null | Harness status (see the status vocabulary below). | `results.jsonl` |
 | `liveQuotes[].timestamp` | string ISO 8601 UTC (ms) | When the harness recorded the row. | `results.jsonl` |
 | `liveQuotes[].errorCode` | string or null | Harness error code on failure. | `results.jsonl` |
-| `bots` | array | Always `[]` in this version. Per-bot attribution is owned by OVD-786, which will define `bots[]` entries. | placeholder |
+| `bots[]` | array | Builder and reviewer bot rows, sorted by bot key with `unknown` last. | PRs and issue comments |
+| `bots[].bot` | string | Lowercase bot key; `unknown` means no signal or conflicting evidence. | attribution evidence |
+| `bots[].prs` | integer | Merged PRs attributed to this builder. | GitHub PRs |
+| `bots[].qa.pass` | integer | Builder PRs whose latest QA verdict is PASS. | PR comments |
+| `bots[].qa.fail` | integer | Builder PRs whose latest QA verdict is FAIL. | PR comments |
+| `bots[].qa.noVerdict` | integer | Builder PRs with no QA verdict. | PR comments |
+| `bots[].qa.passRate` | number (4 dp) or null | `pass / (pass + fail)`, rounded to four decimal places; null without verdicts. | derived |
+| `bots[].reverts.reverts` | integer | Builder PRs counted as reverts by the shared rules below. | GitHub PRs |
+| `bots[].reverts.rollbacks` | integer | Builder PRs counted as rollbacks by the shared rules below. | GitHub PRs |
+| `bots[].reviews.approved` | integer | Standard APPROVED verdict comments attributed to this reviewer. | PR comments |
+| `bots[].reviews.changesRequired` | integer | Standard CHANGES REQUIRED verdict comments attributed to this reviewer. | PR comments |
+| `botAttribution.attributed` | integer | Merged PRs with exactly one distinct candidate key. | attribution evidence |
+| `botAttribution.noSignal` | integer | Merged PRs with no candidate keys. | attribution evidence |
+| `botAttribution.conflicting` | integer | Merged PRs with multiple distinct candidate keys or invalid explicit model tokens. | attribution evidence |
+| `botAttribution.bySource.label` | integer | Attributed PRs supported by a model label. | PR labels |
+| `botAttribution.bySource.body` | integer | Attributed PRs supported by an explicit body model line. | PR bodies |
+| `botAttribution.bySource.author` | integer | Attributed PRs supported by a GitHub App bot author. | bot author metadata |
 
 The snapshot never contains `quoteUrl`, `providerQuoteId`, artifact paths,
-comment bodies or author identities.
+comment bodies, PR bodies or human author identities; only GitHub App bot
+logins reduced to a bot key can supply author attribution.
+
+### Bot attribution
+
+Bot keys are lowercase tokens matching `/^[a-z0-9][a-z0-9._-]*$/`.
+Keys are used as written after lowercasing, with no alias mapping: `claude`
+does not become `opus`. The literal `unknown` is reserved and supplies no
+signal from any source.
+
+Each merged PR collects builder candidates from three sources:
+
+- **label:** every label matching `model:<key>` after lowercasing.
+- **body:** explicit model lines, ignoring lines inside triple-backtick fenced
+  code blocks. Strip `*`, backticks, `#` and `>` everywhere, leading list markers
+  (`- `, `* `, `+ `), and surrounding whitespace. Strip runs of underscores
+  only as paired emphasis delimiters: an opening run at line start or after
+  whitespace must have an identical closing run followed by whitespace or line
+  end. Underscores inside tokens and bare trailing underscores stay intact:
+  `_Model: opus_` and `__model: opus__` work, `z_bot` stays `z_bot`, and
+  `Model: codex_` credits `codex_` (so label `model:codex` plus body
+  `Model: codex_` is conflicting). An unpaired leading `_Model: opus`
+  supplies no signal because its prefix does not match. Match the prefix `/^(?:build(?:er)?\s+)?model\s*:\s*/i`,
+  remove one leading `model:` (case-insensitive) so a body that restates the
+  label syntax, such as `Model: model:codex`, credits `codex`, then take the
+  whole next whitespace-delimited token. A second `model:` is not removed, and
+  `Model: model:` leaves an empty token, which is conflicting. Remove trailing
+  punctuation from the set `, ; : ) ·`; also remove a single trailing `.`
+  only when the line ends immediately after it (never a run of periods).
+  The whole remaining token must match the bot key pattern, case-insensitively,
+  then is lowercased. Thus `Model: bot-` credits `bot-`, and `Model: opus.`
+  and `Model: opus, per Release` credit `opus`. An empty or ambiguous token
+  such as `codex/opus`, `codex,opus` or `opus|codex` is conflicting evidence.
+  This includes an exact `model:<key>` line, `Model: opus per Release`,
+  `**model:opus** · **Needs Blaine's card**`, `Build model: **opus** (source: …)`,
+  and `Model: sonnet per Grok Bot triage handoff (no model label exists)`.
+  Prose such as `Codex and other reviewers: pending`, `Opus review: CHANGES REQUIRED`,
+  `Generated with Claude Code`, and `Co-Authored-By: Claude …` supplies no signal.
+- **author:** a GitHub App bot identified by `user.type === "Bot"`, an author
+  login ending in `[bot]`, or `author.is_bot === true`. Both `user.login` and
+  `author.login` input shapes are supported. Lowercase the login and remove
+  a trailing `[bot]`; retain it only if it matches the key pattern. Human
+  author logins never supply evidence and are discarded by normalization.
+  The live fetch keeps author metadata only when `user.type === "Bot"`.
+
+Exactly one distinct key means `attributed`; its sorted, distinct `sources`
+record all agreeing sources. Zero keys means `no_signal` with no sources.
+Multiple distinct keys or an invalid explicit model token mean `conflicting`,
+with all contributing sources (including `body` for an invalid token), even
+when a label or author supplies a valid key. An ambiguous explicit model line
+prevents attribution from any source.
+Both unattributable cases go to `unknown`, never guessed. A label cannot
+outvote a body or author. `botAttribution` counts these three outcomes;
+`bySource` counts only attributed PRs, once per agreeing source, so one PR
+can count toward multiple sources.
+
+Review comments count toward the **reviewer**, independently of the builder.
+The first non-empty line, after applying the same markdown stripping rules and
+trimming, must match this case-insensitive format:
+
+```text
+^(\S+)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b
+```
+
+The whole whitespace-delimited reviewer token must match
+`/^[a-z][a-z0-9._-]*$/i` and cannot be `unknown`; partial or ambiguous
+tokens are rejected. Internal and bare trailing underscores remain intact, so
+`z_bot review @ deadbeef: APPROVED` credits `z_bot` and
+`z_bot_ review @ deadbeef: APPROVED` credits `z_bot_`. The parser lowercases
+the bot, round and SHA and returns verdict `approved` or `changes_required`.
+`Codex review @ 1a2b3c4d: APPROVED` and
+`**Opus re-review @ deadbeef: CHANGES REQUIRED**` count.
+`Opus review: CHANGES REQUIRED @ 7717135c` is non-standard and returns null.
+Every verdict comment counts, deduplicated by nonzero comment id, only when
+its PR is in the merged set and its timestamp is before the window's end.
+As with QA, comments before the window start can count. Review bodies and
+inline review comments are not read.
+
+A row exists for each builder with a merged PR or reviewer with a counted
+verdict. Rows use code-unit order by bot key, with `unknown` always last.
+Review-only rows have zero PRs and null QA pass rate. No merged PRs and no
+review verdicts gives `bots: []` and all-zero `botAttribution`; merged PRs
+with no attribution give one `unknown` row. QA and revert calculations use
+the same rules as the overall metrics. Across rows, PR counts sum to
+`merges.total`, QA pass/fail/noVerdict counts sum to the overall QA counts,
+and revert/rollback counts sum to the overall revert/rollback counts.
+`attributed + noSignal + conflicting = merges.total`.
+
+This is additive within `trust-snapshot.v1`: `botAttribution` is appended
+after `bots`. The committed `snapshot-2026-10-15.json` predates OVD-786 and
+has `bots: []` and no `botAttribution`. Treat a missing `botAttribution` as
+"not computed", rather than zero attribution.
 
 ### QA verdicts
 
@@ -169,9 +276,9 @@ filter rows on it.
 | G2: weekly time-to-merge series | Resolved: `timeToMerge.perWeek`. |
 | G3: weekly merge buckets | Resolved: `merges.perWeek`, weeks start Monday UTC, zero weeks included. |
 | G4: `generatedAt` and `window` | Resolved: both come from inputs, never the wall clock. |
-| G5: QA counts and unit | Resolved: `qa.pass`, `qa.fail`, `qa.noVerdict`, and `qa.unit = latest_verdict_per_merged_pr`. Per-bot QA is OVD-786. |
+| G5: QA counts and unit | Resolved: `qa.pass`, `qa.fail`, `qa.noVerdict`, and `qa.unit = latest_verdict_per_merged_pr`. OVD-786 also resolves per-bot QA counts and pass rate with the same latest-verdict rule. |
 | G6: harness status vocabulary | Documented above. Success values are `instant_quote_received` and `official_quote_received`. |
-| G7: per-bot rollbacks and time to merge | Out of scope here. `bots` is `[]` and OVD-786 owns attribution. |
+| G7: per-bot rollbacks and time to merge | Per-bot reverts and rollbacks resolved by OVD-786. Per-bot time to merge remains out of scope. |
 | G8: `quoteUrl` and `providerQuoteId` | Resolved: never copied into the snapshot, and a test checks this. |
 
 Other limits:

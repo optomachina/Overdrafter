@@ -176,6 +176,14 @@ describe("matcher semantics", () => {
     expect(compileGlob("**/.env").test("a/.envx")).toBe(false);
   });
 
+  it("classifies the shared CLI entry-point guard and its test as infra_ci (OVD-950)", () => {
+    const matcher = createMatcher(config);
+    for (const file of ["scripts/lib/entry-point.mjs", "scripts/lib/entry-point.test.mjs"]) {
+      expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+      expect(classifyPaths([file], config).files[0], file).toMatchObject({ path: file, classes: ["infra_ci"] });
+    }
+  });
+
   it("ignores case so renamed or upper-case paths still match", () => {
     const matcher = createMatcher(config);
     expect(matcher.classify("Supabase/Migrations/1_x.SQL")).toEqual(["schema", "migrations"]);
