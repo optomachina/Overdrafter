@@ -58,12 +58,17 @@ export function fallbackSourceForReason(reason) {
   return "jev_blocked";
 }
 
-/** stderr WARN for Jev fallbacks. Never prints secrets or raw response text. */
-export function warnJevFallback(source, reason, latencyMs) {
+/** The one-line WARN text for a Jev fallback. Built only from sanitized tokens and a number, never secrets or raw response text. */
+export function jevFallbackLine(source, reason, latencyMs) {
   const src = sanitizeToken(String(source ?? "jev_blocked")) ?? "jev_blocked";
   const why = reason == null ? "null" : (sanitizeToken(String(reason)) ?? "unknown");
   const ms = Number.isFinite(latencyMs) ? latencyMs : "null";
-  console.error(`WARN jev-fallback source=${src} reason=${why} latencyMs=${ms}`);
+  return `WARN jev-fallback source=${src} reason=${why} latencyMs=${ms}`;
+}
+
+/** stderr WARN for Jev fallbacks. */
+export function warnJevFallback(source, reason, latencyMs) {
+  console.error(jevFallbackLine(source, reason, latencyMs));
 }
 
 export async function askJev(state, questions, options) {
