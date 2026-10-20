@@ -224,23 +224,38 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
 
   // Other poppler versions lay the same page out with different character cells; the pairing must not depend
   // on exact columns. The text layer poppler printed here is scaled and read again.
-  it.each([0.75, 0.9, 1.1, 1.25, 1.5])("reads the same title block with the layout scaled by %s", async (factor) => {
-    const scaled = pdfTextOf(stretchColumns(pdfText?.pages[0].text ?? "", factor));
-    const result = await runHybridExtraction(
+  const extractScaled = (factor: number) =>
+    runHybridExtraction(
       {
         part: { id: "part-sample", name: "sample" } as PartRecord,
         cadFile: null,
         drawingFile: { original_name: "upload.pdf" } as JobFileRecord,
-        pdfText: scaled,
+        pdfText: pdfTextOf(stretchColumns(pdfText?.pages[0].text ?? "", factor)),
       },
       { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
     );
+
+  it.each([0.75, 0.9, 1.1, 1.25])("reads the same title block with the layout scaled by %s", async (factor) => {
+    const result = await extractScaled(factor);
     expect(result.partNumber).toBe(TRUTH.partNumber);
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(extraction.finish.raw);
     expect(result.reviewFields).toEqual([]);
     expect(result.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+  });
+
+  // Scaled by 1.5, the finish starts farther after FINISH than a label's inline window, so its cell gives no value.
+  // The OCR rescue's text for this sheet used to fill it and approve it; a field whose label the cell reader read is
+  // never approved by the rescue (Codex review of #884, round 5), so the finish is a suggestion flagged for review.
+  it("flags the finish, with the rescue's text only as a suggestion, when the layout scaled by 1.5 puts it past FINISH's window", async () => {
+    const result = await extractScaled(1.5);
+    expect(result.partNumber).toBe(TRUTH.partNumber);
+    expect(result.revision).toBe(TRUTH.revision);
+    expect(result.material.raw).toBe(TRUTH.material);
+    expect(result.finish.raw).toBe(TRUTH.finish);
+    expect(result.reviewFields).toEqual(["finish"]);
+    expect(result.status).toBe("needs_review");
   });
 
   // Without word boxes (a failed or skipped -bbox pass) the reader has only pdftotext's layout text, and a fine

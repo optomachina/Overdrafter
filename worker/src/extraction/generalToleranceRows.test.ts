@@ -524,6 +524,23 @@ describe("general tolerance rows (OVD-989)", () => {
         valueInch: 0.0005,
       });
     });
+
+    // Codex review of #884, round 5: an unresolved row in scientific notation was read by its mantissa ("1" of
+    // "1e-3", 1 mm at the smallest) and dismissed as looser than ".005", so 0.005 was stored. Its value is not known,
+    // so it may be the tightest tolerance (OVD-976 P3), whether the sheet is readable or not.
+    it.each([
+      ["FOUR PLACE DECIMAL 1e-3"],
+      ["FOUR PLACE DECIMAL ±1E-3"],
+      ["FOUR PLACE DECIMAL ±1.0E-3"],
+    ])("never dismisses an unresolved row in scientific notation, '%s'", (row) => {
+      expect(toleranceOf([INCHES, "BORE ±.005", row])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(toleranceOf([INCHES, "BORE ±.005", row], { ocr: true })).toMatchObject({ valueInch: null, unit: "unknown" });
+    });
+
+    it("keeps every other safeguard of a value for an unresolved row: a ratio, a decimal comma in microns", () => {
+      expect(toleranceOf([INCHES, "BORE ±.005", "FOUR PLACE DECIMAL ±.0010 MM/M"])).toMatchObject({ valueInch: null });
+      expect(toleranceOf(["BORE ±.005", "FOUR PLACE DECIMAL ±0,0010 µm"])).toMatchObject({ valueInch: null });
+    });
   });
 
   describe("a metric table whose plus-minus sign is not in the text layer", () => {

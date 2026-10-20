@@ -51,11 +51,14 @@
  * A material or finish has a cell stacked under it as often as beside it, and its label is often one the vocabulary
  * does not know (SURFACE TREATMENT, PAINT, THICKNESS, QTY). Its text is never read as a line of the value, and the
  * rule that keeps it out is the shape of the line, not a list of labels and not the size of the text (shapeOfLine):
- * a label is words of letters, alone on its line or followed by its own value ("THICKNESS .125", "LOT CODE A123").
- *  - A first line that opens another cell (HEAT TREAT, HARDNESS, PAINT COLOR or any text with a colon), or that is
- *    words of letters with its own value set apart beside it ("THICKNESS   .125", a 6 pt label by a 9 pt value), or
- *    only words of letters with a line under it ("THICKNESS" over ".125", "ANODIZE" over "PAINT") gives no value:
- *    see chooseValueLines and firstLineIsStackedLabel.
+ * a label is words of letters (hyphenated, a unit in brackets or a number sign among them: "HEAT-TREAT",
+ * "THICKNESS (IN)", "LOT #"), alone on its line or followed by its own value ("THICKNESS .125", "LOT CODE A123").
+ *  - A first line that opens another cell (HEAT TREAT, HEAT-TREAT, HARDNESS, PAINT COLOR or any text with a colon), or
+ *    that has a word after its first one set apart from the words before it or taller than its first word, whatever
+ *    they are made of ("THICKNESS   .125", a 6 pt "THICKNESS (IN)" by a 9 pt ".125"), or that is followed on its line by
+ *    taller text no cell owns (a 6 pt "LOT #" by a 9 pt "A123" past the cell's reach), or that is only label words with
+ *    a line under it ("THICKNESS" over ".125", "ANODIZE" over "PAINT") gives no value: see chooseValueLines and
+ *    firstLineIsStackedLabel.
  *  - A later line that starts with words of letters ends the value (word boxes, set smaller than the value) or gives
  *    no value, unless it is the value's own wrapped line: the value is beside its label on the label's own line, the
  *    line starts where the value starts and goes on past its lead ("CLASS 2" under "FINISH  ANODIZE, ... TYPE II"). A
@@ -252,11 +255,12 @@ const VALUE_TEXT_TALLER_THAN_LABEL = 1.15;
  */
 const LABEL_LIKE_RUN = /^[A-Z][A-Z .&/']{1,40}$/i;
 /**
- * A word that can be part of the label of a cell: letters only, with the stops, slashes, ampersands and apostrophes
- * labels are spelled with ("QTY.", "P&W"). A digit, a comma, a hyphen or a bracket makes it a value ("6061-T6",
- * "ANODIZE,", "(IN)"). See shapeOfLine.
+ * A word that can be part of the label of a cell: letters, with the stops, slashes, ampersands and apostrophes labels
+ * are spelled with ("QTY.", "P&W") and hyphens between letters ("HEAT-TREAT", "X-RAY"); letters in brackets, the unit or
+ * symbol a label names ("THICKNESS (IN)", "WT (LB)", "ROUGHNESS (Ra)"); or a number sign ("LOT #", "# REQD"). A digit or
+ * a comma makes it a value ("6061-T6", "MIL-A-8625", "ANODIZE,", "(6061)"). See shapeOfLine.
  */
-const LABEL_WORD = /^[A-Z][A-Z.&/']*$/i;
+const LABEL_WORD = /^(?:[A-Z][A-Z.&/']*(?:-[A-Z][A-Z.&/']*)*|\([A-Z][A-Z.&/']*\)|#)$/i;
 /**
  * Columns within which a later line of a material or finish starts where the value's first line starts, so that it
  * is that value wrapped and not the label of a cell stacked under it (see stackedLineVerdict).
@@ -271,7 +275,7 @@ const WRAP_ALIGN = 1;
  */
 const ONE_WORD_BEFORE = String.raw`^(?:[A-Z]+\s+)?`;
 const NEIGHBOUR_CELL_LABELS: readonly RegExp[] = [
-  new RegExp(String.raw`${ONE_WORD_BEFORE}HEAT\s+TREAT(?:MENT)?\b`, "i"),
+  new RegExp(String.raw`${ONE_WORD_BEFORE}HEAT[\s-]+TREAT(?:MENT)?\b`, "i"),
   new RegExp(String.raw`${ONE_WORD_BEFORE}(?:TREATMENT|HARDNESS|COLOU?R|PROCESS|TEMPER|CONDITION)\b`, "i"),
   /^SPEC(?:IFICATION)?S?\b/i,
 ];
@@ -926,6 +930,17 @@ function opensAnotherCell(text: string): boolean {
   return text.includes(":") || NEIGHBOUR_CELL_LABELS.some((pattern) => pattern.test(text));
 }
 
+/** What the lines of a page hold besides the runs of the cell being read. */
+type PageLines = {
+  /** The runs that no label owns, by line. */
+  leftoverByLine: ReadonlyMap<number, Run[]>;
+  /** Every run, by line. */
+  runsByLine: ReadonlyMap<number, Run[]>;
+  labelsByLine: ReadonlyMap<number, Label[]>;
+  /** The runs a label owns. */
+  assigned: ReadonlySet<Run>;
+};
+
 type ValueChoice = {
   lines: ValueLine[];
   /** A line of another cell of the stack came where the value was, or where its wrapped line was: see stackedLineVerdict. */
@@ -951,19 +966,21 @@ type LineShape = {
   /** Words follow that lead on the line ("THICKNESS" then ".125", "CLASS" then "2"). */
   rest: boolean;
   /**
-   * The words after the lead are set apart from it, as a cell's value is from its label: two or more blanks before them
-   * (another run of layout text, a cell break between word boxes), or, with word boxes, set taller than the lead (a 6 pt
-   * label beside its 9 pt value).
+   * A word after the line's first word is set apart from the words before it, as a cell's value is from its label: two or
+   * more blanks before it (another run of layout text, a cell break between word boxes), or, with word boxes, it is set
+   * taller than the first word (a 6 pt label beside its 9 pt value). Whatever the words are made of: "THICKNESS (IN)"
+   * then a 9 pt ".125", "LOT #" then "A123", "HEAT-TREAT" then a 9 pt "RC 40-45".
    */
-  restSetApart: boolean;
+  laterWordApart: boolean;
   /** The column the line starts at. */
   start: number;
 };
 
 /**
  * The shape of one line of a cell (the runs that join its leftmost one). This is what tells the label of a cell from a
- * value, without a list of labels and without the size of the value: a label is words of letters, alone on its line or
- * followed by its own value. Where sizes are known they only add evidence (a value set taller beside its label).
+ * value, without a list of labels and without the size of the value: a label is words of letters (LABEL_WORD), alone on
+ * its line or followed by its own value. Where sizes are known they only add evidence (a value set taller beside its
+ * label).
  */
 function shapeOfLine(lineRuns: readonly Run[]): LineShape {
   const runs = joinContiguousRuns([...lineRuns]);
@@ -988,11 +1005,10 @@ function shapeOfLine(lineRuns: readonly Run[]): LineShape {
     }
     leadLength += 1;
   }
-  const next = words[leadLength];
   return {
     labelLead: alphanumericCount(words.slice(0, leadLength).map((word) => word.text).join("")) >= 2,
-    rest: next !== undefined,
-    restSetApart: next !== undefined && (next.breakBefore || setTaller(next)),
+    rest: leadLength < words.length,
+    laterWordApart: words.slice(1).some((word) => word.breakBefore || setTaller(word)),
     start: runs[0]?.start ?? 0,
   };
 }
@@ -1047,19 +1063,20 @@ function stackedLineVerdict(previous: ValueLine, lineRuns: readonly Run[], wrapC
 
 /**
  * Whether a line that starts with words of letters is the value's own wrapped line (stackedLineVerdict): it starts at
- * `wrapColumn`, and more words follow its lead one word space later, at the lead's size.
+ * `wrapColumn`, and more words follow its lead one word space later, every one of them at the size of its first word.
  */
 function isWrappedLine(shape: LineShape, wrapColumn: number | null): boolean {
-  return shape.rest && !shape.restSetApart && wrapColumn !== null && Math.abs(shape.start - wrapColumn) <= WRAP_ALIGN;
+  return shape.rest && !shape.laterWordApart && wrapColumn !== null && Math.abs(shape.start - wrapColumn) <= WRAP_ALIGN;
 }
 
 /**
- * Whether the first line of a material or finish is another cell's own: it opens one (opensAnotherCell), or it is
- * words of letters with their value set apart beside them ("THICKNESS   .125", a 6 pt "PAINT" by a 9 pt "RAL 9005").
+ * Whether the first line of a material or finish is another cell's own: it opens one (opensAnotherCell), or a word after
+ * its first is set apart from the words before it or taller than its first word (LineShape.laterWordApart), whatever
+ * the words are made of: "THICKNESS   .125", a 6 pt "PAINT" by a 9 pt "RAL 9005", a 6 pt "HEAT-TREAT" by a 9 pt
+ * "RC 40-45", "# REQD   4". A value is printed in one run at one size; a label beside its own value is not.
  */
 function firstLineOpensCell(lineRuns: readonly Run[]): boolean {
-  const shape = shapeOfLine(lineRuns);
-  return opensAnotherCell(lineTextOf(lineRuns)) || (shape.labelLead && shape.restSetApart);
+  return opensAnotherCell(lineTextOf(lineRuns)) || shapeOfLine(lineRuns).laterWordApart;
 }
 
 /**
@@ -1120,37 +1137,62 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
 }
 
 /**
- * Whether the first line of a material or finish is only words of letters (shapeOfLine) with its own value next to it:
- * a line under it in the cell ("THICKNESS" over ".125", "ANODIZE" over "PAINT"), or, with word boxes, text that no cell
- * owns right after it on its line and set taller than it (a 6 pt "PAINT" by a 9 pt "RAL 9005" just past the cell's
- * reach; on layout text any such text already flags the cell, see hasTrailingLeftover). That is the shape of the label
- * of a cell stacked where the value would be, and a line under it says so whatever the sizes are: "ALUMINUM" over
- * "6061-T6" cannot be told from "THICKNESS" over ".125", so there is no value. Such a line alone, with nothing after it,
- * is a value ("AS MACHINED", "CLEAR ANODIZE"): nothing on the sheet tells it from a label with an empty cell (a known
- * limit).
+ * Whether the first line of a material or finish is the label of a cell stacked where the value would be, with that
+ * cell's own value next to it:
+ *  - it is only label words (shapeOfLine: "THICKNESS", "THICKNESS (IN)", "LOT #") with a line under it in the cell
+ *    ("THICKNESS" over ".125", "ANODIZE" over "PAINT"). A line under it says so whatever the sizes are: "ALUMINUM" over
+ *    "6061-T6" cannot be told from "THICKNESS" over ".125", so there is no value;
+ *  - word boxes, whatever the line is made of: text that no cell owns follows it on its line, set taller than the line's
+ *    first word, right after it or before the next cell (a 6 pt "LOT #" by a 9 pt "A123", a 6 pt "THICKNESS (IN)" by a
+ *    9 pt ".125", past the cell's reach): tallerUnownedTextFollows. A label beside its value is set smaller than it; a
+ *    value is not. On layout text any such text already flags the cell (hasTrailingLeftover).
+ * A line of label words alone, with nothing after it, is a value ("AS MACHINED", "CLEAR ANODIZE"): nothing on the sheet
+ * tells it from a label with an empty cell (a known limit).
  */
-function firstLineIsStackedLabel(chosen: readonly ValueLine[], leftoverByLine: ReadonlyMap<number, Run[]>): boolean {
+function firstLineIsStackedLabel(chosen: readonly ValueLine[], page: PageLines): boolean {
   const first = chosen[0];
   if (first === undefined) {
     return false;
   }
   const shape = shapeOfLine(first.runs);
-  if (!shape.labelLead || shape.rest) {
-    return false;
-  }
-  if (chosen.length >= 2) {
+  if (shape.labelLead && !shape.rest && chosen.length >= 2) {
     return true;
   }
-  const end = Math.max(...first.runs.map((run) => run.end));
-  const height = tallestOf(first.runs);
-  return (leftoverByLine.get(first.line) ?? []).some(
+  return tallerUnownedTextFollows(first, page);
+}
+
+/**
+ * Word boxes: whether text that no cell owns follows a value's line on the same line, set taller than the line's first
+ * word, either right after it (within INLINE_GAP) or with no label and no text a cell owns between them. Layout text
+ * has no heights, so it never does.
+ */
+function tallerUnownedTextFollows(entry: ValueLine, page: PageLines): boolean {
+  const firstWord = entry.runs.reduce((leftmost, run) => (run.start < leftmost.start ? run : leftmost));
+  const height = firstWord.height;
+  if (height === undefined) {
+    return false;
+  }
+  const end = Math.max(...entry.runs.map((run) => run.end));
+  const own = new Set(entry.runs);
+  const after = (page.runsByLine.get(entry.line) ?? []).filter((run) => run.start >= end - 1 && !own.has(run));
+  // Where the next cell begins: the first label, or the first text a cell owns, after the line.
+  let nextCell = Number.POSITIVE_INFINITY;
+  for (const label of page.labelsByLine.get(entry.line) ?? []) {
+    if (label.start >= end - 1) {
+      nextCell = Math.min(nextCell, label.start);
+    }
+  }
+  for (const run of after) {
+    if (page.assigned.has(run)) {
+      nextCell = Math.min(nextCell, run.start);
+    }
+  }
+  return after.some(
     (run) =>
-      run.start >= end - 1 &&
-      run.start - end <= INLINE_GAP &&
-      alphanumericCount(run.text) >= 2 &&
-      height !== undefined &&
+      !page.assigned.has(run) &&
       run.height !== undefined &&
-      run.height > VALUE_TEXT_TALLER_THAN_LABEL * height,
+      run.height > VALUE_TEXT_TALLER_THAN_LABEL * height &&
+      (run.start - end <= INLINE_GAP || run.start <= nextCell),
   );
 }
 
@@ -1179,7 +1221,7 @@ function readOne(
   owned: Run[],
   inlineRuns: ReadonlySet<Run>,
   fenced: boolean,
-  leftoverByLine: ReadonlyMap<number, Run[]>,
+  pageLines: PageLines,
   doubt: "unconsumed_text" | "fine_pitch" | null,
 ): CellRead {
   const base = {
@@ -1234,11 +1276,11 @@ function readOne(
     // is not one clean value, so none is taken.
     return empty("ambiguous", "multiple_values", valueLines);
   }
-  if (leavesTextUnconsumed(label.field, considered, chosen, leftoverByLine)) {
+  if (leavesTextUnconsumed(label.field, considered, chosen, pageLines.leftoverByLine)) {
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
   // A first line that is the label of a cell stacked where the value would be, with its own value next to it.
-  if (describes && firstLineIsStackedLabel(chosen, leftoverByLine)) {
+  if (describes && firstLineIsStackedLabel(chosen, pageLines)) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
 
@@ -1577,7 +1619,12 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     assignLineRuns(ownership, lineRuns, labelsByLine.get(lineNumber) ?? [], labels, caps);
   }
   continueWrappedRuns(ownership, caps);
-  const leftoverByLine = groupByLine(ownership.unowned.filter((run) => !ownership.assigned.has(run)));
+  const pageLines: PageLines = {
+    leftoverByLine: groupByLine(ownership.unowned.filter((run) => !ownership.assigned.has(run))),
+    runsByLine,
+    labelsByLine,
+    assigned: ownership.assigned,
+  };
   const finePitch = labels.some((label) => label.spread);
   const reads: CellRead[] = [];
   for (const label of labels) {
@@ -1587,7 +1634,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
     const fenced = hasOwnCellOnItsLine(label, ownedRuns, ownership.inlineRuns, runsByLine, caps);
     const doubt = doubtOf(label, ownership, runsByLine, finePitch);
-    reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, leftoverByLine, doubt));
+    reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt));
   }
   return reads;
 }

@@ -370,13 +370,20 @@ describe("title block cells", () => {
         expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
       });
 
-      it("joins runs of one value that are a few columns apart (join gap)", () => {
-        const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE,"], [12, "TYPE II"]]);
-        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "ANODIZE, TYPE II" });
-        // Words of letters with a run set apart after them are a label beside its value ("PAINT   BLACK").
-        const labelled = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"], [12, "TYPE II"]]);
-        expect(cell(labelled, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      it("joins runs of a wrapped line that are a few columns apart (join gap)", () => {
+        const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE, BLACK"]], [[2, "MIL-A-8625"], [14, "TYPE II"]]);
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK MIL-A-8625 TYPE II" });
       });
+
+      // #884 review, round 5: on the first line of a material or finish, a run set apart from the words before it is a
+      // label beside its own value ("PAINT   BLACK"), whatever the words before it are made of.
+      it.each(["ANODIZE", "ANODIZE,", "THICKNESS (IN)", "WT (LB)", "LOT #", "HEAT-TREAT", "# REQD", "6061-T6"])(
+        "flags a first line '%s' with a run set apart after it",
+        (lead) => {
+          const sheet = layoutSheet([[0, "FINISH"]], [[2, lead], [lead.length + 6, "TYPE II"]]);
+          expect(cell(sheet, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+        },
+      );
 
       it("flags a value with text left over to its right on layout text: it may be the rest of the value", () => {
         // At a fine pitch the words of one value are tens of columns apart, as cells are, so layout text cannot
@@ -1234,6 +1241,53 @@ describe("title block cells", () => {
         expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
       });
 
+      // #884 review, round 5 (HIGH 1): a stacked label with a word that is not letters only (a bracket, a number sign, a
+      // hyphen), its 9 pt value beside it on the line: owned by the cell, or past its reach and owned by no cell.
+      const NOT_LETTERS_ONLY = [
+        ["THICKNESS (IN)", ".125"],
+        ["WT (LB)", "2.5"],
+        ["HEAT-TREAT", "RC 40-45"],
+        ["LOT #", "A123"],
+        ["ROUGHNESS (Ra)", "63"],
+        ["# REQD", "4"],
+      ] as const;
+      it.each(NOT_LETTERS_ONLY)("leaves an empty MATERIAL or FINISH empty and flagged, not a 6 pt '%s' by a 9 pt '%s'", (cellLabel, cellValue) => {
+        for (const valueX of [342 + cellLabel.length * 3.3, 385, 420]) {
+          const material = [...label("MATERIAL", 330, 720), ...label(cellLabel, 332, 736), ...value(cellValue, valueX, 734), ...label("FINISH", 330, 760), ...value("AS MACHINED", 340, 770)];
+          expect(buildWordLines(material, 1).some((line) => line.raw.includes(cellLabel.replace("# ", "")) && line.raw.includes(cellValue))).toBe(true);
+          expect(wordRead(material, "material"), `value at ${valueX}`).toMatchObject(FLAGGED);
+          expect(wordRead(material, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+          const finish = [...label("MATERIAL", 330, 700), ...value("AL 6061-T6", 340, 708), ...label("FINISH", 330, 730), ...label(cellLabel, 332, 746), ...value(cellValue, valueX, 744), ...label("SIZE", 600, 700)];
+          expect(wordRead(finish, "finish"), `value at ${valueX}`).toMatchObject(FLAGGED);
+          expect(wordRead(finish, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+        }
+      });
+
+      it("reads a first line whose words are set at one size, one word space apart, as the value", () => {
+        // The rule above does not touch a value: every word after the first is as large as it and not set apart.
+        for (const text of ["AL 6061-T6", "ANODIZE, BLACK, MIL-A-8625F, TYPE II", "STAINLESS STEEL (CRES) 304", "HEAT TREATED 4140"]) {
+          const words = [...label("MATERIAL", 330, 720), ...value(text, 340, 728), ...label("FINISH", 330, 760), ...value("AS MACHINED", 340, 768)];
+          expect(wordRead(words, "material"), text).toMatchObject({ status: "value", value: text });
+        }
+      });
+
+      // #884 review, round 5 (MEDIUM 2): a hyphenated label is a label word, and HEAT-TREAT heads another cell.
+      it("never joins a stacked cell whose label is hyphenated, at the value's size or smaller", () => {
+        for (const [field, cellValue, stacked] of [
+          ["material", "AL 6061-T6", "HEAT-TREAT RC 40-45"],
+          ["finish", "ANODIZE, BLACK", "X-RAY 100%"],
+        ] as const) {
+          const top = field === "material" ? "MATERIAL" : "FINISH";
+          const same = [...label(top, 330, 720), ...value(cellValue, 340, 728), ...value(stacked, 340, 740), ...label("SIZE", 600, 700)];
+          expect(wordRead(same, field), stacked).toMatchObject(FLAGGED);
+          const [stackedLabel, ...rest] = stacked.split(" ");
+          const smaller = [...label(top, 330, 720), ...value(cellValue, 340, 728), ...label(stackedLabel!, 332, 743), ...value(rest.join(" "), 375, 741), ...label("SIZE", 600, 700)];
+          const read = wordRead(smaller, field);
+          expect(read.value ?? "", stacked).not.toContain(stackedLabel!);
+          expect(read.value === cellValue || read.status === "ambiguous", `${stacked}: ${read.value}`).toBe(true);
+        }
+      });
+
       // #884 review, final round: 7 pt labels over 8 pt values are within the 15% that tells a label by its size.
       it("flags a stacked label and its value under a value set less than 15% larger than it", () => {
         const words = [
@@ -1292,7 +1346,7 @@ describe("title block cells", () => {
 
       // #884 review, final round (b): the stacked cell's label printed with its own value on its line, or with a digit or
       // a bracket in it, is not a line of letters, but it starts with one. It is never joined to the value above it.
-      it.each(["THICKNESS .125", "THICKNESS (IN)", "SURFACE ROUGHNESS (Ra)", "LOT CODE A123", "PAINT RAL 9005", "QTY 4", "FROBNITZ X-77"])(
+      it.each(["THICKNESS .125", "THICKNESS (IN)", "SURFACE ROUGHNESS (Ra)", "LOT CODE A123", "PAINT RAL 9005", "QTY 4", "FROBNITZ X-77", "HEAT-TREAT RC 40-45", "X-RAY 100%"])(
         "flags a material or finish with '%s' stacked under its value",
         (stacked) => {
           for (const column of [0, 2]) {
@@ -1309,8 +1363,28 @@ describe("title block cells", () => {
       );
 
       // #884 review, final round (a), as layout text: the label and its value set apart on the first line of an empty cell.
-      it.each(["THICKNESS   .125", "LOT CODE    A123", "PAINT   RAL 9005", "QTY      4"])("leaves an empty MATERIAL empty and flagged, not '%s'", (stacked) => {
+      it.each([
+        "THICKNESS   .125",
+        "LOT CODE    A123",
+        "PAINT   RAL 9005",
+        "QTY      4",
+        // #884 review, round 5: a label word that is not letters only.
+        "THICKNESS (IN)   .125",
+        "WT (LB)   2.5",
+        "LOT #    A123",
+        "HEAT-TREAT   RC 40-45",
+        "ROUGHNESS (Ra)   63",
+        "# REQD     4",
+      ])("leaves an empty MATERIAL empty and flagged, not '%s'", (stacked) => {
         const sheet = layoutSheet([[0, "MATERIAL"]], [[0, stacked]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
+        expect(cell(sheet, "material")).toMatchObject(FLAGGED);
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      // #884 review, round 5: a label with a bracketed unit or a number sign is a line of label words, so with its value
+      // under it in an empty cell it is flagged, as "THICKNESS" over ".125" is.
+      it.each(["THICKNESS (IN)", "WT (LB)", "LOT #", "HEAT-TREAT", "X-RAY"])("leaves an empty MATERIAL empty and flagged, not '%s' over its value", (stacked) => {
+        const sheet = layoutSheet([[0, "MATERIAL"]], [[0, stacked]], [[2, ".125"]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
         expect(cell(sheet, "material")).toMatchObject(FLAGGED);
         expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
       });

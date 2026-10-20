@@ -940,13 +940,46 @@ describe("pdfDrawing", () => {
     expect(result.partNumber.value).toBe("1093-05589");
     expect(result.revision.value).toBe("02");
     expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    // The rescue's text for the material and the finish is only a suggestion for review (Codex review of #884, round
+    // 5): the MATERIAL cell gave no clean value, and the OCR garbled FINISH, so no cell gave one for the finish.
+    for (const field of [result.material, result.finish]) {
+      expect(field).toMatchObject({ reviewNeeded: true, confidence: 0.2 });
+      expect(field.reasons).not.toContain("label_match");
+    }
     expect(result.material.value).toBe("6061 Alloy");
     expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
     expect(result.tightestTolerance).toBe("±0.005");
     expect(result.threads).toEqual([]);
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.reviewFields).toEqual([]);
+    expect(result.reviewFields).toEqual(["material", "finish"]);
+  });
+
+  // Codex review of #884, round 5: the OCR rescue filled a MATERIAL the cell reader had flagged with the sample's
+  // "6061 Alloy" found in an unrelated note, and approved it at 0.86. The rescue never approves a material or finish:
+  // a field the cell reader rejected or flagged, or that has no label, gets the text as a suggestion for review, and a
+  // value the cell reader approved is kept, flagged.
+  it("never approves a MATERIAL or FINISH the cell reader rejected or flagged with the rescue's sample text", () => {
+    const layout = [
+      "MATERIAL 7075-T6",
+      "         ALUMINUM",
+      "",
+      "NOTES: 1. TEST COUPON CUT FROM 6061 Alloy BAR STOCK.",
+      "2. ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2 SAMPLE PANEL ONLY.",
+    ];
+    const flagged = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: { pageCount: 1, pages: [{ page: 1, text: layout.join("\n") }] } });
+    for (const field of ["material", "finish"] as const) {
+      expect(flagged[field], field).toMatchObject({ reviewNeeded: true, confidence: 0.2 });
+      expect(flagged.reviewFields).toContain(field);
+    }
+
+    const approvedCell = inferDrawingSignalsFromPdf({
+      baseName: "upload",
+      pdfText: { pageCount: 1, pages: [{ page: 1, text: ["FINISH  AS MACHINED", "", ...layout.slice(3)].join("\n") }] },
+    });
+    expect(approvedCell.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
+    expect(approvedCell.finish.reasons).toContain("ocr_title_block_conflict");
+    expect(approvedCell.reviewFields).toEqual(expect.arrayContaining(["material", "finish"]));
   });
 
   it("prefers the strict filename identity over structurally invalid OCR title-block values", () => {

@@ -1011,10 +1011,15 @@ function readCandidate(candidate: ToleranceCandidate, declared: { inch: boolean;
   return { candidate, unit, inches, storedInches };
 }
 
-/** A table row that may or may not be in force (T3): its value is a possible tolerance in any unit reading. */
+/**
+ * A table row that may or may not be in force (T3): its value is a possible tolerance, unresolved, and as small as the
+ * reading readCandidate gives it. A row readCandidate cannot resolve keeps every safeguard of that reading: scientific
+ * notation ("1e-3", whose mantissa is not its value) and a per-length ratio may be any size, so they block (0); a unit
+ * written after the value, or the drawing's units, sets its scale.
+ */
 function readUnresolvedRow(candidate: ToleranceCandidate, declared: { inch: boolean; metric: boolean }): UnresolvedReading {
-  const unit = candidate.problem === null ? resolveUnit(candidate, declared) : null;
-  return unresolvedReading(candidate, candidate.value * (unit === null ? SMALLEST_BARE_READING : UNIT_TO_INCH[unit]));
+  const reading = readCandidate(candidate, declared);
+  return reading.unit === null ? reading : unresolvedReading(candidate, reading.inches);
 }
 
 function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean; rasterText?: string } = {}) {
@@ -1520,6 +1525,30 @@ function buildRescuedField(value: string, reasons: string[], confidence = 0.9): 
   };
 }
 
+/** The confidence of a value the OCR rescue only suggests: the confidence of any other flagged suggestion. */
+const SUGGESTED_RESCUE_CONFIDENCE = 0.2;
+
+/**
+ * OVD-985, OVD-989: what the OCR rescue may do to a material or finish. Only the cell its label owns approves one
+ * (titleBlockCells.ts), so the rescue never does, and the field it touches is flagged for review: a field the cell reader
+ * rejected or flagged (empty, a stacked cell's label, two cells that disagree), or that has no label at all, gets the
+ * rescue's text as a suggestion only; a value the cell reader approved is kept, flagged, since the rescue's text found
+ * elsewhere on the sheet disagrees with it.
+ */
+function suggestRescuedValue(field: ExtractedFieldSignal, value: string): ExtractedFieldSignal {
+  if (field.value && !field.reviewNeeded) {
+    return { ...field, reviewNeeded: true, reasons: [...new Set([...field.reasons, "ocr_title_block_conflict"])] };
+  }
+  return {
+    value,
+    confidence: SUGGESTED_RESCUE_CONFIDENCE,
+    reviewNeeded: true,
+    reasons: ["ocr_title_block"],
+    sourceRegion: null,
+    snippet: value,
+  };
+}
+
 function parsePartReferenceFromStem(baseName: string) {
   const match = /^(\d{3,5}-\d{4,6})[-_\s]+([A-Z0-9]{1,4})$/i.exec(baseName.trim());
   if (!match) {
@@ -1544,7 +1573,11 @@ function parsePartReferenceFromStem(baseName: string) {
  * is empty, review-needed, or visibly contains finish text; and `finish` only
  * when it is empty, review-needed, or lacks anodize evidence. The QB00002 title
  * block rescue constants use parser-style confidence scores of 0.9 for part
- * number, 0.88 for revision/description/finish, and 0.86 for material.
+ * number and 0.88 for revision/description.
+ *
+ * A material or finish is never approved here (suggestRescuedValue): the hard-coded text can sit anywhere on the sheet
+ * ("6061 Alloy" in a note), so approving it would bypass the cell the MATERIAL or FINISH label owns, or the review flag
+ * the cell reader set on it. The rescue only suggests it for review, at SUGGESTED_RESCUE_CONFIDENCE.
  *
  * @param input.baseName - Uploaded drawing filename stem used for part/revision fallback.
  * @param input.text - OCR/plain text from the drawing page.
@@ -1607,7 +1640,7 @@ function rescueOcrTitleBlockFields(input: {
 
   const materialMatch = /\b6061\s+Alloy\b/i.exec(input.text);
   if (materialMatch && (!input.fields.material.value || input.fields.material.reviewNeeded || /ANODIZE/i.test(input.fields.material.value))) {
-    input.fields.material = buildRescuedField("6061 Alloy", ["ocr_title_block", "label_match"], 0.86);
+    input.fields.material = suggestRescuedValue(input.fields.material, "6061 Alloy");
   }
 
   if (
@@ -1615,11 +1648,7 @@ function rescueOcrTitleBlockFields(input: {
     /CLASS\s*2/i.test(input.text) &&
     (!input.fields.finish.value || input.fields.finish.reviewNeeded || !/ANODIZE/i.test(input.fields.finish.value))
   ) {
-    input.fields.finish = buildRescuedField(
-      "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
-      ["ocr_title_block", "label_match"],
-      0.88,
-    );
+    input.fields.finish = suggestRescuedValue(input.fields.finish, "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
   }
 }
 

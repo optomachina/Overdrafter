@@ -14,6 +14,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dimensionField, minimalPdf, syntheticSheet, type MinimalPdfOptions, type PdfTextItem, type SyntheticSheetOptions } from "../../test-support/minimalPdf";
+import type { JobFileRecord, PartRecord } from "../types";
+import { runHybridExtraction } from "./hybridExtraction";
 import { extractPdfText, inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 
 function hasBinary(name: string): boolean {
@@ -407,6 +409,77 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
           expect(signals.finish.value ?? "", source).not.toMatch(/FROBNITZ|X-77/);
           expect(signals.finish.value === "ANODIZE, BLACK" || signals.finish.reviewNeeded, `${source}: ${signals.finish.value}`).toBe(true);
         }
+      }
+    });
+
+    // #884 review, round 5: the sheets the review built, through the whole extraction (runHybridExtraction, no model),
+    // from poppler's word boxes and from its layout text alone. The stacked label has a word that is not letters only
+    // (a bracket, a number sign, a hyphen); the field is empty, flagged, and the drawing needs review, never approved.
+    async function extractBoth(items: PdfTextItem[]) {
+      const pdfText = await pdfTextOf(items);
+      expect(pdfText.pages[0]?.words?.length ?? 0).toBeGreaterThan(0);
+      const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
+      const extract = (text: PdfTextExtraction) =>
+        runHybridExtraction(
+          { part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
+          { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
+        );
+      return [
+        ["word boxes", await extract(pdfText)],
+        ["layout text", await extract(layoutText)],
+      ] as const;
+    }
+
+    it.each([
+      ["THICKNESS (IN)", ".125", 395],
+      ["THICKNESS (IN)", ".125", 420],
+      ["WT (LB)", "2.5", 395],
+      ["HEAT-TREAT", "RC 40-45", 380],
+      ["LOT #", "A123", 395],
+      ["# REQD", "4", 380],
+    ] as const)("(a) leaves an empty MATERIAL empty and flagged, not a 6 pt '%s' by a 9 pt '%s' (at x %s)", async (label, value, x) => {
+      for (const [source, result] of await extractBoth(lowerFinish(null, labelAndValue(label, value, 745, x)))) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.status, source).toBe("needs_review");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+      }
+    });
+
+    it.each([
+      ["ROUGHNESS (Ra)", "63", 395],
+      ["X-RAY", "100%", 372],
+    ] as const)("(a) leaves an empty FINISH empty and flagged, not a 6 pt '%s' by a 9 pt '%s'", async (label, value, x) => {
+      for (const [source, result] of await extractBoth(syntheticSheet({ finish: null, extra: labelAndValue(label, value, 775, x) }))) {
+        expect(result.finish.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["finish"]);
+        expect(result.status, source).toBe("needs_review");
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+      }
+    });
+
+    it("never joins a stacked cell whose label is hyphenated to the material or finish above it", async () => {
+      const sheets: Array<[field: "material" | "finish", cellValue: string, items: PdfTextItem[]]> = [
+        ["material", "AL 6061-T6", lowerFinish("AL 6061-T6", [{ x: 340, y: 744, size: 9, text: "HEAT-TREAT RC 40-45" }])],
+        ["material", "AL 6061-T6", lowerFinish("AL 6061-T6", labelAndValue("HEAT-TREAT", "RC 40-45", 745))],
+        ["finish", "ANODIZE, BLACK", syntheticSheet({ finish: "ANODIZE, BLACK", extra: [{ x: 340, y: 772, size: 9, text: "X-RAY 100%" }] })],
+        ["finish", "ANODIZE, BLACK", syntheticSheet({ finish: "ANODIZE, BLACK", extra: labelAndValue("X-RAY", "100%", 775, 372) })],
+      ];
+      for (const [field, cellValue, items] of sheets) {
+        for (const [source, result] of await extractBoth(items)) {
+          const read = result[field];
+          expect(read.raw ?? "", source).not.toMatch(/HEAT-TREAT|X-RAY|RC 40-45|100%/);
+          expect(read.raw === cellValue || (read.raw === null && result.reviewFields.includes(field)), `${source}: ${read.raw}`).toBe(true);
+        }
+      }
+    });
+
+    it("still reads and approves the sheet as printed", async () => {
+      for (const [source, result] of await extractBoth(syntheticSheet())) {
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+        expect(result.reviewFields, source).toEqual([]);
+        expect(result.status, source).toBe("approved");
       }
     });
   });
