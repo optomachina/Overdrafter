@@ -330,7 +330,7 @@ export class SqlTooLargeError extends Error {}
 /** The reason a SQL file too large to scan gets (it fails closed). */
 export const SQL_OVERSIZED_REASON = `sql:oversized:>${MAX_SQL_TOKENS}`;
 
-/** A fresh token budget, shared by one sqlWords call and its nested bodies. */
+/** A fresh token budget, shared by one sqlWords call and its nested bodies. Every token is charged once, where it is pushed. */
 const newSqlBudget = () => ({ left: MAX_SQL_TOKENS });
 
 /** Fail closed before scanning a body longer than MAX_SQL_CHARS. */
@@ -348,6 +348,19 @@ function addSqlTokens(words, budget, tokens) {
 }
 
 /**
+ * Tokenize `text` into `words`, charging each token against `budget` exactly
+ * once, where it is pushed. A nested body is scanned straight into the
+ * enclosing `words` (never into a list the enclosing level appends again), so
+ * a token costs one budget unit however deeply it is quoted.
+ */
+function scanSqlInto(text, words, depth, budget) {
+  const sql = String(text);
+  checkSqlChars(sql);
+  let index = 0;
+  while (index < sql.length) index = scanSqlToken(sql, index, words, depth, budget);
+}
+
+/**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
  * comments and quoted identifiers. Every single-quoted, E'' and dollar-quoted
  * string is tokenized recursively as SQL, because a string can be code: a DO
@@ -357,11 +370,8 @@ function addSqlTokens(words, budget, tokens) {
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  */
 export function sqlWords(text, depth = 0, budget = newSqlBudget()) {
-  const sql = String(text);
-  checkSqlChars(sql);
   const words = [];
-  let index = 0;
-  while (index < sql.length) index = scanSqlToken(sql, index, words, depth, budget);
+  scanSqlInto(text, words, depth, budget);
   return words;
 }
 
@@ -418,7 +428,7 @@ function scanQuoted(sql, index, words, depth, budget) {
     budget.left += 1;
   }
   const { body, end } = readQuoted(sql, index + 1, quote, backslash);
-  if (quote === "'") addSqlTokens(words, budget, sqlBodyWords(body, depth, budget));
+  if (quote === "'") scanBodyInto(body, words, depth, budget);
   return end;
 }
 
@@ -453,13 +463,21 @@ function scanDollarQuoted(sql, index, tag, words, depth, budget) {
   const bodyStart = index + tag.length;
   const close = sql.indexOf(tag, bodyStart);
   const bodyEnd = close === -1 ? sql.length : close;
-  addSqlTokens(words, budget, sqlBodyWords(sql.slice(bodyStart, bodyEnd), depth, budget));
+  scanBodyInto(sql.slice(bodyStart, bodyEnd), words, depth, budget);
   return close === -1 ? sql.length : close + tag.length;
 }
 
-function sqlBodyWords(body, depth, budget) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1, budget);
-  return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
+/**
+ * Add the words of a quoted body to `words`. Above MAX_SQL_DEPTH the body is
+ * split into plain words; below it the body is scanned as SQL, and its tokens
+ * are charged as they are pushed (see scanSqlInto), not again here.
+ */
+function scanBodyInto(body, words, depth, budget) {
+  if (depth < MAX_SQL_DEPTH) {
+    scanSqlInto(body, words, depth + 1, budget);
+    return;
+  }
+  addSqlTokens(words, budget, body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? []);
 }
 
 /**
