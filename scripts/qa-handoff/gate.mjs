@@ -14,6 +14,9 @@
 // REQUIRED_CHECKS env (comma separated) when protection changes.
 export const DEFAULT_REQUIRED_CHECKS = Object.freeze(["ci", "provider-go-live"]);
 
+// QA handoff must never wait on the merge gate, because QA's verdict is that gate's input (OVD-921/OVD-845).
+export const HANDOFF_EXCLUDED_CHECKS = Object.freeze(["ovd-merge-gate"]);
+
 export const BASE_BRANCH = "main";
 export const QA_READY_LABEL = "qa:ready";
 
@@ -79,6 +82,17 @@ export function requiredCheckSpec(check) {
   return typeof check === "string" ? { name: check, appId: undefined } : { name: check.name, appId: check.appId ?? undefined };
 }
 
+export function excludeHandoffChecks(requiredChecks) {
+  const kept = [];
+  const excluded = new Set();
+  for (const check of requiredChecks ?? []) {
+    const { name } = requiredCheckSpec(check);
+    if (HANDOFF_EXCLUDED_CHECKS.includes(name)) excluded.add(name);
+    else kept.push(check);
+  }
+  return { kept, excluded: [...excluded] };
+}
+
 // Latest check run per name: a re-run creates a new check run with a higher id
 // on the same sha, and only the newest one counts.
 // With appId, only runs from that app count. Otherwise runs whose app is not
@@ -139,7 +153,8 @@ export function evaluateGate({ event, pr, checkRuns, statuses, requiredChecks })
   if (!event?.headSha || event.headSha !== headSha) {
     return { handoff: false, reason: "stale-sha", detail: `event ${event?.headSha} != head ${headSha}` };
   }
-  if (!Array.isArray(requiredChecks) || requiredChecks.length === 0) {
+  requiredChecks = excludeHandoffChecks(Array.isArray(requiredChecks) ? requiredChecks : []).kept;
+  if (requiredChecks.length === 0) {
     return { handoff: false, reason: "no-required-checks" };
   }
   const checks = requiredChecks.map((check) => ({
