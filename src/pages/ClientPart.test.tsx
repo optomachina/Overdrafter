@@ -79,7 +79,9 @@ const {
     setAutomaticEnabled: vi.fn(),
     refresh: vi.fn(),
   },
-  mockQuantityScope: { status: "single_only" as "loading" | "single_only" | "multiple_allowed" },
+  mockQuantityScope: {
+    status: "single_only" as "loading" | "single_only" | "multiple_allowed" | "unavailable",
+  },
   mockUseAppSession: vi.fn(),
   mockUsePartDeadline: vi.fn(),
   prefetchProjectPage: vi.fn(),
@@ -1512,20 +1514,22 @@ describe("ClientPart", () => {
   });
 
   describe("single Quantity field (OVD-997)", () => {
-    /** A saved request at quantity 1: the case where a changed Qty used to be discarded. */
-    function createSavedQuantityOneDetail() {
+    /** A saved request at the given quantities; a saved [1] is the case where a changed Qty used to be discarded. */
+    function createSavedQuantitiesDetail(quantities: number[]) {
       const detail = createPartDetail();
+      const [quantity] = quantities;
       return {
         ...detail,
-        job: { ...detail.job, requested_quote_quantities: [1] },
-        summary: { ...detail.summary, quantity: 1, requestedQuoteQuantities: [1] },
+        job: { ...detail.job, requested_quote_quantities: quantities },
+        summary: { ...detail.summary, quantity, requestedQuoteQuantities: quantities },
         part: {
           ...detail.part,
-          quantity: 1,
-          approvedRequirement: { ...detail.part.approvedRequirement, quantity: 1, quote_quantities: [1] },
+          quantity,
+          approvedRequirement: { ...detail.part.approvedRequirement, quantity, quote_quantities: quantities },
         },
       };
     }
+    const createSavedQuantityOneDetail = () => createSavedQuantitiesDetail([1]);
 
     afterEach(() => {
       vi.unstubAllEnvs();
@@ -1556,7 +1560,7 @@ describe("ClientPart", () => {
       api.fetchPartDetailByJobId.mockResolvedValue(createSavedQuantityOneDetail());
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedQuoteQuantities).toEqual([1]));
-      expect(result.current.singleQuantity).toEqual({ allowAboveOne: true, loading: false });
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: true, loading: false, unavailable: false });
 
       act(() => {
         result.current.handleDraftChange({ quantity: 5 });
@@ -1598,7 +1602,7 @@ describe("ClientPart", () => {
       mockQuantityScope.status = "single_only";
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
-      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false });
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false, unavailable: false });
 
       act(() => {
         result.current.handleSaveRequest();
@@ -1611,12 +1615,32 @@ describe("ClientPart", () => {
       });
     });
 
+    it("keeps the saved quantities when the scope read is unavailable, instead of writing 1", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "unavailable";
+      api.fetchPartDetailByJobId.mockResolvedValue(createSavedQuantitiesDetail([25, 50]));
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedQuoteQuantities).toEqual([25, 50]));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false, unavailable: true });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        jobId: "job-1",
+        quantity: 25,
+        requestedQuoteQuantities: [25, 50],
+      });
+    });
+
     it("does not save while the server answer is pending, and never saves an unusable quantity", async () => {
       vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
       mockQuantityScope.status = "loading";
       const { result, rerender } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
-      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: true });
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: true, unavailable: false });
       act(() => {
         result.current.handleSaveRequest();
       });

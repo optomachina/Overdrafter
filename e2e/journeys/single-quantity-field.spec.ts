@@ -19,14 +19,20 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 // The fixture's signed-in user and organization; the server read must echo the identity it checked.
 const FIXTURE_USER_ID = "fixture-user-client";
 const FIXTURE_ORGANIZATION_ID = "fixture-org-1";
+// The fixture request is saved with quantities 25 and 50, so its Quantity field starts at 25.
+const FIXTURE_SAVED_QUANTITY = "25";
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "*",
   "access-control-allow-methods": "POST, OPTIONS",
 };
 
-/** Answers the server read for the fixture job the way the server will: scoped to this request. */
-async function scopeQuantityToThisRequest(page: Page, calls: string[]) {
+type ScopeAnswer = { state: "single_only"; grant: null } | { state: "multiple_allowed"; grant: "request" };
+const SCOPED_TO_THIS_REQUEST: ScopeAnswer = { state: "multiple_allowed", grant: "request" };
+const NOT_SCOPED: ScopeAnswer = { state: "single_only", grant: null };
+
+/** Answers the server read for the fixture job the way the server will, echoing the identity it checked. */
+async function answerQuantityScope(page: Page, answer: ScopeAnswer, calls: string[]) {
   await page.route("**/rest/v1/rpc/api_get_quantity_scope", async (route) => {
     if (route.request().method() === "OPTIONS") {
       await route.fulfill({ status: 204, headers: CORS_HEADERS });
@@ -42,9 +48,24 @@ async function scopeQuantityToThisRequest(page: Page, calls: string[]) {
         jobId,
         organizationId: FIXTURE_ORGANIZATION_ID,
         actorUserId: FIXTURE_USER_ID,
-        state: "multiple_allowed",
-        grant: "request",
+        ...answer,
       }),
+    });
+  });
+}
+
+/** The server read fails the way a transient outage does: the page gets an error, not an answer. */
+async function failQuantityScope(page: Page, calls: string[]) {
+  await page.route("**/rest/v1/rpc/api_get_quantity_scope", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: CORS_HEADERS });
+      return;
+    }
+    calls.push("failed");
+    await route.fulfill({
+      status: 503,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ message: "temporarily unavailable" }),
     });
   });
 }
@@ -77,7 +98,7 @@ test.describe("part request single Quantity field", { tag: "@fixture" }, () => {
 
   test("flag OFF (default): Qty and Quote quantities stay as they were and nothing is asked of the server", async ({ page }) => {
     const calls: string[] = [];
-    await scopeQuantityToThisRequest(page, calls);
+    await answerQuantityScope(page, SCOPED_TO_THIS_REQUEST, calls);
     await openPartPage(page);
 
     await expect(page.getByLabel("Qty", { exact: true })).toBeVisible({ timeout: APP_ENTRY_TIMEOUT_MS });
@@ -87,6 +108,8 @@ test.describe("part request single Quantity field", { tag: "@fixture" }, () => {
   });
 
   test("flag ON, server has not scoped a quantity: one Quantity field, fixed at 1, with the reason", async ({ page }, testInfo) => {
+    const calls: string[] = [];
+    await answerQuantityScope(page, NOT_SCOPED, calls);
     await openPartPage(page, flagOnServer.origin);
 
     const quantity = page.getByLabel("Quantity", { exact: true });
@@ -94,8 +117,10 @@ test.describe("part request single Quantity field", { tag: "@fixture" }, () => {
     await expect(quantity).toHaveValue("1");
     await expect(quantity).toHaveAttribute("readonly", "");
     await expect(page.getByText(/quotes 1 piece per request/i)).toBeVisible();
+    await expect(page.getByText(/could not check which quantities/i)).toHaveCount(0);
     await expect(page.getByLabel("Qty", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Quote quantities", { exact: true })).toHaveCount(0);
+    expect(calls.length).toBeGreaterThan(0);
 
     await quantity.scrollIntoViewIfNeeded();
     await testInfo.attach("single-quantity-fixed-at-1", {
@@ -105,9 +130,37 @@ test.describe("part request single Quantity field", { tag: "@fixture" }, () => {
     await attachScreenshot(page, "single-quantity-fixed-at-1");
   });
 
+  test("flag ON, scope read fails: Quantity keeps the saved value, says the check failed, and a save does not write 1", async ({ page }, testInfo) => {
+    const calls: string[] = [];
+    await failQuantityScope(page, calls);
+    await openPartPage(page, flagOnServer.origin);
+
+    const quantity = page.getByLabel("Quantity", { exact: true });
+    await expect(quantity).toBeVisible({ timeout: APP_ENTRY_TIMEOUT_MS });
+    await expect(page.getByText(/could not check which quantities this request can use/i)).toBeVisible();
+    expect(calls.length).toBeGreaterThan(0);
+    // The failed read is not the server's policy: no "specific requests only" copy, no value forced to 1.
+    await expect(quantity).toHaveAttribute("readonly", "");
+    await expect(quantity).toHaveValue(FIXTURE_SAVED_QUANTITY);
+    await expect(page.getByText(/turned on for specific requests only/i)).toHaveCount(0);
+    await expect(page.getByText(/Saving sets the quantity to 1/)).toHaveCount(0);
+
+    const save = page.getByRole("button", { name: "Save request details" });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(quantity).toHaveValue(FIXTURE_SAVED_QUANTITY);
+
+    await quantity.scrollIntoViewIfNeeded();
+    await testInfo.attach("single-quantity-unavailable", {
+      body: await page.screenshot({ fullPage: false }),
+      contentType: "image/png",
+    });
+    await attachScreenshot(page, "single-quantity-unavailable");
+  });
+
   test("flag ON, server scoped the request: Quantity is editable and saves as one quantity", async ({ page }, testInfo) => {
     const calls: string[] = [];
-    await scopeQuantityToThisRequest(page, calls);
+    await answerQuantityScope(page, SCOPED_TO_THIS_REQUEST, calls);
     await openPartPage(page, flagOnServer.origin);
 
     const quantity = page.getByLabel("Quantity", { exact: true });

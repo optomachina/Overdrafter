@@ -29,11 +29,12 @@ export function useSingleQuantityInput(
 
   const loading = state?.loading ?? false;
   const editable = Boolean(state?.allowAboveOne) && !loading;
+  // Fixed at 1 shows 1. While the answer is pending or unavailable the field shows the saved quantity.
+  const showsSavedText = loading || Boolean(state?.unavailable);
   const invalid = editable && parseRequestQuantityText(text) === null;
   return {
     state,
-    // Fixed at 1 shows 1; while the answer is pending the field shows the draft's own quantity.
-    value: editable || loading ? text : "1",
+    value: editable || showsSavedText ? text : "1",
     editable,
     blocked: loading || invalid,
     showError: invalid && (text.trim().length > 0 || touched),

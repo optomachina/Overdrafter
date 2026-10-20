@@ -5,6 +5,7 @@ import {
   QUANTITY_CHECKING_COPY,
   QUANTITY_FIXED_COPY,
   QUANTITY_FORMAT_ERROR,
+  QUANTITY_UNAVAILABLE_COPY,
   type SingleQuantityState,
 } from "@/features/quotes/single-quantity";
 import type { SingleQuantityInput } from "@/features/quotes/use-single-quantity-input";
@@ -14,6 +15,9 @@ const QUANTITY_HELP_ID = "client-request-quantity-help";
 function quantityHelpCopy(state: SingleQuantityState): string {
   if (state.loading) {
     return QUANTITY_CHECKING_COPY;
+  }
+  if (state.unavailable) {
+    return QUANTITY_UNAVAILABLE_COPY;
   }
   return state.allowAboveOne ? QUANTITY_ALLOWED_COPY : QUANTITY_FIXED_COPY;
 }

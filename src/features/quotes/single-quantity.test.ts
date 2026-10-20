@@ -12,9 +12,10 @@ function draft(quantity: number, requestedQuoteQuantities: number[]): ClientPart
   return { jobId: "job-1", material: "6061-T6", quantity, requestedQuoteQuantities } as ClientPartRequestUpdateInput;
 }
 
-const OPEN = { allowAboveOne: true, loading: false };
-const FIXED = { allowAboveOne: false, loading: false };
-const LOADING = { allowAboveOne: false, loading: true };
+const OPEN = { allowAboveOne: true, loading: false, unavailable: false };
+const FIXED = { allowAboveOne: false, loading: false, unavailable: false };
+const LOADING = { allowAboveOne: false, loading: true, unavailable: false };
+const UNAVAILABLE = { allowAboveOne: false, loading: false, unavailable: true };
 
 describe("parseRequestQuantityText", () => {
   it.each([
@@ -84,6 +85,12 @@ describe("buildSingleQuantityRequest", () => {
     expect(buildSingleQuantityRequest(draft(MAX_REQUEST_QUANTITY + 1, []), OPEN)).toBeNull();
   });
 
+  it("keeps the saved quantities as they are when the server answer is unavailable, never writing 1", () => {
+    expect(buildSingleQuantityRequest(draft(25, [25]), UNAVAILABLE)).toEqual(draft(25, [25]));
+    expect(buildSingleQuantityRequest(draft(25, [25, 50]), UNAVAILABLE)).toEqual(draft(25, [25, 50]));
+    expect(buildSingleQuantityRequest(draft(25, []), UNAVAILABLE)).toEqual(draft(25, [25]));
+  });
+
   it("keeps every other field and does not mutate the draft", () => {
     const original = draft(5, [1]);
     const built = buildSingleQuantityRequest(original, OPEN);
@@ -99,6 +106,14 @@ describe("describeSavedQuantities", () => {
     expect(describeSavedQuantities(draft(5, [5]), OPEN)).toBeNull();
     expect(describeSavedQuantities(draft(5, []), OPEN)).toBeNull();
     expect(describeSavedQuantities(draft(5, [1, 5]), LOADING)).toBeNull();
+    expect(describeSavedQuantities(draft(25, [25]), UNAVAILABLE)).toBeNull();
+    expect(describeSavedQuantities(draft(25, []), UNAVAILABLE)).toBeNull();
+  });
+
+  it("says a save keeps the saved quantities when the server answer is unavailable", () => {
+    expect(describeSavedQuantities(draft(25, [25, 50]), UNAVAILABLE)).toBe(
+      "This request is saved with quantities 25, 50. Saving keeps them as they are.",
+    );
   });
 
   it("explains that a save keeps one quantity when several are saved", () => {

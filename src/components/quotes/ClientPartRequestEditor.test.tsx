@@ -363,13 +363,14 @@ describe("ClientPartRequestEditor — tightest tolerance typing", () => {
 });
 
 describe("ClientPartRequestEditor — single Quantity mode (OVD-997)", () => {
-  const OPEN = { allowAboveOne: true, loading: false };
-  const FIXED = { allowAboveOne: false, loading: false };
-  const LOADING = { allowAboveOne: false, loading: true };
+  const OPEN = { allowAboveOne: true, loading: false, unavailable: false };
+  const FIXED = { allowAboveOne: false, loading: false, unavailable: false };
+  const LOADING = { allowAboveOne: false, loading: true, unavailable: false };
+  const UNAVAILABLE = { allowAboveOne: false, loading: false, unavailable: true };
 
   // Stateful host mirroring the controller: onChange merges into the draft the editor receives back.
   function renderHost(
-    singleQuantity: { allowAboveOne: boolean; loading: boolean } | undefined,
+    singleQuantity: { allowAboveOne: boolean; loading: boolean; unavailable: boolean } | undefined,
     initial: Partial<ClientPartRequestUpdateInput> = {},
   ) {
     const onSave = vi.fn();
@@ -495,6 +496,27 @@ describe("ClientPartRequestEditor — single Quantity mode (OVD-997)", () => {
     expect(screen.queryByText(/saved with/)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(host.save()).toBeDisabled();
+  });
+
+  it("keeps the saved quantity, says the check failed and keeps Save on when the answer is unavailable", () => {
+    const host = renderHost(UNAVAILABLE, { quantity: 25, requestedQuoteQuantities: [25, 50] });
+    expect(host.input().value).toBe("25");
+    expect(host.input()).toHaveAttribute("readonly");
+    expect(screen.getByText(/could not check which quantities this request can use/i)).toBeInTheDocument();
+    expect(screen.getByText(/reload the page to try again/i)).toBeInTheDocument();
+    // Not the server's policy: the "specific requests only" copy and the sets-to-1 note must not appear.
+    expect(screen.queryByText(/turned on for specific requests only/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/saving sets the quantity to 1/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("This request is saved with quantities 25, 50. Saving keeps them as they are."),
+    ).toBeInTheDocument();
+    host.set("5");
+    expect(host.input().value).toBe("25");
+    expect(host.current().quantity).toBe(25);
+    expect(host.save()).toBeEnabled();
+    fireEvent.click(host.save());
+    expect(host.onSave).toHaveBeenCalledOnce();
+    expect(host.onSave.mock.calls[0][0]).toMatchObject({ quantity: 25, requestedQuoteQuantities: [25, 50] });
   });
 
   it("follows the draft when it changes from outside", () => {

@@ -13,8 +13,10 @@ import { callUntypedRpc } from "@/features/quotes/api/shared/rpc";
  * body). It returns exactly these six keys for the signed-in caller, echoing the identity it checked:
  *   { schema: "quantity-scope.v1", jobId, organizationId, actorUserId,
  *     state: "single_only" | "multiple_allowed", grant: "participant" | "request" | null }
- * `grant` is null exactly when `state` is `single_only`. Anything else, an error, or an answer for a
- * different caller or job is treated as `single_only`: fixed at quantity 1.
+ * `grant` is null exactly when `state` is `single_only`. Only that verified answer can fix the field at
+ * quantity 1 with the policy copy. An error, an answer for a different caller or job, or an answer that
+ * does not match this contract is `unavailable`: the policy is unknown, so the field stays read only and
+ * a save leaves the saved quantities as they are (it never writes 1 on the strength of a failed read).
  */
 
 export type QuantityScopeIdentity = { actorUserId: string; organizationId: string; jobId: string };
@@ -25,7 +27,11 @@ export type QuantityScope = QuantityScopeIdentity & {
   grant: "participant" | "request" | null;
 };
 
-export type QuantityScopeStatus = "loading" | "single_only" | "multiple_allowed";
+/**
+ * `unavailable` means there is no verified answer (read failed, answer did not match, or nothing to
+ * ask yet). It is not the server saying `single_only`, the way `useQuoteAccess` reports `unknown`.
+ */
+export type QuantityScopeStatus = "loading" | "single_only" | "multiple_allowed" | "unavailable";
 
 const FIELDS = ["schema", "jobId", "organizationId", "actorUserId", "state", "grant"];
 
@@ -71,8 +77,9 @@ export async function fetchQuantityScope(identity: QuantityScopeIdentity): Promi
 }
 
 /**
- * Policy snapshot for the editor only. `enabled` is false when the client flag is off, so no request
- * is made then. Loading, an error and an unverifiable answer all read as fixed at quantity 1.
+ * Policy snapshot for the editor only. `enabled` is false when the client flag is off or the session
+ * is not verified, so no request is made then and the result is `unavailable` (the controller does not
+ * read it with the flag off). Only a verified server answer is `single_only` or `multiple_allowed`.
  */
 export function useQuantityScope(
   identity: QuantityScopeIdentity | null,
@@ -92,7 +99,7 @@ export function useQuantityScope(
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
-  if (!enabled || !identity) return { status: "single_only" };
+  if (!enabled || !identity) return { status: "unavailable" };
   if (query.isFetching) return { status: "loading" };
-  return { status: !query.isError && query.data?.state === "multiple_allowed" ? "multiple_allowed" : "single_only" };
+  return { status: query.isError || !query.data ? "unavailable" : query.data.state };
 }

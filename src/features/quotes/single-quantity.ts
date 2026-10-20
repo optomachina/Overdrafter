@@ -15,12 +15,19 @@ export const QUANTITY_FIXED_COPY =
   "The controlled beta quotes 1 piece per request. Larger quantities are turned on for specific requests only.";
 export const QUANTITY_ALLOWED_COPY = "Each request is quoted at one quantity.";
 export const QUANTITY_CHECKING_COPY = "Checking which quantities this request can use.";
+export const QUANTITY_UNAVAILABLE_COPY =
+  "Could not check which quantities this request can use, so the quantity stays as saved. Reload the page to try again.";
 
 export type SingleQuantityState = {
   /** True only when the server scoped a quantity above 1 to this request or participant. */
   allowAboveOne: boolean;
   /** True while the server answer is pending; Save waits for it. */
   loading: boolean;
+  /**
+   * True when there is no verified server answer (the read failed or did not match). This is not
+   * the server saying single only: the field is read only and a save keeps the saved quantities.
+   */
+  unavailable: boolean;
 };
 
 export function isRequestQuantity(value: unknown): value is number {
@@ -43,7 +50,8 @@ export function parseRequestQuantityText(text: string): number | null {
  * The request a save sends: exactly one quantity, in both `quantity` and `requestedQuoteQuantities`.
  * The server stores `quote_quantities[1]` as the quantity, so sending a list that still holds an old
  * value would discard an edited Quantity without a message. Returns null when nothing may be saved
- * yet (server answer pending, or no valid quantity).
+ * yet (server answer pending, or no valid quantity). When the server answer is unavailable the field
+ * is read only and the quantities in the draft are sent back as they are, never replaced by 1.
  */
 export function buildSingleQuantityRequest(
   draft: ClientPartRequestUpdateInput,
@@ -51,6 +59,13 @@ export function buildSingleQuantityRequest(
 ): ClientPartRequestUpdateInput | null {
   if (state.loading) {
     return null;
+  }
+  if (state.unavailable) {
+    return {
+      ...draft,
+      requestedQuoteQuantities:
+        draft.requestedQuoteQuantities.length > 0 ? draft.requestedQuoteQuantities : [draft.quantity],
+    };
   }
   const quantity = state.allowAboveOne ? draft.quantity : 1;
   if (!isRequestQuantity(quantity)) {
@@ -73,6 +88,9 @@ export function describeSavedQuantities(
   const saved = draft.requestedQuoteQuantities.length > 0 ? draft.requestedQuoteQuantities : [draft.quantity];
   const label = saved.length > 1 ? "quantities" : "quantity";
   const list = saved.join(", ");
+  if (state.unavailable) {
+    return saved.length > 1 ? `This request is saved with quantities ${list}. Saving keeps them as they are.` : null;
+  }
   if (state.allowAboveOne) {
     return saved.length > 1
       ? `This request is saved with ${label} ${list}. Saving keeps only quantity ${draft.quantity}.`

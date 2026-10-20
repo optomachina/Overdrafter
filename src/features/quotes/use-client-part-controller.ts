@@ -447,6 +447,7 @@ export function useClientPartController(
     ? {
         allowAboveOne: quantityScope.status === "multiple_allowed",
         loading: quantityScope.status === "loading",
+        unavailable: quantityScope.status === "unavailable",
       }
     : undefined;
   const quoteConfirmationIdentity = `${user?.id ?? ""}:${partDetail?.job.organization_id ?? ""}:${canonicalJobId}`;

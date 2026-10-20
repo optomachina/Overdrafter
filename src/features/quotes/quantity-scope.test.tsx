@@ -87,15 +87,15 @@ describe("quantity scope contract", () => {
 });
 
 describe("quantity scope hook", () => {
-  it("makes no request and stays fixed at 1 while the flag is off", () => {
+  it("makes no request and reports unavailable, not single only, while disabled", () => {
     const { result } = renderHook(() => useQuantityScope(identity, false), { wrapper: wrapper() });
-    expect(result.current.status).toBe("single_only");
+    expect(result.current.status).toBe("unavailable");
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("makes no request without an identity", () => {
+  it("makes no request and reports unavailable without an identity", () => {
     const { result } = renderHook(() => useQuantityScope(null, true), { wrapper: wrapper() });
-    expect(result.current.status).toBe("single_only");
+    expect(result.current.status).toBe("unavailable");
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -106,7 +106,7 @@ describe("quantity scope hook", () => {
     await waitFor(() => expect(result.current.status).toBe("multiple_allowed"));
   });
 
-  it("stays fixed at 1 when the server says single only", async () => {
+  it("is single only only when the server verifiably says so", async () => {
     rpc.mockResolvedValue({ data: single(), error: null });
     const { result } = renderHook(() => useQuantityScope(identity, true), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.status).toBe("single_only"));
@@ -117,11 +117,11 @@ describe("quantity scope hook", () => {
     ["a network failure", () => rpc.mockRejectedValue(new Error("offline"))],
     ["an answer for another job", () => rpc.mockResolvedValue({ data: multiple("request", { ...identity, jobId: "job-9" }), error: null })],
     ["an unrecognised answer", () => rpc.mockResolvedValue({ data: { allowed: true }, error: null })],
-  ])("fails closed to quantity 1 on %s", async (_name, arrange) => {
+  ])("reports unavailable, never single only or multiple allowed, on %s", async (_name, arrange) => {
     arrange();
     const { result } = renderHook(() => useQuantityScope(identity, true), { wrapper: wrapper() });
     await waitFor(() => expect(rpc).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.status).toBe("single_only"));
+    await waitFor(() => expect(result.current.status).toBe("unavailable"));
   });
 
   it("ignores a late answer for a previous job", async () => {
