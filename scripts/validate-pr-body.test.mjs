@@ -18,14 +18,18 @@ import {
   CHECKBOX_LINE,
   CONTAINER_PREFIX,
   FENCE_OPEN,
+  MAX_REFERENCE_LENGTH,
   PROVIDER_GO_LIVE_GROUPS,
   PROVIDER_GO_LIVE_HEADING,
   PROVIDER_GO_LIVE_AUTO_SIGNATURE,
   PROVIDER_GO_LIVE_REQUIRED_ITEMS,
   collectGoLiveEvidenceLinks,
+  createGoLiveScan,
   enablesProvider,
   extractEvidenceLinks,
+  fenceCandidateColumns,
   main,
+  scanEntity,
   validatePrBody,
   verifyEvidenceLinks,
 } from "./validate-pr-body.mjs";
@@ -1135,6 +1139,157 @@ describe("linear heading and checkbox regexes", () => {
   });
 });
 
+// These count work instead of reading a clock, so they cannot flake on a slow runner.
+describe("character reference scan does bounded work", () => {
+  const MAX = MAX_REFERENCE_LENGTH;
+  const kindOf = (text) => scanEntity(text, 0).kind;
+
+  it("reads references up to the cap and leaves longer runs as text", () => {
+    expect(scanEntity("&#112;", 0)).toMatchObject({ kind: "done", end: 6 });
+    expect(scanEntity("&#x70;", 0)).toMatchObject({ kind: "done", end: 6 });
+    expect(scanEntity("&#X7A;", 0)).toMatchObject({ kind: "done", end: 6 });
+    expect(scanEntity("x&nbsp;y", 1)).toMatchObject({ kind: "done", end: 7 });
+    for (const open of ["&", "&#", "&#x", "&#1", "&#x7", "&n", "&nbsp"]) {
+      expect(kindOf(open), open).toBe("incomplete");
+    }
+    for (const broken of ["&;", "& ", "&1", "&#;", "&#x;", "&#x ", "&#1 ", "&#xg", "&n1;", "&#1a;", "&n x"]) {
+      expect(kindOf(broken), broken).toBe("broken");
+    }
+    // "&" and ";" count toward the cap: 34 characters is the longest reference.
+    expect(kindOf(`&${"a".repeat(MAX - 2)};`)).toBe("done");
+    expect(kindOf(`&${"a".repeat(MAX - 1)};`)).toBe("broken");
+    expect(kindOf(`&#${"1".repeat(MAX - 3)};`)).toBe("done");
+    expect(kindOf(`&#${"1".repeat(MAX - 2)};`)).toBe("broken");
+    expect(kindOf(`&#x${"f".repeat(MAX - 4)};`)).toBe("done");
+    expect(kindOf(`&#x${"f".repeat(MAX - 3)};`)).toBe("broken");
+    // The longest half-read reference can still be finished by a ";" in the next piece.
+    expect(kindOf(`&${"a".repeat(MAX - 2)}`)).toBe("incomplete");
+    expect(kindOf(`&${"a".repeat(MAX - 1)}`)).toBe("broken");
+  });
+
+  it("never looks more than one reference length ahead, however long the text", () => {
+    const reads = (chars, start = 0) => {
+      let count = 0;
+      const data = new Proxy(chars, {
+        get(target, key, receiver) {
+          if (typeof key === "string" && /^\d+$/.test(key)) count += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      });
+      const result = scanEntity(data, start);
+      return { count, result };
+    };
+    for (const open of ["&", "&#", "&#x"]) {
+      for (const body of ["1", "a", "f"]) {
+        const chars = [...open, ...body.repeat(100_000)];
+        const { count, result } = reads(chars);
+        expect(count, `${open}${body}`).toBeLessThanOrEqual(MAX + 2);
+        expect(result.steps, `${open}${body}`).toBeLessThanOrEqual(MAX);
+      }
+    }
+    expect(reads([..."&#", ...Array.from({ length: 100_000 }, () => "1")]).result.kind).toBe("broken");
+  });
+
+  const WIDTHS = [16 * 1024, 64 * 1024];
+  // Each family keeps a character reference half read across tags or comments,
+  // the way that once made every piece of text rescan all the text before it.
+  const families = {
+    "decimal reference between tags": (w) => `&#${"1<b>".repeat(w / 4)}`,
+    "hex reference between tags": (w) => `&#x${"f<b>".repeat(w / 4)}`,
+    "named reference between closing tags": (w) => `&${"a</b>".repeat(w / 5)}`,
+    "reference between comments": (w) => `&#${"1<!---->".repeat(w / 8)}`,
+    "reference inside an unclosed tag": (w) => `<b &#${"1<!---->".repeat(w / 8)}`,
+    "reference that never ends, over and over": (w) => `&${"a<b>".repeat(32)}`.repeat(Math.floor(w / 129)),
+    "references that end late, over and over": (w) => `&${"a<b>".repeat(31)}a;`.repeat(Math.floor(w / 129)),
+  };
+
+  it.each(Object.entries(families))("%s: pending text stays within one reference and steps grow linearly", (_name, make) => {
+    const work = WIDTHS.map((width) => {
+      const input = make(width);
+      const scan = createGoLiveScan();
+      scan.feed(input);
+      scan.isGoLive();
+      return { length: input.length, ...scan.stats() };
+    });
+    for (const { length, steps, maxPending } of work) {
+      expect(maxPending).toBeLessThanOrEqual(MAX - 1);
+      // At most one scan of one reference per piece of text, and a piece is 4+ characters here.
+      expect(steps).toBeLessThanOrEqual((length * MAX) / 4);
+    }
+    const [small, large] = work;
+    expect(large.steps).toBeLessThanOrEqual(small.steps * (large.length / small.length) * 1.1);
+  });
+
+  it("does not let a half-read reference grow while underlines keep asking", () => {
+    for (const width of WIDTHS) {
+      const scan = createGoLiveScan();
+      // The line ends inside a tag, so the half-read reference outlives it.
+      scan.feed(`&#${"1".repeat(width / 2)}<b`);
+      for (let line = 0; line < width / 8; line += 1) {
+        scan.isGoLive();
+        scan.feed(" ---");
+      }
+      expect(scan.stats().maxPending).toBeLessThanOrEqual(MAX - 1);
+      expect(scan.stats().steps).toBeLessThanOrEqual(MAX * 2);
+    }
+  });
+
+  it("still decodes a reference that spans tags and comments, up to the cap", () => {
+    const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+    const duplicate = '"Provider go-live" appears 2 times; keep exactly one section';
+    const longest = (zeros) => `Provider g&#x${"0".repeat(zeros)}6f;-live\n---`;
+    for (const heading of [
+      "Provider g&#1<b></b>11;-live\n---",
+      "Provider g&#x<i>6f</i>;-live\n---",
+      "Provider g&#x6<!---->f;-live\n---",
+      "Provider g&#<!-- c -->111;-live\n---",
+      "Provider g&#x6f<b>;-live\n---",
+      // "&#x" + 28 zeros + "6f;" is exactly MAX_REFERENCE_LENGTH characters.
+      longest(MAX - 6),
+      `> ${longest(MAX - 6).replace("\n", "\n> ")}`,
+    ]) {
+      expect(validate(`${missingAuto}\n${heading}\n`).errors, heading).toContain(duplicate);
+    }
+    // One digit more and it is plain text, as in CommonMark, so no heading reads as go-live.
+    const plain = validate(`${missingAuto}\n${longest(MAX - 5)}\n`).errors;
+    expect(plain.some((error) => error.includes("appears")), plain.join("\n")).toBe(false);
+  });
+
+  it("does not throw on a reference with hundreds of digits", () => {
+    const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+    const huge = `&#x${"f".repeat(300)};`;
+    const hugeDecimal = `&#${"9".repeat(400)};`;
+    for (const heading of [`### x ${huge} y`, `<h2>x ${hugeDecimal} y</h2>`, `x ${huge} y\n---`, `x ${hugeDecimal} y\n---`]) {
+      expect(() => validate(`${missingAuto}\n${heading}\n`), heading).not.toThrow();
+    }
+  });
+
+  it("finds the fence candidate columns with a fixed number of lookups", () => {
+    class CountingSet extends Set {
+      lookups = 0;
+      iterations = 0;
+      has(value) {
+        this.lookups += 1;
+        return super.has(value);
+      }
+      [Symbol.iterator]() {
+        this.iterations += 1;
+        return super[Symbol.iterator]();
+      }
+    }
+    const columns = new CountingSet();
+    for (let column = 0; column < 30_000; column += 1) columns.add(column);
+    columns.delete(9);
+    expect(fenceCandidateColumns(columns, 10)).toEqual([7, 8, 10]);
+    expect(fenceCandidateColumns(columns, 1)).toEqual([0, 1]);
+    expect(fenceCandidateColumns(columns, 40_000)).toEqual([]);
+    expect(columns.lookups).toBe(12);
+    expect(columns.iterations).toBe(0);
+    expect(fenceCandidateColumns(new Set([0, 4]), 3)).toEqual([0]);
+    expect(fenceCandidateColumns(new Set([0, 4]), 4)).toEqual([4]);
+  });
+});
+
 const REDOS_CHILD = fileURLToPath(new URL("./validate-pr-body-redos-child.mjs", import.meta.url));
 const REDOS_MISSING = [
   'add Provider go-live checkboxes to "Provider go-live"',
@@ -1169,6 +1324,7 @@ describe("adversarial ReDoS bounds", { timeout: 30_000 }, () => {
     ["a10", 250],
     ["a11", 250],
     ["a12", 250],
+    ["a13", 250],
   ];
 
   it.each(bounded)("%s stays under %i ms and still fails closed", (id, bound) => {

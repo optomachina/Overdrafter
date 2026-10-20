@@ -147,10 +147,20 @@ const HTML_HEADING = /<h[1-6]\b[^>]*>([\s\S]*?)(?=<\/h[1-6]\s*>|<h[1-6]\b|$(?![\
 const GO_LIVE_PHRASE = "providergolive";
 const GO_LIVE_TAIL = GO_LIVE_PHRASE.length - 1;
 
+/**
+ * The character a numeric reference names. A reference with hundreds of digits
+ * parses to Infinity and `Infinity % n` is NaN, which `fromCodePoint` throws on,
+ * so an absurd value reads as U+FFFD (what a browser shows) instead of crashing.
+ */
+function referenceChar(digits, radix) {
+  const value = Number.parseInt(digits, radix) % 0x110000;
+  return Number.isFinite(value) ? String.fromCodePoint(value) : "�";
+}
+
 function decodeEntities(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16) % 0x110000))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10) % 0x110000))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => referenceChar(hex, 16))
+    .replace(/&#(\d+);/g, (_, dec) => referenceChar(dec, 10))
     .replace(/&([a-z]+);/gi, (entity, name) => NAMED_ENTITIES[name.toLowerCase()] ?? entity);
 }
 
@@ -184,8 +194,10 @@ function squashHeading(text) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+// `steps` and `maxPending` are work counters for the tests: entity characters
+// examined, and the most text a half-read reference ever kept waiting.
 function createSquashAcc() {
-  return { length: 0, tail: "", head: "", goLive: false, short: "", hold: "", entityRaw: "" };
+  return { length: 0, tail: "", head: "", goLive: false, short: "", hold: "", entityRaw: "", steps: 0, maxPending: 0 };
 }
 
 function squashChars(text) {
@@ -213,40 +225,60 @@ function commitDecoded(acc, text) {
 
 function decodedEntity(raw) {
   const hex = /^&#x([0-9a-f]+);$/i.exec(raw);
-  if (hex) return String.fromCodePoint(Number.parseInt(hex[1], 16) % 0x110000);
+  if (hex) return referenceChar(hex[1], 16);
   const dec = /^&#(\d+);$/.exec(raw);
-  if (dec) return String.fromCodePoint(Number.parseInt(dec[1], 10) % 0x110000);
+  if (dec) return referenceChar(dec[1], 10);
   if (/^&[a-z]+;$/i.test(raw)) return NAMED_ENTITIES[raw.slice(1, -1).toLowerCase()] ?? "";
   return raw;
 }
 
-function scanEntity(data, start) {
+/**
+ * Longest character reference the setext scan reads, "&" and ";" included.
+ * CommonMark reads at most 7 decimal or 6 hex digits, and the longest HTML name
+ * is 31 letters (`&CounterClockwiseContourIntegral;` is 33 characters), so a
+ * longer run is plain text on every renderer and stays literal here.
+ *
+ * The cap is also what keeps the scan linear. A reference can span tags and
+ * comments, so a half-read one waits in `entityRaw` and is scanned again with
+ * the next piece of text. Without a cap that wait grows with the line and the
+ * rescans add up to a square of its length; with it, at most
+ * MAX_REFERENCE_LENGTH - 1 characters ever wait or get scanned again.
+ */
+export const MAX_REFERENCE_LENGTH = 34;
+const REFERENCE_NAME_CHAR = /[a-z]/i;
+const REFERENCE_HEX_CHAR = /[0-9a-f]/i;
+const REFERENCE_DEC_CHAR = /\d/;
+
+/**
+ * Read one reference starting at the "&" at `data[start]`: "done" (with the
+ * index after its ";"), "incomplete" (the text ended before it could be
+ * decided, so the caller keeps it waiting), or "broken" (not a reference).
+ * Examines at most MAX_REFERENCE_LENGTH characters; `steps` counts them.
+ */
+export function scanEntity(data, start) {
+  let steps = 1;
   const next = data[start + 1];
-  if (next === undefined) return { kind: "incomplete" };
+  if (next === undefined) return { kind: "incomplete", steps };
+  let cursor = start + 1;
+  let isBody = REFERENCE_NAME_CHAR;
   if (next === "#") {
     const marker = data[start + 2];
-    if (marker === undefined) return { kind: "incomplete" };
-    let cursor = start + 2;
-    if (marker === "x" || marker === "X") {
-      cursor = start + 3;
-      while (cursor < data.length && /[0-9a-f]/i.test(data[cursor])) cursor += 1;
-      if (cursor === data.length) return { kind: "incomplete" };
-      if (data[cursor] === ";" && cursor > start + 3) return { kind: "done", end: cursor + 1 };
-      return { kind: "broken" };
-    }
-    while (cursor < data.length && /\d/.test(data[cursor])) cursor += 1;
-    if (cursor === data.length) return { kind: "incomplete" };
-    if (data[cursor] === ";" && cursor > start + 2) return { kind: "done", end: cursor + 1 };
-    return { kind: "broken" };
+    steps += 1;
+    if (marker === undefined) return { kind: "incomplete", steps };
+    const hex = marker === "x" || marker === "X";
+    cursor = start + (hex ? 3 : 2);
+    isBody = hex ? REFERENCE_HEX_CHAR : REFERENCE_DEC_CHAR;
+  } else if (!isBody.test(next)) {
+    return { kind: "broken", steps };
   }
-  if (/[a-z]/i.test(next)) {
-    let cursor = start + 1;
-    while (cursor < data.length && /[a-z]/i.test(data[cursor])) cursor += 1;
-    if (cursor === data.length) return { kind: "incomplete" };
-    if (data[cursor] === ";") return { kind: "done", end: cursor + 1 };
-    return { kind: "broken" };
-  }
-  return { kind: "broken" };
+  const bodyStart = cursor;
+  // The ";" must land on index `last` at the latest, so stop there.
+  const last = start + MAX_REFERENCE_LENGTH - 1;
+  while (cursor < data.length && cursor < last && isBody.test(data[cursor])) cursor += 1;
+  steps += cursor - bodyStart + 1;
+  if (cursor === data.length) return { kind: "incomplete", steps };
+  if (data[cursor] === ";" && cursor > bodyStart) return { kind: "done", end: cursor + 1, steps };
+  return { kind: "broken", steps };
 }
 
 function pushLiteral(acc, text) {
@@ -262,8 +294,10 @@ function pushLiteral(acc, text) {
     }
     commitDecoded(acc, data.slice(cursor, amp));
     const entity = scanEntity(data, amp);
+    acc.steps += entity.steps;
     if (entity.kind === "incomplete") {
       acc.entityRaw = data.slice(amp);
+      acc.maxPending = Math.max(acc.maxPending, acc.entityRaw.length);
       return;
     }
     if (entity.kind === "done") {
@@ -296,10 +330,12 @@ function combinedGoLive(main, side) {
 
 /**
  * Streaming squash of one setext paragraph. Equivalent to squashHeading on the
- * joined paragraph, but each line is consumed once. An open tag is kept aside
- * and dropped if it closes, so a `>` cannot make the scan retry earlier `<`.
+ * joined paragraph (except that a character reference longer than
+ * MAX_REFERENCE_LENGTH stays literal), but each line is consumed once. An open
+ * tag is kept aside and dropped if it closes, so a `>` cannot make the scan
+ * retry earlier `<`. `stats()` reports the work done, for the tests.
  */
-function createGoLiveScan() {
+export function createGoLiveScan() {
   const main = createSquashAcc();
   const side = createSquashAcc();
   let inComment = false;
@@ -411,7 +447,11 @@ function createGoLiveScan() {
     return combinedGoLive(mainView, materialize(side));
   }
 
-  return { feed, isGoLive };
+  function stats() {
+    return { steps: main.steps + side.steps, maxPending: Math.max(main.maxPending, side.maxPending) };
+  }
+
+  return { feed, isGoLive, stats };
 }
 
 function unquoteMarkers(text) {
@@ -781,6 +821,19 @@ function listContentColumns(line) {
 }
 
 /**
+ * The content columns of earlier list items that can hold a fence opened at
+ * `column`: those at most 3 columns to its left. Columns are whole numbers, so
+ * four lookups find them, however many columns the body has collected.
+ */
+export function fenceCandidateColumns(listColumns, column) {
+  const candidates = [];
+  for (let k = column - 3; k <= column; k += 1) {
+    if (listColumns.has(k)) candidates.push(k);
+  }
+  return candidates;
+}
+
+/**
  * Flag the lines a reader never sees as real checklist content: lines inside a
  * fenced code block (``` or ~~~, fence lines included) and lines inside a
  * multi-line HTML comment. `uncertain` marks lines after a fence whose end
@@ -817,9 +870,7 @@ function hiddenLineFlags(lines) {
   const openFence = (marker, column, prefix) => {
     if (/>/.test(prefix)) return { marker, quote: true };
     const afterList = LIST_MARKERS.test(prefix);
-    const candidates = afterList
-      ? [column]
-      : [...listColumns].filter((k) => k <= column && column - k <= 3);
+    const candidates = afterList ? [column] : fenceCandidateColumns(listColumns, column);
     return { marker, column, candidates };
   };
 
