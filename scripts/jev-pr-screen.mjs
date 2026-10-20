@@ -403,7 +403,8 @@ async function screenOne(pr, context) {
   const state = screenState(verified);
   const stateHash = sha ? hashScreenState(state, base) : null;
   const hit = sha ? await readHit(sha, context.io, stateHash) : null;
-  const result = hit ? resultFromMarker(hit) : await context.ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+  // screen() writes the one WARN per fallback from the decision record, so askJev's own stderr WARN is off here.
+  const result = hit ? resultFromMarker(hit) : await context.ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000, warn: false });
   if (sha && await markerSha(verified, context.io, context.warn) !== sha) return incomplete(verified);
   try {
     if (hasPr) await acquisition.revalidate();

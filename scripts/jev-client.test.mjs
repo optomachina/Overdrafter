@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createServer } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { askJev, fallbackSourceForReason, gatedChoice, isValidAnswer, JEV_MODEL, smoke, warnJevFallback } from "./jev-client.mjs";
+import { askJev, fallbackSourceForReason, gatedChoice, isValidAnswer, jevFallbackLine, JEV_MODEL, smoke } from "./jev-client.mjs";
 
 const FAKE_KEY = "synthetic-fake-key-0123456789";
 const criteria = { implementer: "Writes code.", verifier: "Runs checks." };
@@ -32,9 +32,9 @@ describe("fallback WARN helpers", () => {
     expect(fallbackSourceForReason("timeout")).toBe("jev_blocked");
   });
 
-  it("prints WARN jev-fallback lines without secrets", () => {
-    warnJevFallback("jev_blocked", "timeout", 12);
-    expect(console.error).toHaveBeenCalledExactlyOnceWith("WARN jev-fallback source=jev_blocked reason=timeout latencyMs=12");
+  it("builds the WARN jev-fallback line from sanitized tokens only", () => {
+    expect(jevFallbackLine("jev_blocked", "timeout", 12)).toBe("WARN jev-fallback source=jev_blocked reason=timeout latencyMs=12");
+    expect(jevFallbackLine("jev_blocked", "x y\nWARN forged", Number.NaN)).toBe("WARN jev-fallback source=jev_blocked reason=x_y_WARN_forged latencyMs=null");
   });
 });
 
@@ -52,6 +52,29 @@ describe("askJev", () => {
     expect(await askJev({}, choiceQ)).toMatchObject({ ok: false, reason: "http_403" });
     const line = console.error.mock.calls[0][0];
     expect(line).toMatch(/^WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=\d+$/);
+  });
+
+  it("redirects the WARN to options.warn, or turns it off with warn:false, and never throws from a bad sink", async () => {
+    stubFetch(403, "denied");
+    const lines = [];
+    expect(await askJev({}, choiceQ, { warn: (line) => lines.push(line) })).toMatchObject({ ok: false, reason: "http_403" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=\d+$/);
+    expect(await askJev({}, choiceQ, { warn: false })).toMatchObject({ ok: false, reason: "http_403" });
+    expect(console.error).not.toHaveBeenCalled();
+    const broken = () => {
+      throw new Error("sink down");
+    };
+    expect(await askJev({}, choiceQ, { warn: broken })).toMatchObject({ ok: false, reason: "http_403" });
+  });
+
+  it("keeps the stderr WARN for any warn option that is not false or a function", async () => {
+    stubFetch(500, "boom");
+    for (const warn of [undefined, null, 0, "off", true]) {
+      console.error.mockClear();
+      await askJev({}, choiceQ, { warn });
+      expect(console.error).toHaveBeenCalledOnce();
+    }
   });
 
   it("sends no Authorization header when TYPESAFE_API_KEY is unset or empty", async () => {

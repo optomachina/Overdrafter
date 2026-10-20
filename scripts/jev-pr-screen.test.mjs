@@ -187,6 +187,36 @@ describe("jev PR screen", () => {
     expect(JSON.parse(lines[0]).warning).toBe(warnings[0]);
   });
 
+  it.each([
+    ["http_403", () => new Response("denied", { status: 403 }), "source=default_jev_blocked reason=http_403"],
+    ["http_500", () => new Response("boom", { status: 500 }), "source=jev_blocked reason=http_500"],
+    ["malformed_response", () => new Response("not json", { status: 200 }), "source=jev_blocked reason=malformed_response"],
+    ["network", () => Promise.reject(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })), "source=jev_blocked reason=network_ECONNREFUSED"],
+  ])("writes exactly one WARN per failed Jev call over the real askJev (%s)", async (_name, respond, expected) => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => respond()));
+    try {
+      const lines = [];
+      // No ask is passed, so the screen runs over the real askJev (default ask) with a stubbed transport.
+      const [record] = await fixtureScreen([{ pr: 1, sha: "a", deterministic: "low", files: ["README.md"] }], { append: (_path, line) => lines.push(line), warn: undefined });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(err).toHaveBeenCalledOnce();
+      expect(err.mock.calls[0][0]).toMatch(new RegExp(`^WARN jev-fallback ${expected} latencyMs=\\d+$`));
+      expect(err.mock.calls[0][0]).toBe(record.warning);
+      expect(JSON.parse(lines[0]).warning).toBe(record.warning);
+    } finally {
+      err.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("asks Jev with its own stderr WARN off so the screen is the only writer", async () => {
+    const ask = vi.fn(async () => ({ ok: false, reason: "timeout", latencyMs: 4 }));
+    await fixtureScreen([{ pr: 1, sha: "a", deterministic: "low", files: ["README.md"] }], { ask, append: () => {} });
+    expect(ask).toHaveBeenCalledOnce();
+    expect(ask.mock.calls[0][2]).toMatchObject({ timeoutMs: 20_000, warn: false });
+  });
+
   it("sends the screen-level WARN to stderr by default", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     try {

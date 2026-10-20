@@ -11,9 +11,11 @@
  * Node fetch only honors HTTPS_PROXY when run with NODE_USE_ENV_PROXY=1.
  *
  * Every call returns a result object and never throws, so callers can fall
- * back to ordinary reasoning or deterministic tools. Jev output is advisory:
- * it is never an authorization, acceptance result, or filter on required
- * instructions or evidence.
+ * back to ordinary reasoning or deterministic tools. Each failed call writes one
+ * "WARN jev-fallback" line to stderr; options.warn redirects it (a function) or
+ * turns it off (false) for a caller that already reports every failure itself.
+ * Jev output is advisory: it is never an authorization, acceptance result, or
+ * filter on required instructions or evidence.
  *
  * Smoke: NODE_USE_ENV_PROXY=1 node scripts/jev-client.mjs --smoke
  */
@@ -66,20 +68,32 @@ export function jevFallbackLine(source, reason, latencyMs) {
   return `WARN jev-fallback source=${src} reason=${why} latencyMs=${ms}`;
 }
 
-/** stderr WARN for Jev fallbacks. */
-export function warnJevFallback(source, reason, latencyMs) {
-  console.error(jevFallbackLine(source, reason, latencyMs));
+/**
+ * Where askJev sends its fallback WARN: stderr by default (loud), a caller's
+ * function to redirect it, or `false` for a caller that already reports every
+ * failure itself (the PR screen writes one WARN per decision row). Any other
+ * value keeps the default so a mistyped option can never silence a failure.
+ */
+function warnSink(warn) {
+  if (warn === false) return () => {};
+  if (typeof warn === "function") return (line) => warn(line);
+  return (line) => console.error(line);
 }
 
 export async function askJev(state, questions, options) {
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
+  const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000, warn } = options ?? {};
+  const emit = warnSink(warn);
   const failed = (reason, extra = {}) => {
     const latencyMs = latency();
-    warnJevFallback(fallbackSourceForReason(reason), reason, latencyMs);
+    try {
+      emit(jevFallbackLine(fallbackSourceForReason(reason), reason, latencyMs));
+    } catch {
+      // A caller's broken sink must not turn a failed call into a throw; askJev never throws.
+    }
     return { ok: false, reason, ...extra, latencyMs };
   };
-  const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000 } = options ?? {};
   let payload;
   try {
     payload = JSON.stringify({ state, model, questions });
