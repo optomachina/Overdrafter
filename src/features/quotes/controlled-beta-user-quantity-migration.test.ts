@@ -182,13 +182,17 @@ describe("OVD-987 migration precondition", () => {
 describe("OVD-987 rollback guard", () => {
   const guard = doBlock(rollbackSql, "ovd987_rollback_guard");
 
-  it("locks the rollout controls, then the permits, then guards, before restoring anything", () => {
+  it("locks the control events, then the controls, then the permits, then guards, before restoring anything", () => {
     const lockTimeout = rollbackSql.indexOf("\nset local lock_timeout = '5s';\n");
+    // The setter reads the events before it locks a control row: the events lock must come first.
+    const events = rollbackSql.indexOf("\nlock table private.commercial_rollout_control_events in access exclusive mode;\n");
     const controls = rollbackSql.indexOf("\nlock table private.commercial_rollout_controls in access exclusive mode;\n");
     const permits = rollbackSql.indexOf("\nlock table private.xometry_beta_dispatch_permits in share mode;\n");
     expect(lockTimeout).toBeGreaterThan(0);
-    expect(controls).toBeGreaterThan(lockTimeout);
+    expect(events).toBeGreaterThan(lockTimeout);
+    expect(controls).toBeGreaterThan(events);
     expect(permits).toBeGreaterThan(controls);
+    expect(rollbackSql.match(/^lock table /gm)).toHaveLength(3);
     expect(guard.start).toBeGreaterThan(permits);
     expect(rollbackSql.search(/^(?:alter table|delete from|create or replace function|drop )/m)).toBeGreaterThan(guard.end);
   });

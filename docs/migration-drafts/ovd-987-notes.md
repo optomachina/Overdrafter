@@ -141,22 +141,42 @@ Turn off the same way with `false`. What to expect:
    settles stragglers).
 3. Apply the rollback file as one transaction. Its guard enforces 1 and 2.
 
-**Rollback locks.** Before the guard reads anything the rollback takes
-`private.commercial_rollout_controls` in ACCESS EXCLUSIVE mode (the mode its CHECK
-replacement needs anyway) and then `private.xometry_beta_dispatch_permits` in
-SHARE mode, under `lock_timeout = '5s'`. Every request reads the controls (S1,
-through the rollout and switch checks) before it inserts a permit, so a request
-that read the switch while it was on still holds the controls lock the rollback
-waits for: its permit and reservation commit (the guard then refuses) or roll
-back before the guard runs, and a request that starts later reads the controls
-only after the rollback ends, under the restored quantity-1 rules. Deadlock
-review: the rollback takes the controls before the permits, the order every
-request uses, so it cannot close a controls/permits cycle with a request; it
-takes no advisory lock, so it cannot close a cycle with the setter (exclusive
-advisory lock, then the control row) or with S4 (shared advisory locks, the task
-row, then reads of the controls); while it holds the controls lock, previews,
-requests, worker preflights and setter calls wait for it (bounded by their own
-statement timeouts). Do not run the setter and the rollback in one transaction.
+**Rollback locks.** Before the guard reads anything the rollback takes, under
+`lock_timeout = '5s'`, ACCESS EXCLUSIVE on `private.commercial_rollout_control_events`,
+then ACCESS EXCLUSIVE on `private.commercial_rollout_controls` (the modes its two
+CHECK replacements need anyway), then SHARE on `private.xometry_beta_dispatch_permits`.
+Every request reads the controls (S1, through the rollout and switch checks) before
+it inserts a permit, so a request that read the switch while it was on still holds
+the controls lock the rollback waits for: its permit and reservation commit (the
+guard then refuses) or roll back before the guard runs, and a request that starts
+later reads the controls only after the rollback ends, under the restored
+quantity-1 rules.
+
+Deadlock review (each case run locally with two sessions and a rollback that
+holds its locks for 2 s):
+
+- The setter reads the events table (its idempotency lookup) before it locks a
+  control row. The first version of this rollback locked the controls first and
+  replaced the events CHECK only at the end, after the controls lock; a setter call
+  made in between held the events read lock and waited for the control row while
+  the rollback waited for the events table: a deadlock (reproduced by the delta
+  review and here; PostgreSQL aborted the rollback, nothing was left partial).
+  Taking the events lock first, before the controls, removes it: the setter now
+  waits at its first read and holds nothing the rollback needs. Warm and cold setter
+  sessions, a request-shaped transaction, a worker preflight, a second rollback and
+  the read API all waited and finished without a deadlock.
+- Requests and worker preflights never read the events table, and the rollback takes
+  no advisory lock, so neither the setter's exclusive nor the preflight's shared
+  advisory locks can close a cycle with it.
+- Residual: the read API `public.api_get_commercial_rollout_controls()` (service role
+  only) reads the controls and then the events in one statement. A call that starts
+  exactly between the rollback's first two LOCK statements can deadlock with it
+  (shown only with that gap widened to 2 s on purpose); PostgreSQL aborts one of the
+  two and neither leaves a partial change. Do not call the read API, and do not run
+  the setter, in the same transaction as the rollback.
+
+While the rollback holds these locks, previews, requests, worker preflights, the
+setter and the read API wait for it (bounded by their own statement timeouts).
 
 **Data loss: none.** The deleted control row is disabled; its audit events are
 immutable and stay (the events CHECK then keeps the capability, with a NOTICE).
@@ -173,7 +193,25 @@ ids and timestamps keep them apart.
   `scripts/fixtures/free-quote-ci-source.json` (156 files).
 - OVD-762 (draft): copies S1, S3 and S4. Whichever lands second rebases onto
   the other; this migration and its rollback refuse to overwrite an unknown
-  body.
+  body. The OVD-762 draft itself has **no** md5 precondition: applied unrebased
+  after this migration it would silently replace S4 with its quantity-1 copy. That
+  fails closed for quantity N (a lane above 1 meets `requested_quantity <> 1` and
+  is refused as `dispatch_lane_identity_mismatch`), but it also drops the switch
+  re-check and the result and payload checks for every lane. Its rebase must
+  therefore add a precondition on this migration's bodies, refusing unless each is:
+
+  | Function | md5 of `prosrc` after OVD-987 |
+  | --- | --- |
+  | `public.api_set_commercial_rollout_control(text,boolean,text,text,bigint,text)` | `2a2b6b6980abb0dd113b64b3dcd57041` |
+  | `private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)` | `916594293cfc4e66053acf4c7414b2ba` |
+  | `public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)` | `28c932e1ccf964302ffed42d9ce4bc0b` |
+  | `public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)` | `0fef772880a4122f72475a9905b7ed19` |
+  | `private.record_quote_access_admission(uuid,uuid,text,uuid)` | `7c5f710bccffddd8562974ae489e803c` |
+  | `private.finalize_free_quote_job(uuid)` | `b76415a18a9bb15659ec388cc4da2880` |
+  | `public.api_reconcile_terminal_free_quote_tasks(uuid,integer)` | `edcca1ef0dd3cf45a7ff9c202696f185` |
+
+  (OVD-762 replaces only S4 of these and adds overloads; checking all seven also
+  proves the database is where both drafts expect it.)
 - OVD-723 contract (draft): moves S4 to `private.xometry_beta_worker_dispatch_core`
   and wraps it. If it lands first this migration refuses (precondition) and
   must restate the core instead.

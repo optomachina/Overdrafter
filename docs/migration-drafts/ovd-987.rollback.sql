@@ -39,23 +39,31 @@
 -- are (all terminal, by the guard). Re-applying the migration re-seeds the
 -- control OFF at revision 0.
 --
--- Locks: before the guard reads anything, this transaction locks the rollout
--- controls (ACCESS EXCLUSIVE, the mode the CHECK replacement below needs anyway)
--- and then the Xometry beta permits (SHARE). Every request reads the controls
--- before it inserts a permit, so a request that read the switch while it was on
--- holds a lock this waits for: its permit and reservation are committed (and the
--- guard sees them) or rolled back before the guard runs, and a request that
--- starts later reads the controls only after this transaction ends, under the
--- restored quantity-1 rules. Locking the controls first keeps the order every
--- request uses (controls, then permits), so there is no lock cycle with it. No
--- advisory lock is taken, so there is no cycle with the setter's exclusive or the
--- worker preflight's shared advisory locks. lock_timeout bounds the wait.
+-- Locks: before the guard reads anything, this transaction takes, in this
+-- order, ACCESS EXCLUSIVE on the rollout-control events, ACCESS EXCLUSIVE on the
+-- rollout controls (the modes the two CHECK replacements below need) and SHARE on
+-- the Xometry beta permits. lock_timeout bounds every wait.
+--   * The setter reads the events before it locks a control row, so it waits at
+--     that first read and holds nothing this transaction needs (taking the
+--     controls first, then the events, deadlocked with a setter call in flight).
+--   * Requests and worker preflights read the controls, never the events, before
+--     they write a permit: a request that read the switch while it was on
+--     finishes first (the guard then sees its permit and reservation), and a later
+--     one reads the controls only after this transaction ends, under the restored
+--     quantity-1 rules.
+--   * No advisory lock is taken, so the setter's exclusive and the preflight's
+--     shared advisory locks cannot close a cycle with this transaction.
+--   * The read API (api_get_commercial_rollout_controls, service role only) reads
+--     the controls and then the events in one statement. Only a call that starts
+--     between this transaction's first two lock statements can deadlock with it;
+--     PostgreSQL then aborts one of the two, and neither leaves a partial change.
 --
 -- Idempotent: a second run is a no-op. Transaction: no begin/commit of its own.
 -- =====================================================================
 
 set local lock_timeout = '5s';
 
+lock table private.commercial_rollout_control_events in access exclusive mode;
 lock table private.commercial_rollout_controls in access exclusive mode;
 lock table private.xometry_beta_dispatch_permits in share mode;
 
