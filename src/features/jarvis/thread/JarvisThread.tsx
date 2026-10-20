@@ -20,6 +20,7 @@ function safeArtifactUrl(uri: string): boolean {
 
 type StatusEvent = Extract<GraphEvent, { type: 'status' }>;
 type ControlEvent = Extract<GraphEvent, { type: 'control_requested' | 'control_applied' | 'control_rejected' }>;
+type AppliedEvent = Extract<GraphEvent, { type: 'control_applied' }>;
 
 // Reverse scan instead of Array#findLast: the app tsconfig targets ES2020 without the ES2023 lib.
 function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: GraphEvent) => e is T): T | undefined {
@@ -44,10 +45,13 @@ function workingLabel(hasArtifacts: boolean, workingName: string, pending: boole
   return 'none';
 }
 
-function controlState(control: ControlEvent | undefined, command: string): string {
+function controlState(control: ControlEvent | undefined, applied: AppliedEvent | undefined, command: string): string {
+  // A cancel is terminal: the graph answers any later command on the run with a request and a rejection that change nothing.
+  if (applied?.kind === 'cancel') return applied.state;
   if (control?.type === 'control_applied') return control.state;
   if (control?.type === 'control_requested') return control.kind === 'pause' ? 'Pausing' : 'Cancelling';
-  return command;
+  // A rejection leaves the run as it was: a command still in flight here, otherwise whatever was applied before it.
+  return command || (applied?.state ?? '');
 }
 
 type LaneContext = { pending: boolean; stopped: string | undefined; status: StatusEvent | undefined; offline: boolean; state: string; now: number; completed: ReadonlySet<string> };
@@ -144,9 +148,10 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const pending = decisions.some(d => !resolutions.some(r => r.decisionId === d.decisionId));
   const control = lastOf(events, (e): e is ControlEvent => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected');
   useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; keys.current.delete(control.kind); setCommand(''); } }, [control]);
-  const applied = control?.type === 'control_applied' ? control : undefined;
+  // The latest applied control, not the latest control event: a later request or rejection must not undo a cancel's kept-only view.
+  const applied = lastOf(events, (e): e is AppliedEvent => e.type === 'control_applied');
   // Nothing resumes a job, so any applied pause or cancel leaves a pending decision unanswerable.
-  const stopped = lastOf(events, (e): e is Extract<GraphEvent, { type: 'control_applied' }> => e.type === 'control_applied')?.state;
+  const stopped = applied?.state;
   const deciding = pending && !stopped;
   const result = events.find(e => e.type === 'result');
   const failure = events.find(e => e.type === 'error');
@@ -154,7 +159,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const refs = (applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts).filter(a => safeArtifactUrl(a.uri));
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), step = refs.find(a => a.kind === 'step');
   const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
-  const state = controlState(control, command);
+  const state = controlState(control, applied, command);
   const lane: LaneContext = { pending, stopped, status, offline, state, now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;

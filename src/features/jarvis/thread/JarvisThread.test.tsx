@@ -120,7 +120,8 @@ it('announces only stage and state while the elapsed timer advances', () => {
   } finally { vi.useRealTimers(); }
 });
 
-it.each(['control_applied', 'control_rejected'] as const)('renews cancel keys after %s, with insecure-origin crypto fallback', type => {
+// Only a rejection can renew the cancel key: an applied cancel ends the run and removes CANCEL (covered below).
+it('renews the cancel key after control_rejected, with insecure-origin crypto fallback', () => {
   const uuid = vi.spyOn(crypto, 'randomUUID').mockImplementation(() => { throw new Error('unexpected UUID call'); });
   Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined });
   try {
@@ -131,9 +132,7 @@ it.each(['control_applied', 'control_rejected'] as const)('renews cancel keys af
       fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
     };
     cancel();
-    s.send(type === 'control_applied'
-      ? { ...base, seq: 2, type, kind: 'cancel', commandId: 'c', checkpoint: 'agent', state: 'cancelled', kept: [] }
-      : { ...base, seq: 2, type, kind: 'cancel', commandId: 'c', reason: 'terminal' });
+    s.send({ ...base, seq: 2, type: 'control_rejected', kind: 'cancel', commandId: 'c', reason: 'terminal' });
     // A subsequent server status/request permits another cancel command.
     s.send({ ...base, seq: 3, type: 'control_requested', kind: 'pause', commandId: 'next', actorId: 'owner', idempotencyKey: 'remote' });
     cancel();
@@ -142,6 +141,51 @@ it.each(['control_applied', 'control_rejected'] as const)('renews cancel keys af
     expect(keys[0]).toMatch(/^[a-f0-9]{32}$/);
     expect(keys[1]).not.toBe(keys[0]);
   } finally { uuid.mockRestore(); }
+});
+it('releases the in-flight lock when the pause is applied, so CANCEL can still be sent', () => {
+  const s = setup(); s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
+  fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+  expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(true);
+  s.send({ ...base, seq: 2, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' });
+  fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+  fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
+  expect(s.client.control.mock.calls.map(call => call[1].kind)).toEqual(['pause', 'cancel']);
+});
+
+describe('a later command does not undo an applied control', () => {
+  const started: GraphEvent = { ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' };
+  const live = () => document.querySelector('[aria-live="polite"]')?.textContent;
+  // What the graph emits when another command targets a run that already stopped.
+  const later = (seq: number, kind: 'pause' | 'cancel', reason: 'terminal' | 'duplicate'): [GraphEvent, GraphEvent] => [
+    { ...base, seq, type: 'control_requested', kind, commandId: `late-${kind}`, actorId: 'owner', idempotencyKey: `late-${kind}` },
+    { ...base, seq: seq + 1, type: 'control_rejected', kind, commandId: `late-${kind}`, reason },
+  ];
+
+  it.each(['pause', 'cancel'] as const)('a cancelled run keeps only the kept work and no controls when a later %s is rejected', kind => {
+    const s = setup();
+    s.send(started, artifact(2, 'png'), artifact(3, 'glb'), artifact(4, 'step'), { ...base, seq: 5, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [{ kind: 'step', uri: '/kept.step' }] });
+    const expectCancelled = () => {
+      expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+      expect(screen.queryByRole('img')).toBeNull();
+      expect(screen.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/kept.step', '/kept.step']);
+      // The run is over: no PAUSE (whatever its label) and no CANCEL.
+      expect(screen.queryAllByRole('button')).toEqual([]);
+      expect(screen.getByText(/^cancelled · \d+s$/)).toBeTruthy();
+      expect(live()).toBe('CAD model · cancelled');
+    };
+    expectCancelled();
+    const [requested, rejected] = later(6, kind, 'terminal');
+    s.send(requested); expectCancelled();
+    s.send(rejected); expectCancelled();
+    expect(screen.getByText('Control rejected · terminal')).toBeTruthy();
+  });
+  it('a paused run stays paused, with PAUSE still unavailable, when a repeated pause is rejected', () => {
+    const s = setup();
+    s.send(started, { ...base, seq: 2, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' }, ...later(3, 'pause', 'duplicate'));
+    expect(screen.getByRole('button', { name: 'paused' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(false);
+    expect(live()).toBe('CAD model · paused');
+  });
 });
 
 it('drops unsafe event, result and kept artifact URLs', () => {
