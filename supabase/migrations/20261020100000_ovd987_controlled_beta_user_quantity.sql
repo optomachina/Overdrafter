@@ -23,26 +23,32 @@
 -- docs/migration-drafts/ovd-987-notes.md.
 --
 -- Transaction: this file has no begin/commit of its own. Apply it as one
--- transaction when the runner allows it. By hand:
+-- transaction. By hand:
 --   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
--- A runner that sends the statements one at a time (the CI fixture does; the
--- Supabase CLI warns that SET LOCAL is outside a transaction block) gets no
--- lock timeout and releases the table locks below at once; the file still
--- applies there, and every statement can be re-run.
+-- The Supabase CLI (db push, migration up) also applies the whole file as one
+-- transaction: it sends the file as one pipeline, so SET LOCAL warns but holds
+-- to the end, the table locks below are kept to the end, and a failure leaves
+-- nothing. Only plain psql -f without --single-transaction (the CI fixtures)
+-- gives each statement its own transaction: no lock timeout, and the locks
+-- below are released at once; the file still applies there, and every
+-- statement can be re-run.
 -- No enum value, no CONCURRENTLY, no extension. The two capability CHECKs are
 -- replaced, which takes ACCESS EXCLUSIVE on the two small rollout-control
--- tables; lock_timeout makes a busy table fail fast and roll back whole.
--- Lock order: the two tables are locked explicitly, the events first and the
--- controls second, right after the precondition and before any change. The
--- locks sit in a DO block because a top-level LOCK TABLE errors outside a
--- transaction block, which is what a one-statement-at-a-time runner gives it.
--- The audited setter reads the events (its idempotency lookup) before it locks
--- a control row, so altering the controls first and the events last deadlocked
--- with a setter call in flight (it held the events read lock and waited for the
--- control row while this transaction waited for the events table). With the
--- events first the setter waits at its first read and holds nothing this
--- transaction needs. Same order as the rollback; details and the one residual
--- (the read API) are in the notes file.
+-- tables.
+-- Locks: right after the precondition and before any change, one DO block
+-- takes both tables, the events and then the controls, all or nothing and
+-- without waiting: LOCK TABLE ... NOWAIT in an exception block, so a failed
+-- attempt gives back what it took, sleeps 50 ms holding nothing and tries
+-- again, for up to 5 s, then refuses with 55P03 and nothing changes. No
+-- waiting order is safe here: the audited setter reads the events (its
+-- idempotency lookup) before it locks a control row, and the read API reads
+-- the controls and then the events, so controls-first deadlocked with a
+-- setter call and events-first with a read-API call (both reproduced). This
+-- transaction never waits for a rollout table, and once it holds both it
+-- waits for nothing a request, worker preflight, setter or reader can hold,
+-- so it cannot be part of a deadlock; those calls wait for it instead. The
+-- rollback takes its locks the same way. The writer-by-writer proof is in the
+-- notes file.
 --
 -- What changes:
 --   1. private.commercial_rollout_controls and private.commercial_rollout_control_events
@@ -142,12 +148,27 @@ begin
 end;
 $ovd987_precondition$;
 
--- Lock the two rollout tables up front, the events first (see "Lock order" in
--- the header). The ALTER TABLEs below need exactly these modes anyway.
+-- Take both rollout tables up front, all or nothing and without waiting (see
+-- "Locks" in the header). The ALTER TABLEs below need exactly these modes.
 do $ovd987_locks$
+declare
+  v_deadline timestamptz := pg_catalog.clock_timestamp() + interval '5 seconds';
 begin
-  lock table private.commercial_rollout_control_events in access exclusive mode;
-  lock table private.commercial_rollout_controls in access exclusive mode;
+  loop
+    begin
+      lock table private.commercial_rollout_control_events,
+        private.commercial_rollout_controls
+        in access exclusive mode nowait;
+      exit;
+    exception
+      when lock_not_available then
+        if pg_catalog.clock_timestamp() >= v_deadline then
+          raise exception 'OVD-987 refused: the rollout-control tables stayed in use for 5 s; nothing changed, re-run it'
+            using errcode = '55P03';
+        end if;
+    end;
+    perform pg_catalog.pg_sleep(0.05);
+  end loop;
 end;
 $ovd987_locks$;
 

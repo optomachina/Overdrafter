@@ -179,56 +179,85 @@ describe("OVD-987 migration precondition", () => {
   });
 });
 
+/** Both rollout tables in one NOWAIT statement: the attempt the migration and the rollback both make. */
+const TRY_LOCK =
+  "lock table private.commercial_rollout_control_events, private.commercial_rollout_controls in access exclusive mode nowait;";
+
+/**
+ * A lock block that takes every table all or nothing and never waits: each attempt runs in its own
+ * exception block, so a refused NOWAIT gives back what the attempt took, then it sleeps holding nothing
+ * and retries until a 5 s deadline, after which it raises 55P03 and the whole file rolls back.
+ */
+function expectTryLockLoop(text: string, attempt: string, refusal: string) {
+  expect(text).toContain(
+    "declare v_deadline timestamptz := pg_catalog.clock_timestamp() + interval '5 seconds'; " +
+      `begin loop begin ${attempt} exit; exception when lock_not_available then ` +
+      `if pg_catalog.clock_timestamp() >= v_deadline then raise exception '${refusal}`,
+  );
+  expect(text).toContain("using errcode = '55P03'; end if; end; perform pg_catalog.pg_sleep(0.05); end loop; end;");
+  // Only a refused NOWAIT is retried; any other error still aborts the file.
+  expect(text.match(/ exception when /g)).toHaveLength(1);
+  // Every LOCK in the block is NOWAIT: a waiting LOCK could close a cycle with the setter or the read API.
+  expect(text.match(/lock table [^;]*;/g)?.every((statement) => statement.endsWith(" nowait;"))).toBe(true);
+}
+
 describe("OVD-987 migration locks", () => {
   const precondition = doBlock(migrationSql, "ovd987_precondition");
   const locks = doBlock(migrationSql, "ovd987_locks");
-  const eventsLock = "lock table private.commercial_rollout_control_events in access exclusive mode;";
-  const controlsLock = "lock table private.commercial_rollout_controls in access exclusive mode;";
 
-  it("locks the control events, then the controls, after the precondition and before any change", () => {
-    // The setter reads the events (idempotency lookup) before it locks a control row, so the events
-    // lock must come first: altering the controls first deadlocked with a setter call in flight.
-    expect(locks.text).toContain(`begin ${eventsLock} ${controlsLock} end;`);
-    expect(locks.text.match(/lock table /g)).toHaveLength(2);
-    expect(migrationSql.match(/^\s*lock table /gm)).toHaveLength(2);
+  it("takes both rollout tables all or nothing and without waiting, after the precondition and before any change", () => {
+    expectTryLockLoop(locks.text, TRY_LOCK, "OVD-987 refused: the rollout-control tables stayed in use for 5 s;");
+    expect(migrationSql.match(/^\s*lock table /gm)).toHaveLength(1);
     expect(locks.start).toBeGreaterThan(precondition.end);
     // Neither rollout table is touched by a statement before its lock (the first ALTER TABLE follows both).
     expect(migrationSql.search(/^(?:alter table|insert into|create or replace function|drop |revoke |grant )/m)).toBeGreaterThan(locks.end);
     expect(migrationSql.search(/^alter table private\.commercial_rollout_control/m)).toBeGreaterThan(locks.end);
   });
 
-  it("keeps the locks inside a DO block, because a top-level LOCK TABLE errors where the runner sends one statement at a time", () => {
-    // The Supabase CLI and the CI fixture apply a migration statement by statement, outside a transaction block.
+  it("has no top-level LOCK TABLE, which errors in the CLI's pipeline and in a statement-at-a-time psql", () => {
     expect(migrationSql).not.toMatch(/^lock table /m);
   });
 
-  it("matches the order in which the setter itself reads the two tables, and the rollback's", () => {
+  it("never waits for a table, because the setter and the read API take the two tables in opposite orders", () => {
+    // The setter reads the events (idempotency lookup) before it locks a control row ...
     const setter = flat(body(migrationSql, "public.api_set_commercial_rollout_control"));
     const readsEvents = setter.indexOf("from private.commercial_rollout_control_events event where event.idempotency_key");
     const locksControl = setter.indexOf("from private.commercial_rollout_controls control where control.capability = p_capability for update");
     expect(readsEvents).toBeGreaterThan(0);
     expect(locksControl).toBeGreaterThan(readsEvents);
-    const rollbackEvents = rollbackSql.indexOf(`\n${eventsLock}\n`);
-    expect(rollbackEvents).toBeGreaterThan(0);
-    expect(rollbackSql.indexOf(`\n${controlsLock}\n`)).toBeGreaterThan(rollbackEvents);
+    // ... while the read API (unchanged since it was created) reads the controls, then the events, in one statement.
+    const readApi = flat(body(readFileSync(`${MIGRATIONS}/20260802020349_add_commercial_rollout_controls.sql`, "utf8"), "public.api_get_commercial_rollout_controls"));
+    const readsControls = readApi.indexOf("from private.commercial_rollout_controls control");
+    expect(readsControls).toBeGreaterThan(0);
+    expect(readApi.indexOf("from private.commercial_rollout_control_events event")).toBeGreaterThan(readsControls);
+    expect(sqlFiles.filter((name) => definitionPattern("public.api_get_commercial_rollout_controls").test(readFileSync(`${MIGRATIONS}/${name}`, "utf8")))).toEqual([
+      "20260802020349_add_commercial_rollout_controls.sql",
+    ]);
+    // So no waiting order is safe for either file; both make the same NOWAIT attempt.
+    expect(flat(migrationSql).match(/lock table [^;]*;/g)).toEqual([TRY_LOCK]);
+    expect(flat(rollbackSql).match(/lock table [^;]*;/g)).toEqual([
+      TRY_LOCK,
+      "lock table private.xometry_beta_dispatch_permits in share mode nowait;",
+    ]);
   });
 });
 
 describe("OVD-987 rollback guard", () => {
   const guard = doBlock(rollbackSql, "ovd987_rollback_guard");
 
-  it("locks the control events, then the controls, then the permits, then guards, before restoring anything", () => {
+  it("takes the control events, the controls and the permits all or nothing and without waiting, then guards, before restoring anything", () => {
     const lockTimeout = rollbackSql.indexOf("\nset local lock_timeout = '5s';\n");
-    // The setter reads the events before it locks a control row: the events lock must come first.
-    const events = rollbackSql.indexOf("\nlock table private.commercial_rollout_control_events in access exclusive mode;\n");
-    const controls = rollbackSql.indexOf("\nlock table private.commercial_rollout_controls in access exclusive mode;\n");
-    const permits = rollbackSql.indexOf("\nlock table private.xometry_beta_dispatch_permits in share mode;\n");
+    const locks = doBlock(rollbackSql, "ovd987_rollback_locks");
     expect(lockTimeout).toBeGreaterThan(0);
-    expect(events).toBeGreaterThan(lockTimeout);
-    expect(controls).toBeGreaterThan(events);
-    expect(permits).toBeGreaterThan(controls);
-    expect(rollbackSql.match(/^lock table /gm)).toHaveLength(3);
-    expect(guard.start).toBeGreaterThan(permits);
+    expect(locks.start).toBeGreaterThan(lockTimeout);
+    expectTryLockLoop(
+      locks.text,
+      `${TRY_LOCK} lock table private.xometry_beta_dispatch_permits in share mode nowait;`,
+      "OVD-987 rollback refused: the rollout-control or permit tables stayed in use for 5 s;",
+    );
+    expect(rollbackSql).not.toMatch(/^lock table /m);
+    expect(rollbackSql.match(/^\s*lock table /gm)).toHaveLength(2);
+    expect(guard.start).toBeGreaterThan(locks.end);
     expect(rollbackSql.search(/^(?:alter table|delete from|create or replace function|drop )/m)).toBeGreaterThan(guard.end);
   });
 

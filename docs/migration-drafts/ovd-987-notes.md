@@ -81,6 +81,25 @@ ones in latest bodies. The migration's precondition block refuses unless each
 body is the previous md5 or this file's; the rollback's guard refuses unless
 each body is this file's or the previous one.
 
+## Reviewed file bytes
+
+| File | sha256 | md5 |
+| --- | --- | --- |
+| `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql` | `52d95bf97aa68ffec209010edb338614666174e6420212cac6000f55355501ca` | `8e9f067e7c9849b53ac267833d74ad64` |
+| `docs/migration-drafts/ovd-987.rollback.sql` | `e863f27f7ae88d91208a7d8df277ad7a75a08bbbe5b5feb5a0a12398f828fe0b` | `2fa6068507562e09b22a21c68e1e43dd` |
+
+The migration's sha256 is also pinned in `scripts/free-quote-ci-profile.mjs` and
+`scripts/fixtures/free-quote-ci-source.json`. The review-round-3 change (the
+lock blocks and the header text of both files) changed no function body, so the
+`md5(prosrc)` tables in this file still hold.
+
+**Staging must be re-applied.** The staging evidence is for the migration at
+sha256 `f34f5f7d...` (b91c086c) and a rollback drill with the earlier rollback
+(sha256 `0d00ebf6...`). Neither matches these bytes. Before the production
+card, re-apply this migration on staging (it re-runs on an applied database) and
+repeat the rollback drill there with this rollback file, with the evidence, so
+production gets the bytes that staging ran.
+
 ## Read-only hosted checks (before the apply and before a rollback)
 
 1. Quantity-above-1 Xometry permits in flight (must be 0 before a rollback):
@@ -133,70 +152,132 @@ Turn off the same way with `false`. What to expect:
   the new reason `dispatch_quantity_not_admitted` to
   `dispatch_authorization_denied` until a worker PR adds it to its bounded list.
 
-## Apply locks (review round 1, finding 2)
+## Locks (apply and rollback)
+
+### What both files do
 
 Right after the md5 precondition (which reads only `pg_proc`) and before any
-change, the migration takes ACCESS EXCLUSIVE (under `lock_timeout = '5s'` where the
-runner gives the file one transaction; see the last paragraph) on
-`private.commercial_rollout_control_events`, then on
-`private.commercial_rollout_controls`: the modes its two CHECK replacements take
-anyway, now taken in the order the audited setter needs. The setter reads the
-events (its idempotency lookup) before it locks a control row. The first version
-of this file replaced the controls CHECK first and the events CHECK last; a setter
-call in flight held the events read lock and waited for the control row while the
-migration waited for the events table: a deadlock. PostgreSQL aborts one of the
-two, so either the apply or the operator's rollout-disable call fails; applied as
-one transaction, the recommended mode, nothing is left partial.
+change, the migration takes ACCESS EXCLUSIVE on
+`private.commercial_rollout_control_events` and
+`private.commercial_rollout_controls`, the modes its two CHECK replacements need
+anyway. Before its guard reads anything, the rollback takes the same two and
+SHARE on `private.xometry_beta_dispatch_permits`. Both take them in one `DO`
+block, all or nothing and without waiting:
 
-Two-session evidence (local Postgres 17.11 container, the real 154 migrations
-replayed, the real file re-run as the second session, the real setter and read
-API; the drill and its raw outputs are kept with the overnight run notes, not in
-this repo). Warm and cold sessions differ: the setter declares `%rowtype`
-variables, so a session that has never called it takes a brief read lock on the
-controls while it compiles the function, before the events read; a pooled
-connection that already compiled it goes straight to the events read.
+- Each attempt is `LOCK TABLE ... NOWAIT` inside its own exception block (a
+  subtransaction). An attempt refused with `lock_not_available` therefore gives
+  back every lock it took.
+- It then sleeps 50 ms, holding none of these tables, and tries again.
+- After 5 s of refusals it raises 55P03 ("stayed in use for 5 s; nothing
+  changed, re-run it") and the whole file rolls back.
 
-| Case | Original file (controls first) | This file (events first) |
+`controlled-beta-user-quantity-migration.test.ts` pins this: every LOCK in the
+block is NOWAIT, only `lock_not_available` is retried, and there is no top-level
+LOCK.
+
+### Why no waiting order works (review round 2, the read-API finding)
+
+Two callers take the two rollout tables in opposite orders:
+
+- The audited setter `public.api_set_commercial_rollout_control` reads the
+  events (its idempotency lookup) and then locks its control row.
+- The read API `public.api_get_commercial_rollout_controls()` reads the controls
+  and then the events, in one statement.
+
+A transaction that waits for one table while it holds the other deadlocks with
+one of them. Controls first deadlocked with a setter call (review round 1).
+Events first deadlocked with a read-API call (review round 2). Both are
+reproduced below. Never waiting removes both, whatever order a caller takes.
+
+### Proof against every other caller
+
+A deadlock is a cycle of transactions, each waiting for a lock the next one
+holds. The apply or the rollback can be in a cycle only if it waits for a lock
+while it holds one that somebody else waits for. It never does:
+
+1. Before the lock block it holds nothing on these tables. The migration's
+   precondition reads only `pg_catalog.pg_proc`; the rollback runs only
+   `SET LOCAL` first.
+2. In the lock block it never waits for any of the three tables. A NOWAIT
+   request is granted at once or fails, and a failed attempt releases what it
+   took before the sleep. A NOWAIT request is never queued, so no later caller
+   queues behind it either.
+3. After the block it holds all of its tables, so a caller that needs them
+   waits for it. It waits for nothing such a caller can hold:
+   - Migration: the CHECK replacements and the seed touch only the two locked
+     tables. The seed row has no `updated_by_user_id`, so its foreign key to
+     `auth.users` checks nothing. `CREATE OR REPLACE FUNCTION`, `GRANT` and
+     `REVOKE` update catalog rows that only other DDL writes. Validating the
+     plpgsql bodies takes ACCESS SHARE on their `%rowtype` tables, which only an
+     ACCESS EXCLUSIVE holder (DDL) blocks.
+   - Rollback: the guard reads the locked tables, plus `quote_request_lanes`,
+     `quote_requests`, `work_queue` and `quote_access_admissions` with ACCESS
+     SHARE (only DDL blocks it; a plain read never waits for a row lock).
+     `private.commercial_rollout_enabled` takes no advisory lock. The restores,
+     the `DROP FUNCTION` of the helper (a caller takes no lock on a function),
+     the control-row `DELETE` (no foreign key references the controls) and the
+     CHECK replacements touch only locked tables or catalog rows.
+
+Every caller of the three tables, from the latest definitions after this
+migration (`git grep` over `supabase/migrations`; permits are append-only, a
+trigger rejects UPDATE and DELETE, and they have no foreign keys of their own):
+
+| Caller | What it takes on these tables | While the apply or rollback runs |
 | --- | --- | --- |
-| Warm setter call lands during a 2 s gap between the two table changes | `deadlock detected`; the setter was the victim at a 2 s gap, the migration at 3.5 s | Setter waits at its first read, both finish, no error (2 s and 3.5 s gap) |
-| Cold setter session, same gap | No deadlock (it waits on the controls at compile and holds nothing) | No deadlock |
-| Real file re-run 60 times, unwidened, while a warm setter session loops (4,400 to 4,900 calls) | 8 of 60 runs aborted by `deadlock detected`, 8 setter calls aborted | 0 of 60, 0 setter errors |
-| Same, plus a warm read-API session looping (about 5,000 calls per 60 re-runs, roughly 100 a second) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 0 of 60 and 1 of 150 runs aborted (two samples, about 12,000 setter calls in all), 0 setter errors, 4 read-API calls aborted |
+| Setter `public.api_set_commercial_rollout_control` (service role) | Exclusive advisory `commercial-rollout:<capability>`, events read, control row `FOR UPDATE`, event insert, control update. A session that has not compiled it yet reads both tables briefly at compile | Waits, or makes an attempt give its locks back. A call for this switch queued behind a rollback fails once it commits (`query returned no rows`), and later calls get `Unknown commercial rollout capability` until a re-apply |
+| Read API `public.api_get_commercial_rollout_controls()` (service role; operator scripts only) | Controls, then events, one statement | Waits, or makes an attempt give its locks back |
+| `private.commercial_rollout_enabled` and its callers: `automatic_quote_rollout_enabled_with_lock` (shared advisory `automatic_quote_collection` first), `require_commercial_admin_mutation` (shared advisory `commercial_admin_mutations` first), `xometry_beta_user_quantity_enabled` (new), `resolve_provider_dispatch_scope`, `api_authorize_provider_worker_dispatch` | Controls read | Waits, or makes an attempt give its locks back |
+| S1 and S3, `api_request_xometry_beta_dispatch` (the only permit writer) | Controls read (rollout and switch checks), then the permit INSERT (ROW EXCLUSIVE; its BEFORE INSERT triggers read `provider_dispatch_permits` and the kill switch) | Same. The insert always follows the controls read in the same transaction, so the rollback gets the controls only when no such request is open: its permit has committed (the guard sees it) or rolled back |
+| S4, `api_authorize_xometry_beta_worker_dispatch` (worker preflight) | Task row `FOR UPDATE`, permit read, shared `founding-beta:<org>`, shared `automatic_quote_collection` and controls read, then for a lane above 1 the switch's shared advisory lock | Waits, or makes an attempt give its locks back. Its wait for a setter's advisory lock no longer closes a cycle through the rollback (the round-3 residual) |
+| Permit readers: `api_request_provider_dispatch`, `resolve_quote_access_for_permit`, `validate_quote_access_admission`, `record_quote_access_admission`, `finalize_free_quote_job`, `release_cancelled_free_quote_job`, `api_reconcile_terminal_free_quote_tasks` | Permit read (ACCESS SHARE). No foreign key references the permits, so no other insert or delete locks them | Not blocked by the rollback's SHARE; wait only if they also read a rollout table |
+| A delete from `auth.users` | `ON DELETE SET NULL` updates the control row that names the user | Waits |
 
-`md5(prosrc)` of the seven functions after the replay equal the table in
-"Ordering with other work"; the migration's pgTAP (111 assertions) and
-`commercial_rollout_controls.sql` (25) pass on that database.
+### Evidence (local Postgres 17.11, the real files, the real setter and read API)
 
-Residual, and what this does not fix. The read API
-`public.api_get_commercial_rollout_controls()` (service role only) reads the
-controls and then the events in one statement, the reverse of the setter. A call
-that lands between the migration's two LOCK statements (back to back in the real
-file) can deadlock with it, and the last row above shows it is not only
-theoretical when the API is polled continuously. The original order was safe
-for the read API. Events first is the order the finding asked for, because the
-setter is the audited disable path an operator reaches for under pressure; the
-read API is read-only and a retry is harmless. So: do not call the read API,
-and do not run the setter, while the migration is applying; a deadlock victim
-rolls the whole apply back and it is rerun. A second residual applies only to a
-re-apply onto a database that already has this migration (a staging drill): the
-three-transaction cycle described under "Rollback locks" (a worker preflight for
-a lane above 1, a setter call for the switch, and this transaction) needs a lane
-above 1 in flight, which cannot exist before the first apply, so run a re-apply
-only with none in flight.
+- Scratch container `public.ecr.aws/supabase/postgres:17.11.0.004`.
+- The 153 base migrations were replayed and recorded in the CLI history, then
+  this migration was applied with `supabase migration up --db-url` (CLI 2.121.0).
+- `md5(prosrc)` of the seven functions equals the tables in this file.
+- pgTAP on that fresh database: 111/111 and 25/25.
 
-The locks are inside a `DO` block on purpose. A top-level `LOCK TABLE` errors
-outside a transaction block, and the Supabase CLI (CI logs show it warning that
-`SET LOCAL` is outside a transaction block) and the CI fixture's `psql` apply a
-migration one statement at a time. The first version of this fix used top-level
-`LOCK TABLE` statements, and the CLI-based `test` job failed on them with
-"LOCK TABLE can only be used in transaction blocks". In a `DO` block the
-statement works in every runner. Where the runner gives the file one transaction
-(`psql --single-transaction`, the whole file sent as one multi-statement query)
-the locks are held to its end; where it gives each statement its own they are
-released at once, which is also why `set local lock_timeout` does nothing there.
-The drill applied the final file after a rollback in all three modes (statement
-by statement, `--single-transaction`, one query) and every one succeeded; a pin
-test keeps the locks inside the block.
+In each two-session case a 2 s sleep sits between the first and the second
+table lock, and the other session's call lands in that gap. In the previous
+files the sleep is between the two LOCK statements. In these files the attempt
+is split into two NOWAIT statements with the sleep between them.
+
+| Case | Previous files (d3088e01) | These files |
+| --- | --- | --- |
+| Apply, read-API call in the gap | `deadlock detected`, apply aborted | The attempt gave its locks back when the read API blocked on it, the read API finished, the next attempt took both, and the apply committed |
+| Apply, warm setter call in the gap | Setter waited, both finished | Same |
+| Rollback, read-API call in the gap | `deadlock detected`, rollback aborted | As for the apply; rollback committed |
+| Rollback, setter call in the gap | Not re-run | Setter waited and the rollback committed; the queued call then failed with `query returned no rows` (the drain rule) |
+| Rollback, plus a preflight-shaped transaction (shared `automatic_quote_collection` lock and controls read, then the switch's shared advisory lock) and a setter call that holds the switch's advisory lock (the round-3 residual) | `deadlock detected`, the setter aborted | No error in any of the three; the rollback committed after both |
+| Apply re-run 150 times, unwidened, while warm sessions loop the setter and the read API | 2 of 150 runs and 3 read-API calls aborted by `deadlock detected` | 150 of 150 committed; 0 errors in about 4,800 setter and 4,900 read-API calls; slowest run 0.87 s |
+| Rollback then re-apply, 40 times, same load | Not re-run | 40 of 40 committed, 0 deadlocks; setter calls between a rollback and its re-apply failed as expected (40 `query returned no rows`, 58 `Unknown commercial rollout capability`) |
+| A session holds a controls read for 7 s | Not re-run | The apply and the rollback each refused after 5 s with the 55P03 message; nothing changed |
+
+The drill scripts and raw outputs are kept with the overnight run notes, not in
+this repo.
+
+### Runners (review round 2, L1)
+
+The files have no begin/commit of their own.
+
+- `psql --single-transaction` and the Supabase CLI (`db push`, `migration up`)
+  both apply the whole file as one transaction. The CLI sends the file as one
+  pipeline. `SET LOCAL` warns there but stays in effect, the locks taken in the
+  `DO` block are held to the end, and a failure leaves nothing. A probe
+  migration confirmed it: one `txid_current()`, `lock_timeout` read back, and
+  the lock still granted after the `DO` statement.
+- A top-level `LOCK TABLE` errors in that pipeline, which is one reason the
+  locks sit in a `DO` block; the exception block needs one anyway.
+- Only plain `psql -f` without `--single-transaction` (the CI fixtures) gives
+  each statement its own transaction. There the locks end with the `DO`
+  statement, each later statement takes its own lock, and the file still applies
+  and can be re-run.
+
+Earlier versions of this file said the CLI applied a migration statement by
+statement. That was wrong.
 
 ## Rollback order (design 5.4)
 
@@ -206,54 +287,25 @@ test keeps the locks inside the block.
    settles stragglers).
 3. Apply the rollback file as one transaction. Its guard enforces 1 and 2.
 
-**Rollback locks.** Before the guard reads anything the rollback takes, under
-`lock_timeout = '5s'`, ACCESS EXCLUSIVE on `private.commercial_rollout_control_events`,
-then ACCESS EXCLUSIVE on `private.commercial_rollout_controls` (the modes its two
-CHECK replacements need anyway), then SHARE on `private.xometry_beta_dispatch_permits`.
-Every request reads the controls (S1, through the rollout and switch checks) before
-it inserts a permit, so a request that read the switch while it was on still holds
-the controls lock the rollback waits for: its permit and reservation commit (the
-guard then refuses) or roll back before the guard runs, and a request that starts
-later reads the controls only after the rollback ends, under the restored
-quantity-1 rules.
+**Rollback locks.** The rollback takes its three tables the way the migration
+takes its two (see "Locks" above): all or nothing, never waiting, and before the
+guard reads anything. The lock block replaces the three waiting LOCK statements
+that were drilled on staging. Every request reads the controls (S1, through the
+rollout and switch checks) before it inserts a permit, in the same transaction.
+So the controls lock is granted only when no request that read the switch is
+still open: its permit and reservation have committed (the guard then refuses)
+or rolled back. A request that starts later reads the controls only after the
+rollback ends, under the restored quantity-1 rules.
 
-Deadlock review (each case run locally with two sessions and a rollback that
-holds its locks for 2 s):
+The drain rule still applies, for the guard and for queued callers. Run the
+rollback only after the switch is off, no quantity-above-1 permit is in flight
+and no setter call is running. A call that queued behind the rollback runs
+against the restored functions once it commits, and can fail with a generic
+error: a dropped helper (42883), or the deleted control row for a setter call.
+Every such failure is atomic.
 
-- The setter reads the events table (its idempotency lookup) before it locks a
-  control row. The first version of this rollback locked the controls first and
-  replaced the events CHECK only at the end, after the controls lock; a setter call
-  made in between held the events read lock and waited for the control row while
-  the rollback waited for the events table: a deadlock (reproduced by the delta
-  review and here; PostgreSQL aborted the rollback, nothing was left partial).
-  Taking the events lock first, before the controls, removes it: the setter now
-  waits at its first read and holds nothing the rollback needs. Warm and cold setter
-  sessions, a request-shaped transaction, a worker preflight, a second rollback and
-  the read API all waited and finished without a deadlock.
-- Requests and worker preflights never read the events table, and the rollback takes
-  no advisory lock, so on their own neither the setter's exclusive nor the
-  preflight's shared advisory locks can close a cycle with it. Three transactions
-  together can (found in the overnight review of round 3 and reproduced on minimal
-  tables in a throwaway Postgres 17 container, not in this migration's database): a
-  worker preflight for a lane above 1 that already holds the controls read lock (its
-  `automatic_quote_collection` check) and waits for this switch's shared advisory
-  lock, a setter call for this switch that holds that advisory lock exclusively and
-  has not read the events yet, and the rollback that holds the events lock and waits
-  for the controls. PostgreSQL aborts one of the three after `deadlock_timeout` (in
-  the run it was the preflight) and nothing is left partial. The drain step rules it
-  out: run the rollback only after the switch is off, no quantity-above-1 permit is
-  in flight and no setter call is running. The header of `ovd-987.rollback.sql`
-  still carries the broader sentence; its bytes stay as drilled on staging (sha256
-  `0d00ebf6...`) and this note supersedes it.
-- Residual: the read API `public.api_get_commercial_rollout_controls()` (service role
-  only) reads the controls and then the events in one statement. A call that starts
-  exactly between the rollback's first two LOCK statements can deadlock with it
-  (shown only with that gap widened to 2 s on purpose); PostgreSQL aborts one of the
-  two and neither leaves a partial change. Do not call the read API, and do not run
-  the setter, in the same transaction as the rollback or while it is running.
-
-While the rollback holds these locks, previews, requests, worker preflights, the
-setter and the read API wait for it (bounded by their own statement timeouts).
+While the rollback holds its locks, previews, requests, worker preflights, the
+setter and the read API wait for it, bounded by their own statement timeouts.
 
 **Data loss: none.** The deleted control row is disabled; its audit events are
 immutable and stay (the events CHECK then keeps the capability, with a NOTICE).

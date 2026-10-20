@@ -39,33 +39,53 @@
 -- are (all terminal, by the guard). Re-applying the migration re-seeds the
 -- control OFF at revision 0.
 --
--- Locks: before the guard reads anything, this transaction takes, in this
--- order, ACCESS EXCLUSIVE on the rollout-control events, ACCESS EXCLUSIVE on the
--- rollout controls (the modes the two CHECK replacements below need) and SHARE on
--- the Xometry beta permits. lock_timeout bounds every wait.
---   * The setter reads the events before it locks a control row, so it waits at
---     that first read and holds nothing this transaction needs (taking the
---     controls first, then the events, deadlocked with a setter call in flight).
---   * Requests and worker preflights read the controls, never the events, before
---     they write a permit: a request that read the switch while it was on
---     finishes first (the guard then sees its permit and reservation), and a later
---     one reads the controls only after this transaction ends, under the restored
---     quantity-1 rules.
---   * No advisory lock is taken, so the setter's exclusive and the preflight's
---     shared advisory locks cannot close a cycle with this transaction.
---   * The read API (api_get_commercial_rollout_controls, service role only) reads
---     the controls and then the events in one statement. Only a call that starts
---     between this transaction's first two lock statements can deadlock with it;
---     PostgreSQL then aborts one of the two, and neither leaves a partial change.
+-- Locks: before the guard reads anything, one DO block takes ACCESS EXCLUSIVE
+-- on the rollout-control events and the rollout controls (the modes the two
+-- CHECK replacements below need) and SHARE on the Xometry beta permits, all or
+-- nothing and without waiting: LOCK TABLE ... NOWAIT in an exception block, so
+-- a failed attempt gives back what it took, sleeps 50 ms holding nothing and
+-- tries again, for up to 5 s, then refuses with 55P03 and nothing changes.
+--   * No waiting order is safe: the setter reads the events before it locks a
+--     control row, the read API reads the controls and then the events, and a
+--     worker preflight for a lane above 1 holds the controls read lock while it
+--     waits for the switch's advisory lock, which a setter call may hold. This
+--     transaction never waits for these tables, and once it holds them it waits
+--     for nothing a request, worker preflight, setter or reader can hold, so it
+--     cannot be part of a deadlock with any of them; they wait for it instead.
+--   * Every request reads the controls (the rollout and switch checks) before
+--     it inserts a permit, in the same transaction, so the controls lock is
+--     granted only when no request that read the switch is still open: its
+--     permit and reservation have committed (the guard then sees them) or rolled
+--     back, and a later request reads the controls only after this transaction
+--     ends, under the restored quantity-1 rules.
 --
 -- Idempotent: a second run is a no-op. Transaction: no begin/commit of its own.
 -- =====================================================================
 
 set local lock_timeout = '5s';
 
-lock table private.commercial_rollout_control_events in access exclusive mode;
-lock table private.commercial_rollout_controls in access exclusive mode;
-lock table private.xometry_beta_dispatch_permits in share mode;
+do $ovd987_rollback_locks$
+declare
+  v_deadline timestamptz := pg_catalog.clock_timestamp() + interval '5 seconds';
+begin
+  loop
+    begin
+      lock table private.commercial_rollout_control_events,
+        private.commercial_rollout_controls
+        in access exclusive mode nowait;
+      lock table private.xometry_beta_dispatch_permits in share mode nowait;
+      exit;
+    exception
+      when lock_not_available then
+        if pg_catalog.clock_timestamp() >= v_deadline then
+          raise exception 'OVD-987 rollback refused: the rollout-control or permit tables stayed in use for 5 s; nothing changed, re-run it'
+            using errcode = '55P03';
+        end if;
+    end;
+    perform pg_catalog.pg_sleep(0.05);
+  end loop;
+end;
+$ovd987_rollback_locks$;
 
 do $ovd987_rollback_guard$
 declare
