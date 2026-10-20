@@ -1,0 +1,4 @@
+{"schema":"token-watcher-usage.v1","pool":"codex","period":"2026-10-05","tokens":{"input":1000,"output":200},"dollars":null,"subscriptionShare":0.01,"subscriptionUsd":100,"source":"synthetic","issue":"OVD-100"}
+{"schema":"token-watcher-usage.v1","pool":"claude","period":"2026-10-05","dollars":2.50,"source":"synthetic","pr":100,"bot":"claude","model":"synthetic-model"}
+{"schema":"token-watcher-usage.v1","pool":"cursor","period":"2026-10-05","dollars":10.00,"source":"synthetic"}
+{"schema":"token-watcher-usage.v1","pool":"jev","period":"2026-10-05","dollars":null,"source":"synthetic"}
