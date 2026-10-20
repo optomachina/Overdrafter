@@ -15,6 +15,7 @@ import type {
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
+import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientProject from "./ClientProject";
 
@@ -188,6 +189,9 @@ vi.mock("sonner", () => ({
 }));
 
 let lastAccountMenuProps: Record<string, unknown> | null = null;
+let lastComposerSubmit:
+  | ((input: { prompt: string; files: File[]; clear: () => void }) => Promise<void>)
+  | null = null;
 
 vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   ClientWorkspaceShell: ({
@@ -242,7 +246,12 @@ vi.mock("@/components/chat/SearchPartsDialog", () => ({
 }));
 
 vi.mock("@/components/chat/PromptComposer", () => ({
-  PromptComposer: () => <div>Composer</div>,
+  PromptComposer: (props: {
+    onSubmit?: (input: { prompt: string; files: File[]; clear: () => void }) => Promise<void>;
+  }) => {
+    lastComposerSubmit = props.onSubmit ?? null;
+    return <div>Composer</div>;
+  },
 }));
 
 vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
@@ -681,6 +690,7 @@ function buildWorkspaceItemWithQuoteStatus(status: InspectorQuoteStatus) {
 describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
+    lastComposerSubmit = null;
     vi.clearAllMocks();
     mockQuoteCollectionMode.mockReturnValue({
       automaticEnabled: true,
@@ -865,6 +875,52 @@ describe("ClientProject", () => {
       reasonCode: "canceled",
       reason: "Quote request canceled.",
     });
+  });
+
+  // OVD-992: a need-by date typed in the Add part prompt is a display filter only. The draft must not
+  // carry it, because the approved requirement copies it and every controlled dispatch denies it.
+  it.each([
+    {
+      label: "relative weekday",
+      prompt: "Please quote 25 of these, need by next Friday",
+      quantities: [25],
+    },
+    {
+      label: "slash date",
+      prompt: "Need 50 of these, needed by 11/20",
+      quantities: [50],
+    },
+    {
+      label: "month name",
+      prompt: "Quote qty 10/50/100, deliver by Dec 5",
+      quantities: [10, 50, 100],
+    },
+  ])("does not save a $label need-by date from the Add part prompt", async ({ prompt, quantities }) => {
+    // The parser still reads a date from the prompt, so the call site is what must drop it.
+    expect(parseRequestIntake(prompt).requestedByDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    api.createClientDraft.mockResolvedValue("job-9");
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Add parts/ }));
+    await waitFor(() => {
+      expect(lastComposerSubmit).not.toBeNull();
+    });
+    await act(async () => {
+      await lastComposerSubmit?.({ prompt, files: [], clear: vi.fn() });
+    });
+
+    expect(api.createClientDraft).toHaveBeenCalledTimes(1);
+    const draft = api.createClientDraft.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(draft).toEqual({
+      title: prompt,
+      description: prompt,
+      projectId: "project-1",
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      requestedQuoteQuantities: quantities,
+    });
+    expect(draft.requestedByDate ?? null).toBeNull();
   });
 
   it("renders the dense project ledger with semantic headers", async () => {

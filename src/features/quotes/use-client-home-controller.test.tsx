@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
 import { MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE } from "@/hooks/workspace-readiness";
 import type { Session } from "@supabase/supabase-js";
+import { createClientDraft } from "@/features/quotes/api/jobs-api";
+import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { useClientHomeController } from "./use-client-home-controller";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
@@ -601,5 +603,78 @@ describe("useClientHomeController membership recovery", () => {
     });
 
     unmount();
+  });
+
+  // OVD-992: a need-by date typed in the prompt is a display filter only. The draft created without
+  // files must not carry it, because the approved requirement copies it and every controlled
+  // dispatch denies the request. The real parser runs here (the module is mocked for the other
+  // tests), so each prompt below really yields a date for the call site to drop.
+  describe("prompt without files (OVD-992)", () => {
+    const FIXED_NOW = new Date("2026-10-19T12:00:00.000Z");
+    const readyMembership = createSessionData({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+    });
+
+    it.each([
+      {
+        label: "relative weekday",
+        prompt: "Please quote 25 of these, need by next Friday",
+        parsedDate: "2026-10-23",
+        quantities: [25],
+      },
+      {
+        label: "slash date",
+        prompt: "Need 50 of these, needed by 11/20",
+        parsedDate: "2026-11-20",
+        quantities: [50],
+      },
+      {
+        label: "month name",
+        prompt: "Quote qty 10/50/100, deliver by Dec 5",
+        parsedDate: "2026-12-05",
+        quantities: [10, 50, 100],
+      },
+    ])("does not save a $label need-by date but keeps the quantities", async ({ prompt, parsedDate, quantities }) => {
+      const actualIntake = await vi.importActual<typeof import("@/features/quotes/request-intake")>(
+        "@/features/quotes/request-intake",
+      );
+      expect(actualIntake.parseRequestIntake(prompt, FIXED_NOW).requestedByDate).toBe(parsedDate);
+      vi.mocked(parseRequestIntake).mockImplementationOnce((value) =>
+        actualIntake.parseRequestIntake(value, FIXED_NOW),
+      );
+      fetchAppSessionDataMock.mockResolvedValue(readyMembership);
+      vi.mocked(createClientDraft).mockResolvedValue("job-9");
+
+      const { result, unmount } = renderHook(() => useClientHomeController(), {
+        wrapper: createWrapper(),
+      });
+      emitSignedInAuthEvent();
+      await waitFor(() => {
+        expect(result.current.workspaceReadiness.status).toBe("ready");
+      });
+
+      await act(async () => {
+        await result.current.handleComposerSubmit({ prompt, files: [], clear: vi.fn() });
+      });
+
+      expect(createClientDraft).toHaveBeenCalledTimes(1);
+      const draft = vi.mocked(createClientDraft).mock.calls[0]?.[0];
+      expect(draft).toEqual({
+        title: prompt,
+        description: prompt,
+        tags: [],
+        requestedQuoteQuantities: quantities,
+      });
+      expect(draft?.requestedByDate ?? null).toBeNull();
+      unmount();
+    });
   });
 });
