@@ -244,12 +244,16 @@ base_in_pin() {
 # parents with the second already on origin/<base> (BASE_TIP), and <from> must
 # be reached within <max> merges. A rebase, force push or any other push stops
 # with exit 5. OLD_DIFF is then the diff_id of <from> and DIFF_ID that of <to>,
-# both against UPDATE_P2, the second parent of <to> (the newest base merged
-# in): the OVD-845 rebase-reuse ranges. Returns 0 when the two are equal and 1
-# when the diff changed. The caller fetches <to> and the base first.
+# both against UPDATE_BASE, the newest base commit <to> contains (the
+# merge-base of <to> and BASE_TIP): the OVD-845 rebase-reuse ranges. Not the
+# tip merge's second parent: in a chain, a later hop can merge an OLDER base
+# commit with a tree that drops base content an earlier hop brought in, and
+# against that older commit the diff would still look unchanged. Returns 0
+# when the two are equal and 1 when the diff changed. The caller fetches <to>
+# and the base first.
 prove_update() {
   local from="$1" to="$2" max="$3" label="$4" cur="$2" prev='' hops=0 parents value old_base
-  UPDATE_P2=''
+  UPDATE_BASE=''
   while [ "$cur" != "$from" ]; do
     [ "$hops" -lt "$max" ] || stop 5 "unexpected history: first parent of $prev is $cur, not the $label $from"
     parents="$(git rev-list --parents -n 1 "$cur")" || stop 5 "history of $cur unreadable"
@@ -262,18 +266,19 @@ prove_update() {
     [ "$1" = "$cur" ] || stop 5 'unexpected history: rev-list returned another commit'
     git merge-base --is-ancestor "$3" "$BASE_TIP" \
       || stop 5 "unexpected history: second parent $3 of $cur is not on origin/$LAND_BASE"
-    [ -n "$UPDATE_P2" ] || UPDATE_P2="$3"
     prev="$cur"; cur="$2"; hops=$((hops + 1))
   done
-  [ -n "$UPDATE_P2" ] || stop 5 'no update merge to verify; not merging'
-  old_base="$(git merge-base "$from" "$UPDATE_P2")" || stop 5 'could not read the pre-update merge-base; not merging'
+  [ "$hops" -gt 0 ] || stop 5 'no update merge to verify; not merging'
+  UPDATE_BASE="$(git merge-base "$to" "$BASE_TIP")" || stop 5 'could not read the base the updated head contains; not merging'
+  is_sha "$UPDATE_BASE" || stop 5 'malformed merge-base of the updated head and the base; not merging'
+  old_base="$(git merge-base "$from" "$UPDATE_BASE")" || stop 5 'could not read the pre-update merge-base; not merging'
   is_sha "$old_base" || stop 5 'malformed pre-update merge-base; not merging'
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     stop 5 'could not hash the diff (no sha256sum or shasum); not merging'
   fi
   review_diff_id "$old_base" "$from" || stop 5 'could not read the pre-update diff; not merging'
   OLD_DIFF="$DIFF_ID"
-  review_diff_id "$UPDATE_P2" "$to" || stop 5 'could not read the post-update diff; not merging'
+  review_diff_id "$UPDATE_BASE" "$to" || stop 5 'could not read the post-update diff; not merging'
   [ "$OLD_DIFF" = "$DIFF_ID" ]
 }
 
@@ -343,7 +348,7 @@ if [ "$HEAD" != "$REVIEWED" ]; then
     stop 11 "PR head $HEAD is an update of the reviewed head $REVIEWED and the PR diff changed (diff_id $OLD_DIFF -> $DIFF_ID); a fresh review and QA verdict at $HEAD are required before landing"
   fi
   note "PR head $HEAD is the reviewed head $REVIEWED brought up to date before this run; diff unchanged"
-  chain="$REVIEWED -> $HEAD (updated before this run; $LAND_BASE $UPDATE_P2)"
+  chain="$REVIEWED -> $HEAD (updated before this run; $LAND_BASE $UPDATE_BASE)"
 fi
 PIN="$HEAD"
 note "pinned head $PIN"
@@ -417,12 +422,12 @@ while :; do
     fetch_sha "$NEW"
     fetch_base
     if ! prove_update "$PIN" "$NEW" 1 pinned; then
-      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $UPDATE_P2); diff changed ($OLD_DIFF -> $DIFF_ID)"
+      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, base in new head $UPDATE_BASE); diff changed ($OLD_DIFF -> $DIFF_ID)"
       stop 11 "updated $PIN -> $NEW and the PR diff changed (diff_id $OLD_DIFF -> $DIFF_ID); a fresh review and QA verdict at $NEW are required before landing"
     fi
     UPDATE_FROM=''
 
-    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $UPDATE_P2); diff unchanged"
+    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, base in new head $UPDATE_BASE); diff unchanged"
     chain="${chain}${chain:+; }$PIN -> $NEW ($LAND_BASE $BASE_TIP)"
     PIN="$NEW"   # the only re-pin, and only after the history and diff checks above
     round=$((round + 1))

@@ -134,7 +134,7 @@ it('updates behind main, ignores stale checks, waits for the merge head', async 
   const calls = await run(s, 0, 'new pinned head'); expectMerge(calls, U);
   expect(reviewDiffId(B, H)).toBe(reviewDiffId(M, U));
   expect(calls.filter(a => a.includes('PUT'))).toEqual([['api', '-X', 'PUT', 'repos/{owner}/{repo}/pulls/7/update-branch', '-f', `expected_head_sha=${H}`]]);
-  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U} (origin/main ${M}, second parent ${M}); diff unchanged`);
+  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U} (origin/main ${M}, base in new head ${M}); diff unchanged`);
   expect(calls.filter(a => a[0] === 'api' && !a.includes('PUT') && !a[1].includes('/protection/')).every(a => a[1].includes(`/commits/${U}/`))).toBe(true);
 });
 // A PR head H2 whose clean update merge U2 changes the reviewable diff: both
@@ -199,6 +199,41 @@ it('accepts a chain of update merges since the reviewed head', async () => {
   s['check-runs:ci'] = [runs('ci', U3)]; s['check-runs:provider-go-live'] = [runs('provider-go-live', U3)];
   const calls = await run(s, 0, `update chain: ${H} -> ${U3} (updated before this run; main ${M3})`, ['7', H]);
   expectMerge(calls, U3);
+});
+// PR #840 fix review r1, finding 1: an update chain whose LAST merge brings in
+// an OLDER base commit than an earlier hop did. Main gains a fix (M2) and M3;
+// U1 honestly merges M3 into U; U2 then "merges" M again (parents U1, M) with
+// U's tree, which drops M2 and M3. Every hop is a two-parent merge of a base
+// commit, and against the tip's second parent M the diff looks unchanged, yet
+// U2 already contains main, so GitHub would squash U2's tree onto main and
+// revert the fix. The diff must be compared against the newest base U2 holds.
+function nonMonotonicChain() {
+  git('checkout', '-q', 'main'); const M2 = commit('fix', 'FIXED'); const M3 = commit('later', 'later');
+  git('push', '-q', 'origin', 'main');
+  git('checkout', '-q', 'update'); git('merge', '-q', '--no-ff', '-m', 'update again', M3); const U1 = git('rev-parse', 'HEAD');
+  return { M2, M3, U1 };
+}
+it('refuses an update chain whose last merge brings in an older base and drops newer base content', async () => {
+  const { M3, U1 } = nonMonotonicChain();
+  const U2 = git('commit-tree', `${U}^{tree}`, '-p', U1, '-p', M, '-m', 'older base');
+  git('push', '-q', 'origin', `${U2}:refs/heads/older-base`);
+  expect(reviewDiffId(M, U2)).toBe(reviewDiffId(B, H));
+  expect(spawnSync(realGit, ['merge-base', '--is-ancestor', M3, U2], { cwd }).status).toBe(0);
+  const calls = await run(scenario([pr(U2), pr(U2), pr(U2), pr(U2, 'CLEAN', 'MERGED')]), 11, `a fresh review and QA verdict at ${U2} are required before landing`, ['7', H]);
+  expect(calls.output).toContain(`land: STOP: PR head ${U2} is an update of the reviewed head ${H} and the PR diff changed (diff_id ${reviewDiffId(B, H)} -> ${reviewDiffId(M3, U2)})`);
+  expect(calls.filter(a => a[1] !== 'view')).toEqual([]);
+});
+it('lands a chain whose last merge re-merges an older base without changing the tree', async () => {
+  const { M3, U1 } = nonMonotonicChain();
+  const U2 = git('commit-tree', `${U1}^{tree}`, '-p', U1, '-p', M, '-m', 'no-op merge of an older base');
+  const S2 = git('commit-tree', `${U2}^{tree}`, '-p', M3, '-m', 'squash2');
+  git('push', '-q', 'origin', `${U2}:refs/heads/older-base`, `${S2}:refs/heads/squash2`);
+  const merged = pr(U2, 'CLEAN', 'MERGED'); merged.stdout.mergeCommit = { oid: S2 };
+  const s = scenario([pr(U2), pr(U2), pr(U2), merged]);
+  s['check-runs:ci'] = [runs('ci', U2)]; s['check-runs:provider-go-live'] = [runs('provider-go-live', U2)];
+  const calls = await run(s, 0, `update chain: ${H} -> ${U2} (updated before this run; main ${M3})`, ['7', H]);
+  expectMerge(calls, U2);
+  expect(calls.some(a => a.includes('PUT'))).toBe(false);
 });
 it.each(['push', 'rebase', 'wrong parent', 'reviewed elsewhere'])('refuses a head that is not a proven update of the reviewed head: %s', async kind => {
   const [head, reviewed] = { push: [X, H], rebase: [R, H], 'wrong parent': [W, H], 'reviewed elsewhere': [U, X] }[kind];
