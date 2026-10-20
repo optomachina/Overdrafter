@@ -81,6 +81,27 @@ describe('builder attribution', () => {
     expect(result.builders.map(builder => builder.model)).toEqual(['model:claude-opus', 'model:codex']);
     expect(result.status).toBe('conflict');
   });
+  it('does not narrow review when only some commits carry a trailer and the body has no history', () => {
+    const commits = [{ sha: 'a', message: `Build\n\n${tag()}` }, { sha: 'b', message: 'untagged follow-up' }];
+    const result = parse('', { commits });
+    expect(result.status).toBe('unknown');
+    expect(result.findings).toContain('Commit without Built-by trailer and no body history');
+    expect(reviewers(result)).toEqual(both);
+    // No attribution anywhere stays "missing", and full trailer coverage stays ok.
+    expect(parse('', { commits: [{ sha: 'b', message: 'untagged' }] }).status).toBe('missing');
+    expect(parse('', { commits: [commits[0]] }).status).toBe('ok');
+    expect(reviewers(parse('', { commits: [commits[0]] }))).toEqual(['claude-sonnet']);
+  });
+  it('checks model labels against commit-trailer builders when the body declares none', () => {
+    const commits = [{ sha: 'a', message: `Build\n\n${tag()}` }];
+    const disagree = parse('', { commits, labels: ['model:grok-overflow'] });
+    expect(disagree.status).toBe('conflict');
+    expect(disagree.findings).toContain('Model label disagrees with builder history: model:grok-overflow');
+    expect(reviewers(disagree)).toEqual(both);
+    const agree = parse('', { commits, labels: ['model:codex'] });
+    expect(agree.status).toBe('ok');
+    expect(reviewers(agree)).toEqual(['claude-sonnet']);
+  });
   it.each([
     ['unknown bot', tag('codex', 'stranger'), {}, 'unknown'],
     ['bot=unknown', tag('codex', 'unknown'), {}, 'unknown'],

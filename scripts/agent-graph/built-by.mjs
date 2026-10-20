@@ -102,13 +102,23 @@ function readTags(text, findings) {
 function readCommitTags(commits, bodyBuilders, findings) {
   const trailerBuilders = [];
   const commitEntries = [];
+  let untagged = 0;
   for (const commit of commits) {
     if (!record(commit) || typeof commit.message !== 'string') throw new TypeError('Invalid commit');
     if (builtByLines(commit.message).length) {
       const tags = readTags(commit.message, findings);
       trailerBuilders.push(...tags);
       commitEntries.push(...tags);
-    } else commitEntries.push(...bodyBuilders);
+    } else {
+      untagged += 1;
+      commitEntries.push(...bodyBuilders);
+    }
+  }
+  // Some commits attribute a builder and others have neither a trailer nor a
+  // body history to fall back on: that commit's builder is unknown, so the
+  // attribution is incomplete and must not narrow review.
+  if (untagged && trailerBuilders.length && !bodyBuilders.length) {
+    findings.push('Commit without Built-by trailer and no body history');
   }
   return { trailerBuilders, commitEntries };
 }
@@ -143,17 +153,19 @@ function resolveBuilders(entries, routing, findings) {
       entry.bot !== all[index - 1].bot || entry.model !== all[index - 1].model);
 }
 
-// Returns true when a model label contradicts the body's declared builders.
+// Returns true when a model label contradicts the declared builder history:
+// the body's, or the resolved commit-trailer builders when the body has none.
 function modelLabelsConflict({ labels, bodyBuilders, builders, routing, findings }) {
   const modelLabels = labels.map(label => typeof label === 'string' ? label : label?.name)
     .filter(label => typeof label === 'string' && label.startsWith('model:'));
   if (builders.length === 1 && modelLabels.length > 1) findings.push('Multiple model labels on single-builder PR');
+  const history = bodyBuilders.length ? bodyBuilders : builders;
   let conflict = false;
   for (const label of modelLabels) {
     if (!own(routing.pools, label.slice(6))) findings.push(`Unknown model label: ${label}`);
-    if (bodyBuilders.length && !bodyBuilders.some(builder => builder.model === label)) {
+    if (history.length && !history.some(builder => builder.model === label)) {
       conflict = true;
-      findings.push(`Model label disagrees with body: ${label}`);
+      findings.push(`Model label disagrees with builder history: ${label}`);
     }
   }
   return conflict;
