@@ -841,3 +841,553 @@ describe("pdfDrawing", () => {
     expect(result.revision.reasons).toContain("filename_stem");
   });
 });
+
+describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
+  function tolerance(lines: string[]) {
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "1000-00001-A",
+      pdfText: { pageCount: 1, pages: [{ page: 1, text: ["MATERIAL 6061-T6", ...lines].join("\n") }] },
+    });
+    return {
+      raw: result.tightestTolerance,
+      valueInch: result.tightestToleranceValueInch ?? null,
+      unit: result.tightestToleranceUnit ?? null,
+      drawingUnits: result.tightestToleranceDrawingUnits ?? null,
+    };
+  }
+
+  const INCH = "DIMENSIONS ARE IN INCHES";
+  const METRIC = "DIMENSIONS IN MM";
+
+  it("converts a bare tolerance on a millimeter drawing instead of reading it as inches", () => {
+    expect(tolerance(["DIMENSIONS ARE IN MILLIMETERS", "UNLESS OTHERWISE SPECIFIED TOLERANCES ±0.1"])).toEqual({
+      raw: "±0.1 mm",
+      valueInch: 0.0039,
+      unit: "mm",
+      drawingUnits: "metric",
+    });
+  });
+
+  it("converts explicit mm, micron and mil suffixes", () => {
+    expect(tolerance(["TOLERANCES ±0.05 mm"]).valueInch).toBe(0.0019);
+    expect(tolerance(["TOLERANCE ±25 µm"]).valueInch).toBe(0.0009);
+    expect(tolerance(["TOLERANCE ±25 um"]).valueInch).toBe(0.0009);
+    expect(tolerance(["TOLERANCE ±5 mil"])).toMatchObject({ valueInch: 0.005, unit: "mil" });
+  });
+
+  it("takes the tightest value across mixed per-value units", () => {
+    expect(tolerance([METRIC, "GENERAL TOLERANCE ±0.2", "Ø12 H7 ±0.05"]).valueInch).toBe(0.0019);
+  });
+
+  it("reports no tolerance when there is no plus-minus value", () => {
+    expect(tolerance([METRIC, "GENERAL TOLERANCES ISO 2768-m"])).toMatchObject({ raw: null, valueInch: null });
+  });
+
+  // P1: units come only from explicit declarations.
+  describe("P1 drawing unit declarations", () => {
+    it.each([
+      ["DIMENSIONS ARE IN MILLIMETERS"],
+      ["ALL DIMENSIONS ARE IN MILLIMETRES"],
+      ["DIMENSIONS IN MM"],
+      ["UNITS: MM"],
+      ["UNIT: mm"],
+      ["SCALE 1:1  UNIT mm"],
+      ["DIMENSIONS [mm]"],
+      ["UNITS [MM]"],
+      ["DIMENSIONS IN [mm]"],
+      ["ALL DIMENSIONS (mm)"],
+      ["UNITS - MM"],
+      ["DIMENSIONS ARE METRIC"],
+      ["METRIC"],
+      ["[mm]"],
+      ["GENERAL TOLERANCES ISO 2768-mK"],
+      ["TOLERANCES IN ACCORDANCE WITH ISO 2768-m"],
+      ["GENERAL TOLERANCES DIN 7168-m"],
+      ["GENERAL TOLERANCES JIS B 0405-m"],
+      ["GENERAL TOLERANCES EN 22768-m"],
+      ["DIMENSIONS IN rnm"],
+      ["DIMENSIONS IN мм"],
+      ["DIMENSIONS IN ΜΜ"],
+      ["DIMENSIONS IN ｍｍ"],
+      ["DIMENSIONS IN ㎜"],
+      ["DIMENSIONS: IN MM"],
+      ["Maße in mm"],
+      ["COTES EN MM"],
+      ["Cotes en millimètres"],
+      ["MEDIDAS EN MILÍMETROS"],
+      ["  \t mm  "],
+      ["\t( METRIC )"],
+    ])("reads %s as a metric declaration", (declaration) => {
+      expect(tolerance([declaration, "BORE ±0.05"])).toMatchObject({
+        valueInch: 0.0019,
+        unit: "mm",
+        drawingUnits: "metric",
+      });
+    });
+
+    it.each([
+      ["DIMENSIONS ARE IN INCHES"],
+      ["ALL DIMENSIONS ARE IN INCHES"],
+      ["UNITS: IN"],
+      ["UNITS: INCH"],
+      ["SCALE: FULL  UNITS: INCH"],
+      ["DIMENSIONS IN IN"],
+      ["DIMENSIONS ARE IN IN."],
+      ["UNITS (INCHES)"],
+      ["INCHES"],
+    ])("reads %s as an inch declaration", (declaration) => {
+      expect(tolerance([declaration, "BORE ±0.05"])).toMatchObject({
+        valueInch: 0.05,
+        unit: "in",
+        drawingUnits: "inch",
+      });
+    });
+
+    it("treats a declaration of both systems as mixed and leaves bare values unresolved", () => {
+      for (const declaration of [
+        "DIMENSIONS IN INCHES [MILLIMETERS]",
+        "DIMENSIONS ARE IN MM (INCHES)",
+        "DIMENSIONS IN INCHES AND MILLIMETERS",
+      ]) {
+        expect(tolerance([declaration, "TOLERANCES ±.005"])).toEqual({
+          raw: "±0.005",
+          valueInch: null,
+          unit: "unknown",
+          drawingUnits: "mixed",
+        });
+      }
+      // Two pages, one declared in each system.
+      expect(tolerance([INCH, "TOLERANCES ±.005", METRIC, "VENDOR ITEM ±0.1"]).valueInch).toBeNull();
+    });
+
+    // A units field that lists both options becomes text with only blanks (or X) between the words.
+    it.each([
+      ["UNITS: INCH MM", "TOLERANCES ±0.1"],
+      ["UNITS:  INCH    MM", "TOLERANCES ±0.1"],
+      ["DIMENSIONS: INCH METRIC", "TOLERANCES ±0.1"],
+      ["UNITS: INCHES MILLIMETERS", "TOLERANCES ±0.05"],
+      ["UNITS: INCH X MM", "TOLERANCES ±0.02"],
+      ["UNITS: INCH, MM", "TOLERANCES ±0.1"],
+      ["UNITS: IN X MM", "TOLERANCES ±0.1"],
+      ["UNITS: MM INCH", "TOLERANCES ±.005"],
+      ["UNITS: MM, INCH", "TOLERANCES ±.005"],
+      ["UNITS: MM IN", "TOLERANCES ±.005"],
+      ["UNITS: MM X IN.", "TOLERANCES ±.005"],
+      ["UNITS: MM, IN", "TOLERANCES ±.005"],
+      [`UNITS: INCH${" ".repeat(24)}MM`, "TOLERANCES ±0.1"],
+    ])("treats %s, listing both units, as mixed", (declaration, line) => {
+      expect(tolerance([declaration, line])).toMatchObject({ valueInch: null, unit: "unknown", drawingUnits: "mixed" });
+    });
+
+    // Checkbox and OCR renderings of a units field that lists both systems: any marks (up to 12, not
+    // letters or digits) between the two words. Which box is ticked is not read, so they fail closed.
+    it.each([
+      ["UNITS: INCH [ ] MM [X]"],
+      ["UNITS: INCH [X] MM"],
+      ["UNITS: INCH ☐ MM ☒"],
+      ["UNITS: INCH □ MM ■"],
+      ["UNITS: INCH ✔ MM"],
+      ["UNITS: INCH ✓ / MM"],
+      ["UNITS: INCH | MM"],
+      ["UNITS: INCH - MM"],
+      ["UNITS: INCH . MM"],
+      ["UNITS: INCH;MM"],
+      ["UNITS: INCH / MM"],
+      ["UNITS: INCH & MM"],
+      ["UNITS: INCH OR MM"],
+      ["UNITS: INCH ] MM"],
+    ])("treats the units field %s as mixed", (declaration) => {
+      for (const lines of [["TOLERANCES ±0.1", "HOLES ±0.05"], [".XX ±.01", ".XXX ±.005"]]) {
+        expect(tolerance([declaration, ...lines])).toMatchObject({
+          valueInch: null,
+          unit: "unknown",
+          drawingUnits: "mixed",
+        });
+      }
+    });
+
+    it("does not read a unit later on the declaration line as a second declaration", () => {
+      expect(tolerance(["UNITS: INCH; NOTE 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      expect(tolerance(["UNITS: INCH  ITEM 3 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      // A digit ends the marks between two unit words.
+      expect(tolerance(["UNITS: INCH; 6 MM DOWEL", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.1,
+        drawingUnits: "inch",
+      });
+      // A bare IN after blanks or a comma is the preposition unless it ends the phrase.
+      expect(tolerance(["DIMENSIONS IN MM IN ACCORDANCE WITH ISO 129", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.0039,
+        drawingUnits: "metric",
+      });
+      expect(tolerance(["ALL DIMENSIONS IN MM, IN ACCORDANCE WITH ISO 129-1", "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.0039,
+        unit: "mm",
+        drawingUnits: "metric",
+      });
+    });
+
+    it("does not read the preposition IN as an inch declaration", () => {
+      // "IN ACCORDANCE" and a line that wraps after "IN" are not unit words.
+      expect(tolerance(["TOLERANCES IN ACCORDANCE WITH ASME Y14.5M", "BORE ±0.05"]).drawingUnits).toBe("unspecified");
+      expect(tolerance(["DIMENSIONS ARE IN", "MILLIMETERS UNLESS OTHERWISE SPECIFIED", "BORE ±0.05"])).toMatchObject({
+        valueInch: null,
+        drawingUnits: "unspecified",
+      });
+    });
+  });
+
+  // P2: incidental unit tokens are not declarations.
+  describe("P2 incidental unit tokens", () => {
+    it.each([
+      ["Ø12mm THRU"],
+      ["ITEM 3  6 MM DOWEL PIN"],
+      ["SURFACE Ra 0.8 µm"],
+      ["REV B CHANGED 10mm TO 12mm"],
+      ["USE METRIC HARDWARE"],
+      ["SHEET 279 X 216 MM"],
+      ["SHEET 279 X 216 (MM)"],
+      ["OVERALL 12 MM"],
+      ["DATE YYYY-MM-DD"],
+      ["DATE FORMAT IN MM/DD/YY"],
+      ["PART NO MM-1234"],
+      ["FINISH PER MIL-A-8625 TYPE II"],
+      ["NOTE: 1 INCH = 25.4 MM"],
+      ["INCH EQUIVALENTS FOR REFERENCE ONLY"],
+      ["TITLE: SPACER, 10MM"],
+    ])("%s does not declare units", (incidental) => {
+      // Undeclared, so a two-decimal bare value is unresolved rather than read in either system.
+      expect(tolerance([incidental, "BORE ±0.05"])).toMatchObject({ valueInch: null, drawingUnits: "unspecified" });
+      // An inch declaration is never flipped by the incidental token.
+      expect(tolerance([INCH, incidental, "TOLERANCES ±.005"])).toMatchObject({
+        valueInch: 0.005,
+        unit: "in",
+        drawingUnits: "inch",
+      });
+      // Nor is a metric declaration.
+      expect(tolerance([METRIC, incidental, "TOLERANCES ±0.1"])).toMatchObject({
+        valueInch: 0.0039,
+        drawingUnits: "metric",
+      });
+    });
+
+    it("keeps a metric declaration metric when an inch conversion note is present (F3)", () => {
+      expect(
+        tolerance(["DIMENSIONS IN MILLIMETERS", "NOTE: 1 INCH = 25.4 MM", "TWO PLACE DECIMAL +0.05"]),
+      ).toMatchObject({ valueInch: 0.0019, unit: "mm", drawingUnits: "metric" });
+    });
+  });
+
+  // P3: a unit written on the value, on the same line, wins.
+  describe("P3 value suffixes", () => {
+    it.each([
+      ["BORE ±0.05 mm", 0.0019, "mm"],
+      ["BORE ±0.05mm", 0.0019, "mm"],
+      ["BORE ±0.05 MM", 0.0019, "mm"],
+      ["BORE ±0.05 millimetres", 0.0019, "mm"],
+      ["BORE ±0.05 [mm]", 0.0019, "mm"],
+      ["BORE ±0.05 (mm)", 0.0019, "mm"],
+      ["BORE ±0.05 rnm", 0.0019, "mm"],
+      ["BORE ±0.05 мм", 0.0019, "mm"],
+      ["BORE ±0.05 ｍｍ", 0.0019, "mm"],
+      ["BORE ±25 µm", 0.0009, "um"],
+      ["BORE ±25 μm", 0.0009, "um"],
+      ["BORE ±25 um", 0.0009, "um"],
+      ["BORE ±25 UM", 0.0009, "um"],
+      ["BORE ±25 microns", 0.0009, "um"],
+      ["BORE ±25 ΜM", 0.0009, "um"],
+      ["BORE ±5 mil", 0.005, "mil"],
+      ["BORE ±2 mils", 0.002, "mil"],
+      ["BORE ±.005 IN", 0.005, "in"],
+      ["BORE ±.25 INCHES", 0.25, "in"],
+      ['BORE ±.005"', 0.005, "in"],
+      ["BORE ±0.05″", 0.05, "in"],
+    ])("%s resolves by its suffix", (line, valueInch, unit) => {
+      expect(tolerance([line])).toMatchObject({ valueInch, unit });
+    });
+
+    it("lets a suffix beat the drawing declaration", () => {
+      expect(tolerance([INCH, "BORE ±0.05 mm", "GENERAL ±.010"])).toMatchObject({ valueInch: 0.0019, unit: "mm" });
+      expect(tolerance([METRIC, 'BORE ±.001"'])).toMatchObject({ valueInch: 0.001, unit: "in" });
+      expect(tolerance([METRIC, "BORE ±.002 INCH"])).toMatchObject({ valueInch: 0.002, unit: "in" });
+    });
+
+    it("never reads a unit from the next line (F2)", () => {
+      expect(tolerance([METRIC, "TOLERANCE ±0.05", "INCH EQUIVALENTS FOR REFERENCE ONLY"]).valueInch).toBe(0.0019);
+      expect(tolerance([METRIC, "FLATNESS ±0.05", "IN. ZONE A"]).valueInch).toBe(0.0019);
+      expect(tolerance([INCH, "TOLERANCES ±.005", "MIL-A-8625 TYPE II CL 2"]).valueInch).toBe(0.005);
+      expect(tolerance(["TOLERANCES ±.005", "MM-1234 FIXTURE"]).valueInch).toBe(0.005);
+      expect(tolerance(["TOLERANCES ±.005", "mils"]).valueInch).toBe(0.005);
+    });
+
+    it("does not read part numbers or specifications as units", () => {
+      expect(tolerance(["MARK PER ±.005 MIL-STD-130"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+      expect(tolerance(["TOLERANCES ±.005 MM-1234 FIXTURE"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+    });
+
+    it("reads the word IN as inches only when it ends the callout, and not on a metric drawing", () => {
+      expect(tolerance([METRIC, "PROFILE ±0.1 IN ALL DIRECTIONS"])).toMatchObject({ valueInch: 0.0039, unit: "mm" });
+      expect(tolerance([METRIC, "FLATNESS ±0.05 IN", "ZONE A"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance([METRIC, "BORE ±.005 IN"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance(["TOLERANCES ±0.005 IN"])).toMatchObject({ raw: "±0.005", valueInch: 0.005, unit: "in" });
+      expect(tolerance([INCH, "BORE ±.05 IN."]).valueInch).toBe(0.05);
+    });
+
+    it.each([
+      [["DIMENSIONS ARE IN INCHES", "SPRING RATE ±10%"], "±10%"],
+      [["STRAIGHTNESS ±0.1 mm/m"], "±0.1 mm/m"],
+      [["DIMENSIONS ARE IN INCHES", "FINISH ±32 µin"], "±32 µin"],
+      [["DIMENSIONS ARE IN INCHES", "FINISH ±32 microinch"], "±32 microinch"],
+      [["DIMENSIONS ARE IN INCHES", "BORE ±1e-3 IN"], "±1"],
+      [["BORE ±5E-3"], "±5"],
+    ])("leaves %j unresolved", (lines, raw) => {
+      expect(tolerance(lines)).toMatchObject({ raw, valueInch: null, unit: "unknown" });
+    });
+  });
+
+  // P4: a bare value on an undeclared drawing is inches only with three or more decimals.
+  describe("P4 bare values on an undeclared drawing", () => {
+    it.each([
+      ["TOLERANCES ±.005", 0.005],
+      ["TOLERANCES ±0.005", 0.005],
+      ["BORE ±.0005", 0.0005],
+      ["BORE ±.001", 0.001],
+      ["THREE PLACE DECIMAL +.005", 0.005],
+      ["TITLE: SHAFT ±.002", 0.002],
+    ])("%s is read as inches", (line, valueInch) => {
+      expect(tolerance([line])).toMatchObject({ valueInch, unit: "in", drawingUnits: "unspecified" });
+    });
+
+    it.each([
+      ["TOLERANCES ±0.05"],
+      ["TOLERANCES ±.05"],
+      ["TOLERANCES ±0.1"],
+      ["TOLERANCES ±1"],
+      ["TWO PLACE DECIMAL +.01"],
+      ["TWO PLACE DECIMAL", ".01"],
+      ["TOLERANCES ±0.125"],
+      ["FRACTIONS ±1/64"],
+    ])("%s is unresolved", (...lines) => {
+      expect(tolerance(lines)).toMatchObject({ valueInch: null, unit: "unknown", drawingUnits: "unspecified" });
+    });
+
+    it("follows the declaration for bare values and decimal-place phrases", () => {
+      expect(tolerance([INCH, "TOLERANCES ±0.25"]).valueInch).toBe(0.25);
+      expect(tolerance([INCH, "TWO PLACE DECIMAL ±.01"]).valueInch).toBe(0.01);
+      expect(tolerance([INCH, "FRACTIONS ±1/64"])).toMatchObject({ raw: "±1/64", valueInch: 0.0156, unit: "in" });
+      expect(tolerance([METRIC, "TWO PLACE DECIMAL ±.05"]).valueInch).toBe(0.0019);
+      expect(tolerance([METRIC, "THREE PLACE DECIMAL ±.005"]).valueInch).toBe(0.0001);
+      expect(tolerance(["DIMENSIONS IN INCHES [MILLIMETERS]", "THREE PLACE DECIMAL +.005"]).valueInch).toBeNull();
+    });
+  });
+
+  // P5: kept from round 1.
+  describe("P5 angular values, dual dimensions and bad numbers", () => {
+    it.each([
+      [[INCH, "ANGULAR ±.005°", "LINEAR ±.010"]],
+      [[INCH, "ANGULAR ±0.5 DEG", "LINEAR ±.010"]],
+      [[INCH, "ANGULAR ±.005", "LINEAR ±.010"]],
+      [[INCH, "ALL BENDS ±.005°", "LINEAR ±.010"]],
+      [[INCH, "ANGULAR TOLERANCE ±0.5 DEGREES", "LINEAR ±.010"]],
+      [[INCH, "ANGULAR DIMENSIONS ±.25", "LINEAR ±.010"]],
+      [[INCH, "ANGLES UNLESS NOTED ±.5", "LINEAR ±.010"]],
+      [[INCH, "ANGULAR ±0.5  LINEAR ±.010"]],
+      [[INCH, "BEND ±30'", "LINEAR ±.010"]],
+      [[INCH, "BEND ±1/2°", "LINEAR ±.010"]],
+      [[INCH, "ANGLE ±0°30'", "LINEAR ±.010"]],
+      [[INCH, "90º ±.5", "LINEAR ±.010"]],
+    ])("ignores the angular value in %j", (lines) => {
+      expect(tolerance(lines)).toMatchObject({ raw: "±0.01", valueInch: 0.01 });
+    });
+
+    it("does not skip a linear value whose label only mentions an angle earlier on its line", () => {
+      expect(tolerance([INCH, "CSK 90° X Ø.500 ±.002", "GENERAL ±.010"]).valueInch).toBe(0.002);
+      expect(tolerance([INCH, "ANGULAR AND LINEAR ±.005", "GENERAL ±.010"]).valueInch).toBe(0.005);
+      expect(tolerance([INCH, "ANGLE BRACKET LENGTH ±.005", "GENERAL ±.010"]).valueInch).toBe(0.005);
+    });
+
+    it("ignores an angular value on a metric drawing and converts the linear one", () => {
+      expect(tolerance([METRIC, "ANGULAR ±0.5°", "LINEAR ±0.2"]).valueInch).toBe(0.0078);
+    });
+
+    it("reports no tolerance when only angular values are present", () => {
+      expect(tolerance(["ANGULAR ±0.5°"])).toMatchObject({ raw: null, valueInch: null });
+      expect(tolerance(["ANGULAR TOLERANCE ±0.5 DEGREES"])).toMatchObject({ raw: null, valueInch: null });
+    });
+
+    it("adopts a bracketed bare value as inches only when it matches the mm value", () => {
+      expect(tolerance(["TOLERANCES ±0.1 mm [±.004]"]).valueInch).toBe(0.0039);
+      expect(tolerance(["TOLERANCES ±.004 [±0.1 mm]"]).valueInch).toBe(0.0039);
+      expect(tolerance(["BORE ±0.13 mm [±.005]"]).valueInch).toBe(0.005);
+      // Without the pairing these bare values would be millimeters (metric drawing) or unresolved.
+      expect(tolerance([METRIC, "BORE ±0.1 mm [±.004]"])).toMatchObject({ valueInch: 0.0039, unit: "mm" });
+      expect(tolerance(["BORE ±2.5 mm [±.1]"])).toMatchObject({ valueInch: 0.0984, unit: "mm" });
+      expect(tolerance(["BORE ±.1 [±2.5 mm]"])).toMatchObject({ valueInch: 0.0984, unit: "mm" });
+      // Inconsistent pairs keep both readings; the tighter converted value wins or it stays unresolved.
+      expect(tolerance(["TOLERANCES ±0.1 mm [±.04 in]"]).valueInch).toBe(0.0039);
+      expect(tolerance(["BORE ±0.05mm [±0.5]"]).valueInch).toBe(0.0019);
+      expect(tolerance(["TOLERANCES ±0.02 mm [±.01]"]).valueInch).toBeNull();
+      expect(tolerance([METRIC, "BORE ±0.02 mm (±0.1 BEFORE PLATING)"]).valueInch).toBe(0.0007);
+    });
+
+    it("leaves a decimal comma, zero or a non-finite value unresolved, never 0", () => {
+      for (const lines of [
+        [METRIC, "TOLERANCES ±0,05"],
+        ["TOLERANCES ±0,1"],
+        ["TOLERANCES ±0,05 mm"],
+        ["BORE ±1,000 µm"],
+        [INCH, "TWO PLACE DECIMAL +0,1"],
+        [INCH, "TOLERANCES ±0"],
+        ["TOLERANCES ±0.000"],
+        ["TWO PLACE DECIMAL +0"],
+        [INCH, `NOTE ±${"9".repeat(320)}`],
+      ]) {
+        const result = tolerance(lines);
+        expect(result.valueInch).toBeNull();
+        expect(result.unit).toBe("unknown");
+        expect(result.raw).not.toBeNull();
+      }
+      expect(tolerance([INCH, "TWO PLACE DECIMAL +0,1"]).raw).toBe("±0,1");
+    });
+
+    it("leaves a value too large for numeric(10,4) unresolved", () => {
+      expect(tolerance([INCH, "NOTE ±1000000"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance(["ENVELOPE ±1000 mm"]).valueInch).toBe(39.37);
+    });
+  });
+
+  // P6: an unresolved value blocks the result unless it is looser in both readings.
+  describe("P6 unresolved values that could be tighter", () => {
+    it("blocks when an unresolved value could be tighter in either unit", () => {
+      // .1 and .01 read as millimeters (0.0039 in, 0.0003 in) would be tighter than .005 in.
+      expect(tolerance([".X ±.1", ".XX ±.01", ".XXX ±.005"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance(["TWO PLACE DECIMAL +.01", "THREE PLACE DECIMAL +.005"]).valueInch).toBeNull();
+      expect(tolerance(["DIMENSIONS ARE IN INCHES", "FINISH ±32 µin", "BORE ±.002"]).valueInch).toBeNull();
+      expect(tolerance(["FRACTIONS ±1/32  .XXX ±.005"]).valueInch).toBeNull();
+      expect(tolerance([INCH, "DATUM ±0", "TOLERANCES ±.005"]).valueInch).toBeNull();
+      // 1e-3 in is tighter than ±.010; scientific notation is never read, so nothing is stored.
+      expect(tolerance([INCH, "BORE ±1e-3 IN", "GENERAL ±.010"]).valueInch).toBeNull();
+      expect(tolerance([INCH, "NOTE ±0/0", "BORE ±.005"]).valueInch).toBeNull();
+      expect(tolerance([INCH, `NOTE ±${"9".repeat(320)} mm/m`, "BORE ±.005"]).valueInch).toBeNull();
+    });
+
+    it("resolves the same block when the drawing declares inches", () => {
+      expect(tolerance([INCH, ".X ±.1", ".XX ±.01", ".XXX ±.005"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+    });
+
+    it("ignores an unresolved value that is looser in both readings", () => {
+      // ±.3 is 0.3 in or 0.0118 in, both looser than ±0.1 mm.
+      expect(tolerance(["DIMENSIONS IN INCHES [MILLIMETERS]", "TOLERANCES ±0.1 mm", "GENERAL ±.3"]).valueInch).toBe(
+        0.0039,
+      );
+      expect(tolerance(["DIMENSIONS IN INCHES [MILLIMETERS]", "BORE ±0.05 mm [±0.5]"]).valueInch).toBe(0.0019);
+      expect(tolerance([INCH, "SPRING RATE ±10%", "TOLERANCES ±.005"]).valueInch).toBe(0.005);
+      expect(tolerance(["TOLERANCES ±0.1 mm", "NOTE ±1"]).valueInch).toBe(0.0039);
+    });
+  });
+
+  // P7: values are floored to the 4 decimals of numeric(10,4) and never rounded up.
+  describe("P7 stored precision", () => {
+    it.each([
+      [[INCH, "BORE ±.005"], 0.005],
+      [[INCH, "BORE ±.00499"], 0.0049],
+      [[INCH, "BORE ±.0050001"], 0.005],
+      [[INCH, "BORE ±.00499999995"], 0.0049],
+      [[INCH, "BORE ±.0049999999999999"], 0.0049],
+      [[INCH, "BORE ±.0039"], 0.0039],
+      [[INCH, "BORE ±0.0001"], 0.0001],
+      [[INCH, "BORE ±0.00015"], 0.0001],
+      [["BORE ±0.126 mm"], 0.0049],
+      [["BORE ±0.127 mm"], 0.005],
+      [["BORE ±0.1270001 mm"], 0.005],
+      [["BORE ±0.12699 mm"], 0.0049],
+      [["BORE ±0.12699999999 mm"], 0.0049],
+      [["BORE ±127 µm"], 0.005],
+      [["BORE ±126.9 µm"], 0.0049],
+      [["BORE ±5 mil"], 0.005],
+      [["BORE ±4.99 mil"], 0.0049],
+    ])("%j stores %s", (lines, valueInch) => {
+      expect(tolerance(lines).valueInch).toBe(valueInch);
+    });
+
+    it.each([[[INCH, "BORE ±.0000394"]], [[INCH, "BORE ±0.00001"]], [["BORE ±1 µm"]], [[METRIC, "BORE ±5μ", "±0.8 µm"]]])(
+      "%j is below 0.0001 in and is unresolved instead of rounded up",
+      (lines) => {
+        expect(tolerance(lines)).toMatchObject({ valueInch: null, unit: "unknown" });
+      },
+    );
+  });
+
+  // The parse is synchronous on customer text, so hostile text must stay linear. Each of these took
+  // seconds before round 3 (quadratic backtracking or a backward scan per value); the bound is loose.
+  describe("linear time on hostile text", () => {
+    const BOUND_MS = 500;
+    const read = (text: string) =>
+      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+    // V8 can compile a regex differently depending on the first long text it reads in the process: a
+    // lookbehind over blanks was linear after a text with blanks and quadratic on a run of tabs after
+    // a blank-free one. Each case reads a blank-free text of 2000 characters first (and the block does
+    // so once while the file is collected, before any test runs), so a timing does not depend on which
+    // tests ran before it.
+    const warm = () => read("a".repeat(2_000));
+    warm();
+
+    const run = (unit: string, length = 100_000) => unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
+    const blankCases = Object.entries({ spaces: " ", tabs: "\t", "mixed blanks": " \t \t  " }).flatMap(
+      ([kind, unit]): Array<[string, () => string]> => [
+        [`a line of 100k leading ${kind}`, () => `${run(unit)}x`],
+        [`a line of only 100k ${kind}`, () => run(unit)],
+        [`100k ${kind} after a declared unit`, () => `UNITS: MM${run(unit)}x`],
+        [`100k ${kind} after a declared IN`, () => `UNITS: IN${run(unit)}x`],
+        [`100k ${kind} between two declared units`, () => `UNITS: INCH${run(unit)}MM`],
+        [`100k ${kind} before a bracket`, () => `1${run(unit)}(`],
+        [`100k ${kind} before a bracketed unit`, () => `${run(unit)}[MM]`],
+        [`100k ${kind} inside a bracket`, () => `[${run(unit)}x`],
+      ],
+    );
+
+    it.each([
+      ["a 200 KB single line of ±1", () => "±1".repeat(100_000)],
+      ["a 200 KB single line of ±1 and blanks", () => "±1 ".repeat(66_667)],
+      ...blankCases,
+      ["100k marks after a declared unit", () => `UNITS: INCH${run("| ")}x`],
+      ["100k marks and tabs between two declared units", () => `UNITS: INCH${run("\t|\t☐")}MM`],
+      // Unicode canonical reordering is quadratic on a long run of combining marks of mixed classes.
+      [
+        "a letter, 40k grave accents and 40k overlay marks",
+        () => `a${"̀".repeat(40_000)}${"̴".repeat(40_000)}`,
+      ],
+      ["40k ypogegrammeni and 40k grave accents", () => `x${"ͅ".repeat(40_000)}${"̀".repeat(40_000)}`],
+      [
+        "40k overlay and grave mark pairs after a declared tolerance",
+        () => `UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`,
+      ],
+    ] as Array<[string, () => string]>)("reads %s within the bound", (_label, build) => {
+      const text = build();
+      warm();
+      const started = performance.now();
+      read(text);
+      expect(performance.now() - started).toBeLessThan(BOUND_MS);
+    });
+
+    it("still reads the declared tolerance before a long run of combining marks", () => {
+      const result = read(`UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`);
+      expect(result.tightestToleranceValueInch).toBe(0.005);
+      expect(result.tightestToleranceDrawingUnits).toBe("inch");
+    });
+
+    // An unbounded repeat of the separators after UNITS overflowed the regexp stack on this line.
+    it("reads a 4M-character line of separators after UNITS without throwing", () => {
+      const text = `UNITS${":".repeat(4_000_000)}`;
+      warm();
+      const started = performance.now();
+      expect(() => read(text)).not.toThrow();
+      expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
+    });
+  });
+});
