@@ -12,6 +12,7 @@
 -- dropped (the admin RPCs keep working against the text column). When none
 -- exist, the audit table is restored to its exact OVD-722 shape. Switch state
 -- (engaged or not) is never changed by this rollback.
+-- Re-running is a no-op (guarded on actor's column type, OVD-949).
 
 set local lock_timeout = '5s';
 
@@ -20,19 +21,28 @@ drop function if exists public.api_service_set_global_kill_switch(boolean, text,
 drop function if exists public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint);
 
 do $restore$
+declare v_actor_type text;
 begin
-  -- Block new audit inserts while the shape is decided.
   lock table private.provider_kill_switch_audit in share row exclusive mode;
-
-  if exists (select 1 from private.provider_kill_switch_audit where actor = 'cli:service_role') then
-    raise notice 'OVD-771 rollback: cli:service_role audit rows exist; keeping actor as text and the operator column as evidence';
-    return;
+  select pg_catalog.format_type(a.atttypid, a.atttypmod) into v_actor_type
+  from pg_catalog.pg_attribute a
+  where a.attrelid = 'private.provider_kill_switch_audit'::regclass
+    and a.attname = 'actor' and not a.attisdropped;
+  if v_actor_type is null then
+    raise exception 'OVD-771 rollback: private.provider_kill_switch_audit.actor not found';
   end if;
-
+  if v_actor_type <> 'uuid' then
+    if exists (select 1 from private.provider_kill_switch_audit where actor = 'cli:service_role') then
+      raise notice 'OVD-771 rollback: cli:service_role audit rows exist; keeping actor as text and the operator column as evidence';
+      return;
+    end if;
+    alter table private.provider_kill_switch_audit
+      drop constraint if exists provider_kill_switch_audit_actor_operator_check;
+    alter table private.provider_kill_switch_audit
+      alter column actor type uuid using actor::uuid;
+  end if;
   alter table private.provider_kill_switch_audit
     drop constraint if exists provider_kill_switch_audit_actor_operator_check;
-  alter table private.provider_kill_switch_audit
-    alter column actor type uuid using actor::uuid;
   alter table private.provider_kill_switch_audit
     drop column if exists operator;
 end;
