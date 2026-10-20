@@ -81,6 +81,12 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+/** OVD-991: the filter changes the view only, whether or not a Need by date is saved on the request. */
+const NEED_BY_VIEW_ONLY_HELP_TEXT =
+  "Highlights vendors that meet this date in this view only. It is not saved to the request.";
+const NEED_BY_SAVED_HELP_TEXT =
+  "Highlights which vendors can meet the requested delivery date and dims the rest immediately.";
+
 type LocalComment = {
   id: string;
   body: string;
@@ -226,6 +232,7 @@ const ClientPart = () => {
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
+    needByRemovalSavesDrawingThreads,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
@@ -1002,6 +1009,7 @@ const ClientPart = () => {
                             requestedByDate={requestSummaryRequestedByDate}
                             onRemove={() => handleSaveRequestPatch({ requestedByDate: null })}
                             disabled={saveRequestMutation.isPending}
+                            savesDrawingThreads={needByRemovalSavesDrawingThreads}
                           />
                         ) : null}
                         <QuoteSelectionFunctionBar
@@ -1016,7 +1024,11 @@ const ClientPart = () => {
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
                           disabled={saveRequestMutation.isPending}
-                          dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
+                          dueDateHelpText={
+                            needByFilterIsViewOnly
+                              ? NEED_BY_VIEW_ONLY_HELP_TEXT
+                              : NEED_BY_SAVED_HELP_TEXT
+                          }
                         />
                       </>
                     }
