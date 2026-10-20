@@ -550,6 +550,75 @@ describe('a control result that arrives after the run changed', () => {
     expect(buttons()).toEqual(idle);
     expect(screen.getByRole('alert').textContent).toBe(failed);
   });
+
+  // The run epoch cannot tell two requests of one run apart. A request the server already settled (its key is gone) must not release the
+  // lock of the command sent after it, because the late failure is about the settled request, not the one that is still waiting.
+  describe('within the same run', () => {
+    const paused = ['paused (disabled)', 'CANCEL'];
+    const cancelling = ['Cancelling (disabled)', 'CANCEL (disabled)'];
+    const settledPause = (key: string, how: 'applied' | 'rejected'): GraphEvent[] => [
+      requested(2, 'pause', 'own-pause', key),
+      how === 'applied'
+        ? { ...base, seq: 3, type: 'control_applied', commandId: 'own-pause', checkpoint: 'agent', kind: 'pause', state: 'paused' }
+        : rejected(3, 'pause', 'own-pause', 'terminal'),
+    ];
+    const confirmCancel = () => { fireEvent.click(screen.getByRole('button', { name: 'CANCEL' })); fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' })); };
+
+    it.each([
+      ['rejects', (reply: Deferred) => reply.fail(new Error('network down'))],
+      ['answers with an error status', (reply: Deferred) => reply.settle({ status: 500 })],
+    ] as const)('keeps a cancel locked when the pause that was already applied %s late', async (_how, fail) => {
+      const m = mount();
+      m.deliver(started('run'));
+      fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+      m.deliver(...settledPause(sentKey(m.client), 'applied'));
+      expect(buttons()).toEqual(paused);
+      confirmCancel();
+      expect(m.client.control.mock.calls.map(call => call[1].kind)).toEqual(['pause', 'cancel']);
+      expect(buttons()).toEqual(cancelling);
+
+      await act(async () => fail(m.replies[0]));
+      expect(buttons()).toEqual(cancelling);
+      expect(screen.queryByRole('alert')).toBeNull();
+      // Only the cancel's own failure may release the cancel, and then it retries with the key it already sent.
+      await act(async () => m.replies[1].fail(new Error('network down')));
+      expect(buttons()).toEqual(paused);
+      expect(screen.getByRole('alert').textContent).toBe(failed);
+      confirmCancel();
+      expect(sentKey(m.client, 2)).toBe(sentKey(m.client, 1));
+    });
+
+    it('keeps a cancel locked when the pause that was already rejected fails late', async () => {
+      const m = mount();
+      m.deliver(started('run'));
+      fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+      m.deliver(...settledPause(sentKey(m.client), 'rejected'));
+      expect(buttons()).toEqual(idle);
+      confirmCancel();
+      expect(buttons()).toEqual(cancelling);
+
+      await act(async () => m.replies[0].fail(new Error('network down')));
+      expect(buttons()).toEqual(cancelling);
+      expect(screen.queryByRole('alert')).toBeNull();
+      await act(async () => m.replies[1].fail(new Error('network down')));
+      expect(buttons()).toEqual(idle);
+      expect(screen.getByRole('alert').textContent).toBe(failed);
+    });
+
+    it('lets the cancel settle normally after a late failure of the settled pause', async () => {
+      const m = mount();
+      m.deliver(started('run'));
+      fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+      m.deliver(...settledPause(sentKey(m.client), 'applied'));
+      confirmCancel();
+      await act(async () => m.replies[0].fail(new Error('network down')));
+      m.deliver(requested(4, 'cancel', 'own-cancel', sentKey(m.client, 1)), { ...base, seq: 5, type: 'control_applied', commandId: 'own-cancel', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [] });
+      expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+      await act(async () => m.replies[1].settle({ status: 202 }));
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
 });
 
 it('orders events by sequence when batches arrive out of order', () => {

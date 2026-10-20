@@ -184,7 +184,9 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     try { const response = await client.control(runId, { kind, idempotencyKey: key }); if (response.status >= 400) throw new Error('Control request failed.'); }
     catch {
       // Issued for a run that is no longer shown: that run's lock, command and error are already gone, and the shown run's are not this request's.
-      if (epoch.current !== issued) return;
+      // In the same run, a request the server already settled has had its key deleted, so the lock and the command now belong to a newer
+      // request and this late failure must not release them. A request that is still the active one for its kind still holds its key.
+      if (epoch.current !== issued || keys.current.get(kind) !== key) return;
       inFlight.current = false; setCommand(''); setError('Control request failed. Try again.');
     }
   };
