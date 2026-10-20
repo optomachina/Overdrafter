@@ -40,8 +40,14 @@ describe('weekly evals', () => {
     expect(analyzePR({}, { statusCheckRollup: advisory }, advisory)).toMatchObject({ accepted: false, ci: 'unknown' });
     expect(analyzePR({}, { statusCheckRollup: [ci] }, [ci], '^ci$')).toMatchObject({ accepted: false, ci: 'unknown' });
     expect(parseArgs(['--ignore-checks', '']).ignoreChecks).toBe('');
-    expect(report()).toContain('^(Vercel\|CodeRabbit)$'.replace('\|', '\\|'));
+    expect(report()).toContain(String.raw`^(Vercel\|CodeRabbit)\b`);
     expect(report({ ignoreChecks: '' })).toContain('(disabled)');
+  });
+  it('ignores per-project Vercel status contexts and Vercel check runs by default', () => {
+    const ci = { name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' };
+    const vercel = [{ context: 'Vercel – homepage-studio', state: 'FAILURE' }, { context: 'Vercel – overdrafter', state: 'PENDING' }, { name: 'Vercel Preview Comments', status: 'COMPLETED', conclusion: 'FAILURE' }];
+    expect(analyzePR({}, { statusCheckRollup: [ci, ...vercel] }, [ci, vercel[2]])).toMatchObject({ accepted: true, ci: 'pass', failingHeadChecks: [] });
+    expect(analyzePR({}, { statusCheckRollup: [ci, { context: 'Vercelish', state: 'FAILURE' }] }, [ci]).accepted).toBe(false);
   });
   describe('re-run and cancelled checks', () => {
     // gh statusCheckRollup shape: every run on the commit, in no particular order.
@@ -75,9 +81,38 @@ describe('weekly evals', () => {
       expect(accept([ci], [apiRun('success', '11:16', 2), apiRun('cancelled', '10:38', 1)]).ci).toBe('pass');
       expect(accept([ci], [apiRun('cancelled', '10:38', 1)]).ci).toBe('fail');
       expect(accept([ci], [apiRun('cancelled', '10:38', 1), apiRun('failure', '11:16', 2)]).ci).toBe('fail');
-      expect(accept([ci], [apiRun('success', '10:38', 1), apiRun('cancelled', '11:16', 2)]).ci).toBe('fail');
+      // A cancelled later workflow run nobody re-ran is not a verdict: the first run of the check already passed.
+      expect(accept([ci], [apiRun('success', '10:38', 1), apiRun('cancelled', '11:16', 2)]).ci).toBe('pass');
       expect(accept([ci], [apiRun('failure', '10:38', 1), apiRun('success', '11:16', 2)]).ci).toBe('fail');
       expect(accept([ci], [apiRun('cancelled', '10:38', 1), apiRun('success', '11:16', 2, 'other-check')]).ci).toBe('fail');
+    });
+    it('fails first-pass CI when a re-run attempt in the same check suite fixed a failure, cancel or timeout', () => {
+      for (const first of ['failure', 'timed_out', 'cancelled']) {
+        const attempts = [apiRun(first, '02:11', 7, 'test'), apiRun('success', '03:05', 7, 'test')];
+        expect(accept([ci], attempts).ci).toBe('fail');
+        expect(accept([ci], [...attempts].reverse()).ci).toBe('fail');
+      }
+      // The first attempt is what counts, so a passing check that failed when re-run still passed first time.
+      expect(accept([ci], [apiRun('success', '02:11', 7, 'test'), apiRun('failure', '03:05', 7, 'test')]).ci).toBe('pass');
+    });
+    it('judges a "re-run failed jobs" commit by its first attempts, as the check-runs API returns it with filter=all', () => {
+      // Re-running failed jobs copies each passed job into the new attempt with the original timestamps.
+      const lint = apiRun('success', '02:09', 7, 'lint');
+      const attempts = [lint, { ...lint }, apiRun('failure', '02:11', 7, 'test'), apiRun('success', '03:05', 7, 'test'), apiRun('success', '02:09', 8), apiRun('success', '03:05', 9)];
+      expect(accept([ci], attempts).ci).toBe('fail');
+      expect(accept([ci], attempts.filter((c) => c.conclusion !== 'failure')).ci).toBe('pass');
+    });
+    it('judges every check suite that runs a job of the same name, because the check-runs API has no workflow name', () => {
+      expect(accept([ci], [apiRun('success', '10:00', 1, 'inert-protocol'), apiRun('failure', '10:30', 2, 'inert-protocol')]).ci).toBe('fail');
+      expect(accept([ci], [apiRun('success', '10:00', 1, 'inert-protocol'), apiRun('success', '10:30', 2, 'inert-protocol')]).ci).toBe('pass');
+    });
+    it('treats the year-1 time gh writes for a missing timestamp as newest', () => {
+      const done = rollupRun('ci', 'SUCCESS', '09:00', 'CI');
+      const running = { ...rollupRun('ci', null, '09:00', 'CI'), status: 'IN_PROGRESS', completedAt: '0001-01-01T00:00:00Z' };
+      expect(accept([done, running]).accepted).toBe(false);
+      expect(accept([running, done]).accepted).toBe(false);
+      const queued = { ...running, status: 'QUEUED', startedAt: '0001-01-01T00:00:00Z' };
+      expect(accept([queued, done])).toMatchObject({ accepted: false, failingHeadChecks: ['ci QUEUED'] });
     });
     it('keeps a cancelled-then-green PR out of the merged-not-accepted flags', () => {
       const pr = analyzePR({ ...list[1], number: 200 }, { statusCheckRollup: [cancelled, replaced, ci] }, [apiRun('cancelled', '10:38', 1), apiRun('success', '11:16', 2)]);
@@ -131,8 +166,23 @@ describe('weekly evals', () => {
       probes.forEach((c, i) => {
         expect(c.immutable).toBe(true);
         expect(c.args[1]).toContain(`/sha${i}/`);
+        expect(c.args[1]).toMatch(/[?&]filter=all(&|$)/);
       });
     }
+  });
+  it('skips a probed commit whose only check runs are ignored', () => {
+    const probe = (ignoreChecks) => {
+      const probes = [];
+      const gh = (args) => {
+        if (args[1] === 'list') return [list[1]];
+        if (args[0] === 'pr') return { commits: [{ oid: 'sha0' }, { oid: 'sha1' }] };
+        probes.push(args[1]);
+        return { check_runs: args[1].includes('/sha0/') ? [{ name: 'Vercel Preview Comments', status: 'completed', conclusion: 'success' }] : [{ name: 'ci', status: 'completed', conclusion: 'failure' }] };
+      };
+      return { ci: loadPRs(gh, 'example/repo', w.current, ignoreChecks)[0].ci, probes: probes.length };
+    };
+    expect(probe()).toEqual({ ci: 'fail', probes: 2 });
+    expect(probe('')).toEqual({ ci: 'pass', probes: 1 });
   });
   it.each(['repair budget used: 2/2', 'repair budget now used: 2 / 2', 'repair round 2', 'round-2 repair'] )('parses %s', (body) => {
     expect(analyzePR({}, { comments: [{ body }] }, []).repairs).toBe(2);
@@ -169,6 +219,15 @@ describe('weekly evals', () => {
   });
   it('extracts issue IDs from each supported source', () => {
     expect(extractIssues({ title: 'OVD-1', headRefName: 'bwilson/ovd-894-weekly', body: 'https://linear.app/a/issue/OVD-2', closingIssuesReferences: [{ title: 'OVD-3' }] })).toEqual(['OVD-1', 'OVD-894', 'OVD-2', 'OVD-3']);
+  });
+  it('extracts issue IDs at the start of a body line', () => {
+    expect(extractIssues({ title: 'fix', headRefName: 'x', body: 'Linked issue:\nOVD-123\r\n\tovd-124 and OVD-125\nNOVD-9' })).toEqual(['OVD-123', 'OVD-124', 'OVD-125']);
+  });
+  it('attributes a PR\'s spend from before the window, but not from after it', () => {
+    const pr = { ...prs[1], number: 50, issues: [], mergedAt: '2026-10-10T12:00:00Z' };
+    const lines = [{ ts: '2026-10-08T00:00:00Z', usd: 40, pr: 50 }, { ts: '2026-10-10T00:00:00Z', usd: 2, pr: 50 }, { ts: '2026-10-17T00:00:00Z', usd: 100, pr: 50 }];
+    const s = summarize([pr], lines, w.current);
+    expect(s).toMatchObject({ total: 2, worst: { number: 50, usd: 42 }, mean: 42 });
   });
   it('renders comparison, flags, A/B, per-PR details and sources', () => {
     const text = report();

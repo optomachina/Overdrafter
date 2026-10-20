@@ -8,8 +8,10 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 export const GH_BIN = fs.existsSync('/usr/bin/gh') ? '/usr/bin/gh' : 'gh';
-export const DEFAULT_IGNORE_CHECKS = '^(Vercel|CodeRabbit)$';
+// \b also covers per-project status contexts such as "Vercel – overdrafter" and the "Vercel Preview Comments" run.
+export const DEFAULT_IGNORE_CHECKS = String.raw`^(Vercel|CodeRabbit)\b`;
 const ignored = (c, re) => re && [c.name, c.context].some((v) => typeof v === 'string' && re.test(v));
+const ignoreRegex = (pattern) => pattern ? new RegExp(pattern, 'i') : null;
 const headPass = (c) => c.state ? c.state === 'SUCCESS' : String(c.status).toUpperCase() === 'COMPLETED' && good(c.conclusion);
 const DAY = 86400000;
 const NA = 'not available (no spend ledger)';
@@ -21,27 +23,40 @@ const checkKey = (c) => {
   if (c.context) return JSON.stringify(['status', c.context]);
   return c.name ? JSON.stringify(['run', c.workflowName || c.app?.slug || '', c.name]) : null;
 };
-// A missing timestamp (a run still queued or running) counts as newest, so a pending rerun is never hidden.
-const stamp = (c, camel, snake) => { const t = Date.parse(c[camel] ?? c[snake]); return Number.isNaN(t) ? Infinity : t; };
-function newer(a, b) {
-  const started = stamp(a, 'startedAt', 'started_at') - stamp(b, 'startedAt', 'started_at');
-  if (started) return started > 0;
-  const completed = stamp(a, 'completedAt', 'completed_at') - stamp(b, 'completedAt', 'completed_at');
-  if (completed) return completed > 0;
-  return !headPass(a) && headPass(b); // an unresolvable tie keeps the worse result
+// A missing timestamp (a run still queued or running) counts as newest, so a pending rerun is never hidden. gh writes a
+// missing GraphQL time as 0001-01-01T00:00:00Z, so any time before 1970 is missing too.
+const stamp = (c, camel, snake) => { const t = Date.parse(c[camel] ?? c[snake]); return t > 0 ? t : Infinity; };
+// Orders two runs of one check by startedAt, then completedAt; 0 when neither decides.
+const byTime = (a, b) => (stamp(a, 'startedAt', 'started_at') - stamp(b, 'startedAt', 'started_at'))
+  || (stamp(a, 'completedAt', 'completed_at') - stamp(b, 'completedAt', 'completed_at')) || 0;
+function replaces(c, held, oldest) {
+  const order = byTime(c, held);
+  if (order) return oldest ? order < 0 : order > 0;
+  return !headPass(c) && headPass(held); // an unresolvable tie keeps the worse result
 }
-function latestRuns(runs) {
-  const latest = new Map();
+// Keeps one run per key: the newest, or the oldest when `oldest` is set. A null key is never merged.
+function pickRuns(runs, keyOf, oldest = false) {
+  const picked = new Map();
   for (const c of runs) {
-    const key = checkKey(c) ?? Symbol('unnamed');
-    if (!latest.has(key) || newer(c, latest.get(key))) latest.set(key, c);
+    const key = keyOf(c) ?? Symbol('unnamed');
+    if (!picked.has(key) || replaces(c, picked.get(key), oldest)) picked.set(key, c);
   }
-  return [...latest.values()];
+  return [...picked.values()];
 }
-// First-pass CI keeps earlier failures but not a CANCELLED run that a later run of the same check replaced.
-function withoutSupersededCancels(runs) {
-  const latest = new Set(latestRuns(runs));
-  return runs.filter((c) => latest.has(c) || String(c.conclusion).toUpperCase() !== 'CANCELLED');
+const latestRuns = (runs) => pickRuns(runs, checkKey);
+const isCancelled = (c) => String(c.conclusion).toUpperCase() === 'CANCELLED';
+// The check-runs API (with filter=all) keeps every re-run attempt in the check suite of the original workflow run; a
+// new workflow run, such as one that replaced a run concurrency cancelled, gets a new suite. A run without a suite id
+// stands alone.
+const suiteKey = (c) => { const key = checkKey(c); return key && c.check_suite?.id != null ? JSON.stringify([key, c.check_suite.id]) : null; };
+// First-pass CI judges the first attempt of each check in each suite (attempts run one after another, so it is also
+// the first to complete). A failure, cancel or timeout that a re-run fixed therefore still fails first-pass CI. A
+// cancelled suite that nobody re-ran is not a verdict when another suite judged the same check.
+function firstAttempts(runs) {
+  const first = pickRuns(runs, suiteKey, true);
+  const last = new Set(pickRuns(runs, suiteKey));
+  const judged = new Set(first.filter((c) => !isCancelled(c)).map(checkKey).filter(Boolean));
+  return first.filter((c) => !isCancelled(c) || !last.has(c) || !judged.has(checkKey(c)));
 }
 const redactValue = (value, secret) => {
   if (!secret) return value;
@@ -62,8 +77,15 @@ export function windows(end) {
   return { current: { from: shift(end, -6), to: end }, baseline: { from: shift(end, -20), to: shift(end, -7) } };
 }
 export function inWindow(ts, w) { const t = Date.parse(ts); return t >= Date.parse(w.from) && t < Date.parse(w.to) + DAY; }
+// Collects string values, so an ID at the start of a body line is not glued to an escaped "\n".
+const texts = (v) => {
+  if (typeof v === 'string') return [v];
+  if (Array.isArray(v)) return v.flatMap(texts);
+  return v && typeof v === 'object' ? Object.values(v).flatMap(texts) : [];
+};
 export function extractIssues(pr) {
-  return [...new Set(JSON.stringify([pr.title, pr.headRefName, pr.body, pr.closingIssuesReferences]).toUpperCase().match(/\bOVD-\d+\b/g) ?? [])];
+  const ids = texts([pr.title, pr.headRefName, pr.body, pr.closingIssuesReferences]).join('\n').match(/\bOVD-\d+\b/gi) ?? [];
+  return [...new Set(ids.map((id) => id.toUpperCase()))];
 }
 const QA_VERDICT = /^QA:\s*(PASS|FAIL)\b/gm;
 const REPAIR_PATTERNS = [/repair budget(?: now)? used:\s*(\d+)\s*\/\s*2/gi, /repair round\s*(\d+)/gi, /round-(\d+) repair/gi];
@@ -83,12 +105,12 @@ function repairRounds(comments, qaFailed) {
 }
 function firstPassCI(checks) {
   if (checks.length === 0) return 'unknown';
-  return withoutSupersededCancels(checks).every(headPass) ? 'pass' : 'fail';
+  return firstAttempts(checks).every(headPass) ? 'pass' : 'fail';
 }
 export function analyzePR(pr, detail, checks, ignoreChecks = DEFAULT_IGNORE_CHECKS) {
   const comments = (detail.comments ?? []).map((c) => c.body ?? '');
   const qa = qaVerdict(comments);
-  const re = ignoreChecks ? new RegExp(ignoreChecks, 'i') : null;
+  const re = ignoreRegex(ignoreChecks);
   const rollup = latestRuns((detail.statusCheckRollup ?? []).filter((c) => !ignored(c, re)));
   return { ...pr, issues: extractIssues({ ...pr, closingIssuesReferences: detail.closingIssuesReferences }),
     accepted: rollup.length > 0 && rollup.every(headPass),
@@ -102,9 +124,11 @@ export function summarize(prs, ledger, window) {
   const known = selected.filter((p) => p.ci !== 'unknown' && p.qa !== 'none');
   const passed = known.filter((p) => p.ci === 'pass' && p.qa === 'pass' && p.repairs === 0).length;
   const accepted = selected.filter((p) => p.accepted).length;
+  // A PR's spend includes its lines from before the window (work on it can start earlier), up to the window end.
   // Issue-only spend is attributed once, and only when the issue identifies one PR.
+  const upToEnd = ledger.filter((l) => Date.parse(l.ts) < Date.parse(window.to) + DAY);
   const spending = selected.map((p) => {
-    const attributed = lines.filter((l) => l.pr != null ? l.pr === p.number : l.issue && p.issues.includes(l.issue) && prs.filter((q) => q.issues.includes(l.issue)).length === 1);
+    const attributed = upToEnd.filter((l) => l.pr != null ? l.pr === p.number : l.issue && p.issues.includes(l.issue) && prs.filter((q) => q.issues.includes(l.issue)).length === 1);
     return { number: p.number, opus: p.opus, usd: attributed.length ? attributed.reduce((s, l) => s + l.usd, 0) : null };
   });
   const values = spending.filter((p) => p.usd !== null).sort((a, b) => a.usd - b.usd);
@@ -162,14 +186,17 @@ export function createGh({ cacheDir, noCache = false, ttl = 60, now = Date.now()
 export function loadPRs(gh, repo, window, ignoreChecks = DEFAULT_IGNORE_CHECKS) {
   const list = gh(['pr', 'list', '-R', repo, '--state', 'merged', '--base', 'main', '--search', `merged:${window.from}..${window.to}`, '--limit', '1000', '--json', 'number,title,body,mergedAt,headRefName,labels,additions,deletions,author,url']);
   if (list.length >= 1000) throw new Error('PR query reached the 1000-PR limit; refusing a potentially incomplete report');
+  const re = ignoreRegex(ignoreChecks);
   return list.filter((p) => inWindow(p.mergedAt, window)).map((p) => {
     const detail = gh(['pr', 'view', String(p.number), '-R', repo, '--json', 'number,commits,comments,reviews,statusCheckRollup,closingIssuesReferences'], true);
     let checks = [];
     for (const commit of (detail.commits ?? []).slice(0, 4)) {
-      const result = gh(['api', `repos/${repo}/commits/${commit.oid}/check-runs?per_page=100`], true);
+      // filter=all returns every attempt; the default (latest) hides a failed attempt that a re-run replaced.
+      const result = gh(['api', `repos/${repo}/commits/${commit.oid}/check-runs?per_page=100&filter=all`], true);
       if (result.total_count > 100) throw new Error(`PR ${p.number}: more than 100 first-commit checks; incomplete data`);
       checks = result.check_runs ?? [];
-      if (checks.length) break;
+      // A commit with only ignored runs, such as Vercel Preview Comments on a commit pushed before CI ran, is skipped.
+      if (checks.some((c) => !ignored(c, re))) break;
     }
     return analyzePR(p, detail, checks, ignoreChecks);
   });
