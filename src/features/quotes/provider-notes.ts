@@ -1,4 +1,41 @@
 export const PROVIDER_NOTES_PREVIEW_CHARS = 240;
+
+/**
+ * `raw_payload.notesSource` value that marks an offer's `notes` as text copied from the
+ * provider's own page. The worker writes it (worker/src/vendorQuoteOffer.ts) only from
+ * `providerNotes`; worker automation status goes to `raw_payload.workerNotes` instead.
+ */
+export const PROVIDER_NOTES_SOURCE = "provider";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * The only path from an offer row to the customer "Provider notes" block. Rows persisted
+ * before OVD-982 hold worker automation text in `notes` with no marker, so `notes` alone is
+ * never trusted: it counts only when the offer's own raw_payload says it is provider-sourced.
+ */
+export function resolveProviderNotes(notes: unknown, offerRawPayload: unknown): string | null {
+  if (typeof notes !== "string" || notes.trim().length === 0) {
+    return null;
+  }
+  return asRecord(offerRawPayload)?.notesSource === PROVIDER_NOTES_SOURCE ? notes : null;
+}
+
+/** Worker automation status persisted in `raw_payload.workerNotes`; internal views only. */
+export function readWorkerNotes(offerRawPayload: unknown): string[] {
+  const workerNotes = asRecord(offerRawPayload)?.workerNotes;
+  if (!Array.isArray(workerNotes)) {
+    return [];
+  }
+  return workerNotes
+    .filter((note): note is string => typeof note === "string")
+    .map((note) => note.trim())
+    .filter(Boolean);
+}
 export const PROVIDER_NOTES_MAX_CHARS = 2000;
 
 // C0/C1 controls, zero-width and bidi-override characters, built from escapes.
