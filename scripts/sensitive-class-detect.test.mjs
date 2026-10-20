@@ -806,6 +806,19 @@ describe("workflow", () => {
     expect(workflow.on.pull_request.types).toContain("edited");
   });
 
+  // QA @ b5f2340c: nothing pinned the base checkout, so switching it to the PR head left every test green.
+  it("checks out the base sha without saved credentials, and runs the detector from that checkout", () => {
+    const checkout = job.steps.find((entry) => String(entry.uses ?? "").startsWith("actions/checkout@"));
+    expect(checkout).toBeDefined();
+    expect(checkout.with.ref).toBe("${{ github.event.pull_request.base.sha }}");
+    expect(checkout.with["persist-credentials"]).toBe(false);
+    expect(job.steps.filter((entry) => String(entry.uses ?? "").startsWith("actions/checkout@"))).toHaveLength(1);
+    expect(job.steps.indexOf(checkout)).toBeLessThan(job.steps.indexOf(step));
+    expect(step.run).toContain("node scripts/sensitive-class-detect.mjs ");
+    expect(workflow.on.pull_request_target).toBeUndefined();
+    expect(workflow.permissions).toEqual({ contents: "read", "pull-requests": "read" });
+  });
+
   it("runs the detect step with GitHub's default shell (bash -e) and no inline expressions", () => {
     expect(step).toBeDefined();
     expect(step.shell).toBeUndefined();
