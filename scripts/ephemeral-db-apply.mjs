@@ -255,7 +255,7 @@ export function rollbacksNewestFirst(drafts, rollbackFiles) {
   const stems = new Set(drafts.map((path) => draftStem(path)));
   return rollbackFiles
     .filter((path) => stems.has(rollbackStem(path)))
-    .sort((left, right) => (rollbackStem(left) < rollbackStem(right) ? 1 : rollbackStem(left) > rollbackStem(right) ? -1 : 0));
+    .sort((left, right) => compareStrings(rollbackStem(right), rollbackStem(left)));
 }
 
 /** True when the leading comment block declares `-- ovd: idempotent` on its own line. */
@@ -562,6 +562,63 @@ export function decideResult(report) {
   return ok ? "pass" : "fail";
 }
 
+function gitRunner(exec, root) {
+  return (...args) => {
+    const result = exec("git", args, { cwd: root });
+    if (result.error || result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${errorExcerpt(result)}`);
+    return result.stdout ?? "";
+  };
+}
+
+function recordChangeWarnings({ warn, checkerSource, changes, families, baseFilenames }) {
+  if (checkerSource === "head") warn("checker scripts came from the PR head, not the base; this run does not prove an unmodified gate");
+  for (const path of changes.modifiedMigrations) warn(`${path} edits a migration already on the base; production will not re-run it`);
+  for (const path of changes.deletedMigrations) warn(`${path} deletes a migration already on the base`);
+  for (const path of findOutOfOrder(changes.migrations, baseFilenames)) warn(`${path} is not newer than the latest base migration`);
+  for (const path of changes.invalidMigrations) warn(`${path} is not a valid migration filename and was not applied`);
+  for (const { file, reason } of families.excluded) warn(`${file} was not applied: ${reason}`);
+}
+
+/**
+ * Unpacks the base tree into a scratch project directory and starts the local
+ * database from it, so only the base migrations are applied. Returns the project
+ * directory and the start failure excerpt (null when the start succeeded).
+ */
+function startBaseDatabase({ git, exec, root, workDir, log, base }) {
+  const project = join(workDir, "base-project");
+  mkdirSync(project, { recursive: true });
+  git("archive", "--format=tar", `--output=${join(workDir, "base.tar")}`, base, "supabase");
+  const untar = exec("tar", ["-xf", join(workDir, "base.tar"), "-C", project], { cwd: root });
+  if (untar.error || untar.status !== 0) throw new Error(`extracting the base tree failed: ${errorExcerpt(untar)}`);
+  if (existsSync(join(project, "supabase/.temp/project-ref"))) throw new Error("base tree carries a linked project ref; refusing to start");
+  log(`starting the local database from the base tree (${project})`);
+  const start = exec("supabase", ["db", "start", "--workdir", project], { cwd: root });
+  return { project, startFailure: start.error || start.status !== 0 ? errorExcerpt(start) : null };
+}
+
+/** Apply stage after the migrations: policy pgTAP, then the families' drafts and their pending pgTAP. */
+function runApplyStage({ report, root, families, exec, project, workDir, applyFile, pendingTests, log }) {
+  log("running policy pgTAP");
+  try {
+    const receipt = stagePolicyTests(join(root, "supabase/tests"), join(workDir, "policy-tests"));
+    report.policyTests = { ...runPgTap({ exec, root, project, dir: join(workDir, "policy-tests"), expectedFiles: receipt.selectedSql.length }), staged: receipt.selectedSql.length };
+  } catch (error) {
+    report.policyTests = { status: "fail", error: error.message };
+  }
+
+  report.drafts = { ...report.drafts, ...applyInOrder(families.drafts, applyFile) };
+  if (report.drafts.failed) {
+    report.pendingTests = pendingTests(skippedTests(`draft ${report.drafts.failed.file} failed`));
+  } else if (families.pendingTests.length === 0) {
+    report.pendingTests = pendingTests(skippedTests("no pending tests in the touched draft families"));
+  } else {
+    log("running the draft families' pending pgTAP");
+    const dir = join(workDir, "pending-tests");
+    const expectedFiles = stagePendingTests(root, families.pendingTests, dir);
+    report.pendingTests = pendingTests(runPgTap({ exec, root, project, dir, expectedFiles }));
+  }
+}
+
 /**
  * Runs the whole flow with an injected `exec(cmd, args, { cwd }) -> { status, stdout, stderr }`.
  * Returns the report; never throws for a database or test failure.
@@ -570,11 +627,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   const report = emptyReport({ mode, base, head, checkerSource, stage: rollback ? "rollback" : "apply" });
   assertAllowedTarget(report.target);
   assertLocalDatabaseUrl(dbUrl);
-  const git = (...args) => {
-    const result = exec("git", args, { cwd: root });
-    if (result.error || result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${errorExcerpt(result)}`);
-    return result.stdout ?? "";
-  };
+  const git = gitRunner(exec, root);
 
   const changes = selectChanges(parseNameStatus(git("diff", "--name-status", "--no-renames", base, head)), paths);
   const families = resolveDraftFamilies({ touched: [...changes.touchedDrafts, ...changes.touchedPendingTests], ...readDraftInventory(root, paths) });
@@ -592,12 +645,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   const pendingTests = (result) => ({ touched: changes.touchedPendingTests, selected: families.pendingTests, ...result });
   report.pendingTests = pendingTests(skippedTests("not run"));
   const warn = (message) => { report.warnings.push(message); log(`warning: ${message}`); };
-  if (checkerSource === "head") warn("checker scripts came from the PR head, not the base; this run does not prove an unmodified gate");
-  for (const path of changes.modifiedMigrations) warn(`${path} edits a migration already on the base; production will not re-run it`);
-  for (const path of changes.deletedMigrations) warn(`${path} deletes a migration already on the base`);
-  for (const path of findOutOfOrder(changes.migrations, baseFilenames)) warn(`${path} is not newer than the latest base migration`);
-  for (const path of changes.invalidMigrations) warn(`${path} is not a valid migration filename and was not applied`);
-  for (const { file, reason } of families.excluded) warn(`${file} was not applied: ${reason}`);
+  recordChangeWarnings({ warn, checkerSource, changes, families, baseFilenames });
   const usedPaths = [...changes.migrations, ...families.drafts, ...families.pendingTests];
   if (rollback) usedPaths.push(...familyRecords.flatMap((family) => family.rollbacks));
   const unsafePaths = findUnsafePaths(usedPaths);
@@ -612,16 +660,9 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
   }
 
   // Base tree in a scratch project directory: db start applies only the base migrations.
-  const project = join(workDir, "base-project");
-  mkdirSync(project, { recursive: true });
-  git("archive", "--format=tar", `--output=${join(workDir, "base.tar")}`, base, "supabase");
-  const untar = exec("tar", ["-xf", join(workDir, "base.tar"), "-C", project], { cwd: root });
-  if (untar.error || untar.status !== 0) throw new Error(`extracting the base tree failed: ${errorExcerpt(untar)}`);
-  if (existsSync(join(project, "supabase/.temp/project-ref"))) throw new Error("base tree carries a linked project ref; refusing to start");
-  log(`starting the local database from the base tree (${project})`);
-  const start = exec("supabase", ["db", "start", "--workdir", project], { cwd: root });
-  if (start.error || start.status !== 0) {
-    report.baseline = { ...report.baseline, status: "fail", error: errorExcerpt(start) };
+  const { project, startFailure } = startBaseDatabase({ git, exec, root, workDir, log, base });
+  if (startFailure) {
+    report.baseline = { ...report.baseline, status: "fail", error: startFailure };
     return { ...report, result: "fail" };
   }
   report.baseline.status = "pass";
@@ -660,25 +701,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
     return { ...report, result: decideResult(report) };
   }
 
-  log("running policy pgTAP");
-  try {
-    const receipt = stagePolicyTests(join(root, "supabase/tests"), join(workDir, "policy-tests"));
-    report.policyTests = { ...runPgTap({ exec, root, project, dir: join(workDir, "policy-tests"), expectedFiles: receipt.selectedSql.length }), staged: receipt.selectedSql.length };
-  } catch (error) {
-    report.policyTests = { status: "fail", error: error.message };
-  }
-
-  report.drafts = { ...report.drafts, ...applyInOrder(families.drafts, applyWith(false)) };
-  if (report.drafts.failed) {
-    report.pendingTests = pendingTests(skippedTests(`draft ${report.drafts.failed.file} failed`));
-  } else if (families.pendingTests.length === 0) {
-    report.pendingTests = pendingTests(skippedTests("no pending tests in the touched draft families"));
-  } else {
-    log("running the draft families' pending pgTAP");
-    const dir = join(workDir, "pending-tests");
-    const expectedFiles = stagePendingTests(root, families.pendingTests, dir);
-    report.pendingTests = pendingTests(runPgTap({ exec, root, project, dir, expectedFiles }));
-  }
+  runApplyStage({ report, root, families, exec, project, workDir, applyFile: applyWith(false), pendingTests, log });
   return { ...report, result: decideResult(report) };
 }
 
@@ -734,30 +757,39 @@ function spawnExec(cmd, args, { cwd }) {
   return spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 64_000_000, timeout: 19 * 60_000 });
 }
 
+/** A run that threw before it could build a report becomes an "error" report. */
+function runGuarded(options, mode, workDir) {
+  try {
+    return runEphemeralDb({ ...options, mode, exec: spawnExec, workDir, log: (line) => console.log(`[ephemeral-db] ${line}`) });
+  } catch (error) {
+    return {
+      ...emptyReport({ mode, base: options.base, head: options.head, checkerSource: options.checkerSource, stage: options.rollback ? "rollback" : "apply" }),
+      result: "error",
+      error: error.message,
+    };
+  }
+}
+
+/** GitHub Actions error annotations for the failures a reader should see first. */
+function printAnnotations(report) {
+  if (report.migrations.failed) console.log(`::error file=${report.migrations.failed.file}::migration failed in the ephemeral database`);
+  for (const family of report.families ?? []) {
+    if (family.rollback?.error) console.log(`::error::${family.rollback.error.split("\n")[0]}`);
+  }
+  if (report.error) console.log(`::error::ephemeral-db: ${report.error}`);
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const mode = options.enforce ? "enforce" : "report";
   // The workflow passes --work-dir so its stop step can find <work-dir>/base-project.
   const workDir = options.workDir ? resolve(options.workDir) : mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), "ephemeral-db-"));
   mkdirSync(workDir, { recursive: true });
-  let report;
-  try {
-    report = runEphemeralDb({ ...options, mode, exec: spawnExec, workDir, log: (line) => console.log(`[ephemeral-db] ${line}`) });
-  } catch (error) {
-    report = {
-      ...emptyReport({ mode, base: options.base, head: options.head, checkerSource: options.checkerSource, stage: options.rollback ? "rollback" : "apply" }),
-      result: "error",
-      error: error.message,
-    };
-  }
+  const report = runGuarded(options, mode, workDir);
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (options.report) writeFileSync(options.report, json);
   console.log(json);
-  if (report.migrations.failed) console.log(`::error file=${report.migrations.failed.file}::migration failed in the ephemeral database`);
-  for (const family of report.families ?? []) {
-    if (family.rollback?.error) console.log(`::error::${family.rollback.error.split("\n")[0]}`);
-  }
-  if (report.error) console.log(`::error::ephemeral-db: ${report.error}`);
+  printAnnotations(report);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, renderSummary(report));
   const passed = report.result === "pass" || report.result === "planned";
   const blocks = options.enforce || options.rollback;

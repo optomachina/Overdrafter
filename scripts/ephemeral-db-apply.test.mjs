@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -519,6 +520,46 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--psql", "ssh"])).toThrow(/--psql/);
     expect(() => parseArgs(["--base"])).toThrow(/incomplete/);
     expect(() => parseArgs(["--project-ref", "x"])).toThrow(/unknown/);
+  });
+});
+
+describe("ephemeral-db CLI", () => {
+  const script = join(ROOT, "scripts/ephemeral-db-apply.mjs");
+  const cli = (args, env = {}) =>
+    spawnSync(process.execPath, [script, "--root", ROOT, "--base", "HEAD", "--head", "HEAD", "--work-dir", workDir(), ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_STEP_SUMMARY: "", ...env, RUNNER_TEMP: tmpdir() },
+    });
+
+  it("plans without a database, exits 0 and appends the step summary", () => {
+    const summary = join(workDir(), "summary.md");
+    const result = cli(["--plan-only", "--rollback"], { GITHUB_STEP_SUMMARY: summary });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('"result": "planned"');
+    expect(result.stdout).not.toContain("::error");
+    expect(readFileSync(summary, "utf8")).toContain("## Ephemeral DB (report mode): PLANNED");
+  });
+
+  it("turns a refused database URL into an error report and annotation", () => {
+    const refused = ["--db-url", "postgresql://postgres:postgres@db.example.com:5432/postgres"];
+    const report = cli(refused);
+    expect(report.status).toBe(0);
+    expect(report.stdout).toContain('"result": "error"');
+    expect(report.stdout).toContain("::error::ephemeral-db:");
+    expect(report.stdout).toContain("[ephemeral-db] result error (report mode: exit 0)");
+  });
+
+  it("exits 1 on an error result in the rollback stage and in enforce mode", () => {
+    const refused = ["--db-url", "postgresql://postgres:postgres@db.example.com:5432/postgres"];
+    for (const flag of ["--rollback", "--enforce"]) {
+      const result = cli([...refused, flag]);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('"result": "error"');
+      expect(result.stdout).not.toContain("report mode: exit 0");
+    }
+    const reportFile = join(workDir(), "report.json");
+    cli([...refused, "--rollback", "--report", reportFile]);
+    expect(JSON.parse(readFileSync(reportFile, "utf8"))).toMatchObject({ stage: "rollback", result: "error" });
   });
 });
 
