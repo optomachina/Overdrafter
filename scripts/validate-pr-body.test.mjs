@@ -23,6 +23,7 @@ import {
   PROVIDER_GO_LIVE_HEADING,
   PROVIDER_GO_LIVE_AUTO_SIGNATURE,
   PROVIDER_GO_LIVE_REQUIRED_ITEMS,
+  STREAM_SAFE_RUN,
   collectGoLiveEvidenceLinks,
   createGoLiveScan,
   enablesProvider,
@@ -30,7 +31,9 @@ import {
   fenceCandidateColumns,
   main,
   scanEntity,
+  streamSafeText,
   validatePrBody,
+  validateProviderGoLive,
   verifyEvidenceLinks,
 } from "./validate-pr-body.mjs";
 
@@ -1340,6 +1343,218 @@ describe("character reference scan does bounded work", () => {
   });
 });
 
+// These count the work normalization is handed instead of reading a clock. NFKC sorts each
+// run of combining marks into canonical order and the sort costs the square of the run, so
+// what matters is the longest run of marks any normalize call receives.
+describe("combining marks cannot make normalization quadratic", () => {
+  const JOINER = "\u034F";
+  const marks = (count, mark = "\u0301") => mark.repeat(count);
+
+  // A character is a starter when canonical ordering never moves it. NFD swaps two marks of
+  // different combining classes, so a mark is moved by one probe or the other.
+  const nonStarters = new Map();
+  function isNonStarter(char) {
+    let known = nonStarters.get(char);
+    if (known === undefined) {
+      const behind = `\u0345${char}`;
+      const before = `${char}\u0334`;
+      known = behind.normalize("NFD") !== behind || before.normalize("NFD") !== before;
+      nonStarters.set(char, known);
+    }
+    return known;
+  }
+
+  /** Lengths of the runs of marks that canonical ordering has to sort in `text`. */
+  function markRuns(text) {
+    const runs = [];
+    let run = 0;
+    for (const char of text.normalize("NFKD")) {
+      if (isNonStarter(char)) {
+        run += 1;
+      } else {
+        if (run > 0) runs.push(run);
+        run = 0;
+      }
+    }
+    if (run > 0) runs.push(run);
+    return runs;
+  }
+
+  /** Run `work` and report every string `normalize` received, restoring it either way. */
+  function recordNormalizeInputs(work) {
+    const original = String.prototype.normalize;
+    const received = [];
+    String.prototype.normalize = function recording(form) {
+      received.push(String(this));
+      return original.call(this, form);
+    };
+    try {
+      work();
+    } finally {
+      String.prototype.normalize = original;
+    }
+    return received;
+  }
+
+  function normalizeWork(body) {
+    const received = recordNormalizeInputs(() => {
+      validateProviderGoLive(body);
+      validatePrBody(body);
+    });
+    let longestRun = 0;
+    let sortCost = 0;
+    let handed = 0;
+    for (const text of received) {
+      handed += text.length;
+      for (const run of markRuns(text)) {
+        longestRun = Math.max(longestRun, run);
+        sortCost += run * run;
+      }
+    }
+    return { handed, longestRun, sortCost };
+  }
+
+  it("leaves text with at most 30 marks in a row as it was", () => {
+    expect(STREAM_SAFE_RUN).toBe(30);
+    for (const text of [
+      "",
+      "Provider go-live",
+      `e${marks(1)}`,
+      `x${marks(STREAM_SAFE_RUN)}`,
+      marks(STREAM_SAFE_RUN),
+      `${marks(STREAM_SAFE_RUN)}x${marks(STREAM_SAFE_RUN)}`,
+      "\uFF9E\u0301".repeat(STREAM_SAFE_RUN / 2),
+      `a${marks(STREAM_SAFE_RUN)} ${marks(STREAM_SAFE_RUN)}b`,
+    ]) {
+      expect(streamSafeText(text), text).toBe(text);
+    }
+  });
+
+  it("puts a joiner after every 30 marks that have another mark behind them", () => {
+    const run = STREAM_SAFE_RUN;
+    expect(streamSafeText(marks(run + 1))).toBe(`${marks(run)}${JOINER}${marks(1)}`);
+    expect(streamSafeText(marks(2 * run))).toBe(`${marks(run)}${JOINER}${marks(run)}`);
+    expect(streamSafeText(marks(2 * run + 1))).toBe(`${marks(run)}${JOINER}${marks(run)}${JOINER}${marks(1)}`);
+    expect(streamSafeText(`x${marks(run + 1)}y`)).toBe(`x${marks(run)}${JOINER}${marks(1)}y`);
+    // Marks of different classes and the halfwidth sound marks count the same.
+    expect(streamSafeText("\u0316\u0301".repeat(run))).toBe(`${"\u0316\u0301".repeat(run / 2)}${JOINER}${"\u0316\u0301".repeat(run / 2)}`);
+    expect(streamSafeText("\uFF9E".repeat(run + 1))).toBe(`${"\uFF9E".repeat(run)}${JOINER}\uFF9E`);
+  });
+
+  it("only ever adds joiners, and none unless a run is longer than the cap", () => {
+    // A seeded generator, so a failure repeats exactly.
+    let seed = 20261020;
+    const next = (bound) => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      // The high bits: the low bits of this generator repeat with a short period.
+      return (seed >>> 8) % bound;
+    };
+    const MARK_RUN = /(?:(?!\u034F)[\p{M}\uFF9E\uFF9F])+/gu;
+    const pieces = ["a", "b", " ", "-", "<b>", "\u0301", "\u0316", "\u0301", "\uFF9E", "\u3099", "\u0F73", "&#x301;"];
+    for (let round = 0; round < 300; round += 1) {
+      let text = "";
+      for (let piece = 0, count = 10 + next(200); piece < count; piece += 1) {
+        const repeat = next(8) === 0 ? 20 + next(60) : 1 + next(3);
+        text += pieces[next(pieces.length)].repeat(repeat);
+      }
+      const safe = streamSafeText(text);
+      expect(safe.replaceAll(JOINER, ""), text).toBe(text);
+      const longest = Math.max(0, ...[...text.matchAll(MARK_RUN)].map((run) => run[0].length));
+      if (longest <= STREAM_SAFE_RUN) expect(safe, text).toBe(text);
+      // A joiner is a mark by category but a starter, so it ends a run.
+      for (const run of safe.matchAll(MARK_RUN)) expect(run[0].length, text).toBeLessThanOrEqual(STREAM_SAFE_RUN);
+    }
+  });
+
+  it("counts every character that normalizes into marks only, on this Node's Unicode tables", () => {
+    // A character whose NFKD form is nothing but marks can fill a run, so the cap must count it.
+    // Besides the mark category that is U+FF9E and U+FF9F today: letters that NFKC rewrites into
+    // the marks U+3099 and U+309A. A Node or ICU upgrade that adds another fails here. The scan
+    // covers every plane that holds characters.
+    const uncounted = [];
+    const ranges = [
+      [0x80, 0x3ffff],
+      [0xe0000, 0xe0fff],
+    ];
+    for (const [first, last] of ranges) {
+      for (let code = first; code <= last; code += 1) {
+        if (code >= 0xd800 && code <= 0xdfff) continue;
+        const char = String.fromCodePoint(code);
+        if (!Array.from(char.normalize("NFKD")).every(isNonStarter)) continue;
+        const run = char.repeat(STREAM_SAFE_RUN + 1);
+        if (streamSafeText(run) === run) uncounted.push(code.toString(16));
+      }
+    }
+    expect(uncounted).toEqual([]);
+  });
+
+  const WIDTHS = [8 * 1024, 32 * 1024];
+  // A run of marks only reaches normalize whole when the text arrives in one piece. A line of
+  // plain text does, but tags, comments and character references cut the setext scan's text
+  // into pieces of a mark or two, which no cap is needed for, so those kinds only apply to
+  // headings, where the visible text is joined (and decoded) before it is normalized.
+  const directRuns = {
+    "marks of two combining classes": (count) => "\u0316\u0301".repeat(count / 2),
+    "a halfwidth sound mark beside a mark": (count) => "\uFF9E\u0301".repeat(count / 2),
+  };
+  const joinedRuns = {
+    ...directRuns,
+    "marks written as character references": (count) => "&#x316;&#x301;".repeat(count / 2),
+    "marks split by tags": (count) => "\u0316\u0301<b>".repeat(count / 2),
+    "marks split by comments": (count) => "\u0316<!---->\u0301".repeat(count / 2),
+  };
+  const lineShapes = [
+    ["a plain line", (run) => `x${run}`, directRuns],
+    ["a checkbox line", (run) => `- [x] x${run}`, directRuns],
+    ["a quoted line", (run) => `> x${run}`, directRuns],
+    ["an ATX heading", (run) => `### x${run}`, joinedRuns],
+    ["an HTML heading", (run) => `<h2>x${run}</h2>`, joinedRuns],
+    ["a setext heading", (run) => `x${run}\n---`, directRuns],
+    ["a multi-line setext heading", (run) => `x${run}\n${run}\n---`, directRuns],
+  ];
+  const cases = lineShapes.flatMap(([shape, line, runs]) =>
+    Object.entries(runs).map(([kind, run]) => [`${shape} of ${kind}`, line, run]),
+  );
+
+  it.each(cases)("%s: no run of marks is longer than 30 and the work grows linearly", (_name, line, run) => {
+    const work = WIDTHS.map((width) => {
+      const result = normalizeWork(`## Provider go-live\n\n${line(run(width))}\n`);
+      // The test has to be looking at the mark runs, or it proves nothing.
+      expect(result.handed).toBeGreaterThanOrEqual(width / 2);
+      return { width, ...result };
+    });
+    for (const { longestRun, sortCost, handed } of work) {
+      expect(longestRun).toBeLessThanOrEqual(30);
+      // Sorting a run costs its square, so the cap bounds the whole sort by 30 per character.
+      expect(sortCost).toBeLessThanOrEqual(30 * handed);
+    }
+    const [small, large] = work;
+    const scale = large.width / small.width;
+    expect(large.handed).toBeLessThanOrEqual(small.handed * scale * 1.1);
+    expect(large.sortCost).toBeLessThanOrEqual(small.sortCost * scale * 1.1);
+  });
+
+  it("reads a go-live heading the same with a long run of marks near it", () => {
+    const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+    const duplicate = '"Provider go-live" appears 2 times; keep exactly one section';
+    for (const heading of [
+      (run) => `### Provider go-live ${run}`,
+      (run) => `### Provider go-live <!-- ${run} -->`,
+      (run) => `<h2>Provider go-live ${run}</h2>`,
+      (run) => `Provider go-live ${run}\n---`,
+      (run) => `> Provider go-live ${run}\n> ===`,
+      (run) => `Provider ${run}\ngo-live\n---`,
+      // Joiners already in the text are starters, so they change nothing either.
+      (run) => `### Provider go-live${"\u034F".repeat(40)}${run}`,
+    ]) {
+      const plain = validate(`${missingAuto}\n${heading("")}\n`).errors;
+      const long = validate(`${missingAuto}\n${heading("\u0316\u0301".repeat(200))}\n`).errors;
+      expect(plain, heading("")).toContain(duplicate);
+      expect(long, heading("...")).toEqual(plain);
+    }
+  });
+});
+
 const REDOS_CHILD = fileURLToPath(new URL("./validate-pr-body-redos-child.mjs", import.meta.url));
 const REDOS_MISSING = [
   'add Provider go-live checkboxes to "Provider go-live"',
@@ -1375,6 +1590,7 @@ describe("adversarial ReDoS bounds", { timeout: 30_000 }, () => {
     ["a11", 250],
     ["a12", 250],
     ["a13", 250],
+    ["a14", 250],
   ];
 
   it.each(bounded)("%s stays under %i ms and still fails closed", (id, bound) => {

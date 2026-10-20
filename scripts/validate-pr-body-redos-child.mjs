@@ -13,6 +13,12 @@ function repeatTo(unit, width = WIDTH) {
   return unit.repeat(Math.ceil(width / unit.length)).slice(0, width);
 }
 
+// Runs of combining marks that alternate between combining classes (U+0316, U+0301), and
+// of a halfwidth sound mark beside a mark (NFKC turns U+FF9E into a mark). Normalization
+// sorts each run, and that sort costs the square of the run unless the run is capped.
+const MARK_PAIR = "\u0316\u0301";
+const HALFWIDTH_PAIR = "\uFF9E\u0301";
+
 function goLive(payload) {
   // normalizeText turns a final `\r\n` into `\n` and trim() eats a final CR,
   // LS, or PS. A trailing "#" keeps that character inside the line so the
@@ -149,6 +155,20 @@ const payloads = {
     `&#${"1".repeat(WIDTH / 2)}<b\n${"---\n".repeat(WIDTH / 8)}`,
     `&${"a<b>".repeat(32)}`.repeat(WIDTH / 129),
   ],
+  // Combining marks on a plain line, an ATX, an HTML and a setext heading. (A ticked line would
+  // add an evidence error that repeats the whole line, so it is left to the work-counting tests.)
+  a14: () => {
+    const marks = repeatTo(MARK_PAIR);
+    const halfwidth = repeatTo(HALFWIDTH_PAIR);
+    return [
+      `x${marks}`,
+      `### x${marks}`,
+      `<h2>x${marks}</h2>`,
+      `x${marks}\n---`,
+      `x${halfwidth}`,
+      `### x${halfwidth}`,
+    ];
+  },
   a10k: () => [combined(10_000)],
 };
 
@@ -178,6 +198,11 @@ if (id === "a4") {
     r5: (width) => `${"`".repeat(Math.max(1, width - 1))}\r`,
     setext: (width) => repeatTo("a\n---\n", width),
     entity: (width) => `&#${"1<b>".repeat(Math.floor(width / 4))}`,
+    marksLine: (width) => `x${repeatTo(MARK_PAIR, width)}`,
+    marksAtx: (width) => `### x${repeatTo(MARK_PAIR, width)}`,
+    marksHtml: (width) => `<h2>x${repeatTo(MARK_PAIR, width)}</h2>`,
+    marksSetext: (width) => `x${repeatTo(MARK_PAIR, width)}\n---`,
+    halfwidthMarks: (width) => `### x${repeatTo(HALFWIDTH_PAIR, width)}`,
   };
   const ratios = Object.fromEntries(Object.entries(families).map(([name, make]) => [name, bench(make)]));
   report = { id, ratios, maxRatio: Math.max(...Object.values(ratios).map((row) => row.ratio)) };

@@ -182,13 +182,51 @@ function stripHeadingTags(text) {
 }
 
 /**
+ * The most combining marks in a row that Unicode normalization is handed.
+ * UAX #15 section 13 (Stream-Safe Text Format) uses the same figure.
+ */
+export const STREAM_SAFE_RUN = 30;
+const COMBINING_GRAPHEME_JOINER = "\u034F";
+// Marks, plus the two letters NFKC rewrites into marks: U+FF9E and U+FF9F
+// (halfwidth katakana sound marks) become U+3099 and U+309A. Left out, a run of
+// them next to real marks would get past the cap. A test checks this list
+// against the Unicode tables of the Node it runs on.
+const MARK_OR_MARK_LETTER = String.raw`[\p{M}\uFF9E\uFF9F]`;
+const STREAM_SAFE_BREAK = new RegExp(
+  `(${MARK_OR_MARK_LETTER}{${STREAM_SAFE_RUN}})(?=${MARK_OR_MARK_LETTER})`,
+  "gu",
+);
+
+/**
+ * Put a combining grapheme joiner, which is a starter, after every
+ * STREAM_SAFE_RUN marks that have another mark behind them.
+ *
+ * Normalization sorts each run of marks into canonical order, and ICU's sort
+ * costs the square of the run. Marks that alternate between combining classes
+ * (U+0316, U+0301, ...) made 64 KiB of one line take over a second and a half.
+ * With the joiner no run is longer than the cap, so the sort is linear in total.
+ * Text that never has more than STREAM_SAFE_RUN marks in a row comes back as it
+ * was, and the joiner is not a letter or digit, so squashing drops it.
+ */
+export function streamSafeText(text) {
+  return text.replace(STREAM_SAFE_BREAK, `$1${COMBINING_GRAPHEME_JOINER}`);
+}
+
+/**
+ * The only place the squash code normalizes, so no text reaches NFKC before
+ * streamSafeText has capped its runs of marks.
+ */
+function normalizeNfkc(text) {
+  return streamSafeText(text).normalize("NFKC");
+}
+
+/**
  * Squash heading text to letters and digits, dropping comments and markup and
  * decoding entities, so "### **Provider g&#111;-live** <!-- x -->" still reads
  * as go-live.
  */
 function squashHeading(text) {
-  return decodeEntities(stripHeadingTags(stripComments(text, false).text))
-    .normalize("NFKC")
+  return normalizeNfkc(decodeEntities(stripHeadingTags(stripComments(text, false).text)))
     .toLowerCase()
     .replace(/&[a-z]+;/g, "")
     .replace(/[^a-z0-9]/g, "");
@@ -201,7 +239,7 @@ function createSquashAcc() {
 }
 
 function squashChars(text) {
-  return text.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalizeNfkc(text).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function appendAlnum(acc, alnum) {
