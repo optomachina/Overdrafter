@@ -652,9 +652,16 @@ function collectToleranceCandidates(text: string) {
  *    tighter explicit tolerance exists, and the OVD-683 beta gate asks the user. Rows of one to three
  *    places are read as before (the tightest printed row), which is the safe direction for a quote and
  *    changes nothing for a table without a four-place row.
+ * T4 Raster: a page with a text layer can also carry a raster view whose dimensions only OCR reads. OCR
+ *    digits are not trusted to drop a row, nor to set one in force. When the OCR text prints, on a line of
+ *    dimension callouts only ("2X Ø.1875 THRU"), a decimal that the text layer does not print, with more places
+ *    than T2 found, the text layer did not show every dimension, so the readable sheet is read as T3 reads one:
+ *    a row of more places than both T2's evidence and MOST_PLACES_ASSUMED_IN_FORCE is an unresolved value, never
+ *    dropped. A decimal the text layer prints (the table's own ".0010", every vector dimension OCR reads again)
+ *    is no such evidence, nor is a line that holds anything else (OCR garbles the table: ".005" as ", 5005").
  *
- * Known limit: a dimension that is not in the text layer (outlined text, a raster view) is not seen. The
- * OCR text is not used as evidence because it would also read the table's own ".0010".
+ * Known limit: a raster dimension that OCR does not read, reads with no more places than the text layer prints,
+ * or reads on a line with other text, is not seen.
  */
 const NON_DIMENSION_LINE_PATTERNS: readonly RegExp[] = [
   /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS)\b/i,
@@ -767,12 +774,17 @@ function isNoteNumberOrDate(textBeforeSeparator: string, separator: string, digi
   return YEAR.test(digits) && (separator === "," || DAY_OR_MONTH_BEFORE.test(textBeforeSeparator));
 }
 
+/** The text with every look-alike decimal separator (a middle dot, the Arabic comma, ...) as a point or a comma. */
+function foldDecimalSeparators(text: string): string {
+  return text.replaceAll(DECIMAL_POINT_LOOK_ALIKES, ".").replaceAll(DECIMAL_COMMA_LOOK_ALIKES, ",");
+}
+
 /**
  * T2: the most decimal places printed anywhere in the text, except the values of the table's own rows, with
  * the garbled forms of a decimal counted as the places they may carry.
  */
 function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<number>): number {
-  const text = sourceText.replaceAll(DECIMAL_POINT_LOOK_ALIKES, ".").replaceAll(DECIMAL_COMMA_LOOK_ALIKES, ",");
+  const text = foldDecimalSeparators(sourceText);
   let most = 0;
   for (const match of text.matchAll(DECIMAL_NUMBER)) {
     if (tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
@@ -801,10 +813,36 @@ function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<num
   return most;
 }
 
+/**
+ * T4: the most places of a decimal that the OCR text prints on a line of dimension callouts only ("2X Ø.1875 THRU"),
+ * and that the text layer does not print anywhere, or 0. A decimal the text layer prints is the same number read
+ * twice, and a line that is not only dimensions is where OCR garbles the table and the notes (".005" as ", 5005").
+ */
+function mostPlacesOnlyInRaster(layerText: string, rasterText: string): number {
+  if (rasterText.trim().length === 0) {
+    return 0;
+  }
+  // The digits after each separator, so ".1875" and OCR's ",1875" are the same number.
+  const inLayer = new Set(Array.from(foldDecimalSeparators(layerText).matchAll(DECIMAL_NUMBER), (match) => match[0].slice(1)));
+  let most = 0;
+  for (const line of foldDecimalSeparators(rasterText).split("\n")) {
+    if (line.length > MAX_EVIDENCE_LINE_LENGTH || NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line)) || !isDimensionOnlyLine(line)) {
+      continue;
+    }
+    for (const match of line.matchAll(DECIMAL_NUMBER)) {
+      if (!inLayer.has(match[0].slice(1))) {
+        most = Math.max(most, match[0].length - 1);
+      }
+    }
+  }
+  return most;
+}
+
 function selectApplicableToleranceRows(
   text: string,
   candidates: ToleranceCandidate[],
   dimensionsReadable: boolean,
+  rasterText: string,
 ): { candidates: ToleranceCandidate[]; unresolvedRows: Set<ToleranceCandidate> } {
   const rows = candidates.filter((candidate) => candidate.rowPlaces !== null);
   if (rows.length === 0) {
@@ -815,10 +853,15 @@ function selectApplicableToleranceRows(
   const readable = dimensionsReadable ? countReadableDimensions(text, tableValueStarts) : null;
   if (readable !== null && readable.complete && readable.dimensions >= MIN_READABLE_DIMENSIONS) {
     const most = mostPlacesPrinted(text, tableValueStarts);
-    return {
-      candidates: candidates.filter((candidate) => candidate.rowPlaces === null || candidate.rowPlaces <= most),
-      unresolvedRows: new Set(),
-    };
+    if (mostPlacesOnlyInRaster(text, rasterText) <= most) {
+      return {
+        candidates: candidates.filter((candidate) => candidate.rowPlaces === null || candidate.rowPlaces <= most),
+        unresolvedRows: new Set(),
+      };
+    }
+    // T4: OCR read a decimal that the text layer does not print, with more places than the text layer prints.
+    const inForce = Math.max(most, MOST_PLACES_ASSUMED_IN_FORCE);
+    return { candidates, unresolvedRows: new Set(rows.filter((row) => (row.rowPlaces ?? 0) > inForce)) };
   }
 
   return {
@@ -947,7 +990,7 @@ function readUnresolvedRow(candidate: ToleranceCandidate, declared: { inch: bool
   return unresolvedReading(candidate, candidate.value * (unit === null ? SMALLEST_BARE_READING : UNIT_TO_INCH[unit]));
 }
 
-function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean } = {}) {
+function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean; rasterText?: string } = {}) {
   const text = normalizeUnitText(sourceText);
   const declared = detectDeclaredUnits(text);
   const drawingUnits: DrawingUnits =
@@ -956,6 +999,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
     text,
     collectToleranceCandidates(text),
     options.dimensionsReadable !== false,
+    normalizeUnitText(options.rasterText ?? ""),
   );
   if (candidates.length === 0) {
     return null;
@@ -2396,8 +2440,12 @@ export function inferDrawingSignalsFromPdf(input: {
   const notes = collectNotes(lines);
   const threads = collectThreads(joinedText);
   // OVD-989: dimension decimals are read from a real text layer only; OCR digits are not trusted to
-  // rule a general-tolerance row out.
-  const inferredTightestTolerance = estimateTightestTolerance(joinedText, { dimensionsReadable: input.pdfText.ocr !== true });
+  // rule a general-tolerance row out. A page with a text layer is OCR'd too (a raster view beside vector
+  // text): a decimal only its OCR prints keeps a row from being dropped (T4), never sets it in force.
+  const inferredTightestTolerance = estimateTightestTolerance(joinedText, {
+    dimensionsReadable: input.pdfText.ocr !== true,
+    rasterText: input.pdfText.ocr === true ? "" : input.pdfText.pages.map((page) => page.ocrText).join("\n"),
+  });
 
   const fieldResults = {
     description: descriptionCandidate.selected,

@@ -473,10 +473,10 @@ describe("title block cells", () => {
     });
 
     it("does not join a line more than 3 lines under the previous one, and flags the cell on layout text", () => {
-      const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], "", "", "", [[2, "CLASS 2"]]);
+      const sheet = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE, BLACK"]], "", "", "", [[2, "CLASS 2"]]);
       expect(cell(sheet, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
-      const near = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], "", [[2, "CLASS 2"]]);
-      expect(cell(near, "finish")).toMatchObject({ status: "value", value: "ANODIZE CLASS 2" });
+      const near = layoutSheet([[0, "FINISH"]], [[2, "ANODIZE, BLACK"]], "", [[2, "CLASS 2"]]);
+      expect(cell(near, "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK CLASS 2" });
     });
   });
 
@@ -755,8 +755,8 @@ describe("title block cells", () => {
     });
 
     it("joins the two lines of a material that wraps", () => {
-      const sheet = layoutSheet([[0, "MATERIAL"]], [[2, "ALUMINUM"]], [[2, "6061-T6"]]);
-      expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061-T6", valueLines: [2, 3] });
+      const sheet = layoutSheet([[0, "MATERIAL"]], [[2, "AL 6061-T6"]], [[2, "PER AMS 4027"]]);
+      expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "AL 6061-T6 PER AMS 4027", valueLines: [2, 3] });
     });
   });
 
@@ -1106,6 +1106,146 @@ describe("title block cells", () => {
         const words = [...label("FINISH", 330, 730), ...value("ANODIZE TYPE II", 340, 738), ...value("CLASS 2 BLACK", 340, 750)];
         expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE TYPE II CLASS 2 BLACK" });
       });
+    });
+  });
+
+  // Any cell can be stacked under MATERIAL or FINISH, with a label the vocabulary does not know (#884 review, round 2):
+  // SURFACE TREATMENT, PAINT, THICKNESS over .125. Its text is never part of the value. With word boxes the size
+  // tells: a label is set smaller than the value, so it ends the value when it is shaped like a label, and a line set
+  // smaller that is not shaped like one, or a line set taller than the one above it (a label over its value), leaves the
+  // field flagged. Where no size tells (layout text, or a template that sets its values like its labels), a value of
+  // more than one line with a line shaped like a label (at most three words of letters only) is flagged: "ALUMINUM"
+  // over "6061-T6" cannot be told from "THICKNESS" over ".125".
+  describe("a cell the vocabulary does not know, stacked under MATERIAL or FINISH", () => {
+    const UNLISTED = ["SURFACE TREATMENT", "PAINT", "PAINT COLOR", "THICKNESS", "GAUGE", "QTY", "LOT CODE", "STOCK"];
+    const FLAGGED = { status: "ambiguous", value: null, reason: "unlisted_label" } as const;
+    const label = (text: string, x: number, y: number) => phrase(text, x, y, 6);
+    const value = (text: string, x: number, y: number) => phrase(text, x, y, 9);
+
+    describe("on word boxes, 6 pt labels over 9 pt values", () => {
+      it.each(UNLISTED)("ends a material at an empty %s cell under it", (word) => {
+        const words = [...label("MATERIAL", 330, 720), ...value("AL 6061-T6", 340, 728), ...label(word, 332, 741), ...label("FINISH", 330, 760), ...value("AS MACHINED", 340, 768)];
+        expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "AL 6061-T6", valueLines: [2] });
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it.each(UNLISTED)("ends a finish at a %s cell under it, with that cell's own value", (word) => {
+        const words = [...label("FINISH", 330, 730), ...value("ANODIZE", 340, 738), ...label(word, 332, 752), ...value("BLACK", 336, 760), ...label("SIZE", 600, 700)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE" });
+      });
+
+      it.each(UNLISTED)("leaves an empty MATERIAL empty and flagged, not '%s .125'", (word) => {
+        const words = [...label("MATERIAL", 330, 720), ...label(word, 332, 736), ...value(".125", 336, 743), ...label("FINISH", 330, 760), ...value("AS MACHINED", 340, 770)];
+        expect(wordRead(words, "material")).toMatchObject(FLAGGED);
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("ends a value at a smaller label that has its own value beside it on the same line", () => {
+        for (const [cellLabel, cellValue] of [["PAINT", "BLACK"], ["LOT", "A123"], ["THICKNESS", ".125"]] as const) {
+          const words = [...label("FINISH", 330, 730), ...value("ANODIZE", 340, 738), ...label(cellLabel, 332, 753), ...value(cellValue, 372, 751)];
+          const lines = buildWordLines(words, 1);
+          expect(lines.some((line) => line.raw.includes(cellLabel) && line.raw.includes(cellValue)), cellLabel).toBe(true);
+          expect(wordRead(words, "finish"), cellLabel).toMatchObject({ status: "value", value: "ANODIZE" });
+        }
+      });
+
+      it("flags a line set smaller than the value that is not shaped like a label: it may be the rest of the value", () => {
+        const words = [...label("MATERIAL", 330, 720), ...value("AL 6061-T6", 340, 728), ...label("THICKNESS .125", 332, 741)];
+        expect(wordRead(words, "material")).toMatchObject(FLAGGED);
+        const finish = [...label("FINISH", 330, 730), ...value("ANODIZE", 340, 738), ...label("TYPE II CLASS 2", 340, 750)];
+        expect(wordRead(finish, "finish")).toMatchObject(FLAGGED);
+      });
+
+      it("still reads a wrapped line shaped like a label when it is set as large as the value, which is larger than its label", () => {
+        const words = [...label("FINISH", 330, 730), ...value("BLACK", 340, 738), ...value("ANODIZE", 340, 750)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "BLACK ANODIZE" });
+        const material = [...label("MATERIAL", 330, 720), ...value("ALUMINUM", 340, 728), ...value("6061-T6", 340, 740)];
+        expect(wordRead(material, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061-T6" });
+      });
+
+      it("flags a value of a template that sets its labels as large as its values, when a line is shaped like a label", () => {
+        // 9 pt throughout: nothing tells PAINT, a cell of its own, from a wrapped line of the material.
+        const words = [...value("MATERIAL", 330, 720), ...value("AL 6061-T6", 340, 732), ...value("PAINT", 332, 744), ...value("FINISH", 330, 770), ...value("AS MACHINED", 340, 782)];
+        expect(wordRead(words, "material")).toMatchObject(FLAGGED);
+        const empty = [...value("MATERIAL", 330, 720), ...value("THICKNESS", 332, 736), ...value(".125", 336, 748), ...value("FINISH", 330, 770), ...value("AS MACHINED", 340, 782)];
+        expect(wordRead(empty, "material")).toMatchObject(FLAGGED);
+        // A line that is not shaped like a label still wraps (a material on the label's own line, as before).
+        const wrapped = [...value("MATERIAL", 330, 720), ...value("ALUMINUM", 400, 720), ...value("6061 T6", 401, 733)];
+        expect(wordRead(wrapped, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061 T6" });
+      });
+    });
+
+    describe("on layout text", () => {
+      it.each(UNLISTED)("flags a material with an empty %s cell under it, and never joins it", (word) => {
+        const sheet = layoutSheet([[0, "MATERIAL"]], [[2, "AL 6061-T6"]], [[0, word]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
+        expect(cell(sheet, "material")).toMatchObject(FLAGGED);
+        expect(infer(sheet).material).toMatchObject({ value: null, reviewNeeded: true });
+        expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+        const blank = layoutSheet([[0, "MATERIAL"]], [[2, "AL 6061-T6"]], "", [[0, word]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
+        expect(cell(blank, "material")).toMatchObject(FLAGGED);
+      });
+
+      it.each(UNLISTED)("flags a finish with a %s cell and its value under it", (word) => {
+        const sheet = layoutSheet([[0, "FINISH"]], [[2, "BLACK ANODIZE"]], [[0, word]], [[2, "NONE"]], [[100, "SIZE"]]);
+        expect(cell(sheet, "finish")).toMatchObject(FLAGGED);
+        // Flagged; a finish word elsewhere ("PAINT") may still be offered as a flagged suggestion, as on main.
+        expect(infer(sheet).finish.reviewNeeded).toBe(true);
+        expect(infer(sheet).finish.value ?? "").not.toMatch(/ANODIZE|NONE/);
+      });
+
+      it.each(UNLISTED)("leaves an empty FINISH empty and flagged, not '%s' and the value under it", (word) => {
+        for (const under of ["PASSIVATE", "RC 40-45", ".125", "L-4412"]) {
+          const sheet = layoutSheet([[0, "FINISH"]], "", [[0, word]], [[2, under]], [[100, "SIZE"]]);
+          expect(cell(sheet, "finish"), under).toMatchObject(FLAGGED);
+        }
+      });
+
+      it("flags a wrapped value with a line shaped like a label: on layout text it looks like a label over its value", () => {
+        expect(cell(layoutSheet([[0, "MATERIAL"]], [[2, "ALUMINUM"]], [[2, "6061-T6"]]), "material")).toMatchObject(FLAGGED);
+        expect(cell(layoutSheet([[0, "FINISH"]], [[2, "ANODIZE"]], [[2, "CLASS 2"]]), "finish")).toMatchObject(FLAGGED);
+        // One line shaped like a label is a value, as before.
+        expect(cell(layoutSheet([[0, "FINISH"]], [[2, "AS MACHINED"]], [[100, "SIZE"]]), "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("fences a neighbour-cell word after one word of letters, beside or under an empty cell", () => {
+        for (const text of ["SURFACE TREATMENT", "PAINT COLOR", "NO HEAT TREAT", "CASE HARDNESS"]) {
+          expect(cell(layoutSheet([[0, "MATERIAL"]], [[0, text]], [[0, "FINISH"]], [[2, "AS MACHINED"]]), "material"), text).toMatchObject(FLAGGED);
+          expect(cell(layoutSheet([[0, "MATERIAL"], [12, text]]), "material"), text).toMatchObject(FLAGGED);
+        }
+        // Two words before it, or a word that only starts like one, is not a fence.
+        expect(cell(layoutSheet([[0, "FINISH"], [10, "BLACK ANODIZE COLOR"]]), "finish")).toMatchObject({ status: "value", value: "BLACK ANODIZE COLOR" });
+        expect(cell(layoutSheet([[0, "FINISH"], [10, "CLEAR COLORED"]]), "finish")).toMatchObject({ status: "value", value: "CLEAR COLORED" });
+      });
+    });
+  });
+
+  // A label and its value printed as one word, with a colon and no blank between ("MATERIAL:ALUMINUM", "REV:A") (Codex
+  // review of #884): the label is the text up to and with the colon, and the rest of the word is the value.
+  describe("a label and its value printed as one word", () => {
+    it("reads the value after the colon from word boxes", () => {
+      const words = [...phrase("MATERIAL:ALUMINUM", 330, 720), ...phrase("DWG NO:ABC-001", 500, 720), ...phrase("REV:A", 700, 720)];
+      expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+      expect(wordRead(words, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
+      expect(wordRead(words, "revision")).toMatchObject({ status: "value", value: "A" });
+    });
+
+    it("reads it from layout text", () => {
+      const sheet = layoutSheet([[0, "MATERIAL:ALUMINUM"], [30, "DWG NO:ABC-001"], [50, "REV:A"]]);
+      expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+      expect(cell(sheet, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
+      expect(cell(sheet, "revision")).toMatchObject({ status: "value", value: "A" });
+      expect(infer(sheet)).toMatchObject({ partNumber: { value: "ABC-001" }, revision: { value: "A" }, material: { value: "ALUMINUM" } });
+    });
+
+    it("places the value where its characters are in the word's box, so it is the label's inline value", () => {
+      // The word box runs past where the label ends; the value starts where its own characters start.
+      const words = [...phrase("FINISH:ANODIZE", 330, 730, 6)];
+      expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE", valueLines: [1] });
+    });
+
+    it("keeps a word that only starts with a label and has no colon a value or nothing, as before", () => {
+      expect(cell(layoutSheet([[0, "DWG. NO."], [10, "REV-B"]]), "partNumber")).toMatchObject({ status: "value", value: "REV-B" });
+      expect(read(layoutSheet([[0, "MATERIALS LIST"]])).filter((candidate) => candidate.field === "material")).toHaveLength(0);
     });
   });
 

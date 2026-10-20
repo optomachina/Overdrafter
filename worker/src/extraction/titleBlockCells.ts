@@ -48,10 +48,16 @@
  * when a run of another label's band follows it directly, and for every cell of a page whose own labels are
  * spread apart (`spread` on a Label).
  *
- * A material or finish has an unlisted cell stacked under it as often as beside it. A line of its cell that opens
- * another cell (HEAT TREAT, HARDNESS or any text with a colon) is that cell's label, so where the first line of the
- * value would be there is none, and under a value it ends the value when it is set smaller than the value (word
- * boxes) and gives no value when it is not: see chooseValueLines.
+ * A material or finish has a cell stacked under it as often as beside it, and its label is often one the vocabulary
+ * does not know (SURFACE TREATMENT, PAINT, THICKNESS). Its text is never read as a line of the value. A first line
+ * that opens another cell (HEAT TREAT, HARDNESS, PAINT COLOR or any text with a colon) gives no value. With word
+ * boxes the size decides: a later line set smaller than the value ends it when it is shaped like a label and gives
+ * no value when it is not, and a line set taller than the one above makes that one a label. Where no size tells
+ * (layout text, or a template that sets values like labels), a value of more than one line with a line shaped like
+ * a label gives none: see stackedLineVerdict and labelShapedLineIn.
+ *
+ * A label ends at a colon whatever follows it, so a label and its value printed as one word ("MATERIAL:ALUMINUM")
+ * are read as the label and its inline value; with word boxes the part of the word after the label is a run.
  *
  * Every loop is bounded by the caps below, and the work per line is linear in its length.
  *
@@ -178,12 +184,13 @@ const LABEL_SPECS: readonly LabelSpec[] = [
 ];
 
 // A label is a whole word: a letter, digit or hyphen on either side means the text is something else
-// ("ENG-1234" and "REV-B" are values, not the labels ENG and REV).
+// ("ENG-1234" and "REV-B" are values, not the labels ENG and REV). A colon ends a label whatever follows it, so
+// a label and its value printed as one word ("MATERIAL:ALUMINUM", "REV:A") are the label "MATERIAL:" and its value.
 // One capture group per spec, so the index of the group that matched names the spec.
 const NOT_AFTER_LABEL_CHARACTER = "(?<![A-Za-z0-9-])";
 const NOT_BEFORE_LABEL_CHARACTER = "(?![A-Za-z0-9-])";
-const LABEL_ALTERNATION = LABEL_SPECS.map((spec) => `(${spec.source}:?)`).join("|");
-const LABEL_PATTERN = new RegExp(`${NOT_AFTER_LABEL_CHARACTER}(?:${LABEL_ALTERNATION})${NOT_BEFORE_LABEL_CHARACTER}`, "gi");
+const LABEL_ALTERNATION = LABEL_SPECS.map((spec) => `(${spec.source}(?::|${NOT_BEFORE_LABEL_CHARACTER}))`).join("|");
+const LABEL_PATTERN = new RegExp(`${NOT_AFTER_LABEL_CHARACTER}(?:${LABEL_ALTERNATION})`, "gi");
 // The same alternation, used to test whether a whole value is only labels.
 const LABEL_ONLY_ALTERNATION = LABEL_SPECS.map((spec) => `(?:${spec.source}:?)`).join("|");
 const LABEL_ONLY_PATTERN = new RegExp(
@@ -231,17 +238,20 @@ const VALUE_TEXT_TALLER_THAN_LABEL = 1.15;
 /**
  * Layout text has no heights. A run of at most three words made of letters, with nothing else in it (no digit,
  * comma or hyphen: "HEAT TREAT", "TREATMENT", "PROCESS") reads like the label of a cell, and a value is
- * rarely such a run with text left aligned under it ("ANODIZE, BLACK, MIL-A-8625F" is not).
+ * rarely such a run with text left aligned under it ("ANODIZE, BLACK, MIL-A-8625F" is not). See isLabelShaped.
  */
 const LABEL_LIKE_RUN = /^[A-Z][A-Z .&/']{1,40}$/i;
 /**
  * The words that head the other cells a title block prints beside MATERIAL and FINISH. Text on the label's own line
  * that starts with one of them is that cell's label, not a value: "HEAT TREAT" beside an empty MATERIAL is not a
- * material. They are not in the label vocabulary, so a value that runs under one of them keeps its cell.
+ * material. A cell's label also names what it heads with one word before such a word ("SURFACE TREATMENT", "PAINT
+ * COLOR", "NO HEAT TREAT"); SPEC is not read that way, since "PER SPEC" and "SEE SPEC" are pointers (POINTER_AT_START).
+ * They are not in the label vocabulary, so a value that runs under one of them keeps its cell.
  */
+const ONE_WORD_BEFORE = String.raw`^(?:[A-Z]+\s+)?`;
 const NEIGHBOUR_CELL_LABELS: readonly RegExp[] = [
-  /^HEAT\s+TREAT(?:MENT)?\b/i,
-  /^(?:TREATMENT|HARDNESS|COLOU?R|PROCESS|TEMPER|CONDITION)\b/i,
+  new RegExp(String.raw`${ONE_WORD_BEFORE}HEAT\s+TREAT(?:MENT)?\b`, "i"),
+  new RegExp(String.raw`${ONE_WORD_BEFORE}(?:TREATMENT|HARDNESS|COLOU?R|PROCESS|TEMPER|CONDITION)\b`, "i"),
   /^SPEC(?:IFICATION)?S?\b/i,
 ];
 /** A run this close after an inline value continues it (the words of "SHEET 1 OF 1"). */
@@ -283,6 +293,8 @@ type Label = {
    * pitch): the words of every value on it are apart like cells are.
    */
   spread: boolean;
+  /** Word boxes only: the height of the label's own text, in points. */
+  height?: number;
 };
 
 type Run = {
@@ -420,18 +432,23 @@ function columnAt(line: TitleBlockTextLine, index: number, edge: "start" | "end"
  * Columns after a label in which the first run of its line is the label's own value: INLINE_GAP, and with
  * word boxes at most INLINE_GAP_IN_LABEL_HEIGHTS heights of the label's own text.
  */
-function inlineGapOf(line: TitleBlockTextLine, start: number, end: number): number {
+function inlineGapOf(line: TitleBlockTextLine, height: number | undefined): number {
   const unit = line.pointsPerColumn;
-  if (line.words === undefined || unit === undefined || Number.isNaN(unit) || unit <= 0) {
+  if (height === undefined || unit === undefined || Number.isNaN(unit) || unit <= 0) {
     return INLINE_GAP;
   }
+  return Math.min(INLINE_GAP, (INLINE_GAP_IN_LABEL_HEIGHTS * height) / unit);
+}
+
+/** The height of the tallest word box of the characters `start` to `end`, or undefined (layout text has none). */
+function heightOfText(line: TitleBlockTextLine, start: number, end: number): number | undefined {
   let height = 0;
-  for (const word of line.words) {
+  for (const word of line.words ?? []) {
     if (word.from < end && word.to > start && word.height !== undefined && word.height > height) {
       height = word.height;
     }
   }
-  return height > 0 ? Math.min(INLINE_GAP, (INLINE_GAP_IN_LABEL_HEIGHTS * height) / unit) : INLINE_GAP;
+  return height > 0 ? height : undefined;
 }
 
 /**
@@ -457,6 +474,7 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
       continue;
     }
     const end = start + match[0].length;
+    const height = heightOfText(line, start, end);
     into.push({
       field: spec.field,
       text: normalizeWhitespace(match[0]),
@@ -467,8 +485,9 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
       charEnd: end,
       slack: words ? WORD_SLACK : LAYOUT_SLACK,
       reach: reachOf(spec.field, words),
-      inlineGap: inlineGapOf(line, start, end),
+      inlineGap: inlineGapOf(line, height),
       spread: !words && /\s{3}/.test(match[0]),
+      ...(height === undefined ? {} : { height }),
     });
     previousLabelEnd = end;
   }
@@ -477,7 +496,9 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
 /**
  * The runs of a line built from word boxes: every word outside a label is a run at its true extent. Ownership is
  * decided word by word, so a number that runs up against the next cell is still split from it. The labels of a
- * line are in order, so one pass over both finds the words they cover.
+ * line are in order, so one pass over both finds the words they cover. A word that a label covers only in part
+ * ("MATERIAL:ALUMINUM", "NO:ABC-001": the label and its value with no blank between) keeps the part that no label
+ * covers, as a run at the place its characters have in the word's box.
  */
 function findWordRuns(line: TitleBlockTextLine, words: readonly TitleBlockWord[], labels: readonly Label[], into: Run[], limit: number): void {
   let labelIndex = 0;
@@ -488,25 +509,35 @@ function findWordRuns(line: TitleBlockTextLine, words: readonly TitleBlockWord[]
     while (labelIndex < labels.length && labels[labelIndex]!.charEnd <= word.from) {
       labelIndex += 1;
     }
-    const label = labels[labelIndex];
-    if (label !== undefined && word.from < label.charEnd && word.to > label.charStart) {
-      continue;
+    let from = word.from;
+    for (let index = labelIndex; index < labels.length && labels[index]!.charStart < word.to; index += 1) {
+      const label = labels[index]!;
+      pushWordPart(line, word, from, label.charStart, into);
+      from = Math.max(from, label.charEnd);
     }
-    const text = line.raw.slice(word.from, word.to);
-    if (!/[A-Za-z0-9]/.test(text)) {
-      continue;
-    }
-    into.push({
-      text,
-      line: line.lineNumber,
-      start: word.x0,
-      end: word.x1,
-      center: (word.x0 + word.x1) / 2,
-      cellBreakBefore: word.from >= 2 && line.raw.codePointAt(word.from - 1) === SPACE && line.raw.codePointAt(word.from - 2) === SPACE,
-      fromWords: true,
-      ...(word.height !== undefined ? { height: word.height } : {}),
-    });
+    pushWordPart(line, word, from, word.to, into);
   }
+}
+
+/** The characters `from` to `to` of one word as a run, placed in the word's box by their share of its characters. */
+function pushWordPart(line: TitleBlockTextLine, word: TitleBlockWord, from: number, to: number, into: Run[]): void {
+  const text = line.raw.slice(from, to);
+  if (to <= from || !/[A-Za-z0-9]/.test(text)) {
+    return;
+  }
+  const columnOf = (index: number) => word.x0 + ((index - word.from) / Math.max(1, word.to - word.from)) * (word.x1 - word.x0);
+  const start = columnOf(from);
+  const end = columnOf(to);
+  into.push({
+    text,
+    line: line.lineNumber,
+    start,
+    end,
+    center: (start + end) / 2,
+    cellBreakBefore: from === word.from && from >= 2 && line.raw.codePointAt(from - 1) === SPACE && line.raw.codePointAt(from - 2) === SPACE,
+    fromWords: true,
+    ...(word.height !== undefined ? { height: word.height } : {}),
+  });
 }
 
 /** The runs of a `pdftotext -layout` line: what is left after the labels are blanked, split where blanks are two or more. */
@@ -876,7 +907,7 @@ function opensAnotherCell(text: string): boolean {
 
 type ValueChoice = {
   lines: ValueLine[];
-  /** A line that opens another cell of the stack came where the value was, or where its wrapped line was. */
+  /** A line of another cell of the stack came where the value was, or where its wrapped line was: see stackedLineVerdict. */
   stackedLabel: boolean;
   /** The first line the value did not take because it was the label of the cell under it; Infinity when there is none. */
   stoppedAt: number;
@@ -887,37 +918,73 @@ function lineTextOf(lineRuns: readonly Run[]): string {
   return normalizeWhitespace(joinContiguousRuns([...lineRuns]).map((run) => run.text).join(" "));
 }
 
+/** Whether text is shaped like the label of a cell: at most three words of letters only (LABEL_LIKE_RUN). */
+function isLabelShaped(text: string): boolean {
+  return LABEL_LIKE_RUN.test(text) && text.trim().split(/\s+/).length <= 3;
+}
+
+type StackVerdict = "join" | "stop" | "flag";
+
 /**
- * What a line that opens another cell (opensAnotherCell) does to the value above it. As the first line there is no value.
- * Under a value, with word boxes, it ends the value when it is set smaller than the value (a 6 pt label under 9 pt
- * text); set as large, it may as well be the value's wrapped line ("ANODIZE" over "COLOR BLACK"), and which one it is
- * is not known, so there is no value. Layout text has no sizes, so it always gives none.
+ * What a line of a material or finish cell is, under `previous`, the value's last line so far. Another cell is often
+ * stacked under MATERIAL or FINISH in its columns, with a label the vocabulary does not know ("SURFACE TREATMENT",
+ * "PAINT", "THICKNESS" over ".125"). The cell above owns its text, which must never become part of the value:
+ *  - word boxes, a line that starts with words set smaller than the value: those words are the label of that cell (its
+ *    value may follow on the line, "PAINT" then "BLACK"). It ends the value when they are shaped like a label (or the
+ *    line opens another cell); otherwise they may as well be the rest of the value set small, and there is no value;
+ *  - word boxes, a line set taller than the line above it: that line was a label over its own value, so no value;
+ *  - a line that opens another cell (a colon, a neighbour-cell word) set as large as the value, or on layout text: it
+ *    may be the value's wrapped line ("ANODIZE" over "COLOR BLACK") or that cell's label, which is not known, so no value;
+ *  - anything else joins as a wrapped line would (chooseValueLines). Without sizes, labelShapedLineIn then looks at the
+ *    shape of the lines that joined.
+ * A single character opens nothing (a zone marker), and never joins a value either.
  */
-function stackedLabelChoice(chosen: ValueLine[], lineRuns: readonly Run[], line: number): ValueChoice {
-  const previous = chosen.at(-1);
-  const valueHeight = previous === undefined ? undefined : tallestOf(previous.runs);
-  const labelHeight = tallestOf(lineRuns);
-  const smaller = valueHeight !== undefined && labelHeight !== undefined && valueHeight > VALUE_TEXT_TALLER_THAN_LABEL * labelHeight;
-  return smaller ? { lines: chosen, stackedLabel: false, stoppedAt: line } : { lines: chosen, stackedLabel: true, stoppedAt: Number.POSITIVE_INFINITY };
+function stackedLineVerdict(previous: ValueLine, lineRuns: readonly Run[]): StackVerdict {
+  const text = lineTextOf(lineRuns);
+  const opens = opensAnotherCell(text);
+  if (!opens && alphanumericCount(text) < 2) {
+    return "join";
+  }
+  const above = tallestOf(previous.runs);
+  const ordered = [...lineRuns].sort((left, right) => left.start - right.start);
+  const firstAsLarge = ordered.findIndex((run) => above === undefined || run.height === undefined || above <= VALUE_TEXT_TALLER_THAN_LABEL * run.height);
+  const smallerLead = firstAsLarge < 0 ? ordered : ordered.slice(0, firstAsLarge);
+  if (smallerLead.length > 0) {
+    return opens || isLabelShaped(lineTextOf(smallerLead)) ? "stop" : "flag";
+  }
+  const here = tallestOf(lineRuns);
+  if (above !== undefined && here !== undefined && here > VALUE_TEXT_TALLER_THAN_LABEL * above) {
+    return "flag";
+  }
+  return opens ? "flag" : "join";
 }
 
 /**
  * The lines that make up a cell's value: the first line the cell owns, and each line after it that continues it
  * (under it, overlapping its columns, within MAX_LINE_GAP lines). With `fenceStack` (material and finish: the
- * cells that have an unlisted cell stacked under them), a line that opens another cell (opensAnotherCell) is not
- * a line of the value: see stackedLabelChoice.
+ * cells that have an unlisted cell stacked under them), a first line that opens another cell gives no value, and
+ * each later line is judged by stackedLineVerdict.
  */
 function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, fenceStack: boolean): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: ValueLine[] = [];
+  const stopped = (line: number): ValueChoice => ({ lines: chosen, stackedLabel: false, stoppedAt: line });
+  const flagged = (): ValueChoice => ({ lines: chosen, stackedLabel: true, stoppedAt: Number.POSITIVE_INFINITY });
   for (const line of lines) {
     const lineRuns = byLine.get(line) ?? [];
     const previous = chosen.at(-1);
     if (previous !== undefined && line - previous.line > MAX_LINE_GAP) {
       break;
     }
-    if (fenceStack && opensAnotherCell(lineTextOf(lineRuns))) {
-      return stackedLabelChoice(chosen, lineRuns, line);
+    if (fenceStack && previous === undefined && opensAnotherCell(lineTextOf(lineRuns))) {
+      return flagged();
+    }
+    const verdict = fenceStack && previous !== undefined ? stackedLineVerdict(previous, lineRuns) : "join";
+    if (verdict === "stop") {
+      return stopped(line);
+    }
+    if (verdict === "flag") {
+      return flagged();
     }
     // A wrapped value continues directly under the line above it ("CLASS 2" under "ANODIZE, BLACK ...").
     // Text that does not overlap the previous line's columns is another cell, and a single character is
@@ -928,6 +995,28 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, fenceStack: boolea
     }
   }
   return { lines: chosen, stackedLabel: false, stoppedAt: Number.POSITIVE_INFINITY };
+}
+
+/**
+ * Whether a material or finish read from more than one line has a line shaped like a label (isLabelShaped), where
+ * sizes do not tell a label from a wrapped line: on layout text, or with word boxes when the value is set no larger
+ * than its own label (a template that sets them alike). Such a line may be the label of a cell stacked under this
+ * one ("AL 6061-T6" over "SURFACE TREATMENT", "THICKNESS" over ".125", "PAINT" over "NONE"), so there is no value.
+ * Where the value is set larger than its label, a stacked label is set smaller than the value, and
+ * stackedLineVerdict has already ended the value at it. A first line on the label's own line is left to
+ * hasOwnCellOnItsLine.
+ */
+function labelShapedLineIn(label: Label, chosen: readonly ValueLine[], inlineRuns: ReadonlySet<Run>): boolean {
+  if (chosen.length < 2) {
+    return false;
+  }
+  const valueHeight = tallestOf(chosen[0]!.runs);
+  if (label.height !== undefined && valueHeight !== undefined && valueHeight > VALUE_TEXT_TALLER_THAN_LABEL * label.height) {
+    return false;
+  }
+  return chosen.some(
+    (entry, index) => !(index === 0 && entry.runs.some((run) => inlineRuns.has(run))) && isLabelShaped(lineTextOf(entry.runs)),
+  );
 }
 
 /**
@@ -1012,6 +1101,10 @@ function readOne(
   if (leavesTextUnconsumed(label.field, considered, chosen, leftoverByLine)) {
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
+  // A line of the value that may be the label of a cell stacked under this one, where no size tells.
+  if ((label.field === "material" || label.field === "finish") && labelShapedLineIn(label, chosen, inlineRuns)) {
+    return empty("ambiguous", "unlisted_label", valueLines);
+  }
 
   const value = normalizeWhitespace(chosen.map((entry) => entry.runs.map((run) => run.text).join(" ")).join(" "));
   const rejection = rejectionFor(label.field, value);
@@ -1081,7 +1174,7 @@ function isValueTextUnder(lead: Run, under: Run, line: number, inlineRuns: Reado
   const taller = lead.height !== undefined && under.height !== undefined && under.height > VALUE_TEXT_TALLER_THAN_LABEL * lead.height;
   const layoutOnly = !lead.fromWords && !under.fromWords;
   const afterBlankLine = layoutOnly && line - lead.line >= 2;
-  const labelLikeOverText = layoutOnly && LABEL_LIKE_RUN.test(lead.text) && lead.text.trim().split(/\s+/).length <= 3;
+  const labelLikeOverText = layoutOnly && isLabelShaped(lead.text);
   return taller || afterBlankLine || labelLikeOverText;
 }
 

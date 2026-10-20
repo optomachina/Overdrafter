@@ -20,6 +20,8 @@
 //          more places is not assumed in force: it is an unresolved value (valueInch null unless a tighter
 //          explicit tolerance exists, so the OVD-683 beta gate asks the user). Rows of one to three places
 //          are read as before.
+//   T4     a page with a text layer is OCR'd too: a decimal that only the OCR prints, on a line of dimension callouts
+//          only, with more places than T2 found, makes a readable sheet read as T3 reads one.
 // Explicit tolerances on features (a plus-minus value that is not a table row) are never dropped, and the
 // OVD-976 unit policy is untouched. No model, no network, no poppler (syntheticPdf.test.ts runs the main
 // shapes through poppler when it is installed).
@@ -388,6 +390,68 @@ describe("general tolerance rows (OVD-989)", () => {
     it("is read when real dimensions make it readable", () => {
       const lines = [...DIMENSIONS_2_AND_3, INCHES, "TWO PLACE DECIMAL", "   .01", "THREE PLACE DECIMAL", "   .005", "FOUR PLACE DECIMAL", "   .0010"];
       expect(toleranceOf(lines)).toMatchObject({ valueInch: 0.005 });
+    });
+  });
+
+  // T4 (Codex review of #884): a page with a text layer is OCR'd too, because a raster view can sit beside vector text.
+  // A decimal that only the OCR prints, with more places than the text layer prints, means the text layer did not
+  // show every dimension: the four-place row is then neither dropped nor read as in force, and the tolerance is left
+  // for the user. OCR that reads the vector text again proves nothing either way.
+  describe("a raster view beside the text layer (T4)", () => {
+    const LAYER = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, INCHES, ...ROWS].join("\n");
+    const mixed = (ocrText: string, text = LAYER): PdfTextExtraction => ({
+      pageCount: 1,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      ocr: false,
+      pages: [{ page: 1, text, ocrText, ocrStatus: "ok" }],
+    });
+    const UNRESOLVED = { raw: "±0.001", valueInch: null, unit: "unknown", drawingUnits: "inch" } as const;
+
+    it("leaves the tolerance unresolved when a four-place dimension is only in the OCR text", () => {
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\nØ.1875 THRU`) })).toEqual(UNRESOLVED);
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n2X Ø,1875 THRU`) })).toEqual(UNRESOLVED);
+      // On any page.
+      const twoPages: PdfTextExtraction = {
+        ...mixed(""),
+        pageCount: 2,
+        pages: [
+          { page: 1, text: LAYER, ocrText: LAYER, ocrStatus: "ok" },
+          { page: 2, text: "SECTION A-A", ocrText: "SECTION A-A\n2X Ø.1875 THRU", ocrStatus: "ok" },
+        ],
+      };
+      expect(toleranceOf([], { pdfText: twoPages })).toEqual(UNRESOLVED);
+    });
+
+    it("still drops the four-place row when the OCR only reads the text layer again, the table's .0010 included", () => {
+      expect(toleranceOf([], { pdfText: mixed(LAYER) })).toMatchObject({ raw: "±0.005", valueInch: 0.005, unit: "in" });
+      expect(toleranceOf([], { pdfText: mixed("") })).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it("still drops it when the OCR-only decimals have no more places than the text layer prints", () => {
+      // An OCR misreading of the vector text ("9.08"), or a raster dimension with three places.
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n9.08\n.375`) })).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it("does not count what OCR garbles on a line that is not only dimensions (the table, a note)", () => {
+      // Tesseract read the synthetic sheet's "THREE PLACE DECIMAL ±.005" as "THREE PLACE DEGIMA\, 5005".
+      const garbled = `${LAYER}\nTHREE PLACE DEGIMA\\, 5005\nFOUR PLACE DECIMAL +0010\nNOTE 2. WEIGHT .18752 LB`;
+      expect(toleranceOf([], { pdfText: mixed(garbled) })).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it("keeps reading a four-place row the text layer itself puts in force", () => {
+      const layer = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, "Ø.0625 THRU", INCHES, ...ROWS].join("\n");
+      expect(toleranceOf([], { pdfText: mixed(`${layer}\n.18750`, layer) })).toMatchObject({ valueInch: 0.001, unit: "in" });
+    });
+
+    it("changes nothing for a table without a four-place row", () => {
+      const layer = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, INCHES, ...ROWS.slice(0, 2)].join("\n");
+      expect(toleranceOf([], { pdfText: mixed(`${layer}\nØ.1875 THRU`, layer) })).toMatchObject({ valueInch: 0.005, unit: "in" });
+    });
+
+    it("keeps an explicit tolerance tighter than the unresolved row", () => {
+      const layer = `${LAYER}\nBORE ±.0005`;
+      expect(toleranceOf([], { pdfText: mixed(`${layer}\nØ.1875 THRU`, layer) })).toMatchObject({ valueInch: 0.0005 });
     });
   });
 

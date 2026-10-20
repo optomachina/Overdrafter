@@ -281,10 +281,61 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(filledFinish.finish.value ?? "").not.toMatch(/HEAT|NONE/);
       expect(filledFinish.finish.value === "AS MACHINED" || filledFinish.finish.reviewNeeded).toBe(true);
     });
+
+    // #884 review, round 2: a stacked cell whose label the vocabulary does not know, and that starts with no
+    // neighbour-cell word (PAINT, THICKNESS), or has one after a word (SURFACE TREATMENT).
+    const surfaceTreatmentAlone: PdfTextItem[] = [{ x: 330, y: 775, size: 6, text: "SURFACE TREATMENT" }];
+    const paintOverNone: PdfTextItem[] = [
+      { x: 330, y: 775, size: 6, text: "PAINT" },
+      { x: 340, y: 785, size: 9, text: "NONE" },
+    ];
+    const thicknessOverValue: PdfTextItem[] = [
+      { x: 330, y: 728, size: 6, text: "THICKNESS" },
+      { x: 340, y: 738, size: 9, text: ".125" },
+    ];
+
+    it("reads a FINISH over an unlisted cell as the finish alone, and never joins the cell's text on layout text", async () => {
+      for (const extra of [surfaceTreatmentAlone, paintOverNone]) {
+        const { signals } = await read({ extra });
+        expect(signals.finish, extra[0]!.text).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+        const layout = await layoutOnly({ extra });
+        expect(layout.finish, extra[0]!.text).toMatchObject({ value: null, reviewNeeded: true });
+      }
+    });
+
+    it("leaves an empty MATERIAL with an unlisted cell under it empty and flagged, not 'THICKNESS .125'", async () => {
+      const { signals } = await read({ material: null, extra: thicknessOverValue });
+      expect(signals.material).toMatchObject({ value: null, reviewNeeded: true });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+      const layout = await layoutOnly({ material: null, extra: thicknessOverValue });
+      expect(layout.material).toMatchObject({ value: null, reviewNeeded: true });
+    });
   });
 
   // A revision is the last text of a block as often as the border's marker is: "A" under REV is read, where the
   // border's "1" after a row of markers is not (OVD-985 review).
+  // Codex review of #884: a label and its value printed as one word ("MATERIAL:ALUMINUM") is one word box.
+  describe("a label and its value printed as one word", () => {
+    it("reads the value after the colon from poppler's word boxes and from layout text alone", async () => {
+      const replaced = new Set(["MATERIAL", "DWG. NO.", "REV", "ABC-1001"]);
+      const items = [
+        ...syntheticSheet({ material: null }).filter((item) => !replaced.has(item.text) && !(item.text === "B" && item.x === 900)),
+        { x: 330, y: 720, size: 9, text: "MATERIAL:ALUMINUM" },
+        { x: 725, y: 720, size: 9, text: "DWG NO:ABC-001" },
+        { x: 900, y: 720, size: 9, text: "REV:A" },
+      ];
+      const pdfText = await pdfTextOf(items);
+      expect(pdfText.pages[0]?.words?.some((word) => word.text === "MATERIAL:ALUMINUM")).toBe(true);
+      const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
+      for (const text of [pdfText, layoutText]) {
+        const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: text });
+        expect(signals.partNumber).toMatchObject({ value: "ABC-001", reviewNeeded: false });
+        expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: false });
+        expect(signals.material).toMatchObject({ value: "ALUMINUM", reviewNeeded: false });
+      }
+    });
+  });
+
   describe("a revision that is the last line of the block", () => {
     const block: PdfTextItem[] = [
       { x: 700, y: 720, size: 6, text: "DWG. NO." },
