@@ -116,6 +116,9 @@ export function planContiguousVerified(stack, verdicts, { base } = {}) {
   const seen = new Set();
   for (const entry of stack) {
     if (entry?.pr === undefined || entry.pr === null || entry.pr === "") throw new Error("stack entry is missing pr");
+    // A short or malformed head would plan fine, then compare unequal to the
+    // resolved full SHA the read-back logs, and force a false STOP.
+    if (!isFullSha(entry.head_sha)) throw new Error(`head_sha for PR ${entry.pr} must be a full 40-hex commit SHA, got ${JSON.stringify(entry.head_sha)}`);
     if (seen.has(String(entry.pr))) throw new Error(`duplicate PR in stack: ${entry.pr}`);
     seen.add(String(entry.pr));
   }
@@ -383,7 +386,7 @@ export function planDigest(plan) {
 
 export function planLogMismatch(rows, merges, plan) {
   for (const merge of merges) {
-    const latest = rows.filter((row) => (row.action === "plan-land" || row.action === "plan-stop") && row.pr === String(merge.pr)).at(-1);
+    const latest = rows.findLast((row) => (row.action === "plan-land" || row.action === "plan-stop") && row.pr === String(merge.pr));
     if (!latest) return `plan-not-in-log: no plan row for PR ${merge.pr}`;
     if (latest.action !== "plan-land") return `plan-not-in-log: latest plan row for PR ${merge.pr} is ${latest.action}`;
     if (latest.head_sha !== merge.head_sha || latest.verdict_ref !== merge.verdict_ref) {

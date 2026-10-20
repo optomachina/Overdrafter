@@ -266,7 +266,7 @@ and race past the stop guard.
    wrapper cannot point the read-back at another repo than `--repo`.
 
    For a single merge, use
-   `readback --repo . --main origin/main --merge-sha <sha> --verified-head <sha> --log <tsv> --plan plan.json --pr <n>`.
+   `readback --repo . --main origin/main --merge-sha <sha> --verified-head <sha> --log <tsv> --plan plan.json --pr <n> --prior digest.json --digest-out digest.json`.
    Only the plan-bound read-back (`readback-run`, or `readback` with `--log`,
    `--plan`, and `--pr`) counts as proof that a merge landed. `readback`
    without `--log` is a diagnostic: it does not check plan order, writes no

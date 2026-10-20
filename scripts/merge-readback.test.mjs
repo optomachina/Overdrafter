@@ -379,6 +379,14 @@ describe("planContiguousVerified", () => {
     expect(planContiguousVerified(stack, verdicts)).toMatchObject({ stop: null, land: [{ pr: 101 }, { pr: 102 }, { pr: 103 }] });
   });
 
+  it("rejects a short, missing, or non-hex head_sha before anything is planned", () => {
+    for (const bad of ["abcd1234", "A".repeat(40), "g".repeat(40), "a".repeat(41), "", undefined, null]) {
+      expect(() => planContiguousVerified([{ pr: 101, head_sha: bad }], {})).toThrow(/head_sha for PR 101 must be a full 40-hex commit SHA/);
+    }
+    // The bad entry is rejected even when it sits above a PR that would stop the plan first.
+    expect(() => planContiguousVerified([...stack, { pr: 104, head_sha: "abcd1234" }], {})).toThrow(/PR 104/);
+  });
+
   it("fails closed on duplicate or missing PR numbers", () => {
     expect(() => planContiguousVerified([...stack, { pr: "101", head_sha: "d".repeat(40) }], {})).toThrow(/duplicate PR/);
     expect(() => planContiguousVerified([{ head_sha: "a".repeat(40) }], {})).toThrow(/missing pr/);
