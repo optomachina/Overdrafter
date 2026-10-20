@@ -159,8 +159,8 @@ connection that already compiled it goes straight to the events read.
 | --- | --- | --- |
 | Warm setter call lands during a 2 s gap between the two table changes | `deadlock detected`; the setter was the victim at a 2 s gap, the migration at 3.5 s | Setter waits at its first read, both finish, no error (2 s and 3.5 s gap) |
 | Cold setter session, same gap | No deadlock (it waits on the controls at compile and holds nothing) | No deadlock |
-| Real file re-run 60 times, unwidened, while a warm setter session loops (about 4,900 calls) | 8 of 60 runs aborted by `deadlock detected`, 8 setter calls aborted | 0 of 60, 0 setter errors |
-| Same, plus a warm read-API session looping (about 5,000 calls, one every few ms) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 3 of 60 runs aborted, 0 setter errors, 4 read-API calls aborted |
+| Real file re-run 60 times, unwidened, while a warm setter session loops (4,400 to 4,900 calls) | 8 of 60 runs aborted by `deadlock detected`, 8 setter calls aborted | 0 of 60, 0 setter errors |
+| Same, plus a warm read-API session looping (4,900 to 5,500 calls, roughly 100 a second) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 3 of 60 runs aborted, 0 setter errors, 4 read-API calls aborted |
 
 `md5(prosrc)` of the seven functions after the replay equal the table in
 "Ordering with other work"; the migration's pgTAP (111 assertions) and
