@@ -1553,7 +1553,8 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   });
 });
 
-describe("title block lines of a document with many pages (OVD-989)", () => {
+// The 32,000 page document is read in several alternating rounds with the 2,000 page one: seconds on a loaded machine.
+describe("title block lines of a document with many pages (OVD-989)", { timeout: 60_000 }, () => {
   // Pages past the text layer cap have no text but are still pages, and their number is not bounded by
   // anything the reader controls. Looking up each page in the whole list of lines made the selection
   // pages times lines.

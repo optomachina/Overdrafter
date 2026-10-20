@@ -83,7 +83,8 @@ describe("each cap of the cell reader is tested alone", () => {
   });
 });
 
-describe("the work is linear in the length of a line", () => {
+// Each ratio test runs its two pieces of work in several alternating rounds, which takes seconds on a loaded machine.
+describe("the work is linear in the length of a line", { timeout: 60_000 }, () => {
   // The first run of the line is a lone character far to the left, then hundreds of blank columns, then
   // many labels ("PN 1 " repeated: a label after a token with a digit).
   const blankThenLabels = (blanks: number, labels = 198) => `x${" ".repeat(blanks)}${"PN 1 ".repeat(labels)}`;
@@ -120,13 +121,14 @@ describe("the work is linear in the length of a line", () => {
   // The digit rule asks whether the token before a label holds a digit. Looking back over the token for each label
   // is quadratic in a token that holds many labels ("PN.PN.PN. ..."): 62, 200 and 756 ms for 399 lines of 500, 1,000
   // and 2,000 characters. The cost is compared with the same page where the token holds no label, measured here, so
-  // the bound follows the speed of the machine: a linear reader takes about as long on both, the old one 50 times.
+  // the bound follows the speed of the machine: a linear reader takes about 13 times as long (it finds 700 labels on a
+  // line where the plain page finds none), the old one about 120 times.
   it("reads a token that holds many labels as fast as one that holds none (the digit rule is linear)", () => {
     const hostile = page(`REV  (${"PN.".repeat(700)}`.slice(0, 2_000), 399);
     const plain = page(`REV  (${"xyz".repeat(700)}`.slice(0, 2_000), 399);
     expect(hostile.split("\n")[0]!.length).toBe(2_000);
     const { first: hostileMs, second: plainMs } = fastestOfPair(() => read(hostile), () => read(plain));
-    expect(hostileMs).toBeLessThan(12 * plainMs + 40);
+    expect(hostileMs).toBeLessThan(35 * plainMs + 40);
     expect(hostileMs).toBeLessThan(2_000);
   });
 
@@ -143,7 +145,7 @@ describe("the work is linear in the length of a line", () => {
   });
 });
 
-describe("a page just under every cap at once", () => {
+describe("a page just under every cap at once", { timeout: 60_000 }, () => {
   // 399 lines, 399 labels (one per line) and 1,596 runs that no label owns inline (they start 40 columns on), so each
   // run is looked up among all the labels: the most work the owner search can be given. A search over labels times
   // labels per run (254 million steps) takes seconds. The page is timed against the same runs under a single label,

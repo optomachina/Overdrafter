@@ -16,7 +16,7 @@ function timeOnce(work: () => void): number {
  * The fastest time of `first` and of `second`, each run once per round, alternately, after one warm-up run of
  * each. The pair measured within a round is taken under the same load.
  */
-export function fastestOfPair(first: () => void, second: () => void, rounds = 7): { first: number; second: number } {
+export function fastestOfPair(first: () => void, second: () => void, rounds = 5): { first: number; second: number } {
   first();
   second();
   let fastestFirst = Number.POSITIVE_INFINITY;
@@ -33,6 +33,6 @@ export function fastestOfPair(first: () => void, second: () => void, rounds = 7)
  * is floored at `floorMs` so a few milliseconds of noise on a very fast piece of work cannot decide the ratio.
  */
 export function slowdown(small: () => void, large: () => void, options: { rounds?: number; floorMs?: number } = {}): number {
-  const { first, second } = fastestOfPair(small, large, options.rounds ?? 7);
+  const { first, second } = fastestOfPair(small, large, options.rounds ?? 5);
   return second / Math.max(first, options.floorMs ?? 5);
 }

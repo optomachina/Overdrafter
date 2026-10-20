@@ -116,15 +116,15 @@ const LABEL_SPECS: readonly LabelSpec[] = [
   { source: String.raw`DRAWING\s*(?:NUMBER|NO\.?|#)`, field: "partNumber" },
   { source: String.raw`PART\s*(?:NUMBER|NO\.?|#)`, field: "partNumber" },
   { source: String.raw`P\/N`, field: "partNumber" },
-  { source: String.raw`PN`, field: "partNumber" },
-  { source: String.raw`REVISIONS`, field: null },
-  { source: String.raw`REVISION`, field: "revision" },
+  { source: "PN", field: "partNumber" },
+  { source: "REVISIONS", field: null },
+  { source: "REVISION", field: "revision" },
   { source: String.raw`REV\.?`, field: "revision" },
-  { source: String.raw`MATERIAL`, field: "material" },
+  { source: "MATERIAL", field: "material" },
   { source: String.raw`MATL\.?`, field: "material" },
   { source: String.raw`FINISH(?:\s*\/\s*COATING)?`, field: "finish" },
-  { source: String.raw`COATING`, field: "finish" },
-  { source: String.raw`PLATING`, field: "finish" },
+  { source: "COATING", field: "finish" },
+  { source: "PLATING", field: "finish" },
   { source: String.raw`INTERPRET\s+(?:GEOMETRIC|IN\s+ACCORDANCE\s+WITH)`, field: null },
   { source: String.raw`TOLERANCING\s+PER`, field: null },
   { source: String.raw`UNLESS\s+OTHERWISE\s+SPECIFIED`, field: null },
@@ -134,40 +134,40 @@ const LABEL_SPECS: readonly LabelSpec[] = [
   { source: String.raw`NEXT\s+ASS(?:Y|EMBLY|M)\.?`, field: null },
   { source: String.raw`USED\s+ON`, field: null },
   { source: String.raw`CAGE(?:\s+CODE)?`, field: null },
-  { source: String.raw`TITLE`, field: null },
-  { source: String.raw`DESCRIPTION`, field: null },
-  { source: String.raw`SIZE`, field: null },
-  { source: String.raw`SCALE`, field: null },
-  { source: String.raw`SHEET`, field: null },
-  { source: String.raw`WEIGHT`, field: null },
-  { source: String.raw`MASS`, field: null },
-  { source: String.raw`COMMENTS?`, field: null },
-  { source: String.raw`NOTES?`, field: null },
-  { source: String.raw`APPROVALS?`, field: null },
+  { source: "TITLE", field: null },
+  { source: "DESCRIPTION", field: null },
+  { source: "SIZE", field: null },
+  { source: "SCALE", field: null },
+  { source: "SHEET", field: null },
+  { source: "WEIGHT", field: null },
+  { source: "MASS", field: null },
+  { source: "COMMENTS?", field: null },
+  { source: "NOTES?", field: null },
+  { source: "APPROVALS?", field: null },
   { source: String.raw`APPROVED(?:\s+BY)?`, field: null },
   { source: String.raw`APPR\.?`, field: null },
   { source: String.raw`APPD\.?`, field: null },
-  { source: String.raw`NAME`, field: null },
-  { source: String.raw`DATE`, field: null },
+  { source: "NAME", field: null },
+  { source: "DATE", field: null },
   { source: String.raw`DRAWN(?:\s+BY)?`, field: null },
   { source: String.raw`DRN\.?`, field: null },
   { source: String.raw`CHECKED(?:\s+BY)?`, field: null },
-  { source: String.raw`CHECKER`, field: null },
+  { source: "CHECKER", field: null },
   { source: String.raw`CHKD?\.?`, field: null },
-  { source: String.raw`ENGINEER(?:ING)?`, field: null },
+  { source: "ENGINEER(?:ING)?", field: null },
   { source: String.raw`ENGR?\.?`, field: null },
   { source: String.raw`MFG\.?`, field: null },
-  { source: String.raw`MANUFACTURING`, field: null },
+  { source: "MANUFACTURING", field: null },
   { source: String.raw`Q\.?\s?A\.?`, field: null },
   { source: String.raw`Q\.?\s?C\.?`, field: null },
-  { source: String.raw`ISSUED`, field: null },
-  { source: String.raw`RELEASED`, field: null },
-  { source: String.raw`REVIEWED`, field: null },
-  { source: String.raw`PROJECT`, field: null },
+  { source: "ISSUED", field: null },
+  { source: "RELEASED", field: null },
+  { source: "REVIEWED", field: null },
+  { source: "PROJECT", field: null },
   { source: String.raw`SHT\.?`, field: null },
-  { source: String.raw`PAGES?`, field: null },
-  { source: String.raw`EC[ONR]`, field: null },
-  { source: String.raw`ZONE`, field: null },
+  { source: "PAGES?", field: null },
+  { source: "EC[ONR]", field: null },
+  { source: "ZONE", field: null },
 ];
 
 // A label is a whole word: a letter, digit or hyphen on either side means the text is something else
@@ -226,6 +226,12 @@ const VALUE_TEXT_TALLER_THAN_LABEL = 1.15;
  * rarely such a run with text left aligned under it ("ANODIZE, BLACK, MIL-A-8625F" is not).
  */
 const LABEL_LIKE_RUN = /^[A-Z][A-Z .&/']{1,40}$/i;
+/**
+ * The words that head the other cells a title block prints beside MATERIAL and FINISH. Text on the label's own line
+ * that starts with one of them is that cell's label, not a value: "HEAT TREAT" beside an empty MATERIAL is not a
+ * material. They are not in the label vocabulary, so a value that runs under one of them keeps its cell.
+ */
+const NEIGHBOUR_CELL_LABEL = /^(?:HEAT\s+TREAT(?:MENT)?|TREATMENT|HARDNESS|COLOU?R|PROCESS|SPEC(?:IFICATION)?S?|TEMPER|CONDITION)\b/i;
 /** A run this close after an inline value continues it (the words of "SHEET 1 OF 1"). */
 const PHRASE_GAP = 6;
 /** Owned value lines further apart than this are not one value. */
@@ -901,14 +907,28 @@ function hasOwnCellOnItsLine(
   if (lead === null) {
     return false;
   }
-  if (/:\s*$/.test(lead.text)) {
+  // What the label's own line holds after it, in order: in word boxes the words of a phrase are runs of their own.
+  const inlineText = owned
+    .filter((run) => inlineRuns.has(run) && run.line === lead.line)
+    .sort((left, right) => left.start - right.start)
+    .map((run) => run.text)
+    .join(" ");
+  // A colon anywhere in it ("HEAT TREAT: RC 40-45"), or a word that heads another cell of a title block, however
+  // it is spelled out: the text is that cell's label and value, not this one's.
+  if (inlineText.includes(":") || NEIGHBOUR_CELL_LABEL.test(inlineText)) {
     return true;
   }
   const limit = Math.min(lead.line + MAX_LINE_GAP, caps.get(label) ?? Number.POSITIVE_INFINITY);
   for (let line = lead.line + 1; line <= limit; line += 1) {
     for (const under of runsByLine.get(line) ?? []) {
-      // Under the run: it starts below the run's own extent (a little left of it is still under it).
-      if (under.start < lead.start - ALIGNED_UNDER_INLINE || under.start >= lead.end || alphanumericCount(under.text) < 2) {
+      // Under the run: it starts below the run's own extent (a little left of it is still under it). The value of
+      // another label on its own row is not text under this run ("MATERIAL ALUMINUM" over "FINISH ANODIZE").
+      if (
+        inlineRuns.has(under) ||
+        under.start < lead.start - ALIGNED_UNDER_INLINE ||
+        under.start >= lead.end ||
+        alphanumericCount(under.text) < 2
+      ) {
         continue;
       }
       const taller =

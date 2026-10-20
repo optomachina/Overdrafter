@@ -460,7 +460,7 @@ describe("title block cells", () => {
 
     it("reads no value for an unlisted label close beside MATERIAL when a value is under MATERIAL too", () => {
       // Within the inline gap the text could be MATERIAL's own value or another cell's label: neither is taken.
-      const sheet = layoutSheet([[0, "MATERIAL"], [12, "HEAT TREAT"]], [[2, "AL 6061-T6"], [12, "RC 40-45"]]);
+      const sheet = layoutSheet([[0, "MATERIAL"], [12, "LOT CODE"]], [[2, "AL 6061-T6"], [12, "L-4412"]]);
       expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "multiple_values" });
     });
 
@@ -795,9 +795,9 @@ describe("title block cells", () => {
   describe("a label the vocabulary does not know, beside an empty cell", () => {
     describe("on layout text", () => {
       it.each([
-        ["MATERIAL", "material", [[12, "HEAT TREAT"]], [[12, "RC 40-45"]]],
-        ["FINISH", "finish", [[10, "TREATMENT"]], [[10, "STRESS RELIEVE"]]],
-        ["MATERIAL", "material", [[18, "HARDNESS"]], [[18, "RC 40-45"]]],
+        ["MATERIAL", "material", [[12, "LOT CODE"]], [[12, "RC 40-45"]]],
+        ["FINISH", "finish", [[10, "BATCH"]], [[10, "STRESS RELIEVE"]]],
+        ["MATERIAL", "material", [[18, "STOCK"]], [[18, "RC 40-45"]]],
       ] as const)("leaves %s empty and flagged when an unlisted label with its value under it follows on its line (%j)", (label, field, beside, under) => {
         const sheet = layoutSheet([[0, label], ...beside], "", [...under]);
         expect(cell(sheet, field)).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
@@ -808,11 +808,11 @@ describe("title block cells", () => {
       });
 
       it("treats a short run of letters with text under it as a label even when the text follows on the next line", () => {
-        // Layout text has no heights: "HEAT TREAT" over "RC 40-45" is a label over its value, where the wrapped
+        // Layout text has no heights: "LOT CODE" over "RC 40-45" is a label over its value, where the wrapped
         // value of a finish ("ANODIZE, BLACK" over "CLASS 2") has commas and digits.
-        const sheet = layoutSheet([[0, "MATERIAL"], [12, "HEAT TREAT"]], [[14, "RC 40-45"]]);
+        const sheet = layoutSheet([[0, "MATERIAL"], [12, "LOT CODE"]], [[14, "RC 40-45"]]);
         expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
-        const finish = layoutSheet([[0, "FINISH"], [10, "TREATMENT"]], [[12, "STRESS RELIEVE"]]);
+        const finish = layoutSheet([[0, "FINISH"], [10, "BATCH"]], [[12, "STRESS RELIEVE"]]);
         expect(cell(finish, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
       });
 
@@ -830,7 +830,7 @@ describe("title block cells", () => {
       });
 
       it("treats a run that ends in a colon as a label of its own, with or without text under it", () => {
-        const sheet = layoutSheet([[0, "MATERIAL"], [10, "TREATMENT:"], [24, "STRESS"]]);
+        const sheet = layoutSheet([[0, "MATERIAL"], [10, "BATCH:"], [24, "STRESS"]]);
         expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
       });
 
@@ -856,13 +856,13 @@ describe("title block cells", () => {
       const label = (text: string, x: number, y = 720) => phrase(text, x, y, 6);
       const value = (text: string, x: number, y = 732) => phrase(text, x, y, 9);
 
-      it("leaves MATERIAL empty and flagged when HEAT TREAT (a 6 pt label, 24 pt on) has RC 40-45 (9 pt) under it", () => {
-        const words = [...label("MATERIAL", 330), ...label("HEAT TREAT", 380), ...value("RC 40-45", 385)];
+      it("leaves MATERIAL empty and flagged when LOT CODE (a 6 pt label, 24 pt on) has RC 40-45 (9 pt) under it", () => {
+        const words = [...label("MATERIAL", 330), ...label("LOT CODE", 380), ...value("RC 40-45", 385)];
         expect(wordRead(words, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
       });
 
-      it("leaves FINISH empty and flagged when TREATMENT (24 pt on) has STRESS RELIEVE under it", () => {
-        const words = [...label("FINISH", 330, 750), ...label("TREATMENT", 370, 750), ...value("STRESS RELIEVE", 375, 762)];
+      it("leaves FINISH empty and flagged when BATCH (24 pt on) has STRESS RELIEVE under it", () => {
+        const words = [...label("FINISH", 330, 750), ...label("BATCH", 370, 750), ...value("STRESS RELIEVE", 375, 762)];
         expect(wordRead(words, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
       });
 
@@ -898,6 +898,68 @@ describe("title block cells", () => {
           expect(wordRead(words, "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
         });
       });
+    });
+  });
+
+  // The words that head the other cells of a title block (HEAT TREAT, HARDNESS, COLOR, ...) are fences wherever they
+  // are on the label's line: the text is that cell's label, and a cell that has nothing under it is no value of its
+  // neighbour. A colon in the middle of the text is one too, whatever the label is called.
+  describe("a word that heads another cell, on the line of an empty cell", () => {
+    const NEIGHBOURS = ["HEAT TREAT", "HEAT TREATMENT", "TREATMENT", "HARDNESS", "COLOR", "COLOUR", "PROCESS", "SPEC", "SPECS", "SPECIFICATION", "TEMPER", "CONDITION"];
+
+    it.each(NEIGHBOURS)("leaves MATERIAL and FINISH empty and flagged for %s with nothing under it (layout text)", (word) => {
+      expect(cell(layoutSheet([[0, "MATERIAL"], [12, word]]), "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(cell(layoutSheet([[0, "FINISH"], [9, word]]), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+    });
+
+    it.each([
+      ["HARDNESS RC 40-45", "MATERIAL"],
+      ["SPEC 123", "FINISH"],
+      ["HEAT TREAT: RC 40-45", "MATERIAL"],
+      ["COLOR BLACK", "FINISH"],
+    ])("leaves the cell empty and flagged when its line goes on with %s (layout text)", (text, label) => {
+      const field = label === "MATERIAL" ? "material" : "finish";
+      expect(cell(layoutSheet([[0, label], [label.length + 3, text]]), field)).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(infer(layoutSheet([[0, label], [label.length + 3, text]], "", [[40, "SCALE 1:1"]]))[field]).toMatchObject({ value: null, reviewNeeded: true });
+    });
+
+    it("leaves the value on the next line, right of the word's end, to no cell", () => {
+      const sheet = layoutSheet([[0, "MATERIAL"], [12, "HEAT TREAT"]], [[23, "RC 40-45"]]);
+      expect(cell(sheet, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+    });
+
+    it("fences a colon in the middle of the text, whatever the label is called", () => {
+      expect(cell(layoutSheet([[0, "MATERIAL"], [12, "LOT CODE: L-4412"]]), "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(cell(layoutSheet([[0, "FINISH"], [10, "AS MACHINED: 63 RA"]]), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+    });
+
+    it.each(["COLORED ZINC", "HARDENED 4140", "PROCESSED STEEL", "SPECIAL ALLOY", "TEMPERED GLASS", "CONDITIONED 6061"])(
+      "reads %s, which only starts like such a word",
+      (value) => {
+        expect(cell(layoutSheet([[0, "MATERIAL"], [12, value]]), "material")).toMatchObject({ status: "value", value });
+      },
+    );
+
+    it("fences the words of a phrase set as word boxes", () => {
+      const label = (text: string, x: number, y = 720) => phrase(text, x, y, 6);
+      const value = (text: string, x: number, y = 720) => phrase(text, x, y, 9);
+      expect(wordRead([...label("MATERIAL", 330), ...label("HEAT TREAT", 380)], "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(wordRead([...label("FINISH", 330), ...label("COLOR", 366)], "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(wordRead([...label("MATERIAL", 330), ...label("HEAT TREAT:", 380), ...value("RC 40-45", 440)], "material")).toMatchObject({
+        status: "ambiguous",
+        value: null,
+        reason: "unlisted_label",
+      });
+      expect(wordRead([...label("MATERIAL", 330), ...value("HARDNESS RC 40-45", 365)], "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(wordRead([...label("MATERIAL", 330), ...value("ALUMINUM 6061-T6", 365)], "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061-T6" });
+    });
+
+    // The value of another label on its own row is not text under this label's value: a table of label and value
+    // rows is read, where a label over text under it is not.
+    it("reads a table of label and value rows, each value on its own row", () => {
+      const sheet = layoutSheet([[0, "MATERIAL"], [12, "STAINLESS STEEL"]], [[0, "FINISH"], [12, "AS MACHINED"]]);
+      expect(cell(sheet, "material")).toMatchObject({ status: "value", value: "STAINLESS STEEL" });
+      expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
     });
   });
 

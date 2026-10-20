@@ -546,7 +546,7 @@ describe("general tolerance rows (OVD-989)", () => {
   // The time limits in this block are an order of magnitude from both sides: the linear reader takes tens of
   // milliseconds, the quadratic one seconds to a minute on the same text. Each time is the fastest of several runs
   // (a loaded machine slows a run down and never speeds it up).
-  describe("hostile text", () => {
+  describe("hostile text", { timeout: 120_000 }, () => {
     const fastest = (runs: number, work: () => void) => {
       let best = Number.POSITIVE_INFINITY;
       for (let run = 0; run < runs; run += 1) {
