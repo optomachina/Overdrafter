@@ -12,6 +12,7 @@
 // linear from quadratic work, not to measure a machine. No model, no network, no poppler.
 
 import { describe, expect, it } from "vitest";
+import { fastestOfPair, slowdown } from "../../test-support/timing";
 import { isLabelLikeToken, readTitleBlockCells, type CellRead } from "./titleBlockCells";
 
 function read(text: string): CellRead[] {
@@ -100,9 +101,8 @@ describe("the work is linear in the length of a line", () => {
     // Under the label cap, so the whole page is read: 400 / 198 = 2 lines of labels.
     const short = page(blankThenLabels(250, 100), 3);
     const long = page(blankThenLabels(1_000, 100), 3);
-    const ratio = bestMs(() => read(long)) / Math.max(bestMs(() => read(short)), 2);
     // Linear work is a ratio of about 1 (the labels are the same); quadratic is about 16.
-    expect(ratio).toBeLessThan(5);
+    expect(slowdown(() => read(short), () => read(long), { floorMs: 2 })).toBeLessThan(5);
   });
 
   it("reads 100 lines of a 1,900 character token followed by a label in a fraction of a second", () => {
@@ -110,12 +110,11 @@ describe("the work is linear in the length of a line", () => {
     expect(bestMs(() => read(sheet), 3)).toBeLessThan(3_000);
   });
 
-  it("does not take longer for a token 4 times as long before a label", () => {
-    const short = page(`${"x".repeat(475)}  REV`, 100);
+  it("does not take longer for a token 8 times as long before a label", () => {
+    const short = page(`${"x".repeat(237)}  REV`, 100);
     const long = page(`${"x".repeat(1_900)}  REV`, 100);
-    const ratio = bestMs(() => read(long)) / Math.max(bestMs(() => read(short)), 5);
-    // The line is 4 times as long: linear is about 4 (a little more from memory), quadratic is about 16.
-    expect(ratio).toBeLessThan(9);
+    // The line is 8 times as long: linear is about 8 (a little more from memory), quadratic is about 64.
+    expect(slowdown(() => read(short), () => read(long))).toBeLessThan(28);
   });
 
   // The digit rule asks whether the token before a label holds a digit. Looking back over the token for each label
@@ -126,18 +125,16 @@ describe("the work is linear in the length of a line", () => {
     const hostile = page(`REV  (${"PN.".repeat(700)}`.slice(0, 2_000), 399);
     const plain = page(`REV  (${"xyz".repeat(700)}`.slice(0, 2_000), 399);
     expect(hostile.split("\n")[0]!.length).toBe(2_000);
-    const hostileMs = bestMs(() => read(hostile), 7);
-    const plainMs = bestMs(() => read(plain), 7);
+    const { first: hostileMs, second: plainMs } = fastestOfPair(() => read(hostile), () => read(plain));
     expect(hostileMs).toBeLessThan(12 * plainMs + 40);
     expect(hostileMs).toBeLessThan(2_000);
   });
 
-  it("does not take longer for a token 4 times as long that holds many labels", () => {
-    const short = page(`REV  (${"PN.".repeat(700)}`.slice(0, 500), 399);
+  it("does not take longer for a token 8 times as long that holds many labels", () => {
+    const short = page(`REV  (${"PN.".repeat(700)}`.slice(0, 250), 399);
     const long = page(`REV  (${"PN.".repeat(700)}`.slice(0, 2_000), 399);
-    const ratio = bestMs(() => read(long), 7) / Math.max(bestMs(() => read(short), 7), 5);
-    // The line is 4 times as long, so linear work is a ratio of about 4; a quadratic one is about 16 and more.
-    expect(ratio).toBeLessThan(10);
+    // The line is 8 times as long, so linear work is a ratio of about 8; a quadratic one is about 64 and more.
+    expect(slowdown(() => read(short), () => read(long))).toBeLessThan(28);
   });
 
   it("scans a line of repeated look-alike labels once", () => {
@@ -159,8 +156,7 @@ describe("a page just under every cap at once", () => {
     const control = Array.from({ length: 399 }, (_, line) => (line === 0 ? apart(line) : `${" ".repeat(40)}${values(line)}`)).join("\n");
     expect(read(hostile)).toHaveLength(399);
     expect(read(control)).toHaveLength(1);
-    const hostileMs = bestMs(() => read(hostile), 5);
-    const controlMs = bestMs(() => read(control), 5);
+    const { first: hostileMs, second: controlMs } = fastestOfPair(() => read(hostile), () => read(control), 5);
     expect(hostileMs).toBeLessThan(25 * controlMs + 60);
     expect(hostileMs).toBeLessThan(4_000);
   });

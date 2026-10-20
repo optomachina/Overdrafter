@@ -40,6 +40,7 @@ import {
   renderPdfPreviewAssets,
   renderPdfTitleBlockCrop,
 } from "./pdfDrawing";
+import { slowdown } from "../../test-support/timing";
 import { MAX_WORDS_TOTAL } from "./pdfWords";
 
 const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
@@ -1592,10 +1593,16 @@ describe("title block lines of a document with many pages (OVD-989)", () => {
   });
 
   it("does not take longer for 16 times as many empty pages than for the few it needs", () => {
-    const few = time(2_000).ms;
-    const many = time(32_000).ms;
+    const fewPages = document(2_000);
+    const manyPages = document(32_000);
     // Pages without text cost a loop step each, so the ratio is about 1 (the 50 pages with text are the same). Pages
-    // times lines would be 16 times that again, at any speed of machine. The floor keeps noise from deciding it.
-    expect(many / Math.max(few, 40)).toBeLessThan(8);
+    // times lines would be 16 times that again, at any speed of machine. The two are timed alternately, and the floor
+    // keeps noise on the fast one from deciding it.
+    const ratio = slowdown(
+      () => inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText: fewPages }),
+      () => inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText: manyPages }),
+      { floorMs: 40 },
+    );
+    expect(ratio).toBeLessThan(8);
   });
 });

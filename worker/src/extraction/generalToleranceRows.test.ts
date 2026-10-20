@@ -24,6 +24,7 @@
 // shapes through poppler when it is installed).
 
 import { describe, expect, it } from "vitest";
+import { slowdown } from "../../test-support/timing";
 import { pdfTextOf } from "../../test-support/titleBlockSheet";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 
@@ -614,9 +615,9 @@ describe("general tolerance rows (OVD-989)", () => {
     // shorter: linear work is a ratio of about 8, quadratic work about 64. The floor keeps a few milliseconds of
     // noise from deciding the ratio.
     it.each(HOSTILE_LINES)("takes about 8 times as long for lines 8 times as long: %s", (_name, line) => {
-      const short = timeLines(line.slice(0, 250), 400, 5).ms;
-      const long = timeLines(line, 400, 5).ms;
-      expect(long / Math.max(short, 6)).toBeLessThan(30);
+      const shortSheet = [...DIMENSIONS_2_AND_3, ...bigLines(line.slice(0, 250), 400), INCHES, ...ROWS];
+      const longSheet = [...DIMENSIONS_2_AND_3, ...bigLines(line, 400), INCHES, ...ROWS];
+      expect(slowdown(() => toleranceOf(shortSheet), () => toleranceOf(longSheet), { floorMs: 6 })).toBeLessThan(30);
     });
   });
 });
