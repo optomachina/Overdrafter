@@ -36,7 +36,7 @@ const allowed = {
   weekly: ["ledger", "from", "to", "prs-json", "repo", "attribution", "min-sample", "generated-at", "format"],
   "export-evals": ["ledger", "out"],
 };
-const REPEATABLE = ["input", "ledger"];
+const REPEATABLE = new Set(["input", "ledger"]);
 const isFlag = (value) => typeof value === "string" && value.startsWith("--");
 const readText = (file) => fs.readFileSync(file, "utf8");
 function readJSON(file) {
@@ -71,7 +71,7 @@ function parseOptions(command, rest) {
     const key = optionKey(command, rest[i]);
     const value = key === "dry-run" ? true : rest[++i];
     if (value === undefined || isFlag(value)) throw new UsageError(`--${key} needs a value`);
-    if (options[key] && !REPEATABLE.includes(key)) throw new UsageError(`duplicate --${key}`);
+    if (options[key] && !REPEATABLE.has(key)) throw new UsageError(`duplicate --${key}`);
     options[key] = [...(options[key] ?? []), value];
   }
   return options;
