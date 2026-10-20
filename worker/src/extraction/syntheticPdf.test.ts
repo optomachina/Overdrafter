@@ -312,6 +312,105 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     });
   });
 
+  // #884 review, final round: a stacked cell whose label (unknown to the vocabulary) is printed with its own value on
+  // one line, in the three layouts the reviews built, and a label no list can know. The shape of the line keeps its
+  // text out of the value whatever the sizes are: the field is the value alone, or empty and flagged, through poppler's
+  // word boxes and through its layout text alone, and never the stacked cell's text approved.
+  describe("a stacked cell printed as its label and its own value on one line", () => {
+    /** The sheet with FINISH lowered, so that a stacked cell fits between MATERIAL and FINISH. */
+    const lowerFinish = (material: string | null, stacked: PdfTextItem[]): PdfTextItem[] => [
+      ...syntheticSheet({ material, finish: null }).filter((item) => item.text !== "FINISH"),
+      ...stacked,
+      { x: 330, y: 765, size: 6, text: "FINISH" },
+      { x: 340, y: 775, size: 9, text: "AS MACHINED" },
+    ];
+    /** Every title-block label set in 9 pt like the values (a template that sets them alike). */
+    const sameSize = (items: PdfTextItem[]) => items.map((item) => (item.y >= 715 && item.size === 6 ? { ...item, size: 9 } : item));
+    const labelAndValue = (label: string, value: string, y: number, valueX = 380): PdfTextItem[] => [
+      { x: 332, y, size: 6, text: label },
+      { x: valueX, y: y - 2, size: 9, text: value },
+    ];
+
+    /** Signals from poppler's word boxes and from its layout text alone. */
+    async function bothSources(items: PdfTextItem[]) {
+      const pdfText = await pdfTextOf(items);
+      expect(pdfText.pages[0]?.words?.length ?? 0).toBeGreaterThan(0);
+      const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
+      return [
+        ["word boxes", inferDrawingSignalsFromPdf({ baseName: "upload", pdfText })],
+        ["layout text", inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: layoutText })],
+      ] as const;
+    }
+
+    it.each([
+      ["THICKNESS", ".125"],
+      ["LOT CODE", "A123"],
+    ])("(a) leaves an empty MATERIAL empty and flagged, not '%s %s'", async (label, value) => {
+      for (const [source, signals] of await bothSources(lowerFinish(null, labelAndValue(label, value, 745)))) {
+        expect(signals.material, source).toMatchObject({ value: null, reviewNeeded: true });
+        expect(signals.reviewFields, source).toContain("material");
+        expect(signals.finish, source).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+      }
+    });
+
+    it("(a) leaves an empty FINISH empty and flagged, not 'PAINT' or 'PAINT RAL 9005'", async () => {
+      for (const [source, signals] of await bothSources(syntheticSheet({ finish: null, extra: labelAndValue("PAINT", "RAL 9005", 775, 372) }))) {
+        expect(signals.finish, source).toMatchObject({ value: null, reviewNeeded: true });
+        expect(signals.material, source).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+      }
+    });
+
+    it.each([
+      ["material", "AL 6061-T6", "THICKNESS", ".125"],
+      ["material", "AL 6061-T6", "LOT CODE", "A123"],
+      ["finish", "ANODIZE, BLACK", "PAINT", "RAL 9005"],
+      ["finish", "MIL-A-8625 TYPE II", "QTY", "4"],
+    ] as const)("(b) never joins a stacked cell to the %s '%s': '%s %s'", async (field, cellValue, label, value) => {
+      const items =
+        field === "material"
+          ? lowerFinish(cellValue, labelAndValue(label, value, 745))
+          : syntheticSheet({ finish: cellValue, extra: labelAndValue(label, value, 775, 372) });
+      for (const [source, signals] of await bothSources(items)) {
+        // Word boxes: the stacked label is set smaller than the value, so the value ends above it.
+        const read = signals[field];
+        expect(read.value ?? "", source).not.toContain(label);
+        expect(read.value === cellValue || (read.value === null && read.reviewNeeded), `${source}: ${read.value}`).toBe(true);
+        if (source === "layout text") {
+          expect(read, source).toMatchObject({ value: null, reviewNeeded: true });
+        }
+      }
+    });
+
+    it("(c) flags a finish with 'LOT CODE A123' under it on a template that sets its labels like its values", async () => {
+      const items = sameSize(syntheticSheet({ finish: "ANODIZE, BLACK", extra: [{ x: 332, y: 775, size: 9, text: "LOT CODE A123" }] }));
+      for (const [source, signals] of await bothSources(items)) {
+        expect(signals.finish, source).toMatchObject({ value: null, reviewNeeded: true });
+      }
+    });
+
+    // Codex review, final round: the stacked label set as large as the value, which is larger than its own label.
+    it.each(["PAINT", "THICKNESS", "QTY", "LOT CODE"])("flags a finish with a 9 pt '%s' under its 9 pt value", async (label) => {
+      for (const x of [332, 340]) {
+        for (const [source, signals] of await bothSources(syntheticSheet({ finish: "ANODIZE", extra: [{ x, y: 772, size: 9, text: label }] }))) {
+          expect(signals.finish, `${source} at ${x}`).toMatchObject({ value: null, reviewNeeded: true });
+        }
+      }
+    });
+
+    it("keeps out a label that no vocabulary knows, alone or with its own value", async () => {
+      for (const stacked of [
+        [{ x: 340, y: 772, size: 9, text: "FROBNITZ" }],
+        [{ x: 332, y: 772, size: 9, text: "FROBNITZ X-77" }],
+        labelAndValue("FROBNITZ", "X-77", 775, 380),
+      ]) {
+        for (const [source, signals] of await bothSources(syntheticSheet({ finish: "ANODIZE, BLACK", extra: stacked }))) {
+          expect(signals.finish.value ?? "", source).not.toMatch(/FROBNITZ|X-77/);
+          expect(signals.finish.value === "ANODIZE, BLACK" || signals.finish.reviewNeeded, `${source}: ${signals.finish.value}`).toBe(true);
+        }
+      }
+    });
+  });
+
   // A revision is the last text of a block as often as the border's marker is: "A" under REV is read, where the
   // border's "1" after a row of markers is not (OVD-985 review).
   // Codex review of #884: a label and its value printed as one word ("MATERIAL:ALUMINUM") is one word box.

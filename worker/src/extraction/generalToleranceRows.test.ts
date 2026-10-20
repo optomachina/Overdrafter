@@ -433,6 +433,27 @@ describe("general tolerance rows (OVD-989)", () => {
       expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n9.08\n.375`) })).toMatchObject({ valueInch: 0.005 });
     });
 
+    // Codex review of #884, final round: a raster dimension whose digits after the point are the table's own ".0010" is
+    // not the table's value read again; the whole number decides.
+    it("does not take a raster dimension for the table's value because its last digits match it", () => {
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\nØ1.0010 THRU`) })).toEqual(UNRESOLVED);
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n2X 3,0010`) })).toEqual(UNRESOLVED);
+      // The table's own value read again apart from its row, and a vector dimension read again with a zero before its
+      // point, are the same numbers.
+      expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n.0010\n0.656 THRU`) })).toMatchObject({ valueInch: 0.005 });
+    });
+
+    // Codex review of #884, final round: tesseract often puts a dimension on one line with a view label beside it.
+    it("counts a raster dimension that shares its OCR line with other text", () => {
+      for (const line of ["Ø.1875 THRU SECTION A-A", "SECTION B-B   Ø.1875 THRU", "DETAIL C  4X R.0625", "Ø,1875, SEE VIEW D"]) {
+        expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n${line}`) }), line).toEqual(UNRESOLVED);
+      }
+      // A number glued to a word, a line of the table or a note, and a decimal the layer prints, are not.
+      for (const line of ["SECTION A-A REV1.1875", "THREE PLACE DECIMAL .0050 MAX", "NOTE: WEIGHT .18752 LB", "VIEW A  1.653 TYP"]) {
+        expect(toleranceOf([], { pdfText: mixed(`${LAYER}\n${line}`) }), line).toMatchObject({ valueInch: 0.005 });
+      }
+    });
+
     it("does not count what OCR garbles on a line that is not only dimensions (the table, a note)", () => {
       // Tesseract read the synthetic sheet's "THREE PLACE DECIMAL ±.005" as "THREE PLACE DEGIMA\, 5005".
       const garbled = `${LAYER}\nTHREE PLACE DEGIMA\\, 5005\nFOUR PLACE DECIMAL +0010\nNOTE 2. WEIGHT .18752 LB`;

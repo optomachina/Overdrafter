@@ -653,15 +653,17 @@ function collectToleranceCandidates(text: string) {
  *    places are read as before (the tightest printed row), which is the safe direction for a quote and
  *    changes nothing for a table without a four-place row.
  * T4 Raster: a page with a text layer can also carry a raster view whose dimensions only OCR reads. OCR
- *    digits are not trusted to drop a row, nor to set one in force. When the OCR text prints, on a line of
- *    dimension callouts only ("2X Ø.1875 THRU"), a decimal that the text layer does not print, with more places
- *    than T2 found, the text layer did not show every dimension, so the readable sheet is read as T3 reads one:
- *    a row of more places than both T2's evidence and MOST_PLACES_ASSUMED_IN_FORCE is an unresolved value, never
- *    dropped. A decimal the text layer prints (the table's own ".0010", every vector dimension OCR reads again)
- *    is no such evidence, nor is a line that holds anything else (OCR garbles the table: ".005" as ", 5005").
+ *    digits are not trusted to drop a row, nor to set one in force. When the OCR text prints, as a dimension
+ *    callout ("2X Ø.1875 THRU", or "Ø.1875" on a line with a view label, "Ø.1875 THRU SECTION A-A"), a decimal
+ *    that the text layer does not print as the same whole number, with more places than T2 found, the text layer
+ *    did not show every dimension, so the readable sheet is read as T3 reads one: a row of more places than both
+ *    T2's evidence and MOST_PLACES_ASSUMED_IN_FORCE is an unresolved value, never dropped. A decimal the text layer
+ *    prints (the table's own ".0010", every vector dimension OCR reads again) is no such evidence, but "1.0010" is
+ *    not ".0010". Nor is a line of the table or the notes, or a number glued to other text (OCR garbles the table:
+ *    ".005" as ", 5005").
  *
  * Known limit: a raster dimension that OCR does not read, reads with no more places than the text layer prints,
- * or reads on a line with other text, is not seen.
+ * reads glued to other text, or reads as exactly a number the text layer prints, is not seen.
  */
 const NON_DIMENSION_LINE_PATTERNS: readonly RegExp[] = [
   /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS)\b/i,
@@ -814,24 +816,49 @@ function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<num
 }
 
 /**
- * T4: the most places of a decimal that the OCR text prints on a line of dimension callouts only ("2X Ø.1875 THRU"),
- * and that the text layer does not print anywhere, or 0. A decimal the text layer prints is the same number read
- * twice, and a line that is not only dimensions is where OCR garbles the table and the notes (".005" as ", 5005").
+ * A decimal as the whole number it is, whatever its separator and the zeros before it: ".1875", "0.1875" and OCR's
+ * ",1875" are one number, and "1.0010" is not ".0010". `separator` is the position of the separator in `text`.
+ */
+function decimalKey(text: string, separator: number, fraction: string): string {
+  return `${text.slice(numberStartOf(text, separator), separator).replace(/^0+/, "")}.${fraction}`;
+}
+
+/**
+ * Whether a token of an OCR line is a dimension callout with its number ("Ø.1875", "2X", "R,50", "1.0010"): what
+ * isDimensionToken reads, with a decimal comma read as a point and a list comma after it dropped.
+ */
+function isDimensionCallout(token: string): boolean {
+  return isDimensionToken(token.replace(/[,;]+$/, "").replaceAll(",", "."));
+}
+
+/**
+ * T4: the most places of a decimal that the OCR text prints as a dimension callout ("2X Ø.1875 THRU", and "Ø.1875" in
+ * "Ø.1875 THRU SECTION A-A"), and that the text layer does not print anywhere as the same whole number, or 0. A decimal
+ * the text layer prints is the same number read twice: the vector dimensions OCR reads again, and the table's own
+ * ".0010" when OCR reads it apart from its row's words. A line of the table or the notes (NON_DIMENSION_LINE_PATTERNS)
+ * is not read, nor is a number glued to other text, which is where OCR garbles them (".005" as ", 5005").
  */
 function mostPlacesOnlyInRaster(layerText: string, rasterText: string): number {
   if (rasterText.trim().length === 0) {
     return 0;
   }
-  // The digits after each separator, so ".1875" and OCR's ",1875" are the same number.
-  const inLayer = new Set(Array.from(foldDecimalSeparators(layerText).matchAll(DECIMAL_NUMBER), (match) => match[0].slice(1)));
+  const layer = foldDecimalSeparators(layerText);
+  const inLayer = new Set(Array.from(layer.matchAll(DECIMAL_NUMBER), (match) => decimalKey(layer, match.index ?? 0, match[0].slice(1))));
   let most = 0;
   for (const line of foldDecimalSeparators(rasterText).split("\n")) {
-    if (line.length > MAX_EVIDENCE_LINE_LENGTH || NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line)) || !isDimensionOnlyLine(line)) {
+    if (line.length > MAX_EVIDENCE_LINE_LENGTH || NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line))) {
       continue;
     }
-    for (const match of line.matchAll(DECIMAL_NUMBER)) {
-      if (!inLayer.has(match[0].slice(1))) {
-        most = Math.max(most, match[0].length - 1);
+    const dimensionsOnly = isDimensionOnlyLine(line);
+    for (const token of line.matchAll(/\S+/g)) {
+      if (!dimensionsOnly && !isDimensionCallout(token[0])) {
+        continue;
+      }
+      for (const match of token[0].matchAll(DECIMAL_NUMBER)) {
+        const fraction = match[0].slice(1);
+        if (!inLayer.has(decimalKey(line, (token.index ?? 0) + (match.index ?? 0), fraction))) {
+          most = Math.max(most, fraction.length);
+        }
       }
     }
   }
