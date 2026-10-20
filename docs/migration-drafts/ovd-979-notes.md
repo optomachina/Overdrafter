@@ -1,6 +1,8 @@
 # OVD-979 notes: keep user corrections through re-extraction, and extract a drawing attached later (DRAFT)
 
-This is a draft. Nothing here has been applied to any Supabase project, and nothing is in `supabase/migrations/`. Promotion is a protected action: it happens only in a migration window that Blaine approves. Base: main `066161de`. Parent: OVD-968, step 3 (GraphMyCode lead, verified). Revision 1 addresses the independent review of revision 0 (verdict "revise before promotion", findings R1 to R6 below).
+**Status (updated at promotion, 2026-10-20).** The drafts are promoted to `supabase/migrations/20261020002126_ovd979_auto_approve_keep_user_corrections.sql` and `supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql`: byte copies of `ovd-979-a.sql` and `ovd-979-b.sql` (same convention as OVD-722, OVD-723 and OVD-736; the draft files and rollbacks stay here as the reviewed source). The pending test is now `supabase/tests/ovd979_reextraction_provenance.sql`. Nothing is applied to production. Staging is applied only with the evidence recorded in the PR. The PR stays a draft because merging a migration file to main auto-deploys production, and the production apply is a protected action that needs Blaine's approval card. The text below describes the drafts and is unchanged except where marked.
+
+Original status: this was a draft. Nothing here had been applied to any Supabase project, and nothing was in `supabase/migrations/`. Promotion is a protected action: it happens only in a migration window that Blaine approves. Base: main `066161de`. Parent: OVD-968, step 3 (GraphMyCode lead, verified). Revision 1 addresses the independent review of revision 0 (verdict "revise before promotion", findings R1 to R6 below).
 
 ## Apply-order prerequisites (read first)
 
@@ -17,7 +19,8 @@ This is a draft. Nothing here has been applied to any Supabase project, and noth
 - `docs/migration-drafts/ovd-979-a.rollback.sql`: restores the 20260317013000 body verbatim, plus the OVD-535 ACL. Unchanged in revision 1.
 - `docs/migration-drafts/ovd-979-b.sql`: replaces `public.api_request_extraction(uuid)` (finding 1b-b, plus review R4).
 - `docs/migration-drafts/ovd-979-b.rollback.sql`: restores the 20260812042000 body verbatim, plus the OVD-736 ACL. Unchanged in revision 1.
-- `supabase/tests/pending/ovd979_reextraction_provenance.sql.pending`: 38 pgTAP assertions. Its header names both drafts, so the ephemeral-db stage (`scripts/ephemeral-db-apply.mjs`) applies the family in stem order (a, then b) and runs the test.
+- `supabase/tests/ovd979_reextraction_provenance.sql` (promoted from `supabase/tests/pending/ovd979_reextraction_provenance.sql.pending`): 38 pgTAP assertions. Its header now names the two promoted migration files. The policy pgTAP suite and the ephemeral-db stage (`scripts/ephemeral-db-apply.mjs`) apply the new migrations in timestamp order (a, then b) and run it.
+- `supabase/migrations/20261020002126_ovd979_auto_approve_keep_user_corrections.sql` and `supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql`: byte copies of `ovd-979-a.sql` and `ovd-979-b.sql`, header comments included (so the "DRAFT" header text inside them is historical).
 
 ## Problem (verified by reading the migrations in order and by execution)
 
@@ -106,6 +109,7 @@ Harness: `/Users/blainewilson/Documents/Codex/2026-10-18/claude-primary/gmc/sql-
 - Reviewer mutants and the assertions that catch them: N1 defaults written into overrides (test errors: material required), N3 allow-list without needs_spec_review (F2), N4 tolerance rule inverted (A5, D2), N5 new-part branch guarded (N1), N6 rollup disabled (B5b, F1, F2), N7 completed-task dedupe removed (R1), N8 `drawing_file_id is not null` dropped (D-1, D0), N9 override ownership dropped (A2, A4, B5, B8), N10 defaults sync also on owned fields (B8, B9), N11 attach marker ignores reason (A5), N12 placeholder ignores fieldSources.material (H1), N13 any extractor version re-queued (B7). N2 and N14 survive, as above.
 - The reviewer's harness (`adv.mjs`, `mat.mjs`): the C4 stale-defaults observations no longer reproduce; material becomes the drawing material and tolerance stays null after an attach.
 - Not verified: the real schema (triggers such as the canonical part version assignment and the part deadline history, the `job_status` enum type in place of the stub's text column), real access helpers, and real concurrency. The CI ephemeral-db stage covers the first two. The advisory lock has no concurrency test (single connection).
+- Real schema (2026-10-20, at promotion): a local Supabase Postgres 17.11 container (`supabase db start`) with the 153 migrations of main `f3abed58`, the two promoted files applied one transaction each, then `supabase test db`. `ovd979_reextraction_provenance.sql`: 38/38. The whole policy suite (77 files, 3,487 assertions) passes. With the two rollbacks applied the live bodies are the 20260317013000 and 20260812042000 bodies again (same `md5(prosrc)`, `search_path=public`, same ACLs) and the same test fails 18 of 38; re-applying gives 38/38 again. This closes the "real schema, triggers, real access helpers" gap above; the advisory lock still has no concurrency test.
 
 ## Read-only hosted checks to run first (staging, then production; need Blaine's OK)
 
@@ -162,7 +166,7 @@ Drafts a and b and the pending test are one change. b alone would re-extract att
 1. Confirm OVD-976 is deployed to the worker (prerequisite for b).
 2. Run the read-only checks above (staging, then production) and record the results.
 3. In one window: `ovd-979-a.sql`, then `ovd-979-b.sql`.
-4. Promotion: `npm run migration:new` twice (a before b), with the bodies copied unchanged. Rename the pending test to `supabase/tests/ovd979_reextraction_provenance.sql`. Add a vitest text pin for the new auto-approve migration, because `src/features/quotes/auto-approve-migration.test.ts` pins the old 20260317013000 file, which stays immutable and will no longer be the live definition.
+4. Promotion (done in this PR, 2026-10-20): the two migration files were named with the repo's timestamp allocator (`npm run migration:next`, a before b), bodies copied unchanged. The pending test is renamed to `supabase/tests/ovd979_reextraction_provenance.sql`. `src/features/quotes/auto-approve-migration.test.ts` now also pins the new auto-approve migration (and that no later migration redefines the function), because the old 20260317013000 file stays immutable and is no longer the live definition. `scripts/free-quote-ci-profile.mjs` and `scripts/fixtures/free-quote-ci-source.json` list the two files as reviewed appended migrations (the free-quote SQL qualification pins every file in `supabase/migrations`). If main gains a newer migration before this merges, rename both files with later timestamps and regenerate that fixture (`node scripts/generate-free-quote-fixtures.mjs --write-source`).
 5. Afterwards, watch `work_queue` rows with `task_type = 'extract_part'` and `payload ->> 'reason' = 'drawing_attached'`, their outcome, and the spend guard. The count from query 4 bounds the extra model runs; they occur only when a user flow calls `api_request_extraction` for that job, not at apply time.
 
 ## R6: SECURITY DEFINER lint (OVD-846), decided
