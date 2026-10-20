@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 
 export function findModelRoutingDrift(agentsText, routingYamlText) {
   const errors = [];
@@ -30,10 +30,11 @@ export function findModelRoutingDrift(agentsText, routingYamlText) {
     if (labels.has(entry.label)) errors.push(`Duplicate routing label: ${entry.label}.`);
     labels.add(entry.label);
   }
-  // Ignore periods inside the backticked path when splitting sentences.
-  const sentences = agentsText.match(/(?:`[^`]*`|[^.!?`])+[.!?]?/g) ?? [];
+  // Split on sentence-ending punctuation followed by whitespace so the periods inside the
+  // path never end a sentence, whether or not the path is backticked.
+  const sentences = agentsText.split(/(?<=[.!?])\s+/);
   if (!sentences.some((sentence) => sentence.includes("docs/agent-graph/model-routing.yaml")
-    && sentence.includes("source of truth"))) {
+    && /\bis the source of truth\b/.test(sentence))) {
     errors.push("AGENTS.md must name docs/agent-graph/model-routing.yaml as the source of truth.");
   }
   const mentioned = new Set(agentsText.match(/\bmodel:[a-z0-9-]+\b/g) ?? []);
@@ -43,9 +44,12 @@ export function findModelRoutingDrift(agentsText, routingYamlText) {
   for (const label of labels) {
     if (!mentioned.has(label)) errors.push(`YAML label not mentioned in AGENTS.md: ${label}.`);
   }
-  for (const family of ["Sonnet", "Opus"]) {
+  // Each review family must sit on its own label, so swapping the two models is drift too.
+  const familyByLabel = [["model:opus", "Opus"], ["model:sonnet", "Sonnet"]];
+  for (const [label, family] of familyByLabel) {
+    const entry = entries.find((candidate) => candidate?.label === label);
     if (new RegExp(`\\b${family}\\b`).test(agentsText)
-      && !entries.some((entry) => typeof entry?.model === "string" && entry.model.includes(family))) {
+      && !(typeof entry?.model === "string" && entry.model.includes(family))) {
       errors.push(`Review model family missing from YAML: ${family}.`);
     }
   }
@@ -59,21 +63,35 @@ export function findModelRoutingDrift(agentsText, routingYamlText) {
 const repoRoot = resolve(import.meta.dirname, "..");
 const agentsText = readFileSync(resolve(repoRoot, "AGENTS.md"), "utf8");
 const routingText = readFileSync(resolve(repoRoot, "docs/agent-graph/model-routing.yaml"), "utf8");
-const opusBlock = routingText.match(/- label: "model:opus"[\s\S]*?(?=\n- label:|$)/)[0];
+const routingHeader = routingText.match(/^(?:#[^\n]*(?:\n|$))+/)[0];
+const routingEntries = parse(routingText);
+const entryFor = (label) => routingEntries.find((entry) => entry.label === label);
+
+// Build drift fixtures from the parsed entries instead of slicing the YAML text, so the cases
+// do not depend on how the labels happen to be quoted in the file.
+const renderRouting = (entries) => `${routingHeader}\n${stringify(entries)}`;
 
 describe("model routing drift", () => {
   it("keeps the real AGENTS.md and routing YAML consistent", () => {
     expect(findModelRoutingDrift(agentsText, routingText)).toEqual([]);
   });
 
+  it("accepts the same entries whatever the YAML quoting style", () => {
+    expect(findModelRoutingDrift(agentsText, renderRouting(routingEntries))).toEqual([]);
+    const singleQuoted = routingText.replace(/label: "(model:[a-z0-9-]+)"/g, "label: '$1'");
+    expect(singleQuoted).not.toBe(routingText);
+    expect(findModelRoutingDrift(agentsText, singleQuoted)).toEqual([]);
+  });
+
   it("detects a label removed from YAML", () => {
-    expect(findModelRoutingDrift(agentsText, routingText.replace(opusBlock, "")))
+    const withoutOpus = routingEntries.filter((entry) => entry.label !== "model:opus");
+    expect(findModelRoutingDrift(agentsText, renderRouting(withoutOpus)))
       .toContain("AGENTS.md label missing from YAML: model:opus.");
   });
 
   it("detects an extra YAML label", () => {
-    const extra = opusBlock.replace('"model:opus"', '"model:extra"');
-    expect(findModelRoutingDrift(agentsText, `${routingText}\n${extra}`))
+    const withExtra = [...routingEntries, { ...entryFor("model:opus"), label: "model:extra" }];
+    expect(findModelRoutingDrift(agentsText, renderRouting(withExtra)))
       .toContain("YAML label not mentioned in AGENTS.md: model:extra.");
   });
 
@@ -88,18 +106,50 @@ describe("model routing drift", () => {
       .toContain("AGENTS.md must name docs/agent-graph/model-routing.yaml as the source of truth.");
   });
 
+  it("accepts the pointer sentence with or without backticks around the path", () => {
+    const unbackticked = agentsText.replace("`docs/agent-graph/model-routing.yaml`", "docs/agent-graph/model-routing.yaml");
+    expect(unbackticked).not.toBe(agentsText);
+    expect(findModelRoutingDrift(unbackticked, routingText)).toEqual([]);
+  });
+
+  it("detects a pointer sentence that denies the source of truth", () => {
+    const negated = agentsText.replace(
+      "model-routing.yaml` is the source of truth",
+      "model-routing.yaml` is not the source of truth",
+    );
+    expect(negated).not.toBe(agentsText);
+    expect(findModelRoutingDrift(negated, routingText))
+      .toContain("AGENTS.md must name docs/agent-graph/model-routing.yaml as the source of truth.");
+  });
+
   it("detects a missing provider", () => {
-    expect(findModelRoutingDrift(agentsText, routingText.replace(/  provider: [^\n]+\n/, "")))
+    const [first, ...rest] = routingEntries;
+    const { provider: _provider, ...withoutProvider } = first;
+    expect(findModelRoutingDrift(agentsText, renderRouting([withoutProvider, ...rest])))
       .toContain("Routing entry 1 must have a non-empty string provider.");
   });
 
   it("detects a duplicate label", () => {
-    expect(findModelRoutingDrift(agentsText, `${routingText}\n${opusBlock}`))
+    expect(findModelRoutingDrift(agentsText, renderRouting([...routingEntries, entryFor("model:opus")])))
       .toContain("Duplicate routing label: model:opus.");
   });
 
   it("detects a renamed Opus model", () => {
-    expect(findModelRoutingDrift(agentsText, routingText.replace("model: Claude Opus", "model: Claude Other")))
+    const renamed = routingEntries.map((entry) => (
+      entry.label === "model:opus" ? { ...entry, model: "Claude Other" } : entry
+    ));
+    expect(findModelRoutingDrift(agentsText, renderRouting(renamed)))
       .toContain("Review model family missing from YAML: Opus.");
+  });
+
+  it("detects the Opus and Sonnet models swapped between their labels", () => {
+    const swapped = routingEntries.map((entry) => {
+      if (entry.label === "model:opus") return { ...entry, model: entryFor("model:sonnet").model };
+      if (entry.label === "model:sonnet") return { ...entry, model: entryFor("model:opus").model };
+      return entry;
+    });
+    const errors = findModelRoutingDrift(agentsText, renderRouting(swapped));
+    expect(errors).toContain("Review model family missing from YAML: Opus.");
+    expect(errors).toContain("Review model family missing from YAML: Sonnet.");
   });
 });
