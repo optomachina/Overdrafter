@@ -202,7 +202,14 @@ export type DrawingExtractionPayload = {
     reasons: string[];
   };
   generalTolerance: { raw: string | null; confidence: number };
-  tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
+  tightestTolerance: {
+    raw: string | null;
+    valueInch: number | null;
+    confidence: number;
+    /** OVD-976: unit applied to the tightest value; "unknown" means valueInch is null on purpose. */
+    unit?: "in" | "mm" | "um" | "mil" | "unknown";
+    drawingUnits?: "inch" | "metric" | "mixed" | "unspecified";
+  };
   notes: string[];
   threads: string[];
   evidence: Array<{
@@ -429,7 +436,18 @@ export type VendorQuoteAdapterOutput = {
   /** Complete purchasable option set when the provider exposes variants. */
   offers?: VendorQuoteAdapterOffer[];
   dfmIssues: string[];
+  /**
+   * Worker automation status for operators (capture status, manual-review routing,
+   * re-anchoring, simulation). Never provider-written; persisted only in
+   * `raw_payload.workerNotes` of the offer row, never in the customer-visible `notes`.
+   */
   notes: string[];
+  /**
+   * Text copied verbatim from the provider's own page or quote. The only source of the
+   * customer-visible offer `notes` (shown as "Provider notes"). Leave unset unless the
+   * adapter really captured provider-written text; no adapter does today.
+   */
+  providerNotes?: string[];
   artifacts: VendorArtifact[];
   rawPayload: Record<string, unknown>;
 };

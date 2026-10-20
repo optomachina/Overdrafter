@@ -883,12 +883,12 @@ function createVendorQuoteAggregate(input: {
         thread_match_notes: null,
         notes: input.laneLabel ?? "Standard lane",
         sort_rank: 0,
-        raw_payload:
-          input.domestic === null
-            ? {}
-            : {
-                domestic: input.domestic,
-              },
+        raw_payload: {
+          // Fixture offers stand in for provider-written notes, so they carry the explicit
+          // provider marker the part-page notes block requires (OVD-982).
+          notesSource: "provider",
+          ...(input.domestic === null ? {} : { domestic: input.domestic }),
+        },
         created_at: quoteCapturedAt,
         updated_at: quoteCapturedAt,
       },
@@ -1042,6 +1042,7 @@ function buildQuotedSampleVendorQuotes(partId: string, quoteRunId: string): Vend
           raw_payload: {
             source: QUOTED_SAMPLE_RFQ.projectSystem,
             laneId: lane.id,
+            ...(lane.notes ? { notesSource: "provider" } : {}),
           },
           created_at: FIXTURE_TIMESTAMP,
           updated_at: FIXTURE_TIMESTAMP,
