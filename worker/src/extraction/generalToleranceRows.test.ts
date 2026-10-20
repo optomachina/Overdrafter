@@ -32,6 +32,8 @@ const ROWS = ["TWO PLACE DECIMAL .01", "THREE PLACE DECIMAL .005", "FOUR PLACE D
 // Five decimal numbers on dimension-only lines: two with two places, three with three.
 const DIMENSIONS_2_AND_3 = [".18", ".656 THRU    2X    .089 THRU", "      .75", "1.653", "R.50"];
 const DIMENSIONS_2_ONLY = [".18", ".75", "1.25", "2.50"];
+// A layout column: pdftotext -layout puts the cells of one row many blanks apart.
+const COLUMN = (text: string, width = 40) => text.padEnd(width);
 
 function toleranceOf(
   lines: string[],
@@ -272,15 +274,16 @@ describe("general tolerance rows (OVD-989)", () => {
       ["a middle dot for the point (U25)", "Ø·1875 THRU"],
       ["a mantissa and an exponent (U04)", "1.875E-1"],
       ["a space on both sides of the point", "Ø . 1875 THRU"],
-      ["two spaces after the point", "Ø.  1875 THRU"],
       ["a radius sign, a point and a space", "R. 0625"],
       ["a comma and a space", "Ø, 1875"],
       ["a no-break space after the point", "Ø.\u00a01875"],
-      ["digits split by two spaces", ".18  75"],
       ["digits split after one digit", ".1 875"],
-      ["a whole part, a point and a space", "3. 1875"],
+      ["a whole part, a point and a space, in the middle of a line", "HOLE 3. 1875 THRU"],
+      ["a radius sign and a middle dot", "R\u00b70625"],
+      ["a decimal comma split by a space", "Ø, 1875 THRU"],
+      ["a four-digit number before the point, which is no note number", "2500. 1875 THRU"],
+      ["a three-digit number before the point, which is no day or month", "FIG 125. 2000 THRU"],
       ["a count after a three-place dimension, which may be a split digit", ".125 5"],
-      ["a numbered note that starts with four digits, which may be a dimension", "1. 1234 PLACES"],
       ["digits split before the last", ".187 5"],
       ["digits split by a no-break space", ".18\u00a075"],
       ["a bullet for the point", "Ø\u20221875 THRU"],
@@ -306,15 +309,46 @@ describe("general tolerance rows (OVD-989)", () => {
       ["a count after a radius", "R.50 4 PLACES"],
       ["an exponent that moves the point right", "2E3 LBS"],
       ["a digit group after the table's own value", "FOUR PLACE DECIMAL .0010 5"],
+      // Ordinary lines of a drawing made from the template. Each once looked like a split or garbled four-place
+      // number and kept the four-place row, which the OVD-683 beta gate denies.
+      ["a numbered note that starts with four digits", "1. 1234 PLACES"],
+      ["a numbered note with leading blanks", "   3. 1875 THRU ALL"],
+      ["a numbered note list", "NOTES:\n1. BREAK SHARP EDGES.\n2. 1018 STEEL."],
+      ["a note number of three digits", "100. 1234 PLACES"],
+      ["a written date with points", "DATE 10. 29. 2013"],
+      ["a written date with spaced points", "DATUM 19. 10. 2026"],
+      ["a written date with a comma", "DRAWN  JSMITH  OCT 19, 2026"],
+      ["a specification and its year", "ZINC PLATE PER ASTM B633, 2019"],
+      ["a callout after a dimension, a layout column away", `${COLUMN(".500")}2X Ø.250 THRU`],
+      ["an integer dimension after a dimension, a layout column away", `${COLUMN(".75")}12`],
+      ["an angle after a dimension, a layout column away", `${COLUMN(".50")}45°`],
+      ["an ordinate zero after a dimension, a layout column away", `${COLUMN(".625")}0`],
+      ["a balloon number after a dimension, a layout column away", `${COLUMN(".750")}1`],
+      ["a four-digit item number after a dimension, a layout column away", `${COLUMN(".250")}1093`],
+      ["a callout one space after a dimension", ".75 2X"],
+      ["a four-digit item number one space after a dimension", ".250 1093"],
+      ["an angle one space after a dimension", ".50 45°"],
+      ["a name with a middle dot", "ACME\u00b71234"],
+      ["a line that ends in a point before a line of digits", "SEE .250.\n1234 MAIN ST"],
+      ["a point and two spaces before four digits", "Ø.  1875 THRU"],
+      ["digits split by two spaces", ".18  75"],
+      ["digits split by three spaces", ".18   75"],
+      ["digits that a letter continues", "Ø. 1875A"],
+      ["digits that a point continues", "Ø. 1875.5"],
     ])("still drops the row when the sheet only has %s", (_name, line) => {
       expect(toleranceOf([...DIMENSIONS_2_AND_3, line, INCHES, ...ROWS])).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it("keeps a three-place row for a garbled three-place dimension on a sheet of two-place dimensions", () => {
+      expect(toleranceOf([...DIMENSIONS_2_ONLY, "Ø. 750 THRU", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.005 });
+      expect(toleranceOf([...DIMENSIONS_2_ONLY, "Ø. 75 THRU", INCHES, ...ROWS])).toMatchObject({ valueInch: 0.01 });
     });
 
     it("keeps the row on a metric drawing for a garbled four-place dimension", () => {
       const MM = "DIMENSIONS ARE IN MILLIMETERS";
       const METRIC_ROWS = ["TOLERANCES:", "LINEAR: X.X 0.3", "X.XX 0.10", "X.XXX 0.030", "X.XXXX 0.0100"];
       const dims = ["4.49", "16.67 THRU", "2X 2.26 THRU", "19.05", "R12.7", "9.77", "42"];
-      expect(toleranceOf([...dims, "3. 1750 THRU", MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0003 });
+      expect(toleranceOf([...dims, "HOLE 3. 1750 THRU", MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0003 });
       expect(toleranceOf([...dims, "3.17 50 THRU", MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0003 });
       expect(toleranceOf([...dims, MM, ...METRIC_ROWS])).toMatchObject({ valueInch: 0.0039 });
     });

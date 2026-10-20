@@ -702,25 +702,41 @@ function countReadableDimensions(
 // Characters a text layer prints for a decimal point: a middle dot, a Greek ano teleia, a bullet, a one dot
 // leader, a hyphenation point, the bullet operator, the dot operator, a katakana middle dot, the Arabic decimal
 // separator, an ideographic full stop and its small and half-width forms. (NFKD has already made the
-// full-width full stop a full stop.) Each is one UTF-16 unit, so folding them keeps every offset.
-const DECIMAL_POINT_LOOK_ALIKES = /[\u00b7\u0387\u2022\u2024\u2027\u2219\u22c5\u30fb\u066b\u3002\ufe52\uff61]/g;
+// full-width full stop a full stop.) Each is one UTF-16 unit, so folding them keeps every offset. Two letters
+// directly before one make a name ("ACME·1234"), not a decimal; a radius or diameter sign is one letter.
+const DECIMAL_POINT_LOOK_ALIKES = /(?<![A-Za-z]{2})[\u00b7\u0387\u2022\u2024\u2027\u2219\u22c5\u30fb\u066b\u3002\ufe52\uff61]/g;
 // ... and the Arabic comma, for a decimal comma.
-const DECIMAL_COMMA_LOOK_ALIKES = /[\u060c]/g;
-// A separator, blanks, then digits: "Ø. 1875", "3. 1750". The separator must not follow a letter ("NO. 1093-05589"),
-// except the single letter of a radius or diameter sign ("R. 0625"). It may follow a digit: "3. 1750" is as likely a
-// dimension as the number of a note, and counting it as one only ever keeps a row.
-const SEPARATOR_THEN_BLANKS = /(?<![A-Za-z])[A-Za-zØ∅⌀]?[.,]\s{1,3}(\d+)/g;
-// A decimal, blanks, then more digits: ".18 75" is perhaps ".1875".
-const DECIMAL_SPLIT_BY_BLANKS = /[.,](\d+)[ \t\u00a0]+(\d+)(?![.,\d])/g;
+const DECIMAL_COMMA_LOOK_ALIKES = /(?<![A-Za-z]{2})\u060c/g;
+// A separator, ONE blank, then at least three digits that nothing continues: "Ø. 1875", "R. 0625", "Ø. 750". The
+// garbled forms a text layer makes are separated by a single blank; the wider gaps of a layout line ("2X" and
+// ".500" three blanks apart) are columns, not a split number. The separator must not follow a letter ("NO. 1093"),
+// except the single letter of a radius or diameter sign, and nothing may continue the digits: a letter, a degree
+// sign, a digit or a point ("1234 MAIN", ". 1875A" and "10. 29. 2013" are not dimensions).
+const SEPARATOR_THEN_BLANK = /(?<![A-Za-z])[A-Za-zØ∅⌀]?([.,])[ \t\u00a0](\d{3,})(?![\dA-Za-z°.,])/g;
+// A decimal, ONE blank, then one to three more digits that nothing continues: ".18 75" is perhaps ".1875". A letter
+// ("2X") or a degree sign after the digits makes a callout or an angle, not the rest of a number.
+const DECIMAL_SPLIT_BY_BLANK = /[.,](\d+)[ \t\u00a0](\d{1,3})(?![\dA-Za-z°.,])/g;
 // A mantissa and an exponent: "1.875E-1" is 0.1875.
 const SCIENTIFIC = /(?<![0-9A-Za-z.,])(?:\d+[.,](\d+)|\d+|[.,](\d+))[eE]([-+]?\d{1,3})(?![0-9A-Za-z])/g;
+// What a separator then digits is when it is ordinary text: the point after a note number at the start of a line
+// ("2. 1018 STEEL"), or a written date ("10. 29. 2013", "OCT 19, 2026", "ASTM B633, 2019").
+const NOTE_NUMBER_BEFORE = /^[ \t]*\d{1,3}$/;
+const DAY_OR_MONTH_BEFORE = /(?:^|\D)\d{1,2}$/;
+const YEAR = /^(?:19|20)\d\d$/;
+
+function isNoteNumberOrDate(textBeforeSeparator: string, separator: string, digits: string): boolean {
+  if (NOTE_NUMBER_BEFORE.test(textBeforeSeparator)) {
+    return true;
+  }
+  return YEAR.test(digits) && (separator === "," || DAY_OR_MONTH_BEFORE.test(textBeforeSeparator));
+}
 
 /**
  * T2: the most decimal places printed anywhere in the text, except the values of the table's own rows, with
  * the garbled forms of a decimal counted as the places they may carry.
  */
 function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<number>): number {
-  const text = sourceText.replace(DECIMAL_POINT_LOOK_ALIKES, ".").replace(DECIMAL_COMMA_LOOK_ALIKES, ",");
+  const text = sourceText.replaceAll(DECIMAL_POINT_LOOK_ALIKES, ".").replaceAll(DECIMAL_COMMA_LOOK_ALIKES, ",");
   let most = 0;
   for (const match of text.matchAll(DECIMAL_NUMBER)) {
     if (tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
@@ -728,10 +744,16 @@ function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<num
     }
     most = Math.max(most, match[0].length - 1);
   }
-  for (const match of text.matchAll(SEPARATOR_THEN_BLANKS)) {
-    most = Math.max(most, match[1]!.length);
+  for (const match of text.matchAll(SEPARATOR_THEN_BLANK)) {
+    const separator = match[1]!;
+    const digits = match[2]!;
+    const separatorAt = (match.index ?? 0) + match[0].length - digits.length - 2;
+    const lineStart = text.lastIndexOf("\n", separatorAt - 1) + 1;
+    if (!isNoteNumberOrDate(text.slice(lineStart, separatorAt), separator, digits)) {
+      most = Math.max(most, digits.length);
+    }
   }
-  for (const match of text.matchAll(DECIMAL_SPLIT_BY_BLANKS)) {
+  for (const match of text.matchAll(DECIMAL_SPLIT_BY_BLANK)) {
     if (!tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
       most = Math.max(most, match[1]!.length + match[2]!.length);
     }
