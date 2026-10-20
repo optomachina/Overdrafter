@@ -22,6 +22,7 @@ until its matching enforcement migration and verification are deployed.
 | `automatic_quote_collection` | Stops entitled automatic requests before vendor resolution or lifecycle writes. | Clients receive a neutral unavailable response; manual quotes and provider recommendations remain available. |
 | `promotion_codes` | Reserved for the promotion-code implementation. | No subscription or manufacturing-order discount is applied. |
 | `order_administration` | Reserved for the visibility-only order ledger. | Existing customer/project access is unchanged. |
+| `controlled_beta_user_quantity` (exists only once the OVD-987 migration is applied) | The Xometry controlled beta admits exactly quantity `1`. | A request for any other quantity gets a named denial before any lane or task exists. See [Controlled beta user quantity](#controlled-beta-user-quantity). |
 
 Hosted Checkout uses the independent server-only
 `BILLING_SELF_SERVICE_ENABLED` Edge Function secret. Billing Portal access is
@@ -152,11 +153,73 @@ select public.api_set_commercial_rollout_control(
 Use the revision reported by the read API; `0` is only correct for a control
 that has never changed.
 
+## Controlled beta user quantity
+
+`controlled_beta_user_quantity` (OVD-987) is the fifth control. Migration
+`20261020100000_ovd987_controlled_beta_user_quantity` creates it, seeded off at
+revision 0, and a missing row reads as off. While it is off the Xometry
+controlled beta admits exactly quantity `1`. While it is on the beta admits
+exactly one quote quantity that is a positive integer. The envelope rule, the
+denial codes and the rollout decision are in the
+[1.0 runbook](../1-0-beta-runbook.md#quantity-in-controlled-beta-requests).
+
+**Production stays off.** The owner decided on 2026-10-20 that production never
+gets the global switch. A quantity above `1` there is admitted only through a
+scoped enablement for one participant organization or one single request. That
+mechanism is not part of the migration, so this section does not describe how
+to grant it. Change the global control only in staging, for qualification and
+the rollback drill (`docs/runbooks/staging.md`), and record the revision you
+leave it at.
+
+Call `public.api_set_commercial_rollout_control` exactly as in
+[Change state](#change-state), with the capability name
+`controlled_beta_user_quantity`. Pass `true` to turn it on and `false` to turn
+it off. What to expect:
+
+- **One capability per transaction.** Each call takes that capability's
+  exclusive advisory lock until its transaction ends. The worker's dispatch
+  authorization takes the shared lock of `automatic_quote_collection` and then,
+  for a lane above quantity `1`, the shared lock of this control. A transaction
+  that sets this control and then `automatic_quote_collection` can therefore
+  deadlock with an in-flight authorization, and PostgreSQL aborts one side. Make
+  each change in its own call and transaction. If both must change together,
+  change `automatic_quote_collection` first.
+- **Turning it off stops lanes that have not been authorized yet.** A lane above
+  quantity `1` is refused at its next worker preflight with
+  `dispatch_quantity_not_admitted`, before any browser launch. A lane that
+  already passed that preflight still launches. To stop provider traffic that is
+  already authorized, use the provider kill switch in
+  `docs/runbooks/provider-cease-and-desist.md`.
+- **Replays after a turn-off.** Replaying a committed quantity-N request (same
+  approval reference) raises `xometry_beta_quantity_one_required` instead of
+  returning `deduplicated`, because the request runs the quantity check before
+  its replay return. The permit and its hold are unaffected.
+- **The free-beta allowance still settles.** A hold reserved at quantity N is
+  consumed or released normally after a turn-off. The settlement functions never
+  read this control.
+- **The worker reports the new reason generically.** Until a worker change names
+  it, `dispatch_quantity_not_admitted` appears as
+  `dispatch_authorization_denied` in worker results and logs.
+- **Audit.** Every change is an immutable event with the operator, reason,
+  revision and idempotency key, like the other controls. Name the quantity
+  decision or run in the reason. A rollback and re-apply of the migration
+  re-seeds the control at revision 0, so a (capability, revision) pair can
+  repeat in the event log. The event ids and timestamps keep them apart.
+
+Rolling back the migration is a separate reviewed change, not an incident
+response. The order is: turn the control off; confirm that no Xometry permit
+above quantity `1` is still in flight (the read-only hosted checks are in
+`docs/migration-drafts/ovd-987-notes.md`); then apply the rollback file as one
+transaction. Its guard refuses while the control is on or while such a permit is
+in flight. Do not call the read API or the setter in the same transaction as the
+rollback or while it runs.
+
 ## Rollout order
 
 1. Confirm the target migration and functions are deployed without running a
    broad linked `supabase db push` while migration history remains divergent.
-2. Confirm all four database controls are off and
+2. Confirm every database control is off (the four above, plus
+   `controlled_beta_user_quantity` once its migration is applied) and
    `BILLING_SELF_SERVICE_ENABLED=false`.
 3. Confirm the OVD-315 and OVD-314 enforcement migrations are deployed before
    relying on their control values as product safety boundaries.
@@ -189,6 +252,11 @@ that has never changed.
   durable locally. If the Stripe endpoint must be disabled, repair it and use
   Stripe resend/backfill for events that never reached the inbox before using
   the local replay/reconciliation APIs. Do not delete inbox or projection rows.
+- Quantity incident: turn `controlled_beta_user_quantity` off and revoke any
+  scoped enablement. A lane above quantity `1` that has not passed its worker
+  preflight stops with `dispatch_quantity_not_admitted`; a lane that already
+  passed it still launches, so use the provider kill switch to stop that
+  traffic. Do not roll back the migration to contain an incident.
 - Promotion/order incident: turn only the affected reserved control off.
 
 After rollback, verify the read API reports the intended state and the latest

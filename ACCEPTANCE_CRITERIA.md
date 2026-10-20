@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: September 28, 2026
+Last updated: October 20, 2026
 
 ## Purpose
 
@@ -26,7 +26,10 @@ or extend the CNC validation geometry to fabrication processes.
       declared units,
       CNC milling, aluminum 6061-T6, quantity one, as-machined finish, standard
       `+/- 0.005 in` or looser tolerance, no special requirements, and the
-      stated non-ITAR limit.
+      stated non-ITAR limit. Quantity one is the validation package's quantity.
+      A controlled-beta request may name one other quantity only where the
+      runbook's quantity amendment admits it, and any other quantity is denied
+      with a named reason.
 - [ ] Customer-facing copy says that only the explicitly owner-approved validation
       geometry is certified for repeatable automatic pricing; customer geometry may end in
       manual review, provider guidance, or unsupported without implying a size
