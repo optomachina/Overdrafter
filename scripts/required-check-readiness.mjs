@@ -26,13 +26,33 @@ function hasTrigger(lines, name) {
   });
 }
 
+// A ref, repository, or branch name that comes from the PR head (or from the PR merge ref)
+// is attacker-controlled. This list errs toward flagging: a false "not ready" only asks an
+// operator to look, while a false "ok" would be evidence for running PR code with privileges.
+const PR_HEAD_REFERENCE = /\bhead[._]|\.head\b|merge_commit_sha|\bpull\//i;
+const CHECKOUT_KEY = /(?:^|[{,]\s*)(?:ref|repository)\s*:/;
+const CHECKOUT_COMMAND = /\b(?:git\s+(?:checkout|switch)|gh\s+pr\s+checkout)\b/;
+// The first line of a step sits right after "- ", so its keys are at column 8.
+const STEP_KEY_INDENT = 8;
+
+function runScript(stepLines) {
+  const indentOf = (line, index) => (index === 0 ? STEP_KEY_INDENT : line.length - line.trimStart().length);
+  const start = stepLines.findIndex((line) => /^\s*run\s*:/.test(line));
+  if (start === -1) return "";
+  const indent = indentOf(stepLines[start], start);
+  let end = start + 1;
+  while (end < stepLines.length && (stepLines[end].trim() === "" || indentOf(stepLines[end], end) > indent)) end += 1;
+  return stepLines.slice(start, end).join("\n");
+}
+
 function hasUntrustedCheckout(text) {
   const steps = text.split(/^ {6}- /m).slice(1);
   return steps.some((step) => {
     const lines = step.split("\n");
-    return lines.some((line) => /^uses:\s*actions\/checkout@/.test(line.trim()))
-      && lines.some((line) => /^\s/.test(line) && line.trim().startsWith("ref:")
-        && ["head.sha", "head.ref", "head_sha", "github.event.pull_request.head"].some((head) => line.includes(head)));
+    const checksOutPrHead = lines.some((line) => /^uses:\s*actions\/checkout@/.test(line.trim()))
+      && lines.some((line) => CHECKOUT_KEY.test(line.trim()) && PR_HEAD_REFERENCE.test(line));
+    // A run step can fetch any ref, so a privileged workflow that runs git or gh checkout is not provably safe.
+    return checksOutPrHead || CHECKOUT_COMMAND.test(runScript(lines));
   });
 }
 
@@ -47,7 +67,9 @@ function jobBlock(text, jobId) {
   return lines.slice(start + 1, end).join("\n");
 }
 
-export function checkWorkflowShape(workflowText, jobId) {
+// jobId finds the job in the workflow. checkName is the name GitHub reports for it, which the
+// job's name: must equal exactly, so the two differ whenever --job differs from --check.
+export function checkWorkflowShape(workflowText, jobId, checkName = jobId) {
   const text = workflowText.replaceAll("\r\n", "\n");
   const triggers = onBlock(text).split("\n");
   const findings = [];
@@ -64,12 +86,12 @@ export function checkWorkflowShape(workflowText, jobId) {
     const lines = job.split("\n");
     if (lines.some((line) => /^ {4}if\s*:/.test(line))) add("job_level_if", "job-level if can skip reporting");
     const name = lines.find((line) => line.startsWith("    name:"));
-    if (name?.slice("    name:".length).trim() !== jobId) {
-      add("job_name_mismatch", `job name must be exactly ${jobId}`);
+    if (name?.slice("    name:".length).trim() !== checkName) {
+      add("job_name_mismatch", `job name must be exactly ${checkName}`);
     }
   }
   if ((hasTrigger(triggers, "pull_request_target") || hasTrigger(triggers, "workflow_run")) && hasUntrustedCheckout(text)) {
-    add("untrusted_checkout", "privileged trigger checks out a PR head");
+    add("untrusted_checkout", "privileged trigger checks out a PR head or runs a git or gh checkout command");
   }
   return { ok: findings.length === 0, findings };
 }
@@ -179,7 +201,7 @@ export async function main({ argv = process.argv.slice(2), runGh = runGhDefault,
   let report;
   try {
     let shape;
-    try { shape = checkWorkflowShape(await readFile(args.workflow, "utf8"), args.job); } catch (error) {
+    try { shape = checkWorkflowShape(await readFile(args.workflow, "utf8"), args.job, args.check); } catch (error) {
       if (error.code !== "ENOENT") throw error;
       shape = { ok: false, findings: [{ code: "workflow_missing", detail: "local workflow is missing" }] };
     }

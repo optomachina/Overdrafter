@@ -44,6 +44,70 @@ describe("required check readiness", () => {
     expect(checkWorkflowShape(text, "check").ok).toBe(true);
     expect(checkWorkflowShape(text.replace("      - run: echo fixture\n", ""), "check").findings.map(({ code }) => code)).toContain("untrusted_checkout");
   });
+  it("compares the job name to the check name when --job differs from --check", () => {
+    const text = (name) => `on: [pull_request, merge_group]\njobs:\n  gate-job:\n    name: ${name}`;
+    const codes = (name) => checkWorkflowShape(text(name), "gate-job", "my-check").findings.map(({ code }) => code);
+    expect(codes("my-check")).toEqual([]);
+    expect(codes("gate-job")).toEqual(["job_name_mismatch"]);
+    expect(checkWorkflowShape(text("gate-job"), "gate-job", "my-check").findings[0].detail).toBe("job name must be exactly my-check");
+    expect(checkWorkflowShape(text("gate-job"), "gate-job").ok).toBe(true);
+  });
+  it("passes the check name to the shape rule from the CLI", async () => {
+    const jobs = (name) => `on: [pull_request, merge_group]\njobs:\n  verify-judge:\n    name: ${name}`;
+    const run = async (name) => {
+      const output = [];
+      await main({ argv: ["--check", "verify", "--job", "verify-judge", "--workflow", ".github/workflows/verify.yml"],
+        readFile: () => jobs(name), out: (line) => output.push(JSON.parse(line)), runGh: (args) => (args[1].includes("check-runs") ? { check_runs: [] } : []) });
+      return output[0].shape;
+    };
+    expect(await run("verify")).toEqual({ ok: true, findings: [] });
+    expect((await run("verify-judge")).findings.map(({ code }) => code)).toEqual(["job_name_mismatch"]);
+  });
+  describe("privileged triggers", () => {
+    const steps = (...blocks) => `on: [pull_request_target, merge_group]\njobs:\n  check:\n    name: check\n    steps:\n${blocks.join("\n")}\n`;
+    const checkout = (key, value) => `      - uses: actions/checkout@v4\n        with:\n          ${key}: ${value}`;
+    const codes = (text) => checkWorkflowShape(text, "check").findings.map(({ code }) => code);
+    it.each([
+      ["github.head_ref", checkout("ref", "${{ github.head_ref }}")],
+      ["the PR merge ref", checkout("ref", "refs/pull/${{ github.event.pull_request.number }}/merge")],
+      ["the PR merge ref without refs/", checkout("ref", "pull/${{ github.event.number }}/head")],
+      ["workflow_run head_branch", checkout("ref", "${{ github.event.workflow_run.head_branch }}")],
+      ["workflow_run head_sha", checkout("ref", "${{ github.event.workflow_run.head_sha }}")],
+      ["workflow_run head_commit", checkout("ref", "${{ github.event.workflow_run.head_commit.id }}")],
+      ["pull_request merge_commit_sha", checkout("ref", "${{ github.event.pull_request.merge_commit_sha }}")],
+      ["a nested .head. property", checkout("ref", "${{ github.event.workflow_run.pull_requests[0].head.ref }}")],
+      ["a trailing .head property", checkout("ref", "${{ toJSON(github.event.pull_request.head) }}")],
+      ["a different-case head reference", checkout("ref", "${{ GitHub.Head_Ref }}")],
+      ["the fork repository", checkout("repository", "${{ github.event.pull_request.head.repo.full_name }}")],
+      ["a flow mapping", "      - uses: actions/checkout@v4\n        with: { ref: '${{ github.head_ref }}' }"],
+      ["gh pr checkout", "      - run: gh pr checkout ${{ github.event.pull_request.number }}"],
+      ["git checkout", "      - run: git checkout ${{ github.head_ref }}"],
+      ["git switch", "      - run: git switch --detach $HEAD_SHA"],
+      ["a multi-line git checkout", "      - name: Get code\n        run: |\n          set -e\n          git fetch origin\n          git checkout \"$REF\"\n        env:\n          REF: ${{ github.head_ref }}"],
+    ])("flags %s under pull_request_target", (_label, block) => {
+      expect(codes(steps(block))).toContain("untrusted_checkout");
+    });
+    it.each(["pull_request_target", "workflow_run"])("flags a head_ref checkout under %s with merge_group present", (trigger) => {
+      const text = steps(checkout("ref", "${{ github.head_ref }}")).replace("pull_request_target", trigger);
+      expect(codes(text)).toContain("untrusted_checkout");
+    });
+    it.each([
+      ["a base sha checkout", checkout("ref", "${{ github.event.pull_request.base.sha }}")],
+      ["the workflow sha", checkout("ref", "${{ github.sha }}")],
+      ["the default branch", checkout("ref", "${{ github.event.repository.default_branch }}")],
+      ["this repository", checkout("repository", "${{ github.repository }}")],
+      ["a checkout with no ref", "      - uses: actions/checkout@v4"],
+      ["commands that do not check out", "      - run: git status\n      - run: git fetch origin main\n      - run: gh pr view 1"],
+      ["a git checkout mentioned only in a step name", "      - name: Explain git checkout\n        run: echo done"],
+      ["a git checkout in a different step's env value", "      - run: echo done\n        env:\n          NOTE: git checkout"],
+    ])("does not flag %s", (_label, block) => {
+      expect(codes(steps(block))).not.toContain("untrusted_checkout");
+    });
+    it("does not flag head references or git checkout when no privileged trigger is present", () => {
+      const text = steps(checkout("ref", "${{ github.head_ref }}"), "      - run: git checkout main").replace("pull_request_target", "pull_request");
+      expect(codes(text)).not.toContain("untrusted_checkout");
+    });
+  });
   it("pages samples over 100 and reads every head", async () => {
     const pages = [];
     const checks = [];

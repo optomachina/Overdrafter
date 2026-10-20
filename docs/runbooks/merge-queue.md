@@ -388,8 +388,9 @@ node scripts/required-check-readiness.mjs --check proof-check --workflow .github
 ```
 
 The JSON reports workflow shape, exact check name/app coverage and optional
-merged-PR replay. `--job` defaults to the check name; `--repo` defaults to
-`optomachina/Overdrafter`. A trusted local `--evaluator` module may export a
+merged-PR replay. `--job` is the job id in the workflow and defaults to the
+check name; that job's `name:` must equal the `--check` name. `--repo` defaults
+to `optomachina/Overdrafter`. A trusted local `--evaluator` module may export a
 synchronous `evaluate(pr)` returning `{ applicable, block, reason }`. Without
 one, replay entries say `no evaluator on main`; they never count as passes.
 Only run evaluator code reviewed on main.
