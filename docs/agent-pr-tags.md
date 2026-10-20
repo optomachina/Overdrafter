@@ -22,15 +22,17 @@ The legacy body line `Model: model:codex` remains readable as model-only metadat
 with `bot=unknown`, so it gets fail-safe review. The free-text form
 `Built-by: <bot> / <family> (...)` is also accepted, for example
 `Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)`.
-Bot IDs and display names match case-insensitively. The first whitespace-delimited
-token after `/` is retained as `token`, with trailing punctuation stripped.
+Bot IDs and display names match case-insensitively. The token after `/` is the
+leading run of letters, digits, and hyphens (plus a `.` between digits, as in
+`grok-4.7`); it is retained as `token` and the rest of the word is context.
 Case-insensitive prefixes map to existing pools: `codex`, `gpt`, and `openai`
 to `codex`; `claude` and `sonnet` to `claude-sonnet`; `opus` and
 `claude-opus` to `claude-opus`; `grok` to `grok-overflow`; and `jev` to `jev`.
-Missing or unknown families and a second builder introduced by `+` or `,`
-outside parentheses get fail-safe review. Free text is tried only for
-noncanonical entries. Use a single Built-by line; it supersedes legacy
-Model lines in the same body.
+Missing or unknown families get fail-safe review. So does a second builder:
+outside parentheses, a `+`, a second `/`, or a `,` followed later by a family
+keyword or a known bot ID or display name. Text inside balanced parentheses is
+not scanned. Free text is tried only for noncanonical entries. Use a single
+Built-by line; it supersedes legacy Model lines in the same body.
 
 Optional commit trailers use the same canonical Built-by syntax. Supply commits
 oldest first. A trailer takes precedence for its commit; a commit without one

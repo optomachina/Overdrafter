@@ -214,6 +214,9 @@ describe('free-text Built-by form', () => {
     ['Built-by: Engineer / opus', 'engineer', 'opus', 'claude-opus'],
     ['Built-by: Engineer / claude-opus', 'engineer', 'claude-opus', 'claude-opus'],
     ['Built-by: Engineer / jev', 'engineer', 'jev', 'jev'],
+    ['Built-by: Engineer / GPT-5.1, via safe-build (host)', 'engineer', 'GPT-5.1', 'codex'],
+    ['Built-by: Engineer / codex. via safe-build', 'engineer', 'codex', 'codex'],
+    ['Built-by: Engineer / codex via safe-build (host/ci+gpt, opus)', 'engineer', 'codex', 'codex'],
   ])('accepts %s', (body, bot, token, pool) => {
     const result = parse(body);
     expect(result.status).toBe('ok');
@@ -226,6 +229,16 @@ describe('free-text Built-by form', () => {
     'Built-by: Engineer / Codex (...) + grok-4.7 via Cursor cloud agent',
     'Built-by: Engineer / Codex (...), grok-4.7 via Cursor cloud agent',
     'Built-by: Engineer / Codex, grok-4.7 via Cursor cloud agent',
+    // A second builder glued to the first token or hidden behind later words.
+    'Built-by: Engineer / codex+opus',
+    'Built-by: Engineer / codex,opus',
+    'Built-by: Engineer / codex/opus',
+    'Built-by: Engineer / codex, Architect / claude-opus',
+    'Built-by: Engineer / codex + Architect / opus repair',
+    'Built-by: Engineer / codex via safe-build (host) + Architect / claude-opus',
+    'Built-by: Engineer / codex, Architect repaired it',
+    'Built-by: Engineer / codex, then cursor-cloud finished',
+    'Built-by: Engineer / codex via ci/cd',
     'Built-by: Engineer / codex\nBuilt-by: Engineer / grok-4.7',
     `Built-by: Engineer / codex\n${tag()}`,
   ])('fails safe for %s', body => {
@@ -268,9 +281,16 @@ describe('free-text Built-by form', () => {
       `Built-by: ${'/ '.repeat(50_000)}`,
       `Built-by: Engineer / codex ${', '.repeat(50_000)}grok`,
       `Built-by: Engineer / ${' '.repeat(50_000)}x`,
+      `Built-by: Engineer / codex${'+'.repeat(50_000)}`,
     ]) {
       expect(reviewers(parse(body))).toEqual(both);
     }
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+  it('scans boundary-free keyword lookalikes after a comma in linear time', () => {
+    const started = performance.now();
+    const result = parse(`Built-by: Engineer / codex, ${'xgpt qax '.repeat(50_000)}`);
+    expect(result.status).toBe('ok');
     expect(performance.now() - started).toBeLessThan(2000);
   });
 });

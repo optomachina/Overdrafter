@@ -79,8 +79,23 @@ const FREE_TEXT_POOLS = [
   ['codex', 'codex'], ['gpt', 'codex'], ['openai', 'codex'],
   ['grok', 'grok-overflow'], ['jev', 'jev'],
 ];
-const OTHER_BUILDER = /[+,]\s*(?:codex|gpt|openai|claude|sonnet|opus|grok|jev)/i;
 const TOKEN_CHARACTER = /[a-z0-9-]/i;
+const digitAt = (text, index) => /[0-9]/.test(text[index] ?? '');
+const tokenCharacterAt = (text, index) => TOKEN_CHARACTER.test(text[index] ?? '');
+
+// The token is the leading run of letters, digits and hyphens; a "." joins it
+// only between digits (grok-4.7). Whatever follows is separator or context
+// text, so "codex+opus" or "codex,opus" cannot hide a second builder inside
+// one whitespace-delimited word.
+function tokenLength(text) {
+  let end = 0;
+  while (end < text.length) {
+    const version = text[end] === '.' && digitAt(text, end - 1) && digitAt(text, end + 1);
+    if (!version && !tokenCharacterAt(text, end)) break;
+    end += 1;
+  }
+  return end;
+}
 
 // Splits "<bot> / <family> <context>" with string scans instead of one
 // backtracking regex, so a hostile PR body cannot make the parser super-linear.
@@ -90,10 +105,31 @@ function splitFreeText(entry) {
   const bot = slash < 0 ? '' : text.slice(0, slash).trim();
   const rest = text.slice(slash + 1).trimStart();
   if (!bot || !rest) return null;
-  const word = rest.split(/\s/, 1)[0];
-  let end = word.length;
-  while (end > 0 && !TOKEN_CHARACTER.test(word[end - 1])) end -= 1;
-  return { bot, token: word.slice(0, end), trailing: word.slice(end), context: rest.slice(word.length) };
+  const end = tokenLength(rest);
+  return { bot, token: rest.slice(0, end), context: rest.slice(end) };
+}
+
+// Whether `name` starts at a token boundary in `text`; with `whole`, it must
+// also end at one. Lowercase inputs. Linear: indexOf only moves forward.
+function mentions(text, name, whole) {
+  if (!name) return false;
+  for (let from = text.indexOf(name); from >= 0; from = text.indexOf(name, from + 1)) {
+    if (!tokenCharacterAt(text, from - 1) && !(whole && tokenCharacterAt(text, from + name.length))) return true;
+  }
+  return false;
+}
+
+// Context outside parentheses that introduces a second builder: any "+" or
+// another "/", or a comma followed later by a family keyword or a known bot
+// id or display name. Such lines must fail safe instead of being attributed
+// to their first model alone.
+function namesAnotherBuilder(outside, routing) {
+  if (/[+/]/.test(outside)) return true;
+  const comma = outside.indexOf(',');
+  if (comma < 0) return false;
+  const after = outside.slice(comma + 1).toLowerCase();
+  return FREE_TEXT_POOLS.some(([prefix]) => mentions(after, prefix, false)) ||
+    routing.bots.some(bot => [bot.id, bot.display].some(name => mentions(after, name.trim().toLowerCase(), true)));
 }
 
 // Text outside balanced parentheses, or null when the parentheses are unbalanced.
@@ -122,7 +158,7 @@ function readFreeText(entry, routing) {
   // Parenthetical context may name other models; outside it, another builder
   // must fail safe rather than silently attributing the line to its first model.
   const outside = outsideParentheses(parts.context);
-  if (outside === null || OTHER_BUILDER.test(parts.trailing + outside)) return [];
+  if (outside === null || namesAnotherBuilder(outside, routing)) return [];
   const name = parts.bot.toLowerCase();
   const bot = routing.bots.find(bot => bot.id.toLowerCase() === name || bot.display.toLowerCase() === name)?.id
     ?? name.replace(/\s+/g, '-');
