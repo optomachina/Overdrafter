@@ -43,6 +43,51 @@ describe('weekly evals', () => {
     expect(report()).toContain('^(Vercel\|CodeRabbit)$'.replace('\|', '\\|'));
     expect(report({ ignoreChecks: '' })).toContain('(disabled)');
   });
+  describe('re-run and cancelled checks', () => {
+    // gh statusCheckRollup shape: every run on the commit, in no particular order.
+    const rollupRun = (name, conclusion, start, workflowName = 'PR body gate') => ({ __typename: 'CheckRun', name, workflowName, status: 'COMPLETED', conclusion, startedAt: `2026-10-15T08:${start}Z`, completedAt: `2026-10-15T08:${start.slice(0, 2)}:59Z` });
+    // check-runs API shape: snake_case, lowercase, no workflow name, one check suite per workflow run.
+    const apiRun = (conclusion, start, suite, name = 'provider-go-live') => ({ name, status: 'completed', conclusion, started_at: `2026-10-15T08:${start}Z`, completed_at: `2026-10-15T08:${start.slice(0, 2)}:59Z`, app: { slug: 'github-actions' }, check_suite: { id: suite } });
+    const accept = (rollup, apiChecks = []) => analyzePR({}, { statusCheckRollup: rollup }, apiChecks);
+    const cancelled = rollupRun('provider-go-live', 'CANCELLED', '10:38');
+    const replaced = rollupRun('provider-go-live', 'SUCCESS', '11:16');
+    const ci = rollupRun('ci', 'SUCCESS', '09:00', 'CI');
+
+    it('accepts a PR whose cancelled run was replaced by a later green run, in any order', () => {
+      expect(accept([cancelled, replaced, ci])).toMatchObject({ accepted: true, failingHeadChecks: [] });
+      expect(accept([ci, replaced, cancelled])).toMatchObject({ accepted: true, failingHeadChecks: [] });
+    });
+    it('still rejects when the latest run of a check is not green', () => {
+      expect(accept([replaced, rollupRun('provider-go-live', 'CANCELLED', '12:00'), ci])).toMatchObject({ accepted: false, failingHeadChecks: ['provider-go-live CANCELLED'] });
+      expect(accept([rollupRun('ci', 'FAILURE', '09:00', 'CI'), rollupRun('ci', 'SUCCESS', '10:00', 'CI')]).accepted).toBe(true);
+      expect(accept([rollupRun('ci', 'SUCCESS', '09:00', 'CI'), { ...rollupRun('ci', null, '10:00', 'CI'), status: 'IN_PROGRESS', completedAt: null }]).accepted).toBe(false);
+      const tie = [rollupRun('ci', 'SUCCESS', '09:00', 'CI'), rollupRun('ci', 'FAILURE', '09:00', 'CI')];
+      expect(accept(tie).accepted).toBe(false);
+      expect(accept([...tie].reverse()).accepted).toBe(false);
+    });
+    it('keeps checks that share a name across workflows and judges status contexts by their latest state', () => {
+      expect(accept([rollupRun('test', 'FAILURE', '09:00', 'A'), rollupRun('test', 'SUCCESS', '10:00', 'B')])).toMatchObject({ accepted: false, failingHeadChecks: ['test FAILURE'] });
+      expect(accept([{ context: 'external', state: 'FAILURE', startedAt: '2026-10-15T08:00:00Z' }, { context: 'external', state: 'SUCCESS', startedAt: '2026-10-15T08:30:00Z' }]).accepted).toBe(true);
+      expect(accept([{ status: 'COMPLETED', conclusion: 'FAILURE' }, { status: 'COMPLETED', conclusion: 'SUCCESS' }]).accepted).toBe(false);
+    });
+    it('does not count a cancelled run as a first-pass CI failure once a later run of that check exists', () => {
+      expect(accept([ci], [apiRun('cancelled', '10:38', 1), apiRun('success', '11:16', 2)]).ci).toBe('pass');
+      expect(accept([ci], [apiRun('success', '11:16', 2), apiRun('cancelled', '10:38', 1)]).ci).toBe('pass');
+      expect(accept([ci], [apiRun('cancelled', '10:38', 1)]).ci).toBe('fail');
+      expect(accept([ci], [apiRun('cancelled', '10:38', 1), apiRun('failure', '11:16', 2)]).ci).toBe('fail');
+      expect(accept([ci], [apiRun('success', '10:38', 1), apiRun('cancelled', '11:16', 2)]).ci).toBe('fail');
+      expect(accept([ci], [apiRun('failure', '10:38', 1), apiRun('success', '11:16', 2)]).ci).toBe('fail');
+      expect(accept([ci], [apiRun('cancelled', '10:38', 1), apiRun('success', '11:16', 2, 'other-check')]).ci).toBe('fail');
+    });
+    it('keeps a cancelled-then-green PR out of the merged-not-accepted flags', () => {
+      const pr = analyzePR({ ...list[1], number: 200 }, { statusCheckRollup: [cancelled, replaced, ci] }, [apiRun('cancelled', '10:38', 1), apiRun('success', '11:16', 2)]);
+      expect(pr).toMatchObject({ accepted: true, ci: 'pass' });
+      const text = report({ prs: [pr], experiments: [] });
+      expect(text).not.toContain('Merged-not-accepted');
+      expect(text).not.toContain('Failing head checks');
+      expect(text).toContain('| yes | pass |');
+    });
+  });
   it('reports CI and QA coverage separately while retaining the joint first-pass denominator', () => {
     const text = report({ experiments: [] });
     expect(text).toContain('| First-pass pass rate | 1/1 (100.0%); low sample | 1/2 (50.0%); low sample |');

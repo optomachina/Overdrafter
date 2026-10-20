@@ -10,10 +10,39 @@ import { fileURLToPath } from 'node:url';
 export const GH_BIN = fs.existsSync('/usr/bin/gh') ? '/usr/bin/gh' : 'gh';
 export const DEFAULT_IGNORE_CHECKS = '^(Vercel|CodeRabbit)$';
 const ignored = (c, re) => re && [c.name, c.context].some((v) => typeof v === 'string' && re.test(v));
-const headPass = (c) => c.state ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && good(c.conclusion);
+const headPass = (c) => c.state ? c.state === 'SUCCESS' : String(c.status).toUpperCase() === 'COMPLETED' && good(c.conclusion);
 const DAY = 86400000;
 const NA = 'not available (no spend ledger)';
 const good = (v) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(String(v).toUpperCase());
+// Both gh sources (statusCheckRollup and the check-runs API) list every run on a commit, including runs that
+// workflow concurrency cancelled and a later run replaced. Only the newest run of a check reflects its state.
+// The check-runs API has no workflow name, so its runs are keyed by app and name; unnamed runs are never merged.
+const checkKey = (c) => {
+  if (c.context) return JSON.stringify(['status', c.context]);
+  return c.name ? JSON.stringify(['run', c.workflowName || c.app?.slug || '', c.name]) : null;
+};
+// A missing timestamp (a run still queued or running) counts as newest, so a pending rerun is never hidden.
+const stamp = (c, camel, snake) => { const t = Date.parse(c[camel] ?? c[snake]); return Number.isNaN(t) ? Infinity : t; };
+function newer(a, b) {
+  const started = stamp(a, 'startedAt', 'started_at') - stamp(b, 'startedAt', 'started_at');
+  if (started) return started > 0;
+  const completed = stamp(a, 'completedAt', 'completed_at') - stamp(b, 'completedAt', 'completed_at');
+  if (completed) return completed > 0;
+  return !headPass(a) && headPass(b); // an unresolvable tie keeps the worse result
+}
+function latestRuns(runs) {
+  const latest = new Map();
+  for (const c of runs) {
+    const key = checkKey(c) ?? Symbol('unnamed');
+    if (!latest.has(key) || newer(c, latest.get(key))) latest.set(key, c);
+  }
+  return [...latest.values()];
+}
+// First-pass CI keeps earlier failures but not a CANCELLED run that a later run of the same check replaced.
+function withoutSupersededCancels(runs) {
+  const latest = new Set(latestRuns(runs));
+  return runs.filter((c) => latest.has(c) || String(c.conclusion).toUpperCase() !== 'CANCELLED');
+}
 const redactValue = (value, secret) => {
   if (!secret) return value;
   if (typeof value === 'string') return value.replaceAll(secret, '[REDACTED]');
@@ -54,13 +83,13 @@ function repairRounds(comments, qaFailed) {
 }
 function firstPassCI(checks) {
   if (checks.length === 0) return 'unknown';
-  return checks.every((c) => c.status?.toUpperCase() === 'COMPLETED' && good(c.conclusion)) ? 'pass' : 'fail';
+  return withoutSupersededCancels(checks).every(headPass) ? 'pass' : 'fail';
 }
 export function analyzePR(pr, detail, checks, ignoreChecks = DEFAULT_IGNORE_CHECKS) {
   const comments = (detail.comments ?? []).map((c) => c.body ?? '');
   const qa = qaVerdict(comments);
   const re = ignoreChecks ? new RegExp(ignoreChecks, 'i') : null;
-  const rollup = (detail.statusCheckRollup ?? []).filter((c) => !ignored(c, re));
+  const rollup = latestRuns((detail.statusCheckRollup ?? []).filter((c) => !ignored(c, re)));
   return { ...pr, issues: extractIssues({ ...pr, closingIssuesReferences: detail.closingIssuesReferences }),
     accepted: rollup.length > 0 && rollup.every(headPass),
     failingHeadChecks: rollup.filter((c) => !headPass(c)).map((c) => `${c.name ?? c.context ?? 'unnamed'} ${c.state ?? c.conclusion ?? c.status ?? 'UNKNOWN'}`),
