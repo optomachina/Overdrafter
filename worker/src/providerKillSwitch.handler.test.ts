@@ -192,11 +192,10 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
 
   // OVD-998 (OVD-987 S4): a lane above quantity 1 that the server refuses keeps its own reason and note.
   it("the server preflight denying dispatch_quantity_not_admitted names the quantity on the manual follow-up lane", async () => {
-    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
     const db = database();
     db.denyPreflight({ authorized: false, reasonCode: "dispatch_quantity_not_admitted" });
+    const adapterQuote = vi.spyOn(XometryAdapter.prototype, "quote");
     await handleVendorQuoteTask(db.client, task, live);
-    expect(quote).not.toHaveBeenCalled();
     const lane = db.writes.filter((write) => write.table === "vendor_quote_results" && "update" in write).at(-1)?.update as
       Record<string, unknown>;
     expect(lane.status).toBe("manual_vendor_followup");
@@ -207,6 +206,7 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
       requiresManualVendorFollowUp: true,
     });
     expect(JSON.stringify(db.writes)).not.toContain("dispatch_authorization_denied");
+    expect(adapterQuote).not.toHaveBeenCalled();
   });
 
   it("a retryable error after the kill switch cancel never requeues the cancelled task (no revival)", async () => {
