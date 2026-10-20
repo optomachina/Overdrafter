@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { ClientPartRequestEditor } from "./ClientPartRequestEditor";
@@ -185,5 +186,178 @@ describe("ClientPartRequestEditor — reset buttons", () => {
     fireEvent.click(screen.getByTitle("Reset to extracted: 6061-T6 aluminum"));
     expect(onResetField).toHaveBeenCalledOnce();
     expect(onResetField).toHaveBeenCalledWith("material");
+  });
+});
+
+describe("ClientPartRequestEditor — tightest tolerance typing", () => {
+  const LABEL = "Tightest tolerance (in)";
+
+  // Stateful host mirroring the controller: onChange merges into the draft the editor receives back.
+  function renderHost(initial: Partial<ClientPartRequestUpdateInput> = {}) {
+    const drafts: ClientPartRequestUpdateInput[] = [];
+    const onSave = vi.fn();
+    let latest = makeDraft({ material: "6061-T6", ...initial });
+    function Host() {
+      const [draft, setDraft] = useState(latest);
+      latest = draft;
+      drafts.push(draft);
+      return (
+        <ClientPartRequestEditor
+          draft={draft}
+          quoteQuantityInput=""
+          onQuoteQuantityInputChange={noop}
+          onChange={(next) => setDraft((current) => ({ ...current, ...next }))}
+          onSave={() => onSave(latest)}
+          onUploadRevision={noop}
+          onResetField={(field) => setDraft((current) => ({ ...current, [field]: 0.005 }))}
+          fieldDefaults={{ tightestToleranceInch: 0.005 }}
+        />
+      );
+    }
+    render(<Host />);
+    const input = () => screen.getByLabelText(LABEL) as HTMLInputElement;
+    // One keystroke at a time, appended at the caret (end), re-reading the DOM value after each re-render.
+    const type = (text: string) => {
+      for (const char of text) {
+        fireEvent.change(input(), { target: { value: input().value + char } });
+      }
+    };
+    const backspace = (count = 1) => {
+      for (let i = 0; i < count; i += 1) {
+        fireEvent.change(input(), { target: { value: input().value.slice(0, -1) } });
+      }
+    };
+    const paste = (text: string) => fireEvent.change(input(), { target: { value: text } });
+    return { input, type, backspace, paste, onSave, current: () => latest, drafts };
+  }
+
+  it.each([
+    ["0.005", 0.005],
+    [".005", 0.005],
+    ["0.1", 0.1],
+    ["1.5e-3", 0.0015],
+    ["5.", 5],
+  ])("typing %s keystroke by keystroke ends at %s and shows the typed text", (text, expected) => {
+    const host = renderHost();
+    host.type(text);
+    expect(host.input().value).toBe(text);
+    expect(host.current().tightestToleranceInch).toBe(expected);
+    expect(host.drafts.every((d) => d.tightestToleranceInch === null || Number.isFinite(d.tightestToleranceInch))).toBe(true);
+  });
+
+  it("backspaces and retypes to the intended number", () => {
+    const host = renderHost();
+    host.type("0.005");
+    host.backspace(2);
+    expect(host.input().value).toBe("0.0");
+    host.type("12");
+    expect(host.input().value).toBe("0.012");
+    expect(host.current().tightestToleranceInch).toBe(0.012);
+  });
+
+  it("clears to null and then types 0.004", () => {
+    const host = renderHost({ tightestToleranceInch: 0.005 });
+    expect(host.input().value).toBe("0.005");
+    host.backspace(5);
+    expect(host.input().value).toBe("");
+    expect(host.current().tightestToleranceInch).toBeNull();
+    host.type("0.004");
+    expect(host.input().value).toBe("0.004");
+    expect(host.current().tightestToleranceInch).toBe(0.004);
+  });
+
+  it("clears a single-digit value straight to null", () => {
+    const host = renderHost({ tightestToleranceInch: 5 });
+    host.backspace();
+    expect(host.input().value).toBe("");
+    expect(host.current().tightestToleranceInch).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores surrounding whitespace in a pasted value", () => {
+    const host = renderHost();
+    host.paste("  0.005 ");
+    expect(host.current().tightestToleranceInch).toBe(0.005);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("accepts a pasted complete value", () => {
+    const host = renderHost();
+    host.paste("0.005");
+    expect(host.input().value).toBe("0.005");
+    expect(host.current().tightestToleranceInch).toBe(0.005);
+  });
+
+  it.each(["±0.005", "0.1 mm", "abc", "-0.005", "Infinity", "1e999", "0x10"])(
+    "rejects pasted %j without producing NaN or a guessed number, and blocks save",
+    (text) => {
+      const host = renderHost({ tightestToleranceInch: 0.002 });
+      host.paste(text);
+      expect(host.input().value).toBe(text);
+      expect(host.current().tightestToleranceInch).toBeNull();
+      expect(host.drafts.some((d) => Number.isNaN(d.tightestToleranceInch))).toBe(false);
+      expect(host.input()).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByRole("alert")).toHaveTextContent(/positive number/i);
+      expect(host.input()).toHaveAttribute("aria-describedby", screen.getByRole("alert").id);
+      expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();
+    },
+  );
+
+  it("keeps valid typing quiet: all-zero prefixes block Save but raise no alert until blur", () => {
+    const host = renderHost();
+    for (const prefix of ["0", "0.", "0.0", "0.00"]) {
+      host.paste(prefix);
+      expect(host.current().tightestToleranceInch).toBeNull();
+      expect(host.input()).not.toHaveAttribute("aria-invalid");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();
+    }
+    // Leaving the field with an unusable value explains why Save is blocked.
+    fireEvent.blur(host.input());
+    expect(host.input()).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(/positive number/i);
+    // Typing on clears the alert again and completes the value.
+    host.type("5");
+    expect(host.input().value).toBe("0.005");
+    expect(host.current().tightestToleranceInch).toBe(0.005);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save request details/i })).toBeEnabled();
+  });
+
+  it("recovers from invalid text when the user corrects it", () => {
+    const host = renderHost();
+    host.paste("±0.005");
+    host.paste("0.005");
+    expect(host.current().tightestToleranceInch).toBe(0.005);
+    expect(host.input()).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save request details/i })).toBeEnabled();
+  });
+
+  it("displays an extracted value as typed and keeps label and attributes", () => {
+    const host = renderHost({ tightestToleranceInch: 0.005 });
+    expect(host.input().value).toBe("0.005");
+    expect(host.input()).toHaveAttribute("id", "client-request-tolerance");
+    expect(host.input()).toHaveAttribute("inputmode", "decimal");
+    expect(host.input()).not.toHaveAttribute("type", "number");
+    expect(host.input()).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByText(LABEL)).toBeInTheDocument();
+  });
+
+  it("saves the typed number", () => {
+    const host = renderHost();
+    host.type("0.005");
+    fireEvent.click(screen.getByRole("button", { name: /save request details/i }));
+    expect(host.onSave).toHaveBeenCalledOnce();
+    expect(host.onSave.mock.calls[0][0].tightestToleranceInch).toBe(0.005);
+  });
+
+  it("resyncs the text when the draft changes from outside (reset to extracted)", () => {
+    const host = renderHost({ tightestToleranceInch: 0.1 });
+    host.paste("±0.005");
+    fireEvent.click(screen.getByTitle("Reset to extracted: 0.005"));
+    expect(host.input().value).toBe("0.005");
+    expect(host.current().tightestToleranceInch).toBe(0.005);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

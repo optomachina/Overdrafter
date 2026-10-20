@@ -1,0 +1,30 @@
+{
+  "description": "Input file name and the exact output of public.normalize_file_basename for it. The client normalizeUploadStem must return the same string.",
+  "cases": [
+    { "name": "spaces", "input": "My Part 01.step", "expected": "my-part-01" },
+    { "name": "underscores", "input": "My Part_01.step", "expected": "my-part-01" },
+    { "name": "underscores match drawing", "input": "My Part_01.pdf", "expected": "my-part-01" },
+    { "name": "hyphens", "input": "bracket-v2.step", "expected": "bracket-v2" },
+    { "name": "repeated and mixed separators collapse", "input": "bracket - -v2.step", "expected": "bracket-v2" },
+    { "name": "dots inside the name", "input": "Widget.v1.2.STEP", "expected": "widget-v1-2" },
+    { "name": "dots with revision letter", "input": "assy.final.revA.PDF", "expected": "assy-final-reva" },
+    { "name": "multiple extensions strip only the last", "input": "part.tar.gz", "expected": "part-tar" },
+    { "name": "upper case", "input": "Part001.STEP", "expected": "part001" },
+    { "name": "mixed case extension", "input": "ABC123.Pdf", "expected": "abc123" },
+    { "name": "drawing with revision and spaces", "input": "PN Rev 02.pdf", "expected": "pn-rev-02" },
+    { "name": "part that the revision drawing does not match", "input": "PN.step", "expected": "pn" },
+    { "name": "leading and trailing separators", "input": "_leading_and_trailing_.step", "expected": "leading-and-trailing" },
+    { "name": "leading and trailing spaces", "input": "  spaced  name .pdf", "expected": "spaced-name" },
+    { "name": "brackets and hash", "input": "Part (Rev B) #2.step", "expected": "part-rev-b-2" },
+    { "name": "no extension", "input": "no_extension", "expected": "no-extension" },
+    { "name": "trailing dot is not an extension", "input": "trailing.dot.", "expected": "trailing-dot" },
+    { "name": "trailing space after extension is part of the extension", "input": "part.pdf ", "expected": "part" },
+    { "name": "accented letters become separators", "input": "Café Bracket.step", "expected": "caf-bracket" },
+    { "name": "leading accented letter", "input": "Ünïcode Part.pdf", "expected": "n-code-part" },
+    { "name": "non-latin letters become separators", "input": "部品 01.step", "expected": "01" },
+    { "name": "dotted capital I lowercases to i in a UTF-8 database", "input": "\u0130stanbul.step", "expected": "istanbul" },
+    { "name": "only separators", "input": "---.pdf", "expected": "" },
+    { "name": "dot file", "input": ".hidden", "expected": "" },
+    { "name": "empty name", "input": "", "expected": "" }
+  ]
+}

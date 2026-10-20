@@ -5,6 +5,7 @@ import type {
   QuotePlotExclusionReason,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
+import { resolveProviderNotes } from "@/features/quotes/provider-notes";
 import { formatVendorName, getImportedVendorOffers } from "@/features/quotes/utils";
 
 export type QuotePreset = "balanced" | "cheapest" | "fastest" | "domestic" | "balanced_domestic" | "balanced_global" | "cheapest_domestic" | "fastest_domestic" | "cheapest_global" | "fastest_global";
@@ -57,6 +58,12 @@ export type ClientQuoteSelectionOption = {
   finish: string | null;
   tightestTolerance: string | null;
   notes: string | null;
+  /**
+   * Offer notes that the worker marked as copied from the provider's own page
+   * (`raw_payload.notesSource === "provider"`); null otherwise. The only field the customer
+   * "Provider notes" block may render. `notes` itself can hold worker automation text.
+   */
+  providerNotes?: string | null;
   rawPayload: Json | null;
 };
 
@@ -719,6 +726,7 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       finish: offer.finish,
       tightestTolerance: offer.tightestTolerance,
       notes: offer.notes,
+      providerNotes: resolveProviderNotes(offer.notes, rawOfferRecord?.raw_payload),
       rawPayload,
     } satisfies ClientQuoteSelectionOption);
   });

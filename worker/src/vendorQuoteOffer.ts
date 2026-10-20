@@ -16,6 +16,15 @@ type VendorQuoteOfferPayloadInput = {
   result: VendorQuoteAdapterOutput;
 };
 
+/** raw_payload.notesSource value that marks `notes` as copied from the provider's own page. */
+const PROVIDER_NOTES_SOURCE = "provider";
+
+/** Adapter-supplied payloads must not be able to assert notes provenance or fake worker notes. */
+function withoutNotesProvenance(payload: Record<string, unknown>) {
+  const { notesSource: _notesSource, workerNotes: _workerNotes, ...rest } = payload;
+  return rest;
+}
+
 function normalizeTimestamp(value: string | null | undefined) {
   if (!value) {
     return null;
@@ -102,6 +111,13 @@ export function buildVendorQuoteOfferPayloads(input: VendorQuoteOfferPayloadInpu
 
   const { offers: _offers, ...resultRawPayload } = input.result.rawPayload;
 
+  // Customer-visible `notes` come only from text the provider wrote. Worker automation
+  // status stays in raw_payload.workerNotes so it can never be shown as provider text.
+  const providerNotes = (input.result.providerNotes ?? [])
+    .filter((note) => typeof note === "string" && note.trim().length > 0);
+  const notes = providerNotes.length > 0 ? providerNotes.join("\n") : null;
+  const workerNotes = input.result.notes.filter((note) => typeof note === "string" && note.trim().length > 0);
+
   return normalizedAdapterOffers(input).map((offer) => ({
     vendor_quote_result_id: input.vendorQuoteResultId,
     organization_id: input.organizationId,
@@ -130,11 +146,13 @@ export function buildVendorQuoteOfferPayloads(input: VendorQuoteOfferPayloadInpu
     finish: input.requirement.finish,
     tightest_tolerance:
       input.requirement.tightest_tolerance_inch?.toString() ?? null,
-    notes: input.result.notes.join("\n") || null,
+    notes,
     sort_rank: offer.sortRank,
     raw_payload: {
-      ...resultRawPayload,
-      ...offer.rawPayload,
+      ...withoutNotesProvenance(resultRawPayload),
+      ...withoutNotesProvenance(offer.rawPayload),
+      workerNotes,
+      ...(notes === null ? {} : { notesSource: PROVIDER_NOTES_SOURCE }),
       providerOptionId: offer.providerOptionId,
       providerLabel: offer.providerLabel,
       quoteUrl: offer.quoteUrl,

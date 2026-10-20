@@ -61,3 +61,6 @@ worker/#
 
 # Local spend data (public repository)
 evals/spend-ledger/*.jsonl
+
+# Jev decisions log (now written outside the repo)
+/docs/agent-log/jev-decisions.jsonl
