@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GraphEvent } from '../core/types';
 import { JarvisThread } from './JarvisThread';
 import type { EventSource } from './event-source';
+import { createPreview } from './preview-source';
 import { readFileSync } from 'node:fs';
 
 afterEach(cleanup);
@@ -18,6 +19,11 @@ function setup() {
   return { client, send: (...events: GraphEvent[]) => act(() => push(events)) };
 }
 const artifact = (seq: number, kind: 'png' | 'glb' | 'step' | 'usdz'): Extract<GraphEvent, { type: 'artifact' }> => ({ ...base, seq, type: 'artifact', agentId: 'cad', kind, name: kind, mimeType: '', uri: `/${kind}`, dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } });
+
+// The server answers every command with control_requested, echoing the idempotency key the tab sent, then applied or rejected under the same commandId.
+const requested = (seq: number, kind: 'pause' | 'cancel', commandId: string, idempotencyKey = commandId): GraphEvent => ({ ...base, seq, type: 'control_requested', kind, commandId, actorId: 'owner', idempotencyKey });
+const rejected = (seq: number, kind: 'pause' | 'cancel', commandId: string, reason: 'terminal' | 'duplicate' | 'cancel_pending' | 'superseded'): GraphEvent => ({ ...base, seq, type: 'control_rejected', kind, commandId, reason });
+const sentKey = (client: { control: ReturnType<typeof vi.fn> }, call = 0): string => client.control.mock.calls[call][1].idempotencyKey;
 
 describe('web thread', () => {
   it('T1 renders status, decision, then result pictures', () => {
@@ -132,9 +138,9 @@ it('renews the cancel key after control_rejected, with insecure-origin crypto fa
       fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
     };
     cancel();
-    s.send({ ...base, seq: 2, type: 'control_rejected', kind: 'cancel', commandId: 'c', reason: 'terminal' });
-    // A subsequent server status/request permits another cancel command.
-    s.send({ ...base, seq: 3, type: 'control_requested', kind: 'pause', commandId: 'next', actorId: 'owner', idempotencyKey: 'remote' });
+    s.send(requested(2, 'cancel', 'c', sentKey(s.client)), rejected(3, 'cancel', 'c', 'terminal'));
+    // Another tab's pause request does not keep this tab from sending a fresh cancel.
+    s.send(requested(4, 'pause', 'next', 'remote'));
     cancel();
     const keys = s.client.control.mock.calls.map(call => call[1].idempotencyKey);
     expect(keys).toHaveLength(2);
@@ -146,7 +152,7 @@ it('releases the in-flight lock when the pause is applied, so CANCEL can still b
   const s = setup(); s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
   fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
   expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(true);
-  s.send({ ...base, seq: 2, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' });
+  s.send(requested(2, 'pause', 'c', sentKey(s.client)), { ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' });
   fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
   fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
   expect(s.client.control.mock.calls.map(call => call[1].kind)).toEqual(['pause', 'cancel']);
@@ -185,6 +191,155 @@ describe('a later command does not undo an applied control', () => {
     expect(screen.getByRole('button', { name: 'paused' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(false);
     expect(live()).toBe('CAD model · paused');
+  });
+});
+
+describe('a command stays queued until its own applied or rejected event', () => {
+  const started: GraphEvent = { ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' };
+  const pauseApplied = (seq: number, commandId: string): GraphEvent => ({ ...base, seq, type: 'control_applied', commandId, checkpoint: 'agent', kind: 'pause', state: 'paused' });
+  const cancelApplied = (seq: number, commandId: string): GraphEvent => ({ ...base, seq, type: 'control_applied', commandId, checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [] });
+  const live = () => document.querySelector('[aria-live="polite"]')?.textContent;
+  const buttons = () => screen.queryAllByRole('button').map(b => `${b.textContent}${b.hasAttribute('disabled') ? ' (disabled)' : ''}`);
+  const sendCancel = () => { fireEvent.click(screen.getByRole('button', { name: 'CANCEL' })); fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' })); };
+  // The run is cancelling: PAUSE shows the state, and nothing in the thread invites another command.
+  const expectCancelling = () => {
+    expect(buttons()).toEqual(['Cancelling (disabled)', 'CANCEL (disabled)']);
+    expect(live()).toBe('CAD model · Cancelling');
+    expect(screen.getByText(/^Cancelling · \d+s$/)).toBeTruthy();
+  };
+
+  describe.each([['cancel', 'duplicate'], ['pause', 'cancel_pending']] as const)('a cancel queued before a %s that is rejected as %s', (kind, reason) => {
+    it('keeps showing Cancelling, with PAUSE and CANCEL unavailable, until the cancel is applied', () => {
+      const s = setup();
+      s.send(started, requested(2, 'cancel', 'queued-cancel'));
+      expectCancelling();
+      expect(screen.getByText('Cancelling · Waiting for checkpoint')).toBeTruthy();
+      s.send(requested(3, kind, 'late'));
+      expectCancelling();
+      expect(screen.getByText('Cancelling · Waiting for checkpoint')).toBeTruthy();
+      s.send(rejected(4, kind, 'late', reason));
+      expectCancelling();
+      expect(screen.getByText(`Control rejected · ${reason}`)).toBeTruthy();
+      s.send(cancelApplied(5, 'queued-cancel'));
+      expect(buttons()).toEqual([]);
+      expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+      expect(screen.getByText(/^cancelled · \d+s$/)).toBeTruthy();
+      expect(live()).toBe('CAD model · cancelled');
+      expect(s.client.control).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps this tab\'s own cancel locked while another tab\'s pause is requested and rejected', () => {
+    const s = setup(); s.send(started); sendCancel();
+    s.send(requested(2, 'cancel', 'own-cancel', sentKey(s.client)));
+    expectCancelling();
+    s.send(requested(3, 'pause', 'remote-pause'));
+    expectCancelling();
+    s.send(rejected(4, 'pause', 'remote-pause', 'cancel_pending'));
+    expectCancelling();
+    fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(s.client.control).toHaveBeenCalledTimes(1);
+    s.send(cancelApplied(5, 'own-cancel'));
+    expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+    expect(buttons()).toEqual([]);
+  });
+
+  it('keeps Cancelling when the pause it superseded is rejected, as the graph does just before it applies the cancel', () => {
+    const s = setup(); s.send(started);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    s.send(requested(2, 'pause', 'own-pause', sentKey(s.client)));
+    expect(buttons()).toEqual(['Pausing (disabled)', 'CANCEL (disabled)']);
+    s.send(requested(3, 'cancel', 'remote-cancel'));
+    expectCancelling();
+    // The pause was this tab's own command, so this releases the tab's lock. The queued cancel must still hold the controls.
+    s.send(rejected(4, 'pause', 'own-pause', 'superseded'));
+    expectCancelling();
+    s.send(cancelApplied(5, 'remote-cancel'));
+    expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+    expect(buttons()).toEqual([]);
+  });
+
+  it('keeps Cancelling after a cancel queued behind an applied pause, through a rejected duplicate pause', () => {
+    const s = setup(); s.send(started, pauseApplied(2, 'paused'));
+    expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+    s.send(requested(3, 'cancel', 'queued-cancel'));
+    expectCancelling();
+    s.send(requested(4, 'pause', 'late'), rejected(5, 'pause', 'late', 'cancel_pending'));
+    expectCancelling();
+    s.send(cancelApplied(6, 'queued-cancel'));
+    expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+  });
+
+  it('keeps showing paused while another tab\'s repeated pause waits for its rejection', () => {
+    const s = setup(); s.send(started, pauseApplied(2, 'paused'), requested(3, 'pause', 'late'));
+    expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+    expect(live()).toBe('CAD model · paused');
+    expect(screen.getByText('You paused the job at a checkpoint.')).toBeTruthy();
+    s.send(rejected(4, 'pause', 'late', 'duplicate'));
+    expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+    expect(live()).toBe('CAD model · paused');
+  });
+
+  it('returns to the state it interrupted when the queued cancel is itself rejected', () => {
+    const s = setup(); s.send(started, requested(2, 'cancel', 'queued-cancel'));
+    expectCancelling();
+    s.send(rejected(3, 'cancel', 'queued-cancel', 'terminal'));
+    expect(buttons()).toEqual(['PAUSE', 'CANCEL']);
+    expect(live()).toBe('CAD model · started');
+    s.send(pauseApplied(4, 'paused'), requested(5, 'cancel', 'second-cancel'), rejected(6, 'cancel', 'second-cancel', 'terminal'));
+    expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+  });
+
+  it('does not release this tab\'s in-flight pause when a different command is rejected', () => {
+    const s = setup(); s.send(started);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    s.send(requested(2, 'pause', 'own-pause', sentKey(s.client)), requested(3, 'pause', 'remote-pause'), rejected(4, 'pause', 'remote-pause', 'duplicate'));
+    expect(buttons()).toEqual(['Pausing (disabled)', 'CANCEL (disabled)']);
+    s.send(pauseApplied(5, 'own-pause'));
+    expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+    sendCancel();
+    expect(s.client.control.mock.calls.map(call => call[1].kind)).toEqual(['pause', 'cancel']);
+  });
+
+  it('releases this tab\'s lock and renews its pause key when its own pause is rejected', () => {
+    const s = setup(); s.send(started);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    s.send(requested(2, 'pause', 'own-pause', sentKey(s.client)), rejected(3, 'pause', 'own-pause', 'terminal'));
+    expect(buttons()).toEqual(['PAUSE', 'CANCEL']);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    expect(s.client.control).toHaveBeenCalledTimes(2);
+    expect(sentKey(s.client, 1)).not.toBe(sentKey(s.client, 0));
+  });
+
+  it('does not let the cancel confirmation send a second cancel once one is queued from another tab', () => {
+    const s = setup(); s.send(started);
+    fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+    expect(screen.getByRole('button', { name: 'CANCEL REQUEST' }).hasAttribute('disabled')).toBe(false);
+    s.send(requested(2, 'cancel', 'remote-cancel'));
+    const confirm = screen.getByRole('button', { name: 'CANCEL REQUEST' });
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(confirm);
+    expect(s.client.control).not.toHaveBeenCalled();
+  });
+
+  it('recognises its own command in the DEV preview, where the synthetic server echoes the key', () => {
+    vi.useFakeTimers();
+    try {
+      render(<JarvisThread {...createPreview()} runId="plate-preview" />);
+      fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(buttons()).toEqual(['paused (disabled)', 'CANCEL']);
+      sendCancel();
+      expect(screen.getByText('Cancelling · Waiting for checkpoint')).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(screen.getByRole('heading', { name: 'Work kept' })).toBeTruthy();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('settles a command whose request arrives after its rejection in the same batch, by sequence', () => {
+    const s = setup(); s.send(started, rejected(3, 'cancel', 'late-cancel', 'terminal'), requested(2, 'cancel', 'late-cancel'));
+    expect(buttons()).toEqual(['PAUSE', 'CANCEL']);
   });
 });
 

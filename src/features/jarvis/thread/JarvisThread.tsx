@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GraphArtifactKind, GraphDecisionRequestedEvent, GraphDecisionResolvedEvent, GraphEvent } from '../core/types';
+import { controlLifecycle, type ControlEvent, type ControlLifecycle } from './control-lifecycle';
 import type { ThreadClient } from './client';
 import type { EventSource } from './event-source';
 import { ThreadDialog } from './ThreadDialog';
@@ -19,8 +20,6 @@ function safeArtifactUrl(uri: string): boolean {
 }
 
 type StatusEvent = Extract<GraphEvent, { type: 'status' }>;
-type ControlEvent = Extract<GraphEvent, { type: 'control_requested' | 'control_applied' | 'control_rejected' }>;
-type AppliedEvent = Extract<GraphEvent, { type: 'control_applied' }>;
 
 // Reverse scan instead of Array#findLast: the app tsconfig targets ES2020 without the ES2023 lib.
 function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: GraphEvent) => e is T): T | undefined {
@@ -45,13 +44,15 @@ function workingLabel(hasArtifacts: boolean, workingName: string, pending: boole
   return 'none';
 }
 
-function controlState(control: ControlEvent | undefined, applied: AppliedEvent | undefined, command: string): string {
-  // A cancel is terminal: the graph answers any later command on the run with a request and a rejection that change nothing.
+// What the run is doing as far as the thread knows. Precedence: an applied cancel (terminal) > a cancel still waiting for its
+// checkpoint > an applied pause > a pause still waiting. A command is queued until its own applied or rejected event arrives,
+// so another command's rejection (a duplicate cancel, a pause refused while cancelling, a pause superseded by a cancel)
+// never shows a cancelling run as running. `sending` is this tab's command until the server's request for it arrives.
+function controlState({ applied, queued }: ControlLifecycle, sending: string): string {
   if (applied?.kind === 'cancel') return applied.state;
-  if (control?.type === 'control_applied') return control.state;
-  if (control?.type === 'control_requested') return control.kind === 'pause' ? 'Pausing' : 'Cancelling';
-  // A rejection leaves the run as it was: a command still in flight here, otherwise whatever was applied before it.
-  return command || (applied?.state ?? '');
+  if (queued.cancel || sending === 'Cancelling') return 'Cancelling';
+  if (applied) return applied.state;
+  return queued.pause || sending === 'Pausing' ? 'Pausing' : '';
 }
 
 type LaneContext = { pending: boolean; stopped: string | undefined; status: StatusEvent | undefined; offline: boolean; state: string; now: number; completed: ReadonlySet<string> };
@@ -72,10 +73,13 @@ function announcement(result: Extract<GraphEvent, { type: 'result' }> | undefine
   return `${nodeNames[status.nodeId] ?? status.nodeId} · ${deciding ? 'WAITS FOR YOU' : state || status.state}`;
 }
 
-function controlMessage(control: ControlEvent): string {
-  if (control.type === 'control_applied') return `You ${control.state} the job at a checkpoint.`;
+function controlMessage(control: ControlEvent, { applied }: ControlLifecycle, state: string): string {
   if (control.type === 'control_rejected') return `Control rejected · ${control.reason}`;
-  return control.kind === 'pause' ? 'Pausing · Waiting for checkpoint' : 'Cancelling · Waiting for checkpoint';
+  if (control.type === 'control_applied') return `You ${control.state} the job at a checkpoint.`;
+  // A request reports the run's effective state, so a command about to be rejected never contradicts the cancel still
+  // waiting for its checkpoint, the pause already applied, or the cancel that already ended the run.
+  if (state === 'Pausing' || state === 'Cancelling') return `${state} · Waiting for checkpoint`;
+  return applied ? `You ${applied.state} the job at a checkpoint.` : `${control.kind === 'pause' ? 'Pausing' : 'Cancelling'} · Waiting for checkpoint`;
 }
 
 function Dimensions({ artifacts }: Readonly<{ artifacts: Extract<GraphEvent, { type: 'artifact' }>[] }>) {
@@ -146,10 +150,16 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const decisions = events.filter(e => e.type === 'decision_requested');
   const resolutions = events.filter(e => e.type === 'decision_resolved');
   const pending = decisions.some(d => !resolutions.some(r => r.decisionId === d.decisionId));
-  const control = lastOf(events, (e): e is ControlEvent => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected');
-  useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; keys.current.delete(control.kind); setCommand(''); } }, [control]);
-  // The latest applied control, not the latest control event: a later request or rejection must not undo a cancel's kept-only view.
-  const applied = lastOf(events, (e): e is AppliedEvent => e.type === 'control_applied');
+  const lifecycle = useMemo(() => controlLifecycle(events), [events]);
+  const { latest: control, applied } = lifecycle;
+  // This tab's command ends only with its own applied or rejected event, matched through the idempotency key the server echoes on
+  // its request. Any other command's outcome (a remote pause, a duplicate cancel) leaves the lock and the key where they are.
+  useEffect(() => {
+    for (const command of lifecycle.commands) {
+      if (!command.settled || keys.current.get(command.kind) !== command.idempotencyKey) continue;
+      keys.current.delete(command.kind); inFlight.current = false; setCommand('');
+    }
+  }, [lifecycle]);
   // Nothing resumes a job, so any applied pause or cancel leaves a pending decision unanswerable.
   const stopped = applied?.state;
   const deciding = pending && !stopped;
@@ -159,7 +169,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const refs = (applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts).filter(a => safeArtifactUrl(a.uri));
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), step = refs.find(a => a.kind === 'step');
   const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
-  const state = controlState(control, applied, command);
+  const state = controlState(lifecycle, command);
   const lane: LaneContext = { pending, stopped, status, offline, state, now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
@@ -180,8 +190,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
         <span>{laneLabel(node, lane)}</span>
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
-        <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
-      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} stopped={stopped} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => <img key={p} src={p} alt={i === 0 ? 'Iso' : 'Top view'} />)}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+        <button disabled={offline || inFlight.current || lifecycle.queued.cancel} onClick={() => setConfirm(true)}>CANCEL</button>
+      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} stopped={stopped} />)}{control && <p>{controlMessage(control, lifecycle, state)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => <img key={p} src={p} alt={i === 0 ? 'Iso' : 'Top view'} />)}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />
@@ -189,6 +199,6 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     </footer>{confirm && <ThreadDialog sheet close={closeConfirm} fallbackFocus={heading}>
       <h2>Cancel request?</h2>
       <p>Jarvis stops at the next safe checkpoint. Work done so far stays in the thread.</p>
-      <button disabled={inFlight.current} onClick={() => { void sendControl('cancel'); setConfirm(false); }}>CANCEL REQUEST</button>
+      <button disabled={inFlight.current || lifecycle.queued.cancel} onClick={() => { void sendControl('cancel'); setConfirm(false); }}>CANCEL REQUEST</button>
     </ThreadDialog>}</main>;
 }
