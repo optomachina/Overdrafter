@@ -1,7 +1,7 @@
 import { createElement, useEffect, useRef, useState } from 'react';
 import { loadModelViewer } from './model-loader';
 
-type ModelElement = HTMLElement & { cameraOrbit: string; fieldOfView: string; jumpCameraToGoal(): void; getCameraOrbit(): { theta: number; phi: number; radius: number }; getFieldOfView(): number };
+type ModelElement = HTMLElement & { cameraOrbit: string; cameraTarget: string; fieldOfView: string; jumpCameraToGoal(): void; getCameraOrbit(): { theta: number; phi: number; radius: number }; getFieldOfView(): number };
 const hasWebGL = () => !!document.createElement('canvas').getContext('webgl2');
 const CAMERA_CONTROLS = ['ROTATE', 'ZOOM IN', 'ZOOM OUT', 'FIT'] as const;
 
@@ -11,7 +11,9 @@ function moveCamera(m: ModelElement, label: typeof CAMERA_CONTROLS[number]) {
     const orbit = m.getCameraOrbit();
     m.cameraOrbit = `${orbit.theta + Math.PI / 4}rad ${orbit.phi}rad ${orbit.radius}m`;
   } else if (label === 'FIT') {
+    // Panning is on by default and moves the target, so FIT must also return the target to the model's centre.
     m.cameraOrbit = 'auto auto auto';
+    m.cameraTarget = 'auto auto auto';
     m.fieldOfView = 'auto';
   } else {
     m.fieldOfView = `${Math.min(90, Math.max(5, m.getFieldOfView() * (label === 'ZOOM IN' ? 0.8 : 1.25)))}deg`;

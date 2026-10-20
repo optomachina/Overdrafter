@@ -128,14 +128,18 @@ it('renders remote control requests and offline retry without enabling commands'
 });
 it('viewer loads and supports button alternatives for orbit and zoom', () => {
   const { container } = render(<ModelView uri="/plate.glb" pictures={[]} webgl={() => true} />);
-  const model = container.querySelector('model-viewer')! as HTMLElement & { cameraOrbit: string; fieldOfView: string };
-  Object.assign(model, { getCameraOrbit: () => ({ theta: 0, phi: 1, radius: 2 }), getFieldOfView: () => 30, jumpCameraToGoal: vi.fn() });
+  const model = container.querySelector('model-viewer')! as HTMLElement & { cameraOrbit: string; cameraTarget: string; fieldOfView: string };
+  // A pan moves the target off the model's centre; only FIT should bring it back.
+  const panned = '-0.0459m 0.0317m 0m';
+  Object.assign(model, { cameraTarget: panned, getCameraOrbit: () => ({ theta: 0, phi: 1, radius: 2 }), getFieldOfView: () => 30, jumpCameraToGoal: vi.fn() });
   fireEvent(model, new Event('load'));
   expect(screen.queryByText('Loading 3D model')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'ROTATE' })); expect(model.cameraOrbit).toBe(`${Math.PI / 4}rad 1rad 2m`);
   fireEvent.click(screen.getByRole('button', { name: 'ZOOM IN' })); expect(model.fieldOfView).toBe('24deg');
   fireEvent.click(screen.getByRole('button', { name: 'ZOOM OUT' })); expect(model.fieldOfView).toBe('37.5deg');
+  expect(model.cameraTarget).toBe(panned);
   fireEvent.click(screen.getByRole('button', { name: 'FIT' })); expect(model.cameraOrbit).toBe('auto auto auto'); expect(model.fieldOfView).toBe('auto');
+  expect(model.cameraTarget).toBe('auto auto auto');
   // Every control, not only zoom, must snap the camera to its new goal.
   expect((model as unknown as { jumpCameraToGoal: ReturnType<typeof vi.fn> }).jumpCameraToGoal).toHaveBeenCalledTimes(4);
 });
