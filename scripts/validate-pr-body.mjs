@@ -460,18 +460,33 @@ function unquoteMarkers(text) {
 
 /**
  * Setext underlines, decided in one forward pass. The paragraph since the last
- * blank line is squashed as it grows; an underline never walks back over it.
- * Flags may count an extra go-live heading, never a missing one.
+ * blank line or fenced code block is squashed as it grows; an underline never
+ * walks back over it. Flags may count an extra go-live heading, never a missing one.
+ *
+ * `hidden` is the fence flags from hiddenLineFlags. A fenced line, fence lines
+ * included, is code, not paragraph text: it must not feed the scan, and it ends
+ * the paragraph before it, because a fence can interrupt a paragraph and the
+ * dashes after one are a thematic break. A line after a fence end that could not
+ * be pinned down (`uncertain`) is read as visible, as the ATX count reads it.
  */
-function setextGoLiveFlags(lines) {
+function setextGoLiveFlags(lines, hidden) {
   const flags = new Array(lines.length).fill(false);
   let scan = createGoLiveScan();
   let paragraph = 0;
+  // `paragraph` is 0 only while the scan is fresh, so a reset with nothing read is a no-op.
+  const endParagraph = () => {
+    if (paragraph === 0) return;
+    scan = createGoLiveScan();
+    paragraph = 0;
+  };
   for (let index = 0; index < lines.length; index += 1) {
+    if (hidden.fenced[index] && !hidden.uncertain[index]) {
+      endParagraph();
+      continue;
+    }
     const unquoted = unquoteMarkers(lines[index]);
     if (!/\S/.test(unquoted)) {
-      scan = createGoLiveScan();
-      paragraph = 0;
+      endParagraph();
       continue;
     }
     if (SETEXT_UNDERLINE.test(unquoted) && paragraph > 0 && scan.isGoLive()) flags[index] = true;
@@ -528,7 +543,7 @@ function collectSections(body) {
   const headings = [];
   let goLiveHeadings = 0;
   let offset = 0;
-  const setextGoLive = setextGoLiveFlags(lines);
+  const setextGoLive = setextGoLiveFlags(lines, hidden);
 
   lines.forEach((line, index) => {
     const match = line.match(SECTION_HEADING_LINE);

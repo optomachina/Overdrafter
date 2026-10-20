@@ -757,6 +757,56 @@ describe("validatePrBody", () => {
       const result = validate(`${broken}\n\n## Notes\n\n${fake}\n`);
       expect(result.errors).toContain('"envelope reviewed (automatic)" must be ticked');
     });
+
+    describe("setext headings and fenced code", () => {
+      const valid = buildGoLiveSection();
+      const duplicate = '"Provider go-live" appears 2 times; keep exactly one section';
+      const after = (extra) => validate(`${valid}\n${extra}\n`);
+
+      it.each([
+        ["a tilde fence, then dashes", "\n~~~\nProvider go-live\n~~~\n---"],
+        ["a backtick fence, then equals signs", "\n```\nProvider go-live\n```\n==="],
+        ["a long fence with an info string", "\n````md\nProvider go-live\n````\n---"],
+        ["an indented fence", "\n   ~~~\n   Provider go-live\n   ~~~\n---"],
+        ["a fence with a paragraph line inside", "\n~~~\ncode\nProvider go-live\n~~~\n---"],
+        ["a fence in a list item", "\n- ~~~\n  Provider go-live\n  ~~~\n  ---"],
+        ["a quoted fence, then dashes outside the quote", "\n> ~~~\n> Provider go-live\n> ~~~\n---"],
+        ["an unclosed fence that runs to the end", "\n~~~\nProvider go-live\n---"],
+        ["a paragraph cut off by a fence", "Provider go-live\n~~~\ncode\n~~~\n---"],
+        ["a multi-line paragraph cut off by a fence", "Provider\ngo-live\n~~~\ncode\n~~~\n---"],
+        ["two fences in a row", "\n~~~\nx\n~~~\n```\nProvider go-live\n```\n---"],
+      ])("a dash or equals line after %s is not a heading", (_name, extra) => {
+        // CommonMark: a fenced block ends the paragraph before it, so this is a code block
+        // and a thematic break, and the checklist still has one Provider go-live section.
+        expect(after(extra), extra).toEqual({ ok: true, errors: [] });
+      });
+
+      it.each([
+        ["a closed fence", "~~~\ncode\n~~~\nProvider go-live\n---"],
+        ["a closed fence and a multi-line heading", "~~~\ncode\n~~~\nProvider\ngo-live\n---"],
+        ["a closed fence and a quoted heading", "~~~\ncode\n~~~\n> Provider go-live\n> ==="],
+        ["a closed fence and a blank line", "~~~\ncode\n~~~\n\nProvider go-live\n---"],
+        ["a heading before the fence", "Provider go-live\n---\n\n~~~\ncode\n~~~"],
+        ["a heading between two fences", "~~~\nx\n~~~\nProvider go-live\n---\n~~~\ny\n~~~"],
+      ])("still counts a real setext heading next to %s", (_name, extra) => {
+        expect(after(`\n${extra}`).errors, extra).toContain(duplicate);
+      });
+
+      it("counts a real heading after a fence, and not the fenced copy before it", () => {
+        const both = "\n~~~\nProvider go-live\n~~~\n---\n\nProvider go-live\n---";
+        const result = after(both);
+        expect(result.errors).toContain(duplicate);
+        expect(result.errors).not.toContain('"Provider go-live" appears 3 times; keep exactly one section');
+      });
+
+      it("keeps counting after a fence whose end cannot be pinned down", () => {
+        // The ambiguous closer leaves the rest of the body uncertain. An uncertain line is read as
+        // visible, the same as for the ATX count, so a duplicate can never hide behind it.
+        const ambiguous = "- item\n\n  ~~~\n - x\n ~~~\n";
+        expect(after(`${ambiguous}Provider go-live\n---`).errors).toContain(duplicate);
+        expect(after(`${ambiguous}## Provider go-live`).errors).toContain(duplicate);
+      });
+    });
   });
 
   it("matches only a ticked envelope-reviewed (automatic) checkbox line", () => {
