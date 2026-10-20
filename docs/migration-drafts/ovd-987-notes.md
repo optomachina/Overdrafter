@@ -133,6 +133,64 @@ Turn off the same way with `false`. What to expect:
   the new reason `dispatch_quantity_not_admitted` to
   `dispatch_authorization_denied` until a worker PR adds it to its bounded list.
 
+## Apply locks (review round 1, finding 2)
+
+Right after the md5 precondition (which reads only `pg_proc`) and before any
+change, the migration takes, under `lock_timeout = '5s'`, ACCESS EXCLUSIVE on
+`private.commercial_rollout_control_events`, then on
+`private.commercial_rollout_controls`: the modes its two CHECK replacements take
+anyway, now taken in the order the audited setter needs. The setter reads the
+events (its idempotency lookup) before it locks a control row. The first version
+of this file replaced the controls CHECK first and the events CHECK last; a setter
+call in flight held the events read lock and waited for the control row while the
+migration waited for the events table: a deadlock. PostgreSQL aborts one of the
+two, so either the apply or the operator's rollout-disable call fails; the apply
+is one transaction, so nothing is left partial.
+
+Two-session evidence (local Postgres 17.11 container, the real 154 migrations
+replayed, the real file re-run as the second session, the real setter and read
+API; the drill and its raw outputs are kept with the overnight run notes, not in
+this repo). Warm and cold sessions differ: the setter declares `%rowtype`
+variables, so a session that has never called it takes a brief read lock on the
+controls while it compiles the function, before the events read; a pooled
+connection that already compiled it goes straight to the events read.
+
+| Case | Original file (controls first) | This file (events first) |
+| --- | --- | --- |
+| Warm setter call lands during a 2 s gap between the two table changes | `deadlock detected`; the setter was the victim at a 2 s gap, the migration at 3.5 s | Setter waits at its first read, both finish, no error (2 s and 3.5 s gap) |
+| Cold setter session, same gap | No deadlock (it waits on the controls at compile and holds nothing) | No deadlock |
+| Real file re-run 60 times, unwidened, while a warm setter session loops (about 4,900 calls) | 8 of 60 runs aborted by `deadlock detected`, 8 setter calls aborted | 0 of 60, 0 setter errors |
+| Same, plus a warm read-API session looping (about 5,000 calls, one every few ms) | 13 of 60 runs aborted, 19 setter calls aborted, 0 read errors | 3 of 60 runs aborted, 0 setter errors, 4 read-API calls aborted |
+
+`md5(prosrc)` of the seven functions after the replay equal the table in
+"Ordering with other work"; the migration's pgTAP (111 assertions) and
+`commercial_rollout_controls.sql` (25) pass on that database.
+
+Residual, and what this does not fix. The read API
+`public.api_get_commercial_rollout_controls()` (service role only) reads the
+controls and then the events in one statement, the reverse of the setter. A call
+that lands between the migration's two LOCK statements (back to back in the real
+file) can deadlock with it, and the last row above shows it is not only
+theoretical when the API is polled continuously. The original order was safe
+for the read API. Events first is the order the finding asked for, because the
+setter is the audited disable path an operator reaches for under pressure; the
+read API is read-only and a retry is harmless. So: do not call the read API,
+and do not run the setter, while the migration is applying; a deadlock victim
+rolls the whole apply back and it is rerun. A second residual applies only to a
+re-apply onto a database that already has this migration (a staging drill): the
+three-transaction cycle described under "Rollback locks" (a worker preflight for
+a lane above 1, a setter call for the switch, and this transaction) needs a lane
+above 1 in flight, which cannot exist before the first apply, so run a re-apply
+only with none in flight.
+
+The file also needs a transaction block now: `LOCK TABLE` errors outside one, so
+a runner that does not wrap the file stops at the first lock, before any change
+(`psql -f` without `--single-transaction` did exactly that in the drill). Before,
+`set local lock_timeout` only warned in that case and the file applied statement
+by statement. `psql --single-transaction` and the whole file sent as one
+multi-statement query (how a payload runner sends it) both applied it in the drill;
+the Supabase CLI wraps it too, as the header says.
+
 ## Rollback order (design 5.4)
 
 1. Switch off (above).
@@ -236,15 +294,35 @@ ids and timestamps keep them apart.
   missing for S1, S5 and S6 (report mode). They are owner-only private helpers
   whose current definitions are baselined with the same finding; the grants are
   restated verbatim and the baseline is not grown.
-- Release tooling that pins exactly four rollout controls, all disabled, is not
-  changed: `scripts/verify-ovd373-*.sql`,
-  `scripts/verify-ovd418-production-quiescence.sql`,
-  `scripts/ovd419-acquisition-compatibility.mjs` and
-  `scripts/ovd570-minimal-rehearsal.mjs` (its `count(*)=4` source-default check).
-  They belong to frozen or held release packages; a future reuse against a
-  database with this migration must allow the fifth control.
-  `docs/workflows/commercial-rollout-controls.md` now says the read API returns
-  five controls.
+- **Consumers that pin exactly four rollout controls (review round 1, finding 1).**
+  Once this migration is applied in production,
+  `public.api_get_commercial_rollout_controls()` returns five controls and
+  `private.commercial_rollout_controls` has five rows. Nothing below is changed by
+  this PR; each consumer either fails closed (it blocks, it never allows) or
+  reports five rows where its text says four. The first group is live, not frozen:
+
+  | Consumer | What it assumes | After the production apply |
+  | --- | --- | --- |
+  | `scripts/collect-ovd410-operational-envelope.mjs` (`OVD410_COMMERCIAL_CONTROLS`, `validateControls`) | The response has exactly four controls, the four names, all off | Rejects with `Invalid rollout-control response.` |
+  | `docs/workflows/ovd410-stable-egress.md` (the baseline and after reads of the containment step call the collector) | The collector succeeds | The containment step stops at the collector |
+  | `scripts/run-ovd419-live-release.mjs` (imports the collector) | Same | An OVD-419 run stops at its envelope read |
+  | `scripts/ovd419-diagnostic-adapter.mjs` (`controlsDisabled` needs `length === 4`) and `scripts/ovd419-acquisition-compatibility.mjs` (`CONTROLS`, `length === 4`) | Four controls | Report the controls as not disabled, or reject the packet |
+  | `docs/release/ovd-206-window-kit.md` section 1, query 1 ("Expect enabled = false for all four") | Four rows | Five rows; wording only |
+  | `scripts/verify-ovd373-rollout-preconditions.sql`, `scripts/verify-ovd373-production-postconditions.sql`, `scripts/verify-ovd418-production-quiescence.sql` (run by `scripts/verify-ovd418-production-preconditions.sql` and `scripts/hold-ovd418-production-locks.sql`), `scripts/verify-ovd418-production-postconditions.sql` and `scripts/run-ovd418-production-release.sh` (both read `rollout_control_count`), `scripts/ovd570-minimal-rehearsal.mjs` (`count(*)=4`) | `count(*) = 4` | Refuse (`<> 4`); frozen or held release packages |
+
+  The collector file itself was last changed on 2026-08-24; its OVD-419 caller
+  on 2026-10-14. Neither is pinned in a manifest, and the OVD-206 window kit relies
+  on the stable-egress runbook, so the next recovery procedure or OVD-419 run
+  after the production apply would stop there.
+  **Before Blaine's production card, one of two things must happen, and the card
+  must name these consumers:** (A) a separate PR updates the collector, the
+  OVD-419 adapter and compatibility pin (with their tests) and the OVD-206 kit
+  wording to accept `controlled_beta_user_quantity` as a fifth control that must
+  also be off, and lands first; or (B) the production apply is scheduled after
+  the OVD-206 and OVD-410 work. This PR does not choose. Any reuse of the frozen
+  scripts against a database with this migration must allow the fifth control.
+  `docs/workflows/commercial-rollout-controls.md` says the read API returns five
+  controls and points here.
 - SonarCloud: the migration and the rollback are excluded from copy-paste
   detection (`.sonarcloud.properties`), like the OVD-628, OVD-722, OVD-723 and
   OVD-762 restatements; `plsql:S1192` (repeated literals) findings are

@@ -179,6 +179,35 @@ describe("OVD-987 migration precondition", () => {
   });
 });
 
+describe("OVD-987 migration locks", () => {
+  const block = doBlock(migrationSql, "ovd987_precondition");
+  const eventsLock = "\nlock table private.commercial_rollout_control_events in access exclusive mode;\n";
+  const controlsLock = "\nlock table private.commercial_rollout_controls in access exclusive mode;\n";
+
+  it("locks the control events, then the controls, after the precondition and before any change", () => {
+    // The setter reads the events (idempotency lookup) before it locks a control row, so the events
+    // lock must come first: altering the controls first deadlocked with a setter call in flight.
+    const events = migrationSql.indexOf(eventsLock);
+    const controls = migrationSql.indexOf(controlsLock);
+    expect(events).toBeGreaterThan(block.end);
+    expect(controls).toBeGreaterThan(events);
+    expect(migrationSql.match(/^lock table /gm)).toHaveLength(2);
+    // Neither rollout table is touched by a statement before its lock (the first ALTER TABLE follows both).
+    expect(migrationSql.search(/^(?:alter table|insert into|create or replace function|drop |revoke |grant )/m)).toBeGreaterThan(controls);
+    expect(migrationSql.search(/^alter table private\.commercial_rollout_control/m)).toBeGreaterThan(controls);
+  });
+
+  it("matches the order in which the setter itself reads the two tables, and the rollback's", () => {
+    const setter = flat(body(migrationSql, "public.api_set_commercial_rollout_control"));
+    const readsEvents = setter.indexOf("from private.commercial_rollout_control_events event where event.idempotency_key");
+    const locksControl = setter.indexOf("from private.commercial_rollout_controls control where control.capability = p_capability for update");
+    expect(readsEvents).toBeGreaterThan(0);
+    expect(locksControl).toBeGreaterThan(readsEvents);
+    expect(rollbackSql.indexOf(eventsLock)).toBeGreaterThan(0);
+    expect(rollbackSql.indexOf(controlsLock)).toBeGreaterThan(rollbackSql.indexOf(eventsLock));
+  });
+});
+
 describe("OVD-987 rollback guard", () => {
   const guard = doBlock(rollbackSql, "ovd987_rollback_guard");
 

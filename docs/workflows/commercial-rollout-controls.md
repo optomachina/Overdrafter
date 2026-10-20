@@ -120,9 +120,15 @@ returns all five controls (the four commercial controls plus OVD-987's
 change. Change one capability per transaction: turning
 `controlled_beta_user_quantity` and `automatic_quote_collection` in one
 transaction can deadlock with an in-flight Xometry worker preflight; if both must
-change together, change `automatic_quote_collection` first. The frozen release
-scripts that pin exactly four controls (OVD-373, OVD-418 and OVD-419 tooling,
-`scripts/ovd570-minimal-rehearsal.mjs`) are not updated for the fifth one.
+change together, change `automatic_quote_collection` first. Scripts that pin
+exactly four controls are not updated for the fifth one: the frozen OVD-373,
+OVD-418 and OVD-570 release tooling, and the live OVD-410 operational-envelope
+collector (`scripts/collect-ovd410-operational-envelope.mjs`, which the
+stable-egress containment step and the OVD-419 run call) and its OVD-419
+adapter. The collector rejects a five-control response, so the production apply
+of that migration waits for either a separate change that teaches it the fifth
+control or the OVD-206 and OVD-410 work (decided on the production card; the
+OVD-987 notes list every consumer).
 
 Never grant direct table access or update either private rollout table by hand.
 
