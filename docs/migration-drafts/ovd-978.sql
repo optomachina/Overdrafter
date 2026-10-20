@@ -30,15 +30,16 @@
 -- "Waiting for drawing metadata" and the workspace keeps polling; (b) read
 -- `missingFields` and `warnings` from the extraction payload, which the worker
 -- (buildStoredExtractionPayload, worker/src/extraction/sharedResult.ts) never
--- writes: warnings live in drawing_extractions.warnings; (c) dropped the
+-- writes: warnings live in drawing_extractions.warnings, which the client may
+-- count but must never read (see "Data boundary" below); (c) dropped the
 -- extraction fallbacks for description, part number, revision, material,
 -- finish, threads and tolerance, the projectPartProperties block and the
 -- property overrides, the requirement timestamps in updatedAt (which became
 -- "-infinity" for a part with no extraction or task), and the quote quantity
 -- normalisation.
 --
--- This body is the 20260402120000 definition byte for byte, with three
--- one-line changes:
+-- This body is the 20260402120000 definition byte for byte, with these
+-- changes:
 --   1. the first lifecycle branch returns 'succeeded' for a part with no
 --      drawing (OVD-670's intended fix) instead of 'uploaded';
 --   2. and 3. the last material and finish fallbacks read the payload key
@@ -48,7 +49,28 @@
 --      `->> 'material'` returned the whole object as text and the client
 --      showed `{"raw": null, ...}` as the material (and never listed material
 --      or finish as missing). Found by the OVD-978 harness with the real
---      worker payload; present in 20260402 since April.
+--      worker payload; present in 20260402 since April;
+--   4. the warning text no longer leaves the database (below). `warnings` is
+--      always `[]`, and `warningCount` counts only the warnings that mean a
+--      field needs review.
+--
+-- Data boundary: drawing_extractions is internal-only under RLS
+-- (drawing_extractions_internal_only); this SECURITY DEFINER function is the
+-- one path from it to a client. The worker writes raw operator diagnostics
+-- into drawing_extractions.warnings: the provider SDK error message for a
+-- failed model call, and the spend guard's reason for a refused one (per-run
+-- ceiling figures, the operator kill switch, ledger database errors). The
+-- 20260402 body returned that column to every member of the organisation. This
+-- body does not return any warning text. The client UI reads only
+-- `warningCount` (ClientExtractionStatusNotice, countPartExtractionWarnings);
+-- it never renders the strings. The count skips the two operator diagnostics,
+-- which the worker writes under the 'Model fallback ' prefix
+-- (worker/src/extraction/hybridExtraction.ts): they say a model call did not
+-- run, not that a field needs review, and counting them made a part with
+-- nothing to review read "partial". Every other warning still counts, so a
+-- warning the worker adds later is counted rather than silently dropped. A
+-- warning column that is not a JSON array counts as zero instead of failing
+-- the whole call.
 --
 -- Security: same signature, return type, language, volatility, SECURITY
 -- DEFINER and `set search_path = public` as the definition it replaces.
@@ -119,13 +141,23 @@ as $$
       nullif(trim(coalesce(requirement.spec_snapshot #>> '{projectPartProperties,updatedAt}', '')), '') as project_property_updated_at,
       extraction.id as extraction_id,
       extraction.extraction,
-      extraction.warnings,
       extraction.updated_at as extraction_updated_at,
       latest_task.status as latest_task_status,
       latest_task.last_error as latest_task_error,
       latest_task.payload as latest_task_payload,
       latest_task.updated_at as latest_task_updated_at,
-      coalesce(jsonb_array_length(coalesce(extraction.warnings, '[]'::jsonb)), 0) as warning_count,
+      -- Count only. drawing_extractions.warnings holds raw operator text and is
+      -- internal-only, so it is never selected into the projection.
+      (
+        select count(*)::integer
+        from jsonb_array_elements_text(
+          case
+            when jsonb_typeof(extraction.warnings) = 'array' then extraction.warnings
+            else '[]'::jsonb
+          end
+        ) as warning_entries(value)
+        where coalesce(warning_entries.value, '') not like 'Model fallback %'
+      ) as warning_count,
       array_to_string(
         array(
           select trimmed_thread
@@ -294,7 +326,8 @@ as $$
           end,
         'pageCount', projection.page_count,
         'warningCount', projection.warning_count,
-        'warnings', coalesce(projection.warnings, '[]'::jsonb),
+        -- Always empty: warning text is internal-only, the client reads warningCount.
+        'warnings', '[]'::jsonb,
         'missingFields', to_jsonb(coalesce(projection.missing_fields, array[]::text[])),
         'reviewFields', to_jsonb(coalesce(projection.review_fields, array[]::text[])),
         'lastFailureCode', nullif(trim(coalesce(projection.latest_task_payload ->> 'failureCode', '')), ''),

@@ -1,5 +1,5 @@
 {
-  "about": "OVD-978. Rows that public.api_list_client_part_metadata returns for these inputs. 'inputs' are the database rows; each extraction.workerInput is a worker DrawingExtractionPayload that goes through the real buildStoredExtractionPayload (worker/src/extraction/sharedResult.ts) into drawing_extractions.extraction, and its warnings go into drawing_extractions.warnings, as worker/src/index.ts writes them. 'expected.draft' is the output of docs/migration-drafts/ovd-978.sql and 'expected.liveOvd670' the output of 20261011170000_fix_no_drawing_lifecycle.sql for the same rows. Both are generated and re-verified by the PGlite harness kept with the OVD-978 evidence (sql-drafts/OVD-978/harness.mjs); edit the inputs only together with a harness run.",
+  "about": "OVD-978. Rows that public.api_list_client_part_metadata returns for these inputs. 'inputs' are the database rows; each extraction.workerInput is a worker DrawingExtractionPayload that goes through the real buildStoredExtractionPayload (worker/src/extraction/sharedResult.ts) into drawing_extractions.extraction, and its warnings go into drawing_extractions.warnings, as worker/src/index.ts writes them. The projection never returns that text (it is internal-only and can hold raw provider and spend-guard messages); it returns a warningCount that skips the operator-only warnings the worker writes under the \"Model fallback \" prefix, and an always-empty warnings array. 'expected.draft' is the output of docs/migration-drafts/ovd-978.sql and 'expected.liveOvd670' the output of 20261011170000_fix_no_drawing_lifecycle.sql for the same rows. Both are generated and re-verified by the PGlite harness kept with the OVD-978 evidence (sql-drafts/OVD-978/harness.mjs); edit the inputs only together with a harness run.",
   "organizationId": "97800000-0000-4000-8000-000000000001",
   "jobId": "97800000-0000-4000-8000-000000000031",
   "parts": [
@@ -123,8 +123,8 @@
             }
           ],
           "warnings": [
-            "Revision not found in the title block.",
-            "No tolerance callout was found."
+            "Finish extraction needs review.",
+            "Model fallback failed for drawing extraction: 429 Rate limit reached for the extraction model in organization org-SAMPLE on tokens per min."
           ],
           "debugCandidates": {},
           "modelCandidates": {},
@@ -216,7 +216,9 @@
           "notes": [],
           "threads": [],
           "evidence": [],
-          "warnings": [],
+          "warnings": [
+            "Model fallback skipped: spend cap reached (Spending is halted by an operator kill switch). Extraction used deterministic parsing only."
+          ],
           "debugCandidates": {},
           "modelCandidates": {},
           "status": "approved"
@@ -371,10 +373,7 @@
         "material": "Aluminum 6061-T6",
         "quantity": 5,
         "revision": null,
-        "warnings": [
-          "Revision not found in the title block.",
-          "No tolerance callout was found."
-        ],
+        "warnings": [],
         "lifecycle": "partial",
         "pageCount": 2,
         "updatedAt": "2026-10-18T10:10:00+00:00",
@@ -386,7 +385,7 @@
         "reviewFields": [
           "finish"
         ],
-        "warningCount": 2,
+        "warningCount": 1,
         "missingFields": [
           "revision",
           "tightestToleranceInch"
@@ -450,9 +449,7 @@
         "material": null,
         "quantity": 1,
         "revision": null,
-        "warnings": [
-          "No PDF drawing was attached. Material, finish, and tolerance values require review."
-        ],
+        "warnings": [],
         "lifecycle": "succeeded",
         "pageCount": 0,
         "updatedAt": "2026-10-18T10:30:00+00:00",

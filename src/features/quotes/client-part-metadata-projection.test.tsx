@@ -15,6 +15,11 @@ import fixture from "./client-part-metadata-projection.fixture.json";
 // inserts the real buildStoredExtractionPayload output and proves the rows match.
 // src/ must not import worker modules (server/design-graph/import-boundary.ts), so the
 // worker-payload assertions live in worker/src/extraction/clientMetadataProjectionPayload.test.ts.
+//
+// Warning text never reaches the client. drawing_extractions is internal-only and its
+// warnings column holds raw provider and spend-guard messages, so the projection returns
+// `warnings: []` and a `warningCount` that skips the operator-only "Model fallback "
+// diagnostics (docs/migration-drafts/ovd-978-notes.md, "Data boundary").
 
 type FixturePart = (typeof fixture.parts)[number];
 
@@ -50,13 +55,16 @@ describe("client part metadata projection (OVD-978 draft)", () => {
     }
   });
 
-  it("shows a partial extraction with its warnings, missing fields and page count", () => {
+  it("shows a partial extraction with its warning count, missing fields and page count", () => {
     const view = userView(rows, "partial");
 
+    // The input column holds two warnings: a field review warning and a model fallback
+    // failure. Only the first is counted, and neither text is projected.
+    expect(partByKey("partial").extraction!.workerInput.warnings).toHaveLength(2);
     expect(view.extraction).toMatchObject({
       lifecycle: "partial",
-      warningCount: 2,
-      warnings: ["Revision not found in the title block.", "No tolerance callout was found."],
+      warningCount: 1,
+      warnings: [],
       missingFields: ["revision", "tightestToleranceInch"],
       reviewFields: ["finish"],
       pageCount: 2,
@@ -84,6 +92,10 @@ describe("client part metadata projection (OVD-978 draft)", () => {
 
   it("shows a complete extraction as settled with every property filled", () => {
     const view = userView(rows, "complete");
+
+    // The column holds one operator-only spend-guard warning. It must not count, or this
+    // part would read "partial" with nothing to review.
+    expect(partByKey("complete").extraction!.workerInput.warnings).toHaveLength(1);
 
     expect(view.extraction).toMatchObject({
       lifecycle: "succeeded",
@@ -117,7 +129,8 @@ describe("client part metadata projection (OVD-978 draft)", () => {
       hasCadFile: true,
       hasDrawingFile: false,
       pageCount: 0,
-      warnings: ["No PDF drawing was attached. Material, finish, and tolerance values require review."],
+      warningCount: 1,
+      warnings: [],
       missingFields: ["revision", "material", "finish", "tightestToleranceInch"],
     });
     expect(view.requirement.material).toBe("");
@@ -128,6 +141,22 @@ describe("client part metadata projection (OVD-978 draft)", () => {
     expect(container).toBeEmptyDOMElement();
     expect(screen.queryByText(/waiting for drawing metadata/i)).not.toBeInTheDocument();
     expect(keepsPolling(view.extraction.lifecycle)).toBe(false);
+  });
+
+  it("never projects warning text from the internal-only warnings column", () => {
+    const leaked = /model fallback|spend cap|rate limit|kill switch|org-sample|needs review\.|PDF drawing was attached/i;
+    const operatorWarnings = fixture.parts.flatMap(
+      (part) => part.extraction?.workerInput.warnings.filter((warning) => warning.startsWith("Model fallback ")) ?? [],
+    );
+
+    expect(operatorWarnings).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toMatchObject({ warnings: [] });
+    }
+    expect(JSON.stringify(rows)).not.toMatch(leaked);
+    for (const part of fixture.parts) {
+      expect(userView(rows, part.key).extraction.warnings).toEqual([]);
+    }
   });
 
   it("shows queued and failed extractions", () => {
