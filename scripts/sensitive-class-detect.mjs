@@ -583,7 +583,7 @@ function pushBody(scan, body, offset) {
   appendAll(scan.lines, inner.lines);
   appendAll(scan.starts, inner.starts);
   appendAll(scan.ends, inner.ends);
-  for (let at = 0; at < inner.words.length; at += 1) scan.statement.push(scan.statements.length);
+  appendAll(scan.statement, inner.words.map(() => scan.statements.length));
 }
 
 // A -- comment ends at LF or CR; it counts as one space.
@@ -1456,7 +1456,10 @@ function hitEffect(hit) {
 function sqlHitLines(result) {
   const hits = result.files.flatMap((file) => file.sql_hits ?? []);
   if (!hits.length) return [];
-  const rows = hits.map((hit) => `| ${hit.id} | ${tableCell(`${hit.path}:${hit.line}`)} | ${hit.class} | ${hitEffect(hit)} |`);
+  const rows = hits.map((hit) => {
+    const location = tableCell(`${hit.path}:${hit.line}`);
+    return `| ${hit.id} | ${location} | ${hit.class} | ${hitEffect(hit)} |`;
+  });
   return ["| SQL rule | Location | Class | Effect |", "| --- | --- | --- | --- |", ...rows, ""];
 }
 
