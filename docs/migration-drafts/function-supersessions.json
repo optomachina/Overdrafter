@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "supersessions": [
+    {
+      "signature": "private.job_file_finalize_delegate(uuid,text,text,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "d1e7d64c3a20a6a05c55cbe4c316fc0e",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "private.job_file_prepare_delegate(uuid,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "8c5fae6e53835f537916e8097021456c",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_all_jobs()",
+      "file": "docs/migration-drafts/ovd-766-b.sql",
+      "supersedesMd5": "167075c1c0909373aeca001f63a84e4f",
+      "reason": "OVD-766 group b draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_all_projects()",
+      "file": "docs/migration-drafts/ovd-766-b.sql",
+      "supersedesMd5": "fccbf444632b4ebed1cea4ca528f275d",
+      "reason": "OVD-766 group b draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_all_users()",
+      "file": "docs/migration-drafts/ovd-766-b.sql",
+      "supersedesMd5": "56746a8d5b09b11ad56b9d93a86ce9b6",
+      "reason": "OVD-766 group b draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_organizations()",
+      "file": "docs/migration-drafts/ovd-766-b.sql",
+      "supersedesMd5": "c1b96ad674d9e084d901958c643d7da0",
+      "reason": "OVD-766 group b draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_provider_kill_switches()",
+      "file": "docs/migration-drafts/ovd-828-s1.sql",
+      "supersedesMd5": "568ff534f3ad60f4d4754b6e7f754a74",
+      "reason": "OVD-828 S1 draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_set_global_kill_switch(boolean,text,bigint)",
+      "file": "docs/migration-drafts/ovd-766-a.sql",
+      "supersedesMd5": "67cf109f0d50745cb438a89c311bd85b",
+      "reason": "OVD-766 group a draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_set_provider_kill_switch(vendor_name,boolean,text,bigint)",
+      "file": "docs/migration-drafts/ovd-766-a.sql",
+      "supersedesMd5": "b8bbcdb3b8e69996ae8a9a6840249061",
+      "reason": "OVD-766 group a draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_set_provider_kill_switch(vendor_name,boolean,text,bigint)",
+      "file": "docs/migration-drafts/ovd-828-s1.sql",
+      "supersedesMd5": "09f76c673f7e13f2e49fe6faed0c44d3",
+      "reason": "Both drafts restate this function from the same deployed body and neither is rebased onto the other, so whichever is promoted second must be rebased onto the first. Recorded as the baseline when this check was added."
+    },
+    {
+      "signature": "public.api_admin_set_provider_kill_switch(vendor_name,boolean,text,bigint)",
+      "file": "docs/migration-drafts/ovd-828-s1.sql",
+      "supersedesMd5": "b8bbcdb3b8e69996ae8a9a6840249061",
+      "reason": "OVD-828 S1 draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "254e6ce84f67dae43d9664adf4b85673",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "eb659d92aa927555f4c4fe93591fa9d1",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
+      "supersedesMd5": "571b326dd5ab8a12389d9e8e39265374",
+      "reason": "Both drafts restate this function from the same deployed body and neither is rebased onto the other, so whichever is promoted second must be rebased onto the first. Recorded as the baseline when this check was added."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
+      "supersedesMd5": "eb659d92aa927555f4c4fe93591fa9d1",
+      "reason": "OVD-762 fan out draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it. The OVD-987 controlled beta user quantity migration (PR 886, not merged) also restates this function and will trigger exactly that."
+    },
+    {
+      "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "fcbee1db0a164cf78f2dd356dcb85c55",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_prepare_job_file_upload(uuid,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "686d958f0545bee88af127afa5a88860",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_reconcile_job_parts(uuid)",
+      "file": "docs/migration-drafts/ovd-766-c.sql",
+      "supersedesMd5": "706a322ffad08f98c12ef5bbc7d9b8f4",
+      "reason": "OVD-766 group c draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_request_manual_quote(uuid,boolean)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesMd5": "8e5f10dabbf9c8c6420e2c14e9b01e79",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_review_export_control_block(uuid,text,text)",
+      "file": "docs/migration-drafts/ovd-766-a.sql",
+      "supersedesMd5": "350cda22a700891f275f964ae6824886",
+      "reason": "OVD-766 group a draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_select_quote_option(uuid,uuid,text)",
+      "file": "docs/migration-drafts/ovd-766-d.sql",
+      "supersedesMd5": "cb192200b0a5391ab376a29ca27e0bfe",
+      "reason": "OVD-766 group d draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_set_global_spend_cap(numeric,numeric,boolean)",
+      "file": "docs/migration-drafts/ovd-766-a.sql",
+      "supersedesMd5": "f31f8b560c9812e819e2871531d7f775",
+      "reason": "OVD-766 group a draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_set_job_selected_vendor_quote_offer(uuid,uuid)",
+      "file": "docs/migration-drafts/ovd-766-d.sql",
+      "supersedesMd5": "560359258f848075dedc29ccc7c8b016",
+      "reason": "OVD-766 group d draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.user_can_edit_job(uuid)",
+      "file": "docs/migration-drafts/ovd-766-e.sql",
+      "supersedesMd5": "a791e4a63e727f3f2f5c1a7bfa8117ac",
+      "reason": "OVD-766 group e draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    }
+  ]
+}
