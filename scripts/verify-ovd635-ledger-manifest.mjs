@@ -1,4 +1,3 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -46,7 +45,7 @@ export function verifyOvd635LedgerManifest(root) {
   return violations;
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const violations = verifyOvd635LedgerManifest(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
   if (violations.length > 0) {
     console.error(violations.join("\n"));

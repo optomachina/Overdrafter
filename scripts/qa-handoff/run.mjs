@@ -22,8 +22,8 @@
 // plus the QA_HANDOFF_TRUSTED_MARKER_AUTHORS env (comma separated logins); the
 // workflow and the backstop must pass the same list.
 
-import { isEntryPoint } from "../lib/entry-point.mjs";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_REQUIRED_CHECKS,
   QA_READY_LABEL,
@@ -416,6 +416,23 @@ export async function main({
   return exit(status);
 }
 
-if (isEntryPoint(import.meta.url)) {
+/**
+ * True when node was started on this very file. Node resolves symlinks in
+ * import.meta.url but leaves process.argv[1] as given, so a plain URL compare
+ * never matches when the CLI is reached through a symlink (a symlinked
+ * directory or file, or macOS /tmp -> /private/tmp). main() would then be
+ * skipped and the gate would print nothing and exit 0, which reads as a pass.
+ * Compare real paths instead. A missing or unresolvable argv[1] is false.
+ */
+export function isInvokedDirectly(argv1 = process.argv[1], moduleUrl = import.meta.url) {
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isInvokedDirectly()) {
   await main();
 }

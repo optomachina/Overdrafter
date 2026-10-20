@@ -300,8 +300,7 @@ cover:
   `$RUNNER_TEMP` as a base;
 - the CLI entry guard: the script runs `main()` (and reports errors with a
   non-zero exit) when launched directly or through a symlinked path, and
-  the shared [`isEntryPoint` helper](../scripts/lib/entry-point.mjs) covers
-  symlink resolution, imports, and missing or unresolvable `argv[1]`;
+  `isEntryPoint` is false for a missing or unresolvable `argv[1]`;
 - posting only with `--post`, through an injected runner: injected PR numbers
   are refused, the argv is fixed, the body file holds the comment during the
   call, and the temp directory is gone afterwards (also when `gh` fails).

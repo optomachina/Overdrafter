@@ -1,10 +1,9 @@
 /** Storage version probe PLAN for the native first loop. It prints the exact SQL
  * reads and HTTP requests an operator later runs by hand against hosted Storage.
  * Plan only: no network, SQL, environment reads, credentials or object writes. */
-// @ts-expect-error Shared JavaScript helper has no declaration file in this TS-only project.
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export type StorageProbeAdmission = Readonly<{
   owner: string; probeId: string; storageOrigin: string; bucket: string; sourceSha: string;
@@ -126,7 +125,7 @@ export function renderStorageProbePlan(plan: StorageProbePlan): string {
 }
 
 // The admission JSON arrives on stdin, so the script opens no file path of its own.
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const plan = buildStorageProbePlan(JSON.parse(readFileSync(0, 'utf8')) as StorageProbeAdmission);
   console.log(process.argv.includes('--json') ? JSON.stringify(plan, null, 2) : renderStorageProbePlan(plan));
 }

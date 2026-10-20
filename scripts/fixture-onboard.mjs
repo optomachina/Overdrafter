@@ -1,7 +1,7 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import ts from "typescript";
 
@@ -546,7 +546,8 @@ export async function runFixtureOnboardCli(argv = process.argv.slice(2), rootDir
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-if (isEntryPoint(import.meta.url)) {
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
+if (invokedPath === import.meta.url) {
   try {
     await runFixtureOnboardCli();
   } catch (error) {

@@ -13,9 +13,9 @@
  * Exit 0: no difference, or the difference equals --expect exactly.
  * Exit 1: an unexpected difference (printed). Exit 2: usage or input error.
  */
-import { isEntryPoint } from "../lib/entry-point.mjs";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Code unit order, the same order Array#sort uses without a comparator, made explicit. */
 export const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
@@ -193,7 +193,8 @@ export function main(argv = process.argv.slice(2)) {
 
 class UsageError extends Error {}
 
-if (isEntryPoint(import.meta.url)) {
+const direct = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (direct) {
   try {
     process.exitCode = main();
   } catch (error) {

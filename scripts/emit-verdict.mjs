@@ -32,7 +32,6 @@
  *
  * See docs/verdict-format.md.
  */
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -49,6 +48,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { SCHEMA_ID, formatVerdictBlock, tagCorroborated, validateVerdict } from "./verdict-schema.mjs";
 
@@ -446,7 +446,22 @@ export function main(argv = process.argv.slice(2), { cwd, now, run, env } = {}) 
   return body;
 }
 
-if (isEntryPoint(import.meta.url)) {
+/**
+ * True when this module is the script node was started with. Both sides are
+ * compared by realpath, because node resolves symlinks for `import.meta.url`
+ * but leaves `process.argv[1]` as the path the caller used. False when `entry`
+ * is missing or either path cannot be resolved.
+ */
+export function isEntryPoint(moduleUrl = import.meta.url, entry = process.argv[1]) {
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(entry);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   try {
     process.stdout.write(main());
   } catch (error) {
@@ -454,5 +469,3 @@ if (isEntryPoint(import.meta.url)) {
     process.exit(1);
   }
 }
-
-export { isEntryPoint } from "./lib/entry-point.mjs";

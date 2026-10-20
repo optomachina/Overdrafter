@@ -5,7 +5,6 @@
  * judge != runner, and aggregates judge score JSON into a report.
  * See docs/skill-evals.md.
  */
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -566,7 +565,7 @@ export function main(argv, { root = process.cwd(), out = (s) => process.stdout.w
   }
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
   process.exitCode = main(process.argv.slice(2), { root });
 }

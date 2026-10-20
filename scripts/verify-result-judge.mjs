@@ -17,9 +17,9 @@
 // Fails closed: anything other than every mapped spec running and every journey
 // passing at the expected SHA on a clean tree is FAIL. Exit 0 on PASS, 1 on FAIL,
 // 2 on bad usage.
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { CONFIG_TEST_DIRS, FEATURE_SPECS, pendingFor, selectFeatures, skipNote, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
 
@@ -252,6 +252,6 @@ export function main(argv) {
   return result.verdict === "PASS" ? 0 : 1;
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }
