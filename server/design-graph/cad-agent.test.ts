@@ -134,7 +134,7 @@ function writeGlb(file: string, triangles: number[][][]) {
 }
 
 describe("OVD-802 CadAgent plate recipe", () => {
-  it.each([undefined, null, "plate.usdz"])("publishes only supplied AR artifacts (%s) and preserves measured dimensions", async (usdz) => {
+  it.each([undefined, null, "", "plate.usdz"])("publishes only supplied AR artifacts (%s) and preserves measured dimensions", async (usdz) => {
     const runner: CadWorkerRunner = async (params) => {
       const outcome = fakeOutcome(params);
       if (usdz !== undefined) outcome.result!.files.usdz = usdz;
@@ -152,6 +152,22 @@ describe("OVD-802 CadAgent plate recipe", () => {
     }
     if (usdz) expect(artifacts.find((a) => a.kind === "usdz")).toMatchObject({ mimeType: "model/vnd.usdz+zip", uri: "file:///tmp/jd-fake/plate.usdz" });
     expect(events.at(-1)).toMatchObject({ type: "result", artifacts: artifacts.map(({ kind, uri }) => ({ kind, uri })) });
+  });
+
+  it.each(["step", "glb", "usdz", "iso", "top"] as const)("rejects unsafe %s artifact names without emitting artifacts", async (kind) => {
+    for (const file of ["../other/x.usdz", "/etc/passwd", "sub/plate.glb", ".", "..", ...(kind === "usdz" ? [] : [""])]) {
+      const runner: CadWorkerRunner = async (params) => {
+        const outcome = fakeOutcome(params);
+        outcome.result!.files[kind] = file;
+        return outcome;
+      };
+      const graph = graphWith(cadOnly(new CadAgent({ enabled: true, runner })));
+      const runId = graph.submit({ prompt: "4 inch square plate, 0.25 in thick, no holes" });
+      expect(await graph.waitForTerminal(runId)).toMatchObject({ state: "failed" });
+      const events = graph.getEvents(runId);
+      expect(events.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("artifact file must stay inside the run folder") });
+      expect(artifactsOf(events)).toEqual([]);
+    }
   });
 
   realIt(

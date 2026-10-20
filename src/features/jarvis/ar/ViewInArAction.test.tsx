@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ViewInArAction } from "./ViewInArAction";
-import { AR_SAFARI, AR_UNAVAILABLE, detectAr } from "./ar-support";
+import { AR_SAFARI, AR_UNAVAILABLE } from "./ar-support";
 import { model, ios, android, desktop } from "./ar-fixtures";
 
 afterEach(cleanup);
@@ -16,8 +16,7 @@ describe("ViewInArAction", () => {
   });
   it("renders the Scene Viewer intent", () => {
     render(<ViewInArAction {...base} device={android} />);
-    const support = detectAr(model, android);
-    expect(screen.getByRole("link").getAttribute("href")).toBe(support.state === "available" && support.href);
+    expect(screen.getByRole("link").getAttribute("href")).toBe("intent://arvr.google.com/scene-viewer/1.0?file=https%3A%2F%2Ffiles.example%2Fplate.glb%3Fsig%3Da%2Bb%26v%3D1&mode=ar_preferred&title=Plate%20%26%20review#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=https%3A%2F%2Fapp.example%2Fmodel%3Fid%3D1%26view%3D3d;end;");
   });
   it.each([
     { device: desktop }, { device: ios, usdzUrl: undefined },
