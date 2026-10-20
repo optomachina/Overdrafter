@@ -555,6 +555,62 @@ function inlineOwnerOf(
   return null;
 }
 
+/**
+ * Layout text only. The label whose cell a run on a later line STARTS in, among the labels that are not right of
+ * `owner`: the run's left edge is no more than SLACK left of the label's left edge and no farther than REACH
+ * right of its right edge. Caps are ignored, so a label that has another label under it in its columns still
+ * counts. A run is left aligned with its cell, so this is where it begins; `ownerOf` judges by the run's
+ * centre. They differ when the run is wide and spans into the columns of another label (two cells printed on
+ * one line at a coarse pitch, a value that runs under the next stack's label): then the label the run starts
+ * under and the one its centre is under both have a claim, and neither is read. A label whose own cell on this
+ * line already holds the run just before (`previousRun`: "B" left of the drawing number, under SIZE) has no claim.
+ */
+function startOwnerOf(run: Run, owner: Label, labels: readonly Label[], previousRun: Run | null): Label | null {
+  let best: Label | null = null;
+  for (const label of labels) {
+    const dy = run.line - label.line;
+    if (dy < 1 || dy > MAX_DY || label.start > owner.start) {
+      continue;
+    }
+    if (run.start < label.start - label.slack || run.start > label.end + label.reach) {
+      continue;
+    }
+    if (
+      previousRun !== null &&
+      previousRun.end <= run.start + 1 &&
+      previousRun.start >= label.start - label.slack &&
+      previousRun.start <= label.end + label.reach
+    ) {
+      continue;
+    }
+    if (best === null || label.start > best.start || (label.start === best.start && label.line > best.line)) {
+      best = label;
+    }
+  }
+  return best;
+}
+
+/**
+ * Layout text only. A label right of the run's owner whose columns the run reaches into: the run's last
+ * character is printed under the label's first. A value is left aligned under its own label and ends before
+ * the next cell begins; when it runs on into another label's columns, the text of two cells was printed on one
+ * line at a pitch too coarse to keep them apart ("ABC-001A": the drawing number and the revision), and
+ * the run is not one value. A label with another label under it before the run is the top of a stack of
+ * cells, not a neighbour of this one.
+ */
+function reachesIntoLabelOf(run: Run, owner: Label, labels: readonly Label[], caps: ReadonlyMap<Label, number>): Label | null {
+  for (const label of labels) {
+    const dy = run.line - label.line;
+    if (dy < 1 || dy > MAX_DY || label === owner || run.line > (caps.get(label) ?? Number.POSITIVE_INFINITY)) {
+      continue;
+    }
+    if (label.start > owner.start && label.start < run.end && label.end > run.start) {
+      return label;
+    }
+  }
+  return null;
+}
+
 function reachOf(field: CellField | null, words: boolean): number {
   if (field === "revision") {
     return words ? WORD_REVISION_REACH : LAYOUT_REVISION_REACH;
@@ -592,9 +648,17 @@ function ownerOf(run: Run, labels: readonly Label[], caps: ReadonlyMap<Label, nu
 const DATE_LIKE = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 // A cell that refers elsewhere instead of naming the material or finish. "PER" alone is not one ("6061-T6 PER
 // AMS 4027" and "ANODIZE PER MIL-A-8625" name the material and the finish), but "PER SPEC", "PER NOTE 2",
-// "PER DWG" and "PER BOM" do not.
-const POINTER_VALUE =
-  /^(?:SEE\b|REFER\b|REF\.?\s|AS\s+(?:NOTED|SPECIFIED|SHOWN|REQUIRED|STATED)\b|PER\s+(?:THE\s+)?(?:SPECS?|SPECIFICATIONS?|NOTES?|DWGS?|DRAWINGS?|BOM|PRINTS?|CUSTOMER)\b)|\b(?:SEE|REFER\s+TO)\s+(?:NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW)\b/i;
+// "PER DWG" and "PER BOM" do not. "PER SPECIFICATION MIL-DTL-5541" does name one: a specification followed by its
+// designator (a standards body such as MIL or AMS, or a token that mixes letters and digits) is the finish itself.
+// Two expressions rather than one alternation of an anchored and an unanchored branch: each anchor is the
+// start of its own expression (SonarCloud S5850).
+const SPEC_DESIGNATOR_FOLLOWS =
+  String.raw`\s+(?:(?:MIL|AMS|ASTM|SAE|ISO|ASME|QQ|QPL|FED|NAS|ANSI|IEEE|DIN|EN|JIS|BS|DOD|MS|AN)(?![A-Z])|[A-Z]+-[A-Z0-9-]*\d|[A-Z]+\d)`;
+const POINTER_AT_START = new RegExp(
+  String.raw`^(?:SEE\b|REFER\b|REF\.?\s|AS\s+(?:NOTED|SPECIFIED|SHOWN|REQUIRED|STATED)\b|PER\s+(?:THE\s+)?(?:NOTES?|DWGS?|DRAWINGS?|BOM|PRINTS?|CUSTOMER)\b|PER\s+(?:THE\s+)?SPEC(?:S|IFICATIONS?)?\b(?!${SPEC_DESIGNATOR_FOLLOWS}))`,
+  "i",
+);
+const POINTER_ANYWHERE = /\b(?:SEE|REFER\s+TO)\s+(?:NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW)\b/i;
 // A value that ends in a separator, an open bracket or a word that is always followed by more.
 const DANGLING_END = /(?:[,;:\-–([/]|\b(?:CLASS|TYPE|GRADE|COND(?:ITION)?|PER|AND|OR|TO|OF|WITH|NO\.?))\s*$/i;
 
@@ -637,7 +701,7 @@ function rejectionFor(field: CellField, value: string): string | null {
   }
   // "SEE NOTE 1", "SEE BOM", "AS NOTED": the cell points at another place for the material or finish. It
   // names none, so nothing is stored for the part.
-  if (POINTER_VALUE.test(value)) {
+  if (POINTER_AT_START.test(value) || POINTER_ANYWHERE.test(value)) {
     return "pointer";
   }
   // A value that stops in the middle ("ANODIZE, CLASS", "6061 -", "TYPE") is a value cut short, by text that
@@ -859,6 +923,36 @@ function hasOwnCellOnItsLine(
   return false;
 }
 
+/**
+ * Layout text only: text just above a label, in its columns, that no label claims in the ordinary way (it has no
+ * owner, or starts left of its owner's cell: a wide value of another cell that runs under the label's cell). A
+ * coarse pitch prints the lines of a stack out of order, so the value of the cell may stand above its label.
+ * The ordinary neighbour is not that: the value of the cell above starts in the columns of its own label. A label
+ * that has its value on its own line is not asked: the text above it is a note.
+ */
+function hasStrayTextAbove(
+  label: Label,
+  runsByLine: ReadonlyMap<number, Run[]>,
+  ownerOfRun: ReadonlyMap<Run, Label>,
+  inlineRuns: ReadonlySet<Run>,
+): boolean {
+  for (let line = label.line - 1; line >= label.line - MAX_LINE_GAP; line -= 1) {
+    for (const run of runsByLine.get(line) ?? []) {
+      if (run.fromWords || inlineRuns.has(run) || alphanumericCount(run.text) < 2) {
+        continue;
+      }
+      if (run.start < label.start - label.slack || run.start > label.end + label.reach) {
+        continue;
+      }
+      const owner = ownerOfRun.get(run);
+      if (owner === undefined || run.start < owner.start - owner.slack) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function groupByPage(lines: readonly TitleBlockTextLine[]): Map<number, TitleBlockTextLine[]> {
   const pages = new Map<number, TitleBlockTextLine[]>();
   for (const line of lines) {
@@ -926,8 +1020,12 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
     const unowned: Run[] = [];
     const assigned = new Set<Run>();
     const contested = new Set<Label>();
+    // Layout text only: labels that claim one run, by where it starts and by where its centre is (startOwnerOf).
+    const straddled = new Set<Label>();
+    const ownerOfRun = new Map<Run, Label>();
     const assign = (run: Run, owner: Label) => {
       assigned.add(run);
+      ownerOfRun.set(run, owner);
       const ownerRuns = ownedByLabel.get(owner);
       if (ownerRuns === undefined) {
         ownedByLabel.set(owner, [run]);
@@ -958,6 +1056,18 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
         // The first word of a value starts in its label's band; the words after it (word boxes make every
         // word a run) follow it on the line, with no label between.
         const byCell = inline ?? ownerOf(run, labels, caps);
+        if (inline === null && byCell !== null && !run.fromWords) {
+          const startsUnder = startOwnerOf(run, byCell, labels, previousRun);
+          if (startsUnder !== null && startsUnder !== byCell) {
+            straddled.add(startsUnder);
+            straddled.add(byCell);
+          }
+          const reachesInto = reachesIntoLabelOf(run, byCell, labels, caps);
+          if (reachesInto !== null) {
+            straddled.add(byCell);
+            straddled.add(reachesInto);
+          }
+        }
         const followsPrevious: boolean =
           previousRun !== null &&
           previousOwner !== null &&
@@ -1006,7 +1116,10 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
       if (label.field !== null) {
         const ownedRuns = ownedByLabel.get(label) ?? [];
         const fenced = hasOwnCellOnItsLine(label, ownedRuns, inlineRuns, runsByLine, caps);
-        const doubt = contested.has(label) && (label.field === "material" || label.field === "finish")
+        const doubt =
+          straddled.has(label) ||
+          (!ownedRuns.some((run) => inlineRuns.has(run)) && hasStrayTextAbove(label, runsByLine, ownerOfRun, inlineRuns)) ||
+          (contested.has(label) && (label.field === "material" || label.field === "finish"))
           ? "unconsumed_text"
           : finePitch && ownedRuns.length > 0 && ownedRuns.every((run) => !run.fromWords)
             ? "fine_pitch"
