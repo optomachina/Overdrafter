@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 153,
+  "migrationCount": 154,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -156,7 +156,8 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql"
+    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql",
+    "supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -259,6 +260,11 @@
       "path": "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql",
       "issue": "OVD-736",
       "sha256": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    },
+    {
+      "path": "supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql",
+      "issue": "OVD-987",
+      "sha256": "537588a5df9a4218d1c06afa2b32dfb4a51cd3dfc0ec220cd52ceae875274736"
     }
   ],
   "baselineSuites": [
@@ -674,6 +680,7 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql": "ed1a2f17e7471a3b32c3e0927421b74191f5aff5fa72477ae959a8b4e7120118",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c",
+    "supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql": "537588a5df9a4218d1c06afa2b32dfb4a51cd3dfc0ec220cd52ceae875274736"
   }
 }
