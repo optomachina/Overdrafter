@@ -225,3 +225,21 @@ it.each(['KEEP COOKING', 'Close dialog', 'Escape'] as const)('dismissing the can
   expect(document.activeElement).toBe(opener);
   expect(s.client.control).not.toHaveBeenCalled();
 });
+
+it('orders events by sequence when batches arrive out of order', () => {
+  const s = setup();
+  s.send({ ...base, seq: 2, type: 'status', state: 'started', message: 'Second stage' });
+  s.send({ ...base, seq: 1, type: 'status', state: 'started', nodeId: 'concept_picks', message: 'First stage' });
+  expect(screen.getByText('Second stage')).toBeTruthy();
+  expect(screen.queryByText('First stage')).toBeNull();
+});
+it('stops listening to the source when it unmounts or the run changes', () => {
+  const unsubscribe = vi.fn();
+  const source: EventSource = { listen: () => unsubscribe, retry: vi.fn() };
+  const client = { resolve: vi.fn(), control: vi.fn() };
+  const view = render(<JarvisThread source={source} client={client} runId="run" />);
+  view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(unsubscribe).toHaveBeenCalledTimes(2);
+});

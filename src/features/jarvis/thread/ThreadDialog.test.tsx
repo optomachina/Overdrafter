@@ -61,3 +61,12 @@ it('prefers the opener over the fallback when the opener is still focusable', ()
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
   expect(document.activeElement).toBe(opener);
 });
+
+it('pulls focus back into the dialog when it sits outside, in either Tab direction', () => {
+  render(<Example />);
+  const opener = screen.getByRole('button', { name: 'OPEN' }); opener.focus(); fireEvent.click(opener);
+  const close = screen.getByRole('button', { name: 'CLOSE' }), fit = screen.getByRole('button', { name: 'FIT' });
+  (document.activeElement as HTMLElement).blur(); expect(document.activeElement).toBe(document.body);
+  fireEvent.keyDown(document.body, { key: 'Tab' }); expect(document.activeElement).toBe(close);
+  opener.focus(); fireEvent.keyDown(opener, { key: 'Tab', shiftKey: true }); expect(document.activeElement).toBe(fit);
+});

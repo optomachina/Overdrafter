@@ -10,9 +10,11 @@ export function ThreadDialog({ children, close, sheet = false, fallbackFocus }: 
       if (e.key === 'Escape') { e.preventDefault(); close(); }
       if (e.key === 'Tab') {
         const items = Array.from(root.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]'));
-        const first = items[0], last = items.at(-1);
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        const first = items[0], last = items.at(-1), active = document.activeElement;
+        // Focus can sit outside the dialog (a click on plain text drops it to body); pull it back in instead of tabbing into the page behind.
+        if (!root.contains(active)) { e.preventDefault(); (e.shiftKey ? last : first)?.focus(); }
+        else if (e.shiftKey && active === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && active === last) { e.preventDefault(); first?.focus(); }
       }
     };
     document.addEventListener('keydown', keyboard);
