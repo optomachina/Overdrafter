@@ -166,14 +166,26 @@ holds its locks for 2 s):
   sessions, a request-shaped transaction, a worker preflight, a second rollback and
   the read API all waited and finished without a deadlock.
 - Requests and worker preflights never read the events table, and the rollback takes
-  no advisory lock, so neither the setter's exclusive nor the preflight's shared
-  advisory locks can close a cycle with it.
+  no advisory lock, so on their own neither the setter's exclusive nor the
+  preflight's shared advisory locks can close a cycle with it. Three transactions
+  together can (found in the overnight review of round 3 and reproduced on minimal
+  tables in a throwaway Postgres 17 container, not in this migration's database): a
+  worker preflight for a lane above 1 that already holds the controls read lock (its
+  `automatic_quote_collection` check) and waits for this switch's shared advisory
+  lock, a setter call for this switch that holds that advisory lock exclusively and
+  has not read the events yet, and the rollback that holds the events lock and waits
+  for the controls. PostgreSQL aborts one of the three after `deadlock_timeout` (in
+  the run it was the preflight) and nothing is left partial. The drain step rules it
+  out: run the rollback only after the switch is off, no quantity-above-1 permit is
+  in flight and no setter call is running. The header of `ovd-987.rollback.sql`
+  still carries the broader sentence; its bytes stay as drilled on staging (sha256
+  `0d00ebf6...`) and this note supersedes it.
 - Residual: the read API `public.api_get_commercial_rollout_controls()` (service role
   only) reads the controls and then the events in one statement. A call that starts
   exactly between the rollback's first two LOCK statements can deadlock with it
   (shown only with that gap widened to 2 s on purpose); PostgreSQL aborts one of the
   two and neither leaves a partial change. Do not call the read API, and do not run
-  the setter, in the same transaction as the rollback.
+  the setter, in the same transaction as the rollback or while it is running.
 
 While the rollback holds these locks, previews, requests, worker preflights, the
 setter and the read API wait for it (bounded by their own statement timeouts).
