@@ -493,6 +493,16 @@ describe("fail closed matrix", () => {
     expect(JSON.stringify(toAdminRejectionDiagnostic(out.rejection))).not.toContain("abcdefghijkl");
   });
 
+  it("rejects a credential shaped provider note, which is customer-visible text", () => {
+    const secret = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
+    const c = candidate("xometry", { offers: [offer()], providerNotes: [secret] });
+    const out = validateProviderResult(c, e);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.rejection.code).toBe("forbidden_content");
+    expect(JSON.stringify(toAdminRejectionDiagnostic(out.rejection))).not.toContain("abcdefghijkl");
+  });
+
   it("rejects a storageState key holding a value on its own", () => {
     const c = candidate("xometry", { offers: [offer()], rawPayload: { requestedQuantity: 10, storageState: "x" } });
     expect(codes(c, e)).toEqual(["forbidden_content"]);

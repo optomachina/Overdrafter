@@ -109,6 +109,8 @@ import {
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
+  DrawingExtractionData,
+  PartAggregate,
   PartDetailAggregate,
   QuoteDataStatus,
   QuoteDiagnostics,
@@ -238,6 +240,36 @@ function applyResetFields(
   return nextDraft;
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * The Threads value the request falls back to when its Threads field is cleared:
+ * the stored property defaults when present, otherwise the drawing's thread callouts.
+ * Mirrors the defaults the part workspace shows beside the Threads field.
+ */
+function getRequestThreadDefault(
+  part: PartAggregate | null,
+  extraction: DrawingExtractionData | null,
+): string | null {
+  const defaults = part?.clientRequirement?.projectPartProperties?.defaults;
+  if (defaults && "threads" in defaults) {
+    return typeof defaults.threads === "string" ? defaults.threads : null;
+  }
+  return extraction?.threads?.join(", ") ?? null;
+}
+
+/** Threads already stored on the approved request, which the server scope checks read. */
+function getSavedRequestThreads(part: PartAggregate | null): string | null {
+  const snapshot = part?.approvedRequirement?.spec_snapshot;
+  const snapshotThreads =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.threads : null;
+  const clientThreads = part?.clientRequirement?.threads;
+  if (hasText(clientThreads)) return clientThreads;
+  return hasText(snapshotThreads) ? snapshotThreads : null;
+}
+
 function requestDraftIncludesPatch(
   draft: ClientPartRequestUpdateInput,
   patch: Partial<ClientPartRequestUpdateInput>,
@@ -274,6 +306,8 @@ export function useClientPartController(
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
   const [excludedVendorKeys, setExcludedVendorKeys] = useState<VendorName[]>([]);
+  // undefined follows the request's own date; a value or null is the user's results filter (OVD-981).
+  const [viewRequestedByDate, setViewRequestedByDate] = useState<string | null | undefined>(undefined);
   const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
   const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
   const [partRenameValue, setPartRenameValue] = useState("");
@@ -928,6 +962,23 @@ export function useClientPartController(
     partDetail?.part?.approvedRequirement?.requested_by_date ??
     partDetail?.job.requested_by_date ??
     null;
+  // OVD-981/OVD-991: the Need by filter on the results is view state. Persisting it would set
+  // requested_by_date, which every controlled dispatch denies, so it persists only when quote
+  // access is known to be blocked (outside the controlled envelope) and settled. Loading,
+  // refetching, errored and eligible access all stay view-only (fail closed).
+  const needByFilterIsViewOnly = !(
+    quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
+  );
+  // OVD-991: Threads falls back to the drawing's thread callouts when cleared, and any full
+  // save of the request records them. Both server scope checks deny a non-blank Threads value.
+  const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
+  const drawingHasThreads = hasText(requestThreadDefault);
+  const needByRemovalSavesDrawingThreads =
+    drawingHasThreads && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
+  const quoteViewRequestedByDate =
+    needByFilterIsViewOnly && viewRequestedByDate !== undefined
+      ? viewRequestedByDate
+      : requestSummaryRequestedByDate;
   const vendorLabelMap = useMemo(
     () => buildVendorLabelMap(partDetail?.part?.vendorQuotes.map((quote) => quote.vendor) ?? []),
     [partDetail?.part?.vendorQuotes],
@@ -937,7 +988,7 @@ export function useClientPartController(
       partDetail?.part
         ? buildClientQuoteSelectionResult({
             vendorQuotes: partDetail.part.vendorQuotes,
-            requestedByDate: requestSummaryRequestedByDate,
+            requestedByDate: quoteViewRequestedByDate,
             excludedVendorKeys,
             vendorLabels: vendorLabelMap,
           })
@@ -945,7 +996,7 @@ export function useClientPartController(
             options: [] as ClientQuoteSelectionOption[],
             diagnostics: partDetail?.quoteDiagnostics ?? EMPTY_QUOTE_DIAGNOSTICS,
           },
-    [excludedVendorKeys, partDetail?.part, partDetail?.quoteDiagnostics, requestSummaryRequestedByDate, vendorLabelMap],
+    [excludedVendorKeys, partDetail?.part, partDetail?.quoteDiagnostics, quoteViewRequestedByDate, vendorLabelMap],
   );
   const quoteOptions = quoteSelectionResult.options;
   const quoteDiagnostics = quoteSelectionResult.diagnostics;
@@ -1010,11 +1061,11 @@ export function useClientPartController(
       candidates: sourcingCandidates,
       liveOfferKeys,
       publishedOptions: partDetail?.publishedQuoteOptions ?? [],
-      requestedByDate: requestSummaryRequestedByDate,
+      requestedByDate: quoteViewRequestedByDate,
     });
   }, [
     partDetail?.publishedQuoteOptions,
-    requestSummaryRequestedByDate,
+    quoteViewRequestedByDate,
     sourcingCandidates,
     sourcingResult,
   ]);
@@ -1108,6 +1159,7 @@ export function useClientPartController(
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
+    setViewRequestedByDate(undefined);
     patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
@@ -1566,6 +1618,15 @@ export function useClientPartController(
     saveRequestMutation.mutate(payload);
   };
 
+  /** Filters the results by delivery date; inside the controlled envelope this never writes the request. */
+  const handleNeedByFilterChange = (nextDate: string | null) => {
+    if (needByFilterIsViewOnly) {
+      setViewRequestedByDate(nextDate);
+      return;
+    }
+    handleSaveRequestPatch({ requestedByDate: nextDate });
+  };
+
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
     if (!fallbackRequestDraft) {
       return;
@@ -1777,7 +1838,9 @@ export function useClientPartController(
   }
   // RPC failures arrive as plain PostgrestError records, not Error instances.
   const xometryDispatchScopeError = xometryDispatchScopeQuery.error
-    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider, {
+        drawingThreads: drawingHasThreads,
+      })
     : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
@@ -1863,6 +1926,7 @@ export function useClientPartController(
     handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
+    handleNeedByFilterChange,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,
@@ -1902,6 +1966,9 @@ export function useClientPartController(
     cancelQuoteRequestMutation,
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
+    quoteViewRequestedByDate,
+    needByFilterIsViewOnly,
+    needByRemovalSavesDrawingThreads,
     resolveSidebarProjectIdsForJob,
     navigationModel,
     revisionOptions,
