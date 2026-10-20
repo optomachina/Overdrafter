@@ -3293,7 +3293,8 @@ describe("quotes api helpers", () => {
       p_primary_service_kind: "manufacturing_quote",
       p_service_notes: null,
       p_requested_quote_quantities: [10],
-      p_requested_by_date: "2026-04-15",
+      // OVD-992: the "by April 15" in the prompt is a display filter, not a saved request date.
+      p_requested_by_date: null,
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_prepare_part_intake", {
       p_cad_content_sha256: createHash("sha256").update("b").digest("hex"),
@@ -3308,7 +3309,7 @@ describe("quotes api helpers", () => {
       p_primary_service_kind: "manufacturing_quote",
       p_service_notes: null,
       p_requested_quote_quantities: [10],
-      p_requested_by_date: "2026-04-15",
+      p_requested_by_date: null,
     });
   });
 
