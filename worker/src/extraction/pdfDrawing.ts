@@ -1224,11 +1224,6 @@ function structuredLineOf(line: TitleBlockTextLine): StructuredLine {
   };
 }
 
-/**
- * The lines the title block reader sees: for a page with word boxes, its lines built from the boxes
- * (true positions) inside the title block found by the same keyword heuristic as for layout text; for any
- * other page, its layout lines inside the layout title block.
- */
 function groupLayoutLinesByPage(layoutLines: readonly StructuredLine[]): Map<number, StructuredLine[]> {
   const layoutByPage = new Map<number, StructuredLine[]>();
   for (const line of layoutLines) {
@@ -1255,6 +1250,11 @@ function selectWordBoxLines(page: PdfTextPage): TitleBlockTextLine[] | null {
   return wordLines.filter((line) => isWithinTitleBlock(structuredLineOf(line), wordBounds));
 }
 
+/**
+ * The lines the title block reader sees: for a page with word boxes, its lines built from the boxes
+ * (true positions) inside the title block found by the same keyword heuristic as for layout text; for any
+ * other page, its layout lines inside the layout title block.
+ */
 function selectTitleBlockLines(
   pages: readonly PdfTextPage[],
   layoutLines: StructuredLine[],
