@@ -615,6 +615,11 @@ function collectToleranceCandidates(text: string) {
  *    ".1875A", "1.2500"), so a dimension that shares a line with a note, a view label, a weight or the
  *    table itself still counts. A row applies unless every decimal number printed has fewer places than
  *    the row. An explicit "±" value that is not a table row is a tolerance on a feature and is kept.
+ *    A text layer can garble a decimal, and a garbled four-place dimension must not be what drops the
+ *    four-place row, so a fragment that is not a complete decimal counts as the places it may carry: a
+ *    separator then blanks then digits ("Ø. 1875"), digits split by blanks (".18 75"), a mantissa and an
+ *    exponent ("1.875E-1"), and a separator spelled with another character (a middle dot, a bullet, the
+ *    Arabic decimal separator, an ideographic full stop) is a separator.
  * T3 When the sheet is not readable, a row of four or more places is not assumed to apply: it becomes
  *    an unresolved value like any other unclear unit (P6), so the result is valueInch null, unless a
  *    tighter explicit tolerance exists, and the OVD-683 beta gate asks the user. Rows of one to three
@@ -694,14 +699,46 @@ function countReadableDimensions(
   return { dimensions, complete };
 }
 
-/** T2: the most decimal places printed anywhere in the text, except the values of the table's own rows. */
-function mostPlacesPrinted(text: string, tableValueStarts: ReadonlySet<number>): number {
+// Characters a text layer prints for a decimal point: a middle dot, a Greek ano teleia, a bullet, a one dot
+// leader, a hyphenation point, the bullet operator, the dot operator, a katakana middle dot, the Arabic decimal
+// separator, an ideographic full stop and its small and half-width forms. (NFKD has already made the
+// full-width full stop a full stop.) Each is one UTF-16 unit, so folding them keeps every offset.
+const DECIMAL_POINT_LOOK_ALIKES = /[\u00b7\u0387\u2022\u2024\u2027\u2219\u22c5\u30fb\u066b\u3002\ufe52\uff61]/g;
+// ... and the Arabic comma, for a decimal comma.
+const DECIMAL_COMMA_LOOK_ALIKES = /[\u060c]/g;
+// A separator, blanks, then digits: "Ø. 1875", "3. 1750". The separator must not follow a letter ("NO. 1093-05589"),
+// except the single letter of a radius or diameter sign ("R. 0625"). It may follow a digit: "3. 1750" is as likely a
+// dimension as the number of a note, and counting it as one only ever keeps a row.
+const SEPARATOR_THEN_BLANKS = /(?<![A-Za-z])[A-Za-zØ∅⌀]?[.,]\s{1,3}(\d+)/g;
+// A decimal, blanks, then more digits: ".18 75" is perhaps ".1875".
+const DECIMAL_SPLIT_BY_BLANKS = /[.,](\d+)[ \t\u00a0]+(\d+)(?![.,\d])/g;
+// A mantissa and an exponent: "1.875E-1" is 0.1875.
+const SCIENTIFIC = /(?<![0-9A-Za-z.,])(?:\d+[.,](\d+)|\d+|[.,](\d+))[eE]([-+]?\d{1,3})(?![0-9A-Za-z])/g;
+
+/**
+ * T2: the most decimal places printed anywhere in the text, except the values of the table's own rows, with
+ * the garbled forms of a decimal counted as the places they may carry.
+ */
+function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<number>): number {
+  const text = sourceText.replace(DECIMAL_POINT_LOOK_ALIKES, ".").replace(DECIMAL_COMMA_LOOK_ALIKES, ",");
   let most = 0;
   for (const match of text.matchAll(DECIMAL_NUMBER)) {
     if (tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
       continue;
     }
     most = Math.max(most, match[0].length - 1);
+  }
+  for (const match of text.matchAll(SEPARATOR_THEN_BLANKS)) {
+    most = Math.max(most, match[1]!.length);
+  }
+  for (const match of text.matchAll(DECIMAL_SPLIT_BY_BLANKS)) {
+    if (!tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
+      most = Math.max(most, match[1]!.length + match[2]!.length);
+    }
+  }
+  for (const match of text.matchAll(SCIENTIFIC)) {
+    const fraction = (match[1] ?? match[2] ?? "").length;
+    most = Math.max(most, fraction - Number(match[3]));
   }
   return most;
 }

@@ -27,12 +27,14 @@ export const MAX_WORDS_TOTAL = 60_000;
 /**
  * A column is a fraction of the text height of the page, not a fixed number of points, so a sheet drawn
  * at half the size (or twice) reads the same: the gaps and offsets the reader allows (SLACK, GAP_JOIN, ...
- * in titleBlockCells.ts) are all in columns. 0.4 text heights is 4.4 pt beside the 10.9 pt word boxes of
- * 9 pt text on a B-size sheet (1224 pt across 279 columns), which is where the reader was calibrated.
+ * in titleBlockCells.ts) are all in columns. 0.4 text heights is 4.4 pt for the 11 pt boxes of the 9 pt text that
+ * labels and notes are set in on a B-size sheet, where the reader was calibrated.
  */
 export const COLUMN_IN_TEXT_HEIGHTS = 0.4;
 /** Used when a page has no word with a usable height. */
 export const FALLBACK_POINTS_PER_COLUMN = 4.4;
+/** The smallest column: no page has text this small, and a smaller one only makes positions overflow. */
+export const MIN_POINTS_PER_COLUMN = 1e-3;
 
 /**
  * Points per column for a page: the median height of its words, times COLUMN_IN_TEXT_HEIGHTS. The median is
@@ -45,7 +47,9 @@ export function pointsPerColumn(words: readonly PdfWord[]): number {
     return FALLBACK_POINTS_PER_COLUMN;
   }
   heights.sort((left, right) => left - right);
-  return COLUMN_IN_TEXT_HEIGHTS * heights[Math.floor(heights.length / 2)]!;
+  // A floor: a page of words a denormal number of points tall would otherwise give a zero column, and
+  // every position divided by it would be infinite.
+  return Math.max(COLUMN_IN_TEXT_HEIGHTS * heights[Math.floor(heights.length / 2)]!, MIN_POINTS_PER_COLUMN);
 }
 
 // A gap wider than this many text heights separates two cells' text; narrower is the space inside a phrase.
@@ -132,9 +136,10 @@ export function buildWordLines(words: readonly PdfWord[], page: number): TitleBl
         to: raw.length + word.text.length,
         x0: word.xMin / column,
         x1: word.xMax / column,
+        height: word.yMax - word.yMin,
       });
       raw += word.text;
     });
-    return { page, lineNumber: index + 1, raw, words: placed };
+    return { page, lineNumber: index + 1, raw, words: placed, pointsPerColumn: column };
   });
 }

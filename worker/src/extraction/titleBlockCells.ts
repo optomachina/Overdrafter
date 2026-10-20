@@ -35,10 +35,16 @@
  *     first and holds more than a single character.
  *
  * Fail closed: a label with no run, with more than one value line for a single-valued field, with text on
- * its own line AND text left aligned under it, with a value that is itself a label ("Q.A.", "CHECKED"), that
- * names another field's label ("ALUMINUM FINISH ANODIZE"), with a single character (a zone marker), or a
- * part number containing a space (two cells squeezed together) yields no value. Nothing falls back to
- * neighbouring text, so the caller flags the field for review and leaves it empty rather than guessing.
+ * its own line AND text left aligned under it, with a label of an unlisted cell on its own line (a run that
+ * ends in a colon, or has text of its own under it: see hasOwnCellOnItsLine), with a value that is itself a
+ * label ("Q.A.", "CHECKED"), that names another field's label ("ALUMINUM FINISH ANODIZE"), that points
+ * elsewhere ("SEE NOTE 1") or stops in the middle ("ANODIZE, CLASS"), with a single character (a zone
+ * marker), or a part number containing a space (two cells squeezed together) yields no value. Nothing falls
+ * back to neighbouring text, so the caller flags the field for review and leaves it empty rather than
+ * guessing. Layout text, whose columns cannot tell the rest of a value from another cell at a fine pitch, is
+ * flagged when a cell owns a run its value did not take, when text no cell owns follows a material or finish,
+ * when a run of another label's band follows it directly, and for every cell of a page whose own labels are
+ * spread apart (`spread` on a Label).
  *
  * Every loop is bounded by the caps below, and the work per line is linear in its length.
  *
@@ -54,6 +60,8 @@ export type TitleBlockWord = {
   to: number;
   x0: number;
   x1: number;
+  /** The word box's height in points. */
+  height?: number;
 };
 
 export type TitleBlockTextLine = {
@@ -70,6 +78,8 @@ export type TitleBlockTextLine = {
    * the words' own extents are used instead: each word is a run, and its position is its true one.
    */
   words?: readonly TitleBlockWord[];
+  /** Points per column of the page the words were measured on (pdfWords.ts); present with `words`. */
+  pointsPerColumn?: number;
 };
 
 export type CellReadStatus = "value" | "empty" | "ambiguous" | "rejected";
@@ -175,8 +185,9 @@ const LABEL_ONLY_PATTERN = new RegExp(
 
 /**
  * Columns a value's centre may sit left of its label's left edge (labels are not always flush). Word boxes
- * give true positions, and the corpus values centre at least 2 columns right of their labels' left edges,
- * so 2 keeps the neighbouring cell's value (a 24 pt SIZE value left of DWG. NO.) out of a label's band.
+ * give true positions, and a value is left aligned or centred under its label, so its centre is to the right
+ * of the label's left edge; 2 columns of slack let a label that is indented a little still own its value and
+ * keep the neighbouring cell's value (a 24 pt SIZE value left of DWG. NO.) out of the band.
  * Layout text rounds each line's columns on its own, so it gets 3.
  */
 const WORD_SLACK = 2;
@@ -199,10 +210,32 @@ const MAX_DY = 20;
 const GAP_JOIN = 12;
 /** The first run within this many columns after a label on the same line is that label's own value. */
 const INLINE_GAP = 12;
+/**
+ * With word boxes the window is also at most this many heights of the label's own text, however large the
+ * text of the rest of the page is: columns are fractions of the page's median text height, so a page set in
+ * 16 pt dimensions would otherwise pull a label 74 pt away into the window of a 6 pt label.
+ */
+const INLINE_GAP_IN_LABEL_HEIGHTS = 6;
+/** Text under an inline run belongs to it when it starts no more than this many columns left of the run, in columns. */
+const ALIGNED_UNDER_INLINE = 4;
+/** Text under an inline run is a value, and the run a label, when it is this much taller than the run. */
+const VALUE_TEXT_TALLER_THAN_LABEL = 1.15;
+/**
+ * Layout text has no heights. A run of at most three words made of letters, with nothing else in it (no digit,
+ * comma or hyphen: "HEAT TREAT", "TREATMENT", "PROCESS") reads like the label of a cell, and a value is
+ * rarely such a run with text left aligned under it ("ANODIZE, BLACK, MIL-A-8625F" is not).
+ */
+const LABEL_LIKE_RUN = /^[A-Z][A-Z .&/']{1,40}$/i;
 /** A run this close after an inline value continues it (the words of "SHEET 1 OF 1"). */
 const PHRASE_GAP = 6;
 /** Owned value lines further apart than this are not one value. */
 const MAX_LINE_GAP = 3;
+/**
+ * Layout text only: text that no cell owns, on a line of a material or finish, this many columns or fewer
+ * after the end of the value, may be the rest of the value. At a fine pitch (`pdftotext -fixed 1`) the words of
+ * one value are tens of columns apart, because a word is wider than its characters.
+ */
+const LAYOUT_TRAILING_WINDOW = 80;
 /** How many value lines each field may join (one for identifiers). */
 const MAX_VALUE_LINES: Record<CellField, number> = { partNumber: 1, revision: 1, material: 2, finish: 3 };
 // Bounds that keep the reader linear on hostile text: a longer line or a bigger block is not read.
@@ -224,6 +257,14 @@ type Label = {
   /** See WORD_SLACK and WORD_REACH: they depend on whether the line has word boxes. */
   slack: number;
   reach: number;
+  /** Columns after the label in which the first run of its line is its own value. */
+  inlineGap: number;
+  /**
+   * Layout text only: the label's own words are three or more blanks apart ("DWG.   NO."). A label is printed
+   * with single spaces, so the page was laid out with columns far narrower than its characters (a fine
+   * pitch): the words of every value on it are apart like cells are.
+   */
+  spread: boolean;
 };
 
 type Run = {
@@ -234,6 +275,10 @@ type Run = {
   center: number;
   /** Word boxes only: two or more spaces (a gap wider than the space inside a phrase) precede the word. */
   cellBreakBefore?: boolean;
+  /** True for a run read from word boxes; false for one read from layout text. */
+  fromWords: boolean;
+  /** The word box's height in points, when known. */
+  height?: number;
 };
 
 function normalizeWhitespace(value: string) {
@@ -282,11 +327,31 @@ const SPACE = 32;
 const TAB = 9;
 
 /**
- * Whether a label may start at `start`: where a label can start, not inside a sentence. Scans back over the
- * blanks before it and, for the digit rule, over the one token before them, and stops at the first
- * non-blank: no end-anchored pattern on the line, so a long blank run or token stays linear.
+ * For each position of a line, whether the token (run of non-blank characters) that ends there holds a
+ * digit. One forward pass: asking it for every label of a line is linear in the line, where looking back
+ * over the token for each label is quadratic in a long token that holds many labels ("PN.PN.PN. ...").
  */
-function labelMayStartAt(raw: string, start: number, previousLabelEnd: number): boolean {
+function tokenDigitFlags(raw: string): Uint8Array {
+  const flags = new Uint8Array(raw.length);
+  let seen = 0;
+  for (let position = 0; position < raw.length; position += 1) {
+    const code = raw.charCodeAt(position);
+    if (code === SPACE || code === TAB) {
+      seen = 0;
+    } else if (code >= 48 && code <= 57) {
+      seen = 1;
+    }
+    flags[position] = seen;
+  }
+  return flags;
+}
+
+/**
+ * Whether a label may start at `start`: where a label can start, not inside a sentence. Scans back over the
+ * blanks before it (each blank run precedes one label) and reads the digit rule from `digitFlags`, so a
+ * long blank run or token stays linear.
+ */
+function labelMayStartAt(raw: string, start: number, previousLabelEnd: number, digitFlags: () => Uint8Array): boolean {
   let tokenEnd = start;
   while (tokenEnd > 0 && (raw.charCodeAt(tokenEnd - 1) === SPACE || raw.charCodeAt(tokenEnd - 1) === TAB)) {
     tokenEnd -= 1;
@@ -306,16 +371,7 @@ function labelMayStartAt(raw: string, start: number, previousLabelEnd: number): 
   if (previousLabelEnd < 0) {
     return false;
   }
-  for (let position = tokenEnd - 1; position >= 0; position -= 1) {
-    const code = raw.charCodeAt(position);
-    if (code === SPACE || code === TAB) {
-      return false;
-    }
-    if (code >= 48 && code <= 57) {
-      return true;
-    }
-  }
-  return false;
+  return digitFlags()[tokenEnd - 1] === 1;
 }
 
 /** The column of a character position: the position itself in layout text, interpolated in a word otherwise. */
@@ -338,18 +394,38 @@ function columnAt(line: TitleBlockTextLine, index: number, edge: "start" | "end"
 }
 
 /**
+ * Columns after a label in which the first run of its line is the label's own value: INLINE_GAP, and with
+ * word boxes at most INLINE_GAP_IN_LABEL_HEIGHTS heights of the label's own text.
+ */
+function inlineGapOf(line: TitleBlockTextLine, start: number, end: number): number {
+  const unit = line.pointsPerColumn;
+  if (line.words === undefined || unit === undefined || !(unit > 0)) {
+    return INLINE_GAP;
+  }
+  let height = 0;
+  for (const word of line.words) {
+    if (word.from < end && word.to > start && word.height !== undefined && word.height > height) {
+      height = word.height;
+    }
+  }
+  return height > 0 ? Math.min(INLINE_GAP, (INLINE_GAP_IN_LABEL_HEIGHTS * height) / unit) : INLINE_GAP;
+}
+
+/**
  * The labels of one line, appended to `into`. Stops as soon as `into` holds more than `limit` labels, so a
  * line full of labels is not scanned to its end once the page is known to be over its cap.
  */
 function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): void {
   const words = line.words !== undefined && line.words.length > 0;
+  let digitFlags: Uint8Array | null = null;
+  const flags = () => (digitFlags ??= tokenDigitFlags(line.raw));
   let previousLabelEnd = -1;
   for (const match of line.raw.matchAll(LABEL_PATTERN)) {
     if (into.length > limit) {
       return;
     }
     const start = match.index ?? 0;
-    if (!labelMayStartAt(line.raw, start, previousLabelEnd)) {
+    if (!labelMayStartAt(line.raw, start, previousLabelEnd, flags)) {
       continue;
     }
     const specIndex = match.slice(1).findIndex((group) => group !== undefined);
@@ -368,6 +444,8 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
       charEnd: end,
       slack: words ? WORD_SLACK : LAYOUT_SLACK,
       reach: reachOf(spec.field, words),
+      inlineGap: inlineGapOf(line, start, end),
+      spread: !words && /\s{3}/.test(match[0]),
     });
     previousLabelEnd = end;
   }
@@ -402,6 +480,8 @@ function findRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[
         end: word.x1,
         center: (word.x0 + word.x1) / 2,
         cellBreakBefore: word.from >= 2 && line.raw.charCodeAt(word.from - 1) === SPACE && line.raw.charCodeAt(word.from - 2) === SPACE,
+        fromWords: true,
+        ...(word.height !== undefined ? { height: word.height } : {}),
       });
     }
     return;
@@ -420,7 +500,7 @@ function findRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[
     }
     const start = match.index ?? 0;
     const end = start + match[0].length;
-    into.push({ text: match[0], line: line.lineNumber, start, end, center: (start + end) / 2 });
+    into.push({ text: match[0], line: line.lineNumber, start, end, center: (start + end) / 2, fromWords: false });
   }
 }
 
@@ -459,7 +539,7 @@ function inlineOwnerOf(
   let direct: Label | null = null;
   for (const label of lineLabels) {
     const gap = run.start - label.end;
-    if (gap >= -1 && gap <= INLINE_GAP) {
+    if (gap >= -1 && gap <= label.inlineGap) {
       const runBetween = previousRun !== null && previousRun.start >= label.end - 1 && previousRun.end <= run.start;
       if (!runBetween && (direct === null || label.start > direct.start)) {
         direct = label;
@@ -510,6 +590,13 @@ function ownerOf(run: Run, labels: readonly Label[], caps: ReadonlyMap<Label, nu
 }
 
 const DATE_LIKE = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
+// A cell that refers elsewhere instead of naming the material or finish. "PER" alone is not one ("6061-T6 PER
+// AMS 4027" and "ANODIZE PER MIL-A-8625" name the material and the finish), but "PER SPEC", "PER NOTE 2",
+// "PER DWG" and "PER BOM" do not.
+const POINTER_VALUE =
+  /^(?:SEE\b|REFER\b|REF\.?\s|AS\s+(?:NOTED|SPECIFIED|SHOWN|REQUIRED|STATED)\b|PER\s+(?:THE\s+)?(?:SPECS?|SPECIFICATIONS?|NOTES?|DWGS?|DRAWINGS?|BOM|PRINTS?|CUSTOMER)\b)|\b(?:SEE|REFER\s+TO)\s+(?:NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW)\b/i;
+// A value that ends in a separator, an open bracket or a word that is always followed by more.
+const DANGLING_END = /(?:[,;:\-–([/]|\b(?:CLASS|TYPE|GRADE|COND(?:ITION)?|PER|AND|OR|TO|OF|WITH|NO\.?))\s*$/i;
 
 function alphanumericCount(value: string) {
   return (value.match(/[A-Za-z0-9]/g) ?? []).length;
@@ -547,6 +634,16 @@ function rejectionFor(field: CellField, value: string): string | null {
   }
   if (value.length > 120) {
     return "bad_shape";
+  }
+  // "SEE NOTE 1", "SEE BOM", "AS NOTED": the cell points at another place for the material or finish. It
+  // names none, so nothing is stored for the part.
+  if (POINTER_VALUE.test(value)) {
+    return "pointer";
+  }
+  // A value that stops in the middle ("ANODIZE, CLASS", "6061 -", "TYPE") is a value cut short, by text that
+  // was laid out apart from it or by a cell that continues; the part of it that was read is not the value.
+  if (DANGLING_END.test(value)) {
+    return "cut_short";
   }
   // Two cells run together on one line (single-spaced text, OCR) put the next field's label inside this
   // value. Where one cell ends is not known, so neither is read.
@@ -600,6 +697,9 @@ function readOne(
   page: number,
   owned: Run[],
   inlineRuns: ReadonlySet<Run>,
+  fenced: boolean,
+  leftoverByLine: ReadonlyMap<number, Run[]>,
+  doubt: "unconsumed_text" | "fine_pitch" | null,
 ): CellRead {
   const base = {
     field: label.field,
@@ -625,6 +725,16 @@ function readOne(
     } else {
       lineRuns.push(run);
     }
+  }
+  // The text on the label's own line is another cell's label, with its own value (under it) or its own
+  // colon: the field has no value of its own to read, and nothing is taken from the neighbouring cell.
+  if (fenced) {
+    return empty("ambiguous", "unlisted_label");
+  }
+  // Layout text only: a run just after the value, on its line, belongs to the band of another label. At a fine
+  // pitch the words of one value are apart like cells are, so the run may be the rest of this value.
+  if (doubt !== null) {
+    return empty("ambiguous", doubt);
   }
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: Array<{ line: number; runs: Run[] }> = [];
@@ -668,6 +778,32 @@ function readOne(
     // is not one clean value, so none is taken.
     return empty("ambiguous", "multiple_values", valueLines);
   }
+  // Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the
+  // runs the cell owns but the value did not take may be the rest of the value. Word boxes give true
+  // positions and leave no such doubt; text that is left over there is another cell's.
+  const taken = new Set<Run>();
+  for (const entry of chosen) {
+    for (const run of entry.runs) {
+      taken.add(run);
+    }
+  }
+  if (owned.some((run) => !run.fromWords && !taken.has(run) && alphanumericCount(run.text) >= 2)) {
+    return empty("ambiguous", "unconsumed_text", valueLines);
+  }
+  if (label.field === "material" || label.field === "finish") {
+    for (const entry of chosen) {
+      const end = Math.max(...entry.runs.map((run) => run.end));
+      const layoutLine = entry.runs.every((run) => !run.fromWords);
+      if (
+        layoutLine &&
+        (leftoverByLine.get(entry.line) ?? []).some(
+          (run) => run.start >= end - 1 && run.start - end <= LAYOUT_TRAILING_WINDOW && alphanumericCount(run.text) >= 2,
+        )
+      ) {
+        return empty("ambiguous", "unconsumed_text", valueLines);
+      }
+    }
+  }
 
   const value = normalizeWhitespace(chosen.map((entry) => entry.runs.map((run) => run.text).join(" ")).join(" "));
   const rejection = rejectionFor(label.field, value);
@@ -675,6 +811,52 @@ function readOne(
     return empty("rejected", rejection, valueLines);
   }
   return { ...base, status: "value", value, reason: null, valueLines };
+}
+
+/**
+ * Whether the text that follows a label on its own line is the label of another cell rather than the label's
+ * value: it ends in a colon, or it has text of its own continuing underneath it, left aligned with it, that
+ * is taller (word boxes: a 6 pt label over a 9 pt value), that starts after a blank line (layout text), or
+ * that sits under a short run of letters only (layout text: "HEAT TREAT" over "RC 40-45").
+ * A wrapped value is not that: its second line follows directly and has the same size ("ANODIZE, BLACK, ..."
+ * over "CLASS 2"). The field is then empty and flagged, and the label's neighbour keeps its own text.
+ */
+function hasOwnCellOnItsLine(
+  label: Label,
+  owned: readonly Run[],
+  inlineRuns: ReadonlySet<Run>,
+  runsByLine: ReadonlyMap<number, Run[]>,
+  caps: ReadonlyMap<Label, number>,
+): boolean {
+  let lead: Run | null = null;
+  for (const run of owned) {
+    if (inlineRuns.has(run) && (lead === null || run.start < lead.start)) {
+      lead = run;
+    }
+  }
+  if (lead === null) {
+    return false;
+  }
+  if (/:\s*$/.test(lead.text)) {
+    return true;
+  }
+  const limit = Math.min(lead.line + MAX_LINE_GAP, caps.get(label) ?? Number.POSITIVE_INFINITY);
+  for (let line = lead.line + 1; line <= limit; line += 1) {
+    for (const under of runsByLine.get(line) ?? []) {
+      // Under the run: it starts below the run's own extent (a little left of it is still under it).
+      if (under.start < lead.start - ALIGNED_UNDER_INLINE || under.start >= lead.end || alphanumericCount(under.text) < 2) {
+        continue;
+      }
+      const taller =
+        lead.height !== undefined && under.height !== undefined && under.height > VALUE_TEXT_TALLER_THAN_LABEL * lead.height;
+      const afterBlankLine = !lead.fromWords && !under.fromWords && line - lead.line >= 2;
+      const labelLikeOverText = !lead.fromWords && !under.fromWords && LABEL_LIKE_RUN.test(lead.text) && lead.text.trim().split(/\s+/).length <= 3;
+      if (taller || afterBlankLine || labelLikeOverText) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function groupByPage(lines: readonly TitleBlockTextLine[]): Map<number, TitleBlockTextLine[]> {
@@ -742,7 +924,10 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
     const ownedByLabel = new Map<Label, Run[]>();
     const ownedOnLine = new Map<number, Array<{ run: Run; owner: Label }>>();
     const unowned: Run[] = [];
+    const assigned = new Set<Run>();
+    const contested = new Set<Label>();
     const assign = (run: Run, owner: Label) => {
+      assigned.add(run);
       const ownerRuns = ownedByLabel.get(owner);
       if (ownerRuns === undefined) {
         ownedByLabel.set(owner, [run]);
@@ -772,16 +957,17 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
         }
         // The first word of a value starts in its label's band; the words after it (word boxes make every
         // word a run) follow it on the line, with no label between.
-        const owner: Label | null =
-          inline ??
-          ownerOf(run, labels, caps) ??
-          (previousRun !== null &&
+        const byCell = inline ?? ownerOf(run, labels, caps);
+        const followsPrevious: boolean =
+          previousRun !== null &&
           previousOwner !== null &&
           run.start - previousRun.end <= GAP_JOIN &&
           run.cellBreakBefore !== true &&
-          !lineLabels.some((label) => label.start >= previousRun!.end - 1 && label.end <= run.start + 1)
-            ? previousOwner
-            : null);
+          !lineLabels.some((label) => label.start >= previousRun!.end - 1 && label.end <= run.start + 1);
+        if (followsPrevious && byCell !== null && byCell !== previousOwner && !run.fromWords) {
+          contested.add(previousOwner!);
+        }
+        const owner: Label | null = byCell ?? (followsPrevious ? previousOwner : null);
         if (owner === null) {
           unowned.push(run);
         } else {
@@ -814,9 +1000,18 @@ export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellR
         assign(run, continued);
       }
     }
+    const leftoverByLine = groupByLine(unowned.filter((run) => !assigned.has(run)));
+    const finePitch = labels.some((label) => label.spread);
     for (const label of labels) {
       if (label.field !== null) {
-        reads.push(readOne({ ...label, field: label.field }, page, ownedByLabel.get(label) ?? [], inlineRuns));
+        const ownedRuns = ownedByLabel.get(label) ?? [];
+        const fenced = hasOwnCellOnItsLine(label, ownedRuns, inlineRuns, runsByLine, caps);
+        const doubt = contested.has(label) && (label.field === "material" || label.field === "finish")
+          ? "unconsumed_text"
+          : finePitch && ownedRuns.length > 0 && ownedRuns.every((run) => !run.fromWords)
+            ? "fine_pitch"
+            : null;
+        reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, inlineRuns, fenced, leftoverByLine, doubt));
       }
     }
   }
