@@ -251,7 +251,12 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
       execFileSync("pdftotext", ["-layout", "-fixed", String(pitch), "-enc", "UTF-8", FIXTURE, "-"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     const same = (left: string | null, right: string) => left !== null && left.toUpperCase() === right.toUpperCase();
 
-    it.each([0.8, 1, 1.2, 1.5, 1.8, 2, 2.5, 3])("never reports a wrong field without a review flag at -fixed %s", (pitch) => {
+    // Which pitch poppler lays this page out into a given arrangement of cells depends on its version (24.02 on CI,
+    // 26.10 on a laptop merge the finish and the material cells at different pitches), so the pitches are every half
+    // unit from 0.5 to 24: whatever a version does at one of them, no value is read from part of a cell.
+    const PITCHES = Array.from({ length: 48 }, (_, index) => (index + 1) / 2);
+
+    it.each(PITCHES)("never reports a wrong field without a review flag at -fixed %s", (pitch) => {
       const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: pdfTextOf(layoutAt(pitch)) });
       const truth: Record<"partNumber" | "revision" | "material" | "finish", string> = TRUTH_FIELDS;
       for (const field of Object.keys(truth) as Array<keyof typeof truth>) {
@@ -260,7 +265,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
       }
     });
 
-    it.each([0.8, 1, 1.2, 1.5, 1.8, 2, 2.5, 3, 4, 4.4, 5, 6, 8])("never reads part of a value from the cells at -fixed %s", (pitch) => {
+    it.each([0.8, 1.2, 1.8, 4.4, ...PITCHES])("never reads part of a value from the cells at -fixed %s", (pitch) => {
       const lines = layoutAt(pitch).split("\n").map((raw, index) => ({ page: 1, lineNumber: index + 1, raw }));
       for (const read of readTitleBlockCells(lines)) {
         if (read.status === "value") {
