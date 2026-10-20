@@ -8,23 +8,34 @@ const DEFAULT_ROUTING = new URL('../fixtures/agent-graph/model-routing.v2.yaml',
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (object, key) => Object.hasOwn(object, key);
 
-function validateRouting(routing) {
+const ID_PATTERN = /^[a-z0-9-]+$/;
+
+function validateShape(routing) {
   if (!record(routing) || !record(routing.pools) || !Object.keys(routing.pools).length ||
       !Array.isArray(routing.bots) || !routing.bots.length || !record(routing.review_routing)) {
     throw new Error('Invalid routing shape');
   }
-  for (const [id, pool] of Object.entries(routing.pools)) {
-    if (!/^[a-z0-9-]+$/.test(id) || !record(pool) || !FAMILIES.has(pool.family)) {
+}
+
+function validatePools(pools) {
+  for (const [id, pool] of Object.entries(pools)) {
+    if (!ID_PATTERN.test(id) || !record(pool) || !FAMILIES.has(pool.family)) {
       throw new Error('Invalid pool or family');
     }
   }
+}
+
+function validateBots(bots) {
   const ids = new Set();
-  for (const bot of routing.bots) {
-    if (!record(bot) || typeof bot.id !== 'string' || !/^[a-z0-9-]+$/.test(bot.id) ||
+  for (const bot of bots) {
+    if (!record(bot) || typeof bot.id !== 'string' || !ID_PATTERN.test(bot.id) ||
         ids.has(bot.id) || typeof bot.display !== 'string' || !bot.display.trim() ||
         typeof bot.may_build !== 'boolean') throw new Error('Invalid bot');
     ids.add(bot.id);
   }
+}
+
+function validateReviewRoutes(routing) {
   for (const [family, target] of Object.entries(routing.review_routing)) {
     if (!FAMILIES.has(family) || typeof target !== 'string') throw new Error('Invalid review route');
     const pool = target === 'openai' ? 'codex-xhigh' : target;
@@ -35,6 +46,9 @@ function validateRouting(routing) {
   for (const family of ['claude', 'grok', 'openai']) {
     if (!own(routing.review_routing, family)) throw new Error('Missing review route');
   }
+}
+
+function validateFailSafe(routing) {
   for (const field of ['unknown_builder', 'mixed_builder']) {
     if (!Array.isArray(routing[field]) || routing[field].length !== 2 ||
         !BOTH.every(pool => routing[field].includes(pool) && own(routing.pools, pool))) {
@@ -43,6 +57,14 @@ function validateRouting(routing) {
   }
   if (routing.pools['codex-xhigh'].family !== 'openai' ||
       routing.pools['claude-sonnet'].family !== 'claude') throw new Error('Invalid fail-safe families');
+}
+
+function validateRouting(routing) {
+  validateShape(routing);
+  validatePools(routing.pools);
+  validateBots(routing.bots);
+  validateReviewRoutes(routing);
+  validateFailSafe(routing);
   return routing;
 }
 
@@ -51,8 +73,12 @@ export function loadRouting(path) {
   return validateRouting(JSON.parse(readFileSync(path, 'utf8')));
 }
 
+const textLines = text => text.split(/\r?\n/);
+// One definition of "a Built-by line", used both to detect a commit trailer and to read it.
+const builtByLines = text => textLines(text).filter(line => /^\s*Built-by:/i.test(line));
+
 function readTags(text, findings) {
-  const lines = text.split(/\r?\n/).filter(line => /^\s*Built-by:/i.test(line));
+  const lines = builtByLines(text);
   if (lines.length > 1) findings.push('Multiple Built-by lines; use one semicolon-separated line');
   if (lines.length) {
     return lines.flatMap(line => line.replace(/^\s*Built-by:\s*/i, '').split(';').flatMap(entry => {
@@ -64,7 +90,7 @@ function readTags(text, findings) {
       return [{ bot: match[1], model: match[2] }];
     }));
   }
-  const legacy = text.split(/\r?\n/).filter(line => /^\s*Model:/i.test(line));
+  const legacy = textLines(text).filter(line => /^\s*Model:/i.test(line));
   return legacy.flatMap(line => {
     const match = /^\s*Model:\s*(model:[a-z0-9-]+)\s*$/i.exec(line);
     if (!match) { findings.push('Unparseable Model line'); return []; }
@@ -72,64 +98,93 @@ function readTags(text, findings) {
   });
 }
 
+// Only Built-by commit metadata is supported; legacy Model is body-only.
+function readCommitTags(commits, bodyBuilders, findings) {
+  const trailerBuilders = [];
+  const commitEntries = [];
+  for (const commit of commits) {
+    if (!record(commit) || typeof commit.message !== 'string') throw new TypeError('Invalid commit');
+    if (builtByLines(commit.message).length) {
+      const tags = readTags(commit.message, findings);
+      trailerBuilders.push(...tags);
+      commitEntries.push(...tags);
+    } else commitEntries.push(...bodyBuilders);
+  }
+  return { trailerBuilders, commitEntries };
+}
+
+// Trailers can cover only some commits. Each must appear in the body's
+// declared builder history, in order; otherwise the two claims conflict.
+function trailersDisagreeWithBody(trailerBuilders, bodyBuilders) {
+  let cursor = 0;
+  for (const builder of trailerBuilders) {
+    const index = bodyBuilders.findIndex((entry, i) => i >= cursor && entry.model === builder.model);
+    if (index < 0) return true;
+    cursor = index; // repeated commits by the same builder are valid
+  }
+  return false;
+}
+
+function describeBuilder(entry, routing, findings) {
+  const id = entry.model.slice('model:'.length);
+  const family = own(routing.pools, id) ? routing.pools[id].family : 'unknown';
+  const bot = routing.bots.find(candidate => candidate.id === entry.bot);
+  if (!bot) findings.push(`Unknown bot: ${entry.bot}`);
+  else if (!bot.may_build) findings.push(`Bot may not build: ${entry.bot}`);
+  if (family === 'unknown') findings.push(`Unknown model: ${entry.model}`);
+  return { ...entry, family };
+}
+
+// Walk commits in caller-supplied commit order, using body history only
+// for commits lacking a trailer. Adjacent identical builders collapse.
+function resolveBuilders(entries, routing, findings) {
+  return entries.map(entry => describeBuilder(entry, routing, findings))
+    .filter((entry, index, all) => index === 0 ||
+      entry.bot !== all[index - 1].bot || entry.model !== all[index - 1].model);
+}
+
+// Returns true when a model label contradicts the body's declared builders.
+function modelLabelsConflict({ labels, bodyBuilders, builders, routing, findings }) {
+  const modelLabels = labels.map(label => typeof label === 'string' ? label : label?.name)
+    .filter(label => typeof label === 'string' && label.startsWith('model:'));
+  if (builders.length === 1 && modelLabels.length > 1) findings.push('Multiple model labels on single-builder PR');
+  let conflict = false;
+  for (const label of modelLabels) {
+    if (!own(routing.pools, label.slice(6))) findings.push(`Unknown model label: ${label}`);
+    if (bodyBuilders.length && !bodyBuilders.some(builder => builder.model === label)) {
+      conflict = true;
+      findings.push(`Model label disagrees with body: ${label}`);
+    }
+  }
+  return conflict;
+}
+
+function statusOf({ conflict, findings, builders }) {
+  if (conflict) return 'conflict';
+  if (findings.length) return 'unknown';
+  if (new Set(builders.map(builder => builder.family)).size > 1) return 'mixed';
+  return builders.length ? 'ok' : 'missing';
+}
+
 export function parseBuiltBy(input) {
   try {
     const { body = '', labels = [], commits = [], routing } = input;
     validateRouting(routing);
     if (typeof body !== 'string' || !Array.isArray(labels) || !Array.isArray(commits)) {
-      throw new Error('Invalid parser input');
+      throw new TypeError('Invalid parser input');
     }
     const findings = [];
     const bodyBuilders = readTags(body, findings);
-    const trailerBuilders = [];
-    const commitEntries = [];
-    for (const commit of commits) {
-      if (!record(commit) || typeof commit.message !== 'string') throw new Error('Invalid commit');
-      // Only Built-by commit metadata is supported; legacy Model is body-only.
-      if (/^\s*Built-by:/im.test(commit.message)) {
-        const tags = readTags(commit.message, findings);
-        trailerBuilders.push(...tags);
-        commitEntries.push(...tags);
-      } else commitEntries.push(...bodyBuilders);
-    }
+    const { trailerBuilders, commitEntries } = readCommitTags(commits, bodyBuilders, findings);
     let conflict = false;
-    if (trailerBuilders.length && bodyBuilders.length) {
-      // Trailers can cover only some commits. Each must appear in the body's
-      // declared builder history, in order; otherwise the two claims conflict.
-      let cursor = 0;
-      for (const builder of trailerBuilders) {
-        const index = bodyBuilders.findIndex((entry, i) => i >= cursor && entry.model === builder.model);
-        if (index < 0) { conflict = true; break; }
-        cursor = index; // repeated commits by the same builder are valid
-      }
-      if (conflict) findings.push('Commit trailer model disagrees with body');
+    if (trailerBuilders.length && bodyBuilders.length &&
+        trailersDisagreeWithBody(trailerBuilders, bodyBuilders)) {
+      conflict = true;
+      findings.push('Commit trailer model disagrees with body');
     }
-    // Walk commits in caller-supplied commit order, using body history only
-    // for commits lacking a trailer. Adjacent identical builders collapse.
-    const entries = commits.length ? commitEntries : bodyBuilders;
-    const builders = entries.map(entry => {
-      const id = entry.model.slice('model:'.length);
-      const family = own(routing.pools, id) ? routing.pools[id].family : 'unknown';
-      const bot = routing.bots.find(bot => bot.id === entry.bot);
-      if (!bot) findings.push(`Unknown bot: ${entry.bot}`);
-      else if (!bot.may_build) findings.push(`Bot may not build: ${entry.bot}`);
-      if (family === 'unknown') findings.push(`Unknown model: ${entry.model}`);
-      return { ...entry, family };
-    }).filter((entry, index, all) => index === 0 ||
-      entry.bot !== all[index - 1].bot || entry.model !== all[index - 1].model);
-    const modelLabels = labels.map(label => typeof label === 'string' ? label : label?.name)
-      .filter(label => typeof label === 'string' && label.startsWith('model:'));
-    if (builders.length === 1 && modelLabels.length > 1) findings.push('Multiple model labels on single-builder PR');
-    for (const label of modelLabels) {
-      if (!own(routing.pools, label.slice(6))) findings.push(`Unknown model label: ${label}`);
-      if (bodyBuilders.length && !bodyBuilders.some(builder => builder.model === label)) {
-        conflict = true;
-        findings.push(`Model label disagrees with body: ${label}`);
-      }
-    }
-    const mixed = new Set(builders.map(builder => builder.family)).size > 1;
-    const status = conflict ? 'conflict' : findings.length ? 'unknown' : mixed ? 'mixed' : builders.length ? 'ok' : 'missing';
-    return { builders, status, findings: [...new Set(findings)] };
+    const builders = resolveBuilders(commits.length ? commitEntries : bodyBuilders, routing, findings);
+    if (modelLabelsConflict({ labels, bodyBuilders, builders, routing, findings })) conflict = true;
+    return { builders, status: statusOf({ conflict, findings, builders }), findings: [...new Set(findings)] };
   } catch {
     return { builders: [], status: 'unknown', findings: ['Parser error: invalid input or routing'] };
   }

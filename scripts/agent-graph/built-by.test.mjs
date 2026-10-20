@@ -68,6 +68,12 @@ describe('builder attribution', () => {
     expect(result.builders[0].model).toBe('model:codex');
     expect(reviewers(result)).toEqual(both);
   });
+  it('reads a commit trailer from a CRLF message the same way as an LF one', () => {
+    const commits = [{ sha: 'a', message: `Repair\r\n\r\n${tag('codex', 'architect')}\r\n` }];
+    const result = parse(tag(), { commits });
+    expect(result.builders).toEqual([{ bot: 'architect', model: 'model:codex', family: 'openai' }]);
+    expect(result.status).toBe('ok');
+  });
   it('uses body fallback in commit order for commits without trailers', () => {
     const result = parse(tag(), { commits: [
       { sha: 'a', message: tag('claude-opus', 'architect') }, { sha: 'b', message: 'untagged repair' },
