@@ -16,15 +16,23 @@ export function ArMoreAction({ title, ...props }: Readonly<Props>) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const sheet = useRef<HTMLDialogElement>(null);
+  const modal = useRef<HTMLDialogElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const moreButton = trigger.current;
+    const dialog = modal.current;
+    // showModal() puts the dialog in the top layer and makes the rest of the page inert. The `open`
+    // attribute alone is a non-modal dialog, so browsers without showModal() only get the fallback.
+    if (dialog && !dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     sheet.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.stopPropagation(); setOpen(false); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); }
       if (event.key !== "Tab") return;
       const controls = Array.from(sheet.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)') ?? []);
       const first = controls[0];
@@ -49,14 +57,15 @@ export function ArMoreAction({ title, ...props }: Readonly<Props>) {
 
   return <>
     <button ref={trigger} className="jarvis-ar-row" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>MORE</button>
-    {open && <div className="jarvis-ar-backdrop">
+    {open && <dialog ref={modal} className="jarvis-ar-backdrop" aria-modal="true" aria-labelledby={titleId}
+      onCancel={(event) => { event.preventDefault(); setOpen(false); }}>
       <button type="button" className="jarvis-ar-scrim" aria-label="Close sheet" tabIndex={-1} onClick={() => setOpen(false)} />
-      <dialog ref={sheet} open className="jarvis-ar-sheet" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+      <div ref={sheet} className="jarvis-ar-sheet" tabIndex={-1}>
         <div className="jarvis-ar-grabber" aria-hidden="true" />
         <h2 id={titleId}>{title}</h2>
         <ViewInArAction {...props} />
         <button className="jarvis-ar-row jarvis-ar-cancel" onClick={() => setOpen(false)}>CANCEL</button>
-      </dialog>
-    </div>}
+      </div>
+    </dialog>}
   </>;
 }

@@ -13,17 +13,18 @@ it("opens a labelled modal, contains focus and restores focus on every close pat
     fireEvent.click(more);
     const dialog = screen.getByRole("dialog", { name: "PLATE_R1" });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    expect(document.activeElement).toBe(dialog);
+    const sheet = dialog.querySelector<HTMLElement>(".jarvis-ar-sheet")!;
+    expect(document.activeElement).toBe(sheet);
     expect(more.getAttribute("aria-expanded")).toBe("true");
     const cancel = screen.getByRole("button", { name: "CANCEL" });
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(sheet, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(cancel);
     fireEvent.keyDown(cancel, { key: "Tab" });
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "View in AR" }));
-    fireEvent.click(dialog);
+    fireEvent.click(sheet);
     expect(screen.getByRole("dialog")).toBe(dialog);
     if (close === "cancel") fireEvent.click(cancel);
-    if (close === "escape") fireEvent.keyDown(dialog, { key: "Escape" });
+    if (close === "escape") fireEvent.keyDown(sheet, { key: "Escape" });
     if (close === "backdrop") fireEvent.click(screen.getByRole("button", { name: "Close sheet" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(more);
@@ -70,9 +71,33 @@ it.each([
   fireEvent.click(more);
   const dialog = screen.getByRole("dialog", { name: "PLATE_R1" });
   expect(dialog.getAttribute("aria-modal")).toBe("true");
-  expect(document.activeElement).toBe(dialog);
+  expect(document.activeElement).toBe(dialog.querySelector(".jarvis-ar-sheet"));
   expect(screen.getByText(content)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "CANCEL" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(more);
+});
+
+it("opens with showModal so the page behind is inert, and a native cancel closes it and restores focus", () => {
+  const modalCalls: HTMLDialogElement[] = [];
+  // jsdom has no showModal; the stub stands in for the browser, which also makes the rest of the page inert.
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+    configurable: true,
+    value: function showModal(this: HTMLDialogElement) { modalCalls.push(this); this.setAttribute("open", ""); },
+  });
+  try {
+    render(<ArMoreAction {...model} title="PLATE_R1" posterUrl="/plate.png" status="ready" onRetry={vi.fn()} device={ios} />);
+    const more = screen.getByRole("button", { name: "MORE" });
+    fireEvent.click(more);
+    const dialog = screen.getByRole("dialog", { name: "PLATE_R1" });
+    expect(modalCalls).toEqual([dialog]);
+    expect(document.activeElement).toBe(dialog.querySelector(".jarvis-ar-sheet"));
+    const cancel = new Event("cancel", { cancelable: true });
+    fireEvent(dialog, cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(more);
+  } finally {
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  }
 });
