@@ -36,11 +36,15 @@ Optional commit trailers use the same canonical Built-by syntax. Supply commits
 oldest first. A trailer takes precedence for its commit; a commit without one
 uses the body history as fallback. Adjacent identical builder entries collapse.
 Trailer model claims must appear in the body's declared model history in order;
-a disagreement is a conflict, even though trailers determine attribution.
+a disagreement is a conflict, even though trailers determine attribution. When
+some commits carry a trailer and others have neither a trailer nor a body
+history to fall back on, the untagged commits' builder is unknown: that is a
+finding, so review is never narrowed on partial attribution.
 
 `parseBuiltBy` reports builders, status, and findings. Unknown bots/models,
 unparseable tags, and multiple model labels on a single-builder PR produce
-findings. Labels outside the body's model history produce conflicts. Builders
+findings. Labels outside the declared builder history (the body's, or the
+commit trailers' when the body declares none) produce conflicts. Builders
 from multiple families produce `mixed`. Missing, unknown, mixed, conflicting,
 or failed parsing/routing requests both `codex-xhigh` and `claude-sonnet`.
 An `ok` tag requests a cross-family pool from `review_routing`; the family alias

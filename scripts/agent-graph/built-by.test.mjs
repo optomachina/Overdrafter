@@ -68,12 +68,39 @@ describe('builder attribution', () => {
     expect(result.builders[0].model).toBe('model:codex');
     expect(reviewers(result)).toEqual(both);
   });
+  it('reads a commit trailer from a CRLF message the same way as an LF one', () => {
+    const commits = [{ sha: 'a', message: `Repair\r\n\r\n${tag('codex', 'architect')}\r\n` }];
+    const result = parse(tag(), { commits });
+    expect(result.builders).toEqual([{ bot: 'architect', model: 'model:codex', family: 'openai' }]);
+    expect(result.status).toBe('ok');
+  });
   it('uses body fallback in commit order for commits without trailers', () => {
     const result = parse(tag(), { commits: [
       { sha: 'a', message: tag('claude-opus', 'architect') }, { sha: 'b', message: 'untagged repair' },
     ] });
     expect(result.builders.map(builder => builder.model)).toEqual(['model:claude-opus', 'model:codex']);
     expect(result.status).toBe('conflict');
+  });
+  it('does not narrow review when only some commits carry a trailer and the body has no history', () => {
+    const commits = [{ sha: 'a', message: `Build\n\n${tag()}` }, { sha: 'b', message: 'untagged follow-up' }];
+    const result = parse('', { commits });
+    expect(result.status).toBe('unknown');
+    expect(result.findings).toContain('Commit without Built-by trailer and no body history');
+    expect(reviewers(result)).toEqual(both);
+    // No attribution anywhere stays "missing", and full trailer coverage stays ok.
+    expect(parse('', { commits: [{ sha: 'b', message: 'untagged' }] }).status).toBe('missing');
+    expect(parse('', { commits: [commits[0]] }).status).toBe('ok');
+    expect(reviewers(parse('', { commits: [commits[0]] }))).toEqual(['claude-sonnet']);
+  });
+  it('checks model labels against commit-trailer builders when the body declares none', () => {
+    const commits = [{ sha: 'a', message: `Build\n\n${tag()}` }];
+    const disagree = parse('', { commits, labels: ['model:grok-overflow'] });
+    expect(disagree.status).toBe('conflict');
+    expect(disagree.findings).toContain('Model label disagrees with builder history: model:grok-overflow');
+    expect(reviewers(disagree)).toEqual(both);
+    const agree = parse('', { commits, labels: ['model:codex'] });
+    expect(agree.status).toBe('ok');
+    expect(reviewers(agree)).toEqual(['claude-sonnet']);
   });
   it.each([
     ['unknown bot', tag('codex', 'stranger'), {}, 'unknown'],
@@ -222,5 +249,28 @@ describe('free-text Built-by form', () => {
   });
   it('preserves canonical bot=... model=... parsing unchanged', () => {
     expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
+  });
+  it('reads the free-text form in commit trailers and still gates partial attribution', () => {
+    const trailer = 'Build\n\nBuilt-by: Engineer / codex via safe-build (host)';
+    const commits = [{ sha: 'a', message: trailer }];
+    const result = parse('', { commits });
+    expect(result.status).toBe('ok');
+    expect(result.builders[0]).toMatchObject({ bot: 'engineer', model: 'model:codex', token: 'codex' });
+    expect(reviewers(result)).toEqual(['claude-sonnet']);
+    const partial = parse('', { commits: [...commits, { sha: 'b', message: 'untagged follow-up' }] });
+    expect(partial.status).toBe('unknown');
+    expect(reviewers(partial)).toEqual(both);
+  });
+  it('parses hostile free-text input in linear time and fails safe', () => {
+    const started = performance.now();
+    for (const body of [
+      `Built-by: Engineer / ${'('.repeat(50_000)}codex`,
+      `Built-by: ${'/ '.repeat(50_000)}`,
+      `Built-by: Engineer / codex ${', '.repeat(50_000)}grok`,
+      `Built-by: Engineer / ${' '.repeat(50_000)}x`,
+    ]) {
+      expect(reviewers(parse(body))).toEqual(both);
+    }
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });
