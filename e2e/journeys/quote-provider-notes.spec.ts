@@ -1,9 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../test";
+import { FLAG_ON_SERVER_START_TIMEOUT_MS, createFlagOnServer } from "./flag-on-dev-server";
 
 // OVD-969 journey: a signed-in client opens a part page and reads the provider
 // notes on the selected quote, only when VITE_ENABLE_QUOTE_PROVIDER_NOTES=1.
@@ -15,35 +14,12 @@ import { test, expect } from "../test";
 //
 // Set PROVIDER_NOTES_SCREENSHOT_DIR to also save the flag-ON screenshot there.
 
-const FLAG_ON_PORT = 4174;
-const FLAG_ON_ORIGIN = `http://127.0.0.1:${FLAG_ON_PORT}`;
+const flagOnServer = createFlagOnServer(4174, { VITE_ENABLE_QUOTE_PROVIDER_NOTES: "1" });
 const PART_ROUTE = "/parts/fx-job-comparison?fixture=client-comparison&debug=1";
 const APP_ENTRY_TIMEOUT_MS = 30_000;
-const SERVER_START_TIMEOUT_MS = 120_000;
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 // The fixture's selected offer ("US Economy") carries its lane label as its provider note.
 const SELECTED_LANE = "US Economy";
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-
-let flagOnServer: ChildProcess | undefined;
-
-async function waitForServer(origin: string) {
-  const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (flagOnServer?.exitCode !== null && flagOnServer?.exitCode !== undefined) {
-      throw new Error(`flag-on dev server exited early with code ${flagOnServer.exitCode}`);
-    }
-    try {
-      if ((await fetch(origin)).ok) {
-        return;
-      }
-    } catch {
-      // not listening yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`flag-on dev server did not answer at ${origin}`);
-}
 
 function decisionPanel(page: Page): Locator {
   return page
@@ -69,29 +45,12 @@ test.describe("part-page quote provider notes", { tag: "@fixture" }, () => {
   test.use({ viewport: DESKTOP_VIEWPORT });
 
   test.beforeAll(async () => {
-    test.setTimeout(SERVER_START_TIMEOUT_MS + 10_000);
-    flagOnServer = spawn(
-      process.execPath,
-      ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", String(FLAG_ON_PORT), "--strictPort"],
-      {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          VITE_ENABLE_FIXTURE_MODE: "1",
-          VITE_ENABLE_ENGINEERING_WORKBENCH: "1",
-          VITE_SUPABASE_URL: "http://127.0.0.1:9",
-          VITE_SUPABASE_PUBLISHABLE_KEY: process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "fixture-unused-publishable-key",
-          VITE_ENABLE_QUOTE_PROVIDER_NOTES: "1",
-        },
-        stdio: "ignore",
-      },
-    );
-    await waitForServer(FLAG_ON_ORIGIN);
+    test.setTimeout(FLAG_ON_SERVER_START_TIMEOUT_MS + 10_000);
+    await flagOnServer.start();
   });
 
   test.afterAll(() => {
-    flagOnServer?.kill("SIGTERM");
-    flagOnServer = undefined;
+    flagOnServer.stop();
   });
 
   test("flag OFF (default): the selected quote shows no provider notes", async ({ page }) => {
@@ -103,7 +62,7 @@ test.describe("part-page quote provider notes", { tag: "@fixture" }, () => {
   });
 
   test("flag ON: the selected quote shows its provider notes", async ({ page }, testInfo) => {
-    const panel = await openPartPage(page, FLAG_ON_ORIGIN);
+    const panel = await openPartPage(page, flagOnServer.origin);
 
     const notes = panel.getByTestId("provider-notes");
     await expect(notes).toHaveCount(1);
