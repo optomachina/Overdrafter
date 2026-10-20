@@ -113,6 +113,21 @@ function lookupVerdict(verdicts, pr) {
 // PR without a valid verdict for its current head SHA.
 export function planContiguousVerified(stack, verdicts, { base } = {}) {
   if (base !== undefined) assertSha(base, "stack base");
+  assertPlannableStack(stack);
+  const land = [];
+  for (const entry of stack) {
+    const verdict = lookupVerdict(verdicts, entry.pr);
+    const reason = verdictStopReason(verdict, entry);
+    if (reason) {
+      return { base: base ?? null, land, stop: { pr: entry.pr, head_sha: entry.head_sha ?? "", verdict_ref: verdict?.verdict_ref ?? "", reason } };
+    }
+    land.push({ pr: entry.pr, head_sha: entry.head_sha, verdict_ref: verdict.verdict_ref });
+  }
+  return { base: base ?? null, land, stop: null };
+}
+
+// Rejects a malformed stack before anything is planned or logged.
+function assertPlannableStack(stack) {
   const seen = new Set();
   for (const entry of stack) {
     if (entry?.pr === undefined || entry.pr === null || entry.pr === "") throw new Error("stack entry is missing pr");
@@ -122,20 +137,15 @@ export function planContiguousVerified(stack, verdicts, { base } = {}) {
     if (seen.has(String(entry.pr))) throw new Error(`duplicate PR in stack: ${entry.pr}`);
     seen.add(String(entry.pr));
   }
-  const land = [];
-  for (const entry of stack) {
-    const verdict = lookupVerdict(verdicts, entry.pr);
-    let reason = null;
-    if (!verdict) reason = "no-verdict";
-    else if (verdict.valid !== true) reason = "verdict-not-valid";
-    else if (!entry.head_sha || verdict.sha !== entry.head_sha) reason = "verdict-sha-stale";
-    else if (!verdict.verdict_ref) reason = "verdict-ref-missing";
-    if (reason) {
-      return { base: base ?? null, land, stop: { pr: entry.pr, head_sha: entry.head_sha ?? "", verdict_ref: verdict?.verdict_ref ?? "", reason } };
-    }
-    land.push({ pr: entry.pr, head_sha: entry.head_sha, verdict_ref: verdict.verdict_ref });
-  }
-  return { base: base ?? null, land, stop: null };
+}
+
+// Why this PR cannot land, or null when its verdict is valid at its head.
+function verdictStopReason(verdict, entry) {
+  if (!verdict) return "no-verdict";
+  if (verdict.valid !== true) return "verdict-not-valid";
+  if (!entry.head_sha || verdict.sha !== entry.head_sha) return "verdict-sha-stale";
+  if (!verdict.verdict_ref) return "verdict-ref-missing";
+  return null;
 }
 
 // `git fetch` moves origin/main, not local main, so prefer origin/main when the
