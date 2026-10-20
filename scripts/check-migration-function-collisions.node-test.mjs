@@ -138,6 +138,97 @@ test("a quoted type name keeps its case and an unquoted one is folded", () => {
   assert.equal(signatureOf("Public.MyType"), "public.f(mytype)");
 });
 
+// One row per PostgreSQL type: its canonical text and every spelling of it that
+// PostgreSQL accepts as a function argument type. The rows were checked against
+// PostgreSQL 17 (`pg_proc.proargtypes` is equal within a row and different between
+// rows), so they do not just restate the code under test. A length, precision, scale
+// or array bound is not part of a function's identity, so the lengths below are
+// arbitrary. The exceptions are `float(p)`, which names `real` up to 24 bits, and an
+// interval's fields, which are dropped like a length.
+const TYPE_SPELLINGS = [
+  ["integer", ["int", "integer", "int4", "pg_catalog.int4", '"int4"']],
+  ["smallint", ["smallint", "int2", '"int2"']],
+  ["bigint", ["bigint", "int8"]],
+  ["boolean", ["boolean", "bool", "pg_catalog.bool"]],
+  ["real", ["real", "float4", "float(1)", "float(24)", "pg_catalog.float4"]],
+  ["double precision", ["double precision", "float8", "float", "float(25)", "float(53)", "pg_catalog.float8"]],
+  ["numeric", ["numeric", "numeric(10,2)", "decimal", "decimal(10,2)", "dec", "dec(10)", "pg_catalog.numeric"]],
+  ["character", [
+    "char", "character", "char(8)", "character(8)", "bpchar", "bpchar(8)", "nchar", "nchar(8)",
+    "national char", "national char(8)", "national character", "national character(8)", "pg_catalog.bpchar", '"bpchar"',
+  ]],
+  ['"char"', ['"char"', 'pg_catalog."char"', "pg_catalog.char"]],
+  ["character varying", [
+    "varchar", "varchar(20)", "character varying", "character varying(20)", "char varying", "char varying(20)",
+    "nchar varying", "nchar varying(20)", "national char varying", "national char varying(20)",
+    "national character varying", "national character varying(20)", "pg_catalog.varchar", '"varchar"',
+  ]],
+  ["bit", ["bit", "bit(3)"]],
+  ["bit varying", ["varbit", "varbit(8)", "bit varying", "bit varying(8)", "pg_catalog.varbit"]],
+  ["timestamptz", [
+    "timestamptz", "timestamptz(3)", "timestamp with time zone", "timestamp(3) with time zone", "pg_catalog.timestamptz",
+  ]],
+  ["timestamp", ["timestamp", "timestamp(3)", "timestamp without time zone", "timestamp(3) without time zone"]],
+  ["timetz", ["timetz", "time with time zone", "time(3) with time zone"]],
+  ["time", ["time", "time(3)", "time without time zone", "time(3) without time zone"]],
+  ["interval", [
+    "interval", "interval(3)", "interval year", "interval year to month", "interval day to second",
+    "interval day to second(3)", "interval second(3)", "interval hour to minute",
+  ]],
+  ["integer[]", ["int[]", "integer array", "int4[3]", "_int4", "pg_catalog._int4"]],
+  ["text[]", ["text[]", "_text"]],
+  ["character varying[]", ["varchar(5)[]", "character varying array", "_varchar"]],
+  ["character[]", ["char(8)[]", "character[]", "bpchar[]", "_bpchar"]],
+  ['"char"[]', ['"char"[]', "_char"]],
+  ["double precision[]", ["float[]", "double precision[]", "float8[]", "_float8"]],
+  ["timestamptz[]", ["timestamptz[]", "timestamp with time zone array", "_timestamptz"]],
+  ["vendor_name[]", ["vendor_name[]", "_vendor_name", "public._vendor_name"]],
+];
+
+test("every spelling PostgreSQL resolves to one built-in type reduces to one argument type", () => {
+  assert.equal(new Set(TYPE_SPELLINGS.map(([canonical]) => canonical)).size, TYPE_SPELLINGS.length, "one row per type");
+  for (const [canonical, spellings] of TYPE_SPELLINGS) {
+    for (const spelling of spellings) {
+      // Named and unnamed: where a type starts after an optional argument name is decided from its first words.
+      for (const argument of [`p ${spelling}`, spelling, `in p ${spelling}`]) {
+        const [event] = scanFunctionEvents(fn(`public.f(${argument}, q text)`, "x"));
+        assert.equal(event.signature, `public.f(${canonical},text)`, argument);
+      }
+    }
+  }
+});
+
+test("a precision that picks a type is read: float(24) is real and float(25) is double precision", () => {
+  const signatureOf = (argument) => scanFunctionEvents(fn(`public.f(${argument})`, "x"))[0].signature;
+  assert.notEqual(signatureOf("p float(24)"), signatureOf("p float(25)"));
+  assert.equal(signatureOf("p float(24)"), signatureOf("p real"));
+  assert.equal(signatureOf("p float(25)"), signatureOf("p double precision"));
+  assert.equal(signatureOf("p numeric(24)"), signatureOf("p numeric(25)"), "any other precision is dropped");
+});
+
+test("a quoted or qualified name is a catalog name, so the internal \"char\" type is not char", () => {
+  const signatureOf = (argument) => scanFunctionEvents(fn(`public.f(p ${argument})`, "x"))[0].signature;
+  for (const other of ["char", "character", "char(8)", "bpchar", "national char", "pg_catalog.bpchar", "varchar"]) {
+    assert.notEqual(signatureOf('"char"'), signatureOf(other), `"char" against ${other}`);
+    assert.notEqual(signatureOf("pg_catalog.char"), signatureOf(other), `pg_catalog.char against ${other}`);
+  }
+  // An SQL spelling means a built-in type only as a bare, unquoted word; quoted, it names a type of that exact name.
+  assert.notEqual(signatureOf('"decimal"'), signatureOf("numeric"));
+  assert.notEqual(signatureOf('"int"'), signatureOf("integer"));
+  assert.notEqual(signatureOf('public."timestamp with time zone"'), signatureOf("timestamptz"));
+});
+
+test("types that only look alike stay different arguments", () => {
+  const signatureOf = (argument) => scanFunctionEvents(fn(`public.f(p ${argument})`, "x"))[0].signature;
+  const distinct = [
+    "character", "character varying", "bit", "bit varying", "text", "time", "timetz", "timestamp", "timestamptz",
+    "interval", "real", "double precision", "numeric", "integer", "bigint", "smallint", "boolean", '"char"',
+  ];
+  assert.equal(new Set(distinct.map(signatureOf)).size, distinct.length);
+  assert.notEqual(signatureOf("character[]"), signatureOf("character"));
+  assert.notEqual(signatureOf("_text"), signatureOf("text"));
+});
+
 test("overloads with different argument types are different functions", () => {
   const events = scanFunctionEvents(fn("public.f(uuid)", "x") + fn("public.f(uuid, text)", "x"));
   assert.deepEqual(events.map((event) => event.signature), ["public.f(uuid)", "public.f(uuid,text)"]);
@@ -574,6 +665,51 @@ test("integer ARRAY and integer[] meet as one function", () => {
   const violations = inspectFunctionCollisions(root);
   assert.equal(violations.length, 1);
   assert.match(violations[0], /^public\.f\(integer\[\]\): .* would replace the deployed body from /);
+});
+
+test("char(8) and character(8) meet as one function", () => {
+  // Codex review of 2c005056: the checker kept `char` and `character` apart, so a
+  // draft restating the deployed function with a different body passed unflagged.
+  const root = makeTree({
+    [migrationV1]: fn("public.f(p char(8))", BODY_V1),
+    [draftS4]: fn("public.f(p character(8))", BODY_DRAFT),
+  });
+  const violations = inspectFunctionCollisions(root);
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /^public\.f\(character\): .* would replace the deployed body from /);
+});
+
+test("two drafts that spell one built-in type differently still meet as one function", () => {
+  const pairs = [
+    ["varchar(20)", "character varying"],
+    ["bool", "boolean"],
+    ["float8", "double precision"],
+    ["int4", "integer"],
+    ["int8", "bigint"],
+    ["numeric(10,2)", "decimal"],
+    ["timestamptz", "timestamp(3) with time zone"],
+    ["bpchar", "national character(4)"],
+    ["char varying(5)", "varchar"],
+    ["varbit", "bit varying(8)"],
+    ["_text", "text[]"],
+  ];
+  for (const [first, second] of pairs) {
+    const root = makeTree({
+      [`${DRAFTS}/a.sql`]: fn(`public.f(p ${first})`, BODY_V1),
+      [`${DRAFTS}/b.sql`]: fn(`public.f(q ${second})`, BODY_DRAFT),
+    });
+    const violations = inspectFunctionCollisions(root);
+    assert.equal(violations.length, 1, `${first} against ${second}`);
+    assert.match(violations[0], /define it differently/, `${first} against ${second}`);
+  }
+});
+
+test("the internal \"char\" type and char are different functions", () => {
+  const root = makeTree({
+    [migrationV1]: fn('public.f(p "char")', BODY_V1),
+    [draftS4]: fn("public.f(p char)", BODY_DRAFT),
+  });
+  assert.deepEqual(inspectFunctionCollisions(root), []);
 });
 
 test("quoted type names that differ only in case are different functions", () => {

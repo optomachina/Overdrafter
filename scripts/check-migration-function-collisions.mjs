@@ -37,31 +37,62 @@ const DIGIT = /\d/;
 const DOLLAR_TAG = /^\$(?:[A-Za-z_\u{80}-\u{10FFFF}][A-Za-z_0-9\u{80}-\u{10FFFF}]*)?\$/u;
 
 const ARGUMENT_MODES = ["in", "out", "inout", "variadic"];
+const INTERVAL_FIELDS = ["year", "month", "day", "hour", "minute", "second"];
 const MULTIWORD_TYPES = [
   ["double", "precision"],
   ["character", "varying"],
+  ["char", "varying"],
+  ["nchar", "varying"],
   ["bit", "varying"],
   ["timestamp", "with"],
   ["timestamp", "without"],
   ["time", "with"],
   ["time", "without"],
   ["national", "character"],
+  ["national", "char"],
+  ...INTERVAL_FIELDS.map((field) => ["interval", field]),
 ];
-const TYPE_ALIASES = new Map([
+
+// PostgreSQL reaches one built-in type through several names, and function
+// identity is the type, so every name of a type is reduced to one canonical text.
+// There are two kinds of name, and a quoted or schema qualified name is only ever
+// the second kind.
+//
+// SQL spellings: words the grammar rewrites to a built-in type. They apply to an
+// unquoted, unqualified name only, which is why `char` (blank padded character)
+// and `"char"` (the internal one byte type) are different types.
+const SQL_TYPE_SPELLINGS = new Map([
   ["int", "integer"],
-  ["int4", "integer"],
-  ["int8", "bigint"],
-  ["int2", "smallint"],
-  ["bool", "boolean"],
-  ["float8", "double precision"],
-  ["float4", "real"],
-  ["varchar", "character varying"],
+  ["dec", "numeric"],
   ["decimal", "numeric"],
+  ["char", "character"],
+  ["nchar", "character"],
+  ["national char", "character"],
+  ["national character", "character"],
+  ["char varying", "character varying"],
+  ["nchar varying", "character varying"],
+  ["national char varying", "character varying"],
+  ["national character varying", "character varying"],
   ["timestamp with time zone", "timestamptz"],
   ["timestamp without time zone", "timestamp"],
   ["time with time zone", "timetz"],
   ["time without time zone", "time"],
 ]);
+// Catalog names (pg_type.typname) that differ from the canonical text, valid
+// quoted, qualified or bare. `"char"` keeps its quotes so it never equals `character`.
+const CATALOG_TYPE_NAMES = new Map([
+  ["int2", "smallint"],
+  ["int4", "integer"],
+  ["int8", "bigint"],
+  ["float4", "real"],
+  ["float8", "double precision"],
+  ["bool", "boolean"],
+  ["varchar", "character varying"],
+  ["bpchar", "character"],
+  ["varbit", "bit varying"],
+  ["char", '"char"'],
+]);
+const SINGLE_PRECISION_MAX_BITS = 24;
 
 /**
  * sha256 of a function body's UTF-8 bytes: how this check tells bodies apart and
@@ -350,34 +381,65 @@ function identifierValue(token) {
 }
 
 /**
+ * The canonical text of a type name. A float with a precision is the one place a
+ * parenthesized number picks the type: `float(1)` to `float(24)` is `real`,
+ * `float` and `float(25)` to `float(53)` are `double precision`. Every other
+ * length, precision or scale never changes which function is meant, and so is
+ * dropped by the caller; so are the fields of an `interval`.
+ */
+function canonicalTypeName(text, { isSqlSpelling, firstModifier }) {
+  if (isSqlSpelling) {
+    if (text === "float") return firstModifier !== null && firstModifier <= SINGLE_PRECISION_MAX_BITS ? "real" : "double precision";
+    if (text === "interval" || text.startsWith("interval ")) return "interval";
+    const spelling = SQL_TYPE_SPELLINGS.get(text);
+    if (spelling) return spelling;
+  }
+  return CATALOG_TYPE_NAMES.get(text) ?? text;
+}
+
+/**
  * Canonical type text from the type's tokens: unquoted names in lower case and
  * quoted names as written, `public.` and `pg_catalog.` dropped, any array
- * dimensions (`[]`, `[3]`, `ARRAY`, `ARRAY[3]`) as one `[]`, and a length,
- * precision or scale dropped because it never changes which function is meant.
+ * dimensions (`[]`, `[3]`, `ARRAY`, `ARRAY[3]`) as one `[]`, a length, precision
+ * or scale dropped because it never changes which function is meant, and every
+ * name PostgreSQL resolves to one built-in type as one text (see
+ * SQL_TYPE_SPELLINGS and CATALOG_TYPE_NAMES), including an array type's catalog
+ * name (`_text`).
  */
 function canonicalType(tokens) {
   let text = "";
   let depth = 0;
   let isArray = false;
+  let isSqlSpelling = true;
+  let firstModifier = null;
   for (const token of tokens) {
     if (isPunct(token, "(")) {
       depth += 1;
     } else if (isPunct(token, ")")) {
       depth -= 1;
     } else if (depth > 0 || token.type === "number" || isPunct(token, "]")) {
-      continue;
+      if (depth > 0 && token.type === "number") firstModifier ??= Number(token.value);
     } else if (isPunct(token, "[") || isWord(token, "array")) {
       isArray = true;
     } else if (isPunct(token, ".")) {
       text += ".";
+      isSqlSpelling = false;
     } else {
+      if (token.type === "ident") isSqlSpelling = false;
       text += `${text === "" || text.endsWith(".") ? "" : " "}${identifierValue(token)}`;
     }
   }
   for (const schema of ["public.", "pg_catalog."]) {
     if (text.startsWith(schema)) text = text.slice(schema.length);
   }
-  return `${TYPE_ALIASES.get(text) ?? text}${isArray ? "[]" : ""}`;
+  if (text.length > 1 && text.startsWith("_")) {
+    // `_int4` is the catalog name of the array type `integer[]`, so what follows
+    // the underscore is a catalog name: `_char` is an array of `"char"`, not of `char`.
+    text = text.slice(1);
+    isArray = true;
+    isSqlSpelling = false;
+  }
+  return `${canonicalTypeName(text, { isSqlSpelling, firstModifier })}${isArray ? "[]" : ""}`;
 }
 
 function startsMultiwordType(first, second) {

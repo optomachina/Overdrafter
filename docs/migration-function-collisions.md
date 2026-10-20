@@ -26,11 +26,23 @@ bodies a rebased draft must be written against; this check turns that list into 
 
 Every `create [or replace] function|procedure` at the top level of a file, identified
 by schema (default `public`), name and input argument types (names, defaults and
-`out` arguments dropped; `int`/`integer`, `timestamptz`/`timestamp with time zone`,
-`integer[]`/`integer ARRAY` and similar spellings are one type; a quoted type name
-keeps its case), with its body as `pg_proc.prosrc` stores it: the text between the
-dollar quotes, or a single quoted body with `''` read as one quote and, in an `E'...'`
-string, the backslash escapes decoded. Bodies are compared by the sha256 of that text.
+`out` arguments dropped), with its body as `pg_proc.prosrc` stores it: the text between
+the dollar quotes, or a single quoted body with `''` read as one quote and, in an
+`E'...'` string, the backslash escapes decoded. Bodies are compared by the sha256 of
+that text.
+
+Argument types are compared as PostgreSQL resolves them, so every spelling of one
+built-in type is one type. `int`, `integer` and `int4`; `char`, `character`, `bpchar`
+and `national char`; `varchar`, `character varying` and `char varying`; `float8` and
+`double precision`; `bool` and `boolean`; `decimal` and `numeric`; `varbit` and
+`bit varying`; `timestamptz` and `timestamp with time zone`; and `integer[]`,
+`integer ARRAY` and `_int4` are each one type. A length, precision, scale, array bound
+or interval field is not part of a function's identity and is ignored; the one
+precision that picks a type is `float(p)`, `real` up to 24 and `double precision`
+above. A quoted or schema qualified name is a catalog name and keeps its case, so
+`"char"`, the internal one byte type, is not `char`. The spellings are listed in
+`SQL_TYPE_SPELLINGS` and `CATALOG_TYPE_NAMES` in the script, and were checked against
+`pg_proc.proargtypes` on PostgreSQL 17.
 
 - `supabase/migrations/*.sql`, in filename order. The last definition is the deployed
   body (a trailing `drop function` leaves none). Migrations restating each other are
