@@ -114,8 +114,15 @@ commercial audit event.
 ## Inspect state
 
 Call `public.api_get_commercial_rollout_controls()` with the service role. It
-returns all four controls and the latest 100 immutable change events. Record the
-current revision before proposing a change.
+returns all five controls (the four commercial controls plus OVD-987's
+`controlled_beta_user_quantity`, once that migration is applied) and the latest
+100 immutable change events. Record the current revision before proposing a
+change. Change one capability per transaction: turning
+`controlled_beta_user_quantity` and `automatic_quote_collection` in one
+transaction can deadlock with an in-flight Xometry worker preflight; if both must
+change together, change `automatic_quote_collection` first. The frozen release
+scripts that pin exactly four controls (OVD-373, OVD-418 and OVD-419 tooling,
+`scripts/ovd570-minimal-rehearsal.mjs`) are not updated for the fifth one.
 
 Never grant direct table access or update either private rollout table by hand.
 
