@@ -13,6 +13,7 @@
     "verdicts",
     "merge_gate",
     "protected",
+    "runtime_routing",
     "adapters"
   ],
   "additionalProperties": false,
@@ -73,10 +74,19 @@
       "type": "object",
       "required": [
         "requires",
-        "rules"
+        "auto_merge_also_requires",
+        "rules",
+        "auto_merge_allowlist",
+        "sensitive_paths"
       ],
       "properties": {
         "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auto_merge_also_requires": {
           "type": "array",
           "items": {
             "type": "string"
@@ -87,6 +97,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "auto_merge_allowlist": {
+          "type": "string"
+        },
+        "sensitive_paths": {
+          "type": "string"
         }
       }
     },

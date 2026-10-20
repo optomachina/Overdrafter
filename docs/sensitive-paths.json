@@ -67,6 +67,8 @@
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-screen-marker*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
+    { "glob": "docs/agent-graph/**", "class": "infra_ci" },
+    { "glob": "scripts/validate-agent-graph*", "class": "infra_ci" },
     { "glob": "**/*import-boundary*", "class": "infra_ci" },
     { "glob": "**/*import-boundary*/**", "class": "infra_ci" },
     { "glob": "**/*import-boundaries*{,/**}", "class": "infra_ci" },

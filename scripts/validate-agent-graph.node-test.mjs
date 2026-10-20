@@ -33,6 +33,48 @@ test("rejects a single reviewer family", () => {
   assert.match(validateGraph(graph, schema).join("\n"), /two model families/);
 });
 
+test("a reviewer with no family is an error and never counts as a family", () => {
+  const { graph, schema } = fresh();
+  delete graph.nodes.codex.family;
+  const errors = validateGraph(graph, schema).join("\n");
+  assert.match(errors, /reviewer codex must set family/);
+  // sonnet is the only default-path reviewer left with a family, so the two-family rule must still fail.
+  assert.match(errors, /two model families/);
+});
+
+test("rejects a schema keyword the validator does not evaluate", () => {
+  const { graph, schema } = fresh();
+  schema.properties.nodes.minProperties = 1;
+  assert.match(validateGraph(graph, schema).join("\n"), /schema\.nodes: unsupported schema keyword minProperties/);
+});
+
+test("rejects a $ref that does not resolve", () => {
+  const { graph, schema } = fresh();
+  schema.properties.nodes.additionalProperties = { $ref: "#/$defs/ghost" };
+  assert.match(validateGraph(graph, schema).join("\n"), /unresolved \$ref #\/\$defs\/ghost/);
+});
+
+test("rejects a node that no edge names, but not the root", () => {
+  const { graph, schema } = fresh();
+  assert.deepEqual(graph.edges.filter((e) => [e.from, e.to].includes(graph.root)), []);
+  graph.nodes.stray = { role: "writer" };
+  assert.deepEqual(validateGraph(graph, schema), ["node stray has no edges"]);
+});
+
+test("requires the merge gate pointers and runtime routing", () => {
+  for (const [path, pattern] of [
+    [["merge_gate", "auto_merge_allowlist"], /merge_gate: missing auto_merge_allowlist/],
+    [["merge_gate", "sensitive_paths"], /merge_gate: missing sensitive_paths/],
+    [["merge_gate", "auto_merge_also_requires"], /merge_gate: missing auto_merge_also_requires/],
+    [["runtime_routing"], /graph: missing runtime_routing/],
+  ]) {
+    const { graph, schema } = fresh();
+    const parent = path.slice(0, -1).reduce((node, key) => node[key], graph);
+    delete parent[path.at(-1)];
+    assert.match(validateGraph(graph, schema).join("\n"), pattern, path.join("."));
+  }
+});
+
 test("overflow reviewer does not count toward the two-family rule", () => {
   const { graph, schema } = fresh();
   graph.nodes.codex.family = "anthropic";
