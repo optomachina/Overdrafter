@@ -1,11 +1,41 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
-import { resolveGhBin } from './emit-verdict.mjs';
+import { isEntryPoint, resolveGhBin } from './emit-verdict.mjs';
 
-/** Match the watcher's description and failed-log infrastructure signals. */
+/*
+ * `gh run view --log-failed` prints every line as `<job>\t<step>\t<timestamp> <text>`, and
+ * the timestamp carries seven fractional digits ("...T04:43:55.2429429Z"), so an unanchored
+ * /429/ matches timestamps. Passing test names ("...403, 429 and 503", "...a rate limit...")
+ * also reach the failed log. Strip the prefix first, then accept a signal only where an
+ * infrastructure failure actually reports itself.
+ */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[\\d;]*[A-Za-z]`, 'g');
+const LOG_PREFIX = /^(?:[^\t]*\t[^\t]*\t)?\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?/;
+// Runner annotations: the runner was lost or told to stop. These carry no test output.
+const RUNNER_SIGNAL = /^(?:##\[(?:error|warning)\])?\s*the (?:(?:hosted|self-hosted) )?runner\b.*\b(?:lost communication with the server|received a shutdown signal)/i;
+// Throttling and truncated transfers count only on a line that reports an error (a GitHub
+// ##[error] annotation or a failing tool's own error line), never on test names or output.
+const ERROR_LINE = /^(?:##\[error\]|npm (?:error|ERR!)|\w*error\b|fatal\b|curl\b)/i;
+const THROTTLE_SIGNAL = new RegExp([
+  String.raw`\b429 \(?too many requests\b`,
+  String.raw`\b(?:http(?:\/[\d.]+)?|status(?: code)?|error:?|code) E?429\b`,
+  String.raw`\b(?:api |secondary )?rate limit exceeded\b`,
+  String.raw`\bexceeded a secondary rate limit\b`,
+  String.raw`\btoomanyrequests:`,
+  String.raw`\brate-limited after \d+ attempts\b`,
+  String.raw`\bunexpected EOF\b`,
+].join('|'), 'i');
+// A stage that ran and failed, or a rejected PR body, is a code failure that a rerun cannot fix.
+// It wins over any infrastructure signal in the same log.
+const CODE_FAILURE = /^(?:preflight: \S+ FAIL\b|PR body validation failed\b|(?:##\[error\])?PR body validator exited \w+ without validation evidence)/;
+
+const normalizeLogLine = line => line.replace(ANSI, '').replace(LOG_PREFIX, '').trimEnd();
+
+/** Classify one run's `--log-failed` output as an infrastructure failure. */
 export function isInfraFailure(text) {
-  return /429|rate limit|runner.*(?:lost|shutdown)|lost communication|unexpected EOF/i.test(text);
+  const lines = String(text).split(/\r?\n/).map(normalizeLogLine);
+  if (lines.some(line => CODE_FAILURE.test(line))) return false;
+  return lines.some(line => RUNNER_SIGNAL.test(line) || (ERROR_LINE.test(line) && THROTTLE_SIGNAL.test(line)));
 }
 
 /** Decide using GitHub's attempt counters, before requesting any mutations. */
@@ -73,4 +103,5 @@ export function main(args = process.argv.slice(2)) {
   return decision === 'rerun' ? 0 : 3;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main();
+// isEntryPoint() defaults its module URL to emit-verdict.mjs, so name this module explicitly.
+if (isEntryPoint(import.meta.url)) process.exitCode = main();

@@ -30,6 +30,18 @@ it. The script verifies the PR head, refuses if any run for that SHA has attempt
 its failed-job log. It reruns failed jobs once per failed run. Cancelled runs
 are excluded. Code failures must be repaired with a new commit.
 
+Infrastructure failure is read from the failed-job log after stripping the
+`job<TAB>step<TAB>timestamp` prefix on each line, because the seven fractional
+digits of a timestamp can contain "429". Only two kinds of line count: a runner
+annotation (the runner lost communication with the server, or received a
+shutdown signal), and an error line (a GitHub `##[error]` annotation, or a
+failing tool's own `error`, `npm error`, `fatal` or `curl` line) that reports
+a 429, an exceeded rate limit, a `toomanyrequests` registry reply or an
+unexpected EOF. Test names and test output never count. A `preflight: <stage>
+FAIL` line or a rejected PR body in the same log marks a code failure and
+wins over any infrastructure line. An unrecognised failure is refused as
+`not-infra`, so a human decides.
+
 The script resolves gh only from fixed system directories unless GH_BIN names an absolute path to an existing executable file owned by the current user or root and not writable by group or others; invalid overrides fail closed.
 
 GitHub's attempt counters share the cap across hosts and sequential processes;
