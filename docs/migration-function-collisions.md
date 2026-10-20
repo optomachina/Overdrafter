@@ -26,10 +26,11 @@ bodies a rebased draft must be written against; this check turns that list into 
 
 Every `create [or replace] function|procedure` at the top level of a file, identified
 by schema (default `public`), name and input argument types (names, defaults and
-`out` arguments dropped; `int`/`integer`, `timestamptz`/`timestamp with time zone` and
-similar spellings are one type), with the md5 of its body. The md5 is
-`md5(pg_proc.prosrc)` for a dollar quoted body, the value the staging and production
-read-only checks print.
+`out` arguments dropped; `int`/`integer`, `timestamptz`/`timestamp with time zone`,
+`integer[]`/`integer ARRAY` and similar spellings are one type; a quoted type name
+keeps its case), with its body as `pg_proc.prosrc` stores it: the text between the
+dollar quotes, or a single quoted body with `''` read as one quote and, in an `E'...'`
+string, the backslash escapes decoded. Bodies are compared by the sha256 of that text.
 
 - `supabase/migrations/*.sql`, in filename order. The last definition is the deployed
   body (a trailing `drop function` leaves none). Migrations restating each other are
@@ -56,7 +57,7 @@ A promotable draft body fails the check when:
 
 `docs/migration-drafts/function-supersessions.json` documents each intended
 replacement by naming the superseded body. An example entry for a draft that has been
-rebased onto the OVD-987 S4 body:
+rebased onto the OVD-987 S4 body, naming it by the md5 the OVD-987 notes list:
 
 ```json
 {
@@ -72,11 +73,20 @@ rebased onto the OVD-987 S4 body:
 }
 ```
 
-- `file` is the later draft (the one that replaces); `supersedesMd5` is the md5 of
-  the body it replaces. For two drafts, an entry on either one clears the pair.
+- `file` is the later draft (the one that replaces). The body it replaces is named by
+  exactly one of:
+  - `supersedesSha256`, the sha256 of the body's UTF-8 text. A failure prints the entry
+    in this form. From a database:
+    `select encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex') from pg_proc p where p.oid = to_regprocedure('<signature>');`
+  - `supersedesMd5`, the `md5(pg_proc.prosrc)` value that migration notes and md5
+    preconditions quote, so an entry can carry the same value as the draft's
+    precondition. The check computes an md5 only to match such an entry, with its own
+    RFC 1321 code rather than a crypto API: it is the fingerprint the database prints,
+    not a security control.
+- For two drafts, an entry on either one clears the pair.
 - The entry matches only while that body is still the one being replaced. When a
   newer migration changes the function, or another draft changes its body, the entry
-  stops matching and the check fails again until the draft is rebased and the md5
+  stops matching and the check fails again until the draft is rebased and the entry
   updated. That is the point: a documented supersession is pinned to a body.
 - The same holds for an archived copy. A draft equal to the deployed body passes
   without an entry, and fails with the entry to add as soon as a newer migration
@@ -87,18 +97,19 @@ rebased onto the OVD-987 S4 body:
 - `reason` is required. Say why replacing that body is intended.
 
 The first version of the file records the 24 draft restatements that existed when the
-check was added, each written against the body deployed at that time.
+check was added, each written against the body deployed at that time and named by its
+sha256.
 
 ## Fixing a failure
 
 | Failure | What to do |
 | --- | --- |
-| A new draft restates a deployed function | Write the draft against the deployed body and add an entry naming its md5. The failure prints the entry. |
-| A migration lands that changes a function a draft restates | Rebase the draft onto the new body (add an md5 precondition to the draft the way the OVD-987 migration does), then update the entry's `supersedesMd5`. Do not change the md5 without rebasing: the entry is a claim that the draft was written against that body. |
+| A new draft restates a deployed function | Write the draft against the deployed body and add an entry naming it. The failure prints the entry. |
+| A migration lands that changes a function a draft restates | Rebase the draft onto the new body (add an md5 precondition to the draft the way the OVD-987 migration does), then update the entry: the sha256 the failure prints, or the precondition's md5 as `supersedesMd5`. Do not change the value without rebasing: the entry is a claim that the draft was written against that body. |
 | Two drafts restate one function | Decide the promotion order, rebase the second onto the first, and add the entry. |
 | A draft is promoted into `supabase/migrations` | Delete its entries (reported as unused). Drafts that still restate the promoted function, including verbatim copies of the body it replaced, now fail against the new deployed body until they are rebased or retired. |
 
-The failure message prints the md5 of both bodies and the entry to add.
+The failure message prints the sha256 of both bodies and the entry to add.
 
 ## Not covered
 
@@ -112,9 +123,14 @@ The failure message prints the md5 of both bodies and the entry to add.
   the OVD-987 notes already require by hand: an md5 precondition inside the
   migration, so it fails on apply when the body it replaces is not the one it was
   written against, and a reviewer comparing the body with the one on main.
-- Functions created through dynamic SQL (`execute` inside a `do` block) and bodies in
-  a form with no `AS` string (`begin atomic`). A definition with no readable body is
-  reported rather than skipped.
+- Functions created through dynamic SQL (`execute` inside a `do` block), bodies in a
+  form with no `AS` string (`begin atomic`), and string bodies the check cannot read
+  with certainty: a `U&'...'` string, a string continued on the next line, or an
+  `E'...'` string with an escape it does not decode (a backslash before a letter or
+  digit other than `\b \f \n \r \t`, octal, `\x`, `\u` and `\U`; a surrogate; or bytes
+  PostgreSQL rejects). A definition with no readable body is reported rather than
+  skipped. Plain single quoted bodies are read with `standard_conforming_strings` on,
+  the default.
 - Differences other than the body (`security definer`, `set search_path`, grants).
   Two definitions with the same body compare equal.
 - Rollback drafts, `alter function`, the `.inc` pgTAP fixtures that copy drafts, and the
