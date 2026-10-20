@@ -6,6 +6,8 @@ API) and PR 3 (admin UI) build on this. The JSON registry
 (`provider-integrations/provider-registry.v1.json`) stays the runtime source and
 the seed and fallback source until PR 2.
 
+The rollback check is also covered by the ephemeral-db rollback stage (OVD-924), pending PR-2.
+
 ## Files
 
 | File | Purpose |
