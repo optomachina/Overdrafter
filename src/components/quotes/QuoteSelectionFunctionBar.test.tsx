@@ -26,6 +26,49 @@ describe("QuoteSelectionFunctionBar", () => {
     expect(screen.queryByRole("button", { name: "Balanced" })).not.toBeInTheDocument();
   });
 
+  it("disables the scope toggle, the date field and Clear while a save is pending (OVD-991)", () => {
+    const { rerender } = render(
+      <QuoteSelectionFunctionBar
+        scope="global"
+        requestedByDate="2026-04-15"
+        onScopeChange={vi.fn()}
+        onRequestedByDateChange={vi.fn()}
+        disabled
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "All sourcing" })).toBeDisabled();
+    expect(screen.getByLabelText("Need by date")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+
+    rerender(
+      <QuoteSelectionFunctionBar
+        scope="global"
+        requestedByDate="2026-04-15"
+        onScopeChange={vi.fn()}
+        onRequestedByDateChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "All sourcing" })).toBeEnabled();
+    expect(screen.getByLabelText("Need by date")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeEnabled();
+  });
+
+  it("shows the supplied due date help text in the tooltip", async () => {
+    render(
+      <QuoteSelectionFunctionBar
+        scope="global"
+        requestedByDate={null}
+        onScopeChange={vi.fn()}
+        onRequestedByDateChange={vi.fn()}
+        dueDateHelpText="Changes this view only."
+      />,
+    );
+
+    fireEvent.focus(screen.getByText("Need by date"));
+    expect((await screen.findAllByText("Changes this view only.")).length).toBeGreaterThan(0);
+  });
+
   it("propagates date changes and clear actions", () => {
     const onRequestedByDateChange = vi.fn();
 
