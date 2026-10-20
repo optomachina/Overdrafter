@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import fixture from "../../../src/features/quotes/client-part-metadata-projection.fixture.json";
 import type { DrawingExtractionPayload } from "../types";
@@ -41,5 +43,32 @@ describe("worker extraction payload (OVD-978)", () => {
 
     expect(stored.material).toMatchObject({ raw: null, normalized: null });
     expect(stored.finish).toMatchObject({ raw: null, normalized: null });
+  });
+
+  // The pgTAP file claims to carry the real worker output. OVD-976 added tolerances.unit and
+  // tolerances.drawingUnits and the literals silently stopped being exact, so this fails the
+  // moment the builder and the file disagree. It reads the promoted test once the migration
+  // window renames the pending file.
+  it("keeps the pgTAP payload literals equal to the real builder output", () => {
+    const candidates = [
+      "../../../supabase/tests/ovd978_client_part_metadata_projection.sql",
+      "../../../supabase/tests/pending/ovd978_client_part_metadata_projection.sql.pending",
+    ].map((relative) => fileURLToPath(new URL(relative, import.meta.url)));
+    const path = candidates.find((candidate) => existsSync(candidate));
+    if (!path) throw new Error("OVD-978 pgTAP file not found (pending or promoted)");
+    const pgtap = readFileSync(path, "utf8");
+
+    for (const key of ["partial", "complete", "noDrawing"]) {
+      const literal = new RegExp(`\\$${key}_payload\\$([\\s\\S]*?)\\$${key}_payload\\$`).exec(pgtap);
+      if (!literal) throw new Error(`pgTAP payload literal ${key} not found`);
+      const { workerInput, pageCount, workerBuildVersion } = partByKey(key).extraction!;
+      const stored = buildStoredExtractionPayload(
+        workerInput as unknown as DrawingExtractionPayload,
+        pageCount,
+        workerBuildVersion,
+      );
+
+      expect(JSON.parse(literal[1]), `${key} literal in ${path}`).toEqual(JSON.parse(JSON.stringify(stored)));
+    }
   });
 });
