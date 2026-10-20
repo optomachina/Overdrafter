@@ -471,9 +471,13 @@ export function applyInOrder(files, applyFile) {
  * New migrations run with --single-transaction, as the migration runner wraps
  * each file in one transaction. A statement that cannot run in a transaction
  * block (`create index concurrently`) therefore fails here; the report adds a
- * distinct warning for it (see transactionBlockWarning). Drafts run without it,
- * as the ovdNNN-pending-pgtap.yml workflows apply them, so drafts carrying their
- * own begin/commit behave the same in both places.
+ * distinct warning for it (see transactionBlockWarning). The rollback stage
+ * applies drafts, idempotent re-applies and rollbacks the same way, as the
+ * ovd707 workflow and the ovd797/829/831 DM-1R steps did and as each rollback
+ * file documents (`psql ... --single-transaction`); a draft that only works
+ * outside one transaction would otherwise pass the stage and fail when promoted.
+ * A draft carrying its own begin/commit only makes psql warn. The apply stage
+ * still applies drafts without it, as the ovdNNN-pending-pgtap.yml apply steps do.
  */
 export function psqlCommand({ psql, root, dbUrl, file, singleTransaction = true }) {
   const args = ["-v", "ON_ERROR_STOP=1", "-X", "-q", ...(singleTransaction ? ["--single-transaction"] : [])];
@@ -693,7 +697,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
       workDir,
       project,
       log,
-      applyFile: applyWith(false),
+      applyFile: applyWith(true),
     });
     report.families = outcome.families;
     report.drafts = { ...report.drafts, applied: outcome.applied, failed: outcome.draftFailed, skipped: outcome.skipped };

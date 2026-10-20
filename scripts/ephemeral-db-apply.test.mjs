@@ -173,7 +173,7 @@ describe("apply order and failure reporting", () => {
       .toEqual(["run", "--rm", "--network", "host", "-v", "/r:/w", "-w", "/w", "postgres:17", "psql", DB_URL, "-v", "ON_ERROR_STOP=1", "-X", "-q", "--single-transaction", "-f", "m/1.sql"]);
     expect(psqlCommand({ psql: "local", root: "/r", dbUrl: DB_URL, file: "m/1.sql" }))
       .toEqual({ cmd: "psql", args: [DB_URL, "-v", "ON_ERROR_STOP=1", "-X", "-q", "--single-transaction", "-f", "/r/m/1.sql"] });
-    // Drafts run as the per-issue workflows run them: no wrapping transaction.
+    // The apply stage runs drafts as the per-issue apply steps do: no wrapping transaction. The rollback stage opts in.
     expect(psqlCommand({ psql: "local", root: "/r", dbUrl: DB_URL, file: "d/x.sql", singleTransaction: false }).args)
       .toEqual([DB_URL, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", "/r/d/x.sql"]);
   });
@@ -576,7 +576,7 @@ const ORDER_A_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-a.rollback.sql`;
 const ORDER_B_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-b.rollback.sql`;
 
 /** Stubbed psql/pg_dump: schema stays put unless a rollback says it left an extra column. */
-function rollbackFake({ diff, failPendingFamily, failPostSuffix, dumps = [] }) {
+function rollbackFake({ diff, failPendingFamily, failPostSuffix, failInTransaction = [], dumps = [] }) {
   const calls = [];
   let schema = "base-schema\n";
   const counts = new Map();
@@ -594,6 +594,9 @@ function rollbackFake({ diff, failPendingFamily, failPostSuffix, dumps = [] }) {
     if (cmd === "docker" && args.includes("pg_dump")) return dumps.shift() ?? { status: 0, stdout: schema, stderr: "" };
     if (cmd === "docker" && args.includes("psql")) {
       const file = args.at(-1);
+      if (args.includes("--single-transaction") && failInTransaction.includes(file)) {
+        return { status: 3, stdout: "", stderr: `psql:${file}:1: ERROR:  CREATE INDEX CONCURRENTLY cannot run inside a transaction block` };
+      }
       const text = readFileSync(join(ROOT, file), "utf8");
       const count = (counts.get(file) ?? 0) + 1;
       counts.set(file, count);
@@ -615,6 +618,32 @@ describe("rollback stage", () => {
     const fake = rollbackFake({ diff });
     return { fake, report: run(fake, { rollback: true }) };
   };
+
+  it("applies drafts, re-applies and both rollback passes in one transaction each", () => {
+    const { fake, report } = rollbackRun(`M\t${IDEMPOTENT}\n`);
+    expect(report.result).toBe("pass");
+    const calls = fake.calls.filter((call) => call.includes("psql"));
+    expect(calls.map((call) => call.at(-1))).toEqual([IDEMPOTENT, IDEMPOTENT, IDEMPOTENT_ROLLBACK, IDEMPOTENT_ROLLBACK]);
+    for (const call of calls) expect(call.slice(-3, -1)).toEqual(["--single-transaction", "-f"]);
+  });
+
+  it("fails a draft that only works outside one transaction and names the cause", () => {
+    const fake = rollbackFake({ diff: `M\t${IDEMPOTENT}\n`, failInTransaction: [IDEMPOTENT] });
+    const report = run(fake, { rollback: true });
+    expect(report.result).toBe("fail");
+    expect(report.drafts.failed).toMatchObject({ file: IDEMPOTENT });
+    expect(report.drafts.failed.error).toMatch(/cannot run inside a transaction block/);
+    expect(report.families[0].rollback.error).toMatch(/family 9904: draft .*ovd-9904-idempotent\.sql failed/);
+    expect(report.pendingTests.status).not.toBe("pass");
+  });
+
+  it("fails the replay when a rollback only works outside one transaction", () => {
+    const fake = rollbackFake({ diff: `M\t${IDEMPOTENT}\n`, failInTransaction: [IDEMPOTENT_ROLLBACK] });
+    const report = run(fake, { rollback: true });
+    expect(report.result).toBe("fail");
+    expect(report.families[0].rollback.replay).toBe("fail");
+    expect(report.families[0].rollback.error).toMatch(/rollback replay failed on pass 1.*cannot run inside a transaction block/s);
+  });
 
   it("recognizes post-rollback tags only in leading comments", () => {
     expect(isPostRollbackTest("\n-- fixture\n  -- OVD:   POST-ROLLBACK  \nselect 1;")).toBe(true);
