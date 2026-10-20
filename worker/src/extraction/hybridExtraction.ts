@@ -214,6 +214,12 @@ export async function runHybridExtraction(
     pdfText: input.pdfText ?? null,
   });
 
+  const parsedToleranceValueInch = drawingSignals.tightestToleranceValueInch;
+  const storedToleranceValueInch =
+    typeof parsedToleranceValueInch === "number" && Number.isFinite(parsedToleranceValueInch) && parsedToleranceValueInch > 0
+      ? parsedToleranceValueInch
+      : null;
+
   const warnings = [...drawingSignals.warnings];
   let modelResult: DrawingModelExtractionResult | null = null;
 
@@ -414,9 +420,16 @@ export async function runHybridExtraction(
     },
     tightestTolerance: {
       raw: drawingSignals.tightestTolerance,
-      valueInch: drawingSignals.tightestTolerance
-        ? Number.parseFloat(drawingSignals.tightestTolerance.replace(/[^0-9.]/g, "")) || null
-        : null,
+      // OVD-976: valueInch comes from the unit-aware parser. Never re-derive it from the raw text,
+      // which would drop the drawing units; an unresolved tolerance stays null so the gate blocks it.
+      // A value that is not a finite positive number (a stored 0 would pass as "tighter" than any gate
+      // and mean nothing) is unresolved: null with the raw text kept and unit "unknown".
+      valueInch: storedToleranceValueInch,
+      unit:
+        storedToleranceValueInch === null && drawingSignals.tightestTolerance
+          ? "unknown"
+          : (drawingSignals.tightestToleranceUnit ?? undefined),
+      drawingUnits: drawingSignals.tightestToleranceDrawingUnits ?? undefined,
       confidence: drawingSignals.tightestTolerance ? 0.68 : input.drawingFile ? 0.25 : 0.1,
     },
     notes: drawingSignals.notes,
