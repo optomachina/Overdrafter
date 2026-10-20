@@ -56,6 +56,22 @@ VERDICTS = {
 }
 ACCEPTED_VERDICTS = {"real-artifact-verified", "unit-test-verified", "typecheck-only"}
 RUN_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+# A blocker names why work stopped and who can clear it, for example
+# "access: claude-cli-login; owner=Blaine". Enforced when a unit enters blocked or
+# stopping (transition or add), never in validate(), so stores with older free-text
+# blockers still load. The detail must contain a letter or digit and no zero-width characters.
+BLOCKER_CLASSES = (
+    "code", "infra", "access", "approval", "quota", "provider", "host", "owner", "budget", "dependency",
+)
+BLOCKER_PATTERN = re.compile(rf"^(?:{'|'.join(BLOCKER_CLASSES)}):(?P<detail>.*)$", re.DOTALL)
+BLOCKER_DETAIL_CONTENT = re.compile(r"[^\W_]")
+INVISIBLE_CHARACTERS = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0]")
+BLOCKING_STATES = {"blocked", "stopping"}
+# An owner change appends this event (notes "from=<old>; to=<new>") so a verifier can
+# later be checked against every earlier owner. Transfers made before it existed are
+# not recoverable from the store.
+OWNER_TRANSFER_EVENT = "owner-transfer"
+OWNER_TRANSFER_SEPARATOR = "; to="
 TRANSITIONS = {
     "planned": {"ready", "blocked", "abandoned"},
     "ready": {"running", "blocked", "abandoned"},
@@ -522,6 +538,7 @@ def add_unit(args: argparse.Namespace) -> None:
             raise ValueError("run store must be migrated before adding revisioned units")
         if any(row["unit_id"] == args.unit_id for row in units):
             raise ValueError(f"unit already exists: {args.unit_id}")
+        _validate_blocker_class(args.unit_id, args.state, args.blocker)
         now = utc_now()
         row = {
             "unit_id": args.unit_id, "track": args.track, "owner_thread": args.owner_thread,
@@ -580,6 +597,39 @@ def _validate_owner_transfer(args: argparse.Namespace, unit: dict[str, str], dec
             raise ValueError("owner transfer requires a recorded decision for this unit")
 
 
+def normalize_identity(value: str) -> str:
+    """Identity comparison form for owner/verifier; stored values are never rewritten."""
+    return value.strip().casefold()
+
+
+def earlier_owners(events: list[dict[str, str]], unit_id: str) -> set[str]:
+    """Normalized owners a unit had before each recorded owner transfer."""
+    owners: set[str] = set()
+    for event in events:
+        if event["unit_id"] == unit_id and event["event"] == OWNER_TRANSFER_EVENT:
+            previous = event["notes"].split(OWNER_TRANSFER_SEPARATOR, 1)[0].removeprefix("from=")
+            if normalize_identity(previous):
+                owners.add(normalize_identity(previous))
+    return owners
+
+
+def _validate_blocker_class(unit_id: str, state: str, blocker: str) -> None:
+    """Require a classified blocker on the value that entering blocked/stopping would store."""
+    if state not in BLOCKING_STATES:
+        return
+    match = BLOCKER_PATTERN.match(blocker)
+    if (
+        not match
+        or INVISIBLE_CHARACTERS.search(blocker)
+        or not BLOCKER_DETAIL_CONTENT.search(match.group("detail"))
+    ):
+        raise ValueError(
+            f"blocker for {unit_id} must start with a class ({', '.join(BLOCKER_CLASSES)}) "
+            f"followed by a colon and detail with a letter or digit and no invisible characters, "
+            f"for example 'access: claude-cli-login; owner=Blaine'"
+        )
+
+
 def transition_unit(args: argparse.Namespace) -> None:
     run = Path(args.run).expanduser().resolve()
     with lock_store(run):
@@ -597,6 +647,10 @@ def transition_unit(args: argparse.Namespace) -> None:
         if unit["state"] == "failed" and args.state == "ready":
             raise ValueError("failed attempts require a new superseding unit")
         _validate_owner_transfer(args, unit, decisions)
+        previous_owner = unit["owner_thread"]
+        _validate_blocker_class(
+            args.unit_id, args.state, args.blocker if args.blocker is not None else unit["blocker"],
+        )
         unit["state"] = args.state
         unit["revision"] = str(current_revision + 1)
         unit["updated_at"] = utc_now()
@@ -612,6 +666,12 @@ def transition_unit(args: argparse.Namespace) -> None:
             write_tsv(staged / UNITS_FILE, UNIT_HEADER, units)
             append_event(staged, unit, f"transition:{args.state}", args.evidence_path or unit["evidence_path"], args.notes)
             bump_manifest(staged)
+            if unit["owner_thread"] != previous_owner:
+                append_event(
+                    staged, unit, OWNER_TRANSFER_EVENT, args.owner_transfer_decision or "",
+                    f"from={previous_owner}{OWNER_TRANSFER_SEPARATOR}{unit['owner_thread']}",
+                )
+                bump_manifest(staged)
             validate(staged, prefer_root=True)
             commit_staged(run, staged, (UNITS_FILE, EVENTS_FILE, MANIFEST_FILE))
     print(f"{args.unit_id} revision {unit['revision']} state {args.state}")
@@ -625,7 +685,7 @@ def _invalidate_dependent(dependent: dict[str, str], unit_id: str) -> None:
         dependent["state"] = "failed"
     else:
         dependent["state"] = "blocked"
-    dependent["blocker"] = f"dependency invalidated: {unit_id}"
+    dependent["blocker"] = f"dependency: invalidated by {unit_id}"
     dependent["revision"] = str(int(dependent["revision"]) + 1)
     dependent["updated_at"] = utc_now()
 
@@ -669,11 +729,18 @@ def record_verdict(args: argparse.Namespace) -> None:
         units, ledger, _, is_v2 = validate(run)
         if not is_v2:
             raise ValueError("run store must be migrated before recording verdicts")
+        _, events = read_tsv(semantic_root(run) / EVENTS_FILE, [EVENT_HEADER])
         unit = next((row for row in units if row["unit_id"] == args.unit_id), None)
         if not unit:
             raise ValueError(f"unknown unit: {args.unit_id}")
         if args.verdict in ACCEPTED_VERDICTS and unit["head_sha"] and args.head_sha != unit["head_sha"]:
             raise ValueError(f"accepted verdict head does not match current unit: {args.unit_id}")
+        if args.verdict in ACCEPTED_VERDICTS:
+            verifier = normalize_identity(args.verifier)
+            if verifier == normalize_identity(unit["owner_thread"]) or verifier in earlier_owners(events, args.unit_id):
+                raise ValueError(
+                    f"accepted verdict requires a verifier other than the unit owner or an earlier owner: {args.unit_id}"
+                )
         row = {
             "unit_id": args.unit_id, "artifact_key": args.artifact_key,
             "head_sha": args.head_sha, "verdict": args.verdict,

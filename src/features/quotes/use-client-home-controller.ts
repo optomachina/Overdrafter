@@ -834,7 +834,7 @@ export function useClientHomeController() {
                   description: prompt.trim() || undefined,
                   tags: [],
                   requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-                  requestedByDate: requestIntake.requestedByDate,
+                  // OVD-992: a parsed need-by date is a display filter only, never saved on the job.
                 });
               })(),
             ],

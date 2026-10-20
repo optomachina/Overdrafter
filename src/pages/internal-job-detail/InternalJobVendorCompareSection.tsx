@@ -232,6 +232,11 @@ export function InternalJobVendorCompareSection({
                                 </div>
                               </div>
                               {offer.notes ? <p className="mt-3 text-sm text-muted-foreground">{offer.notes}</p> : null}
+                              {offer.workerNotes?.length ? (
+                                <p className="mt-3 text-sm text-muted-foreground" data-testid="offer-worker-notes">
+                                  Worker notes: {offer.workerNotes.join(" ")}
+                                </p>
+                              ) : null}
                             </div>
                           );
                         })}

@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
 import { MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE } from "@/hooks/workspace-readiness";
 import type { Session } from "@supabase/supabase-js";
+import { createClientDraft } from "@/features/quotes/api/jobs-api";
+import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { useClientHomeController } from "./use-client-home-controller";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
@@ -601,5 +603,61 @@ describe("useClientHomeController membership recovery", () => {
     });
 
     unmount();
+  });
+
+  // OVD-992: a need-by date typed in the prompt is a display filter only. The draft created without
+  // files must not carry it, because the approved requirement copies it and every controlled
+  // dispatch denies the request. The real parser runs here (the module is mocked for the other
+  // tests), so each prompt below really yields a date for the call site to drop.
+  describe("prompt without files (OVD-992)", () => {
+    const FIXED_NOW = new Date("2026-10-19T12:00:00.000Z");
+    const readyMembership = createSessionData({
+      memberships: [
+        { id: "m-need-by", role: "client", organizationId: "org-9", organizationName: "Acme", organizationSlug: "acme" },
+      ],
+    });
+
+    // [label, prompt, quantities the call site must keep]
+    const PROMPTS_WITH_A_DATE: Array<[string, string, number[]]> = [
+      ["relative weekday", "Please quote 25 of these, need by next Friday", [25]],
+      ["slash date", "Need 50 of these, needed by 11/20", [50]],
+      ["month name", "Quote qty 10/50/100, deliver by Dec 5", [10, 50, 100]],
+    ];
+
+    it.each(PROMPTS_WITH_A_DATE)("does not save a %s need-by date but keeps the quantities", async (_label, prompt, quantities) => {
+      const actualIntake = await vi.importActual<typeof import("@/features/quotes/request-intake")>(
+        "@/features/quotes/request-intake",
+      );
+      // The real parser reads a date from every prompt above, so the call site is what drops it.
+      expect(actualIntake.parseRequestIntake(prompt, FIXED_NOW).requestedByDate).toMatch(/^2026-\d\d-\d\d$/);
+      vi.mocked(parseRequestIntake).mockImplementationOnce((value) =>
+        actualIntake.parseRequestIntake(value, FIXED_NOW),
+      );
+      fetchAppSessionDataMock.mockResolvedValue(readyMembership);
+      vi.mocked(createClientDraft).mockResolvedValue("job-9");
+
+      const { result, unmount } = renderHook(() => useClientHomeController(), {
+        wrapper: createWrapper(),
+      });
+      emitSignedInAuthEvent();
+      await waitFor(() => {
+        expect(result.current.workspaceReadiness.status).toBe("ready");
+      });
+
+      await act(async () => {
+        await result.current.handleComposerSubmit({ prompt, files: [], clear: vi.fn() });
+      });
+
+      expect(createClientDraft).toHaveBeenCalledTimes(1);
+      const draft = vi.mocked(createClientDraft).mock.calls[0]?.[0];
+      expect(draft).toEqual({
+        title: prompt,
+        description: prompt,
+        tags: [],
+        requestedQuoteQuantities: quantities,
+      });
+      expect(draft?.requestedByDate ?? null).toBeNull();
+      unmount();
+    });
   });
 });
