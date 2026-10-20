@@ -1110,6 +1110,35 @@ describe("classifySql: quoted punctuation and SQL-only trimming (OVD-878)", () =
   });
 });
 
+describe("sqlTokens and classifySql: inputs of any size (OVD-878)", () => {
+  // Spreading an array of about 100k items into push() overflows the call stack.
+  const body = "a ".repeat(150_000);
+
+  it.each([
+    ["a single-quoted string", `'${body}'`],
+    ["a dollar-quoted body", `$$${body}$$`],
+  ])("tokenizes %s of 150000 words without overflowing the stack", (_label, text) => {
+    const tokens = sqlTokens(text);
+    expect(tokens.words).toHaveLength(150_000);
+    expect(tokens.lines).toHaveLength(150_000);
+    expect(tokens.statement).toHaveLength(150_000);
+    expect(tokens.starts[0]).toBe(1);
+    expect(tokens.ends.at(-1)).toBe(1);
+  });
+
+  it("still finds a role switch after a 150000-word body", () => {
+    const result = classifySql(`do $$${body} set role postgres; $$;`, config, "supabase/migrations/x.sql");
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_set_role", sensitive: true }));
+  });
+
+  it("reports every hit of a file with 200000 of them", () => {
+    const result = classifySql("set role anon;\n".repeat(200_000), config, "supabase/migrations/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits.filter((hit) => hit.id === "auth_set_role")).toHaveLength(200_000);
+  });
+});
+
 describe("compileConfig: SQL exemptions (OVD-878)", () => {
   const withExemption = (change) => {
     const raw = structuredClone(rawConfig);
@@ -1214,6 +1243,38 @@ describe("detect", () => {
     expect(result.files.map((file) => file.classes)).toEqual([["schema", "migrations", "rls"], ["schema", "definer"], ["schema"]]);
     expect(result.files[0].reasons).toEqual(["schema:path:**/*.sql", "migrations:path:supabase/migrations/**", `rls:sql:rls_create_policy: ${rawConfig.sql_content.rules[0].reason}`]);
     expect(result.unclassified).toEqual([]);
+  });
+
+  it("reads head files one at a time, in file order", async () => {
+    let active = 0;
+    let peak = 0;
+    const order = [];
+    const slowRead = async (file) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      order.push(file);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return "select 1;";
+    };
+    const files = ["supabase/tests/a.sql", "docs/a.md", "supabase/tests/b.sql", "supabase/tests/c.sql"].map(modified);
+    const result = await detect({ files, readHeadFile: slowRead, config });
+    expect(result.status).toBe("ok");
+    expect(peak).toBe(1);
+    expect(order).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "supabase/tests/c.sql"]);
+  });
+
+  it("lists each file's error in file order and still classifies the files around it", async () => {
+    const files = [{ filename: "" }, modified("supabase/tests/a.sql"), null, modified("supabase/tests/b.sql"), modified("docs/a.md")];
+    const result = await detect({ files, readHeadFile: async (file) => { throw new Error(`no ${file}`); }, config });
+    expect(result.status).toBe("error");
+    expect(result.errors).toEqual([
+      'changed file 1: filename "" is not a non-empty path',
+      "could not read supabase/tests/a.sql at head: no supabase/tests/a.sql",
+      "changed file 3: is not an object",
+      "could not read supabase/tests/b.sql at head: no supabase/tests/b.sql",
+    ]);
+    expect(result.files.map((file) => file.path)).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "docs/a.md"]);
   });
 
   it("counts a sensitive old path of a rename", async () => {
