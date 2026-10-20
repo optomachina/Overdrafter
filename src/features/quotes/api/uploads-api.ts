@@ -272,7 +272,9 @@ export async function createJobsFromUploadFiles(input: {
       primaryServiceKind: requestIntake.primaryServiceKind,
       serviceNotes: requestIntake.serviceNotes,
       requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-      requestedByDate: requestIntake.requestedByDate,
+      // OVD-992: a need-by date parsed from the prompt is a display filter only. Saving it into
+      // jobs.requested_by_date copies it into the approved requirement, which every controlled
+      // dispatch denies. The prompt text itself is still kept as the description.
     });
 
     await uploadFilesToJob(jobId, group.files, { exportControlAnswer });

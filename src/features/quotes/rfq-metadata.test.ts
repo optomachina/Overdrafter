@@ -5,7 +5,12 @@ import {
   readRfqLineItemExtendedMetadata,
   sanitizeClientVisibleSpecSnapshot,
 } from "@/features/quotes/rfq-metadata";
-import type { ApprovedPartRequirement } from "@/features/quotes/types";
+import type {
+  ApprovedPartRequirement,
+  DrawingExtractionRecord,
+  PartAggregate,
+} from "@/features/quotes/types";
+import { buildRequirementDraft } from "@/features/quotes/utils";
 
 function makeRequirement(): ApprovedPartRequirement {
   return {
@@ -167,5 +172,74 @@ describe("rfq-metadata", () => {
       "ITAR",
       "Material cert",
     ]);
+  });
+
+  describe("part editor save with an unresolved drawing tolerance (OVD-984)", () => {
+    function partWithTolerances(tolerances: Record<string, unknown>): PartAggregate {
+      return {
+        id: "part-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        name: "widget-plate",
+        quantity: 3,
+        cadFile: null,
+        drawingFile: null,
+        approvedRequirement: null,
+        vendorQuotes: [],
+        extraction: {
+          id: "extract-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          status: "approved",
+          warnings: [],
+          confidence: 0.5,
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-03T00:00:00Z",
+          extraction: {
+            description: "Optic bracket",
+            material: { raw: "6061", normalized: "6061 aluminum" },
+            tolerances,
+          },
+        } as unknown as DrawingExtractionRecord,
+      } as unknown as PartAggregate;
+    }
+
+    it.each([
+      ["a mixed mm and inch drawing", "±0.1 mm, ±.3"],
+      ["a fraction", "±1/64"],
+      ["a bare decimal", "±.3"],
+    ])("opens and saves another field without sending a tolerance for %s", (_label, raw) => {
+      const draft = buildClientPartRequestUpdateInput(
+        "job-1",
+        buildRequirementDraft(partWithTolerances({ tightest: raw, valueInch: null, unit: "unknown" })),
+      );
+      const saved = { ...draft, notes: "Deburr all edges" };
+
+      expect(saved.notes).toBe("Deburr all edges");
+      expect(saved.tightestToleranceInch).toBeNull();
+    });
+
+    it("sends the tolerance the user entered", () => {
+      const draft = buildClientPartRequestUpdateInput(
+        "job-1",
+        buildRequirementDraft(
+          partWithTolerances({ tightest: "±1/64", valueInch: null, unit: "unknown" }),
+        ),
+      );
+      const saved = { ...draft, tightestToleranceInch: 0.01 };
+
+      expect(saved.tightestToleranceInch).toBe(0.01);
+    });
+
+    it("still sends a stored tolerance that carries unit in", () => {
+      const draft = buildClientPartRequestUpdateInput(
+        "job-1",
+        buildRequirementDraft(
+          partWithTolerances({ tightest: "±0.002 in", valueInch: 0.002, unit: "in" }),
+        ),
+      );
+
+      expect(draft.tightestToleranceInch).toBe(0.002);
+    });
   });
 });
