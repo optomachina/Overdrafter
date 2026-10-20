@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { Browser, Locator, Page, Request } from "@playwright/test";
+import { chromium, type Browser, type Locator, type Page, type Request } from "@playwright/test";
 import { test, expect } from "./test";
 
 // Authenticated lane only (no @fixture tag): these cases need the local stack
@@ -16,6 +16,7 @@ const SUPABASE_ORIGIN = new URL(process.env.VITE_SUPABASE_URL ?? "http://127.0.0
 const CLIENT_ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001";
 
 const SAMPLE_STEP = fixtureFile("../test-fixtures/quoted-sample/1093-05589-02.STEP");
+const SAMPLE_DRAWING = fixtureFile("../test-fixtures/quoted-sample/1093-05589-02.pdf");
 // Intake titles the draft with the file name; the part header splits it into part number and revision.
 const SAMPLE_JOB_TITLE = "1093-05589-02";
 const SAMPLE_PART_LABEL = /^1093-05589 rev 02$/i;
@@ -60,11 +61,17 @@ type ClientSession = {
   /** Counts the organization's jobs through PostgREST with the page's own session. */
   countJobs: () => Promise<number>;
   readJob: (jobId: string) => Promise<unknown>;
+  /** GETs a PostgREST path (table and query) with the page's own session and returns the JSON rows. */
+  rest: (pathAndQuery: string) => Promise<unknown>;
   close: () => Promise<void>;
 };
 
 /** Signs client.demo in through the auth dialog in a fresh browser context. */
-async function openClientSession(browser: Browser, baseURL: string | undefined): Promise<ClientSession> {
+async function openClientSession(
+  browser: Browser,
+  baseURL: string | undefined,
+  options: { meshModelOnPartPage?: boolean } = {},
+): Promise<ClientSession> {
   const context = await browser.newContext({ baseURL });
   // Meshing the quoted-sample model blocks a page's main thread for seconds (about 3.6 s per
   // copy on a 4-vCPU runner), and client.demo pages mesh every copy they show: the seeded parts
@@ -74,7 +81,13 @@ async function openClientSession(browser: Browser, baseURL: string | undefined):
   // browser CAD kernel on its own fixture.
   await context.route(
     (url) => url.origin === SUPABASE_ORIGIN && SAMPLE_MODEL_OBJECT.test(url.pathname),
-    (route) => (route.request().method() === "GET" ? route.abort() : route.continue()),
+    (route) => {
+      // The 3D-viewer case lets the part page (and only it) download the model so its canvas renders.
+      const onPartPage = PART_URL.test(route.request().frame().url());
+      return route.request().method() === "GET" && !(options.meshModelOnPartPage && onPartPage)
+        ? route.abort()
+        : route.continue();
+    },
   );
   const page = await context.newPage();
   const intakeCalls: string[] = [];
@@ -127,6 +140,7 @@ async function openClientSession(browser: Browser, baseURL: string | undefined):
       return (rows as unknown[]).length;
     },
     readJob: (jobId) => restGet(`jobs?select=id,title&id=eq.${jobId}`),
+    rest: restGet,
     close: () => context.close(),
   };
 }
@@ -220,6 +234,71 @@ test.describe("client STEP intake from the parts page", () => {
       expect(await session.readJob(jobId)).toEqual([{ id: jobId, title: SAMPLE_JOB_TITLE }]);
     } finally {
       await session.close();
+    }
+  });
+
+  test("a STEP and its drawing selected together become one part holding both files", async ({ baseURL }) => {
+    // The authenticated lane's browser has no guaranteed WebGL, so this case launches its own with the
+    // software renderer the fixture lane uses (playwright.config.ts) to make the 3D canvas render.
+    const browser = await chromium.launch({
+      channel: process.env.CI === "true" ? "chrome" : undefined,
+      args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+    });
+    const session = await openClientSession(browser, baseURL, { meshModelOnPartPage: true });
+
+    try {
+      const { page } = session;
+      const jobsBefore = await session.countJobs();
+      const partsBefore = (await session.rest(`parts?select=id&organization_id=eq.${CLIENT_ORGANIZATION_ID}`)) as unknown[];
+      const extractionRequested = page.waitForResponse((response) => rpcCalled(response.request()) === "api_request_extraction");
+
+      await intakeInput(page).setInputFiles([SAMPLE_STEP, SAMPLE_DRAWING]);
+      await answerNotExportControlled(page);
+      await expect(page).toHaveURL(PART_URL, { timeout: 60_000 });
+      const jobId = PART_URL.exec(page.url())![1];
+
+      // Raw rows, read back through PostgREST: one new job and one new part, with both files attached.
+      expect(await session.countJobs(), "the intake should add exactly one job").toBe(jobsBefore + 1);
+      const parts = (await session.rest(`parts?select=id,cad_file_id,drawing_file_id&job_id=eq.${jobId}`)) as Array<{
+        id: string;
+        cad_file_id: string | null;
+        drawing_file_id: string | null;
+      }>;
+      expect(parts, "the pair should land on a single part").toHaveLength(1);
+      expect(
+        await session.rest(`parts?select=id&organization_id=eq.${CLIENT_ORGANIZATION_ID}`),
+        "the organization should gain exactly one part",
+      ).toHaveLength(partsBefore.length + 1);
+      expect(parts[0].cad_file_id, "the part should reference its CAD file").toBeTruthy();
+      expect(parts[0].drawing_file_id, "the part should reference its drawing file").toBeTruthy();
+      expect(parts[0].drawing_file_id).not.toBe(parts[0].cad_file_id);
+
+      const files = (await session.rest(`job_files?select=id,original_name,file_kind&job_id=eq.${jobId}`)) as Array<{
+        id: string;
+        original_name: string;
+        file_kind: string;
+      }>;
+      expect(files.find((file) => file.id === parts[0].cad_file_id)).toMatchObject({
+        original_name: "1093-05589-02.STEP",
+        file_kind: "cad",
+      });
+      expect(files.find((file) => file.id === parts[0].drawing_file_id)).toMatchObject({
+        original_name: "1093-05589-02.pdf",
+        file_kind: "drawing",
+      });
+
+      // No worker runs here, so only the request for extraction is checked, not its result.
+      expect((await extractionRequested).ok(), "api_request_extraction should be accepted").toBe(true);
+      expect(session.intakeCalls()).toContain("api_request_extraction");
+
+      // Rendered UI: the 3D canvas for the STEP, then the PDF in the Drawing tab.
+      await expect(page.getByRole("heading", { level: 1, name: SAMPLE_PART_LABEL })).toBeVisible();
+      await expect(page.getByLabel("CAD preview for 1093-05589-02.STEP").locator("canvas")).toBeVisible({ timeout: 60_000 });
+      await page.getByRole("tab", { name: "Drawing" }).click();
+      await expect(page.getByTitle("1093-05589-02.pdf PDF preview")).toBeVisible();
+    } finally {
+      await session.close();
+      await browser.close();
     }
   });
 

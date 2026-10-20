@@ -574,6 +574,7 @@ export function validateProviderResult(
   if (
     containsCredentialMaterial(raw)
     || containsCredentialMaterial(result.notes)
+    || containsCredentialMaterial(result.providerNotes)
     || containsCredentialMaterial(result.dfmIssues)
     || containsCredentialMaterial(result.validityTerms)
   ) {

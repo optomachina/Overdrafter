@@ -61,6 +61,8 @@ outcome parent's ID for a new source PR.
 
 See `TEST_STRATEGY.md` for the policy and `docs/debugging-workflows.md` for the lane details.
 
+`bash scripts/preflight.sh test` locally skips three Docker-dependent OVD-417 validation cases when Docker is unavailable; CI always runs them (a non-empty `CI` or `GITHUB_ACTIONS` disables the skip).
+
 Use these defaults:
 
 - docs-only or repo-workflow documentation changes: verify the referenced commands, file paths, branch rules, and skill names still match the repo; rerun `./scripts/symphony-preflight.sh`; if the change touches PR workflow or validation scripts, run `npm run validate:pr-body` against passing and failing sample input; run broader app or worker verification only if the diff changes scripts, commands, or behavior
@@ -171,6 +173,12 @@ deployment, live verification, an external operation, or other post-merge work.
 The drafted merge queue for `main` (required checks, settings, re-run policy,
 rollback, and the rule that every required check triggers on `merge_group`)
 lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
-needs an organization-owned repo, so the runbook also drafts the applicable
-fallback (`strict: true` up to date checks). Neither is applied until Blaine
-approves it, and the `land` skill must be updated in the same change.
+needs an organization-owned repo, so it is not applied. The runbook also covers
+the applicable fallback, Option B (`strict: true` up to date checks), which
+Blaine approved on 2026-10-16 together with `enforce_admins`. Both are now in
+force (confirmed by a protection read-back on 2026-10-16), so an out-of-date PR
+cannot merge until it is brought current. The read-only command in the
+runbook's Status paragraph re-verifies the live settings. The `land` skill does
+not handle strict mode yet (tracked in OVD-889); until it does, bring an
+out-of-date PR current with `gh pr update-branch` and re-check it by hand
+before `gh pr merge --match-head-commit`.

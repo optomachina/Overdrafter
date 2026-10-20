@@ -19,7 +19,10 @@ export function summarizeExtractionOutcome(
     extraction.revision ? null : "revision",
     extraction.material.normalized || extraction.material.raw ? null : "material",
     extraction.finish.normalized || extraction.finish.raw ? null : "finish",
-    extraction.tightestTolerance.valueInch ?? extraction.tightestTolerance.raw ? null : "tightestToleranceInch",
+    extraction.tightestTolerance.valueInch !== null ||
+    (extraction.tightestTolerance.raw && extraction.tightestTolerance.unit !== "unknown")
+      ? null
+      : "tightestToleranceInch",
   ].filter((value): value is string => Boolean(value));
   const reviewFields = extraction.reviewFields.filter((field) => !missingFields.includes(field));
 
@@ -68,7 +71,17 @@ export function buildStoredExtractionPayload(
     tolerances: {
       general: extraction.generalTolerance.raw,
       tightest: extraction.tightestTolerance.raw,
-      valueInch: extraction.tightestTolerance.valueInch,
+      // A zero or non-finite value is never stored (it would read as tighter than any gate).
+      valueInch:
+        typeof extraction.tightestTolerance.valueInch === "number" &&
+        Number.isFinite(extraction.tightestTolerance.valueInch) &&
+        extraction.tightestTolerance.valueInch > 0
+          ? extraction.tightestTolerance.valueInch
+          : null,
+      // OVD-976: additive JSON keys. SQL reads only tolerances.valueInch and the client reads
+      // tightest/valueInch/confidence, so readers ignore these.
+      unit: extraction.tightestTolerance.unit ?? null,
+      drawingUnits: extraction.tightestTolerance.drawingUnits ?? null,
       confidence: extraction.tightestTolerance.confidence,
     },
     notes: extraction.notes,

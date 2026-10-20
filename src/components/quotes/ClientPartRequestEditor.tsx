@@ -1,5 +1,5 @@
 import { Loader2, RotateCcw, Upload } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,18 @@ type ClientPartRequestEditorProps = {
 
 function numberFieldValue(value: number | null | undefined): string {
   return value === null || value === undefined || Number.isNaN(value) ? "" : String(value);
+}
+
+const TOLERANCE_PATTERN = /^(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
+// Returns the typed tolerance as a positive finite number, or null when the text is empty or not a valid value.
+function parseToleranceText(text: string): number | null {
+  const trimmed = text.trim();
+  if (!TOLERANCE_PATTERN.test(trimmed)) {
+    return null;
+  }
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 type FieldDefaults = Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
@@ -102,6 +114,23 @@ export function ClientPartRequestEditor({
   fieldDefaults,
 }: ClientPartRequestEditorProps) {
   const materialRequired = true;
+  // The tolerance field keeps the typed text locally: round-tripping through the numeric draft would
+  // rewrite partial input ("0." -> "0", ".005" -> "") on every keystroke.
+  const [toleranceText, setToleranceText] = useState(() => numberFieldValue(draft.tightestToleranceInch));
+  const [seenTolerance, setSeenTolerance] = useState(draft.tightestToleranceInch ?? null);
+  const draftTolerance = draft.tightestToleranceInch ?? null;
+  if (draftTolerance !== seenTolerance) {
+    setSeenTolerance(draftTolerance);
+    if (parseToleranceText(toleranceText) !== draftTolerance) {
+      setToleranceText(numberFieldValue(draftTolerance));
+    }
+  }
+  const [toleranceTouched, setToleranceTouched] = useState(false);
+  const toleranceBlocked = toleranceText.trim().length > 0 && parseToleranceText(toleranceText) === null;
+  // All-zero prefixes ("0", "0.", "0.00") are normal steps towards "0.005": Save stays blocked but the
+  // error is held back until the field loses focus, so valid typing does not flash an assertive alert.
+  const toleranceIncomplete = /^\s*0*\.?0*\s*$/.test(toleranceText);
+  const toleranceInvalid = toleranceBlocked && (!toleranceIncomplete || toleranceTouched);
 
   return (
     <div className="min-w-0 space-y-4">
@@ -188,19 +217,27 @@ export function ClientPartRequestEditor({
           <div className="relative">
             <Input
               id="client-request-tolerance"
-              value={numberFieldValue(draft.tightestToleranceInch)}
-              onChange={(event) =>
-                onChange({
-                  tightestToleranceInch: event.target.value.trim()
-                    ? Number.parseFloat(event.target.value)
-                    : null,
-                })
-              }
+              value={toleranceText}
+              onChange={(event) => {
+                const text = event.target.value;
+                setToleranceText(text);
+                setToleranceTouched(false);
+                // Invalid text clears the draft number so it can never be saved as NaN or a guessed value.
+                onChange({ tightestToleranceInch: parseToleranceText(text) });
+              }}
+              onBlur={() => setToleranceTouched(true)}
               className="border-border bg-muted text-foreground"
+              aria-invalid={toleranceInvalid ? true : undefined}
+              aria-describedby={toleranceInvalid ? "client-request-tolerance-error" : undefined}
               inputMode="decimal"
             />
             <FieldResetButton field="tightestToleranceInch" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
+          {toleranceInvalid ? (
+            <p id="client-request-tolerance-error" role="alert" className="text-xs text-destructive">
+              Enter a positive number in inches, for example 0.005.
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-process">Process</Label>
@@ -308,7 +345,7 @@ export function ClientPartRequestEditor({
           type="button"
           className="rounded-full"
           onClick={onSave}
-          disabled={isSaving || (materialRequired && !draft.material.trim())}
+          disabled={isSaving || toleranceBlocked || (materialRequired && !draft.material.trim())}
         >
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save request details
