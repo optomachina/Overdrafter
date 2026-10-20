@@ -160,18 +160,14 @@ function parseArgs(argv) {
   return { ...args, workflow, job: args.job ?? args.check };
 }
 
-async function readPullPages(get, repo, state, count, mergedOnly) {
-  const selected = [];
+// Pages are read one at a time on purpose: whether another page is needed depends
+// on the rows already selected, so the reads cannot be issued in parallel.
+async function readPullPages(get, repo, state, count, mergedOnly, page = 1, selected = []) {
   const perPage = Math.min(count, 100);
-  let page = 1;
-  let done = false;
-  while (!done) {
-    const rows = await get(`repos/${repo}/pulls?state=${state}&sort=updated&direction=desc&per_page=${perPage}&page=${page}`);
-    selected.push(...rows.filter((pr) => !mergedOnly || pr.merged_at != null));
-    done = selected.length >= count || rows.length < perPage;
-    page += 1;
-  }
-  return selected.slice(0, count);
+  const rows = await get(`repos/${repo}/pulls?state=${state}&sort=updated&direction=desc&per_page=${perPage}&page=${page}`);
+  const next = selected.concat(rows.filter((pr) => !mergedOnly || pr.merged_at != null));
+  if (next.length >= count || rows.length < perPage) return next.slice(0, count);
+  return readPullPages(get, repo, state, count, mergedOnly, page + 1, next);
 }
 
 export async function main({ argv = process.argv.slice(2), runGh = runGhDefault, readFile = readFileSync, out = console.log, err = console.error } = {}) {

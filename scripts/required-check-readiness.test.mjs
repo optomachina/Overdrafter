@@ -60,6 +60,38 @@ describe("required check readiness", () => {
     expect(checks).toHaveLength(101);
     expect(output[0].history.covered).toBe(101);
   });
+  it("keeps paging merged PRs until enough merged rows are found, then trims to the count", async () => {
+    const closedPages = [];
+    const output = [];
+    const merged = (number, mergedAt) => ({ number, merged_at: mergedAt, head: { sha: `sha${number}` } });
+    const closed = { 1: [merged(1, null), merged(2, "t"), merged(3, null)], 2: [merged(4, "t"), merged(5, "t"), merged(6, "t")] };
+    const code = await main({ argv: ["--check", "proof-check", "--workflow", ".github/workflows/proof-check.yml", "--heads", "1", "--dry-run-merged", "3"],
+      readFile: () => workflow, out: (line) => output.push(JSON.parse(line)), runGh: (args) => {
+        if (args[1].includes("check-runs")) return { check_runs: [run] };
+        const url = new URL(`https://fixture.invalid/${args[1]}`);
+        if (url.searchParams.get("state") === "all") return [merged(9, null)];
+        closedPages.push(Number(url.searchParams.get("page")));
+        return closed[url.searchParams.get("page")] ?? [];
+      } });
+    expect(code).toBe(0);
+    expect(closedPages).toEqual([1, 2]);
+    expect(output[0].replay.total).toBe(3);
+  });
+  it("stops paging when a short page shows there is nothing more to read", async () => {
+    const closedPages = [];
+    const output = [];
+    const code = await main({ argv: ["--check", "proof-check", "--workflow", ".github/workflows/proof-check.yml", "--heads", "1", "--dry-run-merged", "5"],
+      readFile: () => workflow, out: (line) => output.push(JSON.parse(line)), runGh: (args) => {
+        if (args[1].includes("check-runs")) return { check_runs: [run] };
+        const url = new URL(`https://fixture.invalid/${args[1]}`);
+        if (url.searchParams.get("state") === "all") return [{ number: 9, head: { sha: "sha9" } }];
+        closedPages.push(Number(url.searchParams.get("page")));
+        return [{ number: 1, merged_at: "t", head: { sha: "sha1" } }];
+      } });
+    expect(code).toBe(0);
+    expect(closedPages).toEqual([1]);
+    expect(output[0].replay.total).toBe(1);
+  });
   it("requires exact name and app coverage, not a passing conclusion", () => {
     expect(history().ok).toBe(false);
     expect(history().missing).toEqual(heads);
