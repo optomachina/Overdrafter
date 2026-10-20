@@ -153,6 +153,22 @@ describe("api_auto_approve_job_requirements latest definition (OVD-979)", () => 
     );
   });
 
+  it("does not count a running drawing_attached task whose extraction is stored as pending (review r3)", () => {
+    // The worker calls this function before it marks its own task completed. The 'reason'
+    // comparison must be null-safe: with a plain '=' a task without a reason makes the whole
+    // 'not (...)' null, which would drop every running first-extraction task from the count too.
+    expect(latestSql).toMatch(
+      /into v_pending_extract_tasks\s+from public\.work_queue queue\s+where queue\.job_id = p_job_id\s+and queue\.task_type = 'extract_part'\s+and queue\.status in \('queued', 'running'\)\s+and not \(\s+queue\.status = 'running'\s+and queue\.payload ->> 'reason' is not distinct from 'drawing_attached'\s+and exists \(\s+select 1\s+from public\.drawing_extractions stored\s+where stored\.part_id = queue\.part_id\s+and stored\.extractor_version not like 'worker-sim-%'\s+\)\s+\);/,
+    );
+    expect(latestSql).not.toMatch(/and queue\.payload ->> 'reason' = 'drawing_attached'\s+and exists/);
+  });
+
+  it("does not count a failed extract_part task that a later task of the same part replaced (review r3)", () => {
+    expect(latestSql).toMatch(
+      /into v_failed_extract_tasks\s+from public\.work_queue queue\s+where queue\.job_id = p_job_id\s+and queue\.task_type = 'extract_part'\s+and queue\.status = 'failed'\s+and not exists \(\s+select 1\s+from public\.work_queue later\s+where later\.job_id = p_job_id\s+and later\.part_id = queue\.part_id\s+and later\.task_type = 'extract_part'\s+and later\.status in \('queued', 'running', 'completed'\)\s+and later\.created_at > queue\.created_at\s+\);/,
+    );
+  });
+
   it("never moves a job that is quoting or later when the extraction rollup runs", () => {
     const guard = "and status in ('uploaded', 'extracting', 'needs_spec_review', 'ready_to_quote');";
     expect(latestSql.split(guard).length - 1).toBe(3);

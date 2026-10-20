@@ -13,26 +13,35 @@
 -- supabase/tests/pending/ovd979_reextraction_provenance.sql.pending, so the
 -- policy-test runner and the ephemeral-db stage run it against the migrations.
 -- Observed on a local Supabase Postgres 17.11 holding the 153 migrations of main
--- (real schema, triggers and access helpers): with both rollbacks applied 25 of
--- 51 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, H1, V2,
--- M1, M2, RU0, RU2, RU3 and G1 fail: corrections overwritten, 0 tasks queued on
--- attach, stale editor defaults, placeholder material, tolerance filled, quoted
--- jobs moved to ready_to_quote, reuse keeping the CAD-only row); with the two
--- migrations applied 51 of 51 pass. Sections D, E and Q cover review r0 R1-R4;
+-- (real schema, triggers and access helpers): with both rollbacks applied 29 of
+-- 67 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
+-- F3, F4b, H1, V2, M1, M2, RU0, RU2, RU3, W1, W2, W3, W5, Z1, Z2, Z2b, Z3 and G1
+-- fail: corrections overwritten, 0 tasks queued on attach, stale editor
+-- defaults, placeholder material, tolerance filled, quoted jobs moved to
+-- ready_to_quote, reuse keeping the CAD-only row); with the two migrations
+-- applied 67 of 67 pass. Sections D, E and Q cover review r0 R1-R4;
 -- B5b, B8, B9, D-1 and the F, R, H, N jobs close the review r1 mutation gaps;
 -- A3b, B8, M, V, H1 (repeated auto-approval) and RU0-RU6 close review r2 (the
 -- reset after a save-while-pending, and the two Codex mediums: fieldSources
 -- provenance dropped on rewrite, trusted reuse keeping the CAD-only row).
+-- Review r3 (the two Codex mediums of fix round 2): the worker helper now runs in
+-- the worker's real order (see ovd979_worker_completes), and W1-W6, RU3b, F2-F4b
+-- and Z1-Z4 cover the job status after a drawing extraction and after a retry
+-- through api_request_extraction. On the revision 2 bytes of
+-- 20261020002126, B5b, F4, RU3b, W3, Z3 and Z4 fail (the job stays 'extracting'
+-- after the worker's run; the failure a retry replaced pins needs_spec_review).
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
 -- later than now(), which is what makes an extraction "newer" than the
--- requirement in api_auto_approve_job_requirements.
+-- requirement in api_auto_approve_job_requirements. For the same reason the
+-- tasks of a retried part are aged (ovd979_age_tasks) before each retry, as the
+-- minutes between a failure and its retry age them in production.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(51);
+select plan(67);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -111,9 +120,15 @@ create function pg_temp.ovd979_as_owner() returns void language sql as $$
     '{"sub":"00000000-0000-4000-8000-000000979011","role":"authenticated","aal":"aal1"}', true);
 $$;
 
--- Simulated worker completion: replace the extraction row with an explicit,
--- later updated_at (the touch trigger would otherwise stamp the constant now()),
--- complete the part's open extract_part tasks, then auto-approve.
+-- Simulated worker run, in the order handleExtractTask uses (worker/src/index.ts,
+-- both the extraction and the trusted-reuse path): the task is claimed
+-- ('running', as api_claim_next_task leaves it), the extraction row is replaced
+-- with an explicit, later updated_at (the touch trigger would otherwise stamp
+-- the constant now()), auto-approval runs while the task is STILL running, and
+-- only then is the task marked completed (markTaskCompleted). p_complete false
+-- stops before that last step so a test can read the state in between. An
+-- earlier version of this helper completed the task first, which hid that
+-- auto-approval counted the task it was called from.
 -- A CAD-only run (extractor_version 'worker-sim-%') reads no drawing, so it
 -- carries no material and no tolerance; a drawing run carries both (the
 -- tolerance is 0.1 in, the value a millimetre drawing gives before OVD-976).
@@ -122,10 +137,14 @@ $$;
 -- older than the requirement.
 create function pg_temp.ovd979_worker_completes(
   p_job uuid, p_part uuid, p_version text, p_tag text, p_minutes integer,
-  p_extra jsonb default '{}'::jsonb, p_drop text[] default '{}'::text[]
+  p_extra jsonb default '{}'::jsonb, p_drop text[] default '{}'::text[],
+  p_complete boolean default true
 )
 returns void language plpgsql as $$
 begin
+  update public.work_queue
+  set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+  where part_id = p_part and task_type = 'extract_part' and status = 'queued';
   delete from public.drawing_extractions where part_id = p_part;
   insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status, created_at, updated_at)
   values (p_part, '00000000-0000-4000-8000-000000979001', p_version,
@@ -142,10 +161,34 @@ begin
     'needs_review',
     timezone('utc', now()) + make_interval(mins => p_minutes),
     timezone('utc', now()) + make_interval(mins => p_minutes));
-  update public.work_queue set status = 'completed'
-  where part_id = p_part and task_type = 'extract_part' and status in ('queued', 'running');
   perform public.api_auto_approve_job_requirements(p_job);
+  if p_complete then
+    update public.work_queue set status = 'completed', locked_at = null, locked_by = null
+    where part_id = p_part and task_type = 'extract_part' and status = 'running';
+  end if;
 end;
+$$;
+
+-- The worker's failure path (markTaskFailed): the claimed task ends 'failed'.
+create function pg_temp.ovd979_worker_fails(p_part uuid) returns void language sql as $$
+  update public.work_queue
+  set status = 'failed', last_error = 'ovd979 simulated extraction failure', locked_at = null, locked_by = null
+  where part_id = p_part and task_type = 'extract_part' and status in ('queued', 'running');
+$$;
+
+-- One test transaction has one clock, so every task row it inserts shares one
+-- created_at. In production a retry is queued minutes after the failure it
+-- retries; this ages the part's existing tasks the same way before a retry.
+create function pg_temp.ovd979_age_tasks(p_part uuid) returns void language sql as $$
+  update public.work_queue set created_at = created_at - interval '10 minutes'
+  where part_id = p_part and task_type = 'extract_part';
+$$;
+
+-- The statuses of a part's drawing_attached extraction tasks, oldest first.
+create function pg_temp.ovd979_attach_statuses(p_part uuid) returns text[] language sql as $$
+  select coalesce(array_agg(status::text order by created_at), '{}'::text[])
+  from public.work_queue
+  where part_id = p_part and task_type = 'extract_part' and payload ->> 'reason' = 'drawing_attached';
 $$;
 
 -- ---------------------------------------------------------------- part a (3f)
@@ -182,6 +225,17 @@ select is(
    where part_id = '00000000-0000-4000-8000-0000009791a3'),
   0.1::numeric,
   'A5 a drawing uploaded with the part still fills a null tolerance (R3 applies only to an attach)'
+);
+
+-- Scope of the review r3 roll-up change: only a drawing_attached task is
+-- treated as finishing once its extraction is stored. The first extraction of a
+-- part keeps the status flow of main, even with a drawing extraction stored: its
+-- own running task is still pending when the worker calls auto-approval, so the
+-- job stays 'extracting'.
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009791a0'),
+  'extracting',
+  'W6 the first extraction of a part is not treated as finishing: its job keeps the status flow of main'
 );
 
 -- Reset-to-auto for description only (behavior of the reset RPC is unchanged).
@@ -242,6 +296,11 @@ select public.api_update_client_part_request(
   p_material => 'Aluminum 6061-T6', p_finish => 'USER FINISH'
 );
 reset role;
+
+-- The job has been rolled up to ready_to_quote when the drawing arrives (the
+-- worker's own CAD-only run leaves a job 'extracting', as on main, so the
+-- ready state is set here, as an earlier roll-up or an internal approval does).
+update public.jobs set status = 'ready_to_quote' where id = '00000000-0000-4000-8000-0000009791b0';
 
 insert into public.job_files (
   id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
@@ -631,25 +690,52 @@ from unnest(array['00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-80
                   '00000000-0000-4000-8000-0000009793d0']::uuid[]) job_id;
 reset role;
 
--- F: the drawing task fails; the next auto-approval run (any part of the job)
--- rolls the job up. Then the worker retries the task and it succeeds.
-update public.work_queue set status = 'failed'
-where part_id = '00000000-0000-4000-8000-0000009793a3' and task_type = 'extract_part' and status = 'queued';
+-- F: the drawing task fails (the worker claims it and marks it failed); the next
+-- auto-approval run (any part of the job) rolls the job up. The user then
+-- retries through api_request_extraction, which queues a NEW task and keeps the
+-- failed row as the record (it does not requeue the failed row), and the retry
+-- succeeds.
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-0000009793a3');
 select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009793a0');
 select is(
   (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793a0'),
   'needs_spec_review',
   'F1 (R4) a failed drawing task rolls a pre-quote job up to needs_spec_review'
 );
-update public.work_queue set status = 'queued'
-where part_id = '00000000-0000-4000-8000-0000009793a3' and task_type = 'extract_part' and status = 'failed';
+
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-0000009793a3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-0000009793a0'), 1,
+  'F2 retrying a failed drawing task through api_request_extraction queues a new task'
+);
+reset role;
+select is(
+  pg_temp.ovd979_attach_statuses('00000000-0000-4000-8000-0000009793a3'),
+  array['failed', 'queued'],
+  'F2b the failed task is kept next to the retry, not requeued'
+);
+
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009793a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793a0'),
+  'extracting',
+  'F3 (Codex 2) while the retry is queued the job is extracting: the failure it replaces no longer counts, the retry does'
+);
+
 select pg_temp.ovd979_worker_completes(
   '00000000-0000-4000-8000-0000009793a0', '00000000-0000-4000-8000-0000009793a3', 'worker-pdf-v3', 'dwg', 3
 );
 select is(
   (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009793a0'),
   'ready_to_quote',
-  'F2 (R4) a job in needs_spec_review is rolled up to ready_to_quote once the retry succeeds'
+  'F4 (R4, Codex 2) a successful retry rolls the job up to ready_to_quote although the failed task is kept'
+);
+select is(
+  pg_temp.ovd979_attach_statuses('00000000-0000-4000-8000-0000009793a3'),
+  array['failed', 'completed'],
+  'F4b the failed task is still on record after the retry succeeded'
 );
 
 -- R: the task completes but the extraction row stays CAD-only.
@@ -888,9 +974,13 @@ select is(
 );
 reset role;
 
--- The worker's reuse path, as handleExtractTask runs it: resolve the intake,
--- reuse the source version's artifacts, complete the task, auto-approve.
+-- The worker's reuse path, as handleExtractTask runs it: claim the task, resolve
+-- the intake, reuse the source version's artifacts, auto-approve while the task
+-- is still running, then mark it completed.
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-0000009795b3' and task_type = 'extract_part' and status = 'queued';
 select is(
   (select array[
       public.api_resolve_trusted_part_intake('00000000-0000-4000-8000-0000009795b3') ->> 'result',
@@ -909,11 +999,6 @@ select public.api_reuse_trusted_part_version_artifacts(
   '00000000-0000-4000-8000-0000009795e3', '00000000-0000-4000-8000-0000009795d3',
   (select part_version_id from public.parts where id = '00000000-0000-4000-8000-0000009795e3')
 );
-update public.work_queue
-set status = 'completed',
-    payload = payload || jsonb_build_object(
-      'reusedCanonicalPartVersion', true, 'sourcePartId', '00000000-0000-4000-8000-0000009795a3')
-where part_id = '00000000-0000-4000-8000-0000009795b3' and task_type = 'extract_part' and status in ('queued', 'running');
 
 select is(
   (select array[extractor_version, extraction ->> 'description']
@@ -938,6 +1023,19 @@ select is(
   'RU3 auto-approval after the reuse fills the auto fields from the drawing extraction'
 );
 
+-- The reuse path calls auto-approval before the task is completed, like the
+-- extraction path (Codex 1): the job is rolled up while the task still runs.
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009795b0'),
+  'ready_to_quote',
+  'RU3b (Codex 1) the job is rolled up to ready_to_quote by the auto-approval that runs before the reuse task is completed'
+);
+update public.work_queue
+set status = 'completed', locked_at = null, locked_by = null,
+    payload = payload || jsonb_build_object(
+      'reusedCanonicalPartVersion', true, 'sourcePartId', '00000000-0000-4000-8000-0000009795a3')
+where part_id = '00000000-0000-4000-8000-0000009795b3' and task_type = 'extract_part' and status = 'running';
+
 set local role authenticated;
 select pg_temp.ovd979_as_owner();
 select is(
@@ -958,6 +1056,199 @@ select is(
    from public.drawing_extractions where part_id = '00000000-0000-4000-8000-0000009795e3'),
   array['worker-sim-v1', 'cad-only'],
   'RU6 reuse leaves the CAD-only extraction of a part that has no drawing alone'
+);
+
+-- ---------------------------------------------------------------- review r3: Codex 1 (job W) and Codex 2 (job Z)
+-- W: a part extracted CAD-only on a job that is ready_to_quote, then a drawing
+--    is attached. The roll-up is read at each step of the worker's run, in the
+--    worker's order: queued, running with the extraction still CAD-only, running
+--    with the drawing extraction stored (auto-approval is called here), and
+--    completed.
+-- Z: the same setup, then the drawing task fails and the user retries through
+--    api_request_extraction three times: the retry is cancelled, fails again,
+--    and succeeds. The job has a second part whose own extraction completes
+--    after the first failure: another part's later task must not hide it.
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 W', 'uploaded'),
+  ('00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 Z', 'uploaded');
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.step', 'ovd979-bracket', 'cad'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009796a1'::uuid, '00000000-0000-4000-8000-0000009796a0'::uuid),
+  ('00000000-0000-4000-8000-0000009797a1'::uuid, '00000000-0000-4000-8000-0000009797a0'::uuid)
+) as file(id, job_id);
+-- Z's second part: its own CAD file, never given a drawing.
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+) values (
+  '00000000-0000-4000-8000-0000009797b1', '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-000000979001',
+  '00000000-0000-4000-8000-000000979011', 'job-files', 'org/ovd979/second.step', 'second.step', 'ovd979-second', 'cad'
+);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-0000009796a3', '00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009796a1', null),
+  ('00000000-0000-4000-8000-0000009797a3', '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-0000009797a1', null),
+  ('00000000-0000-4000-8000-0000009797b3', '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-second', 'ovd979-second', '00000000-0000-4000-8000-0000009797b1', null);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-0000009797a0']::uuid[]) job_id;
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-0000009796a3', 'worker-sim-v1', 'cad', 1
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-0000009797a3', 'worker-sim-v1', 'cad', 1
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-0000009797b3', 'worker-sim-v1', 'cad2', 1
+);
+-- Ready to quote when the drawing arrives (see job B).
+update public.jobs set status = 'ready_to_quote'
+where id in ('00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-0000009797a0');
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, 'bracket.pdf', 'ovd979-bracket', 'drawing'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-0000009796a2'::uuid, '00000000-0000-4000-8000-0000009796a0'::uuid),
+  ('00000000-0000-4000-8000-0000009797a2'::uuid, '00000000-0000-4000-8000-0000009797a0'::uuid)
+) as file(id, job_id);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-0000009797a0']::uuid[]) job_id;
+reset role;
+
+-- W: the drawing task is queued.
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009796a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009796a0'),
+  'extracting',
+  'W1 a queued drawing task still counts as pending'
+);
+
+-- The worker claims it. Its extraction is still the CAD-only row, and another
+-- part's run (or the same job's) calls auto-approval in the meantime.
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-0000009796a3' and task_type = 'extract_part' and status = 'queued';
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009796a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009796a0'),
+  'extracting',
+  'W2 a running drawing task whose extraction is still the CAD-only row still counts as pending'
+);
+
+-- The worker stores the drawing extraction and calls auto-approval; the task is
+-- not completed yet.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009796a0', '00000000-0000-4000-8000-0000009796a3', 'worker-pdf-v3', 'dwg', 3,
+  '{}'::jsonb, '{}'::text[], false
+);
+select is(
+  array[(select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009796a0'),
+        (select status::text from public.work_queue
+         where part_id = '00000000-0000-4000-8000-0000009796a3' and payload ->> 'reason' = 'drawing_attached')],
+  array['ready_to_quote', 'running'],
+  'W3 (Codex 1) the drawing task the worker is finishing no longer keeps the job extracting'
+);
+
+update public.work_queue set status = 'completed', locked_at = null, locked_by = null
+where part_id = '00000000-0000-4000-8000-0000009796a3' and task_type = 'extract_part' and status = 'running';
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009796a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009796a0'),
+  'ready_to_quote',
+  'W4 the job is still ready_to_quote after the task is completed and a later auto-approval ran'
+);
+
+-- The worker crashes after storing the extraction and the task is requeued: it
+-- is queued again, so the job is extracting until it runs.
+update public.work_queue set status = 'queued'
+where part_id = '00000000-0000-4000-8000-0000009796a3' and task_type = 'extract_part' and payload ->> 'reason' = 'drawing_attached';
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009796a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009796a0'),
+  'extracting',
+  'W5 a queued drawing task counts as pending even though its extraction is already stored'
+);
+
+-- Z: the drawing task fails.
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-0000009797a3');
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-0000009797a3');
+-- Retry 1 is queued, then cancelled: a cancelled task does not hide the failure.
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-0000009797a0');
+reset role;
+update public.work_queue set status = 'cancelled'
+where part_id = '00000000-0000-4000-8000-0000009797a3' and task_type = 'extract_part' and status = 'queued';
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009797a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009797a0'),
+  'needs_spec_review',
+  'Z1 (Codex 2) a failure followed only by a cancelled retry, and by another part''s later task, still counts'
+);
+
+-- Retry 2 fails too: a failed retry does not hide the failure either.
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-0000009797a3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-0000009797a0');
+reset role;
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-0000009797a3');
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009797a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009797a0'),
+  'needs_spec_review',
+  'Z2 (Codex 2) a failed retry leaves the job in needs_spec_review'
+);
+select is(
+  (select max((payload ->> 'failedExtractTasks')::integer) from public.audit_events
+   where job_id = '00000000-0000-4000-8000-0000009797a0' and event_type = 'job.requirements_auto_approved'),
+  2,
+  'Z2b both failed tasks are counted: a failure replaced only by another failure is not hidden'
+);
+
+-- Retry 3 succeeds, under the worker's order: one later success replaces every
+-- earlier failure, and all four tasks stay on record.
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-0000009797a3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-0000009797a0');
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-0000009797a0', '00000000-0000-4000-8000-0000009797a3', 'worker-pdf-v3', 'dwg', 3
+);
+select is(
+  array[(select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009797a0')]
+    || pg_temp.ovd979_attach_statuses('00000000-0000-4000-8000-0000009797a3'),
+  array['ready_to_quote', 'failed', 'cancelled', 'failed', 'completed'],
+  'Z3 (Codex 2) a successful retry rolls the job up to ready_to_quote although the earlier failures are kept'
+);
+-- Another part's extraction runs auto-approval later, with the retry completed.
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-0000009797a0');
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-0000009797a0'),
+  'ready_to_quote',
+  'Z4 (Codex 2) a later auto-approval run keeps ready_to_quote: the completed retry still replaces the failures'
 );
 
 -- ---------------------------------------------------------------- attributes and grants

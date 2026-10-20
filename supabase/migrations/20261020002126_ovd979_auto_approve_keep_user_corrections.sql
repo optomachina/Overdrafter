@@ -46,6 +46,22 @@
 --      keys other than the four rebuilt ones (a fieldSources.material = 'user'
 --      is what keeps the 'Unknown material' placeholder from being replaced on
 --      every later run).
+--   8. Review r3 (Codex 1), rollup: the worker runs this function while its own
+--      extract_part task is still 'running' and marks the task completed only
+--      afterwards (both paths in worker/src/index.ts), so that task kept the
+--      job 'extracting' for good. A running drawing_attached task whose part
+--      already holds a stored extraction that is not CAD-only (extractor_version
+--      not like 'worker-sim-%') is finishing and no longer counts as pending.
+--      A queued task, a running task of a never-extracted part (its status flow
+--      is unchanged from main) and a running attach task that has not stored
+--      its extraction yet still count.
+--   9. Review r3 (Codex 2), rollup: a failed extract_part task no longer counts
+--      once a later extract_part task of the same part (by created_at) is
+--      queued, running or completed. api_request_extraction retries a failure by
+--      inserting a new task and keeping the failed row as the record, which
+--      otherwise pinned the job to needs_spec_review after the retry succeeded.
+--      A failure with no later task, and a failure followed only by failed or
+--      cancelled tasks, still counts.
 -- Body otherwise verbatim from 20260317013000 (generated and diffed by
 -- gen-draft-a.mjs in the OVD-979 harness). Not changed: quantities, vendors,
 -- audit event, return value, and the values written for the four legacy
@@ -568,19 +584,45 @@ begin
     v_count := v_count + 1;
   end loop;
 
+  -- OVD-979 (review r3): the worker calls this function before it marks its own
+  -- task completed, so a running drawing_attached task whose extraction is
+  -- already stored (written by the worker, or copied by the trusted reuse) is
+  -- finishing, not pending. Anything else queued or running still is.
   select count(*)::integer
   into v_pending_extract_tasks
   from public.work_queue queue
   where queue.job_id = p_job_id
     and queue.task_type = 'extract_part'
-    and queue.status in ('queued', 'running');
+    and queue.status in ('queued', 'running')
+    and not (
+      queue.status = 'running'
+      and queue.payload ->> 'reason' is not distinct from 'drawing_attached'
+      and exists (
+        select 1
+        from public.drawing_extractions stored
+        where stored.part_id = queue.part_id
+          and stored.extractor_version not like 'worker-sim-%'
+      )
+    );
 
+  -- OVD-979 (review r3): a failure that a later task of the same part replaced
+  -- (api_request_extraction queues a new task and keeps the failed row) is
+  -- history, not a current failure.
   select count(*)::integer
   into v_failed_extract_tasks
   from public.work_queue queue
   where queue.job_id = p_job_id
     and queue.task_type = 'extract_part'
-    and queue.status = 'failed';
+    and queue.status = 'failed'
+    and not exists (
+      select 1
+      from public.work_queue later
+      where later.job_id = p_job_id
+        and later.part_id = queue.part_id
+        and later.task_type = 'extract_part'
+        and later.status in ('queued', 'running', 'completed')
+        and later.created_at > queue.created_at
+    );
 
   select count(*)::integer
   into v_unapproved_parts
