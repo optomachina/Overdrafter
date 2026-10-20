@@ -351,53 +351,119 @@ export function sqlWords(text, depth = 0) {
   const sql = String(text);
   const words = [];
   let index = 0;
-  while (index < sql.length) {
-    const char = sql[index];
-    const next = sql[index + 1];
-    if (char === "-" && next === "-") {
-      // Postgres ends a line comment at CR as well as LF.
-      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
-      index += 1;
-    } else if (char === "/" && next === "*") {
-      let level = 1;
-      index += 2;
-      while (index < sql.length && level > 0) {
-        if (sql[index] === "/" && sql[index + 1] === "*") (level += 1), (index += 2);
-        else if (sql[index] === "*" && sql[index + 1] === "/") (level -= 1), (index += 2);
-        else index += 1;
-      }
-    } else if (char === "'" || char === '"') {
-      const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop();
-      index += 1;
-      let body = "";
-      while (index < sql.length) {
-        // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
-        if (backslash && sql[index] === "\\") (body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2)), (index += 2);
-        else if (sql[index] === char && sql[index + 1] === char) (body += char), (index += 2);
-        else if (sql[index] === char) {
-          index += 1;
-          break;
-        } else (body += sql[index]), (index += 1);
-      }
-      if (char === "'") words.push(...sqlBodyWords(body, depth));
-      else if (body !== "") words.push(body.toLowerCase());
-    } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
-      const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
-      const bodyStart = index + tag.length;
-      const close = sql.indexOf(tag, bodyStart);
-      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
-      index = close === -1 ? sql.length : close + tag.length;
-    } else if (/[A-Za-z_]/.test(char)) {
-      const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      words.push(match[0].toLowerCase());
-      index += match[0].length;
+  while (index < sql.length) index = scanToken(sql, index, depth, words);
+  return words;
+}
+
+// Appends one token (or skips a comment) at sql[index] and returns where the
+// scan continues.
+function scanToken(sql, index, depth, words) {
+  const char = sql[index];
+  const next = sql[index + 1];
+  if (char === "-" && next === "-") return skipLineComment(sql, index);
+  if (char === "/" && next === "*") return skipBlockComment(sql, index);
+  if (char === "'" || char === '"') return scanQuoted(sql, index, depth, words);
+  const dollar = readDollarQuoted(sql, index);
+  if (dollar) {
+    appendAll(words, sqlBodyWords(dollar.body, depth));
+    return dollar.end;
+  }
+  if (/[A-Za-z_]/.test(char)) {
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256))[0];
+    words.push(word.toLowerCase());
+    return index + word.length;
+  }
+  if (!/\s/.test(char)) words.push(char);
+  return index + 1;
+}
+
+// Not target.push(...items): spreading a body of more than about 100k words
+// overflows the call stack, which made detect() report a read error.
+function appendAll(target, items) {
+  for (const item of items) target.push(item);
+}
+
+// Postgres ends a line comment at CR as well as LF.
+function skipLineComment(sql, index) {
+  let at = index;
+  while (at < sql.length && sql[at] !== "\n" && sql[at] !== "\r") at += 1;
+  return at + 1;
+}
+
+// Block comments nest.
+function skipBlockComment(sql, index) {
+  let level = 1;
+  let at = index + 2;
+  while (at < sql.length && level > 0) {
+    const pair = sql.slice(at, at + 2);
+    if (pair === "/*") {
+      level += 1;
+      at += 2;
+    } else if (pair === "*/") {
+      level -= 1;
+      at += 2;
+    } else at += 1;
+  }
+  return at;
+}
+
+// E'...' (a letter E directly before the quote, not the tail of a longer word)
+// reads backslash escapes.
+function isEscapeString(sql, index) {
+  return /e/i.test(sql[index - 1] ?? "") && !/\w/.test(sql[index - 2] ?? "");
+}
+
+// A letter escape (\n, \t, \x41) separates words; any other escape is the character.
+function backslashEscape(escaped) {
+  return /[A-Za-z]/.test(escaped) ? " " : escaped;
+}
+
+// Reads the quoted string or identifier opened at sql[index]; a doubled quote
+// is a literal quote. An unterminated quote runs to the end of the text.
+function readQuoted(sql, index, quote, escapes) {
+  let body = "";
+  let at = index + 1;
+  while (at < sql.length) {
+    const current = sql[at];
+    const following = sql.slice(at + 1, at + 2);
+    if (escapes && current === "\\") {
+      body += backslashEscape(following);
+      at += 2;
+    } else if (current === quote && following === quote) {
+      body += quote;
+      at += 2;
+    } else if (current === quote) {
+      return { body, end: at + 1 };
     } else {
-      if (!/\s/.test(char)) words.push(char);
-      index += 1;
+      body += current;
+      at += 1;
     }
   }
-  return words;
+  return { body, end: at };
+}
+
+// A single-quoted string is SQL again; a double-quoted name is one word.
+function scanQuoted(sql, index, depth, words) {
+  const quote = sql[index];
+  const escapes = quote === "'" && isEscapeString(sql, index);
+  // The E of E'...' was read as a word before the quote.
+  if (escapes && words.at(-1) === "e") words.pop();
+  const { body, end } = readQuoted(sql, index, quote, escapes);
+  if (quote === "'") appendAll(words, sqlBodyWords(body, depth));
+  else if (body !== "") words.push(body.toLowerCase());
+  return end;
+}
+
+// A dollar-quoted body ($$...$$, $tag$...$tag$) starting at sql[index], or
+// null. An unterminated body runs to the end of the text.
+function readDollarQuoted(sql, index) {
+  if (sql[index] !== "$" || /\w/.test(sql[index - 1] ?? "")) return null;
+  const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))?.[0];
+  if (!tag) return null;
+  const bodyStart = index + tag.length;
+  const close = sql.indexOf(tag, bodyStart);
+  if (close === -1) return { body: sql.slice(bodyStart), end: sql.length };
+  return { body: sql.slice(bodyStart, close), end: close + tag.length };
 }
 
 function sqlBodyWords(body, depth) {

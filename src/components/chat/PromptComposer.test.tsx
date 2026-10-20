@@ -641,3 +641,70 @@ describe("PromptComposer staged-file content dedupe", () => {
     expect(stagedChips("bracket.step")).toHaveLength(2);
   });
 });
+
+describe("PromptComposer drawing pairing notice", () => {
+  beforeEach(() => {
+    mockToastError.mockReset();
+    mockAccess.status = "eligible";
+    mockAccess.canUpload = true;
+    mockAccess.refetch.mockReset().mockImplementation(async () => ({
+      data: { state: mockAccess.status },
+      isError: false,
+    }));
+  });
+
+  function pdf(name: string) {
+    return withReadableBytes(new File(["%PDF"], name, { type: "application/pdf" }), "%PDF");
+  }
+
+  it("shows the notice for a staged drawing with no matching part and still submits", async () => {
+    const { fileInput, onSubmit } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("PN.step"), pdf("PN Rev 02.pdf")] } });
+    await settle();
+
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("PN Rev 02.pdf");
+    expect(notice).toHaveTextContent("PN.step");
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    await settle();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0].files).toHaveLength(2);
+  });
+
+  it("hides the notice when the staged part and drawing names match ignoring punctuation", async () => {
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("My Part_01.step"), pdf("my-part-01.pdf")] } });
+    await settle();
+
+    expect(stagedChips("My Part_01.step")).toHaveLength(1);
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("clears the notice when the unpaired drawing is removed", async () => {
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("PN.step"), pdf("PN Rev 02.pdf")] } });
+    await settle();
+    expect(screen.getByRole("status")).not.toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove PN Rev 02.pdf" }));
+
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("keeps one status container while the notice appears and clears", async () => {
+    const { fileInput } = renderComposerWith();
+    const container = screen.getByRole("status");
+    expect(container).toBeEmptyDOMElement();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("PN.step"), pdf("PN Rev 02.pdf")] } });
+    await settle();
+
+    expect(screen.getByRole("status")).toBe(container);
+    expect(container).toHaveTextContent("PN Rev 02.pdf");
+  });
+});

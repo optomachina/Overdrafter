@@ -8,8 +8,23 @@ import ClientHome from "./ClientHome";
 import ClientPart from "./ClientPart";
 import ClientProject from "./ClientProject";
 
-const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUseClientJobFilePicker, api, toastMock } =
+const {
+  mockUseAppSession,
+  mockOpenFilePicker,
+  mockHandleFileInputChange,
+  mockUseClientJobFilePicker,
+  mockQuoteAccess,
+  api,
+  toastMock,
+} =
   vi.hoisted(() => ({
+    // Mirrors useQuoteAccess: "unknown" while loading, refetching or errored.
+    mockQuoteAccess: {
+      automaticEnabled: false,
+      state: "blocked" as "eligible" | "blocked" | "unknown",
+      isLoading: false,
+      refresh: vi.fn(),
+    },
     mockUseAppSession: vi.fn(),
     mockOpenFilePicker: vi.fn(),
     mockHandleFileInputChange: vi.fn(),
@@ -74,6 +89,10 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
+}));
+// The part page reads quote access to decide whether the Need by filter writes the request.
+vi.mock("@/features/quotes/quote-access", () => ({
+  useQuoteAccess: () => mockQuoteAccess,
 }));
 
 vi.mock("@/features/quotes/api", () => api);
@@ -399,6 +418,9 @@ function renderWithClient(component: React.ReactNode, initialEntry = "/") {
 
 describe("top-level create actions", () => {
   beforeEach(() => {
+    mockQuoteAccess.automaticEnabled = false;
+    mockQuoteAccess.state = "blocked";
+    mockQuoteAccess.isLoading = false;
     const localStorageState = new Map<string, string>();
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -660,7 +682,27 @@ describe("top-level create actions", () => {
   });
 
 
-  it("shows the current part header actions and saves a need by date", async () => {
+  it("keeps the need by date view only while quote access cannot be verified (OVD-991)", async () => {
+    mockQuoteAccess.state = "unknown";
+    api.updateClientPartRequest.mockResolvedValue("job-1");
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId" element={<ClientPart />} />
+      </Routes>,
+      "/parts/job-1",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /more part actions/i })).not.toBeNull();
+    });
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-22"));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+  });
+
+  it("shows the current part header actions and saves a need by date once access is known to be blocked", async () => {
     api.updateClientPartRequest.mockResolvedValue("job-1");
 
     renderWithClient(

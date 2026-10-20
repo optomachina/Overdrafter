@@ -49,6 +49,10 @@ export type ParsedRequestIntake = {
   primaryServiceKind: string | null;
   serviceNotes: string | null;
   requestedQuoteQuantities: number[];
+  /**
+   * OVD-992: parsed for display only. Do not save it into a draft: a saved date is copied into the
+   * approved requirement, and every controlled dispatch denies a request that carries one.
+   */
   requestedByDate: string | null;
 };
 
