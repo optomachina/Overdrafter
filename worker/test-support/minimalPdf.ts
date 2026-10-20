@@ -19,7 +19,7 @@ export type MinimalPdfOptions = {
 };
 
 function escapeText(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  return text.replaceAll("\\", String.raw`\\`).replaceAll("(", String.raw`\(`).replaceAll(")", String.raw`\)`);
 }
 
 /** The bytes of the PDF. Text is WinAnsi (Latin-1 for the characters used here: the diameter and plus-minus signs). */
@@ -108,8 +108,8 @@ const VIEWS: PdfTextItem[] = [
  * DWG. NO. and REV cells (24 pt values under 6 pt labels) at the right. Placeholder values only.
  */
 export function syntheticSheet(options: SyntheticSheetOptions = {}): PdfTextItem[] {
-  const material = options.material === undefined ? "AL 6061-T6" : options.material;
-  const finish = options.finish === undefined ? "AS MACHINED" : options.finish;
+  // A default applies to a missing option only: null is a cell left empty on purpose.
+  const { material = "AL 6061-T6", finish = "AS MACHINED" } = options;
   const items: PdfTextItem[] = [
     ...VIEWS,
     { x: 500, y: 640, size: 7, text: "UNLESS OTHERWISE SPECIFIED:" },

@@ -282,7 +282,7 @@ describe("title block from word boxes", () => {
     it("returns no geometry for a page with more words than it will read", () => {
       const one = '<word xMin="1" yMin="2" xMax="3" yMax="4">x</word>';
       const page = (count: number) => `<html><body><doc><page>${one.repeat(count)}</page></doc></body></html>`;
-      expect(parseBboxWords(page(MAX_WORDS_PER_PAGE)).length).toBe(MAX_WORDS_PER_PAGE);
+      expect(parseBboxWords(page(MAX_WORDS_PER_PAGE))).toHaveLength(MAX_WORDS_PER_PAGE);
       expect(parseBboxWords(page(MAX_WORDS_PER_PAGE + 1))).toEqual([]);
     });
   });

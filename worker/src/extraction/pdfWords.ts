@@ -58,7 +58,7 @@ const CELL_GAP_IN_HEIGHTS = 0.6;
 const SAME_LINE_SHARE = 0.4;
 
 const WORD_PATTERN = /<word xMin="([^"]+)" yMin="([^"]+)" xMax="([^"]+)" yMax="([^"]+)">([^<]*)<\/word>/g;
-const ENTITY_PATTERN = /&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi;
+const ENTITY_PATTERN = /&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi;
 const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
 function decodeEntities(text: string) {
@@ -83,7 +83,7 @@ export function parseBboxWords(markup: string): PdfWord[] {
     if (words.length >= MAX_WORDS_PER_PAGE) {
       return [];
     }
-    const [xMin, yMin, xMax, yMax] = [match[1], match[2], match[3], match[4]].map((value) => Number(value));
+    const [xMin, yMin, xMax, yMax] = [match[1], match[2], match[3], match[4]].map(Number);
     const text = decodeEntities(match[5] ?? "").trim();
     if (text === "" || ![xMin, yMin, xMax, yMax].every((value) => Number.isFinite(value)) || xMax < xMin || yMax < yMin) {
       continue;
@@ -107,7 +107,7 @@ export function buildWordLines(words: readonly PdfWord[], page: number): TitleBl
   for (const word of ordered) {
     const centre = (word.yMin + word.yMax) / 2;
     const height = Math.max(word.yMax - word.yMin, 1);
-    const current = clusters[clusters.length - 1];
+    const current = clusters.at(-1);
     if (current !== undefined && Math.abs(centre - current.centre) <= SAME_LINE_SHARE * Math.min(height, current.height)) {
       const count = current.words.length;
       current.centre = (current.centre * count + centre) / (count + 1);

@@ -77,9 +77,8 @@ function drawingNumberColumn(value: string) {
 export function titleBlockTemplateSheet(options: TitleBlockTemplateOptions = {}): string {
   const drawingNumber = options.drawingNumber ?? TEMPLATE_DEFAULTS.drawingNumber;
   const revision = options.revision ?? TEMPLATE_DEFAULTS.revision;
-  const material = options.material === undefined ? TEMPLATE_DEFAULTS.material : options.material;
-  const finish = options.finish === undefined ? TEMPLATE_DEFAULTS.finish : options.finish;
-  const units = options.units === undefined ? "DIMENSIONS ARE IN INCHES" : options.units;
+  // A default applies to a missing option only: null is a cell left empty on purpose.
+  const { material = TEMPLATE_DEFAULTS.material, finish = TEMPLATE_DEFAULTS.finish, units = "DIMENSIONS ARE IN INCHES" } = options;
   const dimensions = DIMENSION_ROWS[options.dimensions ?? "two_and_three_places"];
   const fourPlaceRow = options.fourPlaceRow ?? true;
   const inspectionNotes = options.inspectionNotes ?? true;

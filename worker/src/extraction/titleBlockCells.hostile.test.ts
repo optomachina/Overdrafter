@@ -126,7 +126,7 @@ describe("the work is linear in the length of a line", { timeout: 60_000 }, () =
   it("reads a token that holds many labels as fast as one that holds none (the digit rule is linear)", () => {
     const hostile = page(`REV  (${"PN.".repeat(700)}`.slice(0, 2_000), 399);
     const plain = page(`REV  (${"xyz".repeat(700)}`.slice(0, 2_000), 399);
-    expect(hostile.split("\n")[0]!.length).toBe(2_000);
+    expect(hostile.split("\n")[0]!).toHaveLength(2_000);
     const { first: hostileMs, second: plainMs } = fastestOfPair(() => read(hostile), () => read(plain));
     expect(hostileMs).toBeLessThan(35 * plainMs + 40);
     expect(hostileMs).toBeLessThan(2_000);

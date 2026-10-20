@@ -526,9 +526,9 @@ const PLUS_MINUS_VALUE = /(?:±|∓|\+[ \t]*\/[ \t]*[-−–]|\+[-−])\s*(\d+(?
 const DECIMAL_PLACE_PHRASE = /\b(TWO|THREE|FOUR) PLACE DECIMAL/gi;
 const PLACE_WORDS: Record<string, number> = { TWO: 2, THREE: 3, FOUR: 4 };
 // ".X", ".XX", "X.XXX": a general-tolerance table row labelled by the digits it covers.
-const X_ROW_LABEL = /(?:^|[^A-Za-z0-9])X?\.(X{1,4})[ \t]*$/i;
+const X_ROW_LABEL = /(?:^|[^A-Z0-9])X?\.(X{1,4})[ \t]*$/i;
 // "X.X 0.3", "X.XX 0.10": a metric row labelled by the digits it covers, with no sign in the text layer.
-const SIGNLESS_X_ROW = /(?<![A-Za-z0-9.])X\.(X{1,4})[ \t]+(\d+(?:[.,]\d+)?|[.,]\d+)/gi;
+const SIGNLESS_X_ROW = /(?<![A-Z0-9.])X\.(X{1,4})[ \t]+(\d+(?:[.,]\d+)?|[.,]\d+)/gi;
 // "THREE PLACE DECIMAL ±.005": the sign and value that follow a row phrase are the row's own value.
 const PLACE_ROW_LABEL = /\b(TWO|THREE|FOUR)\s+PLACE\s+DECIMAL[\s+#]*$/i;
 // An angle label directly before the value ("ANGULAR ±.5", "ANGLES UNLESS NOTED ±.5", "90° ±.5").
@@ -541,9 +541,23 @@ const ANGULAR_LABEL =
 // nothing for the row labels.
 const MAY_HAVE_TABLE_ROWS = /PLACE\s+DECIMAL|\.X/i;
 
-function collectToleranceCandidates(text: string) {
+/**
+ * ".XX ±.01" or "THREE PLACE DECIMAL ±.005": the label directly before a sign names the places the row covers.
+ * Only a few characters are read, from the same line, so a long line stays linear.
+ */
+function rowPlacesBefore(text: string, start: number): number | null {
+  const before = text.slice(Math.max(0, start - 40), start).split("\n").pop() ?? "";
+  const xRow = X_ROW_LABEL.exec(before);
+  if (xRow) {
+    return xRow[1]!.length;
+  }
+  const wordRow = PLACE_ROW_LABEL.exec(before);
+  return wordRow ? (PLACE_WORDS[wordRow[1]!.toUpperCase()] ?? null) : null;
+}
+
+/** The values written with a plus-minus sign, in the order printed. */
+function collectSignedCandidates(text: string, mayHaveRows: boolean): ToleranceCandidate[] {
   const candidates: ToleranceCandidate[] = [];
-  const mayHaveRows = MAY_HAVE_TABLE_ROWS.test(text);
   let previousEnd = 0;
   for (const match of text.matchAll(PLUS_MINUS_VALUE)) {
     const start = match.index ?? 0;
@@ -557,18 +571,18 @@ function collectToleranceCandidates(text: string) {
     }
     const candidate = buildCandidate(text, start, previousEnd - number.length, number);
     if (candidate) {
-      // ".XX ±.01" or "THREE PLACE DECIMAL ±.005": the label directly before the sign names the places
-      // the row covers. Only a few characters are read, from the same line, so a long line stays linear.
       if (mayHaveRows) {
-        const before = text.slice(Math.max(0, start - 40), start).split("\n").pop() ?? "";
-        const xRow = X_ROW_LABEL.exec(before);
-        const wordRow = PLACE_ROW_LABEL.exec(before);
-        candidate.rowPlaces = xRow ? xRow[1]!.length : wordRow ? (PLACE_WORDS[wordRow[1]!.toUpperCase()] ?? null) : null;
+        candidate.rowPlaces = rowPlacesBefore(text, start);
       }
       candidates.push(candidate);
     }
   }
+  return candidates;
+}
 
+/** "THREE PLACE DECIMAL .005": the value that follows a row phrase, with or without a sign. */
+function collectPhraseCandidates(text: string): ToleranceCandidate[] {
+  const candidates: ToleranceCandidate[] = [];
   for (const match of text.matchAll(DECIMAL_PLACE_PHRASE)) {
     const from = (match.index ?? 0) + match[0].length;
     const read = /^[\s+#]{0,24}(\d+(?:[.,]\d+)?|[.,]\d+)/.exec(text.slice(from, from + 40));
@@ -578,20 +592,33 @@ function collectToleranceCandidates(text: string) {
       candidates.push(candidate);
     }
   }
+  return candidates;
+}
 
-  // A metric table row whose plus-minus glyph is not in the text layer: "X.XX 0.10". The row label is
-  // followed directly by the value, so a row with a sign ("X.XX ±0.10") is not read twice.
-  if (mayHaveRows) {
-    for (const match of text.matchAll(SIGNLESS_X_ROW)) {
-      const number = match[2] ?? "";
-      const candidate = buildCandidate(text, match.index ?? 0, (match.index ?? 0) + match[0].length - number.length, number);
-      if (candidate) {
-        candidate.rowPlaces = match[1]!.length;
-        candidates.push(candidate);
-      }
+/**
+ * A metric table row whose plus-minus glyph is not in the text layer: "X.XX 0.10". The row label is followed
+ * directly by the value, so a row with a sign ("X.XX ±0.10") is not read twice.
+ */
+function collectSignlessRows(text: string): ToleranceCandidate[] {
+  const candidates: ToleranceCandidate[] = [];
+  for (const match of text.matchAll(SIGNLESS_X_ROW)) {
+    const number = match[2] ?? "";
+    const candidate = buildCandidate(text, match.index ?? 0, (match.index ?? 0) + match[0].length - number.length, number);
+    if (candidate) {
+      candidate.rowPlaces = match[1]!.length;
+      candidates.push(candidate);
     }
   }
+  return candidates;
+}
 
+function collectToleranceCandidates(text: string) {
+  const mayHaveRows = MAY_HAVE_TABLE_ROWS.test(text);
+  const candidates = [
+    ...collectSignedCandidates(text, mayHaveRows),
+    ...collectPhraseCandidates(text),
+    ...(mayHaveRows ? collectSignlessRows(text) : []),
+  ];
   return candidates.sort((left, right) => left.start - right.start);
 }
 
@@ -629,8 +656,12 @@ function collectToleranceCandidates(text: string) {
  * Known limit: a dimension that is not in the text layer (outlined text, a raster view) is not seen. The
  * OCR text is not used as evidence because it would also read the table's own ".0010".
  */
-const NON_DIMENSION_LINE =
-  /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS|SCALE|SHEET|UNLESS\s+OTHERWISE|TOLERANC\w*|SURFACE|INTERPRET|ASME|ANSI|ISO|RA|RMS)\b|Y14|(?:^|[^A-Za-z0-9])X?\.X{1,4}(?![A-Za-z0-9])/i;
+const NON_DIMENSION_LINE_PATTERNS: readonly RegExp[] = [
+  /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS)\b/i,
+  /\b(?:SCALE|SHEET|UNLESS\s+OTHERWISE|TOLERANC\w*|SURFACE|INTERPRET)\b/i,
+  /\b(?:ASME|ANSI|ISO|RA|RMS)\b|Y14/i,
+  /(?:^|[^A-Z0-9])X?\.X{1,4}(?![A-Z0-9])/i,
+];
 // A decimal separator and the digits after it. The digits before it are not matched: a pattern that starts
 // with \d* rescans a long digit run from every position in it, which is quadratic. `numberStartOf` finds the
 // start of the whole number by walking back, once per separator.
@@ -653,7 +684,7 @@ const MOST_PLACES_ASSUMED_IN_FORCE = 3;
 function numberStartOf(text: string, separator: number): number {
   let start = separator;
   while (start > 0) {
-    const code = text.charCodeAt(start - 1);
+    const code = text.codePointAt(start - 1)!;
     if (code < 48 || code > 57) {
       break;
     }
@@ -687,7 +718,7 @@ function countReadableDimensions(
       complete = false;
       continue;
     }
-    if (NON_DIMENSION_LINE.test(line) || !isDimensionOnlyLine(line)) {
+    if (NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line)) || !isDimensionOnlyLine(line)) {
       continue;
     }
     for (const match of line.matchAll(DECIMAL_NUMBER)) {
@@ -1198,13 +1229,7 @@ function structuredLineOf(line: TitleBlockTextLine): StructuredLine {
  * (true positions) inside the title block found by the same keyword heuristic as for layout text; for any
  * other page, its layout lines inside the layout title block.
  */
-function selectTitleBlockLines(
-  pages: readonly PdfTextPage[],
-  layoutLines: StructuredLine[],
-  layoutBounds: Map<number, TitleBlockBounds>,
-): TitleBlockTextLine[] {
-  // Grouped by page once: the number of pages is not bounded (pages past the text layer cap are empty), so
-  // looking up each page in the whole list of lines would be pages times lines.
+function groupLayoutLinesByPage(layoutLines: readonly StructuredLine[]): Map<number, StructuredLine[]> {
   const layoutByPage = new Map<number, StructuredLine[]>();
   for (const line of layoutLines) {
     const pageLines = layoutByPage.get(line.page);
@@ -1214,19 +1239,38 @@ function selectTitleBlockLines(
       pageLines.push(line);
     }
   }
+  return layoutByPage;
+}
+
+/** The title block lines built from a page's word boxes, or null when the page has no boxes or no title block in them. */
+function selectWordBoxLines(page: PdfTextPage): TitleBlockTextLine[] | null {
+  if (page.words === undefined || page.words.length === 0) {
+    return null;
+  }
+  const wordLines = buildWordLines(page.words, page.page);
+  const wordBounds = detectTitleBlockBounds(wordLines.map(structuredLineOf));
+  if (!wordBounds.has(page.page)) {
+    return null;
+  }
+  return wordLines.filter((line) => isWithinTitleBlock(structuredLineOf(line), wordBounds));
+}
+
+function selectTitleBlockLines(
+  pages: readonly PdfTextPage[],
+  layoutLines: StructuredLine[],
+  layoutBounds: Map<number, TitleBlockBounds>,
+): TitleBlockTextLine[] {
+  // Grouped by page once: the number of pages is not bounded (pages past the text layer cap are empty), so
+  // looking up each page in the whole list of lines would be pages times lines.
+  const layoutByPage = groupLayoutLinesByPage(layoutLines);
   const selected: TitleBlockTextLine[] = [];
   for (const page of pages) {
-    if (page.words !== undefined && page.words.length > 0) {
-      const wordLines = buildWordLines(page.words, page.page);
-      const wordBounds = detectTitleBlockBounds(wordLines.map(structuredLineOf));
-      if (wordBounds.has(page.page)) {
-        for (const line of wordLines) {
-          if (isWithinTitleBlock(structuredLineOf(line), wordBounds)) {
-            selected.push(line);
-          }
-        }
-        continue;
+    const fromWords = selectWordBoxLines(page);
+    if (fromWords !== null) {
+      for (const line of fromWords) {
+        selected.push(line);
       }
+      continue;
     }
     for (const line of layoutByPage.get(page.page) ?? []) {
       if (isWithinTitleBlock(line, layoutBounds)) {

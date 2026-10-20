@@ -173,13 +173,14 @@ const LABEL_SPECS: readonly LabelSpec[] = [
 // A label is a whole word: a letter, digit or hyphen on either side means the text is something else
 // ("ENG-1234" and "REV-B" are values, not the labels ENG and REV).
 // One capture group per spec, so the index of the group that matched names the spec.
-const LABEL_PATTERN = new RegExp(
-  String.raw`(?<![A-Za-z0-9-])(?:${LABEL_SPECS.map((spec) => `(${spec.source}:?)`).join("|")})(?![A-Za-z0-9-])`,
-  "gi",
-);
+const NOT_AFTER_LABEL_CHARACTER = String.raw`(?<![A-Za-z0-9-])`;
+const NOT_BEFORE_LABEL_CHARACTER = String.raw`(?![A-Za-z0-9-])`;
+const LABEL_ALTERNATION = LABEL_SPECS.map((spec) => `(${spec.source}:?)`).join("|");
+const LABEL_PATTERN = new RegExp(`${NOT_AFTER_LABEL_CHARACTER}(?:${LABEL_ALTERNATION})${NOT_BEFORE_LABEL_CHARACTER}`, "gi");
 // The same alternation, used to test whether a whole value is only labels.
+const LABEL_ONLY_ALTERNATION = LABEL_SPECS.map((spec) => `(?:${spec.source}:?)`).join("|");
 const LABEL_ONLY_PATTERN = new RegExp(
-  String.raw`(?<![A-Za-z0-9-])(?:${LABEL_SPECS.map((spec) => `(?:${spec.source}:?)`).join("|")})(?![A-Za-z0-9-])`,
+  `${NOT_AFTER_LABEL_CHARACTER}(?:${LABEL_ONLY_ALTERNATION})${NOT_BEFORE_LABEL_CHARACTER}`,
   "gi",
 );
 
@@ -231,7 +232,11 @@ const LABEL_LIKE_RUN = /^[A-Z][A-Z .&/']{1,40}$/i;
  * that starts with one of them is that cell's label, not a value: "HEAT TREAT" beside an empty MATERIAL is not a
  * material. They are not in the label vocabulary, so a value that runs under one of them keeps its cell.
  */
-const NEIGHBOUR_CELL_LABEL = /^(?:HEAT\s+TREAT(?:MENT)?|TREATMENT|HARDNESS|COLOU?R|PROCESS|SPEC(?:IFICATION)?S?|TEMPER|CONDITION)\b/i;
+const NEIGHBOUR_CELL_LABELS: readonly RegExp[] = [
+  /^HEAT\s+TREAT(?:MENT)?\b/i,
+  /^(?:TREATMENT|HARDNESS|COLOU?R|PROCESS|TEMPER|CONDITION)\b/i,
+  /^SPEC(?:IFICATION)?S?\b/i,
+];
 /** A run this close after an inline value continues it (the words of "SHEET 1 OF 1"). */
 const PHRASE_GAP = 6;
 /** Owned value lines further apart than this are not one value. */
@@ -341,7 +346,7 @@ function tokenDigitFlags(raw: string): Uint8Array {
   const flags = new Uint8Array(raw.length);
   let seen = 0;
   for (let position = 0; position < raw.length; position += 1) {
-    const code = raw.charCodeAt(position);
+    const code = raw.codePointAt(position)!;
     if (code === SPACE || code === TAB) {
       seen = 0;
     } else if (code >= 48 && code <= 57) {
@@ -352,6 +357,11 @@ function tokenDigitFlags(raw: string): Uint8Array {
   return flags;
 }
 
+function isBlankAt(raw: string, index: number): boolean {
+  const code = raw.codePointAt(index);
+  return code === SPACE || code === TAB;
+}
+
 /**
  * Whether a label may start at `start`: where a label can start, not inside a sentence. Scans back over the
  * blanks before it (each blank run precedes one label) and reads the digit rule from `digitFlags`, so a
@@ -359,14 +369,14 @@ function tokenDigitFlags(raw: string): Uint8Array {
  */
 function labelMayStartAt(raw: string, start: number, previousLabelEnd: number, digitFlags: () => Uint8Array): boolean {
   let tokenEnd = start;
-  while (tokenEnd > 0 && (raw.charCodeAt(tokenEnd - 1) === SPACE || raw.charCodeAt(tokenEnd - 1) === TAB)) {
+  while (tokenEnd > 0 && isBlankAt(raw, tokenEnd - 1)) {
     tokenEnd -= 1;
   }
   if (tokenEnd === 0) {
     return true;
   }
   const gap = start - tokenEnd;
-  if (gap >= 2 || (gap === 1 && raw.charCodeAt(tokenEnd) === TAB)) {
+  if (gap >= 2 || (gap === 1 && raw.codePointAt(tokenEnd) === TAB)) {
     return true;
   }
   if (previousLabelEnd === tokenEnd) {
@@ -396,7 +406,7 @@ function columnAt(line: TitleBlockTextLine, index: number, edge: "start" | "end"
       return word.x0 + ((index - word.from) / Math.max(1, word.to - word.from)) * (word.x1 - word.x0);
     }
   }
-  return words[words.length - 1]!.x1;
+  return words.at(-1)!.x1;
 }
 
 /**
@@ -405,7 +415,7 @@ function columnAt(line: TitleBlockTextLine, index: number, edge: "start" | "end"
  */
 function inlineGapOf(line: TitleBlockTextLine, start: number, end: number): number {
   const unit = line.pointsPerColumn;
-  if (line.words === undefined || unit === undefined || !(unit > 0)) {
+  if (line.words === undefined || unit === undefined || Number.isNaN(unit) || unit <= 0) {
     return INLINE_GAP;
   }
   let height = 0;
@@ -457,42 +467,43 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
   }
 }
 
-/** The runs of one line, appended to `into` (left to right); stops once `into` holds more than `limit`. */
-function findRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[], limit: number): void {
-  if (line.words !== undefined && line.words.length > 0) {
-    // Word boxes: every word outside a label is a run at its true extent. Ownership is decided word by
-    // word, so a number that runs up against the next cell is still split from it. The labels of a line
-    // are in order, so one pass over both finds the words they cover.
-    let labelIndex = 0;
-    for (const word of line.words) {
-      if (into.length > limit) {
-        return;
-      }
-      while (labelIndex < labels.length && labels[labelIndex]!.charEnd <= word.from) {
-        labelIndex += 1;
-      }
-      const label = labels[labelIndex];
-      if (label !== undefined && word.from < label.charEnd && word.to > label.charStart) {
-        continue;
-      }
-      const text = line.raw.slice(word.from, word.to);
-      if (!/[A-Za-z0-9]/.test(text)) {
-        continue;
-      }
-      into.push({
-        text,
-        line: line.lineNumber,
-        start: word.x0,
-        end: word.x1,
-        center: (word.x0 + word.x1) / 2,
-        cellBreakBefore: word.from >= 2 && line.raw.charCodeAt(word.from - 1) === SPACE && line.raw.charCodeAt(word.from - 2) === SPACE,
-        fromWords: true,
-        ...(word.height !== undefined ? { height: word.height } : {}),
-      });
+/**
+ * The runs of a line built from word boxes: every word outside a label is a run at its true extent. Ownership is
+ * decided word by word, so a number that runs up against the next cell is still split from it. The labels of a
+ * line are in order, so one pass over both finds the words they cover.
+ */
+function findWordRuns(line: TitleBlockTextLine, words: readonly TitleBlockWord[], labels: readonly Label[], into: Run[], limit: number): void {
+  let labelIndex = 0;
+  for (const word of words) {
+    if (into.length > limit) {
+      return;
     }
-    return;
+    while (labelIndex < labels.length && labels[labelIndex]!.charEnd <= word.from) {
+      labelIndex += 1;
+    }
+    const label = labels[labelIndex];
+    if (label !== undefined && word.from < label.charEnd && word.to > label.charStart) {
+      continue;
+    }
+    const text = line.raw.slice(word.from, word.to);
+    if (!/[A-Za-z0-9]/.test(text)) {
+      continue;
+    }
+    into.push({
+      text,
+      line: line.lineNumber,
+      start: word.x0,
+      end: word.x1,
+      center: (word.x0 + word.x1) / 2,
+      cellBreakBefore: word.from >= 2 && line.raw.codePointAt(word.from - 1) === SPACE && line.raw.codePointAt(word.from - 2) === SPACE,
+      fromWords: true,
+      ...(word.height !== undefined ? { height: word.height } : {}),
+    });
   }
+}
 
+/** The runs of a `pdftotext -layout` line: what is left after the labels are blanked, split where blanks are two or more. */
+function findLayoutRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[], limit: number): void {
   let blanked = line.raw.replace(/[|│┃]/g, " ");
   for (const label of labels) {
     blanked = `${blanked.slice(0, label.charStart)}${" ".repeat(label.charEnd - label.charStart)}${blanked.slice(label.charEnd)}`;
@@ -507,6 +518,15 @@ function findRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[
     const start = match.index ?? 0;
     const end = start + match[0].length;
     into.push({ text: match[0], line: line.lineNumber, start, end, center: (start + end) / 2, fromWords: false });
+  }
+}
+
+/** The runs of one line, appended to `into` (left to right); stops once `into` holds more than `limit`. */
+function findRuns(line: TitleBlockTextLine, labels: readonly Label[], into: Run[], limit: number): void {
+  if (line.words !== undefined && line.words.length > 0) {
+    findWordRuns(line, line.words, labels, into, limit);
+  } else {
+    findLayoutRuns(line, labels, into, limit);
   }
 }
 
@@ -684,24 +704,19 @@ function namesAnotherFieldsLabel(field: CellField, value: string): boolean {
   return false;
 }
 
-/** The reason a value read from a cell cannot be that field, or null when it can. */
-function rejectionFor(field: CellField, value: string): string | null {
-  if (isLabelLikeToken(value)) {
-    return "label_token";
-  }
+/** Why an identifier (part number, revision) read from a cell is not one, or null. */
+function identifierRejection(field: "partNumber" | "revision", value: string): string | null {
   if (field === "revision") {
     return /^[A-Z0-9][A-Z0-9.-]{0,7}$/i.test(value) && !DATE_LIKE.test(value) ? null : "bad_shape";
   }
-  // A single character is a zone marker or a stray letter, never a drawing number, material or finish.
-  if (alphanumericCount(value) < 2) {
-    return "bad_shape";
-  }
-  if (field === "partNumber") {
-    // Whitespace in a drawing number is how two cells' values look when poppler's layout columns squeeze
-    // them together ("ABC-001 A": the number and the revision). Without word boxes to tell them apart
-    // it is not read; the field is flagged and left for the user.
-    return value.length > 40 || /\s/.test(value) || DATE_LIKE.test(value) ? "bad_shape" : null;
-  }
+  // Whitespace in a drawing number is how two cells' values look when poppler's layout columns squeeze
+  // them together ("ABC-001 A": the number and the revision). Without word boxes to tell them apart
+  // it is not read; the field is flagged and left for the user.
+  return value.length > 40 || /\s/.test(value) || DATE_LIKE.test(value) ? "bad_shape" : null;
+}
+
+/** Why a material or finish read from a cell is not one, or null. */
+function descriptionRejection(field: "material" | "finish", value: string): string | null {
   if (value.length > 120) {
     return "bad_shape";
   }
@@ -718,6 +733,18 @@ function rejectionFor(field: CellField, value: string): string | null {
   // Two cells run together on one line (single-spaced text, OCR) put the next field's label inside this
   // value. Where one cell ends is not known, so neither is read.
   return namesAnotherFieldsLabel(field, value) ? "label_in_value" : null;
+}
+
+/** The reason a value read from a cell cannot be that field, or null when it can. */
+function rejectionFor(field: CellField, value: string): string | null {
+  if (isLabelLikeToken(value)) {
+    return "label_token";
+  }
+  // A single character is a zone marker or a stray letter, never a drawing number, material or finish.
+  if (field !== "revision" && alphanumericCount(value) < 2) {
+    return "bad_shape";
+  }
+  return field === "material" || field === "finish" ? descriptionRejection(field, value) : identifierRejection(field, value);
 }
 
 /**
@@ -749,7 +776,7 @@ function joinContiguousRuns(runs: Run[]): Run[] {
   const sorted = [...runs].sort((left, right) => left.start - right.start);
   const joined: Run[] = [];
   for (const run of sorted) {
-    const previous = joined[joined.length - 1];
+    const previous = joined.at(-1);
     if (previous === undefined || run.start - previous.end <= GAP_JOIN) {
       joined.push(run);
     } else {
@@ -761,6 +788,40 @@ function joinContiguousRuns(runs: Run[]): Run[] {
 
 /** A run left of this many columns past its label's left edge is left aligned under the label. */
 const ALIGNED_UNDER_LABEL = 4;
+
+/**
+ * The lines that make up a cell's value: the first line the cell owns, and each line after it that continues it
+ * (under it, overlapping its columns, within MAX_LINE_GAP lines).
+ */
+function chooseValueLines(byLine: ReadonlyMap<number, Run[]>): Array<{ line: number; runs: Run[] }> {
+  const lines = [...byLine.keys()].sort((left, right) => left - right);
+  const chosen: Array<{ line: number; runs: Run[] }> = [];
+  for (const line of lines) {
+    const lineRuns = byLine.get(line) ?? [];
+    const previous = chosen.at(-1);
+    if (previous === undefined) {
+      chosen.push({ line, runs: joinContiguousRuns(lineRuns) });
+      continue;
+    }
+    if (line - previous.line > MAX_LINE_GAP) {
+      break;
+    }
+    // A wrapped value continues directly under the line above it ("CLASS 2" under "ANODIZE, BLACK ...").
+    // Text that does not overlap the previous line's columns is another cell, and a single character is
+    // a sheet-border zone marker ("4" under the FINISH value), so neither joins the value.
+    let spanStart = Number.POSITIVE_INFINITY;
+    let spanEnd = Number.NEGATIVE_INFINITY;
+    for (const run of previous.runs) {
+      spanStart = Math.min(spanStart, run.start);
+      spanEnd = Math.max(spanEnd, run.end);
+    }
+    const continuing = joinContiguousRuns(lineRuns.filter((run) => run.start < spanEnd && run.end > spanStart));
+    if (continuing.some((run) => alphanumericCount(run.text) >= 2)) {
+      chosen.push({ line, runs: continuing });
+    }
+  }
+  return chosen;
+}
 
 function readOne(
   label: Label & { field: CellField },
@@ -806,32 +867,7 @@ function readOne(
   if (doubt !== null) {
     return empty("ambiguous", doubt);
   }
-  const lines = [...byLine.keys()].sort((left, right) => left - right);
-  const chosen: Array<{ line: number; runs: Run[] }> = [];
-  for (const line of lines) {
-    const lineRuns = byLine.get(line) ?? [];
-    const previous = chosen[chosen.length - 1];
-    if (previous === undefined) {
-      chosen.push({ line, runs: joinContiguousRuns(lineRuns) });
-      continue;
-    }
-    if (line - previous.line > MAX_LINE_GAP) {
-      break;
-    }
-    // A wrapped value continues directly under the line above it ("CLASS 2" under "ANODIZE, BLACK ...").
-    // Text that does not overlap the previous line's columns is another cell, and a single character is
-    // a sheet-border zone marker ("4" under the FINISH value), so neither joins the value.
-    let spanStart = Number.POSITIVE_INFINITY;
-    let spanEnd = Number.NEGATIVE_INFINITY;
-    for (const run of previous.runs) {
-      spanStart = Math.min(spanStart, run.start);
-      spanEnd = Math.max(spanEnd, run.end);
-    }
-    const continuing = joinContiguousRuns(lineRuns.filter((run) => run.start < spanEnd && run.end > spanStart));
-    if (continuing.some((run) => alphanumericCount(run.text) >= 2)) {
-      chosen.push({ line, runs: continuing });
-    }
-  }
+  const chosen = chooseValueLines(byLine);
   if (chosen.length === 0) {
     return empty("empty", "no_value");
   }
@@ -898,49 +934,52 @@ function hasOwnCellOnItsLine(
   runsByLine: ReadonlyMap<number, Run[]>,
   caps: ReadonlyMap<Label, number>,
 ): boolean {
-  let lead: Run | null = null;
-  for (const run of owned) {
-    if (inlineRuns.has(run) && (lead === null || run.start < lead.start)) {
-      lead = run;
-    }
-  }
+  const inline = owned.filter((run) => inlineRuns.has(run));
+  const lead = inline.reduce<Run | null>((first, run) => (first === null || run.start < first.start ? run : first), null);
   if (lead === null) {
     return false;
   }
   // What the label's own line holds after it, in order: in word boxes the words of a phrase are runs of their own.
-  const inlineText = owned
-    .filter((run) => inlineRuns.has(run) && run.line === lead.line)
+  const inlineText = inline
+    .filter((run) => run.line === lead.line)
     .sort((left, right) => left.start - right.start)
     .map((run) => run.text)
     .join(" ");
   // A colon anywhere in it ("HEAT TREAT: RC 40-45"), or a word that heads another cell of a title block, however
   // it is spelled out: the text is that cell's label and value, not this one's.
-  if (inlineText.includes(":") || NEIGHBOUR_CELL_LABEL.test(inlineText)) {
+  if (inlineText.includes(":") || NEIGHBOUR_CELL_LABELS.some((pattern) => pattern.test(inlineText))) {
     return true;
   }
   const limit = Math.min(lead.line + MAX_LINE_GAP, caps.get(label) ?? Number.POSITIVE_INFINITY);
   for (let line = lead.line + 1; line <= limit; line += 1) {
-    for (const under of runsByLine.get(line) ?? []) {
-      // Under the run: it starts below the run's own extent (a little left of it is still under it). The value of
-      // another label on its own row is not text under this run ("MATERIAL ALUMINUM" over "FINISH ANODIZE").
-      if (
-        inlineRuns.has(under) ||
-        under.start < lead.start - ALIGNED_UNDER_INLINE ||
-        under.start >= lead.end ||
-        alphanumericCount(under.text) < 2
-      ) {
-        continue;
-      }
-      const taller =
-        lead.height !== undefined && under.height !== undefined && under.height > VALUE_TEXT_TALLER_THAN_LABEL * lead.height;
-      const afterBlankLine = !lead.fromWords && !under.fromWords && line - lead.line >= 2;
-      const labelLikeOverText = !lead.fromWords && !under.fromWords && LABEL_LIKE_RUN.test(lead.text) && lead.text.trim().split(/\s+/).length <= 3;
-      if (taller || afterBlankLine || labelLikeOverText) {
-        return true;
-      }
+    if ((runsByLine.get(line) ?? []).some((under) => isValueTextUnder(lead, under, line, inlineRuns))) {
+      return true;
     }
   }
   return false;
+}
+
+/**
+ * Whether `under`, on a later line, is text of a cell of its own under the inline run `lead`: it starts below the
+ * run's own extent (a little left of it is still under it), and it is taller than the run (word boxes: a 6 pt
+ * label over a 9 pt value), or follows a blank line, or the run is a short run of letters (layout text, which has
+ * no heights). The value of another label on its own row is not text under this run ("MATERIAL ALUMINUM" over
+ * "FINISH ANODIZE").
+ */
+function isValueTextUnder(lead: Run, under: Run, line: number, inlineRuns: ReadonlySet<Run>): boolean {
+  if (
+    inlineRuns.has(under) ||
+    under.start < lead.start - ALIGNED_UNDER_INLINE ||
+    under.start >= lead.end ||
+    alphanumericCount(under.text) < 2
+  ) {
+    return false;
+  }
+  const taller = lead.height !== undefined && under.height !== undefined && under.height > VALUE_TEXT_TALLER_THAN_LABEL * lead.height;
+  const layoutOnly = !lead.fromWords && !under.fromWords;
+  const afterBlankLine = layoutOnly && line - lead.line >= 2;
+  const labelLikeOverText = layoutOnly && LABEL_LIKE_RUN.test(lead.text) && lead.text.trim().split(/\s+/).length <= 3;
+  return taller || afterBlankLine || labelLikeOverText;
 }
 
 /**
@@ -999,6 +1038,228 @@ function groupByLine<T extends { line: number }>(items: readonly T[]): Map<numbe
   return lines;
 }
 
+/** Which label owns each run of a page, and what is doubtful about it (see readTitleBlockCells). */
+type PageOwnership = {
+  ownedByLabel: Map<Label, Run[]>;
+  ownedOnLine: Map<number, Array<{ run: Run; owner: Label }>>;
+  /** Runs that no label owns. */
+  unowned: Run[];
+  assigned: Set<Run>;
+  /** Labels whose value is followed on its line by a run that belongs to another label's band (layout text). */
+  contested: Set<Label>;
+  /** Layout text only: labels that claim one run, by where it starts and by where its centre is (startOwnerOf). */
+  straddled: Set<Label>;
+  ownerOfRun: Map<Run, Label>;
+  /** The runs placed with a label on the same line, and the label each belongs to. */
+  inlineRuns: Set<Run>;
+  inlineOwners: Map<Run, Label>;
+};
+
+function newPageOwnership(): PageOwnership {
+  return {
+    ownedByLabel: new Map(),
+    ownedOnLine: new Map(),
+    unowned: [],
+    assigned: new Set(),
+    contested: new Set(),
+    straddled: new Set(),
+    ownerOfRun: new Map(),
+    inlineRuns: new Set(),
+    inlineOwners: new Map(),
+  };
+}
+
+function assignRun(ownership: PageOwnership, run: Run, owner: Label): void {
+  ownership.assigned.add(run);
+  ownership.ownerOfRun.set(run, owner);
+  const ownerRuns = ownership.ownedByLabel.get(owner);
+  if (ownerRuns === undefined) {
+    ownership.ownedByLabel.set(owner, [run]);
+  } else {
+    ownerRuns.push(run);
+  }
+  const lineOwned = ownership.ownedOnLine.get(run.line);
+  if (lineOwned === undefined) {
+    ownership.ownedOnLine.set(run.line, [{ run, owner }]);
+  } else {
+    lineOwned.push({ run, owner });
+  }
+}
+
+/**
+ * Layout text only: marks the labels that claim a run in two ways, the one it starts under and the one its centre
+ * is under (startOwnerOf), and the one whose columns it runs on into (reachesIntoLabelOf). Neither is read.
+ */
+function markStraddledRun(
+  ownership: PageOwnership,
+  run: Run,
+  byCell: Label,
+  previousRun: Run | null,
+  labels: readonly Label[],
+  caps: ReadonlyMap<Label, number>,
+): void {
+  const startsUnder = startOwnerOf(run, byCell, labels, previousRun);
+  if (startsUnder !== null && startsUnder !== byCell) {
+    ownership.straddled.add(startsUnder);
+    ownership.straddled.add(byCell);
+  }
+  const reachesInto = reachesIntoLabelOf(run, byCell, labels, caps);
+  if (reachesInto !== null) {
+    ownership.straddled.add(byCell);
+    ownership.straddled.add(reachesInto);
+  }
+}
+
+/** Places the runs of one line, left to right, with the label that owns each. */
+function assignLineRuns(
+  ownership: PageOwnership,
+  lineRuns: readonly Run[],
+  lineLabels: readonly Label[],
+  labels: readonly Label[],
+  caps: ReadonlyMap<Label, number>,
+): void {
+  const ordered = [...lineRuns].sort((left, right) => left.start - right.start);
+  let previousRun: Run | null = null;
+  let previousOwner: Label | null = null;
+  for (const run of ordered) {
+    const inline = inlineOwnerOf(run, lineLabels, previousRun, ownership.inlineOwners);
+    if (inline !== null) {
+      ownership.inlineOwners.set(run, inline);
+      ownership.inlineRuns.add(run);
+    }
+    // The first word of a value starts in its label's band; the words after it (word boxes make every
+    // word a run) follow it on the line, with no label between.
+    const byCell = inline ?? ownerOf(run, labels, caps);
+    if (inline === null && byCell !== null && !run.fromWords) {
+      markStraddledRun(ownership, run, byCell, previousRun, labels, caps);
+    }
+    const followsPrevious: boolean =
+      previousRun !== null &&
+      previousOwner !== null &&
+      run.start - previousRun.end <= GAP_JOIN &&
+      run.cellBreakBefore !== true &&
+      !lineLabels.some((label) => label.start >= previousRun!.end - 1 && label.end <= run.start + 1);
+    if (followsPrevious && byCell !== null && byCell !== previousOwner && !run.fromWords) {
+      ownership.contested.add(previousOwner!);
+    }
+    const owner: Label | null = byCell ?? (followsPrevious ? previousOwner : null);
+    if (owner === null) {
+      ownership.unowned.push(run);
+    } else {
+      assignRun(ownership, run, owner);
+    }
+    previousRun = run;
+    previousOwner = owner;
+  }
+}
+
+/**
+ * A run directly under an owned run and overlapping its columns continues that value ("CLASS 2" under
+ * "ANODIZE, BLACK, ..."), as long as no other label stands between. Top to bottom, so a wrap of several lines
+ * chains.
+ */
+function continueWrappedRuns(ownership: PageOwnership, caps: ReadonlyMap<Label, number>): void {
+  ownership.unowned.sort((left, right) => left.line - right.line);
+  for (const run of ownership.unowned) {
+    let continued: Label | null = null;
+    for (let line = run.line - 1; line >= run.line - MAX_LINE_GAP && continued === null; line -= 1) {
+      for (const { run: above, owner } of ownership.ownedOnLine.get(line) ?? []) {
+        if (
+          run.start < above.end &&
+          run.end > above.start &&
+          run.center >= owner.start - owner.slack &&
+          run.line <= (caps.get(owner) ?? Number.POSITIVE_INFINITY)
+        ) {
+          continued = owner;
+          break;
+        }
+      }
+    }
+    if (continued !== null) {
+      assignRun(ownership, run, continued);
+    }
+  }
+}
+
+/** The labels and the runs of one page, or null when a cap is passed: a hostile page costs its cap, not its size. */
+function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[] } | null {
+  const labels: Label[] = [];
+  for (const line of pageLines) {
+    findLabels(line, labels, MAX_LABELS_PER_PAGE);
+    if (labels.length > MAX_LABELS_PER_PAGE) {
+      return null;
+    }
+  }
+  const labelsByLine = groupByLine(labels);
+  const runs: Run[] = [];
+  for (const line of pageLines) {
+    findRuns(line, labelsByLine.get(line.lineNumber) ?? [], runs, MAX_RUNS_PER_PAGE);
+    if (runs.length > MAX_RUNS_PER_PAGE) {
+      return null;
+    }
+  }
+  return { labels, labelsByLine, runs };
+}
+
+/**
+ * Why a cell's value is doubtful on layout text, or null. Word boxes give true positions and leave no such doubt
+ * (a run that is left over there is another cell's), so only runs read from layout text count here.
+ */
+function doubtOf(
+  label: Label,
+  ownership: PageOwnership,
+  runsByLine: ReadonlyMap<number, Run[]>,
+  finePitch: boolean,
+): "unconsumed_text" | "fine_pitch" | null {
+  const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
+  const unconsumed =
+    ownership.straddled.has(label) ||
+    (!ownedRuns.some((run) => ownership.inlineRuns.has(run)) &&
+      hasStrayTextAbove(label, runsByLine, ownership.ownerOfRun, ownership.inlineRuns)) ||
+    (ownership.contested.has(label) && (label.field === "material" || label.field === "finish"));
+  if (unconsumed) {
+    return "unconsumed_text";
+  }
+  if (finePitch && ownedRuns.length > 0 && ownedRuns.every((run) => !run.fromWords)) {
+    return "fine_pitch";
+  }
+  return null;
+}
+
+/** One read per cell label of one page's lines (null when the page is over a cap and is not read). */
+function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRead[] | null {
+  // The caps are checked in the order the work grows, and each loop stops when its own cap is passed.
+  const candidateLines = pageText.filter((line) => line.raw.length <= MAX_LINE_LENGTH);
+  if (candidateLines.length > MAX_LINES_PER_PAGE) {
+    return null;
+  }
+  const geometry = readPageGeometry(withoutBorderMarkers(candidateLines));
+  if (geometry === null) {
+    return null;
+  }
+  const { labels, labelsByLine, runs } = geometry;
+  const caps = computeCapLines(labels);
+  const ownership = newPageOwnership();
+  const runsByLine = groupByLine(runs);
+  for (const [lineNumber, lineRuns] of runsByLine) {
+    assignLineRuns(ownership, lineRuns, labelsByLine.get(lineNumber) ?? [], labels, caps);
+  }
+  continueWrappedRuns(ownership, caps);
+  const leftoverByLine = groupByLine(ownership.unowned.filter((run) => !ownership.assigned.has(run)));
+  const finePitch = labels.some((label) => label.spread);
+  const reads: CellRead[] = [];
+  for (const label of labels) {
+    if (label.field === null) {
+      continue;
+    }
+    const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
+    const fenced = hasOwnCellOnItsLine(label, ownedRuns, ownership.inlineRuns, runsByLine, caps);
+    const doubt = doubtOf(label, ownership, runsByLine, finePitch);
+    reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, leftoverByLine, doubt));
+  }
+  return reads;
+}
+
 /**
  * One read per cell label (DWG. NO., REV, MATERIAL, FINISH) found in the given title-block lines.
  * Pass the lines of a single drawing in reading order; pages are read independently.
@@ -1006,147 +1267,7 @@ function groupByLine<T extends { line: number }>(items: readonly T[]): Map<numbe
 export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellRead[] {
   const reads: CellRead[] = [];
   for (const [page, pageText] of groupByPage(lines)) {
-    // The caps are checked in the order the work grows, and each loop below stops when its own cap is
-    // passed, so a hostile page costs about its cap and not its size.
-    const candidateLines = pageText.filter((line) => line.raw.length <= MAX_LINE_LENGTH);
-    if (candidateLines.length > MAX_LINES_PER_PAGE) {
-      continue;
-    }
-    const pageLines = withoutBorderMarkers(candidateLines);
-    const labels: Label[] = [];
-    for (const line of pageLines) {
-      findLabels(line, labels, MAX_LABELS_PER_PAGE);
-      if (labels.length > MAX_LABELS_PER_PAGE) {
-        break;
-      }
-    }
-    if (labels.length > MAX_LABELS_PER_PAGE) {
-      continue;
-    }
-    const labelsByLine = groupByLine(labels);
-    const runs: Run[] = [];
-    for (const line of pageLines) {
-      findRuns(line, labelsByLine.get(line.lineNumber) ?? [], runs, MAX_RUNS_PER_PAGE);
-      if (runs.length > MAX_RUNS_PER_PAGE) {
-        break;
-      }
-    }
-    if (runs.length > MAX_RUNS_PER_PAGE) {
-      continue;
-    }
-    const caps = computeCapLines(labels);
-    const ownedByLabel = new Map<Label, Run[]>();
-    const ownedOnLine = new Map<number, Array<{ run: Run; owner: Label }>>();
-    const unowned: Run[] = [];
-    const assigned = new Set<Run>();
-    const contested = new Set<Label>();
-    // Layout text only: labels that claim one run, by where it starts and by where its centre is (startOwnerOf).
-    const straddled = new Set<Label>();
-    const ownerOfRun = new Map<Run, Label>();
-    const assign = (run: Run, owner: Label) => {
-      assigned.add(run);
-      ownerOfRun.set(run, owner);
-      const ownerRuns = ownedByLabel.get(owner);
-      if (ownerRuns === undefined) {
-        ownedByLabel.set(owner, [run]);
-      } else {
-        ownerRuns.push(run);
-      }
-      const lineOwned = ownedOnLine.get(run.line);
-      if (lineOwned === undefined) {
-        ownedOnLine.set(run.line, [{ run, owner }]);
-      } else {
-        lineOwned.push({ run, owner });
-      }
-    };
-    const inlineRuns = new Set<Run>();
-    const inlineOwners = new Map<Run, Label>();
-    const runsByLine = groupByLine(runs);
-    for (const [lineNumber, lineRuns] of runsByLine) {
-      const lineLabels = labelsByLine.get(lineNumber) ?? [];
-      const ordered = [...lineRuns].sort((left, right) => left.start - right.start);
-      let previousRun: Run | null = null;
-      let previousOwner: Label | null = null;
-      for (const run of ordered) {
-        const inline = inlineOwnerOf(run, lineLabels, previousRun, inlineOwners);
-        if (inline !== null) {
-          inlineOwners.set(run, inline);
-          inlineRuns.add(run);
-        }
-        // The first word of a value starts in its label's band; the words after it (word boxes make every
-        // word a run) follow it on the line, with no label between.
-        const byCell = inline ?? ownerOf(run, labels, caps);
-        if (inline === null && byCell !== null && !run.fromWords) {
-          const startsUnder = startOwnerOf(run, byCell, labels, previousRun);
-          if (startsUnder !== null && startsUnder !== byCell) {
-            straddled.add(startsUnder);
-            straddled.add(byCell);
-          }
-          const reachesInto = reachesIntoLabelOf(run, byCell, labels, caps);
-          if (reachesInto !== null) {
-            straddled.add(byCell);
-            straddled.add(reachesInto);
-          }
-        }
-        const followsPrevious: boolean =
-          previousRun !== null &&
-          previousOwner !== null &&
-          run.start - previousRun.end <= GAP_JOIN &&
-          run.cellBreakBefore !== true &&
-          !lineLabels.some((label) => label.start >= previousRun!.end - 1 && label.end <= run.start + 1);
-        if (followsPrevious && byCell !== null && byCell !== previousOwner && !run.fromWords) {
-          contested.add(previousOwner!);
-        }
-        const owner: Label | null = byCell ?? (followsPrevious ? previousOwner : null);
-        if (owner === null) {
-          unowned.push(run);
-        } else {
-          assign(run, owner);
-        }
-        previousRun = run;
-        previousOwner = owner;
-      }
-    }
-    // A run directly under an owned run and overlapping its columns continues that value ("CLASS 2" under
-    // "ANODIZE, BLACK, ..."), as long as no other label stands between. Top to bottom, so a wrap of
-    // several lines chains.
-    unowned.sort((left, right) => left.line - right.line);
-    for (const run of unowned) {
-      let continued: Label | null = null;
-      for (let line = run.line - 1; line >= run.line - MAX_LINE_GAP && continued === null; line -= 1) {
-        for (const { run: above, owner } of ownedOnLine.get(line) ?? []) {
-          if (
-            run.start < above.end &&
-            run.end > above.start &&
-            run.center >= owner.start - owner.slack &&
-            run.line <= (caps.get(owner) ?? Number.POSITIVE_INFINITY)
-          ) {
-            continued = owner;
-            break;
-          }
-        }
-      }
-      if (continued !== null) {
-        assign(run, continued);
-      }
-    }
-    const leftoverByLine = groupByLine(unowned.filter((run) => !assigned.has(run)));
-    const finePitch = labels.some((label) => label.spread);
-    for (const label of labels) {
-      if (label.field !== null) {
-        const ownedRuns = ownedByLabel.get(label) ?? [];
-        const fenced = hasOwnCellOnItsLine(label, ownedRuns, inlineRuns, runsByLine, caps);
-        const doubt =
-          straddled.has(label) ||
-          (!ownedRuns.some((run) => inlineRuns.has(run)) && hasStrayTextAbove(label, runsByLine, ownerOfRun, inlineRuns)) ||
-          (contested.has(label) && (label.field === "material" || label.field === "finish"))
-          ? "unconsumed_text"
-          : finePitch && ownedRuns.length > 0 && ownedRuns.every((run) => !run.fromWords)
-            ? "fine_pitch"
-            : null;
-        reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, inlineRuns, fenced, leftoverByLine, doubt));
-      }
-    }
+    reads.push(...(readPage(page, pageText) ?? []));
   }
   return reads;
 }

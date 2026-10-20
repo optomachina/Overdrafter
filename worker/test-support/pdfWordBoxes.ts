@@ -25,11 +25,13 @@ export function phrase(text: string, x: number, y: number, size = 9, gap = 3): P
 }
 
 function escapeMarkup(text: string) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
+const DEFAULT_PAGE_SIZE = { width: 1224, height: 792 };
+
 /** The page markup `pdftotext -bbox` prints around its words. */
-export function bboxMarkup(words: readonly PdfWord[], size: { width: number; height: number } = { width: 1224, height: 792 }) {
+export function bboxMarkup(words: readonly PdfWord[], size: { width: number; height: number } = DEFAULT_PAGE_SIZE) {
   const lines = words.map(
     (word) =>
       `    <word xMin="${word.xMin.toFixed(6)}" yMin="${word.yMin.toFixed(6)}" xMax="${word.xMax.toFixed(6)}" yMax="${word.yMax.toFixed(6)}">${escapeMarkup(word.text)}</word>`,

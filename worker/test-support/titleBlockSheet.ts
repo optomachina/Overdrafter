@@ -68,7 +68,7 @@ export function replaceInPlace(text: string, from: string, to: string): string {
 export function replaceAtColumn(text: string, lineNumber: number, column: number, from: string, to: string): string {
   const lines = text.split("\n");
   const line = lines[lineNumber - 1];
-  if (line === undefined || line.slice(column, column + from.length) !== from) {
+  if (line?.slice(column, column + from.length) !== from) {
     throw new Error(`"${from}" is not at line ${lineNumber}, column ${column}`);
   }
   lines[lineNumber - 1] = splice(line, column, from, to);
