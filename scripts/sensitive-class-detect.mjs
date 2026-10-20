@@ -31,7 +31,9 @@ import { safeInline } from "./proof-check.mjs";
  *
  * The CLI runs from the base checkout. It reads the changed files and their
  * status from the GitHub API and reads changed SQL files at the PR head as
- * data only; nothing from the PR is executed. Sensitive classes win over safe
+ * data only; nothing from the PR is executed. The result is an error when the
+ * PR's base is not the checkout (--base-sha), its head is not --head-sha, or
+ * either moves while the file list is read. Sensitive classes win over safe
  * categories, and the detector fails closed: a file is non-sensitive only when
  * it has a safe category and no sensitive class. Any other file (no class and
  * no safe category, or a rename whose two names land in different categories)
@@ -753,18 +755,32 @@ export function githubClient({ token, apiUrl = "https://api.github.com", fetchIm
 
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 
+const pullShas = (pull) => ({ sha: pull?.head?.sha ?? null, baseSha: pull?.base?.sha ?? null });
+
 /**
  * Read a PR's head and base, its changed files and a head reader. A list that
  * cannot be complete (more than MAX_FILES files, a failed page, a count that
  * disagrees with the PR, or a head that moved) is an error. changedFiles is
  * the PR's own count, so a consumer can tell an empty PR from a lost list.
+ *
+ * expectedBaseSha is the commit whose rules judge the PR (the workflow's base
+ * checkout). A PR whose base has moved past it is an error: the result would
+ * report the newer base while older rules classified it.
+ *
+ * The files endpoint lists the live PR, not a fixed head, so a push (or a base
+ * change) while the pages are read can swap the files and keep the count. The
+ * PR is read again after the last page, and a head or base that changed in
+ * between is an error. Head content is read at the first head sha, so the
+ * SQL and config reads are pinned already.
  */
-export async function fetchPullRequest(client, repo, number, { expectedHeadSha } = {}) {
+export async function fetchPullRequest(client, repo, number, { expectedHeadSha, expectedBaseSha } = {}) {
   const pull = await client.json(`/repos/${repo}/pulls/${number}`);
-  const sha = pull?.head?.sha ?? null;
-  const baseSha = pull?.base?.sha ?? null;
+  const { sha, baseSha } = pullShas(pull);
   const errors = [];
   if (expectedHeadSha && sha !== expectedHeadSha) errors.push(`PR head moved: expected ${expectedHeadSha}, API has ${sha}`);
+  if (expectedBaseSha && baseSha !== expectedBaseSha) {
+    errors.push(`PR base moved: the rules come from ${expectedBaseSha}, API has ${baseSha}`);
+  }
   const expected = pull?.changed_files;
   if (!Number.isInteger(expected)) errors.push("PR has no changed_files count");
   if (expected > MAX_FILES) errors.push(`PR changes ${expected} files; the API lists at most ${MAX_FILES}, so the list is truncated`);
@@ -775,6 +791,9 @@ export async function fetchPullRequest(client, repo, number, { expectedHeadSha }
     files.push(...batch);
     if (batch.length < PER_PAGE) break;
   }
+  const after = pullShas(await client.json(`/repos/${repo}/pulls/${number}`));
+  if (after.sha !== sha) errors.push(`PR head moved while its files were listed: ${sha} before, ${after.sha} after`);
+  if (after.baseSha !== baseSha) errors.push(`PR base moved while its files were listed: ${baseSha} before, ${after.baseSha} after`);
   if (Number.isInteger(expected) && files.length !== expected) {
     errors.push(`file list is incomplete: API listed ${files.length} of ${expected} changed files`);
   }
@@ -819,7 +838,7 @@ export function formatSummary(result) {
 
 function parseArgs(argv) {
   const options = {};
-  const known = ["--repo", "--pr", "--json", "--config", "--head-sha"];
+  const known = ["--repo", "--pr", "--json", "--config", "--head-sha", "--base-sha"];
   for (let index = 0; index < argv.length; index += 1) {
     const [name, inline] = argv[index].split(/=(.*)/s, 2);
     if (!known.includes(name)) throw new Error(`unknown argument ${argv[index]}`);
@@ -832,8 +851,9 @@ function parseArgs(argv) {
   return options;
 }
 
-const usage = "Usage: node scripts/sensitive-class-detect.mjs --repo owner/name --pr <number> [--json out.json] [--head-sha <sha>] [--config file]\n"
+const usage = "Usage: node scripts/sensitive-class-detect.mjs --repo owner/name --pr <number> [--json out.json] [--head-sha <sha>] [--base-sha <sha>] [--config file]\n"
   + "Reads GITHUB_TOKEN or GH_TOKEN. Path classes come from docs/sensitive-paths.json in this checkout.\n"
+  + "--base-sha is the commit this checkout is at; a PR whose base has moved past it is status error.\n"
   + "Report mode: exits 0 whenever it writes a result, including status error.";
 
 /**
@@ -858,7 +878,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
   } else {
     try {
       const client = githubClient({ token: env.GITHUB_TOKEN || env.GH_TOKEN, apiUrl: env.GITHUB_API_URL, fetchImpl });
-      const pull = await fetchPullRequest(client, options.repo, options.pr, { expectedHeadSha: options["head-sha"] });
+      const pull = await fetchPullRequest(client, options.repo, options.pr, { expectedHeadSha: options["head-sha"], expectedBaseSha: options["base-sha"] });
       result = await detect({ ...pull, config, allowEmpty: pull.changedFiles === 0 });
       const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
       const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
