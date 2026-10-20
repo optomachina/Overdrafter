@@ -29,10 +29,13 @@ Case-insensitive prefixes map to existing pools: `codex`, `gpt`, and `openai`
 to `codex`; `claude` and `sonnet` to `claude-sonnet`; `opus` and
 `claude-opus` to `claude-opus`; `grok` to `grok-overflow`; and `jev` to `jev`.
 Missing or unknown families get fail-safe review. So does a second builder:
-outside parentheses, a `+`, a second `/`, or a `,` followed later by a family
-keyword or a known bot ID or display name. Text inside balanced parentheses is
-not scanned. Free text is tried only for noncanonical entries. Use a single
-Built-by line; it supersedes legacy Model lines in the same body.
+another family's keyword anywhere in the rest of the token (`codex-opus`), or,
+outside parentheses, another family's keyword at the start of a word whatever
+precedes it (`codex.opus`, `codex and opus`), a `+`, a second `/`, or a `,`
+followed later by any family keyword or a known bot ID or display name. Text
+inside balanced parentheses is not scanned. Free text is tried only for
+noncanonical entries. Use a single Built-by line; it supersedes legacy Model
+lines in the same body.
 
 Optional commit trailers use the same canonical Built-by syntax. Supply commits
 oldest first. A trailer takes precedence for its commit; a commit without one

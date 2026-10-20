@@ -240,6 +240,12 @@ describe('free-text Built-by form', () => {
     ['Built-by: Engineer / GPT-5.1, via safe-build (host)', 'engineer', 'GPT-5.1', 'codex'],
     ['Built-by: Engineer / codex. via safe-build', 'engineer', 'codex', 'codex'],
     ['Built-by: Engineer / codex via safe-build (host/ci+gpt, opus)', 'engineer', 'codex', 'codex'],
+    // Context naming the token's own family is still one builder (#824's lines, one at a time).
+    ['Built-by: Engineer / gpt-6-astra via Codex CLI (codex-safe, Workstation) for the Oct 17 repair round',
+      'engineer', 'gpt-6-astra', 'codex'],
+    ['Built-by: Engineer / claude-sonnet-5-5 via Claude Code for the Oct 20 repair', 'engineer', 'claude-sonnet-5-5', 'claude-sonnet'],
+    ['Built-by: Engineer / opus via Claude Code', 'engineer', 'opus', 'claude-opus'],
+    ['Built-by: Engineer / gpt-5-codex via OpenAI agent', 'engineer', 'gpt-5-codex', 'codex'],
   ])('accepts %s', (body, bot, token, pool) => {
     const result = parse(body);
     expect(result.status).toBe('ok');
@@ -262,6 +268,26 @@ describe('free-text Built-by form', () => {
     'Built-by: Engineer / codex, Architect repaired it',
     'Built-by: Engineer / codex, then cursor-cloud finished',
     'Built-by: Engineer / codex via ci/cd',
+    // Another family after any glue, not only "+", "/" or ",".
+    'Built-by: Engineer / codex.opus',
+    'Built-by: Engineer / codex:opus',
+    'Built-by: Engineer / codex_opus',
+    'Built-by: Engineer / codex\\opus',
+    'Built-by: Engineer / codex\u2013opus',
+    'Built-by: Engineer / codex & opus',
+    'Built-by: Engineer / codex | opus',
+    'Built-by: Engineer / codex -> opus',
+    'Built-by: Engineer / codex and opus',
+    'Built-by: Engineer / codex then claude-opus repair',
+    'Built-by: Engineer / codex with Opus repair',
+    'Built-by: Engineer / gpt-6-astra via Codex CLI (codex-safe, Workstation) for the Oct 17 repair round and claude-sonnet-5-5 for the Oct 20 repair',
+    'Built-by: Engineer / claude-sonnet then gpt-5 finished',
+    'Built-by: Engineer / grok-4.7 then jev',
+    // Another family inside the token itself.
+    'Built-by: Engineer / codex-opus',
+    'Built-by: Engineer / gpt-5-claude',
+    'Built-by: Engineer / codexopus',
+    'Built-by: Engineer / opus-grok-4.7',
     'Built-by: Engineer / codex\nBuilt-by: Engineer / grok-4.7',
     `Built-by: Engineer / codex\n${tag()}`,
   ])('fails safe for %s', body => {
@@ -314,6 +340,14 @@ describe('free-text Built-by form', () => {
     const started = performance.now();
     const result = parse(`Built-by: Engineer / codex, ${'xgpt qax '.repeat(50_000)}`);
     expect(result.status).toBe('ok');
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+  it('scans other-family keyword lookalikes without a comma in linear time', () => {
+    const started = performance.now();
+    const result = parse(`Built-by: Engineer / claude ${'xgpt xopus-codexy '.repeat(50_000)}`);
+    expect(result.status).toBe('ok');
+    expect(reviewers(parse(`Built-by: Engineer / claude ${'xgpt '.repeat(50_000)}gpt`))).toEqual(both);
+    expect(reviewers(parse(`Built-by: Engineer / claude${'-x'.repeat(50_000)}gpt`))).toEqual(both);
     expect(performance.now() - started).toBeLessThan(2000);
   });
 });

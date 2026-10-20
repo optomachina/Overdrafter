@@ -84,9 +84,8 @@ const digitAt = (text, index) => /[0-9]/.test(text[index] ?? '');
 const tokenCharacterAt = (text, index) => TOKEN_CHARACTER.test(text[index] ?? '');
 
 // The token is the leading run of letters, digits and hyphens; a "." joins it
-// only between digits (grok-4.7). Whatever follows is separator or context
-// text, so "codex+opus" or "codex,opus" cannot hide a second builder inside
-// one whitespace-delimited word.
+// only between digits (grok-4.7). Whatever follows is context text, scanned
+// by namesAnotherBuilder whatever character separates it from the token.
 function tokenLength(text) {
   let end = 0;
   while (end < text.length) {
@@ -119,15 +118,30 @@ function mentions(text, name, whole) {
   return false;
 }
 
-// Context outside parentheses that introduces a second builder: any "+" or
-// another "/", or a comma followed later by a family keyword or a known bot
+// Family keywords whose pool belongs to another family than `family`. A pool
+// missing from routing has no family, so its keyword always counts as another.
+const otherFamilyKeywords = (family, routing) => FREE_TEXT_POOLS
+  .filter(([, pool]) => !own(routing.pools, pool) || routing.pools[pool].family !== family)
+  .map(([prefix]) => prefix);
+
+// Whether the token, past the keyword that chose its pool, contains another
+// family's keyword ("codex-opus", "gptclaude"). Lowercase inputs.
+const tokenNamesOtherFamily = (rest, keywords) => keywords.some(keyword => rest.includes(keyword));
+
+// Context outside parentheses that introduces a second builder. Any other
+// family's keyword at a word start counts, whatever glue precedes it
+// ("codex.opus", "codex_opus", "codex and opus", "codex then claude-opus"),
+// so review routing never depends on listing separators. So do any "+" or
+// another "/", and a comma followed later by any family keyword or a known bot
 // id or display name. Such lines must fail safe instead of being attributed
 // to their first model alone.
-function namesAnotherBuilder(outside, routing) {
+function namesAnotherBuilder(outside, keywords, routing) {
   if (/[+/]/.test(outside)) return true;
-  const comma = outside.indexOf(',');
+  const lower = outside.toLowerCase();
+  if (keywords.some(keyword => mentions(lower, keyword, false))) return true;
+  const comma = lower.indexOf(',');
   if (comma < 0) return false;
-  const after = outside.slice(comma + 1).toLowerCase();
+  const after = lower.slice(comma + 1);
   return FREE_TEXT_POOLS.some(([prefix]) => mentions(after, prefix, false)) ||
     routing.bots.some(bot => [bot.id, bot.display].some(name => mentions(after, name.trim().toLowerCase(), true)));
 }
@@ -153,12 +167,15 @@ function readFreeText(entry, routing) {
   const parts = splitFreeText(entry);
   if (!parts) return [];
   const { token } = parts;
-  const pool = FREE_TEXT_POOLS.find(([prefix]) => token.toLowerCase().startsWith(prefix))?.[1];
+  const lowerToken = token.toLowerCase();
+  const [prefix, pool] = FREE_TEXT_POOLS.find(([keyword]) => lowerToken.startsWith(keyword)) ?? [];
   if (!pool || !own(routing.pools, pool)) return [];
   // Parenthetical context may name other models; outside it, another builder
   // must fail safe rather than silently attributing the line to its first model.
+  const keywords = otherFamilyKeywords(routing.pools[pool].family, routing);
   const outside = outsideParentheses(parts.context);
-  if (outside === null || namesAnotherBuilder(outside, routing)) return [];
+  if (outside === null || tokenNamesOtherFamily(lowerToken.slice(prefix.length), keywords) ||
+      namesAnotherBuilder(outside, keywords, routing)) return [];
   const name = parts.bot.toLowerCase();
   const bot = routing.bots.find(bot => bot.id.toLowerCase() === name || bot.display.toLowerCase() === name)?.id
     ?? name.replace(/\s+/g, '-');
