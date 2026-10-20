@@ -58,9 +58,9 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   Object.freeze({ path: 'supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql', issue: 'OVD-736',
     sha256: 'b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c' }),
   Object.freeze({ path: 'supabase/migrations/20261020002126_ovd979_auto_approve_keep_user_corrections.sql', issue: 'OVD-979',
-    sha256: '491859b9cb2521ca4ab84abf54d84b7147e661dad116de4395cadad5bbf3ac9e' }),
+    sha256: '1cb9cc608d49787a18422dba3baee076d28acab10601f63ec98a3c278f2b3ae5' }),
   Object.freeze({ path: 'supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql', issue: 'OVD-979',
-    sha256: '566f033d5283bf0f95d458160a31275cfcfdaef62df6d84a705ac9387c0f521b' }),
+    sha256: 'ec1119472b7ead285d0afe3af3f0a7c4c2168fb42ebd4c3ec7a762314e4d9da5' }),
 ]);
 
 export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {

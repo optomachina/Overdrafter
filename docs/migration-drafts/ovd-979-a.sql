@@ -1,13 +1,12 @@
 -- =====================================================================
--- NEEDS BLAINE MIGRATION WINDOW - not applied
--- =====================================================================
 -- OVD-979 (part a, finding 3f): public.api_auto_approve_job_requirements(uuid)
 -- respects overrides saved through the client property editor.
 --
--- This file is a DRAFT. It is not under supabase/migrations/, is not part of
--- migration lineage and has not been applied to any database. Promote it only
--- inside a Blaine-approved migration window. Rollback: ovd-979-a.rollback.sql.
--- Notes: docs/migration-drafts/ovd-979-notes.md.
+-- This file and docs/migration-drafts/ovd-979-a.sql are byte-identical copies
+-- of one reviewed definition (apply a, then b). It is not applied to
+-- production: that is a protected action that needs a Blaine-approved migration
+-- window. Rollback: docs/migration-drafts/ovd-979-a.rollback.sql. Notes:
+-- docs/migration-drafts/ovd-979-notes.md.
 --
 -- Problem: since 20260402120000 / 20260408120000, api_update_client_part_request
 -- records user corrections in spec_snapshot.projectPartProperties.overrides and
@@ -35,11 +34,23 @@
 --      the extraction; it keeps the requirement value (R3, OVD-976).
 --   5. The job status rollup only updates jobs in uploaded, extracting,
 --      needs_spec_review or ready_to_quote; quoting and later are kept (R4).
+--   6. Review r2, M1: when a newer extraction completes, the editor default of
+--      a field the user owns through an override (description, partNumber,
+--      revision, finish) moves to the extracted value. The column is not
+--      touched, so the correction survives, and a later reset returns the field
+--      to the drawing value without waiting for another extraction. A field
+--      owned only through the legacy fieldSources has no override to reset and
+--      keeps its default; an extraction with no value, a field flagged for
+--      review and an extraction not newer than the requirement change nothing.
+--   7. Review r2: the fieldSources and fieldOverrides objects written back keep
+--      keys other than the four rebuilt ones (a fieldSources.material = 'user'
+--      is what keeps the 'Unknown material' placeholder from being replaced on
+--      every later run).
 -- Body otherwise verbatim from 20260317013000 (generated and diffed by
 -- gen-draft-a.mjs in the OVD-979 harness). Not changed: quantities, vendors,
--- audit event, return value, and the fieldSources / fieldOverrides values
--- written back (still the legacy provenance, so a reset that removes an
--- override key is not made sticky).
+-- audit event, return value, and the values written for the four legacy
+-- fieldSources / fieldOverrides keys (still the legacy provenance, so a reset
+-- that removes an override key is not made sticky).
 -- Security: SECURITY DEFINER kept; set search_path = pg_catalog, public
 -- (Blaine decision, 2026-10-18: the previous "public" fails the security-definer
 -- lint; every relation in the body is schema-qualified, so behavior is the
@@ -99,6 +110,13 @@ declare
   v_part_number_refresh boolean := false;
   v_revision_refresh boolean := false;
   v_finish_refresh boolean := false;
+  -- OVD-979 (review r2, M1): what the extraction itself says for each editor
+  -- field (null when it says nothing). Used to move the editor default of a
+  -- field the user owns; a refreshed field keeps its own expressions below.
+  v_extracted_description text;
+  v_extracted_part_number text;
+  v_extracted_revision text;
+  v_extracted_finish text;
   -- OVD-979: the 'Unknown material' placeholder is replaced by an extracted
   -- material unless the user owns material.
   v_material_placeholder_replaced boolean := false;
@@ -208,10 +226,26 @@ begin
         v_extraction.extraction #>> '{material,raw_text}',
         ''
       )), '') is not null;
+    v_extracted_description := coalesce(
+      nullif(trim(coalesce(v_extraction.extraction ->> 'quoteDescription', '')), ''),
+      nullif(trim(coalesce(v_extraction.extraction ->> 'description', v_extraction.extraction ->> 'desc', '')), '')
+    );
+    v_extracted_part_number := nullif(trim(coalesce(v_extraction.extraction ->> 'partNumber', v_extraction.extraction ->> 'pn', '')), '');
+    v_extracted_revision := nullif(trim(coalesce(v_extraction.extraction ->> 'revision', v_extraction.extraction ->> 'rev', '')), '');
+    v_extracted_finish := coalesce(
+      nullif(trim(coalesce(v_extraction.extraction ->> 'quoteFinish', '')), ''),
+      nullif(trim(coalesce(
+        v_extraction.extraction #>> '{finish,normalized}',
+        v_extraction.extraction #>> '{finish,raw}',
+        v_extraction.extraction #>> '{finish,raw_text}',
+        ''
+      )), '')
+    );
     v_drawing_attached := exists (
       select 1
       from public.work_queue queue
-      where queue.part_id = v_part.id
+      where queue.job_id = p_job_id
+        and queue.part_id = v_part.id
         and queue.task_type = 'extract_part'
         and queue.payload ->> 'reason' = 'drawing_attached'
     );
@@ -395,13 +429,23 @@ begin
         'finish', v_finish,
         'quoteDescription', coalesce(v_quote_description, v_description),
         'quoteFinish', coalesce(v_quote_finish, v_finish),
-        'fieldSources', jsonb_build_object(
+        -- OVD-979 (review r2): keys other than these four (for example
+        -- fieldSources.material) are kept; each run used to drop them.
+        'fieldSources', case
+          when jsonb_typeof(v_requirement.spec_snapshot -> 'fieldSources') = 'object'
+            then v_requirement.spec_snapshot -> 'fieldSources'
+          else '{}'::jsonb
+        end || jsonb_build_object(
           'description', v_description_source,
           'partNumber', v_part_number_source,
           'revision', v_revision_source,
           'finish', v_finish_source
         ),
-        'fieldOverrides', jsonb_build_object(
+        'fieldOverrides', case
+          when jsonb_typeof(v_requirement.spec_snapshot -> 'fieldOverrides') = 'object'
+            then v_requirement.spec_snapshot -> 'fieldOverrides'
+          else '{}'::jsonb
+        end || jsonb_build_object(
           'description', v_description_source <> 'auto',
           'partNumber', v_part_number_source <> 'auto',
           'revision', v_revision_source <> 'auto',
@@ -424,19 +468,38 @@ begin
     -- reset resolves to the refreshed value and a later save that resends the
     -- displayed values records no override. Only an existing defaults object
     -- is changed; a missing one is seeded later from the refreshed columns.
+    -- Review r2, M1: a field the user owns through an override is not
+    -- refreshed, but its default follows a newer extraction that has a value
+    -- for it (and is not flagged for review). The column keeps the user's
+    -- value; a reset then returns the field to the drawing value at once
+    -- instead of to the default seeded at the first save. A legacy-only owner
+    -- (fieldSources without an override key) is left alone: reset cannot clear
+    -- it, and a changed default would show up in the next reset of any field.
     if jsonb_typeof(v_spec_snapshot #> '{projectPartProperties,defaults}') = 'object' then
       v_property_defaults := v_spec_snapshot #> '{projectPartProperties,defaults}';
       if v_description_refresh then
         v_property_defaults := v_property_defaults || jsonb_build_object('description', coalesce(v_quote_description, v_description));
+      elsif v_property_overrides ? 'description' and v_extraction_newer
+        and not v_description_review_needed and v_extracted_description is not null then
+        v_property_defaults := v_property_defaults || jsonb_build_object('description', v_extracted_description);
       end if;
       if v_part_number_refresh then
         v_property_defaults := v_property_defaults || jsonb_build_object('partNumber', v_part_number);
+      elsif v_property_overrides ? 'partNumber' and v_extraction_newer
+        and not v_part_number_review_needed and v_extracted_part_number is not null then
+        v_property_defaults := v_property_defaults || jsonb_build_object('partNumber', v_extracted_part_number);
       end if;
       if v_revision_refresh then
         v_property_defaults := v_property_defaults || jsonb_build_object('revision', v_revision);
+      elsif v_property_overrides ? 'revision' and v_extraction_newer
+        and not v_revision_review_needed and v_extracted_revision is not null then
+        v_property_defaults := v_property_defaults || jsonb_build_object('revision', v_extracted_revision);
       end if;
       if v_finish_refresh then
         v_property_defaults := v_property_defaults || jsonb_build_object('finish', coalesce(v_quote_finish, v_finish));
+      elsif v_property_overrides ? 'finish' and v_extraction_newer
+        and not v_finish_review_needed and v_extracted_finish is not null then
+        v_property_defaults := v_property_defaults || jsonb_build_object('finish', v_extracted_finish);
       end if;
       if v_material_placeholder_replaced then
         v_property_defaults := v_property_defaults || jsonb_build_object('material', coalesce(v_material, ''));
