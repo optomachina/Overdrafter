@@ -128,7 +128,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const [now, setNow] = useState(Date.now());
   const inFlight = useRef(false), keys = useRef(new Map<string, string>());
   useEffect(() => {
-    setEvents([]); setCommand(''); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
+    // An open cancel confirmation belongs to the run it was opened for; confirming it after a switch would cancel the new run.
+    setEvents([]); setCommand(''); setConfirm(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
       const byId = new Map(previous.map(e => [`${e.runId}:${e.seq}`, e]));
       batch.filter(e => e.runId === runId).forEach(e => byId.set(`${e.runId}:${e.seq}`, e));
       return [...byId.values()].sort((a, b) => a.seq - b.seq);
