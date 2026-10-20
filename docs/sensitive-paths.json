@@ -159,7 +159,7 @@
     { "glob": "**/.pre-commit-config.yaml", "class": "infra_ci" },
     { "glob": "scripts/qa-handoff/**", "class": "infra_ci" },
     { "glob": "scripts/check-secret-paths*", "class": "infra_ci" },
-    { "glob": "scripts/verify-result-judge*", "class": "infra_ci" },
+    { "glob": "scripts/verify-result-judge*{,/**}", "class": "infra_ci" },
     { "glob": "scripts/qualify-ovd417-*", "class": "infra_ci" },
     { "glob": "scripts/verify-ovd417-*", "class": "infra_ci" },
     { "glob": "scripts/prepare-ovd373-schema-restore*", "class": "infra_ci" },
