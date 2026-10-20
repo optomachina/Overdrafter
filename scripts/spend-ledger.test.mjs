@@ -255,6 +255,8 @@ describe("export completeness and executable resolution", () => {
       expect(binary).toBe("/usr/bin/gh");
       expect(argv).toEqual(["pr", "list", "--state", "merged", "--base", "main", "--search", "merged:2026-10-05..2026-10-11", "--limit", "1000", "--json", "number,title,mergedAt,labels,headRefName,body,author"]);
       expect(options.env).toEqual({ PATH: "/usr/bin:/bin", HOME: os.homedir() });
+      // Node's 1 MiB default overflows on a real 175-PR week (about 1.06 MB of JSON).
+      expect(options.maxBuffer).toBeGreaterThanOrEqual(64 * 1024 * 1024);
       return "[]";
     } };
     expect(invoke(args, deps).code).toBe(0);
@@ -264,5 +266,36 @@ describe("export completeness and executable resolution", () => {
     expect(missing.code).toBe(2);
     expect(missing.err).toContain("gh was not found in standard locations");
     expect(missing.err).toContain("--prs-json");
+  }));
+  it("reads a gh result larger than Node's 1 MiB default through the real exec path", () => withCLI(({ dir, ledger, invoke }) => {
+    fs.mkdirSync(path.dirname(ledger));
+    fs.writeFileSync(ledger, "");
+    // A real week of this repo is about 1.06 MB of JSON; a stand-in gh prints about 1.4 MB (under the 1000-PR cap) without a shell dependency on gh itself.
+    const payload = path.join(dir, "big-prs.json");
+    const filler = "x".repeat(1536);
+    const merged = (n) => ({ number: n, title: `PR ${n}`, mergedAt: "2026-10-06T12:00:00Z", labels: [], headRefName: `branch-${n}`, body: filler, author: { login: "someone" } });
+    fs.writeFileSync(payload, JSON.stringify(Array.from({ length: 900 }, (_, i) => merged(i + 1))));
+    expect(fs.statSync(payload).size).toBeGreaterThan(1024 * 1024);
+    const fakeGh = path.join(dir, "gh");
+    fs.writeFileSync(fakeGh, `#!/bin/sh\nexec cat ${JSON.stringify(payload)}\n`, { mode: 0o755 });
+    const args = ["weekly", "--ledger", ledger, "--from", "2026-10-05", "--to", "2026-10-11", "--format", "json"];
+    const result = invoke(args, { runGh: undefined, resolveBin: () => fakeGh });
+    expect(result.err).toBe("");
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.out).sources.prSource).toBe("gh");
+  }));
+  it("tells the operator to use --prs-json when gh output overflows the buffer", () => withCLI(({ ledger, invoke }) => {
+    fs.mkdirSync(path.dirname(ledger));
+    fs.writeFileSync(ledger, "");
+    const overflow = Object.assign(new Error("spawnSync /usr/bin/gh ENOBUFS"), { code: "ENOBUFS" });
+    const args = ["weekly", "--ledger", ledger, "--from", "2026-10-05", "--to", "2026-10-11"];
+    const result = invoke(args, { runGh: undefined, resolveBin: () => "/usr/bin/gh", execFile: () => { throw overflow; } });
+    expect(result.code).toBe(2);
+    expect(result.err).toContain("gh output was too large");
+    expect(result.err).toContain("--prs-json");
+    // Any other gh failure keeps the generic message so stderr content is never echoed.
+    const other = invoke(args, { runGh: undefined, resolveBin: () => "/usr/bin/gh", execFile: () => { throw new Error("token ghp_secret"); } });
+    expect(other.code).toBe(1);
+    expect(other.err).toBe("File or gh operation failed\n");
   }));
 });

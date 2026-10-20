@@ -23,6 +23,9 @@ export function resolveBin(name) {
   return binaries.get(name);
 }
 const executableEnvironment = () => ({ PATH: "/usr/bin:/bin", HOME: os.homedir() });
+// Node's 1 MiB default overflows on a real week of this repo (175 merged PRs is about 1.06 MB
+// of JSON with bodies), which fails spawnSync with ENOBUFS; allow far more than gh's 1000-PR cap needs.
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 const HELP = `Usage: spend-ledger <collect|weekly|export-evals> [options]
 collect --input FILE (repeatable) [--ledger FILE] [--dry-run]
@@ -81,7 +84,7 @@ function findRepoRoot(deps, cwd) {
   try {
     const git = (deps.resolveBin ?? resolveBin)("git");
     if (!git) throw new Error("git unavailable");
-    return (deps.execFile ?? execFileSync)(git, ["rev-parse", "--show-toplevel"], { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return (deps.execFile ?? execFileSync)(git, ["rev-parse", "--show-toplevel"], { cwd, env: executableEnvironment(), encoding: "utf8", maxBuffer: MAX_COMMAND_OUTPUT_BYTES, stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch { return fileURLToPath(new URL("../", import.meta.url)); }
 }
 function runCollect({ options, one, ledgerFiles, resolve, stdout }) {
@@ -123,7 +126,12 @@ function runExportEvals({ one, ledgerFiles, resolve, stdout, stderr }) {
 function execGh(deps, cwd, argv) {
   const gh = (deps.resolveBin ?? resolveBin)("gh");
   if (!gh) throw new UsageError("gh was not found in standard locations; use --prs-json");
-  return (deps.execFile ?? execFileSync)(gh, argv, { cwd, env: executableEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    return (deps.execFile ?? execFileSync)(gh, argv, { cwd, env: executableEnvironment(), encoding: "utf8", maxBuffer: MAX_COMMAND_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    if (error?.code === "ENOBUFS") throw new UsageError("gh output was too large to read; use --prs-json");
+    throw error;
+  }
 }
 /** Merged PRs for the window from --prs-json, or from a read-only `gh pr list`. */
 function fetchMergedPRs({ one, resolve, cwd, deps }) {
