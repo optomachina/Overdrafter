@@ -131,7 +131,9 @@ describe("OVD-417 local qualification harness", () => {
   const admissionRecovery = "postgresql://postgres:postgres@localhost:54322/ovd417_recovery";
   const admissionRestored = "postgresql://postgres:postgres@[::1]:54322/ovd417_restored";
 
-  it.each([
+  it.skipIf(
+    process.env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE === "1" && !process.env.CI && !process.env.GITHUB_ACTIONS,
+  ).each([
     {
       name: "a routing override",
       input: { clean: `${admissionClean}?hostaddr=203.0.113.10`, recovery: admissionRecovery, restored: admissionRestored },

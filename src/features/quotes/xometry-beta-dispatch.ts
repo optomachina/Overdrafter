@@ -112,11 +112,22 @@ export type XometryBetaDispatchDiagnosticCode =
 /** Server denials the customer can resolve directly from the dispatch dialog. */
 export type XometryBetaScopeDenialCode =
   | "xometry_beta_confirmed_sourcing_address_required"
-  | "xometry_beta_standard_tolerance_required";
+  | "xometry_beta_standard_tolerance_required"
+  // OVD-981: request fields the controlled beta envelope refuses, named in the dialog.
+  | "xometry_beta_quantity_one_required"
+  | "xometry_beta_special_delivery_date_not_supported"
+  | "xometry_beta_special_requirements_not_supported"
+  | "provider_dispatch_special_requirements_not_supported"
+  | "provider_dispatch_exact_scope_required";
 
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
+  "xometry_beta_quantity_one_required",
+  "xometry_beta_special_delivery_date_not_supported",
+  "xometry_beta_special_requirements_not_supported",
+  "provider_dispatch_special_requirements_not_supported",
+  "provider_dispatch_exact_scope_required",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -489,17 +500,59 @@ export function classifyXometryBetaDispatchFailure(
 }
 
 
+/**
+ * OVD-991: every request field that both server scope checks (the legacy Xometry
+ * resolver and the generic provider resolver) refuse as a special requirement,
+ * in the words of the request form. The list is the whole set so a customer with
+ * no Notes is not left guessing. Condition source: the latest definitions of
+ * private.resolve_xometry_beta_dispatch_scope_with_access (OVD-679) and
+ * private.resolve_provider_dispatch_scope (OVD-628).
+ */
+const SPECIAL_REQUIREMENT_FIELDS =
+  "Threads, Notes (including service, packaging, shipping, certification, sourcing and release notes), " +
+  "required certifications, material certification, a certificate of conformance, " +
+  "an inspection level other than Standard, preferred suppliers, a sourcing preference other than Best value, " +
+  "material provisioning other than Supplier to source, or a release hold or block";
+
+/**
+ * The request's Threads field falls back to the thread callouts read from the
+ * drawing when it is cleared, and any save records them, so a part with thread
+ * callouts cannot clear Threads.
+ */
+const DRAWING_THREADS_NOTE =
+  " Thread callouts read from the drawing are saved as Threads with the request and cannot be cleared, so a part with thread callouts is outside the beta.";
+
+/** Facts about the request that sharpen a denial message. */
+export type XometryBetaScopeFailureContext = {
+  /** The drawing has thread callouts that the request's Threads field falls back to. */
+  drawingThreads?: boolean;
+};
+
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(
   error: unknown,
   provider: LiveDispatchProvider = "xometry",
+  context: XometryBetaScopeFailureContext = {},
 ): string {
   const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
+  const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
   switch (getXometryBetaScopeDenialCode(error)) {
     case "xometry_beta_confirmed_sourcing_address_required":
       return "Xometry needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.";
     case "xometry_beta_standard_tolerance_required":
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
+    case "xometry_beta_quantity_one_required":
+      return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+    case "xometry_beta_special_delivery_date_not_supported":
+      return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
+    case "xometry_beta_special_requirements_not_supported":
+      return `The controlled ${label} beta cannot carry ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+    case "provider_dispatch_special_requirements_not_supported":
+      return `The controlled ${label} beta cannot carry a Need by date, ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+    case "provider_dispatch_exact_scope_required":
+      // Generic path only: it denies several Quote quantities (one lane per quantity) or a part or drawing
+      // that no longer matches its approved files. A single quantity of any size is accepted.
+      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Remove extra Quote quantities so one quantity remains, then retry. If it still fails, the part or drawing does not match its approved files; contact support.`;
     default:
       break;
   }
