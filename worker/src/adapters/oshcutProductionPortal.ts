@@ -70,7 +70,7 @@ const OSHCUT_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
   manualReview: [/manual review|engineering review|requires review/i],
   // The cart row's "Select material" link on its own line, not the open
   // slideover heading ("Select Material - <file>").
-  configurationRequired: [/^\s*select material\s*$/im, /configure (?:your )?part/i],
+  configurationRequired: [/^[^\S\r\n]*select material[^\S\r\n]*$/im, /configure (?:your )?part/i],
   unavailable: [/service unavailable|maintenance/i],
 };
 
@@ -98,11 +98,13 @@ const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolv
 /** Polls `attempt` until it returns true or the bound elapses. */
 async function within(budgetMs: number, attempt: () => Promise<boolean>): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
-  for (;;) {
+  const poll = async (): Promise<boolean> => {
     if (await attempt()) return true;
     if (Date.now() >= deadline) return false;
     await sleep(Math.min(OSHCUT_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
-  }
+    return poll();
+  };
+  return poll();
 }
 
 function usdCents(text: string | null): number | null {

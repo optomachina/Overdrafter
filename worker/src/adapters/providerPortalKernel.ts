@@ -1398,8 +1398,8 @@ function buildConfigurationCapability(
 }
 
 function exactTextPattern(text: string): RegExp {
-  const escaped = text.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^\\s*${escaped}\\s*$`);
+  const escaped = text.trim().replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(String.raw`^\s*${escaped}\s*$`);
 }
 
 async function observeMissingConfiguration(

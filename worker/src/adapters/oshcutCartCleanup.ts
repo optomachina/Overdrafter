@@ -61,16 +61,14 @@ async function waitForFewerRows(
   cleanup: ProviderPortalCleanupCapability,
   name: string,
   before: number,
+  deadline = Date.now() + ROW_GONE_WAIT_MS,
 ): Promise<number> {
-  const deadline = Date.now() + ROW_GONE_WAIT_MS;
-  let count = await cleanup.count("partRow", name);
-  while (count >= before && Date.now() < deadline) {
-    // An in-page confirm may render a moment after the remove click.
-    await cleanup.click("confirmRemove");
-    await sleep(POLL_MS);
-    count = await cleanup.count("partRow", name);
-  }
-  return count;
+  const count = await cleanup.count("partRow", name);
+  if (count < before || Date.now() >= deadline) return count;
+  // An in-page confirm may render a moment after the remove click.
+  await cleanup.click("confirmRemove");
+  await sleep(POLL_MS);
+  return waitForFewerRows(cleanup, name, before, deadline);
 }
 
 /** Deletes every cart row that shows the staged file name; reports what is left. */

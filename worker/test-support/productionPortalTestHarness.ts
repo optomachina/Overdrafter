@@ -119,8 +119,8 @@ export async function expectAdmittedDecisionReachesAdapter(testCase: AdmittedDec
     scopeSnapshot: { schema: "quote-lane-scope.v1", vendor },
     adapter: { quote },
     quoteInput: testCase.input,
-    reserveDispatch: async (provider) => providerDispatchReservation(provider),
-    killSwitchReader: async (provider) => ({
+    reserveDispatch: (provider) => Promise.resolve(providerDispatchReservation(provider)),
+    killSwitchReader: (provider) => Promise.resolve({
       schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
     }),
   })).resolves.toEqual({ artifacts: [] });

@@ -1,11 +1,22 @@
 // @vitest-environment node
 
-import { describe } from "vitest";
+import { existsSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 import { registerReviewedEnvelopeMigrationChecks } from "../test-support/reviewedEnvelopeMigration";
 import { OSHCUT_DISPATCH_ENVELOPE } from "./providerDispatchEnvelope";
 
+const PENDING_PGTAP = new URL("../../supabase/tests/pending/ovd677_oshcut_reviewed_envelope.sql.pending", import.meta.url);
+const ACTIVE_PGTAP = new URL("../../supabase/tests/ovd677_oshcut_reviewed_envelope.sql", import.meta.url);
+
 // The migration is a draft (docs/migration-drafts) pending a Blaine-approved window.
 describe("OVD-677 OSH Cut reviewed dispatch envelope migration (draft)", () => {
+  // Promotion moves the pgTAP out of pending/ together with the migration; this
+  // check and `draft: true` below are removed in that same change.
+  it("keeps the pgTAP checks pending until the migration is promoted", () => {
+    expect(existsSync(PENDING_PGTAP)).toBe(true);
+    expect(existsSync(ACTIVE_PGTAP)).toBe(false);
+  });
+
   registerReviewedEnvelopeMigrationChecks({
     provider: "oshcut",
     envelope: OSHCUT_DISPATCH_ENVELOPE,

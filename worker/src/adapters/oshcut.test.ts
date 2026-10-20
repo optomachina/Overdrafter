@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -347,7 +347,6 @@ describe("OSH Cut provider envelope", () => {
 });
 
 describe("OshcutAdapter", () => {
-
   it("returns unsupported guidance without invoking a provider delegate", async () => {
     const delegateQuote = vi.fn();
     const adapter = makeAdapter(delegateQuote);
