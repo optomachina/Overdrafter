@@ -197,17 +197,15 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     db.denyPreflight({ authorized: false, reasonCode: "dispatch_quantity_not_admitted" });
     await handleVendorQuoteTask(db.client, task, live);
     expect(quote).not.toHaveBeenCalled();
-    expect(db.writes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
-        status: "manual_vendor_followup",
-        notes: [DISPATCH_QUANTITY_NOT_ADMITTED_NOTE],
-        raw_payload: expect.objectContaining({
-          failureCode: "dispatch_quantity_not_admitted",
-          manualFollowUpReason: "dispatch_quantity_not_admitted",
-          requiresManualVendorFollowUp: true,
-        }),
-      }) }),
-    ]));
+    const lane = db.writes.filter((write) => write.table === "vendor_quote_results" && "update" in write).at(-1)?.update as
+      Record<string, unknown>;
+    expect(lane.status).toBe("manual_vendor_followup");
+    expect(lane.notes).toEqual([DISPATCH_QUANTITY_NOT_ADMITTED_NOTE]);
+    expect(lane.raw_payload).toMatchObject({
+      failureCode: "dispatch_quantity_not_admitted",
+      manualFollowUpReason: "dispatch_quantity_not_admitted",
+      requiresManualVendorFollowUp: true,
+    });
     expect(JSON.stringify(db.writes)).not.toContain("dispatch_authorization_denied");
   });
 
