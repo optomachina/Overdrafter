@@ -172,7 +172,7 @@ function boxPathError(value) {
  * trailing dots and spaces from path segments.
  */
 function repoPathError(value) {
-  const normalized = value.replace(/\\/g, "/");
+  const normalized = value.replaceAll("\\", "/");
   if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
     return "must be a repo-relative path with no leading / or drive letter";
   }
