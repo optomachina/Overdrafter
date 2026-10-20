@@ -42,6 +42,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "trust:metrics": "node ./scripts/trust-metrics.mjs",
+    "spend:ledger": "node ./scripts/spend-ledger.mjs",
     "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
     "migration:next": "node ./scripts/migration-timestamp.mjs",
     "verify:migration-lineage": "node ./scripts/verify-migration-lineage.mjs",
