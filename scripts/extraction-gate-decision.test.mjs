@@ -84,7 +84,7 @@ describe("extraction gate job failure", () => {
       ["Check provider integrations", 'npm run --silent provider:check | tee "$RUNNER_TEMP/provider-check.json"', "jq -e '.ok == true'"],
       ["Decide extraction gate", 'node scripts/extraction-gate-decision.mjs | tee "$RUNNER_TEMP/extraction-gate-decision.log"', "if ! grep -Eq '^extraction-gate mode=\\S+ result=\\S+ exit='"],
     ]) {
-      const step = workflow.split(/\n      - name: /).find((block) => block.startsWith(`${name}\n`));
+      const step = workflow.split(/\n {6}- name: /).find((block) => block.startsWith(`${name}\n`));
       expect(step, name).toBeDefined();
       expect(step).toContain("set -euo pipefail");
       expect(step).toContain(command);

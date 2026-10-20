@@ -13,14 +13,14 @@ for (const [file, command, evidence] of [
 ]) {
   test(`${file} requires a passed fixture receipt and retained evidence`, () => {
     const source = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
-    const step = source.split(/\n      - name: /).find(block => block.includes(`ovd591-ci-fixture.mjs ${command} "`));
+    const step = source.split(/\n {6}- name: /).find(block => block.includes(`ovd591-ci-fixture.mjs ${command} "`));
     assert(step);
     assert.match(step, /set -euo pipefail/);
     assert(step.includes(`node scripts/ovd591-ci-fixture.mjs ${command} "$${evidence}"`));
     assert(step.includes(`test -s "$${evidence}/fixture-result.json"`));
     assert(step.includes(`jq -e '.status == "passed"' "$${evidence}/fixture-result.json"`));
     assert.match(step, /echo "::error::[^\n]+\n\s+exit 1/);
-    const upload = source.split(/\n      - name: /).find(block => block.includes('actions/upload-artifact@v4'));
+    const upload = source.split(/\n {6}- name: /).find(block => block.includes('actions/upload-artifact@v4'));
     assert.match(upload, /if-no-files-found: error/);
   });
 }
