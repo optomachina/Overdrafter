@@ -963,6 +963,44 @@ describe("title block cells", () => {
     });
   });
 
+  // The bounds that decide a value (OVD-989), each pinned at its edge.
+  describe("the bounds of a value", () => {
+    const words = (length: number) => "ALUMINUM ".repeat(20).slice(0, length);
+
+    it("reads a material of 120 characters and rejects one of 121", () => {
+      expect(words(120).endsWith(" ")).toBe(false);
+      expect(cell(layoutSheet([[0, "MATERIAL"]], [[0, words(120)]]), "material")).toMatchObject({ status: "value", value: words(120) });
+      expect(cell(layoutSheet([[0, "MATERIAL"]], [[0, words(121)]]), "material")).toMatchObject({ status: "rejected", reason: "bad_shape" });
+    });
+
+    it("tells a label from a value only up to 200 characters", () => {
+      expect(isLabelLikeToken("Q.A. ".repeat(40))).toBe(true);
+      expect(isLabelLikeToken("Q.A. ".repeat(41))).toBe(false);
+    });
+
+    it("takes a run of letters for a label up to 41 characters, with text under it", () => {
+      const letters = (length: number) => `${"A".repeat(20)} ${"B".repeat(length - 21)}`;
+      const sheet = (length: number) => layoutSheet([[0, "MATERIAL"], [12, letters(length)]], [[14, "RC 40-45"]]);
+      expect(letters(41)).toHaveLength(41);
+      expect(cell(sheet(41), "material")).toMatchObject({ status: "ambiguous", reason: "unlisted_label" });
+      expect(cell(sheet(42), "material").reason).not.toBe("unlisted_label");
+    });
+
+    // The window after a label in which text is its own value is six heights of the LABEL's own text, however tall
+    // the other words on the line are: a 24 pt word on the same line must not widen it.
+    it("sizes the inline window by the label's own words, not the tallest word of its line", () => {
+      const label = (text: string, x: number, y = 100) => phrase(text, x, y, 6);
+      const page = [...phrase("ABC", 60, 60, 9), ...phrase("DEF", 120, 60, 9), ...phrase("GHI", 180, 60, 9), ...phrase("JKL", 240, 60, 9)];
+      const tall = phrase("B", 500, 100, 24);
+      // MATERIAL ends 6 * 6 * 0.55 * 8 = 26.4 pt after it starts; the value begins 44 pt later, past six label heights
+      // (6 * 6.6 = 39.6 pt) and inside the 12 columns of a window sized by the 24 pt word (47.5 pt).
+      const material = label("MATERIAL", 330);
+      const labelEnd = Math.max(...material.map((word) => word.xMax));
+      expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 44, 100, 9), ...tall], "material")).toMatchObject({ status: "empty", value: null });
+      expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 20, 100, 9), ...tall], "material")).toMatchObject({ status: "value", value: "ZINC" });
+    });
+  });
+
   describe("isLabelLikeToken", () => {
     it.each([
       "Q.A.", "q.a.", "QA", "Q.C.", "CHECKED", "Checked", "DRAWN", "APPROVED", "ENG", "ENG.", "MFG", "ENG APPR.", "MFG APPR.",
