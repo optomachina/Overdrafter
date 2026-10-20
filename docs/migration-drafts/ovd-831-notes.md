@@ -2,6 +2,8 @@
 
 OVD-828 slice 3. Draft only. Nothing here is applied to any Supabase project, and nothing is in `supabase/migrations/`. The prod apply is a separate Blaine approval card.
 
+The rollback check is also covered by the ephemeral-db rollback stage (OVD-924), pending PR-2.
+
 Files:
 
 - `docs/migration-drafts/ovd-831-agent-api-keys.sql`: `public.agent_api_keys`, `private.agent_api_key_audit` (append-only), `private.agent_api_key_rate_limits`, one SELECT policy, column grants, nine functions and one trigger function.
