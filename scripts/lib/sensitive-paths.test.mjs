@@ -99,6 +99,9 @@ describe("sensitive-paths config", () => {
 describe("OVD-939 C2 gate coverage", () => {
   it.each([
     ["scripts/lib/jev-screen-marker.mjs", ["infra_ci"]],
+    // jev-run-rate is named by no narrower glob; only scripts/lib/jev-* classifies it.
+    ["scripts/lib/jev-run-rate.mjs", ["infra_ci"]],
+    ["scripts/lib/jevx.mjs", []],
     ["scripts/validate-pr-body.mjs", ["infra_ci"]],
     ["scripts/ephemeral-db-apply.mjs", ["infra_ci"]],
     ["scripts/run-supabase-policy-tests.mjs", ["auth", "infra_ci"]],
@@ -130,6 +133,17 @@ describe("OVD-939 C2 gate coverage", () => {
           .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: cls })]);
       }
     }
+  });
+
+  it("depends on scripts/lib/jev-* for jev lib files no narrower glob names, and reports its removal", () => {
+    const glob = "scripts/lib/jev-*";
+    const path = "scripts/lib/jev-run-rate.mjs";
+    expect(config.globs).toContainEqual({ glob, class: "infra_ci" });
+    const without = withGlobs((list) => list.splice(0, list.length, ...list.filter((entry) => entry.glob !== glob)));
+    expect(classifyPaths([path], parseSensitivePaths(without)).files[0].classes).toEqual([]);
+    expect(findGateLoosening({ baseText: without, headText: configText }).detected).toBe(false);
+    expect(findGateLoosening({ baseText: configText, headText: without }).reasons)
+      .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: "infra_ci" })]);
   });
 
   it("still rejects a duplicate glob even when the class differs", () => {
