@@ -70,6 +70,8 @@ const {
   },
   mockQuoteCollectionMode: {
     automaticEnabled: true,
+    // Mirrors useQuoteAccess: "unknown" while loading, refetching or errored.
+    state: "eligible" as "eligible" | "blocked" | "unknown",
     hasAutomaticEntitlement: true,
     isLoading: false,
     plan: "pro",
@@ -364,10 +366,12 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     selectedOption,
     activePreset,
     deadline,
+    requestedByDate,
     controls,
     headerActions,
     onSelect,
   }: {
+    requestedByDate?: string | null;
     options?: Array<{
       key?: string;
       vendorLabel?: string;
@@ -393,6 +397,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       selectedOption,
       activePreset,
       deadline,
+      requestedByDate,
       onSelect,
     };
 
@@ -416,12 +421,16 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
   QuoteSelectionFunctionBar: ({
     scope,
     requestedByDate,
+    disabled,
+    dueDateHelpText,
     onScopeChange,
     onModeChange,
     onRequestedByDateChange,
   }: {
     scope?: "domestic" | "global";
     requestedByDate?: string | null;
+    disabled?: boolean;
+    dueDateHelpText?: string;
     onScopeChange?: (next: "domestic" | "global") => void;
     onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
@@ -432,9 +441,11 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
         id="mock-due-by"
         aria-label="Need by date"
         value={requestedByDate ?? ""}
+        disabled={disabled}
         onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
       />
-      <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
+      <span data-testid="need-by-help-text">{dueDateHelpText}</span>
+      <button type="button" disabled={disabled} onClick={() => onRequestedByDateChange?.(null)}>
         Clear
       </button>
       <button
@@ -623,7 +634,8 @@ function createXometryDispatchScope() {
 
 function renderPartControllerHook() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rendered = renderHook(() => useClientPartController("job-1", { warmNavigation: false }), {
+  const rendered = renderHook(({ jobId }) => useClientPartController(jobId, { warmNavigation: false }), {
+    initialProps: { jobId: "job-1" },
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
     ),
@@ -737,6 +749,39 @@ function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: strin
       ],
     },
   });
+}
+
+/**
+ * A saved request that carries the kinds of field a full save could rewrite
+ * (Notes, quantity, Quote quantities, Need by date), optionally with Threads
+ * already saved and/or thread callouts read from the drawing.
+ */
+function createNeedByRequestDetail(options: { savedThreads?: string; drawingThreads?: string[] } = {}) {
+  const detail = createLiveOfferPartDetail(new Date().toISOString());
+  return {
+    ...detail,
+    part: {
+      ...detail.part,
+      extraction: options.drawingThreads
+        ? ({ id: "extraction-1", extraction: { threads: options.drawingThreads }, warnings: [] } as never)
+        : null,
+      approvedRequirement: {
+        ...detail.part.approvedRequirement,
+        spec_snapshot: {
+          process: "CNC milling",
+          notes: "Deburr all edges",
+          ...(options.savedThreads ? { threads: options.savedThreads } : {}),
+        },
+      },
+    },
+  };
+}
+
+const THREADED_DRAWING = ["1/4-20 UNC-2B", "M6x1.0-6H"];
+
+/** The scope check denial a PostgREST RPC returns: a plain record, not an Error. */
+function scopeDenial(message: string) {
+  return { code: "P0001", details: null, hint: null, message };
 }
 
 async function findActivityCommentField() {
@@ -918,6 +963,8 @@ describe("ClientPart", () => {
     lastShellProps = null;
     vi.resetAllMocks();
     mockQuoteCollectionMode.automaticEnabled = true;
+    mockQuoteCollectionMode.state = "eligible";
+    mockQuoteCollectionMode.isLoading = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
     mockQuoteCollectionMode.plan = "pro";
     Object.defineProperty(window, "localStorage", {
@@ -1321,6 +1368,139 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({
       optionCount: 1,
       totalPrices: [100],
+    });
+  });
+
+  describe("Need by display filter inside the controlled envelope (OVD-981)", () => {
+    it("re-ranks the options by the view date without writing the request", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      // The saved 2026-04-15 date is met by the fixture's offer (ships 2026-03-10).
+      expect(result.current.quoteViewRequestedByDate).toBe("2026-04-15");
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+      expect(result.current.requestSummaryRequestedByDate).toBe("2026-04-15");
+      expect(result.current.rankedQuoteOptions.some((option) => option.dueDateEligible)).toBe(false);
+
+      act(() => result.current.handleNeedByFilterChange(null));
+      expect(result.current.quoteViewRequestedByDate).toBeNull();
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    it("drops the view date when the part changes", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, rerender, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+
+      rerender({ jobId: "job-2" });
+      await waitFor(() => expect(result.current.quoteViewRequestedByDate).toBe("2026-04-15"));
+      queryClient.clear();
+    });
+
+    it("ranks published quote options by the view date, not the saved one (OVD-991)", async () => {
+      const detail = createLiveOfferPartDetail(new Date().toISOString());
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...detail,
+        publishedQuoteOptions: [
+          {
+            id: "published-option-1",
+            package_id: "published-package-1",
+            organization_id: "org-1",
+            option_kind: "lowest_cost",
+            label: "Lowest Cost",
+            requested_quantity: 10,
+            published_price_usd: 125,
+            lead_time_business_days: 8,
+            comparison_summary: "Best published price.",
+            source_vendor_quote_id: "quote-1",
+            source_vendor_quote_offer_id: "offer-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-02T00:00:00Z",
+          },
+        ],
+      });
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      // Published pricing replaces the live offers, and the saved 2026-04-15 date is met.
+      expect(result.current.rankedQuoteOptions.map((option) => option.key)).toEqual(["published:published-option-1"]);
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.rankedQuoteOptions.map((option) => option.key)).toEqual(["published:published-option-1"]);
+      expect(result.current.rankedQuoteOptions.some((option) => option.dueDateEligible)).toBe(false);
+
+      act(() => result.current.handleNeedByFilterChange(null));
+      expect(result.current.rankedQuoteOptions.every((option) => option.dueDateEligible)).toBe(true);
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    it.each([
+      ["while access is loading or refetching", { state: "unknown", isLoading: true }],
+      ["when access could not be verified", { state: "unknown", isLoading: false }],
+      ["when access is blocked but still refetching", { state: "blocked", isLoading: true }],
+      ["when access is eligible", { state: "eligible", isLoading: false }],
+    ] as const)("stays view only %s (OVD-991)", async (_label, access) => {
+      mockQuoteCollectionMode.automaticEnabled = access.state === "eligible" && !access.isLoading;
+      mockQuoteCollectionMode.state = access.state;
+      mockQuoteCollectionMode.isLoading = access.isLoading;
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      expect(result.current.needByFilterIsViewOnly).toBe(true);
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+      expect(result.current.requestSummaryRequestedByDate).toBe("2026-04-15");
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    it("persists the filter only when access is blocked and settled (OVD-991)", async () => {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      mockQuoteCollectionMode.state = "blocked";
+      mockQuoteCollectionMode.isLoading = false;
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      expect(result.current.needByFilterIsViewOnly).toBe(false);
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      await waitFor(() =>
+        expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+          expect.objectContaining({ jobId: "job-1", requestedByDate: "2000-01-01" }),
+        ),
+      );
+      queryClient.clear();
+    });
+
+    it("turns view only again when blocked access is refetched after a dispatch (OVD-991)", async () => {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      mockQuoteCollectionMode.state = "blocked";
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, rerender, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+      expect(result.current.needByFilterIsViewOnly).toBe(false);
+
+      // The access check restarts: the hook reports "unknown" and loading until it settles.
+      mockQuoteCollectionMode.state = "unknown";
+      mockQuoteCollectionMode.isLoading = true;
+      rerender({ jobId: "job-1" });
+      expect(result.current.needByFilterIsViewOnly).toBe(true);
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      expect(result.current.quoteViewRequestedByDate).toBe("2000-01-01");
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      queryClient.clear();
     });
   });
 
@@ -2643,12 +2823,16 @@ describe("ClientPart", () => {
     });
   });
 
-  it("saves a due date from the inline function bar", async () => {
+  it("saves a due date from the inline function bar once access is known to be blocked", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "blocked";
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
       expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
+    expect(screen.getByTestId("need-by-help-text")).toHaveTextContent("requested delivery date");
+    expect(screen.getByTestId("need-by-help-text")).not.toHaveTextContent("view only");
 
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
@@ -2656,6 +2840,268 @@ describe("ClientPart", () => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
         expect.objectContaining({ jobId: "job-1", requestedByDate: "2026-04-22" }),
       );
+    });
+    expect(screen.queryByRole("button", { name: "Remove Need by from request" })).toBeNull();
+  });
+
+  it("keeps the Need by display filter out of the request while the controlled envelope applies (OVD-981)", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-15");
+
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-22"));
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ requestedByDate: "2026-04-22" });
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue(""));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+  });
+
+  it("explains an already saved Need by date and removes it only on request (OVD-981)", async () => {
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByText(/does not support a Need by date/i)).toBeInTheDocument();
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
+      );
+    });
+  });
+
+  it("removes the Need by date with a save that changes nothing else (OVD-991)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ savedThreads: "1/4-20 UNC-2B" }));
+    renderWithClient("/parts/job-1");
+
+    // An unsaved edit in the request form must not ride along with the removal.
+    fireEvent.change(await screen.findByLabelText("Notes"), { target: { value: "Unsaved note" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Need by from request" }));
+
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    expect(api.updateClientPartRequest.mock.calls[0]).toStrictEqual([
+      {
+        jobId: "job-1",
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        description: "Bracket",
+        partNumber: "BRKT-001",
+        revision: "A",
+        material: "6061-T6 aluminum",
+        finish: "Black anodize",
+        threads: "1/4-20 UNC-2B",
+        tightestToleranceInch: 0.005,
+        process: "CNC milling",
+        notes: "Deburr all edges",
+        quantity: 10,
+        requestedQuoteQuantities: [10],
+        requestedByDate: null,
+        shipping: { requestedByDateOverride: null, packagingNotes: null, shippingNotes: null },
+        certifications: {
+          requiredCertifications: [],
+          materialCertificationRequired: null,
+          certificateOfConformanceRequired: null,
+          inspectionLevel: null,
+          notes: null,
+        },
+        sourcing: {
+          regionPreferenceOverride: null,
+          preferredSuppliers: [],
+          materialProvisioning: null,
+          notes: null,
+        },
+        release: {
+          releaseStatus: null,
+          reviewDisposition: null,
+          quoteBlockedUntilRelease: null,
+          notes: null,
+        },
+      },
+    ]);
+  });
+
+  it("keeps the saved Need by notice on the request's date while the filter shows another (OVD-991)", async () => {
+    renderWithClient("/parts/job-1");
+
+    const notice = await screen.findByRole("region", { name: "Need by date on the request" });
+    expect(notice).toHaveTextContent("Apr 15, 2026");
+
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-22"));
+    expect(screen.getByRole("region", { name: "Need by date on the request" })).toHaveTextContent("Apr 15, 2026");
+    expect(screen.getByRole("region", { name: "Need by date on the request" })).not.toHaveTextContent("Apr 22, 2026");
+
+    // Clearing the filter shows every option but the saved date still blocks dispatch.
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue(""));
+    expect(screen.getByRole("region", { name: "Need by date on the request" })).toHaveTextContent("Apr 15, 2026");
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+  });
+
+  it("says in the filter tooltip that it changes the view only when no Need by date is saved (OVD-991)", async () => {
+    const base = createPartDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        job: { ...base.job, requested_by_date: null },
+        summary: { ...base.summary, requestedByDate: null },
+      }),
+    );
+    renderWithClient("/parts/job-1");
+
+    const helpText = await screen.findByTestId("need-by-help-text");
+    expect(helpText).toHaveTextContent("in this view only");
+    expect(helpText).toHaveTextContent("not saved to the request");
+    expect(helpText).not.toHaveTextContent("requested delivery date");
+    expect(screen.queryByRole("button", { name: "Remove Need by from request" })).toBeNull();
+  });
+
+  describe.each([
+    ["is loading or refetching", { state: "unknown", isLoading: true }],
+    ["could not be verified", { state: "unknown", isLoading: false }],
+    ["is blocked but still refetching", { state: "blocked", isLoading: true }],
+  ] as const)("while quote access %s (OVD-991)", (_label, access) => {
+    beforeEach(() => {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      mockQuoteCollectionMode.state = access.state;
+      mockQuoteCollectionMode.isLoading = access.isLoading;
+    });
+
+    it("keeps the filter view only and never writes the request", async () => {
+      renderWithClient("/parts/job-1");
+
+      await screen.findByTestId("quote-selection-function-bar");
+      fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+      await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-22"));
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+      await waitFor(() => expect(screen.getByLabelText("Need by date")).toHaveValue(""));
+
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(screen.getByTestId("need-by-help-text")).toHaveTextContent("in this view only");
+    });
+
+    it("keeps the saved Need by notice visible", async () => {
+      renderWithClient("/parts/job-1");
+
+      expect(await screen.findByRole("region", { name: "Need by date on the request" })).toHaveTextContent(
+        "Apr 15, 2026",
+      );
+      expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeInTheDocument();
+    });
+  });
+
+  it("disables the Need by controls while a request save is pending (OVD-991)", async () => {
+    const pendingSave = createDeferredPromise<void>();
+    api.updateClientPartRequest.mockReturnValue(pendingSave.promise);
+    renderWithClient("/parts/job-1");
+
+    const remove = await screen.findByRole("button", { name: "Remove Need by from request" });
+    expect(remove).toBeEnabled();
+    expect(screen.getByLabelText("Need by date")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeEnabled();
+
+    fireEvent.click(remove);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeDisabled());
+    expect(screen.getByLabelText("Need by date")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+
+    await act(async () => {
+      pendingSave.resolve();
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeEnabled());
+    expect(screen.getByLabelText("Need by date")).toBeEnabled();
+  });
+
+  it("warns that removing Need by also saves the drawing's thread callouts as Threads (OVD-991)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ drawingThreads: THREADED_DRAWING }));
+    renderWithClient("/parts/job-1");
+
+    const notice = await screen.findByRole("region", { name: "Need by date on the request" });
+    expect(notice).toHaveTextContent("records the thread callouts read from the drawing as Threads");
+
+    // The warning is true: the save sends the callouts as the request's Threads.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+      requestedByDate: null,
+      threads: "1/4-20 UNC-2B, M6x1.0-6H",
+    });
+  });
+
+  it.each([
+    ["the drawing has no thread callouts", createNeedByRequestDetail()],
+    [
+      "Threads are already saved on the request",
+      createNeedByRequestDetail({ savedThreads: "1/4-20 UNC-2B", drawingThreads: THREADED_DRAWING }),
+    ],
+  ])("does not warn about Threads when %s (OVD-991)", async (_label, detail) => {
+    api.fetchPartDetailByJobId.mockResolvedValue(detail);
+    renderWithClient("/parts/job-1");
+
+    const notice = await screen.findByRole("region", { name: "Need by date on the request" });
+    expect(notice).not.toHaveTextContent(/thread callouts/i);
+  });
+
+  describe("scope denial copy in the confirmation dialog (OVD-991)", () => {
+    async function openDeniedScope(denial: string, drawingThreads: string[] | undefined) {
+      const detail = createDispatchReadyPartDetail(["fictiv"]);
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...detail,
+        part: {
+          ...detail.part,
+          extraction: drawingThreads
+            ? ({ id: "extraction-1", extraction: { threads: drawingThreads }, warnings: [] } as never)
+            : null,
+        },
+      });
+      api.getProviderDispatchScope.mockRejectedValue(scopeDenial(denial));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      return screen.findByRole("alert");
+    }
+
+    it.each([
+      ["with thread callouts on the drawing", THREADED_DRAWING, true],
+      ["without thread callouts", undefined, false],
+    ])("names Fictiv, the denied fields and the way out for a saved Need by date %s", async (_label, drawingThreads, hasNote) => {
+      vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+      try {
+        const alert = await openDeniedScope("provider_dispatch_special_requirements_not_supported", drawingThreads);
+
+        expect(alert).toHaveTextContent("This package is not ready for controlled Fictiv beta dispatch.");
+        expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry a Need by date, Threads, Notes");
+        expect(alert).toHaveTextContent("an inspection level other than Standard");
+        expect(alert).toHaveTextContent("If this part needs any of them, it is outside the beta.");
+        expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
+        expect(alert).not.toHaveTextContent("Xometry");
+        expect(alert.textContent?.includes("Thread callouts read from the drawing are saved as Threads")).toBe(hasNote);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("tells a Fictiv customer to remove extra Quote quantities, not to set Qty to 1", async () => {
+      vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+      try {
+        const alert = await openDeniedScope("provider_dispatch_exact_scope_required", undefined);
+
+        expect(alert).toHaveTextContent("The controlled Fictiv beta quotes one part at one quantity from its approved files.");
+        expect(alert).toHaveTextContent("Remove extra Quote quantities so one quantity remains, then retry.");
+        expect(alert).toHaveTextContent("contact support");
+        expect(alert).not.toHaveTextContent("Qty");
+        expect(alert).not.toHaveTextContent("Xometry");
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 
@@ -2809,7 +3255,9 @@ describe("ClientPart", () => {
     expect(screen.queryByRole("heading", { name: "1093-05589 rev 2" })).toBeNull();
   });
 
-  it("clears the inline due date from the function bar", async () => {
+  it("clears the inline due date from the function bar once access is known to be blocked", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "blocked";
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
@@ -3226,6 +3674,9 @@ describe("ClientPart", () => {
   });
 
   it("serializes a field reset after a pending partial save", async () => {
+    // The Need by filter only persists once access is known to be blocked (OVD-981, OVD-991).
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "blocked";
     const baseDetail = createPartDetail();
     let persistedDescription: string | null = "Bracket";
     let resolvePatchRequest: (() => void) | null = null;

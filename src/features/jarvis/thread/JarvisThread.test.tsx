@@ -81,6 +81,14 @@ describe('web thread', () => {
     s.send({ ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [{ kind: 'step', uri: '/kept.step' }] });
     expect(screen.getByText('Work kept')).toBeTruthy(); expect(screen.getByRole('link', { name: 'DOWNLOAD STEP' }).getAttribute('href')).toBe('/kept.step'); expect(screen.queryByRole('button', { name: 'OPEN 3D VIEW' })).toBeNull();
   });
+  it('T8 a paused run keeps its partial artifacts visible', () => {
+    const s = setup();
+    s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' }, artifact(2, 'png'), artifact(3, 'step'));
+    s.send({ ...base, seq: 4, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' });
+    expect(screen.getByText('You paused the job at a checkpoint.')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Iso' }).getAttribute('src')).toBe('/png');
+    expect(screen.getByRole('link', { name: 'DOWNLOAD STEP' }).getAttribute('href')).toBe('/step');
+  });
   it('deduplicates by run and sequence and ignores other runs', () => {
     const s = setup(); s.send(decision, decision, { ...decision, runId: 'other' });
     expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
@@ -262,4 +270,35 @@ it.each(['KEEP COOKING', 'Close dialog', 'Escape'] as const)('dismissing the can
   expect(screen.queryByRole('alertdialog')).toBeNull();
   expect(document.activeElement).toBe(opener);
   expect(s.client.control).not.toHaveBeenCalled();
+});
+
+it('closes an open cancel confirmation when the run changes so it cannot cancel the new run', () => {
+  let push: (events: GraphEvent[]) => void = () => { };
+  const source: EventSource = { listen: fn => { push = fn; return () => { }; }, retry: vi.fn() };
+  const client = { resolve: vi.fn(), control: vi.fn().mockResolvedValue({ status: 202 }) };
+  const view = render(<JarvisThread source={source} client={client} runId="run" />);
+  act(() => push([{ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' }]));
+  fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+  expect(screen.getByRole('alertdialog')).toBeTruthy();
+  view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(client.control).not.toHaveBeenCalled();
+});
+
+it('orders events by sequence when batches arrive out of order', () => {
+  const s = setup();
+  s.send({ ...base, seq: 2, type: 'status', state: 'started', message: 'Second stage' });
+  s.send({ ...base, seq: 1, type: 'status', state: 'started', nodeId: 'concept_picks', message: 'First stage' });
+  expect(screen.getByText('Second stage')).toBeTruthy();
+  expect(screen.queryByText('First stage')).toBeNull();
+});
+it('stops listening to the source when it unmounts or the run changes', () => {
+  const unsubscribe = vi.fn();
+  const source: EventSource = { listen: () => unsubscribe, retry: vi.fn() };
+  const client = { resolve: vi.fn(), control: vi.fn() };
+  const view = render(<JarvisThread source={source} client={client} runId="run" />);
+  view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(unsubscribe).toHaveBeenCalledTimes(2);
 });

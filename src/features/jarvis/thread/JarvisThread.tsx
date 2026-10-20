@@ -56,10 +56,22 @@ function controlState(control: ControlEvent | undefined, command: string): strin
   return command;
 }
 
-function laneLabel(node: string, pending: boolean, stopped: string | undefined, status: StatusEvent | undefined, offline: boolean, state: string, now: number, events: GraphEvent[]): string {
+type LaneContext = { pending: boolean; stopped: string | undefined; status: StatusEvent | undefined; offline: boolean; state: string; now: number; completed: ReadonlySet<string> };
+
+function laneLabel(node: string, lane: LaneContext): string {
+  const { pending, stopped, status, offline, state, now, completed } = lane;
   if (node === 'domain_agent' && pending) return stopped ? stopped.toUpperCase() : 'WAITS FOR YOU';
   if (status?.nodeId === node) return `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s`;
-  return events.some(e => e.type === 'status' && e.nodeId === node && e.state === 'completed') ? 'DONE' : 'WAITING';
+  return completed.has(node) ? 'DONE' : 'WAITING';
+}
+
+const nodeNames: Record<string, string> = { concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' };
+
+// What the polite live region says: the result once there is one, otherwise only the stage and its state (never the elapsed timer).
+function announcement(result: Extract<GraphEvent, { type: 'result' }> | undefined, status: StatusEvent | undefined, deciding: boolean, state: string): string | undefined {
+  if (result) return result.summary;
+  if (!status) return undefined;
+  return `${nodeNames[status.nodeId] ?? status.nodeId} · ${deciding ? 'WAITS FOR YOU' : state || status.state}`;
 }
 
 function controlMessage(control: ControlEvent): string {
@@ -89,12 +101,17 @@ function Decision({ event, resolved, client, offline, stopped }: Readonly<{ even
       if (response.status >= 400) throw new Error(response.status === 403 ? '403 · This decision could not be resolved.' : 'The decision could not be saved.');
     } catch (e) { setError(e instanceof Error ? e.message : 'The decision could not be saved.'); locked.current = false; setPending(false); }
   };
-  return <section>
-    <h2>{event.question}</h2>{resolved ? <>
+  let body: ReactNode;
+  if (resolved) {
+    body = <>
       <p>{decisionLabel(resolved)} · {resolved.choice}</p>
       <p>{resolved.rationale}</p>
       <a href="#jarvis-message" onClick={() => document.getElementById("jarvis-message")?.focus()}>Change</a>
-    </> : stopped ? <p>No choice was recorded. The job is {stopped}.</p> : <>
+    </>;
+  } else if (stopped) {
+    body = <p>No choice was recorded. The job is {stopped}.</p>;
+  } else {
+    body = <>
       <div role="radiogroup" aria-label={event.question}>{event.options.map((option, i) => <button key={option} role="radio" aria-checked={selected === option} tabIndex={selected === option ? 0 : -1} disabled={pending || offline} onClick={() => setSelected(option)} onKeyDown={e => {
         if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
         e.preventDefault(); const next = nextOption(e.key, i, event.options.length);
@@ -105,7 +122,10 @@ function Decision({ event, resolved, client, offline, stopped }: Readonly<{ even
         <button className="jt-primary" disabled={pending || offline} onClick={() => void send(false)}>APPROVE {selected}</button>
         <button aria-describedby={`skip-${event.seq}`} disabled={pending || offline} onClick={() => void send(true)}>{pending ? 'SAVING' : 'SKIP'}</button>
       </div>
-    </>}{error && <p role="alert">{error}</p>}</section>;
+    </>;
+  }
+  return <section>
+    <h2>{event.question}</h2>{body}{error && <p role="alert">{error}</p>}</section>;
 }
 
 export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate" }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode }>) {
@@ -114,7 +134,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const [now, setNow] = useState(Date.now());
   const inFlight = useRef(false), keys = useRef(new Map<string, string>());
   useEffect(() => {
-    setEvents([]); setCommand(''); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
+    // An open cancel confirmation belongs to the run it was opened for; confirming it after a switch would cancel the new run.
+    setEvents([]); setCommand(''); setConfirm(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
       const byId = new Map(previous.map(e => [`${e.runId}:${e.seq}`, e]));
       batch.filter(e => e.runId === runId).forEach(e => byId.set(`${e.runId}:${e.seq}`, e));
       return [...byId.values()].sort((a, b) => a.seq - b.seq);
@@ -140,6 +161,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), glb = refs.find(a => a.kind === 'glb'), step = refs.find(a => a.kind === 'step');
   const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
   const state = controlState(control, command);
+  const lane: LaneContext = { pending, stopped, status, offline, state, now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
     inFlight.current = true; setCommand(kind === 'pause' ? 'Pausing' : 'Cancelling'); setError('');
@@ -152,11 +174,11 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <h1 ref={heading} tabIndex={-1}>Jarvis</h1>
     </header>
     <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <p aria-live="polite" className="sr-only">{result ? result.summary : status && `${({ concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' } as Record<string, string>)[status.nodeId] ?? status.nodeId} · ${deciding ? 'WAITS FOR YOU' : state || status.state}`}</p>
+    <p aria-live="polite" className="sr-only">{announcement(result, status, deciding, state)}</p>
     <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
-      <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map((node, i) => <li key={node}>
-        <span>{['Concept picks', 'CAD model', 'Independent check'][i]}</span>
-        <span>{laneLabel(node, pending, stopped, status, offline, state, now, events)}</span>
+      <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map(node => <li key={node}>
+        <span>{nodeNames[node]}</span>
+        <span>{laneLabel(node, lane)}</span>
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
