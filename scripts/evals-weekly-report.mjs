@@ -36,25 +36,36 @@ export function inWindow(ts, w) { const t = Date.parse(ts); return t >= Date.par
 export function extractIssues(pr) {
   return [...new Set(JSON.stringify([pr.title, pr.headRefName, pr.body, pr.closingIssuesReferences]).toUpperCase().match(/\bOVD-\d+\b/g) ?? [])];
 }
+const QA_VERDICT = /^QA:\s*(PASS|FAIL)\b/gm;
+const REPAIR_PATTERNS = [/repair budget(?: now)? used:\s*(\d+)\s*\/\s*2/gi, /repair round\s*(\d+)/gi, /round-(\d+) repair/gi];
+const OPUS_CHANGES_REQUIRED = /^Opus review @[^\n]*: CHANGES REQUIRED/m;
+const OPUS_REVIEW = /^Opus (?:re-review|review) @/;
+// Any FAIL wins over a PASS; no verdict line at all is "none" (unknown), never a pass.
+function qaVerdict(comments) {
+  const verdicts = new Set(comments.flatMap((c) => [...c.matchAll(QA_VERDICT)].map((m) => m[1])));
+  if (verdicts.has('FAIL')) return 'fail';
+  return verdicts.has('PASS') ? 'pass' : 'none';
+}
+// The largest recorded repair round; a QA FAIL or an Opus CHANGES REQUIRED implies at least one.
+function repairRounds(comments, qaFailed) {
+  const recorded = comments.flatMap((c) => REPAIR_PATTERNS.flatMap((re) => [...c.matchAll(re)].map((m) => Number(m[1]))));
+  const implied = (qaFailed || comments.some((c) => OPUS_CHANGES_REQUIRED.test(c))) ? 1 : 0;
+  return Math.max(implied, ...recorded);
+}
+function firstPassCI(checks) {
+  if (checks.length === 0) return 'unknown';
+  return checks.every((c) => c.status?.toUpperCase() === 'COMPLETED' && good(c.conclusion)) ? 'pass' : 'fail';
+}
 export function analyzePR(pr, detail, checks, ignoreChecks = DEFAULT_IGNORE_CHECKS) {
   const comments = (detail.comments ?? []).map((c) => c.body ?? '');
-  const verdicts = comments.flatMap((c) => [...c.matchAll(/^QA:\s*(PASS|FAIL)\b/gm)].map((m) => m[1]));
-  const qa = verdicts.includes('FAIL') ? 'fail' : verdicts.includes('PASS') ? 'pass' : 'none';
-  let repairs = verdicts.includes('FAIL') ? 1 : 0;
-  for (const c of comments) {
-    for (const re of [/repair budget(?: now)? used:\s*(\d+)\s*\/\s*2/gi, /repair round\s*(\d+)/gi, /round-(\d+) repair/gi]) {
-      for (const m of c.matchAll(re)) repairs = Math.max(repairs, Number(m[1]));
-    }
-    if (/^Opus review @[^\n]*: CHANGES REQUIRED/m.test(c)) repairs = Math.max(repairs, 1);
-  }
+  const qa = qaVerdict(comments);
   const re = ignoreChecks ? new RegExp(ignoreChecks, 'i') : null;
   const rollup = (detail.statusCheckRollup ?? []).filter((c) => !ignored(c, re));
-  checks = checks.filter((c) => !ignored(c, re));
   return { ...pr, issues: extractIssues({ ...pr, closingIssuesReferences: detail.closingIssuesReferences }),
     accepted: rollup.length > 0 && rollup.every(headPass),
     failingHeadChecks: rollup.filter((c) => !headPass(c)).map((c) => `${c.name ?? c.context ?? 'unnamed'} ${c.state ?? c.conclusion ?? c.status ?? 'UNKNOWN'}`),
-    ci: checks.length === 0 ? 'unknown' : checks.every((c) => c.status?.toUpperCase() === 'COMPLETED' && good(c.conclusion)) ? 'pass' : 'fail',
-    qa, repairs, opus: comments.some((c) => /^Opus (?:re-review|review) @/.test(c)) };
+    ci: firstPassCI(checks.filter((c) => !ignored(c, re))),
+    qa, repairs: repairRounds(comments, qa === 'fail'), opus: comments.some((c) => OPUS_REVIEW.test(c)) };
 }
 export function summarize(prs, ledger, window) {
   const selected = prs.filter((p) => inWindow(p.mergedAt, window));
@@ -134,16 +145,25 @@ export function loadPRs(gh, repo, window, ignoreChecks = DEFAULT_IGNORE_CHECKS) 
     return analyzePR(p, detail, checks, ignoreChecks);
   });
 }
+// One batched query for labels and state only; nothing else from the issue is read or kept.
+function linearQuery(ids) {
+  const fields = ids.map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { identifier state { name } labels { nodes { name } } }`);
+  return `{${fields.join('\n')}}`;
+}
+async function fetchLinearIssues(ids, apiKey, fetcher) {
+  const response = await fetcher('https://api.linear.app/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: apiKey }, body: JSON.stringify({ query: linearQuery(ids) }) });
+  if (!response.ok) throw new Error(`Linear fetch failed (${response.status})`);
+  const result = await response.json();
+  if (result.errors) throw new Error('Linear GraphQL query failed');
+  return Object.values(result.data ?? {}).filter(Boolean)
+    .map((issue) => [issue.identifier, redactValue({ labels: issue.labels.nodes.map((l) => l.name), state: issue.state.name }, apiKey)]);
+}
 export async function loadLinear(ids, options, env, fetcher = fetch) {
-  const cache = options.linearCache && fs.existsSync(options.linearCache) ? read(options.linearCache) : {};
-  let loaded = Boolean(options.linearCache && fs.existsSync(options.linearCache));
+  const hasCache = Boolean(options.linearCache && fs.existsSync(options.linearCache));
+  const cache = hasCache ? read(options.linearCache) : {};
+  let loaded = hasCache;
   if (options.linearLive && env.LINEAR_API_KEY && ids.length) {
-    const query = `{${ids.map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { identifier state { name } labels { nodes { name } } }`).join('\n')}}`;
-    const response = await fetcher('https://api.linear.app/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: env.LINEAR_API_KEY }, body: JSON.stringify({ query }) });
-    if (!response.ok) throw new Error(`Linear fetch failed (${response.status})`);
-    const result = await response.json();
-    if (result.errors) throw new Error('Linear GraphQL query failed');
-    for (const issue of Object.values(result.data ?? {})) if (issue) cache[issue.identifier] = redactValue({ labels: issue.labels.nodes.map((l) => l.name), state: issue.state.name }, env.LINEAR_API_KEY);
+    Object.assign(cache, Object.fromEntries(await fetchLinearIssues(ids, env.LINEAR_API_KEY, fetcher)));
     loaded = true;
     if (options.linearCache) write(options.linearCache, redactValue(cache, env.LINEAR_API_KEY));
   }
@@ -152,7 +172,7 @@ export async function loadLinear(ids, options, env, fetcher = fetch) {
 const money = (n) => n === null ? NA : `$${n.toFixed(2)}`;
 const LOW_SAMPLE = 10;
 const fraction = (n, d) => `${n}/${d} (${d ? (100 * n / d).toFixed(1) + '%' : 'n/a'})${d < LOW_SAMPLE ? '; low sample' : ''}`;
-const cell = (v) => String(v).replaceAll('|', '\\|').replaceAll(/[\r\n]/g, ' ');
+const cell = (v) => String(v).replaceAll('|', String.raw`\|`).replaceAll(/[\r\n]/g, ' ');
 function comparison(a, b, names = ['Baseline (14d)', 'Current week (7d)']) {
   const rows = [
     ['Merged PRs', (s) => s.prs.length], ['Accepted PRs', (s) => s.accepted],
@@ -168,65 +188,100 @@ function comparison(a, b, names = ['Baseline (14d)', 'Current week (7d)']) {
   ];
   return [`| Metric | ${names.map(cell).join(' | ')} |`, '| --- | --- | --- |', ...rows.map(([name, fn]) => `| ${name} | ${cell(fn(a))} | ${cell(fn(b))} |`)].join('\n');
 }
+// Cohort costs include only uniquely attributable spend; full-window overhead
+// belongs to the before/after comparison, never duplicated across A/B arms.
+function abSection(e, { prs, ledger, linear }, afterW) {
+  const cohort = (subset) => {
+    const ids = new Set(subset.map((p) => p.number));
+    const spend = ledger.filter((l) => l.pr != null ? ids.has(l.pr) : l.issue && prs.filter((p) => p.issues.includes(l.issue)).length === 1 && subset.some((p) => p.issues.includes(l.issue)));
+    return summarize(subset, spend, afterW);
+  };
+  const matched = prs.filter((p) => matches(p, e.match, linear));
+  const unmatched = prs.filter((p) => !matches(p, e.match, linear));
+  return `### A/B: ${cell(e.id)}\n\nAttributed spend only; unattributed/abandoned spend excluded from A/B arms.\n\n${comparison(cohort(matched), cohort(unmatched), ['Matched', 'Unmatched'])}`;
+}
+function experimentSections(e, data, weekEnding) {
+  const { prs, ledger, linear } = data;
+  const beforeW = { from: shift(e.start, -14), to: shift(e.start, -1) };
+  const afterW = { from: e.start, to: weekEnding };
+  const before = summarize(prs, ledger, beforeW), after = summarize(prs, ledger, afterW);
+  const verdict = stopRule(before, after, e.stopRule?.maxCostIncreasePct ?? 25);
+  const sections = [`## Experiment: ${cell(e.id)} — ${cell(e.title)}\n\nBefore: ${beforeW.from}–${beforeW.to}; after: ${afterW.from}–${afterW.to}.\n\nStop rule: ${verdict}\n\n${comparison(before, after, ['Before', 'After'])}`];
+  if (e.match && after.prs.some((p) => !matches(p, e.match, linear))) sections.push(abSection(e, data, afterW));
+  return { sections, flags: verdict.includes('BROKEN') ? [`${e.id}: ${verdict}`] : [] };
+}
+function rejectedFlags(prs, w) {
+  const rejected = prs.filter((p) => !p.accepted && (inWindow(p.mergedAt, w.current) || inWindow(p.mergedAt, w.baseline)));
+  if (!rejected.length) return [];
+  const links = rejected.slice(0, 10).map((p) => `[#${p.number}](${p.url})`).join(', ');
+  const more = rejected.length > 10 ? ` and ${rejected.length - 10} more` : '';
+  const counts = new Map();
+  for (const name of rejected.flatMap((p) => [...new Set(p.failingHeadChecks ?? [])])) counts.set(name, (counts.get(name) ?? 0) + 1);
+  const failing = [...counts].map(([name, count]) => `${cell(name)} ×${count}`).join(', ');
+  return [`Merged-not-accepted: ${links}${more}`, ...(counts.size ? [`Failing head checks: ${failing}`] : [])];
+}
+function lowSampleFlags(baseline, current) {
+  return [{ label: 'Baseline', s: baseline }, { label: 'Current week', s: current }]
+    .filter(({ s }) => s.denominator < LOW_SAMPLE)
+    .map(({ label, s }) => `${label} low sample: n=${s.denominator}; treat pass rate as indicative`);
+}
+function lowSampleNotes(baseline) {
+  return [['first-pass pass rate', baseline.denominator], ['first-pass CI rate', baseline.ciKnown], ['QA verdict coverage', baseline.prs.length]]
+    .filter(([, n]) => n < LOW_SAMPLE)
+    .map(([label, n]) => `Baseline ${label}: n=${n}; treat as indicative`);
+}
+function sourcesSection({ ignoreChecks, stats, linearLoaded, baseline, current, ledger }) {
+  return ['## Data sources and gaps', '',
+    `- Ignored infra/advisory contexts (case-insensitive name or context): ${cell(ignoreChecks || '(disabled)')}`,
+    `- gh call count: ${stats.calls}; cache hits: ${stats.hits}`,
+    `- Linear data: ${linearLoaded ? 'loaded' : 'not loaded'}`,
+    `- Spend ledger lines used: baseline ${baseline.lines}; current ${current.lines}; input records ${ledger.length}`,
+    '- GitHub rollups are observed after merge, not historical merge-time snapshots. Empty rollups are not accepted. Cached comments and checks may omit later updates.',
+    '- Missing QA verdicts are unknown. Missing attributed spend is not zero. Issue spend shared by multiple PRs is left unattributed. A/B costs omit shared overhead.'];
+}
+function prRow(p, current) {
+  const usd = current.spending.find((s) => s.number === p.number)?.usd;
+  return `| [#${p.number}](${p.url}) | ${p.issues.join(', ') || '—'} | ${p.accepted ? 'yes' : 'no'} | ${p.ci} | ${p.qa} | ${p.repairs} | ${p.opus ? 'yes' : 'no'} | ${usd == null ? 'n/a' : money(usd)} |`;
+}
 export function buildReport({ prs, ledger = [], experiments = [], linear = {}, weekEnding, now, repo, stats, linearLoaded, ignoreChecks = DEFAULT_IGNORE_CHECKS }) {
   const w = windows(weekEnding);
-  const summary = (window, subset = prs) => summarize(subset, ledger, window);
-  const baseline = summary(w.baseline), current = summary(w.current);
+  const baseline = summarize(prs, ledger, w.baseline), current = summarize(prs, ledger, w.current);
   const active = experiments.filter((e) => e.start <= weekEnding && (!e.end || e.end >= w.current.from));
-  const sections = [], flags = [];
-  for (const e of active) {
-    const beforeW = { from: shift(e.start, -14), to: shift(e.start, -1) };
-    const afterW = { from: e.start, to: weekEnding };
-    const before = summary(beforeW), after = summary(afterW);
-    const verdict = stopRule(before, after, e.stopRule?.maxCostIncreasePct ?? 25);
-    if (verdict.includes('BROKEN')) flags.push(`${e.id}: ${verdict}`);
-    sections.push(`## Experiment: ${cell(e.id)} — ${cell(e.title)}\n\nBefore: ${beforeW.from}–${beforeW.to}; after: ${afterW.from}–${afterW.to}.\n\nStop rule: ${verdict}\n\n${comparison(before, after, ['Before', 'After'])}`);
-    const matched = prs.filter((p) => matches(p, e.match, linear));
-    const unmatched = prs.filter((p) => !matches(p, e.match, linear));
-    if (e.match && after.prs.some((p) => !matches(p, e.match, linear))) {
-      // Cohort costs include only uniquely attributable spend; full-window overhead
-      // belongs to the before/after comparison, never duplicated across A/B arms.
-      const cohort = (subset) => {
-        const ids = new Set(subset.map((p) => p.number));
-        const spend = ledger.filter((l) => l.pr != null ? ids.has(l.pr) : l.issue && prs.filter((p) => p.issues.includes(l.issue)).length === 1 && subset.some((p) => p.issues.includes(l.issue)));
-        return summarize(subset, spend, afterW);
-      };
-      sections.push(`### A/B: ${cell(e.id)}\n\nAttributed spend only; unattributed/abandoned spend excluded from A/B arms.\n\n${comparison(cohort(matched), cohort(unmatched), ['Matched', 'Unmatched'])}`);
-    }
-  }
-  const rejected = prs.filter((p) => !p.accepted && (inWindow(p.mergedAt, w.current) || inWindow(p.mergedAt, w.baseline)));
-  if (rejected.length) {
-    flags.push(`Merged-not-accepted: ${rejected.slice(0, 10).map((p) => `[#${p.number}](${p.url})`).join(', ')}${rejected.length > 10 ? ` and ${rejected.length - 10} more` : ''}`);
-    const counts = new Map();
-    for (const p of rejected) for (const name of new Set(p.failingHeadChecks ?? [])) counts.set(name, (counts.get(name) ?? 0) + 1);
-    if (counts.size) flags.push(`Failing head checks: ${[...counts].map(([name, count]) => `${cell(name)} ×${count}`).join(', ')}`);
-  }
-  for (const [name, s] of [['Baseline', baseline], ['Current week', current]]) {
-    if (s.denominator < LOW_SAMPLE) flags.push(`${name} low sample: n=${s.denominator}; treat pass rate as indicative`);
-  }
-  const summaryNotes = [];
-  for (const [label, n] of [['first-pass pass rate', baseline.denominator], ['first-pass CI rate', baseline.ciKnown], ['QA verdict coverage', baseline.prs.length]]) {
-    if (n < LOW_SAMPLE) summaryNotes.push(`Baseline ${label}: n=${n}; treat as indicative`);
-  }
-  const lines = [`# Weekly evals report — week ending ${weekEnding}`, '', `Generated-at: ${now}\n\nRepo: ${cell(repo)}\n\nDefinition: [Cost per accepted PR](https://github.com/${repo}/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)`, '', '## Flags', '', ...(flags.length ? flags.map((f) => `- ${f}`) : ['None.']), '', `Baseline: ${w.baseline.from}–${w.baseline.to}; current: ${w.current.from}–${w.current.to} (UTC inclusive).`, '', ...(summaryNotes.length ? ['**Low-sample baseline:** ' + summaryNotes.join('; ') + '.', ''] : []), comparison(baseline, current), '', ...sections, '', '## Data sources and gaps', '', `- Ignored infra/advisory contexts (case-insensitive name or context): ${cell(ignoreChecks || '(disabled)')}`, `- gh call count: ${stats.calls}; cache hits: ${stats.hits}`, `- Linear data: ${linearLoaded ? 'loaded' : 'not loaded'}`, `- Spend ledger lines used: baseline ${baseline.lines}; current ${current.lines}; input records ${ledger.length}`, '- GitHub rollups are observed after merge, not historical merge-time snapshots. Empty rollups are not accepted. Cached comments and checks may omit later updates.', '- Missing QA verdicts are unknown. Missing attributed spend is not zero. Issue spend shared by multiple PRs is left unattributed. A/B costs omit shared overhead.', '', '## Current week PRs', '', '| PR | Issue | Accepted | CI first pass | QA | Repair rounds | Opus | Spend |', '| --- | --- | --- | --- | --- | --- | --- | --- |'];
-  for (const p of current.prs) lines.push(`| [#${p.number}](${p.url}) | ${p.issues.join(', ') || '—'} | ${p.accepted ? 'yes' : 'no'} | ${p.ci} | ${p.qa} | ${p.repairs} | ${p.opus ? 'yes' : 'no'} | ${current.spending.find((s) => s.number === p.number)?.usd == null ? 'n/a' : money(current.spending.find((s) => s.number === p.number).usd)} |`);
-  return lines.join('\n') + '\n';
+  const experimentParts = active.map((e) => experimentSections(e, { prs, ledger, linear }, weekEnding));
+  const flags = [...experimentParts.flatMap((x) => x.flags), ...rejectedFlags(prs, w), ...lowSampleFlags(baseline, current)];
+  const summaryNotes = lowSampleNotes(baseline);
+  return [`# Weekly evals report — week ending ${weekEnding}`, '',
+    `Generated-at: ${now}\n\nRepo: ${cell(repo)}\n\nDefinition: [Cost per accepted PR](https://github.com/${repo}/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)`, '',
+    '## Flags', '', ...(flags.length ? flags.map((f) => `- ${f}`) : ['None.']), '',
+    `Baseline: ${w.baseline.from}–${w.baseline.to}; current: ${w.current.from}–${w.current.to} (UTC inclusive).`, '',
+    ...(summaryNotes.length ? ['**Low-sample baseline:** ' + summaryNotes.join('; ') + '.', ''] : []),
+    comparison(baseline, current), '', ...experimentParts.flatMap((x) => x.sections), '',
+    ...sourcesSection({ ignoreChecks, stats, linearLoaded, baseline, current, ledger }), '',
+    '## Current week PRs', '', '| PR | Issue | Accepted | CI first pass | QA | Repair rounds | Opus | Spend |', '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...current.prs.map((p) => prRow(p, current))].join('\n') + '\n';
 }
 class UsageError extends Error {}
-export function parseArgs(args) {
+const FLAG_OPTIONS = new Map([['--no-cache', 'noCache'], ['--linear-live', 'linearLive'], ['--help', 'help']]);
+const VALUE_OPTIONS = new Map([['--ignore-checks', 'ignoreChecks'], ['--repo', 'repo'], ['--week-ending', 'weekEnding'], ['--out', 'out'], ['--cache-dir', 'cacheDir'], ['--cache-ttl-min', 'ttl'], ['--linear-cache', 'linearCache'], ['--experiments', 'experiments'], ['--now', 'now']]);
+// Takes the value that follows a flag. Only --ignore-checks may be empty: an empty pattern disables ignoring.
+function takeValue(queue, arg) {
+  const v = queue.shift();
+  if (v === undefined || (v === '' && arg !== '--ignore-checks') || v.startsWith('--')) throw new UsageError(`Missing value for ${arg}`);
+  return v;
+}
+function readOptions(args) {
   const o = { ledgers: [], experiments: 'evals/experiments.json', ttl: 60, ignoreChecks: DEFAULT_IGNORE_CHECKS };
-  const values = { '--ignore-checks': 'ignoreChecks', '--repo': 'repo', '--week-ending': 'weekEnding', '--out': 'out', '--cache-dir': 'cacheDir', '--cache-ttl-min': 'ttl', '--linear-cache': 'linearCache', '--experiments': 'experiments', '--now': 'now' };
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--no-cache') o.noCache = true;
-    else if (arg === '--linear-live') o.linearLive = true;
-    else if (arg === '--help') o.help = true;
-    else if (values[arg] || arg === '--spend-ledger') {
-      const v = args[++i];
-      if (v === undefined || (v === '' && arg !== '--ignore-checks') || v.startsWith('--')) throw new UsageError(`Missing value for ${arg}`);
-      if (arg === '--spend-ledger') o.ledgers.push(v); else o[values[arg]] = v;
-    } else throw new UsageError(`Unknown option: ${arg}`);
+  const queue = [...args];
+  while (queue.length) {
+    const arg = queue.shift();
+    if (FLAG_OPTIONS.has(arg)) o[FLAG_OPTIONS.get(arg)] = true;
+    else if (arg === '--spend-ledger') o.ledgers.push(takeValue(queue, arg));
+    else if (VALUE_OPTIONS.has(arg)) o[VALUE_OPTIONS.get(arg)] = takeValue(queue, arg);
+    else throw new UsageError(`Unknown option: ${arg}`);
   }
+  return o;
+}
+function finalizeOptions(o) {
   try { new RegExp(o.ignoreChecks, 'i'); } catch { throw new UsageError('Invalid --ignore-checks regex'); }
   o.ttl = Number(o.ttl);
   if (!Number.isFinite(o.ttl) || o.ttl < 0) throw new UsageError('Cache TTL must be nonnegative');
@@ -237,20 +292,33 @@ export function parseArgs(args) {
   if (o.repo && !/^[\w.-]+\/[\w.-]+$/.test(o.repo)) throw new UsageError('Invalid repo');
   return o;
 }
+export function parseArgs(args) {
+  return finalizeOptions(readOptions(args));
+}
+const MATCH_KEYS = ['issues', 'prLabels', 'linearLabels', 'titleRegex'];
+const MATCH_LIST_KEYS = ['issues', 'prLabels', 'linearLabels'];
+const isStringList = (v) => Array.isArray(v) && v.every((item) => typeof item === 'string');
+function validateMatch(match) {
+  const unknownKey = Object.keys(match).find((key) => !MATCH_KEYS.includes(key));
+  if (unknownKey !== undefined) throw new UsageError(`Unknown match key: ${unknownKey}`);
+  const badList = MATCH_LIST_KEYS.find((key) => match[key] && !isStringList(match[key]));
+  if (badList !== undefined) throw new UsageError(`Invalid match ${badList}`);
+  try { if (match.titleRegex) new RegExp(match.titleRegex); } catch { throw new UsageError('Invalid titleRegex'); }
+}
+function validateExperiment(e, ids) {
+  if (!e.id || !e.title || ids.has(e.id)) throw new UsageError('Experiments require unique id and title');
+  ids.add(e.id);
+  date(e.start);
+  if (e.end) date(e.end);
+  if (e.end && e.end < e.start) throw new UsageError('Experiment end precedes start');
+  if (e.match) validateMatch(e.match);
+  const pct = e.stopRule?.maxCostIncreasePct ?? 25;
+  if (!Number.isFinite(pct) || pct < 0) throw new UsageError('Invalid stop rule percentage');
+}
 export function validateExperiments(entries) {
   if (!Array.isArray(entries)) throw new UsageError('experiments must be an array');
   const ids = new Set();
-  for (const e of entries) {
-    if (!e.id || !e.title || ids.has(e.id)) throw new UsageError('Experiments require unique id and title');
-    ids.add(e.id); date(e.start); if (e.end) { date(e.end); if (e.end < e.start) throw new UsageError('Experiment end precedes start'); }
-    if (e.match) {
-      for (const key of Object.keys(e.match)) if (!['issues', 'prLabels', 'linearLabels', 'titleRegex'].includes(key)) throw new UsageError(`Unknown match key: ${key}`);
-      for (const key of ['issues', 'prLabels', 'linearLabels']) if (e.match[key] && (!Array.isArray(e.match[key]) || !e.match[key].every((v) => typeof v === 'string'))) throw new UsageError(`Invalid match ${key}`);
-      try { if (e.match.titleRegex) new RegExp(e.match.titleRegex); } catch { throw new UsageError('Invalid titleRegex'); }
-    }
-    const pct = e.stopRule?.maxCostIncreasePct ?? 25;
-    if (!Number.isFinite(pct) || pct < 0) throw new UsageError('Invalid stop rule percentage');
-  }
+  for (const e of entries) validateExperiment(e, ids);
   return entries;
 }
 export function loadLedger(files) {
