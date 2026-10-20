@@ -214,19 +214,23 @@ function readCommitTags(commits, bodyBuilders, findings, routing) {
   if (untagged && trailerBuilders.length && !bodyBuilders.length) {
     findings.push('Commit without Built-by trailer and no body history');
   }
-  return { trailerBuilders, commitEntries };
+  return { trailerBuilders, commitEntries, untagged };
 }
 
-// Trailers can cover only some commits. Each must appear in the body's
-// declared builder history, in order; otherwise the two claims conflict.
-function trailersDisagreeWithBody(trailerBuilders, bodyBuilders) {
+// Trailers can cover only some commits. Each trailer model must appear in the
+// body's declared builder history, in order. When every commit carries a
+// trailer they are the whole history, so each model the body declares must
+// also appear there; a body that declares a Codex build and an Opus repair is
+// not satisfied by trailers that name only one of them. Either gap is a conflict.
+function trailersDisagreeWithBody(trailerBuilders, bodyBuilders, allCommitsTagged) {
   let cursor = 0;
   for (const builder of trailerBuilders) {
     const index = bodyBuilders.findIndex((entry, i) => i >= cursor && entry.model === builder.model);
     if (index < 0) return true;
     cursor = index; // repeated commits by the same builder are valid
   }
-  return false;
+  return allCommitsTagged &&
+    bodyBuilders.some(entry => !trailerBuilders.some(builder => builder.model === entry.model));
 }
 
 function describeBuilder(entry, routing, findings) {
@@ -281,10 +285,10 @@ export function parseBuiltBy(input) {
     }
     const findings = [];
     const bodyBuilders = readTags(body, findings, routing);
-    const { trailerBuilders, commitEntries } = readCommitTags(commits, bodyBuilders, findings, routing);
+    const { trailerBuilders, commitEntries, untagged } = readCommitTags(commits, bodyBuilders, findings, routing);
     let conflict = false;
     if (trailerBuilders.length && bodyBuilders.length &&
-        trailersDisagreeWithBody(trailerBuilders, bodyBuilders)) {
+        trailersDisagreeWithBody(trailerBuilders, bodyBuilders, untagged === 0)) {
       conflict = true;
       findings.push('Commit trailer model disagrees with body');
     }

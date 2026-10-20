@@ -81,6 +81,29 @@ describe('builder attribution', () => {
     expect(result.builders.map(builder => builder.model)).toEqual(['model:claude-opus', 'model:codex']);
     expect(result.status).toBe('conflict');
   });
+  it('conflicts when full trailer coverage omits a builder the body declares', () => {
+    const mixedBody = `${tag()}; bot=architect model=model:claude-opus`;
+    const codex = { sha: 'a', message: `Build\n\n${tag()}` };
+    const more = { sha: 'c', message: `More\n\n${tag()}` };
+    const opus = { sha: 'b', message: `Repair\n\n${tag('claude-opus', 'architect')}` };
+    // Declared Codex build plus Opus repair, but every trailer names Codex: the Opus repair would get same-family review.
+    const onlyCodex = parse(mixedBody, { commits: [codex, more] });
+    expect(onlyCodex.status).toBe('conflict');
+    expect(onlyCodex.findings).toContain('Commit trailer model disagrees with body');
+    expect(reviewers(onlyCodex)).toEqual(both);
+    // The same body squashed into one commit trailered Opus: the Codex build would get same-family review.
+    const onlyOpus = parse(mixedBody, { commits: [opus] });
+    expect(onlyOpus.status).toBe('conflict');
+    expect(reviewers(onlyOpus)).toEqual(both);
+    // A middle builder that no trailer names is also a gap.
+    const threeStep = `${mixedBody}; ${tag()}`;
+    expect(parse(threeStep, { commits: [codex, more] }).status).toBe('conflict');
+    // Trailers that cover the whole declared history still agree and stay mixed, even under a different bot.
+    const agree = parse(mixedBody, { commits: [codex, opus] });
+    expect(agree.status).toBe('mixed');
+    expect(reviewers(agree)).toEqual(both);
+    expect(parse(tag(), { commits: [codex, more] }).status).toBe('ok');
+  });
   it('does not narrow review when only some commits carry a trailer and the body has no history', () => {
     const commits = [{ sha: 'a', message: `Build\n\n${tag()}` }, { sha: 'b', message: 'untagged follow-up' }];
     const result = parse('', { commits });

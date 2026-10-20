@@ -37,8 +37,12 @@ Built-by line; it supersedes legacy Model lines in the same body.
 Optional commit trailers use the same canonical Built-by syntax. Supply commits
 oldest first. A trailer takes precedence for its commit; a commit without one
 uses the body history as fallback. Adjacent identical builder entries collapse.
-Trailer model claims must appear in the body's declared model history in order;
-a disagreement is a conflict, even though trailers determine attribution. When
+Trailer model claims must appear in the body's declared model history in order.
+When every commit carries a trailer, the trailers are the whole history, so each
+model the body declares must also appear in them: a body that declares a Codex
+build then an Opus repair is not satisfied by trailers that all name Codex, or
+by one squashed commit that names only Opus. A disagreement in either direction
+is a conflict, even though trailers determine attribution. When
 some commits carry a trailer and others have neither a trailer nor a body
 history to fall back on, the untagged commits' builder is unknown: that is a
 finding, so review is never narrowed on partial attribution.
