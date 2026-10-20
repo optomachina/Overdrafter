@@ -1,7 +1,6 @@
 /** Storage version probe PLAN for the native first loop. It prints the exact SQL
  * reads and HTTP requests an operator later runs by hand against hosted Storage.
  * Plan only: no network, SQL, environment reads, credentials or object writes. */
-// @ts-expect-error Shared JavaScript helper has no declaration file in this TS-only project.
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';

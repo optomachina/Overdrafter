@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Bootstrap uses builtins and the entry-point helper; application imports follow byte gates.
-import { isEntryPoint } from "./lib/entry-point.mjs";
+// Bootstrap imports are builtins only. Application imports occur after byte gates.
 import { createHash } from "node:crypto";
 import { readFile, readdir, realpath, lstat, stat, open } from "node:fs/promises";
 import path from "node:path";
@@ -157,4 +156,4 @@ export async function runDiagnosticCli(args = process.argv.slice(2)) {
   }
 }
 
-if (isEntryPoint(import.meta.url)) process.exitCode = await runDiagnosticCli();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await runDiagnosticCli();
