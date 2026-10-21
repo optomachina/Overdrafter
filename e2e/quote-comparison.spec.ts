@@ -508,6 +508,21 @@ test.describe("client quote comparison after the stored choice lapses", { tag: "
 
   test("shows no substitute as selected and lets the client choose again", async ({ page }) => {
     const panel = await openComparison(page, LAPSED_SELECTION_ROUTE);
+    const reviewButton = panel.getByRole("button", { name: "Review order" });
+    const reason = panel.getByText("Choose a quote to continue", { exact: true });
+    await expect(reviewButton).toBeDisabled();
+    await expect(reason).toBeVisible();
+    await expect(reviewButton).toHaveAccessibleDescription("Choose a quote to continue");
+    const buttonBox = await reviewButton.boundingBox();
+    const reasonBox = await reason.boundingBox();
+    const headerBox = await reviewButton.locator("..").locator("..").boundingBox();
+    expect(buttonBox).not.toBeNull();
+    expect(reasonBox).not.toBeNull();
+    expect(headerBox).not.toBeNull();
+    expect(Math.abs(buttonBox!.x + buttonBox!.width - headerBox!.x - headerBox!.width)).toBeLessThan(2);
+    expect(Math.abs(buttonBox!.x + buttonBox!.width - reasonBox!.x - reasonBox!.width)).toBeLessThan(2);
+    expect(reasonBox!.y).toBeGreaterThanOrEqual(buttonBox!.y + buttonBox!.height);
+
     const notice = panel.getByRole("status").filter({ hasText: PREVIOUS_CHOICE_GONE });
 
     await expect(notice).toBeVisible();

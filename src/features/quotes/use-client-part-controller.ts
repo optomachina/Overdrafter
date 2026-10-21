@@ -99,7 +99,6 @@ import { buildSingleQuantityRequest } from "@/features/quotes/single-quantity";
 import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
-  resolveStoredQuoteSelection,
   sortQuoteOptionsForPreset,
   summarizeQuoteDiagnostics,
   type ClientQuoteSelectionOption,
@@ -109,6 +108,7 @@ import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnost
 import {
   buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
+  resolveWorkspaceStoredQuoteSelection,
 } from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
@@ -1087,11 +1087,7 @@ export function useClientPartController(
   const {
     selectedOption: selectedQuoteOption,
     previousSelectionUnavailable: previousQuoteSelectionUnavailable,
-  } = resolveStoredQuoteSelection(
-    rankedQuoteOptions,
-    partDetail?.job.selected_vendor_quote_offer_id,
-    partDetail?.publishedQuoteSelection?.option_id,
-  );
+  } = resolveWorkspaceStoredQuoteSelection(rankedQuoteOptions, partDetail);
   const eligibleQuoteCount = rankedQuoteOptions.filter((option) => option.eligible).length;
   const revisionOptions = useMemo(() => {
     if (!summary) {

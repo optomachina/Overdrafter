@@ -14,6 +14,7 @@ import {
   filterQuoteCollection,
   parseEngineeringQuery,
 } from "@/features/quotes/quote-intelligence-view-model";
+import { formatCurrency } from "@/features/quotes/utils";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useQuoteIntelligenceWorkspace } from "@/features/quotes/use-quote-intelligence-workspace";
 
@@ -26,12 +27,6 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime())
     ? "Unavailable"
     : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
-}
-
-function formatUsd(value: number | null): string | null {
-  return value === null
-    ? null
-    : new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
 
 export default function ClientQuotes() {
@@ -144,7 +139,7 @@ export default function ClientQuotes() {
     return (
       <div className="border-b border-paper-hairline" aria-live="polite">
         {rows.map((quote) => {
-          const selectedPrice = formatUsd(quote.selectedPriceUsd);
+          const selectedPrice = quote.selectedPriceUsd === null ? null : formatCurrency(quote.selectedPriceUsd);
 
           return (
             <Link

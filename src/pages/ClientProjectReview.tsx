@@ -15,6 +15,7 @@ import {
   fetchProject,
 } from "@/features/quotes/api/workspace-access";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { areQuoteOptionsLoading } from "@/features/quotes/quote-options-loading";
 import {
   buildClientWorkspaceState,
   summarizeClientWorkspaceStates,
@@ -24,11 +25,13 @@ import {
   summarizeProcurementHandoff,
 } from "@/features/quotes/procurement-handoff";
 import {
-  buildClientQuoteSelectionOptions,
-  buildVendorLabelMap,
-  getSelectedOption,
   summarizeSelectedQuoteOptions,
 } from "@/features/quotes/selection";
+import {
+  getQuoteOptionsReason,
+  hasPublishedQuotePackage,
+  resolveWorkspaceQuoteSelection,
+} from "@/features/quotes/sourcing-result";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -62,17 +65,7 @@ const ClientProjectReview = () => {
     const items = workspaceQuery.data ?? [];
 
     return items.map((item) => {
-      const vendorLabels = item.part
-        ? buildVendorLabelMap(item.part.vendorQuotes.map((quote) => quote.vendor))
-        : new Map();
-      const options = item.part
-        ? buildClientQuoteSelectionOptions({
-            vendorQuotes: item.part.vendorQuotes,
-            requestedByDate: item.summary?.requestedByDate ?? item.job.requested_by_date ?? null,
-            vendorLabels,
-          })
-        : [];
-      const selectedOption = getSelectedOption(options, item.job.selected_vendor_quote_offer_id);
+      const { options, selectedOption } = resolveWorkspaceQuoteSelection(item);
 
       return {
         item,
@@ -98,6 +91,14 @@ const ClientProjectReview = () => {
     () => summarizeClientWorkspaceStates(selectedLineItems.map((lineItem) => lineItem.workspaceState)),
     [selectedLineItems],
   );
+  const quoteOptionsFailed = projectJobsQuery.isLoadingError || workspaceQuery.isLoadingError;
+  const isHandoffUnavailable = quoteOptionsFailed || selectionSummary.selectedCount === 0;
+  const quoteOptionsReason = getQuoteOptionsReason({
+    loadFailed: quoteOptionsFailed,
+    loading: areQuoteOptionsLoading(projectJobsQuery, workspaceQuery),
+    hasPublishedPackage: (workspaceQuery.data ?? []).some(hasPublishedQuotePackage),
+    promptSuffix: ".",
+  });
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (isAuthInitializing) {
@@ -139,9 +140,10 @@ const ClientProjectReview = () => {
       }
     >
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-        {projectJobsQuery.isLoading || workspaceQuery.isLoading ? (
+        {areQuoteOptionsLoading(projectJobsQuery, workspaceQuery) ? (
           <div className="flex min-h-[320px] items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <output className="ml-2 text-sm text-muted-foreground">Loading quote options…</output>
           </div>
         ) : (
           <>
@@ -166,12 +168,20 @@ const ClientProjectReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}
+                  disabled={isHandoffUnavailable}
+                >
                   Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </div>
+
+            {isHandoffUnavailable ? (
+              <p className="text-sm text-muted-foreground">
+                {quoteOptionsReason}
+              </p>
+            ) : null}
 
             <section className="grid gap-3 md:grid-cols-4">
               <div className="rounded-[22px] border border-border bg-ws-card px-4 py-4">

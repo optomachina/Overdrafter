@@ -82,7 +82,6 @@ import {
   applyBulkPresetSelection,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
-  getSelectedOption,
   revertBulkPresetSelection,
   sanitizeBulkSelectionHistory,
   sortQuoteOptionsForPreset,
@@ -96,6 +95,8 @@ import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnost
 import {
   buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
+  resolveWorkspaceSelectionIds,
+  resolveWorkspaceStoredQuoteSelection,
   type ClientSourcingResult,
 } from "@/features/quotes/sourcing-result";
 import type {
@@ -349,17 +350,17 @@ export function useClientProjectController() {
       Object.fromEntries(
         projectJobs.map((job) => {
           const workspaceItem = workspaceItemsByJobId.get(job.id);
-          const selectedPublishedOptionId = workspaceItem?.publishedQuoteSelection?.option_id;
+          const { selectedOfferId, selectedPublishedOptionId } = resolveWorkspaceSelectionIds(
+            workspaceItem,
+            selectedOfferOverrides[job.id] ?? job.selected_vendor_quote_offer_id,
+          );
           const selectedPublishedOfferId = workspaceItem?.publishedQuoteOptions?.find(
             (option) => option.id === selectedPublishedOptionId,
           )?.source_vendor_quote_offer_id;
 
           return [
             job.id,
-            selectedOfferOverrides[job.id] ??
-              selectedPublishedOfferId ??
-              job.selected_vendor_quote_offer_id ??
-              null,
+            selectedPublishedOfferId ?? selectedOfferId ?? null,
           ];
         }),
       ),
@@ -523,11 +524,11 @@ export function useClientProjectController() {
       Object.fromEntries(
         projectJobIds.map((jobId) => [
           jobId,
-          getSelectedOption(
+          resolveWorkspaceStoredQuoteSelection(
             optionsByJobId[jobId] ?? [],
+            workspaceItemsByJobId.get(jobId),
             currentSelectedOfferIdsByJobId[jobId],
-            workspaceItemsByJobId.get(jobId)?.publishedQuoteSelection?.option_id,
-          ),
+          ).selectedOption,
         ]),
       ) as Record<string, ClientQuoteSelectionOption | null>,
     [currentSelectedOfferIdsByJobId, optionsByJobId, projectJobIds, workspaceItemsByJobId],
