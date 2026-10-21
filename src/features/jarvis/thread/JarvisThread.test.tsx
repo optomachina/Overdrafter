@@ -1,12 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphEvent } from '../core/types';
 import { JarvisThread } from './JarvisThread';
 import type { ThreadClient } from './client';
+import { ModelView } from './ModelView';
 import type { EventSource } from './event-source';
 import { createPreview } from './preview-source';
 import { readFileSync } from 'node:fs';
 
+vi.mock('@google/model-viewer', () => ({}));
 afterEach(cleanup);
 // vitest stubs CSS imports, so read the stylesheet source for the layout contract test.
 const css = readFileSync('src/features/jarvis/thread/thread.css', 'utf8');
@@ -27,14 +29,23 @@ const rejected = (seq: number, kind: 'pause' | 'cancel', commandId: string, reas
 const sentKey = (client: { control: ReturnType<typeof vi.fn> }, call = 0): string => client.control.mock.calls[call][1].idempotencyKey;
 
 describe('web thread', () => {
-  it('T1 renders status, decision, then result pictures', () => {
+  it('T1 renders status, decision, then result pictures and 3D action', () => {
     const s = setup();
     s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
     expect(screen.getByText('Making plate')).toBeTruthy();
     s.send(decision); expect(screen.getByRole('radiogroup')).toBeTruthy();
     s.send(artifact(3, 'png'), artifact(4, 'glb'), artifact(5, 'step'), { ...base, seq: 6, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate ready', picks: {}, artifacts: [{ kind: 'png', uri: '/png' }, { kind: 'glb', uri: '/glb' }, { kind: 'step', uri: '/step' }] });
     expect(screen.getByRole('heading', { name: 'Plate ready' })).toBeTruthy(); expect(screen.getByRole('img', { name: 'Iso' })).toBeTruthy();
-    expect(screen.getByText('4.000 × 4.000 × 0.250 in')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy(); expect(screen.getByText('4.000 × 4.000 × 0.250 in')).toBeTruthy();
+  });
+  it('labels the first picture Iso and the second Top view when there is no 3D model', () => {
+    const s = setup();
+    const top = { ...artifact(4, 'png'), uri: '/top.png' };
+    s.send(artifact(3, 'png'), top, artifact(5, 'step'), { ...base, seq: 6, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate ready', picks: {}, artifacts: [{ kind: 'png', uri: '/png' }, { kind: 'png', uri: '/top.png' }, { kind: 'step', uri: '/step' }] });
+    const [first, second] = screen.getAllByRole('img');
+    expect(first.getAttribute('alt')).toBe('Iso'); expect(first.getAttribute('src')).toBe('/png');
+    expect(second.getAttribute('alt')).toBe('Top view');
+    expect(screen.queryByRole('button', { name: /3D/ })).toBeNull();
   });
   it('T2 and T3 skips once and waits for the server recorded guess and rationale', async () => {
     const s = setup(); s.send(decision);
@@ -96,6 +107,19 @@ describe('web thread', () => {
   });
 });
 
+describe('viewer', () => {
+  it('T4 falls back to PNG without WebGL', async () => {
+    render(<ModelView uri="/plate.glb" pictures={['/iso.png']} webgl={() => false} step="/plate.step" />);
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('3D view · Unavailable.'));
+    expect(screen.getByRole('img').getAttribute('src')).toBe('/iso.png'); expect(screen.getByText('Derived review view; STEP is authoritative.')).toBeTruthy();
+  });
+  it('T4 model errors show pictures and retry recovers loading', () => {
+    const { container } = render(<ModelView uri="/plate.glb" pictures={['/iso.png']} webgl={() => true} />);
+    fireEvent(container.querySelector('model-viewer')!, new Event('error'));
+    expect(screen.getByRole('alert')).toBeTruthy(); fireEvent.click(screen.getByRole('button', { name: 'TRY AGAIN' }));
+    expect(screen.getByRole('status').textContent).toBe('Loading 3D model');
+  });
+});
 it('renders remote control requests and offline retry without enabling commands', () => {
   let push: (events: GraphEvent[]) => void = () => {};
   let connection: (offline: boolean) => void = () => {};
@@ -109,6 +133,24 @@ it('renders remote control requests and offline retry without enabling commands'
   expect(screen.getByRole('button', { name: 'CANCEL' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'RETRY' })); expect(retry).toHaveBeenCalledOnce();
 });
+it('viewer loads and supports button alternatives for orbit and zoom', () => {
+  const { container } = render(<ModelView uri="/plate.glb" pictures={[]} webgl={() => true} />);
+  const model = container.querySelector('model-viewer')! as HTMLElement & { cameraOrbit: string; cameraTarget: string; fieldOfView: string };
+  // A pan moves the target off the model's centre; only FIT should bring it back.
+  const panned = '-0.0459m 0.0317m 0m';
+  Object.assign(model, { cameraTarget: panned, getCameraOrbit: () => ({ theta: 0, phi: 1, radius: 2 }), getFieldOfView: () => 30, jumpCameraToGoal: vi.fn() });
+  fireEvent(model, new Event('load'));
+  expect(screen.queryByText('Loading 3D model')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'ROTATE' })); expect(model.cameraOrbit).toBe(`${Math.PI / 4}rad 1rad 2m`);
+  fireEvent.click(screen.getByRole('button', { name: 'ZOOM IN' })); expect(model.fieldOfView).toBe('24deg');
+  fireEvent.click(screen.getByRole('button', { name: 'ZOOM OUT' })); expect(model.fieldOfView).toBe('37.5deg');
+  expect(model.cameraTarget).toBe(panned);
+  fireEvent.click(screen.getByRole('button', { name: 'FIT' })); expect(model.cameraOrbit).toBe('auto auto auto'); expect(model.fieldOfView).toBe('auto');
+  expect(model.cameraTarget).toBe('auto auto auto');
+  // Every control, not only zoom, must snap the camera to its new goal.
+  expect((model as unknown as { jumpCameraToGoal: ReturnType<typeof vi.fn> }).jumpCameraToGoal).toHaveBeenCalledTimes(4);
+});
+
 it('announces only stage and state while the elapsed timer advances', () => {
   vi.useFakeTimers();
   try {
@@ -764,5 +806,57 @@ describe('the transport alert ends when this tab\'s own command settles', () => 
     s.send(requested(2, 'pause', 'remote', 'other-tab'), rejected(3, 'pause', 'remote', 'duplicate'));
     expect(screen.getByRole('alert').textContent).toBe(lost);
     expect(screen.getByText('Control rejected · duplicate')).toBeTruthy();
+  });
+});
+
+describe('3D viewer dialog and the run it belongs to', () => {
+  // jsdom has no WebGL; answer the viewer's capability probe quietly so it shows its picture fallback.
+  beforeEach(() => { vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); });
+  afterEach(() => vi.restoreAllMocks());
+  function openViewer() {
+    let push: (events: GraphEvent[]) => void = () => { };
+    const source: EventSource = { listen: fn => { push = fn; return () => { }; }, retry: vi.fn() };
+    const client = { resolve: vi.fn(), control: vi.fn() };
+    const view = render(<JarvisThread source={source} client={client} runId="run" />);
+    act(() => push([artifact(1, 'png'), artifact(2, 'glb'), artifact(3, 'step')]));
+    const opener = screen.getByRole('button', { name: 'OPEN 3D VIEW' }); opener.focus(); fireEvent.click(opener);
+    return { view, source, client, deliver: (events: GraphEvent[]) => act(() => push(events)) };
+  }
+
+  it('closes when the run changes and gives focus to the page heading instead of dropping it to the body', () => {
+    const { view, source, client } = openViewer();
+    expect(screen.getByRole('dialog', { name: '3D review' })).toBeTruthy();
+    view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Jarvis' }));
+  });
+
+  it('stays closed when the new run later delivers its own model', () => {
+    const { view, source, client, deliver } = openViewer();
+    view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+    deliver([{ ...artifact(1, 'png'), runId: 'other' }, { ...artifact(2, 'glb'), runId: 'other' }]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy();
+  });
+
+  it.each(['runId', 'source'] as const)('focuses the heading when %s changes and listen synchronously delivers artifacts', change => {
+    let currentRun = 'run';
+    const listen: EventSource['listen'] = push => {
+      push([{ ...artifact(1, 'png'), runId: currentRun }, { ...artifact(2, 'glb'), runId: currentRun }]);
+      return () => { };
+    };
+    const source: EventSource = { listen, retry: vi.fn() };
+    const client = { resolve: vi.fn(), control: vi.fn() };
+    const view = render(<JarvisThread source={source} client={client} runId={currentRun} />);
+    const opener = screen.getByRole('button', { name: 'OPEN 3D VIEW' });
+    opener.focus(); fireEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: '3D review' })).toBeTruthy();
+
+    if (change === 'runId') currentRun = 'other';
+    view.rerender(<JarvisThread source={change === 'source' ? { ...source } : source} client={client} runId={currentRun} />);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBe(opener);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Jarvis' }));
   });
 });
