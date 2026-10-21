@@ -1158,7 +1158,7 @@ describe("provider go-live docs and workflows", () => {
     const gate = read(".github", "workflows", "pr-body-gate.yml");
     expect(gate).toContain('files="scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs"');
     const copy = gate.slice(gate.indexOf('helper="scripts/lib/entry-point.mjs"'), gate.indexOf('echo "Gate scripts taken from:'));
-    expect(copy).toContain('mkdir -p "$gate/scripts/lib"');
+    expect(copy).toContain('mkdir -p "$gate/$(dirname "$helper")"');
     expect(copy).toContain('if [ "$source" = base ]; then');
     expect(copy).toContain('if git cat-file -e "HEAD^1:$helper" 2>/dev/null; then');
     expect(copy).toContain('git show "HEAD^1:$helper" > "$gate/$helper"');

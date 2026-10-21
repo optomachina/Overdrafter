@@ -90,7 +90,7 @@ jobs:
           done
           # Optional helper follows the selected source; its absence never selects head.
           helper="scripts/lib/entry-point.mjs"
-          mkdir -p "$gate/scripts/lib"
+          mkdir -p "$gate/$(dirname "$helper")"
           if [ "$source" = base ]; then
             if git cat-file -e "HEAD^1:$helper" 2>/dev/null; then
               git show "HEAD^1:$helper" > "$gate/$helper"
