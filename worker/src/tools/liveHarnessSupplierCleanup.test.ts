@@ -40,7 +40,25 @@ describe("live harness supplier cart cleanup record (standing rule, 2026-10-15)"
     expect(supplierCartCleanupFromPayload({ providerMutationPossible: false })).toMatchObject({
       status: "not_needed", manualRemovalRequired: false,
     });
-    expect(supplierCartCleanupFromPayload(null)).toMatchObject({ status: "not_needed" });
+  });
+
+  it.each([null, undefined, {}, { providerMutationPossible: null }, { providerMutationPossible: "false" }])(
+    "requires manual review when mutation evidence is missing or invalid: %j", (payload) => {
+      expect(supplierCartCleanupFromPayload(payload)).toMatchObject({
+        status: "unknown", manualRemovalRequired: true,
+      });
+    },
+  );
+
+  it.each(["xometry", "fictiv"])("warns for %s upload results without mutation evidence", (vendor) => {
+    const log = vi.fn();
+    const record = reportSupplierCartCleanup({
+      vendor, quantity: 1, payload: { uploadSelector: "input[type=file]", offers: [] },
+    }, log);
+    expect(record).toMatchObject({ status: "unknown", manualRemovalRequired: true });
+    const [line, warn] = log.mock.calls[0]!;
+    expect(warn).toBe(true);
+    expect(JSON.parse(line)).toMatchObject({ vendor, level: "warn", action: expect.stringContaining("Review") });
   });
 
   it("ignores an unknown cleanup status rather than trusting it", () => {

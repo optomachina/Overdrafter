@@ -19,6 +19,8 @@ export type SupplierCartCleanupStatus =
   | "skipped_kill_switch"
   /** The run reached upload, but the adapter declares no cleanup. */
   | "not_declared"
+  /** The payload does not establish whether an upload occurred. */
+  | "unknown"
   /** Nothing was uploaded, so there is nothing to remove. */
   | "not_needed";
 
@@ -57,13 +59,13 @@ export function supplierCartCleanupFromPayload(payload: unknown): SupplierCartCl
       manualRemovalRequired: status !== "removed",
     };
   }
-  const uploaded = source.providerMutationPossible === true;
+  const mutation = source.providerMutationPossible;
   return {
-    status: uploaded ? "not_declared" : "not_needed",
+    status: mutation === true ? "not_declared" : mutation === false ? "not_needed" : "unknown",
     removed: 0,
     remaining: null,
     reason: null,
-    manualRemovalRequired: uploaded,
+    manualRemovalRequired: mutation !== false,
   };
 }
 
@@ -86,7 +88,7 @@ export function reportSupplierCartCleanup(
       quantity: input.quantity,
       ...record,
       ...(record.manualRemovalRequired
-        ? { action: `Remove the uploaded test part from the ${input.vendor} cart/quote manually.` }
+        ? { action: `Review the ${input.vendor} cart/quote manually and remove any uploaded test part.` }
         : {}),
     }), record.manualRemovalRequired);
   } catch {

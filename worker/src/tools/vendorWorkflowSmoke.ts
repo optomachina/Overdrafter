@@ -39,6 +39,7 @@ import {
   type LiveHarnessRunArtifacts,
 } from "./liveHarnessArtifacts.js";
 import { reportSupplierCartCleanup, type SupplierCartCleanupRecord } from "./liveHarnessSupplierCleanup.js";
+import { enabledPortalVendors } from "./enabledPortalVendors.js";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
@@ -553,7 +554,8 @@ function assertSendCutSendCliAdmission(input: {
  */
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
-  const vendors = parseVendors(rawVendor);
+  const requestedVendors = parseVendors(rawVendor);
+  const vendors = requestedVendors ? enabledPortalVendors(requestedVendors) : null;
   const cadPath = readFlag(argv, "--cad") ?? env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH ?? null;
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
   const rawQuantities = readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null;
@@ -585,7 +587,8 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     manifestPath: sendCutSendManifestPath,
   });
 
-  const oshcutPackage = parseOshcutPackageMetadata(argv, vendors);
+  const skippedOshcut = requestedVendors?.includes("oshcut") && !vendors.includes("oshcut");
+  const oshcutPackage = skippedOshcut ? null : parseOshcutPackageMetadata(argv, vendors);
   if (vendors.includes("oshcut")) {
     assertExactOshcutPackageMetadata(oshcutPackage);
     for (const quantity of quantities) {
@@ -1639,7 +1642,8 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
-  if (args.vendors.includes("oshcut")) refuseOshcutPortalAutomation();
+  if (args.vendors.length === 1 && args.vendors[0] === "oshcut") refuseOshcutPortalAutomation();
+  args = { ...args, vendors: enabledPortalVendors(args.vendors) };
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   await assertOperatorProvidersEnabled(

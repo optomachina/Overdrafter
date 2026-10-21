@@ -40,6 +40,7 @@ vi.mock("./operatorKillSwitchGate", async (importOriginal) => ({
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
@@ -363,6 +364,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
   });
 
   it("accepts all runnable live evaluation vendors for batch validation", () => {
+    const notice = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const args = parseSmokeArgs([
       "--vendor",
       "all",
@@ -374,21 +376,15 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "6061-T6 aluminum",
       "--fabworks-geometry",
       "bent_sheet_3d",
-      "--oshcut-process",
-      "laser_cutting",
-      "--oshcut-material",
-      "aluminum_6061_t6",
-      "--oshcut-geometry",
-      "flat_sheet",
       "--sendcutsend-manifest",
       "./reviewed.json",
     ]);
 
+    expect(notice).toHaveBeenCalledWith(expect.stringMatching(/Skipping oshcut:.*disabled/));
     expect(args.vendors).toEqual([
       "xometry",
       "fictiv",
       "sendcutsend",
-      "oshcut",
       "fabworks",
       "ponoko",
       "quickparts",
@@ -411,15 +407,9 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "6061-T6 aluminum",
       "--fabworks-geometry",
       "bent_sheet_3d",
-      "--oshcut-process",
-      "laser_cutting",
-      "--oshcut-material",
-      "aluminum_6061_t6",
-      "--oshcut-geometry",
-      "flat_sheet",
     ]);
 
-    expect(args.vendors).toEqual(["oshcut", "fabworks"]);
+    expect(args.vendors).toEqual(["fabworks"]);
   });
 
   it("accepts Xometry and Fictiv for direct live evaluation", () => {
@@ -1290,6 +1280,47 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("skips OSH Cut in a programmatic batch before approval validation and runs Quickparts", async () => {
+    const fixture = await providerApprovalFixture();
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file", fixture.approvalPath,
+      "--approval-file-sha256", fixture.approvalSha256,
+      "--confirm-non-export-controlled",
+    ]);
+    args.vendors.unshift("oshcut");
+    const notice = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "quickparts", status: "submitted", totalPriceUsd: null,
+      unitPriceUsd: null, leadTimeBusinessDays: null, quoteUrl: null,
+      rawPayload: { providerMutationPossible: false }, artifacts: [],
+    });
+    const makeVendorConfig = vi.fn(() => ({} as WorkerConfig));
+    const cleanup = vi.fn();
+    const rows = await runEvaluationBatch(args, {
+      buildRegistry: () => ({ quickparts: { quote } }),
+      makeVendorConfig,
+      prepareConfig: async (config) => config,
+      stageFiles: async () => ({
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step", drawingPath: null, cleanup,
+      }),
+    });
+    expect(rows).toMatchObject([{ vendor: "quickparts", status: "submitted", error: null }]);
+    expect(quote).toHaveBeenCalledOnce();
+    expect(makeVendorConfig).toHaveBeenCalledOnce();
+    expect(makeVendorConfig).toHaveBeenCalledWith("quickparts", expect.any(String));
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(args.vendors).toEqual(["oshcut", "quickparts"]);
+    expect(notice).toHaveBeenCalledWith(expect.stringMatching(/Skipping oshcut:.*disabled/));
+  });
+
+  it("parses a mixed CLI batch without requiring disabled-provider metadata", () => {
+    expect(parseSmokeArgs([
+      "--vendor", "oshcut,quickparts,weerg", "--cad", "./part.step",
+    ]).vendors).toEqual(["quickparts", "weerg"]);
+  });
+
   it("refuses on the kill switch before staging, config, or registry construction", async () => {
     const args = parseSmokeArgs([
       "--vendor", "fictiv", "--cad", "./part.step",
