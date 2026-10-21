@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withMonospaceGeometry } from "../../test-support/pdfWordBoxes";
+import { pdfTextOf } from "../../test-support/titleBlockSheet";
 
 const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename, mockRm } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
@@ -826,14 +828,14 @@ describe("pdfDrawing", () => {
     expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.partNumber.reviewNeeded).toBe(false);
-    expect(result.revision.reviewNeeded).toBe(false);
+    expect(result.partNumber.reviewNeeded).toBe(true);
+    expect(result.revision.reviewNeeded).toBe(true);
     expect(result.description.reviewNeeded).toBe(false);
-    expect(result.finish.reviewNeeded).toBe(false);
-    expect(result.reviewFields).not.toContain("partNumber");
-    expect(result.reviewFields).not.toContain("revision");
+    expect(result.finish.reviewNeeded).toBe(true);
+    expect(result.reviewFields).toContain("partNumber");
+    expect(result.reviewFields).toContain("revision");
     expect(result.reviewFields).not.toContain("description");
-    expect(result.reviewFields).not.toContain("finish");
+    expect(result.reviewFields).toContain("finish");
     expect(result.reviewFields).not.toContain("process");
   });
 
@@ -952,7 +954,7 @@ describe("pdfDrawing", () => {
     expect(result.threads).toEqual([]);
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.reviewFields).toEqual(["material", "finish"]);
+    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
   });
 
   // Codex review of #884, round 5: the OCR rescue filled a MATERIAL the cell reader had flagged with the sample's
@@ -982,7 +984,7 @@ describe("pdfDrawing", () => {
     expect(approvedCell.reviewFields).toEqual(expect.arrayContaining(["material", "finish"]));
   });
 
-  it("prefers the strict filename identity over structurally invalid OCR title-block values", () => {
+  it("keeps a drawing candidate for review when the filename disagrees", () => {
     const result = inferDrawingSignalsFromPdf({
       baseName: "1093-05589-02",
       pdfText: {
@@ -1026,13 +1028,13 @@ describe("pdfDrawing", () => {
       },
     });
 
-    expect(result.partNumber.value).toBe("1093-05589");
+    expect(result.partNumber).toMatchObject({ value: "0093-05589", reviewNeeded: true });
     expect(result.revision.value).toBe("02");
     expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.description.reasons).toContain("ocr_title_block");
-    expect(result.partNumber.reasons).toContain("filename_stem");
-    expect(result.revision.reasons).toContain("filename_stem");
+    expect(result.partNumber.reasons).not.toContain("filename_stem");
+    expect(result.revision).toMatchObject({ value: "02", reviewNeeded: true });
   });
 });
 
@@ -1040,7 +1042,7 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   function tolerance(lines: string[]) {
     const result = inferDrawingSignalsFromPdf({
       baseName: "1000-00001-A",
-      pdfText: { pageCount: 1, pages: [{ page: 1, text: ["MATERIAL 6061-T6", ...lines].join("\n") }] },
+      pdfText: withMonospaceGeometry(pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"))),
     });
     return {
       raw: result.tightestTolerance,
@@ -1522,7 +1524,7 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   describe("linear time on hostile text", () => {
     const BOUND_MS = 500;
     const read = (text: string) =>
-      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
     // V8 can compile a regex differently depending on the first long text it reads in the process: a
     // lookbehind over blanks was linear after a text with blanks and quadratic on a run of tabs after
     // a blank-free one. Each case reads a blank-free text of 2000 characters first (and the block does
@@ -1569,9 +1571,10 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(performance.now() - started).toBeLessThan(BOUND_MS);
     });
 
-    it("still reads the declared tolerance before a long run of combining marks", () => {
+    it("suggests the declared tolerance but cannot approve an oversized page", () => {
       const result = read(`UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`);
-      expect(result.tightestToleranceValueInch).toBe(0.005);
+      expect(result.tightestTolerance).toBe("±0.005");
+      expect(result.tightestToleranceValueInch).toBeNull();
       expect(result.tightestToleranceDrawingUnits).toBe("inch");
     });
 

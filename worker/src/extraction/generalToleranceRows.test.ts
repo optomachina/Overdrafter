@@ -28,6 +28,7 @@
 
 import { describe, expect, it } from "vitest";
 import { slowdown } from "../../test-support/timing";
+import { withMonospaceGeometry } from "../../test-support/pdfWordBoxes";
 import { pdfTextOf } from "../../test-support/titleBlockSheet";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 
@@ -45,7 +46,7 @@ function toleranceOf(
 ) {
   const signals = inferDrawingSignalsFromPdf({
     baseName: "upload",
-    pdfText: options.pdfText ?? pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"), { ocr: options.ocr }),
+    pdfText: withMonospaceGeometry(options.pdfText ?? pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"), { ocr: options.ocr })),
   });
   return {
     raw: signals.tightestTolerance,
@@ -146,11 +147,11 @@ describe("general tolerance rows (OVD-989)", () => {
       expect(toleranceOf([], { pdfText })).toMatchObject({ valueInch: null });
     });
 
-    it("keeps it when the page count is not known, and reads rows of three places or fewer as before", () => {
+    it("requires review even for three-place rows when the page count is not known", () => {
       const unknownCount: PdfTextExtraction = { pageCount: 1, pageCountKnown: false, drawingFullyRead: false, ocr: false, pages: [pageOf(1, firstPage)] };
       expect(toleranceOf([], { pdfText: unknownCount })).toMatchObject({ valueInch: null });
       const threePlaces = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, INCHES, ...ROWS.slice(0, 2)].join("\n");
-      expect(toleranceOf([], { pdfText: { ...unknownCount, pages: [pageOf(1, threePlaces)] } })).toMatchObject({ valueInch: 0.005 });
+      expect(toleranceOf([], { pdfText: { ...unknownCount, pages: [pageOf(1, threePlaces)] } })).toMatchObject({ valueInch: null });
     });
   });
 
@@ -709,7 +710,7 @@ describe("general tolerance rows (OVD-989)", () => {
         result = toleranceOf([...lines, INCHES, ...ROWS]);
       });
       expect(ms).toBeLessThan(15_000);
-      expect(result.valueInch).toBe(0.005);
+      expect(result.valueInch).toBeNull(); // The page exceeds the full-geometry line cap.
     });
 
     // The evidence scan runs on every line of up to 2,000 characters once a table row exists. Shapes that

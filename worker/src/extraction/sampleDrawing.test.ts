@@ -241,8 +241,9 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(extraction.finish.raw);
-    expect(result.reviewFields).toEqual([]);
-    expect(result.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+    expect(result.tightestTolerance.raw).toBe(extraction.tightestTolerance.raw);
+    expect(result.tightestTolerance.valueInch).toBeNull();
   });
 
   // Scaled by 1.5, the finish starts farther after FINISH than a label's inline window, so its cell gives no value.
@@ -254,7 +255,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(TRUTH.finish);
-    expect(result.reviewFields).toEqual(["finish"]);
+    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
     expect(result.status).toBe("needs_review");
   });
 
@@ -280,10 +281,10 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
       }
     });
 
-    it.each([0.8, 1.2, 1.8, 4.4, ...PITCHES])("never reads part of a value from the cells at -fixed %s", (pitch) => {
+    it.each([0.8, 1.2, 1.8, 4.4, ...PITCHES])("never proves a partial cell value at -fixed %s", (pitch) => {
       const lines = layoutAt(pitch).split("\n").map((raw, index) => ({ page: 1, lineNumber: index + 1, raw }));
       for (const read of readTitleBlockCells(lines)) {
-        if (read.status === "value") {
+        if (read.status === "value" && read.complete) {
           expect(
             [TRUTH.partNumber, TRUTH.revision, TRUTH.material, TRUTH.finish].some((value) => same(read.value, value)),
             `${read.field} cell read ${read.value} at -fixed ${pitch}`,

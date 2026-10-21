@@ -79,7 +79,7 @@ function pdfTextOf(text: string, words?: PdfWord[]): PdfTextExtraction {
     pageCountKnown: true,
     drawingFullyRead: true,
     ocr: false,
-    pages: [{ page: 1, text, ocrText: "", ocrStatus: "ok", ...(words ? { words } : {}) }],
+    pages: [{ page: 1, text, ocrText: "", ocrStatus: "ok", ...(words ? { words, wordGeometryComplete: true } : {}) }],
   };
 }
 

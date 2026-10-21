@@ -11,6 +11,7 @@ import {
   type CellField,
   type CellRead,
   type TitleBlockTextLine,
+  type TitleBlockBorder,
 } from "./titleBlockCells.js";
 
 const execFileAsync = promisify(execFile);
@@ -82,6 +83,9 @@ export type PdfTextPage = {
    * boxes, or when the page has too many words; nothing else reads it.
    */
   words?: PdfWord[];
+  borders?: TitleBlockBorder[];
+  /** True only when every word in the full-page bbox output was read successfully. */
+  wordGeometryComplete?: boolean;
 };
 
 export type PdfTextExtraction = {
@@ -1295,18 +1299,6 @@ function buildAnchoredCandidates(
   return candidates;
 }
 
-function structuredLineOf(line: TitleBlockTextLine): StructuredLine {
-  const normalized = normalizeWhitespace(line.raw);
-  return {
-    page: line.page,
-    lineNumber: line.lineNumber,
-    raw: line.raw,
-    normalized,
-    firstColumn: line.raw.search(/\S/),
-    lastColumn: Math.max(line.raw.length - 1, 0),
-  };
-}
-
 function groupLayoutLinesByPage(layoutLines: readonly StructuredLine[]): Map<number, StructuredLine[]> {
   const layoutByPage = new Map<number, StructuredLine[]>();
   for (const line of layoutLines) {
@@ -1320,28 +1312,23 @@ function groupLayoutLinesByPage(layoutLines: readonly StructuredLine[]): Map<num
   return layoutByPage;
 }
 
-/** The title block lines built from a page's word boxes, or null when the page has no boxes or no title block in them. */
+/** Full-page geometry. A candidate crop must never remove evidence from the approval read. */
 function selectWordBoxLines(page: PdfTextPage): TitleBlockTextLine[] | null {
   if (page.words === undefined || page.words.length === 0) {
     return null;
   }
-  const wordLines = buildWordLines(page.words, page.page);
-  const wordBounds = detectTitleBlockBounds(wordLines.map(structuredLineOf));
-  if (!wordBounds.has(page.page)) {
-    return null;
-  }
-  return wordLines.filter((line) => isWithinTitleBlock(structuredLineOf(line), wordBounds));
+  const lines = buildWordLines(page.words, page.page);
+  if (lines[0]) lines[0].borders = page.borders;
+  return lines;
 }
 
 /**
  * The lines the title block reader sees: for a page with word boxes, its lines built from the boxes
- * (true positions) inside the title block found by the same keyword heuristic as for layout text; for any
- * other page, its layout lines inside the layout title block.
+ * (true positions) across the entire page; for any other page, all its layout lines.
  */
 function selectTitleBlockLines(
   pages: readonly PdfTextPage[],
   layoutLines: StructuredLine[],
-  layoutBounds: Map<number, TitleBlockBounds>,
 ): TitleBlockTextLine[] {
   // Grouped by page once: the number of pages is not bounded (pages past the text layer cap are empty), so
   // looking up each page in the whole list of lines would be pages times lines.
@@ -1356,9 +1343,7 @@ function selectTitleBlockLines(
       continue;
     }
     for (const line of layoutByPage.get(page.page) ?? []) {
-      if (isWithinTitleBlock(line, layoutBounds)) {
-        selected.push({ page: line.page, lineNumber: line.lineNumber, raw: line.raw });
-      }
+      selected.push({ page: line.page, lineNumber: line.lineNumber, raw: line.raw });
     }
   }
   return selected;
@@ -1392,19 +1377,26 @@ function buildCellCandidates(reads: readonly CellRead[], field: CellField): Cand
 const CELL_FIELDS: readonly CellField[] = ["partNumber", "revision", "material", "finish"];
 
 /**
- * A value read from one cell is not approved while another cell of the same field (another sheet's title block, or a
- * second label of the field) was rejected or is ambiguous: "SEE NOTE 1" or a cell that could not be read on sheet 2 is
- * evidence about the field that sheet 1's "AL 6061-T6" does not outweigh (#884 review, round 14). buildCellCandidates
- * offers only clean values, so without this the other cell was silently dropped. The value is kept, flagged. An empty
- * cell holds nothing that disagrees and does not flag it, and a value the field took from somewhere else than a cell
- * (the file name, a flagged suggestion) is left as the rest of the extraction decided.
+ * The single approval gate. Ranking and rescue choose suggestions; they cannot confer approval.
+ * A winner needs a complete label-owned cell, agreement of every nonempty cell, and a full read.
+ * Comparing all cells (not just the top two scores) prevents a stronger candidate hiding a conflict.
  */
-function flagBesideUnreadCell(field: ExtractedFieldSignal, reads: readonly CellRead[], cellField: CellField): ExtractedFieldSignal {
-  if (field.reviewNeeded || !field.value || !field.reasons.includes("label_match")) {
-    return field;
-  }
-  const unread = reads.some((read) => read.field === cellField && (read.status === "rejected" || read.status === "ambiguous"));
-  return unread ? { ...field, reviewNeeded: true, reasons: [...new Set([...field.reasons, "title_block_cell_unread"])] } : field;
+function approveCellField(
+  field: ExtractedFieldSignal,
+  reads: readonly CellRead[],
+  cellField: CellField,
+  pagesComplete: boolean,
+): ExtractedFieldSignal {
+  const cells = reads.filter((read) => read.field === cellField);
+  const agrees = (read: CellRead) => read.status === "value" && read.value?.toUpperCase() === field.value?.toUpperCase() && read.complete;
+  const approved = pagesComplete && !field.reviewNeeded && cells.some(agrees) &&
+    cells.every((read) => (read.status === "empty" && read.complete) || agrees(read));
+  return {
+    ...field,
+    reviewNeeded: !approved,
+    reasons: [...new Set([...field.reasons, approved ? "title_block_cell_proven" :
+      pagesComplete ? "title_block_cell_unread" : "title_block_page_unread"])],
+  };
 }
 
 function addCandidate(candidates: CandidateSignal[], candidate: CandidateSignal) {
@@ -1583,26 +1575,9 @@ function parsePartReferenceFromStem(baseName: string) {
 }
 
 /**
- * Applies OCR title-block rescue heuristics after primary parser extraction and
- * before final field validation.
- *
- * This mutates `input.fields` in place. Filename-stem values from
- * `parsePartReferenceFromStem(input.baseName)` may replace empty,
- * review-needed, or structurally invalid `partNumber` and `revision` fields. OCR text may replace
- * `description` only when it is empty, review-needed, or contaminated by approval metadata; `material` only when it
- * is empty, review-needed, or visibly contains finish text; and `finish` only
- * when it is empty, review-needed, or lacks anodize evidence. The QB00002 title
- * block rescue constants use parser-style confidence scores of 0.9 for part
- * number and 0.88 for revision/description.
- *
- * A material or finish is never approved here (suggestRescuedValue): the hard-coded text can sit anywhere on the sheet
- * ("6061 Alloy" in a note), so approving it would bypass the cell the MATERIAL or FINISH label owns, or the review flag
- * the cell reader set on it. The rescue only suggests it for review, at SUGGESTED_RESCUE_CONFIDENCE.
- *
- * @param input.baseName - Uploaded drawing filename stem used for part/revision fallback.
- * @param input.text - OCR/plain text from the drawing page.
- * @param input.fields - Mutable extraction field map to rescue in place.
- * @returns Nothing; successful rescues are written back to `input.fields`.
+ * Reconciles filename and OCR suggestions before the approval gate. A filename only fills a missing
+ * identity with review required, or confirms an exact cell match without changing its review state.
+ * Existing OCR material/finish rescues remain suggestions; only complete cell evidence can approve.
  */
 function rescueOcrTitleBlockFields(input: {
   baseName: string;
@@ -1612,27 +1587,18 @@ function rescueOcrTitleBlockFields(input: {
   const stemReference = parsePartReferenceFromStem(input.baseName);
 
   if (stemReference) {
-    const extractedPartNumber = input.fields.partNumber.value?.trim() ?? "";
-    const extractedRevision = input.fields.revision.value?.trim() ?? "";
-    const partNumberMatch = PART_NUMBER_PATTERN.exec(extractedPartNumber)?.[0] ?? null;
-    // A number read from the DWG. NO. cell, with no review flag, is the drawing's own even when it is
-    // not shaped like a company number ("ACME-1093-05589"); only an unlabelled value must fit the shape.
-    const partNumberFromCell = input.fields.partNumber.reasons.includes("label_match");
-    const partNumberWeak =
-      !extractedPartNumber ||
-      input.fields.partNumber.reviewNeeded ||
-      (partNumberMatch !== extractedPartNumber && !partNumberFromCell);
-    const revisionWeak =
-      !extractedRevision ||
-      input.fields.revision.reviewNeeded ||
-      !/^[A-Z0-9]{1,4}$/i.test(extractedRevision);
-
-    if (partNumberWeak) {
-      input.fields.partNumber = buildRescuedField(stemReference.partNumber, ["filename_stem", "regex_fit"], 0.9);
-    }
-
-    if (revisionWeak && stemReference.revision !== null) {
-      input.fields.revision = buildRescuedField(stemReference.revision, ["filename_stem", "regex_fit"], 0.88);
+    for (const name of ["partNumber", "revision"] as const) {
+      const value = stemReference[name];
+      const field = input.fields[name];
+      if (value === null) continue;
+      if (field.value === value && field.reasons.includes("label_match")) {
+        field.reasons = [...new Set([...field.reasons, "filename_confirmation"])];
+      } else if (!field.value || (name === "partNumber" && field.value === input.baseName.toUpperCase())) {
+        input.fields[name] = {
+          ...buildRescuedField(value, ["filename_stem", "regex_fit"], SUGGESTED_RESCUE_CONFIDENCE),
+          reviewNeeded: true,
+        };
+      }
     }
   }
 
@@ -1961,14 +1927,116 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
       ocrText: ocrResults[index].text,
       ocrStatus: ocrResults[index].status,
       ...(ocrResults[index].limit ? { ocrLimit: ocrResults[index].limit } : {}),
-      ...(hasTextLayer && wordBoxes[index] ? { words: wordBoxes[index] } : {}),
+      ...(hasTextLayer && wordBoxes[index] ? wordBoxes[index] : {}),
     })),
   };
 }
 
-/** Word boxes of every page that has a text layer; undefined for a page poppler could not or did not box. */
-async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<PdfWord[] | undefined>> {
-  const boxes: Array<PdfWord[] | undefined> = [];
+/**
+ * Only visible, solid, straight rules are evidence of a cell boundary. Cairo resolves PDF coordinates
+ * into the same displayed page points as Poppler's word boxes. Unsupported paths, clipping, group
+ * transforms, dashes and styles confer no proof. A missing tool or timeout leaves the gate conservative.
+ */
+async function readPageBorders(localPath: string, page: number, deadline: number): Promise<TitleBlockBorder[]> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return [];
+  try {
+    const { stdout } = await execFileAsync("pdftocairo", ["-svg", "-f", String(page), "-l", String(page), localPath, "-"], {
+      timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remaining), maxBuffer: 16 * 1024 * 1024,
+    });
+    if (!stdout.trimEnd().endsWith("</svg>")) return [];
+    let borders: TitleBlockBorder[] = [];
+    const groups: boolean[] = [];
+    let inDefinitions = false;
+    const attribute = (tag: string, name: string) => new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(tag)?.[1];
+    type PaintBounds = { x0: number; y0: number; x1: number; y1: number };
+    // A conservative control-point hull covers Cairo's absolute line/Bezier paths. Unsupported
+    // paint has unknown coverage and invalidates earlier rules; it must never silently disappear.
+    const paintBounds = (tag: string): PaintBounds | null => {
+      const pathData = attribute(tag, "d") ?? "";
+      if (!pathData || pathData.replace(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?|[\s,]/g, "")) return null;
+      const numbers = pathData.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/g)?.map(Number) ?? [];
+      const transform = attribute(tag, "transform");
+      const matrix = transform === undefined ? [1, 0, 0, 1, 0, 0] :
+        /^matrix\(([-\d.e+,\s]+)\)$/i.exec(transform)?.[1]?.trim().split(/[,\s]+/).map(Number);
+      if (numbers.length === 0 || numbers.length % 2 || !matrix || matrix.length !== 6 || !matrix.every(Number.isFinite)) return null;
+      const [a, b, c, d, e, f] = matrix as [number, number, number, number, number, number];
+      const xs: number[] = [], ys: number[] = [];
+      for (let i = 0; i < numbers.length; i += 2) {
+        xs.push(a * numbers[i]! + c * numbers[i + 1]! + e);
+        ys.push(b * numbers[i]! + d * numbers[i + 1]! + f);
+      }
+      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    };
+    const occlude = (bounds: PaintBounds | null) => {
+      borders = bounds === null ? [] : borders.filter((border) =>
+        border.y < bounds.y0 - 1 || border.y > bounds.y1 + 1 || border.x1 < bounds.x0 - 1 || border.x0 > bounds.x1 + 1);
+    };
+    const glyphs = new Map<string, PaintBounds | null>();
+    for (const glyph of stdout.matchAll(/<(?:g|symbol)\b[^>]*id="(glyph[^"]+)"[^>]*>([\s\S]*?)<\/(?:g|symbol)>/g)) {
+      const paths = [...glyph[2]!.matchAll(/<path\b[^>]*>/g)]
+        .filter((path) => (attribute(path[0], "d") ?? "").trim() !== "").map((path) => paintBounds(path[0]));
+      glyphs.set(glyph[1]!, paths.some((bounds) => bounds === null) ? null : {
+        x0: Math.min(...paths.map((bounds) => bounds!.x0)), y0: Math.min(...paths.map((bounds) => bounds!.y0)),
+        x1: Math.max(...paths.map((bounds) => bounds!.x1)), y1: Math.max(...paths.map((bounds) => bounds!.y1)),
+      });
+    }
+    for (const match of stdout.matchAll(/<defs\b[^>]*>|<\/defs>|<g\b[^>]*>|<\/g>|<(?:path|use|image|rect)\b[^>]*>/g)) {
+      const tag = match[0];
+      if (tag.startsWith("<defs")) { inDefinitions = true; continue; }
+      if (tag.startsWith("</defs")) { inDefinitions = false; continue; }
+      if (inDefinitions) continue;
+      if (tag.startsWith("</g")) { groups.pop(); continue; }
+      if (tag.startsWith("<g")) {
+        groups.push(groups.at(-1) === true || /(?:^|\s)(?:transform|clip-path|mask|style|opacity)=/.test(tag));
+        continue;
+      }
+      if (tag.startsWith("<use")) {
+        const glyph = glyphs.get((attribute(tag, "xlink:href") ?? "").replace(/^#/, ""));
+        const x = Number(attribute(tag, "x") ?? 0), y = Number(attribute(tag, "y") ?? 0);
+        occlude(glyph && Number.isFinite(x) && Number.isFinite(y) && groups.at(-1) !== true && !attribute(tag, "transform")
+          ? { x0: glyph.x0 + x, x1: glyph.x1 + x, y0: glyph.y0 + y, y1: glyph.y1 + y } : null);
+        continue;
+      }
+      if (!tag.startsWith("<path")) { occlude(null); continue; }
+      const colour = /^rgb\(([-\d.]+)%, ([-\d.]+)%, ([-\d.]+)%\)$/.exec(attribute(tag, "stroke") ?? "")?.slice(1).map(Number);
+      if (attribute(tag, "fill") !== "none") {
+        occlude(groups.at(-1) === true ? null : paintBounds(tag));
+      } else if (!colour?.every((channel) => channel >= 0 && channel <= 80)) {
+        // Unknown/light strokes may paint over a rule too; no safe coverage proof is available.
+        occlude(null);
+      }
+      if (groups.at(-1) === true || /\b(?:style|clip-path|mask|stroke-dasharray)=/.test(tag) ||
+        attribute(tag, "fill") !== "none" || attribute(tag, "stroke-opacity") !== "1" ||
+        !colour?.every((channel) => channel >= 0 && channel <= 80) || !(Number(attribute(tag, "stroke-width")) > 0)) continue;
+      const pathData = attribute(tag, "d") ?? "";
+      const segment = /M\s+([-\d.e+]+)\s+([-\d.e+]+)\s+L\s+([-\d.e+]+)\s+([-\d.e+]+)\s*/gi;
+      if (!pathData || pathData.replace(segment, "").trim()) continue;
+      const transform = attribute(tag, "transform");
+      const matrix = transform === undefined ? [1, 0, 0, 1, 0, 0] :
+        /^matrix\(([-\d.e+,\s]+)\)$/i.exec(transform)?.[1]?.trim().split(/[,\s]+/).map(Number);
+      if (!matrix || matrix.length !== 6 || !matrix.every(Number.isFinite)) continue;
+      const [a, b, c, d, e, f] = matrix as [number, number, number, number, number, number];
+      for (const coordinates of pathData.matchAll(segment)) {
+        const [x0, y0, x1, y1] = coordinates.slice(1).map(Number) as [number, number, number, number];
+        const first = { x: a * x0 + c * y0 + e, y: b * x0 + d * y0 + f };
+        const last = { x: a * x1 + c * y1 + e, y: b * x1 + d * y1 + f };
+        if ([first.x, first.y, last.x, last.y].every(Number.isFinite) && Math.abs(first.y - last.y) < 0.01 &&
+          Math.abs(first.x - last.x) > 1) {
+          borders.push({ x0: Math.min(first.x, last.x), x1: Math.max(first.x, last.x), y: first.y });
+        }
+        if (borders.length > 2_000) return [];
+      }
+    }
+    return borders;
+  } catch {
+    return [];
+  }
+}
+
+/** Word geometry of every page with a text layer; undefined when Poppler could not or did not box it. */
+async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<Pick<PdfTextPage, "words" | "borders" | "wordGeometryComplete"> | undefined>> {
+  const boxes: Array<Pick<PdfTextPage, "words" | "borders" | "wordGeometryComplete"> | undefined> = [];
   const deadline = Date.now() + PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
   let totalWords = 0;
   for (let index = 0; index < layerTexts.length; index += 1) {
@@ -1987,7 +2055,9 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
       );
       const words = parseBboxWords(typeof stdout === "string" ? stdout : "");
       totalWords += words.length;
-      boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL ? words : undefined);
+      boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL
+        ? { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
+          borders: await readPageBorders(localPath, index + 1, deadline) } : undefined);
     } catch {
       boxes.push(undefined);
     }
@@ -2481,26 +2551,52 @@ export function inferDrawingSignalsFromPdf(input: {
   // labels own. When a label is present but its cell gives no clean value, nothing is filled from
   // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
   // A part number shaped like a drawing number is still offered as a flagged suggestion.
-  const { reads: cellReads, unreadPages } = readTitleBlockPages(selectTitleBlockLines(input.pdfText.pages, lines, bounds));
-  const hasCellLabel = (field: CellField) => cellReads.some((read) => read.field === field);
+  const fullCellLines = selectTitleBlockLines(input.pdfText.pages, lines);
+  const { reads: cellReads, unreadPages } = readTitleBlockPages(fullCellLines);
+  // A crop may recover a useful partial suggestion, but only the full-page reads below can approve it.
+  const structuredCellLines = fullCellLines.map((line) => ({
+    ...line, normalized: normalizeWhitespace(line.raw), firstColumn: line.raw.search(/\S/), lastColumn: line.raw.length - 1,
+  }));
+  const candidateBounds = detectTitleBlockBounds(structuredCellLines);
+  for (const read of cellReads) {
+    if (!candidateBounds.has(read.page)) {
+      const pageReads = cellReads.filter((cell) => cell.page === read.page);
+      candidateBounds.set(read.page, {
+        startLine: Math.min(...pageReads.map((cell) => cell.labelLine)),
+        endLine: Math.max(...pageReads.map((cell) => cell.labelLine)) + 3,
+      });
+    }
+  }
+  const croppedReads = readTitleBlockPages(structuredCellLines.filter((line) => isWithinTitleBlock(line, candidateBounds))).reads;
+  const unresolvedCells = cellReads.filter((read) => read.status !== "value");
+  // If boxes contain no title-block labels, layout text can still supply a suggestion. The gate
+  // below requires the full-page evidence, so this fallback cannot approve missing geometry.
+  const pagesWithCells = new Set(cellReads.map((read) => read.page));
+  const candidateReads = [
+    ...cellReads,
+    ...croppedReads.filter((read) => unresolvedCells.some((full) => full.page === read.page && full.labelLine === read.labelLine &&
+      full.labelStart === read.labelStart && full.field === read.field)),
+    ...readTitleBlockPages(lines.filter((line) => !pagesWithCells.has(line.page))).reads,
+  ];
+  const hasCellLabel = (field: CellField) => candidateReads.some((read) => read.field === field);
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
-    [...buildCellCandidates(cellReads, "partNumber"), ...collectFallbackPartNumberCandidates(lines, bounds)],
+    [...buildCellCandidates(candidateReads, "partNumber"), ...collectFallbackPartNumberCandidates(lines, bounds)],
     input.baseName.toUpperCase(),
   );
   const revisionCandidate = pickBestCandidate(
     "revision",
     [
-      ...buildCellCandidates(cellReads, "revision"),
+      ...buildCellCandidates(candidateReads, "revision"),
       ...(hasCellLabel("revision") ? [] : collectFallbackRevisionCandidates(lines, bounds)),
     ],
     null,
   );
-  const materialCandidate = pickBestCandidate("material", buildCellCandidates(cellReads, "material"), null);
+  const materialCandidate = pickBestCandidate("material", buildCellCandidates(candidateReads, "material"), null);
   const finishCandidate = pickBestCandidate(
     "finish",
     [
-      ...buildCellCandidates(cellReads, "finish"),
+      ...buildCellCandidates(candidateReads, "finish"),
       ...(hasCellLabel("finish") ? [] : collectFallbackFinishCandidates(lines, bounds)),
     ],
     null,
@@ -2539,19 +2635,20 @@ export function inferDrawingSignalsFromPdf(input: {
     text: joinedText,
     fields: fieldResults,
   });
-  // After the rescue, so that a value a cell gave is flagged, not replaced by the file name's.
+  const pagesComplete = unreadPages.length === 0 && input.pdfText.drawingFullyRead === true && input.pdfText.pageCountKnown === true &&
+    input.pdfText.pageCount === input.pdfText.pages.length &&
+    input.pdfText.pages.every((page) => page.ocrStatus === "ok");
+  const wordGeometryComplete = input.pdfText.pages.every((page) =>
+    ((page.words?.length ?? 0) > 0 && page.wordGeometryComplete === true) ||
+    (page.text.trim() === "" && page.ocrText?.trim() === "" && page.ocrStatus === "ok"));
+  const drawingProven = pagesComplete && wordGeometryComplete;
   for (const field of CELL_FIELDS) {
-    fieldResults[field] = flagBesideUnreadCell(fieldResults[field], cellReads, field);
-    // A capped page may contribute to any cell field. Apply this after OCR rescue and fallback selection,
-    // so neither can approve a value while another page's potentially conflicting evidence is unread.
-    if (unreadPages.length > 0) {
-      fieldResults[field] = {
-        ...fieldResults[field],
-        reviewNeeded: true,
-        reasons: [...new Set([...fieldResults[field].reasons, "title_block_page_unread"])],
-      };
-    }
+    fieldResults[field] = approveCellField(fieldResults[field], cellReads, field, drawingProven);
   }
+  // A tolerance is a document-wide minimum: an unread page may hold a tighter callout.
+  const tightestTolerance = inferredTightestTolerance && !drawingProven
+    ? { ...inferredTightestTolerance, valueInch: null, unit: "unknown" as const }
+    : inferredTightestTolerance;
 
   const reviewFieldResults = {
     description: fieldResults.description,
@@ -2600,10 +2697,10 @@ export function inferDrawingSignalsFromPdf(input: {
     finish: fieldResults.finish,
     process: fieldResults.process,
     generalTolerance: toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null,
-    tightestTolerance: inferredTightestTolerance?.raw ?? null,
-    tightestToleranceValueInch: inferredTightestTolerance?.valueInch ?? null,
-    tightestToleranceUnit: inferredTightestTolerance?.unit ?? null,
-    tightestToleranceDrawingUnits: inferredTightestTolerance?.drawingUnits ?? null,
+    tightestTolerance: tightestTolerance?.raw ?? null,
+    tightestToleranceValueInch: tightestTolerance?.valueInch ?? null,
+    tightestToleranceUnit: tightestTolerance?.unit ?? null,
+    tightestToleranceDrawingUnits: tightestTolerance?.drawingUnits ?? null,
     quoteDescription: normalizeQuoteDescription(fieldResults.description.value),
     quoteFinish: normalizeQuoteFinish(fieldResults.finish.value),
     reviewFields,

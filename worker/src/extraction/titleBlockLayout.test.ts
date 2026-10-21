@@ -2,6 +2,7 @@
 //
 // OVD-989 and OVD-985: a B-size title block, in the order and at the columns `pdftotext -layout` prints it,
 // run through the deterministic extraction (no model, no network, no poppler).
+// Layout-only values are suggestions: approval requires the full page word geometry.
 //
 // Tier: synthetic text layer (worker/test-support/titleBlockTemplateSheet.ts). It is written for the tests
 // and carries placeholder values only; it reproduces the layout problem, not any real drawing. The real
@@ -68,10 +69,10 @@ describe("B-size title block layout", () => {
         expect(extraction.extractedRevisionRaw.reasons).toContain("label_match");
         expect(extraction.extractedRevisionRaw.reasons).not.toContain("filename_stem");
         // The four-place row (.0010) is not used by any dimension on the sheet; three places (.005) is.
-        expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: 0.005, unit: "in", drawingUnits: "inch" });
-        expect(extraction.reviewFields).toEqual([]);
-        expect(extraction.status).toBe("approved");
-        expect(missing).toEqual([]);
+        expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown", drawingUnits: "inch" });
+        expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+        expect(extraction.status).toBe("needs_review");
+        expect(missing).toEqual(["tightestToleranceInch"]);
         expect(extraction.threads).toEqual([]);
         expect(extraction.modelFallbackUsed).toBe(false);
       },
@@ -108,7 +109,7 @@ describe("B-size title block layout", () => {
       const { extraction } = await extract({ drawingNumber });
       expect(extraction.partNumber).toBe(drawingNumber);
       expect(extraction.revision).toBe(DEFAULTS.revision);
-      expect(extraction.reviewFields).toEqual([]);
+      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
     });
 
     it.each(["A", "C", "C2", "10", "AB", "02"])("reads revision %s from the REV cell, not the SIZE cell beside it", async (revision) => {
@@ -165,7 +166,7 @@ describe("B-size title block layout", () => {
         underLabelRow: [[150, "ENG"], [160, "MFG"], [170, "APPROVED"], [184, "DRAWN"], [195, "Q.A."], [205, "CHECKED"]],
       });
       expectDefaultFields(extraction);
-      expect(extraction.reviewFields).toEqual([]);
+      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
     });
 
     it.each(TOKENS)("reports %s as neither the part number nor the revision when the real cells hold it", async (token) => {
@@ -183,21 +184,21 @@ describe("B-size title block layout", () => {
       async (standard) => {
         const { extraction, stored } = await extract({ standard });
         expectDefaultFields(extraction);
-        expect(stored.tolerances.valueInch).toBe(0.005);
+        expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
       },
     );
 
     it("reads the same fields and tolerance with the inspection notes off", async () => {
       const { extraction, stored } = await extract({ inspectionNotes: false });
       expectDefaultFields(extraction);
-      expect(stored.tolerances.valueInch).toBe(0.005);
+      expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 
     it("reads the same tolerance with and without the four-place row", async () => {
       const withRow = (await extract({ fourPlaceRow: true })).stored.tolerances;
       const withoutRow = (await extract({ fourPlaceRow: false })).stored.tolerances;
       expect(withRow).toEqual(withoutRow);
-      expect(withRow.valueInch).toBe(0.005);
+      expect(withRow).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 
     it.each([
@@ -206,7 +207,7 @@ describe("B-size title block layout", () => {
       ["a dimension with four places", "four_places", 0.001],
     ] as const)("applies the rows for the places the dimensions use: %s", async (_name, dimensions, valueInch) => {
       const { stored } = await extract({ dimensions });
-      expect(stored.tolerances.valueInch).toBe(valueInch);
+      expect(stored.tolerances).toMatchObject({ tightest: `±${valueInch}`, valueInch: null, unit: "unknown" });
     });
 
     // The rows are dropped only on positive evidence. A dimension printed on the same layout line as a note
@@ -236,7 +237,7 @@ describe("B-size title block layout", () => {
           const { extraction, stored } = await extractSheet(
             withNote(titleBlockTemplateSheet({ dimensions: "four_places" }), ".0625 THRU", note, gap),
           );
-          expect(stored.tolerances.valueInch).toBe(0.001);
+          expect(stored.tolerances).toMatchObject({ tightest: "±0.001", valueInch: null, unit: "unknown" });
           expectDefaultFields(extraction);
         },
       );
@@ -246,7 +247,7 @@ describe("B-size title block layout", () => {
         async (note, gap) => {
           const sheet = withNote(titleBlockTemplateSheet({ dimensions: "two_and_three_places" }), ".190 THRU", note, gap);
           const { stored } = await extractSheet(sheet);
-          expect(stored.tolerances.valueInch).toBe(0.005);
+          expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
         },
       );
 
@@ -257,12 +258,12 @@ describe("B-size title block layout", () => {
             "SR.0625   ",
           ),
         );
-        expect(stored.tolerances.valueInch).toBe(0.001);
+        expect(stored.tolerances).toMatchObject({ tightest: "±0.001", valueInch: null, unit: "unknown" });
       });
 
       it("keeps a three-place edge note's row when the dimensions have two places", async () => {
         const sheet = titleBlockTemplateSheet({ dimensions: "two_places" }).replace("SAMPLE EDGE NOTE", 'BREAK EDGES .020" MAX');
-        expect((await extractSheet(sheet)).stored.tolerances.valueInch).toBe(0.005);
+        expect((await extractSheet(sheet)).stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
       });
     });
 
@@ -274,14 +275,14 @@ describe("B-size title block layout", () => {
 
     it("reads the same tolerance without a four-place row even when no dimension can be read", async () => {
       const { stored } = await extract({ dimensions: "none", fourPlaceRow: false });
-      expect(stored.tolerances.valueInch).toBe(0.005);
+      expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 
     it("reads the table values as millimetres when the drawing declares millimetres, never as inches", async () => {
       const { extraction, stored } = await extract({ units: "DIMENSIONS ARE IN MILLIMETERS" });
       expectDefaultFields(extraction);
-      // THREE PLACE DECIMAL .005 mm is 0.000197 in, stored floored to 0.0001; 0.005 would be wrong.
-      expect(stored.tolerances).toMatchObject({ tightest: "±0.005 mm", valueInch: 0.0001, unit: "mm", drawingUnits: "metric" });
+      // Preserve the metric suggestion; missing word geometry prevents approving any numeric tolerance.
+      expect(stored.tolerances).toMatchObject({ tightest: "±0.005 mm", valueInch: null, unit: "unknown", drawingUnits: "metric" });
     });
 
     it("leaves the tolerance unresolved when the drawing declares no units", async () => {
@@ -323,8 +324,8 @@ describe("B-size title block layout", () => {
     it.each([0.75, 0.9, 1.1, 1.25, 1.5])("reads the same fields with the layout scaled by %s", async (factor) => {
       const { extraction, stored } = await extractSheet(stretchColumns(titleBlockTemplateSheet(), factor));
       expectDefaultFields(extraction);
-      expect(extraction.reviewFields).toEqual([]);
-      expect(stored.tolerances.valueInch).toBe(0.005);
+      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+      expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 
     // A compression no poppler version produces (the text no longer fits its cell), and a stretch past the

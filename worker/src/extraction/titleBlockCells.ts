@@ -105,7 +105,12 @@ export type TitleBlockWord = {
   x1: number;
   /** The word box's height in points. */
   height?: number;
+  /** Original page coordinates, for proving a ruled cell border. */
+  y0?: number;
+  y1?: number;
 };
+
+export type TitleBlockBorder = { x0: number; x1: number; y: number };
 
 export type TitleBlockTextLine = {
   page: number;
@@ -130,6 +135,8 @@ export type TitleBlockTextLine = {
   words?: readonly TitleBlockWord[];
   /** Points per column of the page the words were measured on (pdfWords.ts); present with `words`. */
   pointsPerColumn?: number;
+  /** Visible horizontal rules in page points; absent when vector geometry was unavailable. */
+  borders?: readonly TitleBlockBorder[];
 };
 
 export type CellReadStatus = "value" | "empty" | "ambiguous" | "rejected";
@@ -152,6 +159,8 @@ export type CellRead = {
   labelEnd: number;
   /** Layout lines the value was read from. */
   valueLines: number[];
+  /** Positive evidence that the whole cell was consumed, not just a plausible candidate. */
+  complete: boolean;
 };
 
 type LabelSpec = {
@@ -181,10 +190,11 @@ const LABEL_SPECS: readonly LabelSpec[] = [
   { source: String.raw`INTERPRET\s+(?:GEOMETRIC|IN\s+ACCORDANCE\s+WITH)`, field: null },
   { source: String.raw`TOLERANCING\s+PER`, field: null },
   { source: String.raw`UNLESS\s+OTHERWISE\s+SPECIFIED`, field: null },
+  { source: String.raw`DIMENSIONS\s+APPLY\s+AFTER\s+PLATING`, field: null },
   { source: String.raw`DO\s+NOT\s+SCALE\s+DRAWING`, field: null },
   { source: String.raw`(?:THIRD|FIRST)\s+ANGLE\s+PROJECTION`, field: null },
   { source: String.raw`PROPRIETARY\s+AND\s+CONFIDENTIAL`, field: null },
-  { source: String.raw`NEXT\s+ASS(?:Y|EMBLY|M)\.?`, field: null },
+  { source: String.raw`NEXT\s+(?:ASSY|ASSEMBLY|ASSM|ASM)\.?`, field: null },
   { source: String.raw`USED\s+ON`, field: null },
   { source: String.raw`CAGE(?:\s+CODE)?`, field: null },
   { source: "TITLE", field: null },
@@ -1100,6 +1110,9 @@ type ValueChoice = {
   stoppedAt: number;
 };
 
+/** These complete label lines positively identify a neighbouring cell; arbitrary label-shaped text does not. */
+const NEIGHBOUR_LABEL_LINE = /^(?:HEAT[ -]TREAT(?:MENT)?|(?:SURFACE )?TREATMENT|PAINT|THICKNESS|QTY):?$/i;
+
 /** The text of one line of a cell: the runs that join the leftmost one, in order. */
 function lineTextOf(lineRuns: readonly Run[]): string {
   return normalizeWhitespace(joinContiguousRuns([...lineRuns]).map((run) => run.text).join(" "));
@@ -1488,6 +1501,7 @@ function readOne(
     labelLine: label.line,
     labelStart: label.start,
     labelEnd: label.end,
+    complete: false,
   };
   const empty = (status: CellReadStatus, reason: string, valueLines: number[] = []): CellRead => ({
     ...base,
@@ -1521,7 +1535,7 @@ function readOne(
     return empty("ambiguous", "far_value", valueLines);
   }
   if (chosen.length === 0) {
-    return empty("empty", "no_value");
+    return { ...empty("empty", "no_value"), complete: owned.length === 0 };
   }
   // Layout text: the value is under a run of blank lines as long as poppler prints, so how far it is from its label
   // is not known (LAYOUT_MAX_BLANK_LINES). It may be text far down the sheet in the label's columns.
@@ -1558,7 +1572,11 @@ function readOne(
   if (rejection !== null) {
     return empty("rejected", rejection, valueLines);
   }
-  return { ...base, status: "value", value, reason: null, valueLines };
+  const consumed = new Set(chosen.flatMap((entry) => entry.runs));
+  const boundary = NEIGHBOUR_LABEL_LINE.test(lineTextOf(owned.filter((run) => run.line === choice.stoppedAt)))
+    ? choice.stoppedAt : Infinity;
+  return { ...base, status: "value", value, reason: null, valueLines,
+    complete: owned.every((run) => consumed.has(run) || run.line >= boundary) };
 }
 
 /**
@@ -1905,6 +1923,16 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
     }
   }
   const labelsByLine = groupByLine(labels);
+  // A REV / DESCRIPTION / DATE (or ENGINEER) header owns revision-history rows, not the drawing's
+  // current revision. The other named columns establish its table role on the full page.
+  for (const row of labelsByLine.values()) {
+    if (row.some((label) => /^DESCRIPTION$/i.test(label.text)) &&
+      row.some((label) => /^(?:DATE|ENGINEER)$/i.test(label.text))) {
+      for (const label of row) {
+        if (label.field === "revision") label.field = null;
+      }
+    }
+  }
   const runs: Run[] = [];
   for (const line of pageLines) {
     findRuns(line, labelsByLine.get(line.lineNumber) ?? [], runs, MAX_RUNS_PER_PAGE);
@@ -1993,6 +2021,77 @@ function farLinesOf(candidateLines: readonly TitleBlockTextLine[], unreadLines: 
   return text.filter((line, index) => index > 0 && layout.has(line) && line - text[index - 1]! - 1 >= LAYOUT_MAX_BLANK_LINES);
 }
 
+/**
+ * Approval accounts for every word in the cell's column through the next known label (or page end).
+ * Candidate reach, font sizes, line gaps and character counts are deliberately not boundaries here.
+ * In particular, punctuation omitted by the candidate parser still needs an owner. A separator is
+ * consumed only when it was actually included in the value; text owned by a known neighbouring label
+ * belongs to that label's cell. This scan uses the original, uncropped geometry.
+ */
+function accountsForCellGeometry(
+  label: Label,
+  read: CellRead,
+  lines: readonly TitleBlockTextLine[],
+  labelsByLine: ReadonlyMap<number, Label[]>,
+  ownership: PageOwnership,
+  caps: ReadonlyMap<Label, number>,
+): boolean {
+  if (!read.complete || !label.fromWords) {
+    return false;
+  }
+  const owned = ownership.ownedByLabel.get(label) ?? [];
+  // Search reach chooses a candidate, never the cell's right boundary. Without an active known
+  // neighbour on the right, the proof must inspect the remainder of the page's row.
+  const right = Math.min(...[...labelsByLine.values()].flat().filter((other) =>
+    other.start > label.end && other.line <= label.line && (caps.get(other) ?? Infinity) >= label.line)
+    .map((other) => other.start));
+  const valueRight = Math.max(label.end, ...owned.map((run) => run.end));
+  const column = lines[0]?.pointsPerColumn;
+  const valueBottom = Math.max(...lines.flatMap((line) => read.valueLines.includes(line.lineNumber)
+    ? (line.words ?? []).filter((word) => owned.some((run) => run.line === line.lineNumber &&
+      word.x1 > run.start && word.x0 < run.end)).map((word) => word.y1 ?? Infinity) : []));
+  const ruledBorders = column === undefined ? [] : (lines[0]?.borders ?? [])
+    .filter((border) => Number.isFinite(valueBottom) && border.y >= valueBottom && border.x0 / column <= label.start && border.x1 / column >= valueRight);
+  // Only a known label in this cell's own column closes it. An adjacent label cannot close the
+  // left part of a wide cell; its own label and values are accounted for separately below.
+  let bottom = caps.get(label) ?? Number.POSITIVE_INFINITY;
+  const lastValueLine = Math.max(...read.valueLines);
+  for (const [line, runs] of groupByLine(owned)) {
+    if (line > lastValueLine && NEIGHBOUR_LABEL_LINE.test(lineTextOf(runs))) bottom = Math.min(bottom, line);
+  }
+
+  for (const line of lines) {
+    if (line.lineNumber < label.line || line.lineNumber >= bottom) {
+      continue;
+    }
+    const lineLabels = labelsByLine.get(line.lineNumber) ?? [];
+    for (const word of line.words ?? []) {
+      if (column !== undefined && word.y0 !== undefined && ruledBorders.some((border) =>
+        word.y0! >= border.y && word.x0 * column >= border.x0 && word.x1 * column <= border.x1)) {
+        continue;
+      }
+      if ((word.x0 + word.x1) / 2 < label.start - label.slack || word.x0 >= right) {
+        continue;
+      }
+      const coveredByLabel = lineLabels.some((other) => other.charStart <= word.from && other.charEnd >= word.to);
+      const coveredByValue = (ownership.ownedOnLine.get(line.lineNumber) ?? []).some(({ run, owner }) => {
+        const end = run.separatorAfter !== undefined && run.text.endsWith(run.separatorAfter.text)
+          ? run.separatorAfter.end : run.end;
+        return run.start <= word.x0 + 0.01 && end >= word.x1 - 0.01 &&
+          (owner !== label || read.valueLines.includes(run.line));
+      });
+      // A label and its inline value can be one PDF word (MATERIAL:ALUMINUM).
+      const coveredInline = lineLabels.some((other) => other.charStart <= word.from && other.charEnd > word.from &&
+        (ownership.ownedOnLine.get(line.lineNumber) ?? []).some(({ run, owner }) =>
+          owner === other && run.end >= word.x1 - 0.01 && run.start <= other.end + 0.01));
+      if (!coveredByLabel && !coveredByValue && !coveredInline) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /** One read per cell label of one page's lines (null when the page is over a cap and is not read). */
 function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRead[] | null {
   // The caps are checked in the order the work grows, and each loop stops when its own cap is passed. A line over
@@ -2039,7 +2138,9 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
     const fenced = hasOwnCellOnItsLine(label, ownedRuns, ownership.inlineRuns, runsByLine, caps);
     const doubt = crossesUnreadLine(label, caps, unreadLines) ? "unread_line" : doubtOf(label, ownership, runsByLine, finePitch);
-    reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt));
+    const read = readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt);
+    read.complete = accountsForCellGeometry(label, read, candidateLines, labelsByLine, ownership, caps);
+    reads.push(read);
   }
   return reads;
 }
@@ -2053,9 +2154,10 @@ export function readTitleBlockPages(lines: readonly TitleBlockTextLine[]): { rea
   const unreadPages: number[] = [];
   for (const [page, pageText] of groupByPage(lines)) {
     const pageReads = readPage(page, pageText);
-    if (pageReads === null) {
+    if (pageReads === null || pageText.some((line) => line.raw.length > MAX_LINE_LENGTH)) {
       unreadPages.push(page);
-    } else {
+    }
+    if (pageReads !== null) {
       reads.push(...pageReads);
     }
   }

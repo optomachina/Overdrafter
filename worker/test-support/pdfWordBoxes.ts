@@ -1,5 +1,6 @@
 // Test support for the word-box geometry of the title block reader (OVD-989). Builds the words that
 // `pdftotext -bbox` would print for text set at a given size, and the markup around them, with no PDF.
+import type { PdfTextExtraction } from "../src/extraction/pdfDrawing";
 import type { PdfWord } from "../src/extraction/pdfWords";
 
 const CHARACTER_WIDTH_IN_SIZES = 0.55;
@@ -51,4 +52,19 @@ export function bboxMarkup(words: readonly PdfWord[], size: { width: number; hei
     "</html>",
     "",
   ].join("\n");
+}
+
+/** Complete geometry for unit fixtures explicitly set on a monospaced grid (not real PDF evidence). */
+export function withMonospaceGeometry(pdfText: PdfTextExtraction): PdfTextExtraction {
+  return {
+    ...pdfText,
+    pages: pdfText.pages.map((page) => ({
+      ...page,
+      wordGeometryComplete: true,
+      words: page.text.split("\n").flatMap((raw, row) => [...raw.matchAll(/\S+/g)].map((match) => ({
+        text: match[0], xMin: match.index!, xMax: match.index! + match[0].length,
+        yMin: row * 3, yMax: row * 3 + 2.5,
+      }))),
+    })),
+  };
 }

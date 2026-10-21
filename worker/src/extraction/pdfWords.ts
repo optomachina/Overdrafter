@@ -170,6 +170,8 @@ export function buildWordLines(words: readonly PdfWord[], page: number): TitleBl
         x0: word.xMin / column,
         x1: word.xMax / column,
         height: word.yMax - word.yMin,
+        y0: word.yMin,
+        y1: word.yMax,
       });
       raw += word.text;
     });

@@ -276,12 +276,12 @@ describe("title block cells", () => {
 
     it("reads the real values even with the approvals labels directly under the label row", () => {
       const signals = infer(sampleLikeSheet({ between: [[107, "Q.A."], [120, "MFG"]] }));
-      expect(signals.partNumber).toMatchObject({ value: "1093-05589", reviewNeeded: false });
-      expect(signals.revision).toMatchObject({ value: "02", reviewNeeded: false });
-      expect(signals.material).toMatchObject({ value: "6061 Alloy", reviewNeeded: false });
-      expect(signals.finish).toMatchObject({ value: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", reviewNeeded: false });
-      expect(signals.reviewFields).not.toEqual(expect.arrayContaining(["partNumber"]));
-      expect(signals.reviewFields).not.toEqual(expect.arrayContaining(["revision"]));
+      expect(signals.partNumber).toMatchObject({ value: "1093-05589", reviewNeeded: true });
+      expect(signals.revision).toMatchObject({ value: "02", reviewNeeded: true });
+      expect(signals.material).toMatchObject({ value: "6061 Alloy", reviewNeeded: true });
+      expect(signals.finish).toMatchObject({ value: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", reviewNeeded: true });
+      expect(signals.reviewFields).toEqual(expect.arrayContaining(["partNumber"]));
+      expect(signals.reviewFields).toEqual(expect.arrayContaining(["revision"]));
     });
 
     it("does not take a revision from a filename stem that is an approvals label", () => {
@@ -657,7 +657,14 @@ describe("title block cells", () => {
           pageCountKnown: true,
           drawingFullyRead: true,
           ocr: false,
-          pages: texts.map((text, index) => ({ page: index + 1, text, ocrText: "", ocrStatus: "ok" as const })),
+          // Explicit monospaced fixture geometry: one point per character, 2.5-point text height.
+          pages: texts.map((text, index) => ({ page: index + 1, text, ocrText: "", ocrStatus: "ok" as const,
+            wordGeometryComplete: true,
+            words: text.split("\n").flatMap((raw, row) => [...raw.matchAll(/\S+/g)].map((match) => ({
+              text: match[0], xMin: match.index, xMax: match.index + match[0].length,
+              yMin: row * 3, yMax: row * 3 + 2.5,
+            }))),
+          })),
         },
       });
     const inferPages = (...texts: string[]) => inferNamedPages("upload", ...texts);
@@ -794,14 +801,14 @@ describe("title block cells", () => {
 
     it("keeps a number read from the DWG. NO. cell that is not shaped like a company number", () => {
       const signals = infer(sheet("XYZ-77"), "1093-05589-02");
-      expect(signals.partNumber).toMatchObject({ value: "XYZ-77", reviewNeeded: false });
+      expect(signals.partNumber).toMatchObject({ value: "XYZ-77", reviewNeeded: true });
       expect(signals.partNumber.reasons).not.toContain("filename_stem");
-      expect(signals.revision).toMatchObject({ value: "C", reviewNeeded: false });
+      expect(signals.revision).toMatchObject({ value: "C", reviewNeeded: true });
     });
 
     it("keeps a company-shaped number read from the cell, and does not call it the stem", () => {
       const signals = infer(sheet("2222-33333"), "1093-05589-02");
-      expect(signals.partNumber).toMatchObject({ value: "2222-33333", reviewNeeded: false });
+      expect(signals.partNumber).toMatchObject({ value: "2222-33333", reviewNeeded: true });
     });
 
     it("gives way to the stem when the cell is empty", () => {
@@ -1744,7 +1751,7 @@ describe("title block cells", () => {
       const words = [...label("FINISH", 330, 730), ...value("ANODIZE, BLACK", 340, 738), ...value("MIL-A-8625 TYPE III", 340, 750)];
       const signals = inferDrawingSignalsFromPdf({
         baseName: "upload",
-        pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", words }] },
+        pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", wordGeometryComplete: true, words }] },
       });
       expect(signals.finish).toMatchObject({ value: "ANODIZE, BLACK MIL-A-8625 TYPE III", reviewNeeded: false });
     });
@@ -1786,7 +1793,7 @@ describe("title block cells", () => {
       expect(cell(sheet, "revision")).toMatchObject({ status: "value", value });
       expect(cell(sheet, "partNumber")).toMatchObject({ status: "value", value: "ABC-001" });
       expect(cell(`${sheet}\n${layoutLine([60, "SHEET 1 OF 1"])}`, "revision")).toMatchObject({ status: "value", value });
-      expect(infer(sheet).revision).toMatchObject({ value, reviewNeeded: false });
+      expect(infer(sheet).revision).toMatchObject({ value, reviewNeeded: true });
     });
 
     it("reads the revision under REV from word boxes when it is the last line", () => {

@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { withMonospaceGeometry } from "../../test-support/pdfWordBoxes";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFileRecord, PartRecord, WorkerConfig } from "../types";
 import * as pdfDrawing from "./pdfDrawing";
@@ -857,16 +858,18 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
       part: makePart({ cad_file_id: "file-1", drawing_file_id: "file-2" }),
       cadFile: makeFile(),
       drawingFile: makeFile({ id: "file-2", original_name: "probe.pdf", file_kind: "drawing" }),
-      pdfText: {
+      pdfText: withMonospaceGeometry({
         pageCount: pages.length,
         pageCountKnown: true,
         drawingFullyRead: true,
         ocr: false,
         pages: pages.map((lines, index) => ({
           page: index + 1,
+          ocrText: "",
+          ocrStatus: "ok",
           text: (index === 0 ? ["MATERIAL 6061-T6", "DWG. NO. 1000-1 REV A", ...lines] : lines).join("\n"),
         })),
-      } as never,
+      }),
     });
     return {
       extraction,

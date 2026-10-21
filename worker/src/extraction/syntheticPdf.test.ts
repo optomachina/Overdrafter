@@ -33,6 +33,7 @@ const hasPoppler = hasBinary("pdfinfo") && hasBinary("pdftotext");
 const fullyRead = hasBinary("tesseract");
 const ROW_DROPPED = fullyRead ? 0.005 : null;
 const FOUR_PLACE_ROW = fullyRead ? 0.001 : null;
+const LAYOUT_REVIEW_FIELDS = ["partNumber", "revision", "material", "finish"];
 
 // Every test writes a PDF and reads it with poppler and, when it is installed, tesseract: about a second each on
 // an idle machine, several on a loaded one, so the default 5 seconds is not a bound the tests can keep.
@@ -121,7 +122,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
           { x: 440, y: 732, size: 9, text: "RC 40-45" },
         ],
       });
-      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+      // Its value is preserved, but an unrecognised neighbouring cell is not a proven boundary.
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
     });
 
     it("leaves an empty MATERIAL cell empty and flagged, whatever text is around it", async () => {
@@ -199,8 +201,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         expect(swept.material, `material at ${size} pt`).toMatchObject({ value: null, reviewNeeded: true });
       }
       const control = await layoutOnly(syntheticSheet());
-      expect(control.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
-      expect(control.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+      expect(control.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+      expect(control.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
     });
 
     it("never reports the unlisted cell's text for a filled MATERIAL either", async () => {
@@ -357,14 +359,14 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const [source, signals] of await bothSources(lowerFinish(null, labelAndValue(label, value, 745)))) {
         expect(signals.material, source).toMatchObject({ value: null, reviewNeeded: true });
         expect(signals.reviewFields, source).toContain("material");
-        expect(signals.finish, source).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+        expect(signals.finish, source).toMatchObject({ value: "AS MACHINED", reviewNeeded: source === "layout text" });
       }
     });
 
     it("(a) leaves an empty FINISH empty and flagged, not 'PAINT' or 'PAINT RAL 9005'", async () => {
       for (const [source, signals] of await bothSources(syntheticSheet({ finish: null, extra: labelAndValue("PAINT", "RAL 9005", 775, 372) }))) {
         expect(signals.finish, source).toMatchObject({ value: null, reviewNeeded: true });
-        expect(signals.material, source).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+        expect(signals.material, source).toMatchObject({ value: "AL 6061-T6", reviewNeeded: source === "layout text" });
       }
     });
 
@@ -446,7 +448,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     ] as const)("(a) leaves an empty MATERIAL empty and flagged, not a 6 pt '%s' by a 9 pt '%s' (at x %s)", async (label, value, x) => {
       for (const [source, result] of await extractBoth(lowerFinish(null, labelAndValue(label, value, 745, x)))) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["material"]);
         expect(result.status, source).toBe("needs_review");
         expect(result.finish.raw, source).toBe("AS MACHINED");
       }
@@ -458,7 +460,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     ] as const)("(a) leaves an empty FINISH empty and flagged, not a 6 pt '%s' by a 9 pt '%s'", async (label, value, x) => {
       for (const [source, result] of await extractBoth(syntheticSheet({ finish: null, extra: labelAndValue(label, value, 775, x) }))) {
         expect(result.finish.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["finish"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["finish"]);
         expect(result.status, source).toBe("needs_review");
         expect(result.material.raw, source).toBe("AL 6061-T6");
       }
@@ -483,7 +485,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
           // label row and the 24 pt drawing number and revision, its most, so how far under their labels they are is not
           // known and they are flagged too (far_value). Word boxes measure it and read them.
           const flagged = source === "layout text" && size === 6 ? ["partNumber", "revision", "material"] : ["material"];
-          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(flagged);
+          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : flagged);
           expect(result.status, `${source}, ${size} pt`).toBe("needs_review");
           expect(result.finish.raw, `${source}, ${size} pt`).toBe("AS MACHINED");
         }
@@ -494,7 +496,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const size of [6, 9]) {
         for (const [source, result] of await extractBoth(syntheticSheet({ finish: null, extra: overOneCharacter("QTY", "4", 767, size) }))) {
           expect(result.finish.raw, `${source}, ${size} pt`).toBeNull();
-          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(["finish"]);
+          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["finish"]);
           expect(result.status, `${source}, ${size} pt`).toBe("needs_review");
           expect(result.material.raw, `${source}, ${size} pt`).toBe("AL 6061-T6");
         }
@@ -521,8 +523,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const [source, result] of await extractBoth(syntheticSheet())) {
         expect(result.material.raw, source).toBe("AL 6061-T6");
         expect(result.finish.raw, source).toBe("AS MACHINED");
-        expect(result.reviewFields, source).toEqual([]);
-        expect(result.status, source).toBe("approved");
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : []);
+        expect(result.status, source).toBe(source === "layout text" ? "needs_review" : "approved");
       }
     });
   });
@@ -544,9 +546,9 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
       for (const text of [pdfText, layoutText]) {
         const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: text });
-        expect(signals.partNumber).toMatchObject({ value: "ABC-001", reviewNeeded: false });
-        expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: false });
-        expect(signals.material).toMatchObject({ value: "ALUMINUM", reviewNeeded: false });
+        expect(signals.partNumber).toMatchObject({ value: "ABC-001", reviewNeeded: text === layoutText });
+        expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: text === layoutText });
+        expect(signals.material).toMatchObject({ value: "ALUMINUM", reviewNeeded: text === layoutText });
       }
     });
   });
@@ -573,7 +575,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const page of pdfText.pages) {
         delete (page as { words?: unknown }).words;
       }
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: false });
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: true });
     });
 
     it("is not the border's marker: the row of markers and its last marker under an empty REV are dropped", async () => {
@@ -657,7 +659,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       for (const [source, result] of await extractBoth(items)) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["material"]);
         expect(result.finish.raw, source).toBe("AS MACHINED");
       }
     });
@@ -675,7 +677,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         expect(result.material.raw, source).toBe("AL 6061-T6");
       }
       for (const [source, result] of await extractBoth(syntheticSheet())) {
-        expect(result.tightestTolerance.valueInch, source).toBe(ROW_DROPPED);
+        expect(result.tightestTolerance.valueInch, source).toBe(source === "layout text" ? null : ROW_DROPPED);
       }
     });
 
@@ -692,7 +694,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     it.each([390, 400, 420])("leaves the material empty and flagged, not 'QTY', when its value starts at %i pt", async (x) => {
       for (const [source, result] of await extractBoth(centredMaterial(x, x + 20))) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["material"]);
         expect(result.status, source).toBe("needs_review");
         expect(result.finish.raw, source).toBe("AS MACHINED");
       }
@@ -701,7 +703,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     it.each([6, 9])("leaves an empty material empty and flagged, not a %i pt 'QTY' over a centred '4'", async (size) => {
       for (const [source, result] of await extractBoth(centredMaterial(null, 420, size))) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["material"]);
       }
     });
 
@@ -714,7 +716,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       for (const [source, result] of await extractBoth(items)) {
         expect(result.finish.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["finish"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["finish"]);
         expect(result.material.raw, source).toBe("AL 6061-T6");
       }
     });
@@ -751,7 +753,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         expect(result.status, source).toBe("needs_review");
         expect(result.material.raw, source).toBe("AL 6061-T6");
         if (source === "word boxes") {
-          expect(result.reviewFields, source).toEqual(["partNumber"]);
+          expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["partNumber"]);
           expect(result.revision, source).toBe("B");
         }
       }
@@ -766,7 +768,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       for (const [source, result] of await extractBoth(items)) {
         expect(result.revision, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(["revision"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["revision"]);
         expect(result.status, source).toBe("needs_review");
         expect(result.partNumber, source).toBe("ABC-1001");
       }
@@ -776,8 +778,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const [source, result] of await extractBoth(syntheticSheet({ revision: "AB", drawingNumber: "ABC-DEF" }))) {
         expect(result.revision, source).toBe("AB");
         expect(result.partNumber, source).toBe("ABC-DEF");
-        expect(result.reviewFields, source).toEqual([]);
-        expect(result.status, source).toBe("approved");
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : []);
+        expect(result.status, source).toBe(source === "layout text" ? "needs_review" : "approved");
       }
     });
 
@@ -802,7 +804,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     ] as const)("leaves %s empty and flagged, not cut at the column", async (_case, items, flagged) => {
       for (const [source, result] of await extractBoth([...items])) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(flagged);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : flagged);
         expect(result.status, source).toBe("needs_review");
         expect(result.finish.raw, source).toBe(flagged.length === 1 ? "AS MACHINED" : null);
         expect(result.partNumber, source).toBe("ABC-1001");
@@ -822,7 +824,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(pointers))) {
         expect(result.material.raw, source).toBe("AL 6061-T6");
         expect(result.finish.raw, source).toBe("AS MACHINED");
-        expect(result.reviewFields, source).toEqual(["material", "finish"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : ["material", "finish"]);
         expect(result.status, source).toBe("needs_review");
       }
     });
@@ -832,8 +834,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(repeated))) {
         expect(result.material.raw, source).toBe("AL 6061-T6");
         expect(result.finish.raw, source).toBe("AS MACHINED");
-        expect(result.reviewFields, source).toEqual([]);
-        expect(result.status, source).toBe("approved");
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : []);
+        expect(result.status, source).toBe(source === "layout text" ? "needs_review" : "approved");
       }
       const empty = await pdfTextOf(syntheticSheet({ material: null, finish: null }));
       for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(empty))) {
@@ -842,10 +844,168 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         // An empty cell holds nothing that disagrees. On layout text alone, that sheet's 24 pt drawing number and revision
         // are under four blank lines once the MATERIAL and FINISH rows are empty, so they are not read (a known limit), and
         // a cell that could not be read flags the field the first sheet gave.
-        expect(result.reviewFields, source).toEqual(source === "word boxes" ? [] : ["partNumber", "revision"]);
+        expect(result.reviewFields, source).toEqual(source === "layout text" ? LAYOUT_REVIEW_FIELDS : source === "word boxes" ? [] : ["partNumber", "revision"]);
         expect(result.partNumber, source).toBe("ABC-1001");
         expect(result.revision, source).toBe("B");
       }
     });
   });
+
+  describe("approval requires complete cell evidence", () => {
+    const infer = (pdfText: PdfTextExtraction, baseName = "upload") => inferDrawingSignalsFromPdf({ pdfText, baseName });
+    const combine = (first: PdfTextExtraction, second: PdfTextExtraction): PdfTextExtraction => ({
+      ...first, pageCount: 2, drawingFullyRead: first.drawingFullyRead && second.drawingFullyRead,
+      pages: [first.pages[0]!, { ...second.pages[0]!, page: 2 }],
+    });
+
+    it("a filename cannot replace conflicting sheet identities", async () => {
+      const first = await pdfTextOf(syntheticSheet({ drawingNumber: "ABC-1001", revision: "B" }));
+      const second = await pdfTextOf(syntheticSheet({ drawingNumber: "ABC-1002", revision: "C" }));
+      for (const baseName of ["upload", "1234-56789-A"]) {
+        const result = infer(combine(first, second), baseName);
+        expect(result.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: true });
+        expect(result.revision).toMatchObject({ value: "B", reviewNeeded: true });
+      }
+    });
+
+    it("missing or partial word geometry leaves otherwise correct fields as suggestions", async () => {
+      const pdfText = await pdfTextOf(syntheticSheet());
+      for (const page of [
+        { ...pdfText.pages[0]!, words: undefined },
+        { ...pdfText.pages[0]!, wordGeometryComplete: false },
+        { ...pdfText.pages[0]!, wordGeometryComplete: undefined },
+      ]) {
+        const result = infer({ ...pdfText, pages: [page] });
+        expect(result.tightestTolerance).toBe("±0.005");
+        expect(result.tightestToleranceValueInch).toBeNull();
+        for (const field of LAYOUT_REVIEW_FIELDS as Array<"partNumber" | "revision" | "material" | "finish">) {
+          expect(result[field].reviewNeeded, field).toBe(true);
+        }
+      }
+    });
+
+    it("an unowned value on another sheet is not proof of an empty cell", async () => {
+      const first = await pdfTextOf(syntheticSheet());
+      const second = await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "MATERIAL" },
+        { x: 250, y: 612, size: 9, text: "BRASS" },
+      ]);
+      expect(infer(combine(first, second)).material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+    });
+
+    it("a missing identity is only suggested from the filename; an exact cell match stays approved", async () => {
+      const missing = infer(await pdfTextOf([{ x: 100, y: 100, size: 9, text: "TITLE: SAMPLE" }]), "1234-56789-A");
+      expect(missing.partNumber).toMatchObject({ value: "1234-56789", reviewNeeded: true });
+      expect(missing.revision).toMatchObject({ value: "A", reviewNeeded: true });
+      const matching = infer(await pdfTextOf(syntheticSheet({ drawingNumber: "1234-56789", revision: "A" })), "1234-56789-A");
+      expect(matching.partNumber).toMatchObject({ value: "1234-56789", reviewNeeded: false });
+      expect(matching.revision).toMatchObject({ value: "A", reviewNeeded: false });
+    });
+
+    it("accounts for a finish continuation beyond the title-block candidate crop", async () => {
+      const pdfText = await pdfTextOf([
+        { x: 100, y: 600, size: 9, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "ANODIZE, MIL-A-8625F, TYPE II" },
+        { x: 700, y: 624, size: 9, text: "OTHER COLUMN" },
+        { x: 700, y: 636, size: 9, text: "MORE TEXT" },
+        { x: 100, y: 648, size: 9, text: "CLASS 2" },
+      ]);
+      expect(pdfText.pages[0]!.words?.some((word) => word.text === "CLASS")).toBe(true);
+      expect(infer(pdfText).finish).toMatchObject({ value: "ANODIZE, MIL-A-8625F, TYPE II", reviewNeeded: true });
+    });
+
+    it.each([7, 12])("a %s pt qualifier beneath a 9 pt finish is not a boundary", async (size) => {
+      const pdfText = await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "ANODIZE" },
+        { x: 100, y: 625, size, text: "BLACK" },
+      ]);
+      expect(infer(pdfText).finish.reviewNeeded).toBe(true);
+    });
+
+    it.each(["6", "/", "|"])("accounts for a one-box continuation %s", async (continuation) => {
+      const pdfText = await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "MATERIAL" },
+        { x: 100, y: 612, size: 9, text: "6061-T" },
+        { x: 100, y: 624, size: 9, text: continuation },
+      ]);
+      expect(infer(pdfText).material).toMatchObject({ value: "6061-T", reviewNeeded: true });
+    });
+
+    it("an oversized conflicting line makes its page unread for every field and tolerance", async () => {
+      const first = await pdfTextOf(syntheticSheet());
+      const second = await pdfTextOf([{ x: 10, y: 100, size: 0.5, text: `MATERIAL BRASS ${"X".repeat(2001)}` }]);
+      expect(second.pages[0]!.text.length).toBeGreaterThan(2000);
+      const result = infer(combine(first, second));
+      expect(result.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(result[field].reviewNeeded, field).toBe(true);
+        expect(result[field].reasons).toContain("title_block_page_unread");
+      }
+      expect(result.tightestToleranceValueInch).toBeNull();
+    });
+
+    it("a known neighbouring label proves a boundary regardless of its smaller type", async () => {
+      const result = infer(await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "ANODIZE" },
+        { x: 100, y: 625, size: 7, text: "SCALE: 1:1" },
+      ]));
+      expect(result.finish).toMatchObject({ value: "ANODIZE", reviewNeeded: false });
+    });
+
+    it.each([false, true])("a shifted continuation remains unresolved even with a short rule: %s", async (shortRule) => {
+      const result = infer(await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "MIL-A-8625F" },
+        { x: 250, y: 625, size: 9, text: "CLASS 2" },
+      ], { rules: shortRule ? [{ x0: 50, x1: 200, y0: 623, y1: 623 }] : [] }));
+      expect(result.finish).toMatchObject({ value: "MIL-A-8625F", reviewNeeded: true });
+    });
+
+    it("an adjacent label does not close the left part of a wide cell", async () => {
+      const result = infer(await pdfTextOf([
+        { x: 100, y: 500, size: 6, text: "FINISH" },
+        { x: 140, y: 500, size: 9, text: "MIL-A-8625F" },
+        { x: 150, y: 525, size: 6, text: "SCALE: 1:1" },
+        { x: 100, y: 780, size: 9, text: "BLACK" },
+      ]));
+      expect(result.finish.reviewNeeded).toBe(true);
+    });
+
+    it("only a ruled border below the full inline word can close its cell", async () => {
+      const items = [
+        { x: 100, y: 600, size: 9, text: "MATERIAL:6061-T" },
+        { x: 100, y: 625, size: 9, text: "/" },
+      ];
+      for (const y of [590, 640]) {
+        const result = infer(await pdfTextOf(items, { rules: [{ x0: 50, x1: 400, y0: y, y1: y }] }));
+        expect(result.material.reviewNeeded).toBe(true);
+      }
+    });
+
+    it("an erased rule supplies no cell boundary proof", async () => {
+      const result = infer(await pdfTextOf([
+        { x: 100, y: 600, size: 6, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "ANODIZE" },
+        { x: 100, y: 640, size: 7, text: "BLACK" },
+      ], {
+        rules: [{ x0: 50, x1: 400, y0: 630, y1: 630 }],
+        erase: [{ x: 45, y: 627, width: 360, height: 6 }],
+      }));
+      expect(result.finish.reviewNeeded).toBe(true);
+    });
+
+    it("a visible gray ruled border separates the cell value from sheet-zone characters", async () => {
+      const items = [
+        { x: 100, y: 600, size: 6, text: "FINISH" },
+        { x: 100, y: 612, size: 9, text: "AS MACHINED" },
+        ...[1, 2, 3, 4].map((n) => ({ x: 60 * n, y: 650, size: 9, text: String(n) })),
+      ];
+      expect(infer(await pdfTextOf(items)).finish.reviewNeeded).toBe(true);
+      const result = infer(await pdfTextOf(items, { rules: [{ x0: 50, x1: 400, y0: 640, y1: 640, gray: 0.75 }] }));
+      expect(result.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
+    });
+  });
+
 });
