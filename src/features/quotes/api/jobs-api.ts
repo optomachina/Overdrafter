@@ -62,6 +62,7 @@ import {
   type ClientQuoteWorkspaceProjection,
   normalizeClientQuoteWorkspaceProjection,
 } from "./shared/normalizers";
+import { fetchPublishedPackagesByJobIds } from "./packages-api";
 import { toClientIntakeCompatibilityError } from "./compatibility-api";
 import { fetchAppSessionData } from "./session-api";
 
@@ -90,8 +91,10 @@ type JobRequestMetadata = {
   requestedByDate: string | null;
 };
 
+type SelectedOfferSummary = Pick<VendorQuoteOfferRecord, "supplier" | "total_price_usd" | "lead_time_business_days">;
+
 type JobSelectionState = {
-  selectedOffersByJobId: Map<string, VendorQuoteOfferRecord>;
+  selectedOffersByJobId: Map<string, SelectedOfferSummary>;
   requestByJobId: Map<string, JobRequestMetadata>;
 };
 
@@ -241,34 +244,48 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
   }
 
   const jobsWithSelection = await fetchJobSelectionRows(scope);
-  const offerIds = jobsWithSelection
-    .map((job) => job.selected_vendor_quote_offer_id)
-    .filter((value): value is string => Boolean(value));
-
-  if (offerIds.length === 0) {
-    return {
-      ...emptyJobSelectionState(),
-      requestByJobId: new Map(
-        jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
-      ),
-    };
+  const jobIds = jobsWithSelection.map((job) => job.id);
+  const packages = await fetchPublishedPackagesByJobIds(jobIds);
+  const latestPackageByJobId = new Map<string, PublishedQuotePackageRecord>();
+  for (const pkg of packages) {
+    if (!latestPackageByJobId.has(pkg.job_id)) latestPackageByJobId.set(pkg.job_id, pkg);
+  }
+  const packageIds = [...latestPackageByJobId.values()].map((pkg) => pkg.id);
+  const [optionsResult, selectionsResult, quoteWorkspaceByJobId] = await Promise.all([
+    packageIds.length
+      ? supabase.from("published_quote_options").select("*").in("package_id", packageIds)
+      : emptyResponse<PublishedQuoteOptionRecord>(),
+    packageIds.length
+      ? supabase.from("client_selections").select("*").in("package_id", packageIds).order("created_at", { ascending: false })
+      : emptyResponse<ClientSelectionRecord>(),
+    jobsWithSelection.some((job) => job.selected_vendor_quote_offer_id && !latestPackageByJobId.has(job.id))
+      ? fetchClientQuoteWorkspaceProjectionByJobIds(jobIds)
+      : Promise.resolve(new Map<string, ClientQuoteWorkspaceProjection>()),
+  ]);
+  const options = ensureData(optionsResult.data, optionsResult.error) as PublishedQuoteOptionRecord[];
+  const selections = ensureData(selectionsResult.data, selectionsResult.error) as ClientSelectionRecord[];
+  const selectedOffersByJobId = new Map<string, SelectedOfferSummary>();
+  for (const job of jobsWithSelection) {
+    const pkg = latestPackageByJobId.get(job.id);
+    if (pkg) {
+      // A published package owns the choice, including the absence of a choice.
+      const selection = selections.find((row) => row.package_id === pkg.id);
+      const option = options.find((row) => row.package_id === pkg.id && row.id === selection?.option_id);
+      if (option) {
+        selectedOffersByJobId.set(job.id, {
+          supplier: option.label,
+          total_price_usd: option.published_price_usd,
+          lead_time_business_days: option.lead_time_business_days,
+        });
+      }
+    } else if (job.selected_vendor_quote_offer_id) {
+      const offer = quoteWorkspaceByJobId.get(job.id)?.selectedOffer;
+      if (offer) selectedOffersByJobId.set(job.id, offer);
+    }
   }
 
-  const quoteWorkspaceByJobId = await fetchClientQuoteWorkspaceProjectionByJobIds(
-    jobsWithSelection.map((job) => job.id),
-  );
-
   return {
-    selectedOffersByJobId: new Map(
-      jobsWithSelection.flatMap((job) => {
-        if (!job.selected_vendor_quote_offer_id) {
-          return [];
-        }
-
-        const offer = quoteWorkspaceByJobId.get(job.id)?.selectedOffer ?? null;
-        return offer ? [[job.id, offer] as const] : [];
-      }),
-    ),
+    selectedOffersByJobId,
     requestByJobId: new Map(
       jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
     ),
@@ -491,7 +508,6 @@ export async function fetchJobPartSummariesByOrganization(
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const metadata of metadataRows) {
-    const selectedOffer = selectedOffersByJobId.get(metadata.jobId) ?? null;
     const requestDefaults = requestByJobId.get(metadata.jobId) ?? {
       requestedServiceKinds: [],
       primaryServiceKind: null,
@@ -509,9 +525,6 @@ export async function fetchJobPartSummariesByOrganization(
         requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
         requestedByDate: requestDefaults.requestedByDate,
       }),
-      selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
-      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
 
@@ -584,7 +597,15 @@ export async function fetchJobPartSummariesByOrganization(
     });
   }
 
-  return Array.from(summariesByJobId.values());
+  return Array.from(summariesByJobId.values(), (summary) => {
+    const selectedOffer = selectedOffersByJobId.get(summary.jobId);
+    return {
+      ...summary,
+      selectedSupplier: selectedOffer?.supplier ?? null,
+      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
+      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
+    };
+  });
 }
 
 export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<JobPartSummary[]> {
@@ -622,7 +643,6 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const metadata of metadataRows) {
-    const selectedOffer = selectedOffersByJobId.get(metadata.jobId) ?? null;
     const requestDefaults = requestByJobId.get(metadata.jobId) ?? {
       requestedServiceKinds: [],
       primaryServiceKind: null,
@@ -640,9 +660,6 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
         requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
         requestedByDate: requestDefaults.requestedByDate,
       }),
-      selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
-      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
 
@@ -715,7 +732,15 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     });
   }
 
-  return Array.from(summariesByJobId.values());
+  return Array.from(summariesByJobId.values(), (summary) => {
+    const selectedOffer = selectedOffersByJobId.get(summary.jobId);
+    return {
+      ...summary,
+      selectedSupplier: selectedOffer?.supplier ?? null,
+      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
+      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
+    };
+  });
 }
 
 export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {

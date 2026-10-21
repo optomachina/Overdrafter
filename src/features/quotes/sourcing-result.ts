@@ -1,10 +1,14 @@
 import { addBusinessDays, format, isValid, parseISO, startOfDay } from "date-fns";
 import { scoreCapabilityMatch } from "@/features/quotes/scoring";
 import {
+  buildClientQuoteSelectionOptions,
+  buildVendorLabelMap,
+  getSelectedOption,
   resolveOfferFixedDeliveryDate,
   type ClientQuoteSelectionOption,
 } from "@/features/quotes/selection";
 import type {
+  ClientQuoteWorkspaceItem,
   PartAggregate,
   PublishedQuoteOptionRecord,
   VendorCapabilityProfileRecord,
@@ -293,6 +297,35 @@ export function buildClientQuoteComparisonOptions(input: {
   }
 
   return input.candidates.filter((candidate) => input.liveOfferKeys.has(candidate.key));
+}
+
+/** Review surfaces use the package choice and price once options are published. */
+export function resolveWorkspaceQuoteSelection(item: ClientQuoteWorkspaceItem) {
+  const requestedByDate = item.summary?.requestedByDate ?? item.job.requested_by_date ?? null;
+  const vendorQuotes = item.part?.vendorQuotes ?? [];
+  const candidates = buildClientQuoteSelectionOptions({
+    vendorQuotes,
+    requestedByDate,
+    vendorLabels: buildVendorLabelMap(vendorQuotes.map((quote) => quote.vendor)),
+  });
+  const publishedOptions = item.publishedQuoteOptions ?? [];
+  const options = buildClientQuoteComparisonOptions({
+    candidates,
+    liveOfferKeys: new Set(candidates.map((candidate) => candidate.key)),
+    publishedOptions,
+    requestedByDate,
+  });
+
+  return {
+    options,
+    selectedOption: getSelectedOption(
+      options,
+      publishedOptions.length > 0 || item.publishedQuoteSelection
+        ? null
+        : item.job.selected_vendor_quote_offer_id,
+      item.publishedQuoteSelection?.option_id,
+    ),
+  };
 }
 
 function isTrustedLiveAdapterOffer(offer: SourcingLiveOfferCandidate) {

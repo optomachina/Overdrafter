@@ -24,11 +24,9 @@ import {
   summarizeProcurementHandoff,
 } from "@/features/quotes/procurement-handoff";
 import {
-  buildClientQuoteSelectionOptions,
-  buildVendorLabelMap,
-  getSelectedOption,
   summarizeSelectedQuoteOptions,
 } from "@/features/quotes/selection";
+import { resolveWorkspaceQuoteSelection } from "@/features/quotes/sourcing-result";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -62,17 +60,7 @@ const ClientProjectReview = () => {
     const items = workspaceQuery.data ?? [];
 
     return items.map((item) => {
-      const vendorLabels = item.part
-        ? buildVendorLabelMap(item.part.vendorQuotes.map((quote) => quote.vendor))
-        : new Map();
-      const options = item.part
-        ? buildClientQuoteSelectionOptions({
-            vendorQuotes: item.part.vendorQuotes,
-            requestedByDate: item.summary?.requestedByDate ?? item.job.requested_by_date ?? null,
-            vendorLabels,
-          })
-        : [];
-      const selectedOption = getSelectedOption(options, item.job.selected_vendor_quote_offer_id);
+      const { options, selectedOption } = resolveWorkspaceQuoteSelection(item);
 
       return {
         item,

@@ -207,6 +207,47 @@ describe("client review pages", () => {
     ]);
   });
 
+  for (const scope of ["part", "project"] as const) {
+    for (const oldPointer of ["offer-1", null]) {
+      it(`${scope} review uses the published selection and marked-up price with legacy pointer ${oldPointer}`, async () => {
+        const [item] = await api.fetchClientQuoteWorkspaceByJobIds();
+        item.job.selected_vendor_quote_offer_id = oldPointer;
+        const quote = item.part.vendorQuotes[0];
+        item.part.vendorQuotes.push({ ...quote, id: "quote-2", vendor: "protolabs", offers: [{ ...quote.offers[0], id: "offer-2", vendor_quote_result_id: "quote-2", supplier: "P Supplier", total_price_usd: 125 }] });
+        item.publishedQuoteOptions = ["A", "B"].map((suffix, index) => ({
+          id: `option-${suffix}`, package_id: "package-1", requested_quantity: 10,
+          source_vendor_quote_offer_id: `offer-${index + 1}`, published_price_usd: index ? 150 : 100,
+          label: index ? "Fastest delivery" : "Lowest cost", lead_time_business_days: 7,
+          created_at: "2026-03-01T00:00:00Z",
+        }));
+        item.publishedQuoteSelection = { option_id: "option-B" };
+        api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+        renderWithClient(
+          <Routes><Route path={scope === "part" ? "/parts/:jobId/review" : "/projects/:projectId/review"} element={scope === "part" ? <ClientPartReview /> : <ClientProjectReview />} /></Routes>,
+          scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
+        );
+        expect(await screen.findByText("Protolabs")).toBeInTheDocument();
+        expect(screen.getAllByText(/\$150\.00/).length).toBeGreaterThan(0);
+        expect(screen.queryByText(/\$100\.00|\$125\.00/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/No current quote is selected|No quote selected/)).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /review handoff/i })).toBeEnabled();
+      });
+    }
+
+    it(`${scope} review does not treat a pre-publication pick as a package selection`, async () => {
+      const [item] = await api.fetchClientQuoteWorkspaceByJobIds();
+      item.publishedQuoteOptions = [{ id: "option-A", package_id: "package-1", source_vendor_quote_offer_id: "offer-1", requested_quantity: 10, published_price_usd: 150, lead_time_business_days: 7, created_at: "2026-03-01T00:00:00Z" }];
+      item.publishedQuoteSelection = null;
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+      renderWithClient(
+        <Routes><Route path={scope === "part" ? "/parts/:jobId/review" : "/projects/:projectId/review"} element={scope === "part" ? <ClientPartReview /> : <ClientProjectReview />} /></Routes>,
+        scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
+      );
+      expect((await screen.findAllByText(/No current quote is selected|No quote selected/)).length).toBeGreaterThan(0);
+      if (scope === "part") expect(screen.getByRole("button", { name: /review handoff/i })).toBeDisabled();
+    });
+  }
+
   it("renders the part review summary with structured procurement handoff state", async () => {
     renderWithClient(
       <Routes>

@@ -16,11 +16,7 @@ import {
   createDefaultProcurementHandoffState,
   summarizeProcurementHandoff,
 } from "@/features/quotes/procurement-handoff";
-import {
-  buildClientQuoteSelectionOptions,
-  buildVendorLabelMap,
-  getSelectedOption,
-} from "@/features/quotes/selection";
+import { resolveWorkspaceQuoteSelection } from "@/features/quotes/sourcing-result";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -48,14 +44,7 @@ const ClientPartReview = () => {
       return null;
     }
 
-    const vendorLabels = buildVendorLabelMap(workspaceItem.part.vendorQuotes.map((quote) => quote.vendor));
-    const options = buildClientQuoteSelectionOptions({
-      vendorQuotes: workspaceItem.part.vendorQuotes,
-      requestedByDate: workspaceItem.summary?.requestedByDate ?? workspaceItem.job.requested_by_date ?? null,
-      vendorLabels,
-    });
-
-    return getSelectedOption(options, workspaceItem.job.selected_vendor_quote_offer_id);
+    return resolveWorkspaceQuoteSelection(workspaceItem).selectedOption;
   }, [workspaceQuery.data]);
 
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);

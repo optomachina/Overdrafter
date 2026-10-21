@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,7 +48,8 @@ describe("published package selection eligibility", () => {
     await screen.findByText("Historical option");
     expect(screen.getByText("Current linked option")).toBeInTheDocument();
     expect(screen.getByText("Previous selection note")).toBeInTheDocument();
-    const [retired, linked] = screen.getAllByRole("button", { name: "Select this option" });
+    const retired = screen.getByRole("button", { name: "Selected" });
+    const linked = screen.getByRole("button", { name: "Select another option" });
     expect(retired).toBeDisabled();
     expect(linked).toBeEnabled();
     expect(retired).toHaveAccessibleDescription(/needs a refreshed quote/);
@@ -72,11 +73,32 @@ describe("published package selection eligibility", () => {
     expect(await screen.findByText("Historical option")).toBeInTheDocument();
     expect(screen.getByText("Published quote details")).toBeInTheDocument();
     expect(screen.getByText("Previous selection note")).toBeInTheDocument();
-    const button = screen.getByRole("button", { name: "Select this option" });
+    const button = screen.getByRole("button", { name: "Selected" });
     expect(button).toBeDisabled();
     expect(screen.getByText(/This option needs a refreshed quote before it can be selected/)).toBeInTheDocument();
     fireEvent.click(button);
     expect(mocks.selectQuoteOption).not.toHaveBeenCalled();
+  });
+
+  it("marks the chosen option, names its published price and quantity, and allows replacement", async () => {
+    const selected = fixture("offer-1");
+    selected.options.push({ ...selected.options[0], id: "option-2", label: "Fastest delivery", source_vendor_quote_offer_id: "offer-2", published_price_usd: 150 });
+    selected.selections[0].option_id = "option-2";
+    mocks.fetchClientPackage.mockResolvedValue(selected);
+    renderPackage();
+    const heading = await screen.findByRole("heading", { name: "Fastest delivery" });
+    const card = heading.closest(".border") as HTMLElement;
+    expect(card).toHaveClass("border-primary");
+    expect(within(card).getByText("Selected", { selector: "span" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Selected" })).toBeDisabled();
+    expect(within(card).getByRole("button")).toHaveAttribute("aria-pressed", "true");
+    const receipt = screen.getByText("Selection received").closest(".border") as HTMLElement;
+    expect(receipt).toHaveTextContent("Fastest delivery · $150.00 · Qty 10");
+    expect(within(receipt).getByText("Selection received")).toHaveClass("text-foreground");
+    const replacement = screen.getByRole("button", { name: "Select another option" });
+    expect(replacement).toBeEnabled();
+    fireEvent.click(replacement);
+    await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledWith({ packageId: "package-1", optionId: "option-1", note: "" }));
   });
 
   it("guards the mutation itself against missing sources and unknown option IDs", async () => {
@@ -90,7 +112,9 @@ describe("published package selection eligibility", () => {
   });
 
   it("keeps a linked legacy quote with null validity selectable", async () => {
-    mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
+    const unselected = fixture("offer-1");
+    unselected.selections = [];
+    mocks.fetchClientPackage.mockResolvedValue(unselected);
     renderPackage();
     await screen.findByText("Historical option");
     const button = screen.getByRole("button", { name: "Select this option" });
