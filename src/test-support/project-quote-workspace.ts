@@ -110,6 +110,9 @@ export async function expectOfflineQuoteOptionsRecovery(client: QueryClient, sce
   await waitFor(() => expect(client.getQueryCache().getAll().some(
     (query) => query.state.fetchStatus === "paused",
   )).toBe(true));
+  // Let React render the paused state; reading the DOM straight away can still see
+  // the earlier fetching render and pass even when paused queries are mishandled.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
   expect(await screen.findByText("Loading quote options…")).toBeInTheDocument();
   expect(screen.queryByText(/Choose a (quote|package option) to continue/)).not.toBeInTheDocument();
   if (scenario === "cold open") expect(api.fetchJobsByProject).not.toHaveBeenCalled();
