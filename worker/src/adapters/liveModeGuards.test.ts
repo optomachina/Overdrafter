@@ -171,14 +171,9 @@ describe("live-mode adapter guards", () => {
               },
             }),
           ),
-        ).resolves.toMatchObject({
-          status: "manual_vendor_followup",
-          rawPayload: {
-            operationalState: "manual_followup",
-            reasonCode: "process_confirmation_required",
-            customerLiveOfferEligible: false,
-          },
-        });
+        ).rejects.toThrow(
+          "OSH Cut portal automation is disabled until row-bound cart configuration exists (OVD-1022)",
+        );
         continue;
       }
 

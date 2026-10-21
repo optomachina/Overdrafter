@@ -20,6 +20,7 @@ import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerKillSwitch";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate";
 import {
   buildErrorRow,
+  formatRow,
   loadProviderPortalApproval,
   loadSendCutSendEvaluationManifest,
   parseQuantities,
@@ -39,6 +40,7 @@ vi.mock("./operatorKillSwitchGate", async (importOriginal) => ({
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
@@ -362,6 +364,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
   });
 
   it("accepts all runnable live evaluation vendors for batch validation", () => {
+    const notice = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const args = parseSmokeArgs([
       "--vendor",
       "all",
@@ -373,21 +376,15 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "6061-T6 aluminum",
       "--fabworks-geometry",
       "bent_sheet_3d",
-      "--oshcut-process",
-      "laser_cutting",
-      "--oshcut-material",
-      "aluminum_6061_t6",
-      "--oshcut-geometry",
-      "flat_sheet",
       "--sendcutsend-manifest",
       "./reviewed.json",
     ]);
 
+    expect(notice).toHaveBeenCalledWith(expect.stringMatching(/Skipping oshcut:.*disabled/));
     expect(args.vendors).toEqual([
       "xometry",
       "fictiv",
       "sendcutsend",
-      "oshcut",
       "fabworks",
       "ponoko",
       "quickparts",
@@ -410,15 +407,9 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "6061-T6 aluminum",
       "--fabworks-geometry",
       "bent_sheet_3d",
-      "--oshcut-process",
-      "laser_cutting",
-      "--oshcut-material",
-      "aluminum_6061_t6",
-      "--oshcut-geometry",
-      "flat_sheet",
     ]);
 
-    expect(args.vendors).toEqual(["oshcut", "fabworks"]);
+    expect(args.vendors).toEqual(["fabworks"]);
   });
 
   it("accepts Xometry and Fictiv for direct live evaluation", () => {
@@ -627,7 +618,7 @@ describe("runQuote", () => {
         cleanup: vi.fn(),
       },
       buildRegistry,
-    )).rejects.toThrow(/adapter invocation denied/i);
+    )).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
     expect(buildRegistry).not.toHaveBeenCalled();
     expect(quote).not.toHaveBeenCalled();
@@ -1032,6 +1023,96 @@ describe("runQuote", () => {
     expect(row.error).toContain("offer_price_unanchored");
   });
 
+  // Standing rule (2026-10-15): every run that uploaded a test part records
+  // whether the supplier cart was cleaned, without changing the row outcome.
+  describe("supplier cart cleanup record", () => {
+    const staged = () => ({
+      authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+      cadPath: "/private/staged/part.step",
+      drawingPath: null,
+      cleanup: vi.fn(),
+    });
+    const smokeArgs = () => parseSmokeArgs(["--vendor", "xometry", "--cad", "./part.step", "--confirm-non-export-controlled"]);
+
+    it("records the removal reported with a successful quote", async () => {
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
+      const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+        vendor: "xometry", status: "manual_vendor_followup", unitPriceUsd: null, totalPriceUsd: null,
+        leadTimeBusinessDays: null, quoteUrl: null, offers: [], dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { providerMutationPossible: true, cartCleanup: { status: "removed", removed: 1, remaining: 0, reason: null } },
+      });
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.status).toBe("manual_vendor_followup");
+      expect(row.supplierCartCleanup).toMatchObject({ status: "removed", manualRemovalRequired: false });
+    });
+
+    it("records the cleanup on a failure after upload and keeps the failure", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = new VendorAutomationError("price pending", "selector_failure", {
+        terminalState: "selector_drift", reason: "oshcut_price_pending", providerMutationPossible: true,
+        cartCleanup: { status: "removed", removed: 1, remaining: 0, reason: null },
+      });
+      const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.errorCode).toBe("selector_failure");
+      expect(row.supplierCartCleanup).toMatchObject({ status: "removed", manualRemovalRequired: false });
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("liveHarnessSupplierCleanup"));
+    });
+
+    it.each(["xometry", "fictiv"] as const)("warns before rethrowing a %s kill-switch interruption after upload", async (vendor) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+      vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote);
+      let engaged = false;
+      const killSwitchReader = vi.fn(async (provider: string) => ({
+        schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider, engaged, globalEngaged: false,
+      }));
+      const upload = vi.fn(async () => { engaged = true; });
+      const configure = vi.fn();
+      const quote = vi.fn<VendorAdapter["quote"]>(async (input) => {
+        await input.providerKillSwitchCheckpoint?.("before_upload");
+        await upload();
+        await input.providerKillSwitchCheckpoint?.("before_configure");
+        configure();
+        throw new Error("unreachable");
+      });
+      const args = parseSmokeArgs(["--vendor", vendor, "--cad", "./part.step", "--confirm-non-export-controlled"]);
+
+      await expect(runQuote(
+        { workerTempDir: "/private/runtime" } as WorkerConfig, args, vendor, 1, staged(),
+        () => ({ [vendor]: { quote } }), null, null, killSwitchReader,
+      )).rejects.toMatchObject({
+        reasonCode: "provider_kill_switch_engaged", provider: vendor, checkpoint: "before_configure",
+      });
+      expect(upload).toHaveBeenCalledOnce();
+      expect(configure).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledOnce();
+      expect(JSON.parse(warn.mock.calls[0][0])).toMatchObject({
+        source: "liveHarnessSupplierCleanup", vendor, quantity: 1,
+        status: "unknown", manualRemovalRequired: true,
+        action: `Review the ${vendor} cart/quote manually and remove any uploaded test part.`,
+      });
+    });
+
+    it("warns for manual removal when the cleanup failed, without changing the outcome", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = new VendorAutomationError("price pending", "selector_failure", {
+        terminalState: "selector_drift", reason: "oshcut_price_pending", providerMutationPossible: true,
+        cartCleanup: { status: "failed", removed: 0, remaining: null, reason: "CleanupTimeout" },
+      });
+      const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.errorCode).toBe("selector_failure");
+      expect(row.errorPayload).toMatchObject({ reason: "oshcut_price_pending" });
+      expect(row.supplierCartCleanup).toMatchObject({ status: "failed", manualRemovalRequired: true });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("\"source\":\"liveHarnessSupplierCleanup\""));
+      expect(formatRow(row)).toMatch(/ERROR selector_failure .* \| SUPPLIER CART CLEANUP NEEDED \(failed\)/);
+    });
+  });
+
   it("redacts relative runtime roots from failures and artifacts through runQuote", async () => {
     const runtimeRoot = "relative runtime";
     const relativeArtifactPath = path.join(runtimeRoot, "evidence/failure.html");
@@ -1234,6 +1315,47 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("skips OSH Cut in a programmatic batch before approval validation and runs Quickparts", async () => {
+    const fixture = await providerApprovalFixture();
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file", fixture.approvalPath,
+      "--approval-file-sha256", fixture.approvalSha256,
+      "--confirm-non-export-controlled",
+    ]);
+    args.vendors.unshift("oshcut");
+    const notice = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "quickparts", status: "submitted", totalPriceUsd: null,
+      unitPriceUsd: null, leadTimeBusinessDays: null, quoteUrl: null,
+      rawPayload: { providerMutationPossible: false }, artifacts: [],
+    });
+    const makeVendorConfig = vi.fn(() => ({} as WorkerConfig));
+    const cleanup = vi.fn();
+    const rows = await runEvaluationBatch(args, {
+      buildRegistry: () => ({ quickparts: { quote } }),
+      makeVendorConfig,
+      prepareConfig: async (config) => config,
+      stageFiles: async () => ({
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step", drawingPath: null, cleanup,
+      }),
+    });
+    expect(rows).toMatchObject([{ vendor: "quickparts", status: "submitted", error: null }]);
+    expect(quote).toHaveBeenCalledOnce();
+    expect(makeVendorConfig).toHaveBeenCalledOnce();
+    expect(makeVendorConfig).toHaveBeenCalledWith("quickparts", expect.any(String));
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(args.vendors).toEqual(["oshcut", "quickparts"]);
+    expect(notice).toHaveBeenCalledWith(expect.stringMatching(/Skipping oshcut:.*disabled/));
+  });
+
+  it("parses a mixed CLI batch without requiring disabled-provider metadata", () => {
+    expect(parseSmokeArgs([
+      "--vendor", "oshcut,quickparts,weerg", "--cad", "./part.step",
+    ]).vendors).toEqual(["quickparts", "weerg"]);
+  });
+
   it("refuses on the kill switch before staging, config, or registry construction", async () => {
     const args = parseSmokeArgs([
       "--vendor", "fictiv", "--cad", "./part.step",
@@ -1620,7 +1742,7 @@ describe("runEvaluationBatch", () => {
       }, {
         stageFiles,
         buildRegistry,
-      })).rejects.toThrow(/quantity|quantities/i);
+      })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
       expect(stageFiles).not.toHaveBeenCalled();
       expect(buildRegistry).not.toHaveBeenCalled();
@@ -1649,12 +1771,12 @@ describe("runEvaluationBatch", () => {
     }, {
       buildRegistry: () => ({ oshcut: { quote } }),
       makeVendorConfig: () => ({} as WorkerConfig),
-    })).rejects.toThrow(/adapter invocation denied/i);
+    })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
     expect(quote).not.toHaveBeenCalled();
   });
 
-  it("passes explicit exact OSH Cut metadata to the adapter input", async () => {
+  it("refuses even explicitly approved OSH Cut metadata before invoking the adapter", async () => {
     const approval = await providerApprovalFixture({
       providerKey: "oshcut",
       allowedOrigins: ["https://app.oshcut.com", "https://www.oshcut.com"],
@@ -1687,34 +1809,16 @@ describe("runEvaluationBatch", () => {
       artifacts: [],
     });
 
-    const rows = await runEvaluationBatch(args, {
+    const stageFiles = vi.fn();
+    const makeVendorConfig = vi.fn();
+    await expect(runEvaluationBatch(args, {
       buildRegistry: () => ({ oshcut: { quote } }),
-      makeVendorConfig: () => ({} as WorkerConfig),
-      prepareConfig: async (config) => config,
-      stageFiles: async () => ({
-        authorization: {
-          nonExportControlled: true,
-          cadFileSha256: "a".repeat(64),
-          drawingFileSha256: null,
-        },
-        cadPath: "/private/staged/cad.step",
-        drawingPath: null,
-        cleanup: vi.fn(),
-      }),
-    });
-
-    expect(rows).toHaveLength(1);
-    expect(quote).toHaveBeenCalledOnce();
-    expect(quote).toHaveBeenCalledWith(expect.objectContaining({
-      executionContext: "live_evaluation",
-      requirement: expect.objectContaining({
-        material: "Aluminum 6061-T6",
-        spec_snapshot: {
-          process: "laser_cutting",
-          geometryFamily: "flat_sheet",
-        },
-      }),
-    }));
+      makeVendorConfig,
+      stageFiles,
+    })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
+    expect(quote).not.toHaveBeenCalled();
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
   });
 
   it("stages once and reuses the same captured files for every vendor and quantity", async () => {

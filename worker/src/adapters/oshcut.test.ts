@@ -15,13 +15,18 @@ import type {
   VendorQuoteAdapterOutput,
   WorkerConfig,
 } from "../types";
+import { oshcutDispatchAuthorization, oshcutDispatchEnvelope } from "../../test-support/oshcutDispatchFixture";
 import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
+import { OSHCUT_PORTAL_DISABLED_MESSAGE } from "./oshcutPortalDisabled";
 import {
   assessOshcutEligibility,
   OSHCUT_ENVELOPE_REVISION,
   OSHCUT_PROVIDER_ENVELOPE,
+  buildOshcutEvaluationDefinition,
+  resolveOshcutThicknessLabel,
   OshcutAdapter,
 } from "./oshcut";
+import { cleanupOshcutCart } from "./oshcutCartCleanup";
 
 function makeConfig(overrides: Partial<WorkerConfig> = {}) {
   return {
@@ -80,6 +85,7 @@ function makeInput(
       spec_snapshot: {
         process: "Laser Cutting",
         geometryFamily: "flat_sheet",
+        sheetThicknessInch: 0.125,
       },
     },
     ...overrides,
@@ -95,7 +101,19 @@ function makeAdapter(
     throw new Error("Expected the registered OSH Cut workflow.");
   }
 
-  return new OshcutAdapter(config, workflow, { quote: delegateQuote });
+  // One spy stands in for both delegates, so "not called" covers either path.
+  return new OshcutAdapter(config, workflow, { quote: delegateQuote }, { quote: delegateQuote });
+}
+
+const CAD_SHA = "a".repeat(64);
+
+/** A package bound to a synthetic OSH Cut dispatch authorization for its staged digest and quantity. */
+function authorizedProductionInput(): VendorQuoteAdapterInput {
+  const envelope = oshcutDispatchEnvelope({ cadSha256: CAD_SHA, requestedQuantity: 25 });
+  return makeInput({
+    executionContext: "production_dispatch",
+    providerDispatchAuthorization: oshcutDispatchAuthorization(envelope),
+  });
 }
 
 async function withAuthorizedEvaluation<T>(
@@ -175,7 +193,7 @@ describe("OSH Cut provider envelope", () => {
         productionAdmissionRequired: true,
         actionTimeDisclosurePermitRequired: true,
         immediatePreflightRequired: true,
-        currentProductionState: "unavailable_pending_provider_neutral_preflight",
+        currentProductionState: "default_off_pending_admission",
       },
       guarantees: {
         quoteOnly: true,
@@ -198,7 +216,7 @@ describe("OSH Cut provider envelope", () => {
     expect(assessOshcutEligibility(makeInput())).toEqual({
       state: "eligible",
       reasonCode: "static_envelope_match",
-      guidance: expect.stringContaining("production dispatch remains unavailable"),
+      guidance: expect.stringContaining("production dispatch still requires admission"),
       envelopeRevision: OSHCUT_ENVELOPE_REVISION,
     });
   });
@@ -326,211 +344,29 @@ describe("OSH Cut provider envelope", () => {
   );
 });
 
-describe("OshcutAdapter", () => {
-  it("returns unsupported guidance without invoking a provider delegate", async () => {
+describe("OshcutAdapter hard disable (OVD-1022)", () => {
+  it.each(["live", "simulate"] as const)("refuses production and evaluation in %s mode even with authorization", async (workerMode) => {
     const delegateQuote = vi.fn();
-    const adapter = makeAdapter(delegateQuote);
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode }));
+    await expect(adapter.quote(authorizedProductionInput())).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+    await withAuthorizedEvaluation(async (input) => {
+      await expect(adapter.quote(input)).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+    });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [0.125, '0.125"'],
+    [0.063, '0.063"'],
+    [0.5, '0.500"'],
+    [0.01, null],
+    [1.5, null],
+    [Number.NaN, null],
+  ])("maps a recorded thickness of %s inch to the reviewed filter label %s", (thickness, label) => {
     const input = makeInput({
-      requirement: {
-        ...makeInput().requirement,
-        spec_snapshot: { process: "CNC Milling", geometryFamily: "machined_solid" },
-      },
+      requirement: { ...makeInput().requirement, spec_snapshot: { sheetThicknessInch: thickness } },
     });
-
-    await expect(adapter.quote(input)).resolves.toMatchObject({
-      vendor: "oshcut",
-      status: "failed",
-      unitPriceUsd: null,
-      totalPriceUsd: null,
-      quoteUrl: null,
-      rawPayload: {
-        operationalState: "unsupported",
-        reasonCode: "cnc_milling_not_supported",
-        customerLiveOfferEligible: false,
-        quoteIntent: "quote_only",
-        orderAuthority: false,
-        checkoutAllowed: false,
-      },
-    });
-    expect(delegateQuote).not.toHaveBeenCalled();
-  });
-
-  it("returns a finite manual-follow-up state for incomplete requirements", async () => {
-    const delegateQuote = vi.fn();
-    const adapter = makeAdapter(delegateQuote);
-    const input = makeInput({
-      requirement: { ...makeInput().requirement, spec_snapshot: {} },
-    });
-
-    await expect(adapter.quote(input)).resolves.toMatchObject({
-      status: "manual_vendor_followup",
-      rawPayload: {
-        operationalState: "manual_followup",
-        reasonCode: "process_confirmation_required",
-      },
-    });
-    expect(delegateQuote).not.toHaveBeenCalled();
-  });
-
-  it.each(["simulate", "live"] as const)(
-    "keeps an eligible %s production-path package unavailable with zero disclosure",
-    async (workerMode) => {
-      const delegateQuote = vi.fn();
-      const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode }));
-
-      await expect(adapter.quote(makeInput())).resolves.toMatchObject({
-        status: "failed",
-        unitPriceUsd: null,
-        totalPriceUsd: null,
-        rawPayload: {
-          operationalState: "unavailable",
-          reasonCode: "provider_neutral_preflight_unavailable",
-          customerLiveOfferEligible: false,
-        },
-      });
-      expect(delegateQuote).not.toHaveBeenCalled();
-    },
-  );
-
-  it("keeps authorized evaluation manual-follow-up local and quote-only", async () => {
-    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
-      vendor: "oshcut",
-      status: "manual_review_pending",
-      unitPriceUsd: null,
-      totalPriceUsd: null,
-      leadTimeBusinessDays: 2,
-      quoteUrl: "https://app.oshcut.com/cart/evaluation-only",
-      dfmIssues: [],
-      notes: ["Provider review required."],
-      artifacts: [],
-      rawPayload: { source: "oshcut-live-adapter" },
-    }));
-    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
-
-    const output = await withAuthorizedEvaluation((input) => adapter.quote(input));
-
-    expect(output).toMatchObject({
-      status: "manual_vendor_followup",
-      unitPriceUsd: null,
-      totalPriceUsd: null,
-      leadTimeBusinessDays: null,
-      quoteUrl: null,
-      rawPayload: {
-        operationalState: "manual_followup",
-        reasonCode: "provider_manual_followup",
-        executionContext: "live_evaluation",
-        customerLiveOfferEligible: false,
-        quoteIntent: "quote_only",
-        orderAuthority: false,
-        checkoutAllowed: false,
-      },
-    });
-    expect(output.offers).toBeUndefined();
-    expect(delegateQuote).toHaveBeenCalledOnce();
-  });
-
-  it("rejects a forged evaluation context before invoking the delegate", async () => {
-    const delegateQuote = vi.fn();
-    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
-
-    await expect(
-      adapter.quote(makeInput({ executionContext: "live_evaluation" })),
-    ).resolves.toMatchObject({
-      status: "failed",
-      rawPayload: {
-        operationalState: "unavailable",
-        reasonCode: "evaluation_file_authorization_missing",
-      },
-    });
-    expect(delegateQuote).not.toHaveBeenCalled();
-  });
-
-  it("does not let another provider session or a missing exact approval authorize OSH Cut evaluation", async () => {
-    const workflow = getExtendedVendorWorkflow("oshcut");
-    if (!workflow) {
-      throw new Error("Expected the registered OSH Cut workflow.");
-    }
-    const adapter = new OshcutAdapter(
-      makeConfig({
-        workerMode: "live",
-        vendorStorageStateJson: { fictiv: "{}" },
-        vendorStorageStatePaths: {},
-        vendorStorageStateDir: null,
-      }),
-      workflow,
-    );
-
-    await expect(
-      withAuthorizedEvaluation((input) => adapter.quote(input)),
-    ).rejects.toMatchObject({
-      code: "unexpected_ui_state",
-      payload: {
-        vendor: "oshcut",
-        reason: "exact_provider_approval_mismatch",
-        providerInteractionAttempted: false,
-      },
-    });
-  });
-
-  it("normalizes authorized evaluation pricing to a finite non-offer result", async () => {
-    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
-      vendor: "oshcut",
-      status: "instant_quote_received",
-      unitPriceUsd: 12,
-      totalPriceUsd: 24,
-      leadTimeBusinessDays: 3,
-      quoteUrl: "https://app.oshcut.com/cart/evaluation-only",
-      dfmIssues: [],
-      notes: [],
-      artifacts: [],
-      offers: [
-        {
-          providerOptionId: "evaluation-option",
-          providerLabel: "Evaluation option",
-          quoteRef: "OSH-EVAL",
-          quoteUrl: "https://app.oshcut.com/cart/evaluation-only",
-          unitPriceUsd: 12,
-          totalPriceUsd: 24,
-          leadTimeBusinessDays: 3,
-          shipReceiveBy: null,
-          tier: "standard",
-          sourcing: null,
-          geographicOrigin: "unknown",
-          sortRank: 0,
-          provenance: {
-            containerSelector: "[data-evaluation-option]",
-            providerOptionIdSource: "attribute",
-            priceSource: "selector",
-            leadTimeSource: "selector",
-            geographicOriginSource: "none",
-          },
-          rawPayload: {},
-        },
-      ],
-      rawPayload: {
-        source: "oshcut-live-adapter",
-        fixture: "normalized-success",
-      },
-    }));
-    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
-
-    const output = await withAuthorizedEvaluation((input) => adapter.quote(input));
-
-    expect(output).toMatchObject({
-      status: "failed",
-      unitPriceUsd: null,
-      totalPriceUsd: null,
-      leadTimeBusinessDays: null,
-      quoteUrl: null,
-      rawPayload: {
-        fixture: "normalized-success",
-        operationalState: "unavailable",
-        reasonCode: "evaluation_result_not_customer_live_offer",
-        customerLiveOfferEligible: false,
-      },
-    });
-    expect(output.offers).toBeUndefined();
-    expect(output.rawPayload.operationalState).not.toBe("live_offer");
+    expect(resolveOshcutThicknessLabel(input)).toBe(label);
   });
 
   it("is denied by the immediate production preflight before any adapter call", async () => {
@@ -552,5 +388,15 @@ describe("OshcutAdapter", () => {
       reasonCode: "dispatch_live_provider_not_permitted",
     });
     expect(adapterQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("OSH Cut live-harness evaluation definition (standing cleanup rule)", () => {
+  it("reports cart candidates after capture without removal controls", () => {
+    const definition = buildOshcutEvaluationDefinition(getExtendedVendorWorkflow("oshcut")!);
+    expect(definition.hooks.cleanup).toBe(cleanupOshcutCart);
+    expect(Object.keys(definition.selectors.cleanup ?? {})).toEqual(["partRow"]);
+    expect(definition.selectors.cleanup?.partRow.reportOnly).toBe(true);
+    expect(definition.routes.uploadUrl).toBe("https://app.oshcut.com/cart");
   });
 });

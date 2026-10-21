@@ -528,7 +528,7 @@ describe("reviewed envelope completeness", () => {
 
     expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     expect(gaps).toEqual([]);
-    expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "quickparts", "weerg"]));
+    expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "oshcut", "quickparts", "weerg"]));
   });
 
   it("keeps the Fictiv exception because the adopted real tests omit two registrar refusals", { timeout: 180_000 }, async () => {

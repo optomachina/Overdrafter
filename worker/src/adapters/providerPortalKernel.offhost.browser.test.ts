@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser } from "playwright";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import {
@@ -22,14 +22,19 @@ import {
   type ProviderPortalReadCapability,
 } from "./providerPortalKernel";
 
+import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
+import { buildOshcutEvaluationDefinition } from "./oshcut";
+import { OSHCUT_PORTAL_DISABLED_MESSAGE } from "./oshcutPortalDisabled";
+import { buildOshcutProductionPortalDefinition } from "./oshcutProductionPortal";
+
 /**
- * OVD-773: a fixture replay of an OSH Cut-like page. Real provider pages load
+ * OVD-773: a generic telemetry page under an enabled Quickparts fixture. Provider pages load
  * fonts, analytics, a RUM agent, and post a Datadog CSP report; the kernel must
  * block all of it quietly and still finish. Pages are served from a local
  * static fixture through the kernel's own route; nothing reaches the network.
  */
 const FIXTURE_PAGE = fileURLToPath(new URL("../../test-support/fixtures/oshcut-telemetry-portal.html", import.meta.url));
-const CAD_BYTES = "synthetic oshcut cad bytes for the off-host fixture";
+const CAD_BYTES = "synthetic quickparts cad bytes for the off-host fixture";
 
 async function anchoredNumber(reader: ProviderPortalReadCapability, selector: string): Promise<number | null> {
   const text = await reader.readText(selector);
@@ -37,20 +42,21 @@ async function anchoredNumber(reader: ProviderPortalReadCapability, selector: st
   return text && Number.isFinite(value) ? value : null;
 }
 
-function oshcutLikeDefinition(): ProviderPortalDefinition {
+function quickpartsFixtureDefinition(): ProviderPortalDefinition {
   return {
-    provider: "oshcut",
-    displayName: "OSH Cut",
-    manifestRevision: "oshcut-manifest.fixture",
-    envelopeRevision: "oshcut-envelope.fixture",
-    adapterRevision: "oshcut-offhost-fixture.v1",
+    provider: "quickparts",
+    displayName: "Quickparts fixture",
+    manifestRevision: "quickparts-manifest.fixture",
+    envelopeRevision: "quickparts-envelope.fixture",
+    adapterRevision: "quickparts-offhost-fixture.v1",
     accountMode: "company_controlled",
     routes: {
-      publicUrl: "https://www.oshcut.com/",
-      loginUrl: "https://app.oshcut.com/login",
-      uploadUrl: "https://app.oshcut.com/",
+      publicUrl: "https://quickparts.com/",
+      loginUrl: "https://quickquote.quickparts.com/login",
+      uploadUrl: "https://quickquote.quickparts.com/",
     },
-    allowedHosts: ["www.oshcut.com", "app.oshcut.com"],
+    offHostAllowlist: [],
+    allowedHosts: ["quickparts.com", "quickquote.quickparts.com"],
     selectors: { cadUpload: "input[type='file']", quantity: "input[name='quantity']" },
     supportedFileExtensions: ["step"],
     terminalSignals: {
@@ -111,7 +117,7 @@ describe("provider portal kernel off-host boundary in a browser fixture (OVD-773
   });
 
   async function approvedInput(definition: ProviderPortalDefinition): Promise<VendorQuoteAdapterInput> {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oshcut-offhost-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "portal-offhost-"));
     tempDirs.push(dir);
     const cadPath = path.join(dir, "part.step");
     await fs.writeFile(cadPath, CAD_BYTES);
@@ -141,18 +147,18 @@ describe("provider portal kernel off-host boundary in a browser fixture (OVD-773
       playwrightHeadless: true,
       playwrightDisableSandbox: false,
       playwrightDisableDevShmUsage: false,
-      vendorStorageStateJson: { oshcut: JSON.stringify({ cookies: [], origins: [] }) },
+      vendorStorageStateJson: { quickparts: JSON.stringify({ cookies: [], origins: [] }) },
       vendorStorageStatePaths: {},
       vendorStorageStateDir: null,
     } as unknown as WorkerConfig;
   }
 
   it("blocks the Datadog CSP report, analytics, and fonts, records them, and completes", async () => {
-    const definition = oshcutLikeDefinition();
+    const definition = quickpartsFixtureDefinition();
     const observed: LocalPortalObserved = { requests: [], uploads: [] };
     const page = await fs.readFile(FIXTURE_PAGE, "utf8");
     const result = await runProviderPortalKernel(definition, config(), await approvedInput(definition), {
-      launchBrowser: async () => createLocalPortalBrowser(browser, { pages: { "app.oshcut.com/": page } }, observed),
+      launchBrowser: async () => createLocalPortalBrowser(browser, { pages: { "quickquote.quickparts.com/": page } }, observed),
       captureEvidence: async () => [],
     });
 
@@ -177,14 +183,14 @@ describe("provider portal kernel off-host boundary in a browser fixture (OVD-773
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("still stops when the page navigates the main frame off the provider host", async () => {
-    const definition = oshcutLikeDefinition();
+    const definition = quickpartsFixtureDefinition();
     const observed: LocalPortalObserved = { requests: [], uploads: [] };
     const uploadLine = "await fetch(\"/api/upload\", { method: \"POST\", body: cad.files[0] });";
     const original = await fs.readFile(FIXTURE_PAGE, "utf8");
     expect(original).toContain(uploadLine);
     const page = original.replace(uploadLine, "location.assign(\"https://login.example-sso.com/authorize\"); return;");
     await expect(runProviderPortalKernel(definition, config(), await approvedInput(definition), {
-      launchBrowser: async () => createLocalPortalBrowser(browser, { pages: { "app.oshcut.com/": page } }, observed),
+      launchBrowser: async () => createLocalPortalBrowser(browser, { pages: { "quickquote.quickparts.com/": page } }, observed),
       captureEvidence: async () => [],
     })).rejects.toMatchObject({
       payload: { terminalState: "unexpected_origin", reason: "unexpected_navigation:login.example-sso.com" },
@@ -192,4 +198,24 @@ describe("provider portal kernel off-host boundary in a browser fixture (OVD-773
     expect(observed.requests).toContain("GET https://login.example-sso.com/authorize");
     expect(observed.uploads).toEqual([]);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+// OVD-1022: the former portal replay must not launch even a fixture browser.
+describe("OSH Cut off-host fixture refusal before browser launch", () => {
+  it.each(["production_dispatch", "live_evaluation"] as const)("refuses %s without page or session access", async (executionContext) => {
+    const launch = vi.spyOn(chromium, "launch");
+    const launchBrowser = vi.fn();
+    const access = vi.fn(() => { throw new Error("Unexpected session access"); });
+    const config = new Proxy({}, { get: access }) as WorkerConfig;
+    const definitions = [buildOshcutProductionPortalDefinition(), buildOshcutEvaluationDefinition(getExtendedVendorWorkflow("oshcut")!)];
+    for (const definition of definitions) {
+      await expect(runProviderPortalKernel(definition, config, { executionContext } as VendorQuoteAdapterInput, { launchBrowser }))
+        .rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+    }
+    expect(access).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+    expect(launchBrowser).not.toHaveBeenCalled();
+  });
 });
