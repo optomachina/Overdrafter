@@ -1711,7 +1711,11 @@ async function openProviderPortalSession(
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     const page = await context.newPage();
-    if (definition.hooks.cleanup) await trackCleanupShadowRoots(page);
+    // Only a cleanup that can click needs shadow-root evidence; report-only rules never click, so their pages stay unpatched.
+    const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
+    if (definition.hooks.cleanup && (cleanupRules.length === 0 || cleanupRules.some((rule) => !rule.reportOnly))) {
+      await trackCleanupShadowRoots(page);
+    }
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,

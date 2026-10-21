@@ -12,7 +12,8 @@ import { buildQuickpartsProductionPortalDefinition, QUICKPARTS_PRODUCTION_LOCATO
 // The production Quickparts definition itself still has no cleanup hook.
 let cleanupRow = ".row";
 let uploadedRows = false;
-beforeEach(() => { cleanupRow = ".row"; uploadedRows = false; });
+let reportOnly = false;
+beforeEach(() => { cleanupRow = ".row"; uploadedRows = false; reportOnly = false; });
 const session = createLocalPortalBrowserSession({
   vendor: "quickparts",
   host: "quickquote.quickparts.com",
@@ -26,8 +27,9 @@ const session = createLocalPortalBrowserSession({
     return {
       ...definition,
       selectors: { ...definition.selectors, cleanupRow, cleanupRowFileName: ":scope > .fname",
-        cleanup: { removePart: { selector: ":scope > button.remove", scope: ".row", uploadedRows } } },
+        cleanup: { removePart: { selector: ":scope > button.remove", scope: ".row", uploadedRows, reportOnly } } },
       hooks: { ...definition.hooks, cleanup: async (cleanup) => {
+        if (reportOnly) return { removed: 0, remaining: 1 };
         await cleanup.click("removePart", "part.step");
         // Deliberately untrustworthy: DOM evidence must override these counts.
         return { removed: 1, remaining: 0 };
@@ -335,4 +337,21 @@ describe("row ownership and post-click evidence in Chromium (OVD-1022)", () => {
       status: "incomplete", removed: 0, reason: "manual_cleanup_required",
     });
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it.each([[true, "true"], [false, "false"]])("patches attachShadow only when cleanup can click (report-only: %s)", async (onlyReport, native) => {
+    reportOnly = onlyReport;
+    const html = localQuotePage({
+      title: "QuickQuote",
+      before: row("other.step"),
+      afterUpload: row("part.step") + session.optionCard({
+        id: "standard", label: "Standard", quantity: "3", unit: "10.00", total: "30.00", lead: "5",
+      }),
+      extraHead: `<script>
+        navigator.sendBeacon('/native?shadow=' + /\\[native code\\]/.test(Element.prototype.attachShadow.toString()));
+      </script>`,
+    });
+    const { observed } = await session.quoteAgainst(html);
+    expect(observed.requests.filter((request) => request.includes(`/native?shadow=${native}`)).length).toBeGreaterThan(0);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 });
+
