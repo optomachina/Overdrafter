@@ -371,6 +371,10 @@ function isCurrentLiveOffer(
   );
 }
 
+function isPlaceholderMaterial(material: string | null): boolean {
+  return material?.trim().toLowerCase() === "unknown material";
+}
+
 function resolveSupportedRequirement(
   part: PartAggregate | null,
 ): SupportedRequirement | Exclude<ClientSourcingResult, { outcome: "live_offers_available" | "provider_recommendations_available" }> {
@@ -400,7 +404,24 @@ function resolveSupportedRequirement(
     null;
   const normalizedMaterial = normalizeMaterial(material);
 
-  if (!material?.trim()) {
+  if (!material?.trim() || isPlaceholderMaterial(material)) {
+    const extraction = part.clientExtraction;
+    // STEP-only uploads have no drawing to extract. Older metadata RPCs also
+    // default their lifecycle to uploaded, so do not make those parts wait.
+    if (
+      extraction?.lifecycle === "queued" ||
+      extraction?.lifecycle === "extracting" ||
+      (extraction?.lifecycle === "uploaded" && extraction.hasDrawingFile)
+    ) {
+      return {
+        outcome: "unsupported_package",
+        reason: "part_not_ready",
+        title: "Requirements are still being prepared",
+        explanation: "The material is not known yet.",
+        nextAction: "Wait for extraction to finish, then review the part requirements.",
+      };
+    }
+
     return {
       outcome: "unsupported_package",
       reason: "material_unresolved",
