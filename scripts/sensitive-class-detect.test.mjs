@@ -1327,7 +1327,7 @@ describe("gate_loosening: the base copy judges", () => {
   it("a PR that edits the differ, the matcher, the config and the list is still judged by the base copies", async () => {
     const dir = tempDir("sensitive-class-base-");
     const base = path.join(dir, "base");
-    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH, SENSITIVE_PATHS_FILE]) {
+    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH, SENSITIVE_PATHS_FILE, "scripts/lib/entry-point.mjs"]) {
       mkdirSync(path.dirname(path.join(base, file)), { recursive: true });
       copyFileSync(path.join(repoRoot, file), path.join(base, file));
     }

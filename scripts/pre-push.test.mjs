@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync, openSync, closeSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 const root = resolve('.');
+// Every test here runs the real pre-push.sh in a fresh git fixture, which spawns bash, git and
+// two Node + TypeScript validator processes per run. That is about 2 s of work per test without extra
+// load, but it took up to about 10 s and hit the 5 s vitest default on loaded runners, so allow
+// headroom rather than weakening any assertion (OVD-1021).
+vi.setConfig({ testTimeout: 30_000 });
 const dirs = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 function fixture() {
@@ -55,9 +60,14 @@ test.each(['body file missing', 'origin/main missing', 'merge-base unreachable',
 });
 test('all stages run and remaining checks report after failure; verdict must be valid and match HEAD', () => {
   const { dir, git, run } = fixture();
-  const value = { schema: 'overdrafter.verdict/v1', role: 'verifier', verdict: 'PASS', sha: git('rev-parse', 'HEAD'), patch_id: 'a'.repeat(40), diff_id: 'b'.repeat(64), verifier: { id: 'fixture', model_family: 'codex', github_login: 'fixture' }, evidence: [{ kind: 'test', url: 'https://example.com/test' }], notes: [], readiness: { conflicts: 0, open_threads: 0, checks: 'green' }, timestamp: '2026-01-01T00:00:00Z' };
+  const value = { schema: 'overdrafter.verdict/v1', role: 'verifier', verdict: 'PASS', sha: git('rev-parse', 'HEAD'), patch_id: 'a'.repeat(40), diff_id: 'b'.repeat(64), verifier: { id: 'fixture', model_family: 'codex', github_login: 'fixture' }, evidence: [{ kind: 'verify-run', url: 'https://example.com/test' }], notes: [], readiness: { conflicts: 0, open_threads: 0, checks: 'green' }, timestamp: '2026-01-01T00:00:00Z' };
   const save = () => writeFileSync(join(dir, 'verdict.md'), '```overdrafter-verdict\n' + JSON.stringify(value) + '\n```');
-  save(); const valid = run('--body', 'body.md', '--verdict', 'verdict.md'); expect(valid.status, valid.stderr).toBe(0);
+  save(); const valid = run('--body', 'body.md', '--verdict', 'verdict.md'); expect(valid.status, valid.stdout + valid.stderr).toBe(0);
+  // A PASS needs an https ci-run or verify-run (verdict-schema ruling 6); pre-push inherits that rule.
+  value.evidence = [{ kind: 'test', url: 'https://example.com/test' }]; save();
+  const testOnly = run('--body', 'body.md', '--verdict', 'verdict.md');
+  expect(testOnly.status).toBe(1); expect(testOnly.stdout).toContain('pre-push: verdict FAIL');
+  value.evidence = [{ kind: 'verify-run', url: 'https://example.com/test' }];
   value.sha = 'c'.repeat(40); save();
   writeFileSync(join(dir, 'bin/npm'), '#!/bin/sh\necho "stage $3"\nexit 1\n', { mode: 0o755 });
   const result = run('--body', 'body.md', '--verdict', 'verdict.md');
