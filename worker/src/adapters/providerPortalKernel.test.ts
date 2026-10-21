@@ -8,7 +8,7 @@ import { buildOshcutProductionPortalDefinition, OSHCUT_PRODUCTION_LOCATORS } fro
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Browser, BrowserContext, ElementHandle, Locator, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, ElementHandle, Locator, Page } from "playwright";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { supplierCartCleanupFromPayload } from "../tools/liveHarnessSupplierCleanup";
@@ -322,6 +322,7 @@ function fakeBrowser(options: {
   (uploadLocator.locator as ReturnType<typeof vi.fn>).mockImplementation(() => uploadLocator);
   const mainFrame = { url: vi.fn(() => currentUrl) };
   const page = {
+    addInitScript: vi.fn(async () => undefined),
     goto: vi.fn(async (url: string) => {
       currentUrl = options.redirectedUrl ?? url;
       return null;
@@ -348,6 +349,7 @@ function fakeBrowser(options: {
     close: vi.fn(async () => undefined),
   } as unknown as Page;
   const context = {
+    newCDPSession: vi.fn(async () => ({ send: async () => ({ root: {} }), detach: async () => undefined })),
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     newPage: vi.fn(async () => page),
@@ -1787,7 +1789,7 @@ describe("provider portal post-capture cleanup", () => {
 
   // Real DOM identity and selectors; no filename-filtering count stub.
   function cartFixture(names: string[]) {
-    const dom = new JSDOM("<main></main>");
+    const dom = new JSDOM("<main></main>", { runScripts: "outside-only" });
     const cart = dom.window.document.querySelector("main")!;
     const removeClicks = vi.fn();
     let modalOpen = false;
@@ -1854,6 +1856,10 @@ describe("provider portal post-capture cleanup", () => {
       locator: (selector: string) => locate(() => read().flatMap((node) => [...node.querySelectorAll(selector)])),
     }) as unknown as Locator;
     return { cart, append, locator, removeClicks,
+      runInitScript: (script: unknown) => {
+        if (typeof script !== "function") throw new Error("Expected an init function");
+        dom.window.eval(`(${script.toString()})()`);
+      },
       locate: (selector: string) => locate(() => [...cart.querySelectorAll(selector)]),
       onClick: (fn: (node: Element) => Promise<void>) => { afterClick = fn; },
       onFileNameRead: (fn: (node: Element) => void) => { afterFileNameRead = fn; },
@@ -1864,6 +1870,7 @@ describe("provider portal post-capture cleanup", () => {
   function confirmationFixture() {
     const fake = fakeBrowser();
     const cart = cartFixture([]);
+    vi.mocked(fake.page.addInitScript).mockImplementation(async (script) => { cart.runInitScript(script); });
     const selected = cart.append("part.step", false);
     const other = cart.append("customer-part.step", false);
     for (const row of [selected, other]) {
@@ -2150,6 +2157,7 @@ describe("provider portal post-capture cleanup", () => {
     expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
     expect(fixture.selected.isConnected).toBe(true);
     expect(fixture.other.isConnected).toBe(true);
+    expect(fixture.fake.context.newCDPSession).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -2183,6 +2191,114 @@ describe("provider portal post-capture cleanup", () => {
     expect(result.cartCleanup).toMatchObject(accepted ? { status: "removed" }
       : { status: "incomplete", reason: "manual_cleanup_required" });
     expect(fixture.other.isConnected).toBe(true);
+  });
+
+  it.each(["open", "closed"] as const)("refuses cleanup of a row containing a %s shadow host", async (mode) => {
+    const fixture = confirmationFixture();
+    const result = await fixture.run(async (cleanup) => {
+      await cleanup.click("confirmRemove", "part.step");
+      return { removed: 1, remaining: 0 };
+    }, true, undefined, {}, { extractOffers: async () => {
+      const host = fixture.selected.appendChild(fixture.selected.ownerDocument.createElement("div"));
+      host.attachShadow({ mode }).append(fixture.other);
+      return [candidate()];
+    } });
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
+    expect(fixture.selected.isConnected).toBe(true);
+    expect(fixture.other.isConnected).toBe(true);
+  });
+
+  it("refuses cleanup when the owned row is inside a customer row", async () => {
+    const fixture = confirmationFixture();
+    const result = await fixture.run(async (cleanup) => {
+      fixture.other.append(fixture.selected);
+      await cleanup.click("confirmRemove", "part.step");
+      return { removed: 1, remaining: 0 };
+    }, true, undefined, { cleanupRowFileName: ":scope > .cartInformationArea",
+      cleanup: { confirmRemove: { selector: "button.confirm", scope: ".row", uploadedRows: true } } });
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
+    expect(fixture.selected.isConnected).toBe(true);
+    expect(fixture.other.isConnected).toBe(true);
+  });
+
+  it("accepts only one native dialog per click, dismissing and reporting the extra", async () => {
+    const fixture = confirmationFixture();
+    const dialogs = [fixture.selected, fixture.other].map((row) => ({
+      type: () => "confirm", message: () => "Delete part.step?",
+      accept: vi.fn(async () => { row.remove(); }), dismiss: vi.fn(async () => undefined),
+    }));
+    fixture.cart.onClick(async () => {
+      fixture.cart.setModalOpen(true);
+      const handler = vi.mocked(fixture.fake.page.on).mock.calls.find(([event]) => event === "dialog")?.[1];
+      for (const dialog of dialogs) await handler?.(dialog);
+      fixture.cart.setModalOpen(false);
+    });
+    const result = await fixture.run(async (cleanup) => {
+      await cleanup.click("removePart", "part.step");
+      return { removed: 1, remaining: 0 };
+    });
+    expect(dialogs[0].accept).toHaveBeenCalledTimes(1);
+    expect(dialogs[1].accept).not.toHaveBeenCalled();
+    expect(dialogs[1].dismiss).toHaveBeenCalledTimes(1);
+    expect(fixture.other.isConnected).toBe(true);
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
+  });
+
+  it.each(["open", "closed", "unavailable", "creation failed", "detach failed", "user-agent"])("requires browser shadow visibility evidence: %s", async (evidence) => {
+    const fixture = confirmationFixture();
+    const detach = vi.fn(async () => {
+      if (evidence === "detach failed") throw new Error("Detach failed");
+    });
+    const send = vi.fn(async () => {
+      if (evidence === "unavailable") throw new Error("Protocol unavailable");
+      return { root: { children: [{ shadowRoots: [{ shadowRootType: evidence }] }] } };
+    });
+    vi.mocked(fixture.fake.context.newCDPSession).mockResolvedValue({
+      send, detach,
+    } as unknown as CDPSession);
+    if (evidence === "creation failed") {
+      vi.mocked(fixture.fake.context.newCDPSession).mockRejectedValue(new Error("CDP unsupported"));
+    }
+    const result = await fixture.run(async (cleanup) => {
+      await cleanup.click("confirmRemove", "part.step");
+      return { removed: 1, remaining: 0 };
+    });
+    expect(result.cartCleanup).toMatchObject(evidence === "user-agent" ? { status: "removed", removed: 1 }
+      : { status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
+    expect(fixture.selected.isConnected).toBe(evidence !== "user-agent");
+    expect(fixture.other.isConnected).toBe(true);
+    expect(fixture.fake.context.newCDPSession).toHaveBeenCalledTimes(1);
+    expect(detach).toHaveBeenCalledTimes(evidence === "creation failed" ? 0 : 1);
+    if (evidence !== "creation failed") {
+      expect(send).toHaveBeenCalledExactlyOnceWith("DOM.getDocument", { depth: -1, pierce: true });
+    }
+  });
+
+  it("does not open CDP for a report-only cleanup hook", async () => {
+    const fixture = confirmationFixture();
+    await fixture.run(async () => ({ removed: 0, remaining: 1 }));
+    expect(fixture.fake.context.newCDPSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["'", '"'])("does not interpret another row's literal %s quotes as prompt formatting", async (quote) => {
+    const fixture = confirmationFixture();
+    fixture.other.querySelector(".cartInformationArea")!.textContent = `${quote}part.step${quote}`;
+    const dialog = {
+      type: () => "confirm", message: () => `Delete ${quote}part.step${quote}?`,
+      accept: vi.fn(async () => { fixture.other.remove(); }), dismiss: vi.fn(async () => undefined),
+    };
+    fixture.cart.onClick(async () => {
+      const handler = vi.mocked(fixture.fake.page.on).mock.calls.find(([event]) => event === "dialog")?.[1];
+      await handler?.(dialog);
+    });
+    const result = await fixture.run(async (cleanup) => {
+      await cleanup.click("removePart", "part.step");
+      return { removed: 1, remaining: 0 };
+    }, true, undefined, { cleanup: { removePart: { selector: "button.remove", scope: ".row", uploadedRows: true } } });
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).toHaveBeenCalledTimes(1);
+    expect(fixture.other.isConnected).toBe(true);
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
   });
 
   it.each(["missing filename", "duplicate filename field", "no active click", "alert"])(

@@ -1,7 +1,7 @@
 import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { constants } from "node:fs";
 import { CleanupRowsUnproven, UploadedPortalRows } from "./providerPortalCleanupRows.js";
-import { CleanupConfirmationUnproven, CleanupRowConfirmation } from "./providerPortalCleanupConfirmation.js";
+import { CleanupConfirmationUnproven, CleanupRowConfirmation, trackCleanupShadowRoots, verifyCleanupShadowVisibility } from "./providerPortalCleanupConfirmation.js";
 import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
@@ -1554,8 +1554,8 @@ async function cleanUpProviderPortal(
       await dialog.accept();
     } catch (error) {
       stopped = true;
-      rejectDialog(error);
       await dialog.dismiss().catch(() => undefined);
+      rejectDialog(error);
     }
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1574,6 +1574,7 @@ async function cleanUpProviderPortal(
       definition.selectors.cleanupRow
         ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
       session.cleanupRows?.stagedFileName,
+      () => verifyCleanupShadowVisibility(session.context, session.page),
     );
     // A report-only hook must never accept an unrelated native confirmation.
     const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
@@ -1706,6 +1707,7 @@ async function openProviderPortalSession(
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     const page = await context.newPage();
+    if (definition.hooks.cleanup) await trackCleanupShadowRoots(page);
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,
