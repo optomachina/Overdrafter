@@ -13,6 +13,7 @@ import {
   FILES_NOT_ARRAY,
   SENSITIVE_PATHS_UNAVAILABLE,
   SCREEN_QUESTIONS,
+  classifyFallback,
   decisionRecord,
   deterministicTier,
   finalTier,
@@ -69,7 +70,8 @@ afterAll(() => {
 // Legacy classification/logging tests use explicit synthetic acquisition. The
 // authoritative transport and pre-PR boundaries are tested below with screen().
 async function fixtureScreen(prs, options) {
-  if (options.marker) return screen(prs, { files: () => acq(["README.md"]), ...options });
+  // Fallback WARNs are silenced by default; a test that wants them passes warn (undefined restores the stderr default).
+  if (options.marker) return screen(prs, { files: () => acq(["README.md"]), warn: () => {}, ...options });
   const fixtures = prs.map((pr, index) => ({ ...pr, pr: pr.pr ?? index + 1, sha: SHA }));
   return screen(fixtures, {
     files: (number) => {
@@ -78,6 +80,7 @@ async function fixtureScreen(prs, options) {
       return acq(paths);
     },
     marker: { headSha: async () => SHA, read: async () => ({ found: false }), write: async () => ({ success: true }) },
+    warn: () => {},
     ...options,
   });
 }
@@ -118,6 +121,112 @@ const labelOf = (value) => (typeof value === "number" || value === undefined ? S
 const SKIP = { skipSensitivePaths: true };
 
 describe("jev PR screen", () => {
+  it("classifies fallback sources without changing tiers", () => {
+    expect(classifyFallback({ ok: false, reason: "http_403" }, { status: "failed" })).toEqual({ source: "default_jev_blocked", reason: "http_403" });
+    expect(classifyFallback({ ok: false, reason: "timeout" }, { status: "failed" })).toEqual({ source: "jev_blocked", reason: "timeout" });
+    expect(classifyFallback({ ok: true }, { status: "uncertain", choice: "low", confidence: 0.2 })).toEqual({ source: "safe-default", reason: "uncertain" });
+    expect(classifyFallback({ ok: true }, { status: "failed", reason: "malformed_answer" })).toEqual({ source: "jev_used:false", reason: "malformed_answer" });
+    expect(classifyFallback({ ok: true }, { status: "accepted", choice: "low", confidence: 0.9 })).toEqual({ source: null, reason: null });
+  });
+
+  it("records latency_ms and fallback_reason on every decision row", () => {
+    const failed = decisionRecord({ pr: 1, sha: "a", deterministic: "low" }, { ok: false, reason: "timeout", latencyMs: 9 }, new Date(0), SKIP);
+    expect(failed).toMatchObject({ latency_ms: 9, fallback_reason: "timeout", fallback_source: "jev_blocked" });
+    expect(failed).not.toHaveProperty("latencyMs");
+    expect(failed.warning).toBe("WARN jev-fallback source=jev_blocked reason=timeout latencyMs=9");
+    const ok = decisionRecord(
+      { pr: 2, sha: "b", deterministic: "low" },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
+      new Date(0),
+      SKIP,
+    );
+    expect(ok).toMatchObject({ latency_ms: 5, fallback_reason: null, fallback_source: null, warning: null, final: "low" });
+  });
+
+  it("bounds a fallback reason to one sanitized token before it reaches the row or stderr", () => {
+    expect(classifyFallback({ ok: false, reason: "bad reason\nWARN forged" }, { status: "failed" })).toEqual({ source: "jev_blocked", reason: "bad_reason_WARN_forged" });
+    const record = decisionRecord({ pr: 1, sha: "a", deterministic: "low" }, { ok: false, reason: "x y\nz" }, new Date(0), SKIP);
+    expect(record.fallback_reason).toBe("x_y_z");
+    expect(record.warning).toBe("WARN jev-fallback source=jev_blocked reason=x_y_z latencyMs=null");
+  });
+
+  it("does not WARN for a cache hit that Jev answered confidently, and WARNs when a stricter floor rejects it", () => {
+    const sha = "a".repeat(40);
+    const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.9 }, incident: { type: "noul", noul: 0 } }, latencyMs: null };
+    const hit = decisionRecord({ pr: 1, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low" });
+    expect(hit).toMatchObject({ cache_hit: true, latency_ms: null, fallback_source: null, warning: null });
+    const stricter = decisionRecord({ pr: 1, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low", minConfidence: 0.99 });
+    expect(stricter).toMatchObject({ fallback_source: "safe-default", fallback_reason: "uncertain", latency_ms: null, final: "normal" });
+  });
+
+  it("emits WARN for each fallback source in screen and stays quiet on the normal path", async () => {
+    const lines = [];
+    const warnings = [];
+    const queue = [
+      { ok: false, reason: "http_403", latencyMs: 2 },
+      { ok: false, reason: "timeout", latencyMs: 4 },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.1 }, incident: { type: "noul", noul: 0 } }, latencyMs: 3 },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 },
+    ];
+    const prs = queue.map((_, i) => ({ pr: 100 + i, sha: "s", deterministic: "low", files: ["README.md"] }));
+    // The last PR has no verifiable file list, so it never reaches Jev and screens risky.
+    prs[4] = { ...prs[4], files: [] };
+    const records = await fixtureScreen(prs, { ask: async () => queue.shift(), append: (_path, line) => lines.push(line), warn: (line) => warnings.push(line) });
+    expect(records.map((r) => r.fallback_source)).toEqual(["default_jev_blocked", "jev_blocked", "safe-default", null, "jev_blocked"]);
+    expect(records.every((r) => Object.hasOwn(r, "latency_ms") && Object.hasOwn(r, "fallback_reason"))).toBe(true);
+    expect(records[3]).toMatchObject({ fallback_reason: null, warning: null, latency_ms: 1 });
+    expect(records[4]).toMatchObject({ fallback_reason: "files-incomplete", final: "risky" });
+    expect(warnings).toEqual([
+      "WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=2",
+      "WARN jev-fallback source=jev_blocked reason=timeout latencyMs=4",
+      "WARN jev-fallback source=safe-default reason=uncertain latencyMs=3",
+      "WARN jev-fallback source=jev_blocked reason=files-incomplete latencyMs=null",
+    ]);
+    expect(JSON.parse(lines[3])).toMatchObject({ fallback_reason: null, latency_ms: 1 });
+    expect(JSON.parse(lines[0]).warning).toBe(warnings[0]);
+  });
+
+  it.each([
+    ["http_403", () => new Response("denied", { status: 403 }), "source=default_jev_blocked reason=http_403"],
+    ["http_500", () => new Response("boom", { status: 500 }), "source=jev_blocked reason=http_500"],
+    ["malformed_response", () => new Response("not json", { status: 200 }), "source=jev_blocked reason=malformed_response"],
+    ["network", () => Promise.reject(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })), "source=jev_blocked reason=network_ECONNREFUSED"],
+  ])("writes exactly one WARN per failed Jev call over the real askJev (%s)", async (_name, respond, expected) => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => respond()));
+    try {
+      const lines = [];
+      // No ask is passed, so the screen runs over the real askJev (default ask) with a stubbed transport.
+      const [record] = await fixtureScreen([{ pr: 1, sha: "a", deterministic: "low", files: ["README.md"] }], { append: (_path, line) => lines.push(line), warn: undefined });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(err).toHaveBeenCalledOnce();
+      expect(err.mock.calls[0][0]).toMatch(new RegExp(`^WARN jev-fallback ${expected} latencyMs=\\d+$`));
+      expect(err.mock.calls[0][0]).toBe(record.warning);
+      expect(JSON.parse(lines[0]).warning).toBe(record.warning);
+    } finally {
+      err.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("asks Jev with its own stderr WARN off so the screen is the only writer", async () => {
+    const ask = vi.fn(async () => ({ ok: false, reason: "timeout", latencyMs: 4 }));
+    await fixtureScreen([{ pr: 1, sha: "a", deterministic: "low", files: ["README.md"] }], { ask, append: () => {} });
+    expect(ask).toHaveBeenCalledOnce();
+    expect(ask.mock.calls[0][2]).toMatchObject({ timeoutMs: 20_000, warn: false });
+  });
+
+  it("sends the screen-level WARN to stderr by default", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await fixtureScreen([{ pr: 1, sha: "a", deterministic: "low", files: ["README.md"] }], { ask: async () => ({ ok: false, reason: "http_403", latencyMs: 2 }), append: () => {}, warn: undefined });
+      expect(err).toHaveBeenCalledExactlyOnceWith("WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=2");
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it("lets Jev raise the tier but never lower it", () => {
     expect(finalTier("low", accepted("risky"))).toBe("risky");
     expect(finalTier("risky", accepted("low"))).toBe("risky");
@@ -406,7 +515,7 @@ describe("jev PR screen", () => {
     const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, usage, latencyMs: 250 };
     const miss = decisionRecord({ pr: 100, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, caller: "qa" });
     expect(Object.keys(miss).sort()).toEqual(
-      ["caller", "cache_hit", "deterministic", "filesProblem", "final", "head_sha", "jev", "kind", "latency_ms", "marker_hit", "marker_tier", "model", "ok", "pr", "reason", "screener", "sensitiveClasses", "sensitivePathsUnavailable", "sha", "tokens", "ts"].sort(),
+      ["caller", "cache_hit", "deterministic", "fallback_reason", "fallback_source", "filesProblem", "final", "head_sha", "jev", "kind", "latency_ms", "marker_hit", "marker_tier", "model", "ok", "pr", "reason", "screener", "sensitiveClasses", "sensitivePathsUnavailable", "sha", "tokens", "ts", "warning"].sort(),
     );
     expect(miss).toMatchObject({ head_sha: sha, sha, cache_hit: false, marker_hit: false, tokens: { input_tokens: 412, output_tokens: 9 }, latency_ms: 250 });
 
@@ -455,7 +564,7 @@ describe("jev PR screen", () => {
       const failingAppend = () => {
         throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
       };
-      const records = await fixtureScreen([{ pr: 3, sha: "c", deterministic: "low", title: "secret title", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: failingAppend });
+      const records = await fixtureScreen([{ pr: 3, sha: "c", deterministic: "low", title: "secret title", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: failingAppend, warn: undefined });
       expect(records).toHaveLength(1);
       expect(records[0]).toMatchObject({ pr: 3, ok: true, final: "low" });
       const logLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
@@ -467,7 +576,7 @@ describe("jev PR screen", () => {
       const plain = () => {
         throw new Error("disk\nfull");
       };
-      const [record] = await fixtureScreen([{ pr: 4, sha: "d", deterministic: "low", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: plain });
+      const [record] = await fixtureScreen([{ pr: 4, sha: "d", deterministic: "low", files: ["README.md"] }], { ask: askLow, log: "/dev/null", append: plain, warn: undefined });
       expect(record.final).toBe("low");
       const messageLines = stderr.mock.calls.map((args) => args.join(" ")).filter((line) => line.includes("decision log"));
       expect(messageLines).toEqual(["jev-pr-screen: decision log write failed (disk_full); the screen result stands"]);

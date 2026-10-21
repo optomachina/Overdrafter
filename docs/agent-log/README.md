@@ -17,6 +17,15 @@ probability, the final tier, `latency_ms` (null on cache hits; renamed from
   has no usage. It is never estimated.
 * `sha` and `marker_hit` are duplicate aliases of `head_sha` and `cache_hit`,
   kept for older readers. `replay()` accepts either name.
+* `fallback_source`, `fallback_reason` and `warning` are on every row and null
+  when the row rests on an accepted Jev answer. Otherwise the source is
+  `default_jev_blocked` (the Jev call failed with `http_401` or `http_403`),
+  `jev_blocked` (any other failed call, or a screen that failed risky with
+  `files-incomplete` before Jev was asked), `safe-default` (Jev answered below
+  the confidence floor) or `jev_used:false` (the answer had no usable tier). The
+  reason is one sanitized token. `warning` is the same `WARN jev-fallback` line
+  the screen writes to stderr and the CLI appends to the report line. This is
+  logging only; the tier rules below do not change.
 
 Dedupe: uses GitHub commit status markers (context `jev-screen`, state
 `success`) keyed by (full 40-hex SHA, screener, question-set hash, model, screen

@@ -1,0 +1,4 @@
+{
+  "$comment": "Weekly eval registry. Entries: {id,title,start:YYYY-MM-DD,end?:YYYY-MM-DD,match?:{linearLabels?:string[],prLabels?:string[],issues?:string[],titleRegex?:string},stopRule?:{maxCostIncreasePct:25}}. No active experiments registered.",
+  "experiments": []
+}
