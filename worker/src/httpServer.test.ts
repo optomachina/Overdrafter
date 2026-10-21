@@ -42,6 +42,7 @@ const workerConfig: WorkerConfig = {
   openRouterApiKey: null,
   workerBuildVersion: "build-test",
   drawingExtractionModel: "gpt-5.4",
+  titleBlockApprovalEnabled: false,
   drawingExtractionEnableModelFallback: false,
   drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
 };

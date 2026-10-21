@@ -1,6 +1,7 @@
 import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { constants } from "node:fs";
 import { CleanupRowsUnproven, UploadedPortalRows } from "./providerPortalCleanupRows.js";
+import { CleanupConfirmationUnproven, CleanupRowConfirmation, trackCleanupShadowRoots, verifyCleanupShadowVisibility } from "./providerPortalCleanupConfirmation.js";
 import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
@@ -138,7 +139,8 @@ export type ProviderPortalConfigurationCapability = {
 /**
  * Post-capture removal of the uploaded test part (Blaine's standing rule,
  * 2026-10-15). Only declared cleanup rules are reachable. A rule with a
- * `scope` resolves inside the first scope element containing `scopeText`.
+ * `scope` resolves inside a unique row containing `scopeText`. Clicks without
+ * a row binding, or with ambiguous targets, require manual cleanup.
  */
 export type ProviderPortalCleanupCapability = {
   count: (field: string, scopeText?: string) => Promise<number>;
@@ -153,6 +155,7 @@ export type ProviderPortalCleanupReport = {
   remaining: number | null;
   reason: string | null;
   manualCleanupRows?: Array<{ fileName: string | null }>;
+  lostPreUploadRows?: Array<{ fileName: string | null }>;
 };
 
 /** Upper bound for one cleanup pass; it never delays the result longer. */
@@ -1454,6 +1457,7 @@ function buildCleanupCapability(
   page: Page,
   boundary: PortalBoundaryState,
   beforeMutation: () => Promise<void>,
+  confirmation: CleanupRowConfirmation,
   uploadedRows?: UploadedPortalRows,
 ): ProviderPortalCleanupCapability {
   const locate = async (field: string, scopeText?: string) => {
@@ -1485,22 +1489,30 @@ function buildCleanupCapability(
     },
     click: async (field: string, scopeText?: string) => {
       if (definition.selectors.cleanup?.[field]?.reportOnly) throw new Error("CleanupReportOnly");
-      const targets = await locate(field, scopeText);
-      let locator = Array.isArray(targets) ? targets[0] : await targets.count() > 0 ? targets.first() : undefined;
-      if (!locator) {
-        assertPortalBoundary(definition, page, boundary);
-        return false;
-      }
+      // Validate the declared operation even when it has no row binding.
+      await locate(field, scopeText);
       await beforeMutation();
-      if (Array.isArray(targets)) {
-        const rechecked = await locate(field, scopeText);
-        if (!Array.isArray(rechecked) || !rechecked[0]) return false;
-        locator = rechecked[0];
-      } else if (uploadedRows && (await uploadedRows.targets()).length !== 1) {
-        return false;
+      const rule = definition.selectors.cleanup![field];
+      if (!rule.uploadedRows && !rule.scope) throw new CleanupConfirmationUnproven();
+      const scopes = rule.scope ? guardedLocator(definition, page, boundary, rule.scope) : undefined;
+      const rows = rule.uploadedRows
+        ? await uploadedRows!.targets()
+        : await (scopeText === undefined ? scopes! : scopes!.filter({ hasText: scopeText })).elementHandles();
+      if (rows.length === 0) return false;
+      if (rows.length !== 1) throw new CleanupConfirmationUnproven();
+      const row = rows[0];
+      // Scope text locates a row; only the pre-upload snapshot proves ownership.
+      if (!uploadedRows) throw new CleanupConfirmationUnproven();
+      const owned = await uploadedRows.targets();
+      if (!await row.evaluate((element, rows) => rows.includes(element), owned)) {
+        throw new CleanupConfirmationUnproven();
       }
+      await confirmation.bind(row);
+      const targets = rule.uploadedRows && !rule.scope ? [row] : await row.$$(rule.selector);
+      if (targets.length === 0) return false;
+      if (targets.length !== 1) throw new CleanupConfirmationUnproven();
       assertPortalBoundary(definition, page, boundary);
-      await locator.click();
+      await confirmation.click(row, targets[0]);
       assertPortalBoundary(definition, page, boundary);
       return true;
     },
@@ -1533,15 +1545,18 @@ async function cleanUpProviderPortal(
   };
   let rejectDialog: (error: unknown) => void = () => undefined;
   const dialogFailure = new Promise<never>((_, reject) => { rejectDialog = reject; });
+  let confirmation: CleanupRowConfirmation;
   // Native confirmation is a separate mutation, just like an in-page button.
-  const acceptDialog = async (dialog: { accept: () => Promise<void>; dismiss: () => Promise<void> }) => {
+  const acceptDialog = async (dialog: { type: () => string; message: () => string; accept: () => Promise<void>; dismiss: () => Promise<void> }) => {
     try {
       await beforeMutation();
+      confirmation.assertNativeDialog(dialog.type(), dialog.message());
       assertPortalBoundary(definition, session.page, session.boundary);
       await dialog.accept();
     } catch (error) {
-      rejectDialog(error);
+      stopped = true;
       await dialog.dismiss().catch(() => undefined);
+      rejectDialog(error);
     }
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1554,13 +1569,28 @@ async function cleanUpProviderPortal(
     return report;
   }
   try {
+    confirmation = new CleanupRowConfirmation(
+      definition.selectors.cleanupRowFileName,
+      definition.selectors.cleanupRow,
+      definition.selectors.cleanupRow
+        ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
+      session.cleanupRows?.stagedFileName,
+      () => verifyCleanupShadowVisibility(session.context, session.page),
+      session.page,
+      session.cleanupRows?.preUploadRows,
+    );
     // A report-only hook must never accept an unrelated native confirmation.
     const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
     if (cleanupRules.length === 0 || cleanupRules.some((rule) => !rule.reportOnly)) {
       session.page.on("dialog", acceptDialog);
     }
     const outcome = await Promise.race([
-      hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, session.cleanupRows), input),
+      (async () => {
+        const outcome = await hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, confirmation, session.cleanupRows), input);
+        const removed = await confirmation.verifiedRemoved();
+        if (outcome.removed > removed) throw new CleanupConfirmationUnproven();
+        return removed > 0 ? { ...outcome, removed } : outcome;
+      })(),
       dialogFailure,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("CleanupTimeout")), timeoutMs);
@@ -1572,7 +1602,10 @@ async function cleanUpProviderPortal(
     if (remaining === 0) status = removed > 0 ? "removed" : "not_found";
     report = { status, removed, remaining, reason: null };
   } catch (error) {
-    report = error instanceof CleanupRowsUnproven
+    report = error instanceof CleanupConfirmationUnproven
+      ? { status: "incomplete", removed: 0, remaining: null, reason: "manual_cleanup_required",
+        ...(error.lostPreUploadRows ? { lostPreUploadRows: error.lostPreUploadRows } : {}) }
+      : error instanceof CleanupRowsUnproven
       ? { status: "incomplete", removed: 0, remaining: error.rows.length, reason: "manual_cleanup_required", manualCleanupRows: error.rows }
       : { status: error instanceof ProviderKillSwitchError ? "skipped_kill_switch" : "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
   } finally {
@@ -1678,6 +1711,11 @@ async function openProviderPortalSession(
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     const page = await context.newPage();
+    // Only a cleanup that can click needs shadow-root evidence; report-only rules never click, so their pages stay unpatched.
+    const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
+    if (definition.hooks.cleanup && (cleanupRules.length === 0 || cleanupRules.some((rule) => !rule.reportOnly))) {
+      await trackCleanupShadowRoots(page);
+    }
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,
@@ -1731,6 +1769,8 @@ async function uploadAuthorizedPortalFiles(
       guardedLocator(definition, session.page, session.boundary, "html"),
       files.cad.name,
       definition.selectors.cleanupRowFileName,
+      session.page,
+      definition.selectors.cleanupRow,
     );
   }
   // OVD-722: re-read after the awaited locator lookup so a switch engaged in

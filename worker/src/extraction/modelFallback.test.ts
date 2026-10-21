@@ -55,6 +55,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: "test",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: true,
     drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,
@@ -408,5 +409,25 @@ describe("modelFallback", () => {
     expect(validateModelFieldValue("finish", "Engineer TIM 10/29/2013")).toEqual(
       expect.arrayContaining(["rejected_signature_block", "rejected_date_metadata"]),
     );
+  });
+
+  // OVD-985: a model that reads the approvals row instead of the DWG. NO. and REV cells must not win.
+  it.each(["Q.A.", "QA", "CHECKED", "DRAWN", "APPROVED", "ENG", "MFG", "ENG APPR."])(
+    "rejects the title-block label %s as a part number and as a revision",
+    (label) => {
+      expect(validateModelFieldValue("partNumber", label)).toContain("rejected_label_token");
+      expect(validateModelFieldValue("revision", label)).toContain("rejected_label_token");
+    },
+  );
+
+  it.each([
+    ["partNumber", "1093-05589"],
+    ["partNumber", "ABC-0001"],
+    ["partNumber", "ENG-1234"],
+    ["revision", "02"],
+    ["revision", "B"],
+    ["revision", "REV-B"],
+  ] as const)("does not reject %s %s as a label", (field, value) => {
+    expect(validateModelFieldValue(field, value)).not.toContain("rejected_label_token");
   });
 });

@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUpRight, Copy, FileText, PlusSquare } from "lucide-reac
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
@@ -89,12 +90,22 @@ const ClientQuoteDetail = () => {
     authDialogMode,
     isAuthDialogOpen,
     isVerifiedAuth,
+    isPlatformAdmin,
+    workspaceAccessScope,
     newJobFilePicker,
     openAuth,
     setIsAuthDialogOpen,
     signOut,
     user,
   } = useClientHomeController();
+  const jobIds = useMemo(() => accessibleJobs.map((job) => job.id), [accessibleJobs]);
+  const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
+    isPlatformAdmin,
+    jobIds,
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
   const foundingBetaAccess = {
     organizationId: activeMembership?.organizationId,
     userId: user?.id,
@@ -186,6 +197,7 @@ const ClientQuoteDetail = () => {
   );
   const accountSlot = (
     <WorkspaceAccountMenu
+      notificationCenter={notificationCenter}
       user={user}
       compact
       activeMembership={activeMembership}
