@@ -85,7 +85,9 @@ marked N/A when they do not apply to the stage being enabled. Check the box
 legal stance items cannot be N/A, with one exception: the ITAR/EAR item may be
 N/A for a US only provider, with the justification written out. The envelope
 review item is automatic: the renderer fills it pre-checked with its signature,
-and the gate never asks a human for evidence on it or fails on it.
+and the gate never asks a human for evidence on it. The gate still rejects the
+section if that line is missing or unticked. Checkboxes inside fenced code
+blocks or HTML comments are ignored, and the section may appear only once.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those

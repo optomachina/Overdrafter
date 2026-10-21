@@ -118,7 +118,7 @@ const decisionEvent = (runId: string, decisionId = "dec-1"): GraphEvent => ({
 
 const statusEvent = (runId: string, message: string): GraphEvent => ({ ...envelope(runId), type: "status", nodeId: "domain_agent", state: "info", message });
 
-const artifactEvent = (runId: string, kind: "glb" | "step" | "png", uri: string): GraphEvent => ({
+const artifactEvent = (runId: string, kind: "glb" | "step" | "png" | "usdz", uri: string): GraphEvent => ({
   ...envelope(runId),
   type: "artifact",
   nodeId: "domain_agent",
@@ -798,6 +798,12 @@ describe("Jarvis identity linking (M4: same front of the pipeline, failed-attemp
 
 describe("Jarvis render and registry", () => {
   const caps = { buttons: true, images: true, model3d: true, maxText: 12 };
+
+  it("renders USDZ as text and a web link even with 3D capability", () => {
+    expect(renderEvent(artifactEvent("r", "usdz", "https://cdn.example/plate.usdz"), { ...caps, maxText: 200 }, WEB_BASE)).toEqual({
+      text: "Your USDZ is ready. Open it on the web.", link: `${WEB_BASE}/runs/r`,
+    });
+  });
 
   it("renders resolutions and truncates to the channel's maxText", () => {
     const wide = { ...caps, maxText: 100 };
