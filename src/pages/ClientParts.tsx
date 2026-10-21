@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Box, FolderKanban, PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { CadPreviewThumbnail } from "@/components/CadPreviewThumbnail";
-import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
+import { useClientWorkspaceNotifications } from "@/features/notifications/use-client-workspace-notifications";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -79,13 +79,7 @@ export default function ClientParts() {
   const [filter, setFilter] = useState<PartCollectionFilter>("all");
   const parsedQuery = useMemo(() => parseEngineeringQuery(query), [query]);
   const jobIds = useMemo(() => controller.accessibleJobs.map((job) => job.id), [controller.accessibleJobs]);
-  const notificationCenter = useWorkspaceNotifications({
-    accessScope: controller.workspaceAccessScope,
-    isPlatformAdmin: controller.isPlatformAdmin,
-    jobIds,
-    role: controller.activeMembership?.role,
-    userId: controller.user?.id,
-  });
+  const notificationCenter = useClientWorkspaceNotifications(controller, jobIds);
   const quoteWorkspace = useQuoteIntelligenceWorkspace(
     jobIds,
     Boolean(controller.user),
