@@ -628,7 +628,7 @@ describe("runQuote", () => {
         cleanup: vi.fn(),
       },
       buildRegistry,
-    )).rejects.toThrow(/adapter invocation denied/i);
+    )).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
     expect(buildRegistry).not.toHaveBeenCalled();
     expect(quote).not.toHaveBeenCalled();
@@ -1676,7 +1676,7 @@ describe("runEvaluationBatch", () => {
       }, {
         stageFiles,
         buildRegistry,
-      })).rejects.toThrow(/quantity|quantities/i);
+      })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
       expect(stageFiles).not.toHaveBeenCalled();
       expect(buildRegistry).not.toHaveBeenCalled();
@@ -1705,12 +1705,12 @@ describe("runEvaluationBatch", () => {
     }, {
       buildRegistry: () => ({ oshcut: { quote } }),
       makeVendorConfig: () => ({} as WorkerConfig),
-    })).rejects.toThrow(/adapter invocation denied/i);
+    })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
 
     expect(quote).not.toHaveBeenCalled();
   });
 
-  it("passes explicit exact OSH Cut metadata to the adapter input", async () => {
+  it("refuses even explicitly approved OSH Cut metadata before invoking the adapter", async () => {
     const approval = await providerApprovalFixture({
       providerKey: "oshcut",
       allowedOrigins: ["https://app.oshcut.com", "https://www.oshcut.com"],
@@ -1743,34 +1743,16 @@ describe("runEvaluationBatch", () => {
       artifacts: [],
     });
 
-    const rows = await runEvaluationBatch(args, {
+    const stageFiles = vi.fn();
+    const makeVendorConfig = vi.fn();
+    await expect(runEvaluationBatch(args, {
       buildRegistry: () => ({ oshcut: { quote } }),
-      makeVendorConfig: () => ({} as WorkerConfig),
-      prepareConfig: async (config) => config,
-      stageFiles: async () => ({
-        authorization: {
-          nonExportControlled: true,
-          cadFileSha256: "a".repeat(64),
-          drawingFileSha256: null,
-        },
-        cadPath: "/private/staged/cad.step",
-        drawingPath: null,
-        cleanup: vi.fn(),
-      }),
-    });
-
-    expect(rows).toHaveLength(1);
-    expect(quote).toHaveBeenCalledOnce();
-    expect(quote).toHaveBeenCalledWith(expect.objectContaining({
-      executionContext: "live_evaluation",
-      requirement: expect.objectContaining({
-        material: "Aluminum 6061-T6",
-        spec_snapshot: {
-          process: "laser_cutting",
-          geometryFamily: "flat_sheet",
-        },
-      }),
-    }));
+      makeVendorConfig,
+      stageFiles,
+    })).rejects.toThrow(/OSH Cut portal automation is disabled.*OVD-1022/);
+    expect(quote).not.toHaveBeenCalled();
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
   });
 
   it("stages once and reuses the same captured files for every vendor and quantity", async () => {

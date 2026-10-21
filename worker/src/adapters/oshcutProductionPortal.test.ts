@@ -1,21 +1,16 @@
+import { OSHCUT_PORTAL_DISABLED_MESSAGE } from "./oshcutPortalDisabled";
 // @vitest-environment node
 import fs from "node:fs/promises";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
-import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort";
+import { withProviderAbortSignal } from "../providerAbort";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
-import {
-  registerProductionPortalAuthorizationRefusals,
-  registerProductionPortalRoutingRefusals,
-  type ProductionPortalDefaultDenyHarness,
-} from "../../test-support/productionPortalDefaultDeny";
 import { expectAdmittedDecisionReachesAdapter, observedLiveConfig, productionCadStager } from "../../test-support/productionPortalTestHarness";
-import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { oshcutDispatchAuthorization, oshcutDispatchEnvelope } from "../../test-support/oshcutDispatchFixture";
 import { buildAdapterRegistry } from "./index";
 import { OSHCUT_DISPATCH_ENVELOPE, oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization";
-import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS } from "./oshcutCartCleanup";
+import { cleanupOshcutCart, reportOshcutCartCleanup, OSHCUT_CART_CLEANUP_SELECTORS } from "./oshcutCartCleanup";
 import {
   buildOshcutProductionPortalDefinition,
   classifyOshcutPortalState,
@@ -71,26 +66,6 @@ async function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {})
   } as unknown as VendorQuoteAdapterInput;
 }
 
-function defaultDenyHarness(): ProductionPortalDefaultDenyHarness {
-  return {
-    vendor: "oshcut",
-    envelopeId: "oshcut-quote-envelope",
-    taskId: "00000000-0000-4000-8000-4912acd7fd0b",
-    vendorQuoteResultId: "00000000-0000-4000-8000-4912acd7fd09",
-    claimedAt: "2026-10-10T12:04:00.000Z",
-    unauthorizedCadName: "part.stl",
-    otherProviderAuthorization: (input: VendorQuoteAdapterInput) =>
-      quickpartsDispatchAuthorization(quickpartsDispatchEnvelope({
-        cadSha256: input.stagedCadFile!.trustedContentSha256!,
-        requestedQuantity: 3,
-      })),
-    buildDefinition: buildOshcutProductionPortalDefinition,
-    observedConfig,
-    authorizedInput,
-    stagedCad,
-  };
-}
-
 describe("OSH Cut production dispatch envelope (OVD-677)", () => {
   it("declares its envelope on the production portal definition", () => {
     expect(buildOshcutProductionPortalDefinition().productionDispatch).toEqual({
@@ -107,32 +82,12 @@ describe("OSH Cut production dispatch envelope (OVD-677)", () => {
   });
 });
 
-describe("OSH Cut production branch default-deny (OVD-677)", () => {
-  registerProductionPortalAuthorizationRefusals(defaultDenyHarness());
-
-  it.each([
-    ["a material outside the envelope", { requirement: { ...OSHCUT_REQUIREMENT, material: "Aluminum 5052-H32" } }, 3, "material_outside_envelope"],
-    ["a process outside the envelope", { requirement: { ...OSHCUT_REQUIREMENT, spec_snapshot: { process: "CNC Milling", geometryFamily: "flat_sheet" } } }, 3, "cnc_milling_not_supported"],
-    ["formed sheet geometry", { requirement: { ...OSHCUT_REQUIREMENT, spec_snapshot: { process: "Laser Cutting", geometryFamily: "formed_sheet" } } }, 3, "geometry_outside_envelope"],
-    ["a quantity above the envelope", { requestedQuantity: 10_001 }, 10_001, "quantity_outside_envelope"],
-  ])("ends %s as unsupported before any session read or launch", async (_name, change, quantity, reason) => {
-    const base = await authorizedInput();
-    const envelope = oshcutDispatchEnvelope({ cadSha256: base.stagedCadFile!.trustedContentSha256!, requestedQuantity: quantity });
-    const input = { ...base, ...change, providerDispatchAuthorization: oshcutDispatchAuthorization(envelope) } as VendorQuoteAdapterInput;
+describe("OSH Cut production hard disable (OVD-1022)", () => {
+  it("refuses an authorized package before session access or browser launch", async () => {
     const { config, sessionRead } = observedConfig();
     const launchBrowser = vi.fn();
-    await expect(runProviderPortalKernel(buildOshcutProductionPortalDefinition(), config, input, { launchBrowser }))
-      .resolves.toMatchObject({ state: "unsupported", reason, providerMutationPossible: false });
-    expect(launchBrowser).not.toHaveBeenCalled();
-    expect(sessionRead).not.toHaveBeenCalled();
-  });
-
-  it("ends an unconfirmed process as unavailable before any session read or launch", async () => {
-    const input = await authorizedInput({ requirement: { ...OSHCUT_REQUIREMENT, spec_snapshot: {} } } as Partial<VendorQuoteAdapterInput>);
-    const { config, sessionRead } = observedConfig();
-    const launchBrowser = vi.fn();
-    await expect(runProviderPortalKernel(buildOshcutProductionPortalDefinition(), config, input, { launchBrowser }))
-      .resolves.toMatchObject({ state: "unavailable", reason: "process_confirmation_required" });
+    await expect(runProviderPortalKernel(buildOshcutProductionPortalDefinition(), config, await authorizedInput(), { launchBrowser }))
+      .rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
     expect(launchBrowser).not.toHaveBeenCalled();
     expect(sessionRead).not.toHaveBeenCalled();
   });
@@ -223,29 +178,14 @@ function cartConfiguration(available: string[]): ProviderPortalConfigurationCapa
 
 const ALL_CONTROLS = ["openMaterial", "materialFilter:6061 T6 Aluminum", 'thicknessFilter:0.125"'];
 
-describe("OSH Cut cart configuration (OVD-677)", () => {
-  it("opens the material slideover and checks the reviewed material and thickness filters", async () => {
+describe("OSH Cut cart configuration hard disable (OVD-1022)", () => {
+  it("refuses before clicking any material or thickness control", async () => {
     const configuration = cartConfiguration(ALL_CONTROLS);
-    await configureOshcutCart(configuration, { requirement: OSHCUT_REQUIREMENT } as VendorQuoteAdapterInput, 0);
-    expect(configuration.clicks).toEqual(ALL_CONTROLS);
-  });
-
-  it.each([
-    ["the Select material link", "openMaterial", "oshcut_material_control_missing"],
-    ["the 6061 T6 Aluminum filter", "materialFilter:6061 T6 Aluminum", "oshcut_material_option_missing"],
-    ["the requested thickness filter", 'thicknessFilter:0.125"', "oshcut_thickness_option_missing"],
-  ])("stops in selector drift when %s is missing", async (_name, missing, reason) => {
-    const configuration = cartConfiguration(ALL_CONTROLS.filter((control) => control !== missing));
     await expect(configureOshcutCart(configuration, { requirement: OSHCUT_REQUIREMENT } as VendorQuoteAdapterInput, 0))
-      .rejects.toMatchObject({ payload: { terminalState: "selector_drift", reason, providerMutationPossible: true } });
-  });
-
-  it("stops in configuration required, clicking nothing, when the thickness is unknown", async () => {
-    const configuration = cartConfiguration(ALL_CONTROLS);
-    const requirement = { ...OSHCUT_REQUIREMENT, spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet" } };
-    await expect(configureOshcutCart(configuration, { requirement } as unknown as VendorQuoteAdapterInput, 0))
-      .rejects.toMatchObject({ payload: { terminalState: "configuration_required", reason: "oshcut_thickness_unknown" } });
+      .rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
     expect(configuration.clicks).toEqual([]);
+    expect(configuration.fill).not.toHaveBeenCalled();
+    expect(configuration.select).not.toHaveBeenCalled();
   });
 });
 
@@ -282,8 +222,6 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
       .toBeUndefined();
   });
 
-  registerProductionPortalRoutingRefusals(defaultDenyHarness());
-
   it("refuses even a database-admitted OSH Cut decision before the adapter launches", async () => {
     const input = await authorizedInput({ providerDispatchAuthorization: undefined });
     await expectAdmittedDecisionReachesAdapter({
@@ -307,7 +245,7 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
     controller.abort();
     const adapter = buildAdapterRegistry(config).oshcut!;
     await expect(adapter.quote(withProviderAbortSignal(await authorizedInput(), controller.signal)))
-      .rejects.toBeInstanceOf(ProviderAbortedError);
+      .rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
     expect(launch).not.toHaveBeenCalled();
     expect(sessionRead).not.toHaveBeenCalled();
   });
@@ -323,8 +261,9 @@ describe("OSH Cut cart cleanup (standing rule, OVD-677)", () => {
   it("never requests a remove or confirm action, even when a count is returned", async () => {
     const click = vi.fn();
     const count = vi.fn(async () => 3);
-    expect(await cleanupOshcutCart({ count, click })).toEqual({ removed: 0, remaining: 3 });
-    expect(count).toHaveBeenCalledWith("partRow");
+    await expect(cleanupOshcutCart({ count, click })).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+    expect(count).not.toHaveBeenCalled();
+    expect(reportOshcutCartCleanup(3)).toEqual({ removed: 0, remaining: 3 });
     expect(click).not.toHaveBeenCalled();
   });
 

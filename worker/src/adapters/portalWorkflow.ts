@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { UNANCHORED_PRICE_NOTE } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import {
@@ -193,6 +194,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
 
   /** Separate from quote(): native amounts can never be a customer USD output. */
   async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
+    if (this.vendor === "oshcut") refuseOshcutPortalAutomation();
     if (input.executionContext !== "live_evaluation") {
       throw new VendorAutomationError("Local evaluation context required.", "unexpected_ui_state", {
         reason: "local_evaluation_context_required", terminalState: "unsupported", providerInteractionAttempted: false,
@@ -202,6 +204,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
   }
 
   private async runQuote(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
+    if (this.vendor === "oshcut") refuseOshcutPortalAutomation();
     if (this.config.workerMode !== "live") {
       return this.manualFollowUpOutput(input, "simulate_hidden_vendor", "unavailable");
     }

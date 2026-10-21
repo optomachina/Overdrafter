@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "../adapters/oshcutPortalDisabled.js";
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -85,7 +86,8 @@ async function ensureParentDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
-async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
+export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
+  if (vendor === "oshcut") refuseOshcutPortalAutomation();
   const workflow = getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);

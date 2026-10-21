@@ -1,8 +1,9 @@
+import { OSHCUT_PORTAL_DISABLED_MESSAGE } from "./oshcutPortalDisabled";
 // @vitest-environment node
 
 import fs from "node:fs/promises";
 import { JSDOM } from "jsdom";
-import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
+import { reportOshcutCartCleanup, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
 import { buildOshcutProductionPortalDefinition, OSHCUT_PRODUCTION_LOCATORS } from "./oshcutProductionPortal";
 import os from "node:os";
 import path from "node:path";
@@ -1846,23 +1847,14 @@ describe("provider portal post-capture cleanup", () => {
     const run = runProviderPortalKernel(def, {
       ...config(), vendorStorageStateJson: { oshcut: JSON.stringify({ cookies: [], origins: [] }) },
     }, quoteInput, { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
-    if (rowCount || lateRow) {
-      await expect(run).rejects.toMatchObject({
-        message: "OSH Cut cart not empty; manual attention required.",
-        payload: { terminalState: "manual_review", reason: "oshcut_cart_not_empty", providerMutationPossible: false },
-      });
-      expect(fake.setInputFiles).not.toHaveBeenCalled();
-      expect(fake.fill).not.toHaveBeenCalled();
-      expect(fake.click).not.toHaveBeenCalled();
-      expect(fake.selectOption).not.toHaveBeenCalled();
-      expect(cart.cart.innerHTML).toBe(before);
-      expect(quantity.value).toBe("12");
-    } else {
-      await expect(run).resolves.toMatchObject({ state: "offers_extracted" });
-      expect(fake.setInputFiles).toHaveBeenCalledTimes(1);
-      expect(fake.fill).toHaveBeenCalledWith("5");
-      expect(fake.click).toHaveBeenCalledTimes(3);
-    }
+    await expect(run).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+    expect(fake.page.goto).not.toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.fill).not.toHaveBeenCalled();
+    expect(fake.click).not.toHaveBeenCalled();
+    expect(fake.selectOption).not.toHaveBeenCalled();
+    expect(cart.cart.innerHTML).toBe(before);
+    expect(quantity.value).toBe("12");
     expect(cart.removeClicks).not.toHaveBeenCalled();
   });
 
@@ -1882,7 +1874,7 @@ describe("provider portal post-capture cleanup", () => {
       if (rerender) cart.cart.replaceChildren(...[...cart.cart.children].map((row) => row.cloneNode(true)));
       if (!noUpload) cart.append("part.step", removable);
     });
-    const def = cleanupDefinition(cleanupOshcutCart);
+    const def = cleanupDefinition(async (cleanup) => reportOshcutCartCleanup(await cleanup.count("partRow")));
     def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
@@ -1912,7 +1904,7 @@ describe("provider portal post-capture cleanup", () => {
     vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
       ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
     fake.setInputFiles.mockImplementation(async () => { if (names[0]) cart.append(names[0]); });
-    const def = cleanupDefinition(cleanupOshcutCart, {
+    const def = cleanupDefinition(async (cleanup) => reportOshcutCartCleanup(await cleanup.count("partRow")), {
       // Arrives after upload, before cleanup's first lookup: either a delayed
       // pre-existing customer row or a concurrent session's new part.
       extractOffers: async () => { names.slice(1).forEach((name) => cart.append(name)); return [candidate()]; },
@@ -1948,7 +1940,7 @@ describe("provider portal post-capture cleanup", () => {
       row.querySelector(".cartInformationArea")!.insertAdjacentHTML("beforeend",
         change === "nested suffix" ? "<span>.backup</span>" : "<span>Select material</span>");
     });
-    const def = cleanupDefinition(cleanupOshcutCart);
+    const def = cleanupDefinition(async (cleanup) => reportOshcutCartCleanup(await cleanup.count("partRow")));
     def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW,
       cleanupRowFileName: change === "missing filename field" ? ".missing" : OSHCUT_CART_FILE_NAME,
       cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
@@ -1969,7 +1961,7 @@ describe("provider portal post-capture cleanup", () => {
       cart.append("part.step"); // A delayed customer row, not this failed upload.
       throw new Error("Upload failed");
     });
-    const def = cleanupDefinition(cleanupOshcutCart);
+    const def = cleanupDefinition(async (cleanup) => reportOshcutCartCleanup(await cleanup.count("partRow")));
     def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW,
       cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     await expect(runProviderPortalKernel(def, config(), await input(), {
@@ -2016,7 +2008,7 @@ describe("provider portal post-capture cleanup", () => {
       // Simulate a framework rerender without any provider-side deletion.
       if (change === "candidate row replacement") row.replaceWith(row.cloneNode(true));
     });
-    const def = cleanupDefinition(cleanupOshcutCart);
+    const def = cleanupDefinition(async (cleanup) => reportOshcutCartCleanup(await cleanup.count("partRow")));
     def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],

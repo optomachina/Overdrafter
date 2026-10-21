@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { constants } from "node:fs";
 import { CleanupRowsUnproven, UploadedPortalRows } from "./providerPortalCleanupRows.js";
 import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
@@ -1989,6 +1990,7 @@ export async function runProviderPortalKernel(
   input: VendorQuoteAdapterInput,
   dependencies: RunProviderPortalKernelDependencies = {},
 ): Promise<ProviderPortalKernelResult> {
+  if (definition.provider === "oshcut") refuseOshcutPortalAutomation();
   assertProviderDefinition(definition);
   assertEnvelopeFileShape(definition, input);
   let files: LiveEvaluationUploadFiles;

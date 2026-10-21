@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { authorizeLiveEvaluationInput } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
@@ -55,6 +56,7 @@ class LiveEvaluationAdapter extends VendorAdapter {
   }
 
   override async quote(input: VendorQuoteAdapterInput) {
+    if (this.vendor === "oshcut") refuseOshcutPortalAutomation();
     return this.delegate.quote(await this.authorize(input));
   }
 
@@ -65,6 +67,7 @@ class LiveEvaluationAdapter extends VendorAdapter {
 
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
   async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
+    if (this.vendor === "oshcut") refuseOshcutPortalAutomation();
     if (input.executionContext !== "live_evaluation") {
       throw new VendorAutomationError("Local evaluation context required.", "unexpected_ui_state", {
         reason: "local_evaluation_context_required", terminalState: "unsupported", providerInteractionAttempted: false,
@@ -187,6 +190,7 @@ class OperationalAdvisoryAdapter extends VendorAdapter {
   }
 
   override async quote(input: VendorQuoteAdapterInput) {
+    if (this.vendor === "oshcut") refuseOshcutPortalAutomation();
     const { session, scope } = this.binding;
     // Derive caller identities from the actual adapter invocation, never from admission.
     const actualScope = Object.freeze({ ...scope, provider: this.vendor,

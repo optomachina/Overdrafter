@@ -7,14 +7,34 @@ Quickparts and Weerg paths in `docs/workflows/ovd674-quickparts-live-readiness.m
 and `docs/workflows/ovd675-weerg-live-readiness.md`, and was scaffolded with
 `npm run fixture:onboard -- oshcut --stage=live` (OVD-687).
 
-**State (2026-10-20).** Blaine directed that OSH Cut land **default-off**
-and remain outside the 1.0 portfolio (Xometry, Fictiv, Quickparts, RMFG).
-This supersedes the earlier go-live decision. The adapter and its synthetic
-fixtures remain, but the registry has `liveAdapter: false`, `sessionSecrets: []`,
-and `egress: "none"`; the envelope is absent from
+**State (2026-10-20): portal automation is HARD-DISABLED pending OVD-1022.**
+OSH Cut remains default-off and outside the 1.0 portfolio (Xometry, Fictiv,
+Quickparts, RMFG). Production, live evaluation, the live harness, session
+bootstrap, upload, configuration, and cleanup refuse with:
+
+> OSH Cut portal automation is disabled until row-bound cart configuration exists (OVD-1022)
+
+The refusal runs before browser launch or page interaction. `OshcutAdapter.quote`,
+`PortalQuoteWorkflowAdapter` (quote and local evaluation), and direct
+`runProviderPortalKernel` calls all refuse OSH Cut. The harness rejects an OSH Cut
+batch before configuration, secrets preparation, or staging; its single-quote
+entry point also refuses. `bootstrapVendor` refuses before session setup.
+Both definitions' upload/configuration/cleanup hooks refuse before accessing
+page capabilities, including direct calls to `configureOshcutCart` and
+`cleanupOshcutCart`. No environment variable, feature flag, config, approval,
+or dispatch permit can bypass the stop in this PR.
+
+The empty-cart guard cannot establish ownership of rows that render later;
+page-wide quantity/material selectors can mutate a pre-existing row. Row-bound
+configuration needs the OVD-1022 design and a separate reviewed source change
+before any automation can resume. The adapter implementation remains dormant
+scaffolding. Parser, selector, eligibility, and pure cleanup-report tests run
+in isolation; OSH Cut browser suites now assert refusal without opening a page.
+
+The registry still has `liveAdapter: false`, `sessionSecrets: []`, and
+`egress: "none"`; the envelope remains absent from
 `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. Production deployment rejects `oshcut`,
-and no generated deploy binding names its session secret. Even a
-database-admitted decision is refused as `provider_envelope_unknown`.
+and no generated deploy binding names its session secret.
 
 The SQL below and under `provider-integrations/oshcut/admit/` is retained as
 future review material only. No migration or admission is promoted by this
@@ -22,7 +42,11 @@ branch. Future enablement needs a separate reviewed source change with the
 Provider go-live checklist, plus exact authorization for production database,
 credential, deploy, and provider operations. Adapter merge is not go-live.
 
-## What the code provides
+## Retained scaffolding (unreachable while hard-disabled)
+
+The following describes the dormant implementation, not an enabled execution
+path. The unconditional OVD-1022 refusal above takes precedence over every
+eligibility, authorization, thickness, abort, and cleanup branch below.
 
 | Layer | Behavior |
 | --- | --- |
@@ -42,7 +66,9 @@ credential, deploy, and provider operations. Adapter merge is not go-live.
 
 ## Default-off switches
 
-Future enablement would need switches 1 to 5 on after a separately approved source change.
+No switch enables automation now. Future enablement first requires OVD-1022
+row-bound configuration and a separately reviewed source change removing the
+hard stop; switches 1 to 5 would then also be required.
 
 1. **Admission policy.** `private.quote_provider_admission_policies` for
    `oshcut` stays `disabled` until the reviewed revision in
@@ -63,6 +89,11 @@ Turning off any of switches 1 to 5 stops queued tasks before the browser
 launches. Revoke a specific permit with `private.revoke_provider_dispatch_permit`.
 
 ## Known gaps before admission
+
+- **Row-bound cart configuration (OVD-1022).** The initial empty-cart check
+  does not protect against late-rendering pre-existing rows. Production and
+  evaluation must remain hard-disabled until row ownership and all mutations
+  are safely bound by design and verified.
 
 - **Material commit step is unobserved.** The capture opened the slideover but
   committed no material. The hook checks the material and thickness filters.
@@ -163,7 +194,7 @@ Selector findings (the v1 locator table does NOT match the live DOM)
 - Text signals: "All parts need selected material and units to checkout",
   "Design check: Passed".
 
-Consequence (resolved on this branch): `oshcut-production-locators.v2` and the rewritten
+Historical scaffold update (automation remains disabled pending OVD-1022): `oshcut-production-locators.v2` and the rewritten
 `configure` hook implement the slideover, thickness pick and cart-row price cells; see
 "What the code provides" above.
 
@@ -183,7 +214,9 @@ cleanup step after capture, whether the quote succeeds or fails:
    Preserve pre-existing/customer parts. Record the resulting cart state;
    confirm an empty cart only if it was empty before the run.
 
-Automatic removal is disabled in both the production and evaluation definitions.
+All automated portal access, including cleanup reporting and removal, is disabled
+in both the production and evaluation paths pending OVD-1022. The pure
+`reportOshcutCartCleanup` projection remains available without any page access.
 The adapter stays default-off; this procedure authorizes no provider operation.
 The 2026-10-15 capture's test plate was removed from `/cart/O-97bd2644-a03a-4232-a714`
 and the cart was confirmed empty.

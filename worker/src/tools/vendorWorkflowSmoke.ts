@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "../adapters/oshcutPortalDisabled.js";
 import "dotenv/config";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -1466,6 +1467,7 @@ export async function runQuote(
   killSwitchReader?: ProviderKillSwitchReader,
   runArtifacts: LiveHarnessRunArtifacts | null = null,
 ): Promise<SmokeRow> {
+  if (vendor === "oshcut") refuseOshcutPortalAutomation();
   await assertQuoteAdmission(args, vendor, quantity, stagedFiles, sendCutSendManifest);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -1637,6 +1639,7 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
+  if (args.vendors.includes("oshcut")) refuseOshcutPortalAutomation();
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   await assertOperatorProvidersEnabled(

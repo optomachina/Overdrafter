@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { VendorAutomationError } from "../types.js";
 import {
   assessOshcutEligibility,
@@ -198,6 +199,7 @@ export async function configureOshcutCart(
   input: Parameters<typeof resolveOshcutThicknessLabel>[0],
   controlWaitMs: number = OSHCUT_CONTROL_WAIT_MS,
 ): Promise<void> {
+  refuseOshcutPortalAutomation();
   const thickness = resolveOshcutThicknessLabel(input);
   if (!thickness) {
     throw new VendorAutomationError("OSH Cut sheet thickness is not recorded.", "unexpected_ui_state", {
@@ -236,7 +238,9 @@ export type OshcutProductionPortalOptions = {
 };
 
 /**
- * OVD-677 production definition. It is default-off: the production registry
+ * Dormant OVD-677 production definition: OVD-1022 unconditionally blocks
+ * execution in the adapter, kernel, and mutation hooks. The retained design
+ * below does not authorize a portal run. It is default-off: the production registry
  * builds it only for a worker listing `oshcut` in WORKER_LIVE_ADAPTERS, and the
  * kernel launches only behind a current generic provider-dispatch
  * authorization for the reviewed `oshcut-quote-envelope.v1`, bound to the
@@ -281,6 +285,7 @@ export function buildOshcutProductionPortalDefinition(
       // Never upload into or configure a cart containing someone else's part.
       // Check rows, not prices: unconfigured and unpriced parts count too.
       beforeUpload: async (reader) => {
+        refuseOshcutPortalAutomation();
         if (await reader.count(OSHCUT_CART_ROW) !== 0) {
           throw new VendorAutomationError("OSH Cut cart not empty; manual attention required.", "unexpected_ui_state", {
             vendor: "oshcut",

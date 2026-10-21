@@ -191,7 +191,7 @@ describe("resolvePortalCadUploadFile", () => {
     }
   });
 
-  it("rejects an authorized drawing before generic portal interaction", async () => {
+  it("refuses OSH Cut even with an authorized drawing before generic portal interaction", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "portal-drawing-test-"));
     const cadPath = path.join(tempDir, "part.step");
     const drawingPath = path.join(tempDir, "part.pdf");
@@ -234,10 +234,10 @@ describe("resolvePortalCadUploadFile", () => {
       );
 
       await expect(adapter.quote(authorizedInput!)).rejects.toMatchObject({
-        code: "upload_failure",
+        code: "unexpected_ui_state",
         payload: {
           vendor: "oshcut",
-          reason: "evaluation_drawing_not_supported",
+          reason: "oshcut_portal_automation_disabled",
         },
       });
     } finally {

@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { resolveRequirementProcess } from "../partContext.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { throwIfProviderAborted } from "../providerAbort.js";
@@ -338,21 +339,27 @@ function finiteOutput(
 }
 
 /**
- * Live-harness evaluation definition: the generic workflow definition plus the
- * report-only cart cleanup, so candidates are flagged for manual inspection.
+ * Dormant evaluation scaffolding. OVD-1022 blocks the kernel and every
+ * mutating hook; cleanup also refuses before any page access.
  */
 export function buildOshcutEvaluationDefinition(workflow: PortalQuoteWorkflow): ProviderPortalDefinition {
   const base = buildPortalWorkflowDefinition(workflow);
   return {
     ...base,
     selectors: { ...base.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS } },
-    hooks: { ...base.hooks, cleanup: cleanupOshcutCart },
+    hooks: {
+      ...base.hooks,
+      beforeUpload: async () => { refuseOshcutPortalAutomation(); },
+      configure: async () => { refuseOshcutPortalAutomation(); },
+      cleanup: cleanupOshcutCart,
+    },
   };
 }
 
 /**
  * Provider-local OSH Cut adapter behind the common `VendorAdapter.quote`
- * interface. Live evaluation stays local evidence that is never a customer
+ * interface. OVD-1022 unconditionally refuses quote() before the retained
+ * implementation below can run. Live evaluation stays local evidence that is never a customer
  * offer. Production dispatch (OVD-677) is default-off: it reaches the
  * production portal only behind a current generic provider-dispatch
  * authorization for the reviewed OSH Cut envelope, which in turn needs an
@@ -373,6 +380,7 @@ export class OshcutAdapter extends VendorAdapter {
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    refuseOshcutPortalAutomation();
     const eligibility = assessOshcutEligibility(input);
     if (eligibility.state !== "eligible") {
       return finiteOutput(

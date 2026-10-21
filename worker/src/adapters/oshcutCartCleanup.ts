@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import type {
   ProviderPortalCleanupCapability,
   ProviderPortalCleanupOutcome,
@@ -15,9 +16,15 @@ export const OSHCUT_CART_CLEANUP_SELECTORS = Object.freeze({
   partRow: Object.freeze({ selector: OSHCUT_CART_ROW, uploadedRows: true, reportOnly: true }),
 }) satisfies NonNullable<ProviderPortalDefinition["selectors"]["cleanup"]>;
 
-/** The kernel reports candidate names/counts; no remove or confirm is declared. */
+/** Portal cleanup is disabled pending OVD-1022, including read-only counts. */
 export async function cleanupOshcutCart(
   cleanup: ProviderPortalCleanupCapability,
 ): Promise<ProviderPortalCleanupOutcome> {
-  return { removed: 0, remaining: await cleanup.count("partRow") };
+  refuseOshcutPortalAutomation();
+  return reportOshcutCartCleanup(await cleanup.count("partRow"));
+}
+
+/** Pure report projection retained for isolated tests; never reads a portal page. */
+export function reportOshcutCartCleanup(remaining: number): ProviderPortalCleanupOutcome {
+  return { removed: 0, remaining };
 }
