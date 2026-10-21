@@ -382,6 +382,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     controls,
     headerActions,
     onSelect,
+    onScopeChange,
   }: {
     requestedByDate?: string | null;
     options?: Array<{
@@ -397,8 +398,9 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     } | null;
     activePreset?: string | null;
     deadline?: { date: string | null; state: string } | null;
-    controls?: ReactNode;
+    controls?: ReactNode | ((counts: { on_time: number; unconfirmed: number; late: number }, deadline: string | null) => ReactNode);
     headerActions?: ReactNode;
+    onScopeChange?: (scope: "domestic" | "global") => void;
     onSelect?: (option: unknown) => void;
   }) => {
     lastQuoteDecisionPanelProps = {
@@ -411,13 +413,18 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       deadline,
       requestedByDate,
       onSelect,
+    onScopeChange,
     };
 
     return (
       <div data-testid="quote-decision-panel">
         Quote decision panel
         {headerActions}
-        {controls}
+        <button onClick={() => onScopeChange?.("global")}>Show all sourcing</button>
+        {/* Mirrors the real panel: the view deadline prefers the part deadline over the Need by filter. */}
+        {typeof controls === "function"
+          ? controls({ on_time: 1, unconfirmed: 2, late: 3 }, deadline?.date ?? requestedByDate ?? null)
+          : controls}
         <button type="button" onClick={() => onSelect?.(null)}>
           Clear quote selection
         </button>
@@ -435,6 +442,8 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     requestedByDate,
     disabled,
     dueDateHelpText,
+    deadlineCounts,
+    viewDeadline,
     onScopeChange,
     onModeChange,
     onRequestedByDateChange,
@@ -443,11 +452,14 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     requestedByDate?: string | null;
     disabled?: boolean;
     dueDateHelpText?: string;
+    deadlineCounts?: { on_time: number; unconfirmed: number; late: number } | null;
+    viewDeadline?: string | null;
     onScopeChange?: (next: "domestic" | "global") => void;
     onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
+      <output data-testid="deadline-counts">{JSON.stringify({ deadlineCounts, viewDeadline })}</output>
       <label htmlFor="mock-due-by">Need by date</label>
       <input
         id="mock-due-by"
@@ -1794,11 +1806,14 @@ describe("ClientPart", () => {
       });
       await findReviewOrderButton("offer-1");
       expect(lastQuoteDecisionPanelProps?.deadline).toEqual({ date: "2026-01-15", state: "expired" });
+      // The Need by input stays bound to the customer's filter, not the panel's view deadline.
+      expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-15");
     });
 
     it("rolls the selection back and keeps the error state when persisting a selection fails", async () => {
       const button = await findReviewOrderButton("offer-1");
-      expect(button).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
       const persistedKey = (lastQuoteDecisionPanelProps?.selectedOption as { key: string }).key;
       api.setJobSelectedVendorQuoteOffer.mockRejectedValue(new Error("boom"));
       api.persistClientQuoteSelection.mockRejectedValue(new Error("boom"));
@@ -1829,9 +1844,53 @@ describe("ClientPart", () => {
       expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
     });
 
+    it("wires the panel scope action while preserving every fetched option", async () => {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      const quote = detail.part!.vendorQuotes[0];
+      quote.offers = ["domestic", "foreign", "unknown"].map((origin, index) => ({
+        ...quote.offers[0], id: `offer-${index + 1}`, offer_key: `origin-${origin}`, geographic_origin: origin,
+      }));
+      api.fetchPartDetailByJobId.mockResolvedValue(detail);
+      renderWithClient("/parts/job-1");
+      await screen.findByTestId("quote-decision-panel");
+      expect(screen.getByRole("button", { name: "US-only sourcing" })).toBeInTheDocument();
+      const count = lastQuoteDecisionPanelProps?.optionCount;
+      expect(count).toBe(3);
+      fireEvent.click(screen.getByRole("button", { name: "Show all sourcing" }));
+      await waitFor(() => expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global"));
+      expect(lastQuoteDecisionPanelProps?.optionCount).toBe(count);
+    });
+
+    it("passes panel deadline counts and its effective date to the function bar", async () => {
+      mockUsePartDeadline.mockReturnValue({ partId: "part-1", revision: null, recordedDate: "2026-01-15", activeDate: null, state: "expired" });
+      await findReviewOrderButton("offer-1");
+      expect(JSON.parse(screen.getByTestId("deadline-counts").textContent!)).toEqual({
+        deadlineCounts: { on_time: 1, unconfirmed: 2, late: 3 }, viewDeadline: "2026-01-15",
+      });
+    });
+
+    it("disables review for an unknown-origin saved selection until All sourcing is shown", async () => {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      const offer = detail.part!.vendorQuotes[0].offers[0];
+      // Geographic origin, not the supplier sourcing label, controls scope eligibility.
+      Object.assign(offer, { geographic_origin: "unknown" });
+      api.fetchPartDetailByJobId.mockResolvedValue(detail);
+      renderWithClient("/parts/job-1");
+      const button = await screen.findByRole("button", { name: "Review order" });
+      expect(screen.getByRole("button", { name: "US-only sourcing" })).toBeInTheDocument();
+      expect(lastQuoteDecisionPanelProps?.firstOption).toMatchObject({ geographicOrigin: "unknown" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Switch to All sourcing to see your selected quote");
+      expect(button).toHaveAttribute("title", "Switch to All sourcing to see your selected quote");
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
+      expect(button).not.toHaveAttribute("aria-describedby");
+    });
+
     it("enables the Review order button when the stored selection is still current", async () => {
       const button = await findReviewOrderButton("offer-1");
-      expect(button).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
       expect(button).not.toHaveAttribute("aria-describedby");
     });
   });

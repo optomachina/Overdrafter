@@ -210,6 +210,20 @@ export function getDeadlineStatus(
   return "unconfirmed";
 }
 
+export type DeadlineStatusCounts = Record<"on_time" | "unconfirmed" | "late", number>;
+
+export function countDeadlineStatuses(
+  rows: readonly Pick<DeliveredComparisonRow, "arrival">[],
+  deadline: IsoCalendarDate | null,
+): DeadlineStatusCounts {
+  const counts: DeadlineStatusCounts = { on_time: 0, unconfirmed: 0, late: 0 };
+  for (const row of rows) {
+    const status = getDeadlineStatus(row, deadline);
+    if (status !== "no_deadline") counts[status] += 1;
+  }
+  return counts;
+}
+
 const DEADLINE_GROUP_RANK: Record<DeadlineStatus, number> = {
   on_time: 0,
   no_deadline: 0,
