@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { WorkerConfig } from "../types";
 //
 // OVD-989 and OVD-985: a B-size title block, in the order and at the columns `pdftotext -layout` prints it,
 // run through the deterministic extraction (no model, no network, no poppler).
@@ -27,7 +28,7 @@ const NEUTRAL_NAMES = ["upload.pdf", "bracket.pdf"] as const;
 
 async function extractSheet(sheet: string, fileName = "upload.pdf") {
   const extraction = await runHybridExtraction(
-    {
+    { config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: { id: "part-template", name: "template" } as PartRecord,
       cadFile: null,
       drawingFile: { original_name: fileName } as JobFileRecord,

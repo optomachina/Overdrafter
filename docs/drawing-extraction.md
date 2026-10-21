@@ -188,3 +188,19 @@ npm --prefix worker run extract:eval -- /path/to/drawing.pdf
 ```
 
 The tool runs the extraction prompt against the configured model(s), prints a structured comparison of field values, confidence scores, token usage, and estimated cost per model, and exits without writing to the database. It is intended for offline accuracy measurement against known-good drawings rather than live job processing.
+
+### Title-block approval switch
+
+`DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL` sets the worker's `titleBlockApprovalEnabled`.
+Only the exact string `1` enables it; unset, `0`, `true`, and whitespace-padded values
+leave it off. Title-block reads default to suggestions requiring review, with reason
+`title_block_approval_disabled`. Values and proof evidence are retained. The final
+approval gate applies this veto both after deterministic extraction and after model
+merging; model agreement cannot override it.
+
+General-tolerance table reads retain their raw text and numeric `valueInch`,
+with `reviewNeeded: true` and the same reason. These review markers also persist in stored payloads. Explicit feature tolerances
+and non-title-block approval paths are unaffected by the switch. With `1`, the
+existing I1–I7 proof checks and tolerance checks remain in force. The switch is not
+an endorsement of the known round-18 geometry/heading holes; the flag regression
+suite records those as expected failures while approval is enabled.

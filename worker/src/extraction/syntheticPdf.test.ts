@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { WorkerConfig } from "../types";
 //
 // OVD-985 and OVD-989: small synthetic PDFs written for the tests (worker/test-support/minimalPdf.ts) and read
 // by real poppler: pdftotext -layout for the text, pdftotext -bbox for the word boxes. They cover what the text
@@ -63,7 +64,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
 
   async function read(sheet: SyntheticSheetOptions = {}, options: MinimalPdfOptions = {}) {
     const pdfText = await pdfTextOf(syntheticSheet(sheet), options);
-    return { pdfText, signals: inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }) };
+    return { pdfText, signals: inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText }) };
   }
 
   const FOUR_PLACE_DIAMETER = "Ø.1875 THRU";
@@ -191,7 +192,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         for (const page of pdfText.pages) {
           delete (page as { words?: unknown }).words;
         }
-        return inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+        return inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
       };
       const emptyMaterial = await layoutOnly(syntheticSheet({ material: null, extra: heatTreat }));
       expect(emptyMaterial.material).toMatchObject({ value: null, reviewNeeded: true });
@@ -224,7 +225,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       const items = [...dimensionField(size), ...syntheticSheet({ material: null, extra: label })];
       const pdfText = await pdfTextOf(items);
-      const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
       expect(signals.material.value).toBeNull();
       expect(signals.material.reviewNeeded).toBe(true);
     });
@@ -254,7 +255,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const page of pdfText.pages) {
         delete (page as { words?: unknown }).words;
       }
-      return inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      return inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
     }
 
     it("leaves an empty MATERIAL empty and flagged, not 'HEAT TREAT RC 40-45'", async () => {
@@ -351,8 +352,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(pdfText.pages[0]?.words?.length ?? 0).toBeGreaterThan(0);
       const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
       return [
-        ["word boxes", inferDrawingSignalsFromPdf({ baseName: "upload", pdfText })],
-        ["layout text", inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: layoutText })],
+        ["word boxes", inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText })],
+        ["layout text", inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: layoutText })],
       ] as const;
     }
 
@@ -433,7 +434,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
       const extract = (text: PdfTextExtraction) =>
         runHybridExtraction(
-          { part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
+          { config: { titleBlockApprovalEnabled: true } as WorkerConfig, part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
           { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
         );
       return [
@@ -554,7 +555,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(pdfText.pages[0]?.words?.some((word) => word.text === "MATERIAL:ALUMINUM")).toBe(true);
       const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
       for (const text of [pdfText, layoutText]) {
-        const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: text });
+        const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: text });
         expect(signals.partNumber).toMatchObject({ value: "ABC-001", reviewNeeded: !fullyRead || text === layoutText });
         expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: !fullyRead || text === layoutText });
         expect(signals.material).toMatchObject({ value: "ALUMINUM", reviewNeeded: !fullyRead || text === layoutText });
@@ -571,7 +572,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
 
     it("is read under REV from poppler's word boxes, with a 24 pt number beside it", async () => {
       const pdfText = await pdfTextOf([...block, { x: 900, y: 735, size: 24, text: "A" }]);
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: !fullyRead });
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: !fullyRead });
     });
 
     it("is read under REV from layout text alone when the values are set like the labels around them", async () => {
@@ -584,17 +585,17 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const page of pdfText.pages) {
         delete (page as { words?: unknown }).words;
       }
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: true });
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText }).revision).toMatchObject({ value: "A", reviewNeeded: true });
     });
 
     it("is not the border's marker: the row of markers and its last marker under an empty REV are dropped", async () => {
       const markers = ["8", "7", "6", "5", "4", "3", "2"].map((text, index): PdfTextItem => ({ x: 100 + index * 140, y: 790, size: 7, text }));
       const pdfText = await pdfTextOf([...block, ...markers, { x: 905, y: 800, size: 7, text: "1" }], { height: 820 });
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText }).revision.value).not.toBe("1");
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText }).revision.value).not.toBe("1");
       for (const page of pdfText.pages) {
         delete (page as { words?: unknown }).words;
       }
-      const layout = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+      const layout = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
       expect(layout.revision.value).not.toBe("1");
       expect(layout.revision.reviewNeeded).toBe(true);
     });
@@ -635,7 +636,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
       const extract = (text: PdfTextExtraction) =>
         runHybridExtraction(
-          { part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
+          { config: { titleBlockApprovalEnabled: true } as WorkerConfig, part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
           { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
         );
       return [
@@ -864,7 +865,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
   });
 
   describe("approval requires complete cell evidence", () => {
-    const infer = (pdfText: PdfTextExtraction, baseName = "upload") => inferDrawingSignalsFromPdf({ pdfText, baseName });
+    const infer = (pdfText: PdfTextExtraction, baseName = "upload") => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, pdfText, baseName });
     const combine = (first: PdfTextExtraction, second: PdfTextExtraction): PdfTextExtraction => ({
       ...first, pageCount: 2, drawingFullyRead: first.drawingFullyRead && second.drawingFullyRead,
       pages: [first.pages[0]!, { ...second.pages[0]!, page: 2 }],
@@ -1049,7 +1050,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     it("grey compound border and zone ticks approve ABC-001 and SAMPLE PLATE", async () => {
       const data = await pdfTextOf(items, { paint: frame });
       expect(data.pages[0]!.vectorGeometry?.issues).toEqual([]);
-      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data });
       for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead });
     });
     it.each([
@@ -1058,7 +1059,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ["clip_path", "q 100 360 40 20 re W n 0 G 90 370 m 150 370 l S Q"],
     ])("the compound border plus local %s reviews only material", async (cause, paintAfter) => {
       const data = await pdfTextOf(items, { paint: frame, paintAfter });
-      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data });
       for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead || field === "material" });
       expect(result.material.reasons).toContain(`geometry_${cause}`);
     });
@@ -1069,7 +1070,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ], { paint: frame+" 0.95 G 90 367 m 350 367 l S" });
       expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 425 });
       expect(data.pages[0]!.vectorGeometry?.issues).toEqual([]);
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
   });
 
@@ -1087,7 +1088,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     ])("reads %s rules through Cairo and vetoes cross-cell binding", async (_name, paint) => {
       const data = await pdfTextOf(items, { paint: `0 G 0.5 w ${paint}` });
       expect(data.pages[0]!.borders?.some((border) => border.x0 <= 90 && border.x1 >= 350 && Math.abs(border.y-625) < 1)).toBe(true);
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
 
     it.each([
@@ -1097,7 +1098,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     ])("later %s cannot empty the rule list or reopen approval", async (_name, paintAfter) => {
       const data = await pdfTextOf(items, { rules: [{ x0: 90, x1: 350, y0: 625, y1: 625 }], paintAfter });
       expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 625 });
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
 
     it("CropBox word boxes and rules share a frame and retain the divider veto", async () => {
@@ -1108,7 +1109,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(data.pages[0]!.words?.find((word) => word.text === "MATERIAL")?.xMin).toBe(100);
       expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 325 });
       expect(data.pages[0]!.vectorGeometry?.complete).toBe(true);
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
 
     it.each([15, 20])("CropBox inset %s cannot create a phantom closing rule that drops CLASS 2", async (inset) => {
@@ -1118,12 +1119,12 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         { x: 250, y: 628+inset, size: 9, text: "CLASS 2" },
       ], { cropBox: [0, 0, 1224, 792-inset], rules: [{ x0: 50, x1: 400, y0: 644+inset, y1: 644+inset }] });
       expect(data.pages[0]!.borders).toContainEqual({ x0: 50, x1: 400, y: 644 });
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).finish.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).finish.reviewNeeded).toBe(true);
     });
 
     it("a Form XObject in the region cannot supply complete geometry", async () => {
       const data = await pdfTextOf(items, { formPaint: "0 G 0.5 w 90 167 m 350 167 l S" });
-      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data });
       expect(result.material.reviewNeeded).toBe(true);
       expect(result.material.reasons).toContain("title_block_geometry_incomplete");
     });
@@ -1135,7 +1136,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         { x: 100, y: 630, size: 9, text: "ANODIZE BLACK" },
         { x: 100, y: 644, size: 6, text: "FINISH" },
       ]);
-      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
   });
 

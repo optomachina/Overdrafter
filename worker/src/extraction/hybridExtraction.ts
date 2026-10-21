@@ -210,6 +210,7 @@ export async function runHybridExtraction(
   const drawingSignals = inferDrawingSignalsFromPdf({
     baseName: inferredBase,
     pdfText: input.pdfText ?? null,
+    titleBlockApprovalEnabled: input.config?.titleBlockApprovalEnabled,
   });
 
   const parsedToleranceValueInch = drawingSignals.tightestToleranceValueInch;
@@ -219,6 +220,7 @@ export async function runHybridExtraction(
       : null;
 
   const warnings = [...drawingSignals.warnings];
+  if (drawingSignals.tightestToleranceReviewNeeded) warnings.push("Title-block tolerance approval is disabled; review the suggested tolerance.");
   let modelResult: DrawingModelExtractionResult | null = null;
 
   if (
@@ -307,6 +309,7 @@ export async function runHybridExtraction(
   }
 
   finalizeExtractionApproval({
+    titleBlockApprovalEnabled: input.config?.titleBlockApprovalEnabled,
     fields: mergedFields,
     deterministicFields: Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, drawingSignals[name]])),
   });
@@ -422,6 +425,10 @@ export async function runHybridExtraction(
       confidence: drawingSignals.generalTolerance ? 0.68 : input.drawingFile ? 0.2 : 0.1,
     },
     tightestTolerance: {
+      ...(drawingSignals.tightestToleranceReviewNeeded ? {
+        reviewNeeded: true,
+        reasons: drawingSignals.tightestToleranceReasons,
+      } : {}),
       raw: drawingSignals.tightestTolerance,
       // OVD-976: valueInch comes from the unit-aware parser. Never re-derive it from the raw text,
       // which would drop the drawing units; an unresolved tolerance stays null so the gate blocks it.

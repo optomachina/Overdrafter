@@ -55,6 +55,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: "test",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: true,
     drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,

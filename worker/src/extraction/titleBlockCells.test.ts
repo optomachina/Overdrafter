@@ -32,7 +32,7 @@ function wordRead(words: PdfWord[], field: CellField): CellRead {
 }
 
 function infer(text: string, baseName = "upload") {
-  return inferDrawingSignalsFromPdf({ baseName, pdfText: pdfTextOf(text) });
+  return inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName, pdfText: pdfTextOf(text) });
 }
 
 /**
@@ -287,7 +287,7 @@ describe("title block cells", () => {
     it("does not take a revision from a filename stem that is an approvals label", () => {
       // The REV cell is empty, so the filename stem is consulted: it supplies the part number but not "QA".
       const sheet = layoutSheet([[0, "DWG. NO."], [30, "REV"]], "", [[40, "SHEET 1 OF 1"]]);
-      const signals = inferDrawingSignalsFromPdf({ baseName: "1093-05589-QA", pdfText: pdfTextOf(sheet) });
+      const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1093-05589-QA", pdfText: pdfTextOf(sheet) });
       expect(signals.partNumber.value).toBe("1093-05589");
       expect(signals.partNumber.reasons).toContain("filename_stem");
       expect(signals.revision.value).toBeNull();
@@ -296,7 +296,7 @@ describe("title block cells", () => {
 
     it("still takes a real revision from the filename stem when the REV cell is empty", () => {
       const sheet = layoutSheet([[0, "DWG. NO."], [30, "REV"]], "", [[40, "SHEET 1 OF 1"]]);
-      const signals = inferDrawingSignalsFromPdf({ baseName: "1093-05589-02", pdfText: pdfTextOf(sheet) });
+      const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1093-05589-02", pdfText: pdfTextOf(sheet) });
       expect(signals.revision.value).toBe("02");
       expect(signals.revision.reasons).toContain("filename_stem");
     });
@@ -650,7 +650,7 @@ describe("title block cells", () => {
         [[40, "SCALE 1:1"], [70, "SHEET 1 OF 2"]],
       );
     const inferNamedPages = (baseName: string, ...texts: string[]) =>
-      inferDrawingSignalsFromPdf({
+      inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
         baseName,
         pdfText: {
           pageCount: texts.length,
@@ -1673,7 +1673,7 @@ describe("title block cells", () => {
           // Through the whole inference, as the review ran it: no part number from the cell, so the field is flagged.
           const text = buildWordLines(words, 1).map((line) => line.raw).join("\n");
           const pdfText = pdfTextOf(text);
-          const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: { ...pdfText, pages: pdfText.pages.map((sheet) => ({ ...sheet, words })) } });
+          const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: { ...pdfText, pages: pdfText.pages.map((sheet) => ({ ...sheet, words })) } });
           expect(signals.partNumber.value).not.toBe("QTY");
           expect(signals.partNumber.reviewNeeded).toBe(true);
           expect(signals.reviewFields).toContain("partNumber");
@@ -1749,7 +1749,7 @@ describe("title block cells", () => {
 
     it("reads it whole through the signals, and does not store a cut specification", () => {
       const words = [...label("FINISH", 330, 730), ...value("ANODIZE, BLACK", 340, 738), ...value("MIL-A-8625 TYPE III", 340, 750)];
-      const signals = inferDrawingSignalsFromPdf({
+      const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
         baseName: "upload",
         pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true, words }] },
       });

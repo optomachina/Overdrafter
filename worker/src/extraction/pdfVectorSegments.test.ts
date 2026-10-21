@@ -19,7 +19,7 @@ function infer(paint: string) {
     pages: [{ page: 1, text: cells.map(([, label, value]) => `${label}\n${value}`).join("\n"),
       words: cells.flatMap(([, label, value, y]) => [...phrase(label, 100, y), ...phrase(value, 100, y+20)]),
       wordGeometryComplete: true, ocrText: "", ocrStatus: "ok", ...parse(paint) }] };
-  return inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+  return inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
 }
 function expectOnlyMaterialReview(paint: string, cause: string) {
   const result = infer(path(frame)+paint);
@@ -67,7 +67,7 @@ describe("segment-local vector proof", () => {
       for (const paint of [divider, divider+path("M 90 120 L 350 120", "white"), divider+'<image x="100" y="120" width="20" height="20"/>']) {
         const data = parse(paint);
         expect(data.borders).toContainEqual({ x0: 90, x1: 350, y: 120 });
-        const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: {
+        const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: {
           pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false,
           pages: [{ page: 1, text: "MATERIAL\nLOT CODE A123", ocrText: "", ocrStatus: "ok", wordGeometryComplete: true,
             words: [...phrase("MATERIAL", 100, 100), ...phrase("LOT CODE A123", 100, 140)], ...data }],

@@ -823,7 +823,7 @@ describe("pdfDrawing", () => {
   });
 
   it("extracts title-block values from the 1093-05589 regression layout", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: PRIMARY_REGRESSION_FIXTURE,
     });
@@ -857,7 +857,7 @@ describe("pdfDrawing", () => {
     const cellEdge = 58;
     const at = (column: number, text: string) => " ".repeat(column) + text;
 
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "column-bleed",
       pdfText: {
         pageCount: 1,
@@ -888,7 +888,7 @@ describe("pdfDrawing", () => {
   it("reads a full value when its label sits alone on a shorter line", () => {
     // The MATERIAL label is alone above its value. Clipping the value row to
     // the label row's width used to truncate "6061 Alloy" to "6061".
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "label-above-value",
       pdfText: {
         pageCount: 1,
@@ -914,7 +914,7 @@ describe("pdfDrawing", () => {
   });
 
   it("rejects finish specs and approval text as part number and finish winners", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: PRIMARY_REGRESSION_FIXTURE,
     });
@@ -926,7 +926,7 @@ describe("pdfDrawing", () => {
   });
 
   it("rescues title-block fields and tolerance from OCR text when layout anchors are noisy", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: {
         pageCount: 1,
@@ -975,13 +975,13 @@ describe("pdfDrawing", () => {
       "NOTES: 1. TEST COUPON CUT FROM 6061 Alloy BAR STOCK.",
       "2. ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2 SAMPLE PANEL ONLY.",
     ];
-    const flagged = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: { pageCount: 1, pages: [{ page: 1, text: layout.join("\n") }] } });
+    const flagged = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: { pageCount: 1, pages: [{ page: 1, text: layout.join("\n") }] } });
     for (const field of ["material", "finish"] as const) {
       expect(flagged[field], field).toMatchObject({ reviewNeeded: true, confidence: 0.2 });
       expect(flagged.reviewFields).toContain(field);
     }
 
-    const approvedCell = inferDrawingSignalsFromPdf({
+    const approvedCell = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "upload",
       pdfText: { pageCount: 1, pages: [{ page: 1, text: ["FINISH  AS MACHINED", "", ...layout.slice(3)].join("\n") }] },
     });
@@ -991,7 +991,7 @@ describe("pdfDrawing", () => {
   });
 
   it("keeps a drawing candidate for review when the filename disagrees", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: {
         pageCount: 1,
@@ -1046,7 +1046,7 @@ describe("pdfDrawing", () => {
 
 describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   function tolerance(lines: string[]) {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1000-00001-A",
       pdfText: withMonospaceGeometry(pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"))),
     });
@@ -1530,7 +1530,7 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   describe("linear time on hostile text", () => {
     const BOUND_MS = 500;
     const read = (text: string) =>
-      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
+      inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
     // V8 can compile a regex differently depending on the first long text it reads in the process: a
     // lookbehind over blanks was linear after a text with blanks and quadratic on a run of tabs after
     // a blank-free one. Each case reads a blank-free text of 2000 characters first (and the block does
@@ -1619,10 +1619,10 @@ describe("title block lines of a document with many pages (OVD-989)", { timeout:
   const time = (pages: number, runs = 3) => {
     const pdfText = document(pages);
     let ms = Number.POSITIVE_INFINITY;
-    let signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
+    let signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText });
     for (let run = 0; run < runs; run += 1) {
       const started = performance.now();
-      signals = inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText });
+      signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText });
       ms = Math.min(ms, performance.now() - started);
     }
     return { ms, signals };
@@ -1642,8 +1642,8 @@ describe("title block lines of a document with many pages (OVD-989)", { timeout:
     // times lines would be 16 times that again, at any speed of machine. The two are timed alternately, and the floor
     // keeps noise on the fast one from deciding it.
     const ratio = slowdown(
-      () => inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText: fewPages }),
-      () => inferDrawingSignalsFromPdf({ baseName: "bracket", pdfText: manyPages }),
+      () => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText: fewPages }),
+      () => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText: manyPages }),
       { floorMs: 40 },
     );
     expect(ratio).toBeLessThan(8);

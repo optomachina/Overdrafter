@@ -176,6 +176,8 @@ export type ExtractedDrawingSignals = {
   tightestToleranceValueInch?: number | null;
   tightestToleranceUnit?: ToleranceUnit | null;
   tightestToleranceDrawingUnits?: DrawingUnits | null;
+  tightestToleranceReviewNeeded?: boolean;
+  tightestToleranceReasons?: string[];
   quoteDescription: string | null;
   quoteFinish: string | null;
   reviewFields: SupportedReviewField[];
@@ -1078,6 +1080,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const { candidate, unit } = resolved;
   return {
     raw: `±${candidate.printed.includes("/") ? candidate.printed : candidate.value}${unit === "in" ? "" : ` ${UNIT_LABEL[unit]}`}`,
+    titleBlockProof: candidate.rowPlaces !== null,
     valueInch: resolved.storedInches,
     unit,
     drawingUnits,
@@ -2365,6 +2368,7 @@ export async function renderPdfPreviewAssets(
 export function inferDrawingSignalsFromPdf(input: {
   baseName: string;
   pdfText: PdfTextExtraction | null;
+  titleBlockApprovalEnabled?: boolean;
 }): ExtractedDrawingSignals {
   const fallbackTitle = titleCaseFromStem(input.baseName);
 
@@ -2438,7 +2442,7 @@ export function inferDrawingSignalsFromPdf(input: {
       debugCandidates: {},
     };
     const fields = Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, fallback[name]]));
-    finalizeExtractionApproval({ fields });
+    finalizeExtractionApproval({ fields, titleBlockApprovalEnabled: input.titleBlockApprovalEnabled });
     Object.assign(fallback, fields);
     return fallback;
   }
@@ -2569,9 +2573,11 @@ export function inferDrawingSignalsFromPdf(input: {
     dimensionText: joinedText,
   }) : null;
   const approval = finalizeExtractionApproval({
+    titleBlockApprovalEnabled: input.titleBlockApprovalEnabled,
     fields: fieldResults,
     cellProof: { geometryByPage: new Map(input.pdfText.pages.map((page) => [page.page, page.vectorGeometry])), reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
     tolerance: {
+      titleBlockProof: inferredTightestTolerance?.titleBlockProof,
       valueInch: inferredTightestTolerance?.valueInch ?? null,
       independentValueInch: independentTolerance?.valueInch ?? null,
       independentUnresolved: !independentComplete || (independentTolerance !== null && independentTolerance.valueInch === null),
@@ -2579,7 +2585,7 @@ export function inferDrawingSignalsFromPdf(input: {
     },
   });
   // A tolerance is a document-wide minimum: unread or contradictory evidence blocks action.
-  const tightestTolerance = inferredTightestTolerance && !approval.toleranceApproved
+  const tightestTolerance = inferredTightestTolerance && !approval.toleranceProven
     ? { ...inferredTightestTolerance, valueInch: null, unit: "unknown" as const }
     : inferredTightestTolerance;
 
@@ -2631,6 +2637,10 @@ export function inferDrawingSignalsFromPdf(input: {
     process: fieldResults.process,
     generalTolerance: toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null,
     tightestTolerance: tightestTolerance?.raw ?? null,
+    ...(approval.toleranceApprovalDisabled ? {
+      tightestToleranceReviewNeeded: true,
+      tightestToleranceReasons: ["title_block_approval_disabled"],
+    } : {}),
     tightestToleranceValueInch: tightestTolerance?.valueInch ?? null,
     tightestToleranceUnit: tightestTolerance?.unit ?? null,
     tightestToleranceDrawingUnits: tightestTolerance?.drawingUnits ?? null,

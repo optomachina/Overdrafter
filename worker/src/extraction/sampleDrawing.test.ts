@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { WorkerConfig } from "../types";
 //
 // Real-drawing evidence for the extraction step of the friend journey (OVD-968):
 // the deterministic PDF-text path run on the scrubbed quoted-sample drawing.
@@ -94,7 +95,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
 
   function extractAs(fileName: string) {
     return runHybridExtraction(
-      {
+      { config: { titleBlockApprovalEnabled: true } as WorkerConfig,
         part: { id: "part-sample", name: "sample" } as PartRecord,
         cadFile: null,
         drawingFile: { original_name: fileName } as JobFileRecord,
@@ -230,7 +231,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
   // on exact columns. The text layer poppler printed here is scaled and read again.
   const extractScaled = (factor: number) =>
     runHybridExtraction(
-      {
+      { config: { titleBlockApprovalEnabled: true } as WorkerConfig,
         part: { id: "part-sample", name: "sample" } as PartRecord,
         cadFile: null,
         drawingFile: { original_name: "upload.pdf" } as JobFileRecord,
@@ -277,7 +278,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     const PITCHES = Array.from({ length: 48 }, (_, index) => (index + 1) / 2);
 
     it.each(PITCHES)("never reports a wrong field without a review flag at -fixed %s", (pitch) => {
-      const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: pdfTextOf(layoutAt(pitch)) });
+      const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: pdfTextOf(layoutAt(pitch)) });
       const truth: Record<"partNumber" | "revision" | "material" | "finish", string> = TRUTH_FIELDS;
       for (const field of Object.keys(truth) as Array<keyof typeof truth>) {
         const signal = signals[field];

@@ -72,6 +72,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryProfileLockWaitMs: 0,
     openAiApiKey: "test-openai-key",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: true,
     ...overrides,
   };
@@ -83,7 +84,7 @@ describe("runHybridExtraction", () => {
   });
 
   it("derives fallback extraction details from the available CAD filename", async () => {
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile({
         original_name: "optic-bracket_lower.step",
@@ -190,7 +191,7 @@ describe("runHybridExtraction", () => {
   });
 
   it("prefers the drawing filename when present and raises confidence scores", async () => {
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile(),
       drawingFile: makeFile({
@@ -271,7 +272,7 @@ describe("runHybridExtraction", () => {
       debugCandidates: {},
     });
 
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile(),
       drawingFile: makeFile({
@@ -371,6 +372,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           openAiApiKey: null,
           anthropicApiKey: "test-anthropic-key",
           openRouterApiKey: null,
@@ -581,6 +583,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           openAiApiKey: null,
           anthropicApiKey: "test-anthropic-key",
           openRouterApiKey: null,
@@ -613,6 +616,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           drawingExtractionModel: "claude-sonnet-4-6",
           openAiApiKey: "test-openai-key",
           anthropicApiKey: null,
@@ -642,12 +646,12 @@ describe("runHybridExtraction", () => {
     };
     const beforeModelAttempt = vi.fn(async () => undefined);
     const seen = vi.fn().mockResolvedValue(null);
-    await runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: seen });
+    await runHybridExtraction({ ...input, config: { ...input.config, titleBlockApprovalEnabled: true }, beforeModelAttempt }, { extractWithModel: seen });
     expect(seen.mock.calls[0][0].beforeModelAttempt).toBe(beforeModelAttempt);
 
     for (const stop of [new ExportControlExtractionDeniedError("export_review_pending"), new ExportControlLookupError("extraction")]) {
       await expect(
-        runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: vi.fn().mockRejectedValue(stop) }),
+        runHybridExtraction({ ...input, config: { ...input.config, titleBlockApprovalEnabled: true }, beforeModelAttempt }, { extractWithModel: vi.fn().mockRejectedValue(stop) }),
       ).rejects.toBe(stop);
     }
 
@@ -826,7 +830,7 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({ titleBlockApprovalEnabled: true }),
       },
       {
         extractWithModel,
@@ -854,7 +858,7 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
   });
 
   async function storedFromPages(pages: string[][]) {
-    const extraction = await runHybridExtraction({
+    const extraction = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart({ cad_file_id: "file-1", drawing_file_id: "file-2" }),
       cadFile: makeFile(),
       drawingFile: makeFile({ id: "file-2", original_name: "probe.pdf", file_kind: "drawing" }),

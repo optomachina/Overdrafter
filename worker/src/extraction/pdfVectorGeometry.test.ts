@@ -14,7 +14,7 @@ function input(content: string): PdfTextExtraction {
     words: [box("MATERIAL", 100, 100), ...phrase("AL 6061-T6", 100, 140)], ...parse(content),
   }] };
 }
-const infer = (pdfText: PdfTextExtraction) => inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+const infer = (pdfText: PdfTextExtraction) => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
 
 describe("I7 complete vector geometry", () => {
   it.each(["/Subtype /Form", "/Subtype /F#6frm", "/Type /ObjStm", "/Type /Obj#53tm", "/Encrypt 1 0 R"])(

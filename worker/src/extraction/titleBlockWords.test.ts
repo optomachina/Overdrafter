@@ -83,7 +83,7 @@ function pdfTextOf(text: string, words?: PdfWord[]): PdfTextExtraction {
   };
 }
 
-const infer = (text: string, words?: PdfWord[]) => inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: pdfTextOf(text, words) });
+const infer = (text: string, words?: PdfWord[]) => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: pdfTextOf(text, words) });
 
 describe("title block from word boxes", () => {
   describe("a 24 pt drawing number beside 9 pt labels", () => {

@@ -6,11 +6,12 @@ const CELL_FIELDS = new Set(["partNumber", "revision", "material", "finish"]);
 const comparable = (value: string | null) => value?.replace(/\s+/g, " ").trim().toUpperCase() ?? null;
 
 type ApprovalInput = {
+  titleBlockApprovalEnabled?: boolean;
   fields: Record<string, ExtractedFieldSignal>;
   /** Immutable deterministic verdicts, captured before model merging. */
   deterministicFields?: Record<string, ExtractedFieldSignal>;
   cellProof?: { geometryByPage: ReadonlyMap<number, PageVectorGeometry | undefined>; reads: readonly CellRead[]; independentReads: readonly CellRead[]; independentComplete: boolean; drawingProven: boolean };
-  tolerance?: { valueInch: number | null; independentValueInch: number | null; independentUnresolved?: boolean; drawingProven: boolean };
+  tolerance?: { valueInch: number | null; independentValueInch: number | null; independentUnresolved?: boolean; drawingProven: boolean; titleBlockProof?: boolean };
 };
 
 /**
@@ -18,7 +19,7 @@ type ApprovalInput = {
  * Suggestions/confidence never create proof. Every veto is monotonic, including unread geometry,
  * ambiguous revision roles, independent contradictions and placeholder/label values.
  */
-export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApproved: boolean } {
+export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApproved: boolean; toleranceProven: boolean; toleranceApprovalDisabled: boolean } {
   const reads = currentRevisionReads(input.cellProof?.reads ?? []);
   const independentReads = currentRevisionReads(input.cellProof?.independentReads ?? []);
   const frames = [...(input.cellProof?.geometryByPage.entries() ?? [])].filter(([, geometry]) =>
@@ -68,9 +69,17 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
       if (conflict) reasons.add("independent_source_conflict");
       if (!input.cellProof.independentComplete) reasons.add("independent_source_unread");
     }
+    // Apply after all proof paths, including deterministic evidence carried through model merging.
+    if (!input.titleBlockApprovalEnabled && (reasons.has("title_block_cell_proven") ||
+      (input.cellProof && CELL_FIELDS.has(name)))) {
+      reviewNeeded = true;
+      reasons.add("title_block_approval_disabled");
+    }
     input.fields[name] = { ...field, reviewNeeded, reasons: [...reasons] };
   }
   const tolerance = input.tolerance;
-  return { toleranceApproved: Boolean(tolerance?.drawingProven && !tolerance.independentUnresolved && tolerance.valueInch !== null &&
-    (tolerance.independentValueInch === null || tolerance.independentValueInch >= tolerance.valueInch)) };
+  const toleranceApprovalDisabled = !input.titleBlockApprovalEnabled && tolerance?.titleBlockProof === true;
+  const toleranceProven = Boolean(tolerance?.drawingProven && !tolerance.independentUnresolved && tolerance.valueInch !== null &&
+    (tolerance.independentValueInch === null || tolerance.independentValueInch >= tolerance.valueInch));
+  return { toleranceProven, toleranceApprovalDisabled, toleranceApproved: !toleranceApprovalDisabled && toleranceProven };
 }

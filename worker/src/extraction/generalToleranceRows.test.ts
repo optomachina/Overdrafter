@@ -44,7 +44,7 @@ function toleranceOf(
   lines: string[],
   options: { ocr?: boolean; pdfText?: PdfTextExtraction } = {},
 ) {
-  const signals = inferDrawingSignalsFromPdf({
+  const signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
     baseName: "upload",
     pdfText: withMonospaceGeometry(options.pdfText ?? pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"), { ocr: options.ocr })),
   });

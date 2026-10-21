@@ -14,7 +14,7 @@ function pdf(words: PdfWord[], text = "", ocrText = ""): PdfTextExtraction {
   return { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false,
     pages: [{ page: 1, text, ocrText, ocrStatus: "ok", words, vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true }] };
 }
-const infer = (pdfText: PdfTextExtraction) => inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
+const infer = (pdfText: PdfTextExtraction) => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText });
 function model(values: Partial<Record<keyof DrawingModelExtractionResult["fields"], string>>): DrawingModelExtractionResult {
   const result = Object.fromEntries(["description", "partNumber", "revision", "material", "finish", "process"].map((name) =>
     [name, { value: values[name as keyof typeof values] ?? null, confidence: 0.99, fieldSource: "title_block", reasons: [] }])) as DrawingModelExtractionResult["fields"];
@@ -24,7 +24,7 @@ function model(values: Partial<Record<keyof DrawingModelExtractionResult["fields
 async function hybrid(pdfText: PdfTextExtraction, answer: DrawingModelExtractionResult) {
   return runHybridExtraction({ part: { id: "part-1", name: "sample" } as PartRecord, cadFile: null,
     drawingFile: { original_name: "upload.pdf" } as JobFileRecord, pdfText, drawingPath: "/tmp/sample.pdf", runDir: "/tmp",
-    forceModelFallback: true, config: {} as WorkerConfig }, { extractWithModel: async () => answer });
+    forceModelFallback: true, config: { titleBlockApprovalEnabled: true } as WorkerConfig }, { extractWithModel: async () => answer });
 }
 
 describe("final extraction approval invariants", () => {
@@ -164,7 +164,7 @@ describe("round 17 confirmed approval regressions", () => {
     const deterministic = infer(pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)])).material;
     expect(deterministic.reviewNeeded).toBe(true);
     const fields = { material: { ...deterministic, confidence: 0.99, reviewNeeded: false, reasons: [] } };
-    finalizeExtractionApproval({ fields, deterministicFields: { material: deterministic } });
+    finalizeExtractionApproval({ titleBlockApprovalEnabled: true, fields, deterministicFields: { material: deterministic } });
     expect(fields.material.reviewNeeded).toBe(true);
   });
 
