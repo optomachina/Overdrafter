@@ -162,8 +162,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const epoch = useRef(0);
   useEffect(() => {
     // An open cancel confirmation belongs to the run it was opened for; confirming it after a switch would cancel the new run.
-    // The same holds for the 3D viewer: it must not pop open on the new run's model the moment that model arrives.
-    setEvents([]); setCommand(''); setConfirm(false); setViewer(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
+    setEvents([]); setCommand(''); setConfirm(false); inFlight.current = false; keys.current.clear(); return source.listen(batch => setEvents(previous => {
       const byId = new Map(previous.map(e => [`${e.runId}:${e.seq}`, e]));
       batch.filter(e => e.runId === runId).forEach(e => byId.set(`${e.runId}:${e.seq}`, e));
       return [...byId.values()].sort((a, b) => a.seq - b.seq);
@@ -175,6 +174,19 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   useEffect(() => { setError(''); return () => { epoch.current += 1; }; }, [source, runId]);
   const closeViewer = useCallback(() => setViewer(false), []), closeConfirm = useCallback(() => setConfirm(false), []);
   const heading = useRef<HTMLHeadingElement>(null);
+  const viewerRun = useRef({ source, runId }), focusHeadingAfterClose = useRef(false);
+  useEffect(() => {
+    const changed = viewerRun.current.source !== source || viewerRun.current.runId !== runId;
+    viewerRun.current = { source, runId };
+    if (changed && viewer) {
+      focusHeadingAfterClose.current = true;
+      setViewer(false);
+    } else if (!viewer && focusHeadingAfterClose.current) {
+      // Wait for dialog cleanup: synchronous artifacts can reuse its opener for another run.
+      focusHeadingAfterClose.current = false;
+      heading.current?.focus();
+    }
+  }, [source, runId, viewer]);
   const status = lastOf(events, (e): e is StatusEvent => e.type === 'status');
   const decisions = events.filter(e => e.type === 'decision_requested');
   const resolutions = events.filter(e => e.type === 'decision_resolved');

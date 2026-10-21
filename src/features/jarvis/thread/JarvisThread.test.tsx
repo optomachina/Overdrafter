@@ -838,4 +838,25 @@ describe('3D viewer dialog and the run it belongs to', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBeTruthy();
   });
+
+  it.each(['runId', 'source'] as const)('focuses the heading when %s changes and listen synchronously delivers artifacts', change => {
+    let currentRun = 'run';
+    const listen: EventSource['listen'] = push => {
+      push([{ ...artifact(1, 'png'), runId: currentRun }, { ...artifact(2, 'glb'), runId: currentRun }]);
+      return () => { };
+    };
+    const source: EventSource = { listen, retry: vi.fn() };
+    const client = { resolve: vi.fn(), control: vi.fn() };
+    const view = render(<JarvisThread source={source} client={client} runId={currentRun} />);
+    const opener = screen.getByRole('button', { name: 'OPEN 3D VIEW' });
+    opener.focus(); fireEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: '3D review' })).toBeTruthy();
+
+    if (change === 'runId') currentRun = 'other';
+    view.rerender(<JarvisThread source={change === 'source' ? { ...source } : source} client={client} runId={currentRun} />);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'OPEN 3D VIEW' })).toBe(opener);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Jarvis' }));
+  });
 });
