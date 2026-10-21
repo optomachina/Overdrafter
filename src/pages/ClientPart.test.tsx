@@ -314,7 +314,11 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       lastFailureMessage?: string | null;
     } | null;
   }) => {
-    if (diagnostics?.lifecycle === "extracting") {
+    if (!diagnostics || diagnostics.lifecycle === "succeeded") {
+      return null;
+    }
+
+    if (diagnostics.lifecycle === "queued" || diagnostics.lifecycle === "extracting") {
       return <div>Drawing extraction in progress</div>;
     }
 
@@ -336,7 +340,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       );
     }
 
-    return null;
+    return <div>Waiting for drawing metadata</div>;
   },
 }));
 
@@ -3724,6 +3728,37 @@ describe("ClientPart", () => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
     });
+  });
+
+  it("asks for material on a STEP-only upload with succeeded extraction and no stale drawing notice", async () => {
+    const detail = createDispatchReadyPartDetail([]);
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(createPartDetail({
+      ...detail,
+      job: { ...detail.job, status: "uploaded" },
+      files: [detail.part.cadFile],
+      part: {
+        ...detail.part,
+        approvedRequirement: null,
+        clientRequirement: {
+          description: "Bracket", partNumber: null, revision: null,
+          material: "Unknown material", finish: null, tightestToleranceInch: null,
+          process: null, notes: null, quantity: 1, quoteQuantities: [1], requestedByDate: null,
+        },
+        clientExtraction: {
+          lifecycle: "succeeded", hasCadFile: true, hasDrawingFile: false,
+          warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
+          lastFailureCode: null, lastFailureMessage: null,
+          extractedAt: null, failedAt: null, updatedAt: null,
+        },
+      },
+    }));
+
+    await renderClientPartOnTab();
+    expect(await screen.findByRole("heading", { name: "Confirm the material" })).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for drawing metadata")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", {
+      name: "This material is outside the launch scope",
+    })).not.toBeInTheDocument();
   });
 
   it("shows a failure notice when drawing extraction fails", async () => {

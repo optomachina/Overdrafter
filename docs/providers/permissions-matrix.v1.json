@@ -2,7 +2,7 @@
   "$schema": "./permissions-matrix.v1.schema.json",
   "schemaVersion": 1,
   "title": "ProviderPermissionsMatrixV1",
-  "checkedOn": "2026-10-11",
+  "checkedOn": "2026-10-21",
   "kill_switch_shipped": false,
   "killSwitch": {
     "issue": "OVD-722",
@@ -11,7 +11,7 @@
     "note": "Runtime engaged/disengaged state lives in OVD-722. This matrix only points at that switch and never copies it."
   },
   "derivation": {
-    "enabledForPaidAutomation": "true only when in_1_0 is true, permission_status is not cease_and_desist, and either tos_stance is allowed or written_permission.recorded is true"
+    "enabledForPaidAutomation": "true only when in_1_0 is true, permission_status is not cease_and_desist, and either tos_stance is allowed or written_permission.recorded is true or an owner override recorded on the row (Blaine)"
   },
   "providers": [
     {
@@ -31,15 +31,22 @@
         "published_address": "support@xometry.com"
       },
       "permission_status": "draft_outreach_prepared",
-      "date_checked": "2026-10-11",
+      "date_checked": "2026-10-21",
       "kill_switch_state": {
         "source": "OVD-722",
         "pointer": "private.provider_kill_switches row for xometry; flip with npm run provider:kill -- xometry --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "Legacy controlled-beta admission is not a matrix clearance. Partner API access is supplier/job-board scoped; ask only if useful. Controlled-beta Xometry traffic remains a ToS-risk path until written permission or a C&D."
+      "notes": "Owner reviewed Customer Service Agreement §7.1.2 and explicitly cleared quote-only automated quoting on his own accounts. The prohibited ToS stance is unchanged. Legacy controlled-beta admission remains separate. No vendor was contacted; agents never contact vendors.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-21",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "fictiv",
@@ -58,15 +65,22 @@
         "published_address": "help@fictiv.com"
       },
       "permission_status": "draft_outreach_prepared",
-      "date_checked": "2026-10-11",
+      "date_checked": "2026-10-21",
       "kill_switch_state": {
         "source": "OVD-722",
         "pointer": "private.provider_kill_switches row for fictiv; flip with npm run provider:kill -- fictiv --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "Stays false until written permission is recorded. Terms also prohibit scraping/downloading site data and using another user's account without authorization from that user and Fictiv."
+      "notes": "Owner reviewed the prior-consent clause and explicitly cleared quote-only automated quoting on his own accounts. No written vendor consent is recorded; the prior-consent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Terms also prohibit scraping/downloading site data and using another user's account without authorization from that user and Fictiv.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-21",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "quickparts",
@@ -84,15 +98,22 @@
         "published_url": "https://quickparts.com/contact/"
       },
       "permission_status": "draft_outreach_prepared",
-      "date_checked": "2026-10-11",
+      "date_checked": "2026-10-21",
       "kill_switch_state": {
         "source": "OVD-722",
         "pointer": "private.provider_kill_switches row for quickparts; flip with npm run provider:kill -- quickparts --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "Website terms restrict copying site materials. They do not expressly allow or ban authenticated automated quoting. Sales terms at https://quickparts.com/sales-terms-conditions/ also omit an automation clause. Outreach is optional but useful."
+      "notes": "Owner reviewed the terms clause and explicitly cleared quote-only automated quoting on his own accounts. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Website terms restrict copying site materials. They do not expressly allow or ban authenticated automated quoting. Sales terms at https://quickparts.com/sales-terms-conditions/ also omit an automation clause.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-21",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "weerg",

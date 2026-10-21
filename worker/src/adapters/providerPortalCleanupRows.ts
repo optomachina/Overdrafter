@@ -1,4 +1,4 @@
-import type { ElementHandle, Locator } from "playwright";
+import type { ElementHandle, Locator, Page } from "playwright";
 
 /** Candidates are evidence for manual cleanup, never authority to delete. */
 export class CleanupRowsUnproven extends Error {
@@ -11,12 +11,13 @@ export class CleanupRowsUnproven extends Error {
 /** Freeze only a uniquely identified upload; DOM novelty alone proves nothing. */
 export class UploadedPortalRows {
   private owned: ElementHandle<Node> | undefined;
+  readonly preUploadRows: Array<{ row: ElementHandle<Node>; fileName: string | null }> = [];
 
   private constructor(
     private readonly rows: Locator,
     private readonly before: ElementHandle<Node>[],
     private readonly documentRoot: ElementHandle<Node>,
-    private readonly stagedFileName: string,
+    readonly stagedFileName: string,
     private readonly fileNameSelector?: string,
   ) {}
 
@@ -25,10 +26,20 @@ export class UploadedPortalRows {
     root: Locator,
     stagedFileName: string,
     fileNameSelector?: string,
+    page?: Page,
+    rowSelector?: string,
   ): Promise<UploadedPortalRows> {
     const documentRoot = await root.elementHandle();
     if (!documentRoot) throw new Error("CleanupDocumentMissing");
-    return new UploadedPortalRows(rows, await rows.elementHandles(), documentRoot, stagedFileName, fileNameSelector);
+    const before = await rows.elementHandles();
+    if (page && rowSelector) {
+      for (const frame of page.frames()) {
+        if (frame !== page.mainFrame()) before.push(...await frame.locator(rowSelector).elementHandles());
+      }
+    }
+    const snapshot = new UploadedPortalRows(rows, before, documentRoot, stagedFileName, fileNameSelector);
+    for (const row of before) snapshot.preUploadRows.push({ row, fileName: await snapshot.fileName(row) });
+    return snapshot;
   }
 
   private async fileName(row: ElementHandle<Node>): Promise<string | null> {

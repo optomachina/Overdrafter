@@ -1,9 +1,23 @@
+import { hasToleranceLabel, trimDimensionPunctuation } from "./pdfParsing.js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { SupportedReviewField } from "../types.js";
+import { DRAWING_FIELD_NAMES, type SupportedReviewField } from "../types.js";
+import { buildWordLines, MAX_WORDS_TOTAL, parseBboxWords, type PdfWord } from "./pdfWords.js";
+import {
+  isLabelLikeToken,
+  currentRevisionReads,
+  readTitleBlockPages,
+  type CellField,
+  type CellRead,
+  type TitleBlockTextLine,
+  type TitleBlockBorder,
+} from "./titleBlockCells.js";
+
+import { pdfSourceGeometryIssues, readSvgGeometry, type PageVectorGeometry } from "./pdfVectorGeometry.js";
+import { finalizeExtractionApproval } from "./extractionApproval.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +37,8 @@ export const PDF_TOOL_TIMEOUT_MS = 30_000;
 export const PDF_TEXT_LAYER_MAX_PAGES = 50;
 /** Total budget for the pdftotext loop; pages not reached in time are not read. */
 export const PDF_TEXT_LAYER_TOTAL_TIMEOUT_MS = 60_000;
+/** Total budget for the word box pass (`pdftotext -bbox`); pages not reached in time keep the layout text only. */
+export const PDF_WORD_BOXES_TOTAL_TIMEOUT_MS = 30_000;
 /** Pages are rendered at no less than this resolution so small print is legible. */
 export const PDF_OCR_MIN_DPI = 200;
 /**
@@ -65,6 +81,17 @@ export type PdfTextPage = {
   ocrStatus: PdfOcrStatus;
   /** Present only when a fixed limit kept the page from being read. */
   ocrLimit?: PdfOcrLimit;
+  /**
+   * OVD-989: the text layer's words with their boxes in points, from `pdftotext -bbox`. Geometry only: the
+   * title block reader uses it when present, because `-layout` columns are squeezed where a word is set
+   * larger than its neighbours. Absent when the page has no text layer, when poppler could not print the
+   * boxes, or when the page has too many words. Complete boxes also gate numeric tolerance approval.
+   */
+  words?: PdfWord[];
+  borders?: TitleBlockBorder[];
+  vectorGeometry?: PageVectorGeometry;
+  /** True only when every word in the full-page bbox output was read successfully. */
+  wordGeometryComplete?: boolean;
 };
 
 export type PdfTextExtraction = {
@@ -150,6 +177,8 @@ export type ExtractedDrawingSignals = {
   tightestToleranceValueInch?: number | null;
   tightestToleranceUnit?: ToleranceUnit | null;
   tightestToleranceDrawingUnits?: DrawingUnits | null;
+  tightestToleranceReviewNeeded?: boolean;
+  tightestToleranceReasons?: string[];
   quoteDescription: string | null;
   quoteFinish: string | null;
   reviewFields: SupportedReviewField[];
@@ -425,6 +454,11 @@ const SUFFIX_TOKENS: ReadonlyArray<readonly [RegExp, ValueSuffix]> = [
 function readValueSuffix(lineRest: string): { suffix: ValueSuffix | null; text: string } {
   const opening = /^[ \t]*([[(][ \t]*)?/.exec(lineRest)?.[0] ?? "";
   const rest = lineRest.slice(opening.length);
+  // Another tolerance sign cannot begin any unit suffix. Dense callouts should not
+  // pay for every suffix pattern just to discover that there is no unit here.
+  if (rest.startsWith("±") || rest.startsWith("∓")) {
+    return { suffix: null, text: "" };
+  }
   for (const [pattern, suffix] of SUFFIX_TOKENS) {
     const token = pattern.exec(rest)?.[0];
     if (token === undefined) {
@@ -463,6 +497,13 @@ type ToleranceCandidate = {
   problem: "decimal-comma" | "scientific" | null;
   /** The bracketed inch side of a consistent dual dimension. */
   pairedInch: boolean;
+  /**
+   * OVD-989: the decimal places a general-tolerance table row covers ("THREE PLACE DECIMAL" or ".XXX"
+   * is 3), or null for any other value (a callout on a feature, a note).
+   */
+  rowPlaces: number | null;
+  /** Where the printed number begins in the text. */
+  numberStart: number;
 };
 
 function buildCandidate(text: string, start: number, numberStart: number, number: string): ToleranceCandidate | null {
@@ -493,18 +534,46 @@ function buildCandidate(text: string, start: number, numberStart: number, number
     suffixText: suffixText.replace(/^[ \t]+/, " ").replace(/μ/g, "µ"),
     problem: printed.includes(",") ? "decimal-comma" : scientific ? "scientific" : null,
     pairedInch: false,
+    rowPlaces: null,
+    numberStart,
   };
 }
 
 const PLUS_MINUS_VALUE = /(?:±|∓|\+[ \t]*\/[ \t]*[-−–]|\+[-−])\s*(\d+(?:[.,]\d+)?|[.,]\d+)/g;
-const DECIMAL_PLACE_PHRASE = /\b(?:TWO|THREE|FOUR) PLACE DECIMAL/gi;
+const DECIMAL_PLACE_PHRASE = /\b(TWO|THREE|FOUR) PLACE DECIMAL/gi;
+const PLACE_WORDS: Record<string, number> = { TWO: 2, THREE: 3, FOUR: 4 };
+// ".X", ".XX", "X.XXX": a general-tolerance table row labelled by the digits it covers.
+const X_ROW_LABEL = /(?:^|[^A-Z0-9])X?\.(X{1,4})[ \t]*$/i;
+// "X.X 0.3", "X.XX 0.10": a metric row labelled by the digits it covers, with no sign in the text layer.
+const SIGNLESS_X_ROW = /(?<![A-Z0-9.])X\.(X{1,4})[ \t]+(\d+(?:[.,]\d+)?|[.,]\d+)/gi;
+// "THREE PLACE DECIMAL ±.005": the sign and value that follow a row phrase are the row's own value.
+const PLACE_ROW_LABEL = /\b(TWO|THREE|FOUR)\s+PLACE\s+DECIMAL[\s+#]*$/i;
 // An angle label directly before the value ("ANGULAR ±.5", "ANGLES UNLESS NOTED ±.5", "90° ±.5").
 // Only filler words may sit between, so "ANGULAR AND LINEAR ±.005" or "ANGLE BRACKET LENGTH ±.005"
 // keep their (linear) value.
 const ANGULAR_LABEL =
   /(?:\b(?:ANGULAR|ANGLES?|DEG(?:REES?|S)?)\b(?:[ \t:.,=]+(?:TOL(?:ERANCES?|S)?|DIMENSIONS?|UNLESS|OTHERWISE|NOTED|SPECIFIED)\b)*|°)[ \t:.,=]*$/i;
 
-function collectToleranceCandidates(text: string) {
+// One linear scan decides whether any table row can exist, so a hostile line of plus-minus values pays
+// nothing for the row labels.
+const MAY_HAVE_TABLE_ROWS = /PLACE\s+DECIMAL|\.X/i;
+
+/**
+ * ".XX ±.01" or "THREE PLACE DECIMAL ±.005": the label directly before a sign names the places the row covers.
+ * Only a few characters are read, from the same line, so a long line stays linear.
+ */
+function rowPlacesBefore(text: string, start: number): number | null {
+  const before = text.slice(Math.max(0, start - 40), start).split("\n").pop() ?? "";
+  const xRow = X_ROW_LABEL.exec(before);
+  if (xRow) {
+    return xRow[1]!.length;
+  }
+  const wordRow = PLACE_ROW_LABEL.exec(before);
+  return wordRow ? (PLACE_WORDS[wordRow[1]!.toUpperCase()] ?? null) : null;
+}
+
+/** The values written with a plus-minus sign, in the order printed. */
+function collectSignedCandidates(text: string, mayHaveRows: boolean): ToleranceCandidate[] {
   const candidates: ToleranceCandidate[] = [];
   let previousEnd = 0;
   for (const match of text.matchAll(PLUS_MINUS_VALUE)) {
@@ -519,20 +588,342 @@ function collectToleranceCandidates(text: string) {
     }
     const candidate = buildCandidate(text, start, previousEnd - number.length, number);
     if (candidate) {
+      if (mayHaveRows) {
+        candidate.rowPlaces = rowPlacesBefore(text, start);
+      }
       candidates.push(candidate);
     }
   }
+  return candidates;
+}
 
+/** "THREE PLACE DECIMAL .005": the value that follows a row phrase, with or without a sign. */
+function collectPhraseCandidates(text: string): ToleranceCandidate[] {
+  const candidates: ToleranceCandidate[] = [];
   for (const match of text.matchAll(DECIMAL_PLACE_PHRASE)) {
     const from = (match.index ?? 0) + match[0].length;
     const read = /^[\s+#]{0,24}(\d+(?:[.,]\d+)?|[.,]\d+)/.exec(text.slice(from, from + 40));
     const candidate = read ? buildCandidate(text, match.index ?? 0, from + read[0].length - read[1]!.length, read[1]!) : null;
     if (candidate) {
+      candidate.rowPlaces = PLACE_WORDS[(match[1] ?? "").toUpperCase()] ?? null;
       candidates.push(candidate);
     }
   }
+  return candidates;
+}
 
+/**
+ * A metric table row whose plus-minus glyph is not in the text layer: "X.XX 0.10". The row label is followed
+ * directly by the value, so a row with a sign ("X.XX ±0.10") is not read twice.
+ */
+function collectSignlessRows(text: string): ToleranceCandidate[] {
+  const candidates: ToleranceCandidate[] = [];
+  for (const match of text.matchAll(SIGNLESS_X_ROW)) {
+    const number = match[2] ?? "";
+    const candidate = buildCandidate(text, match.index ?? 0, (match.index ?? 0) + match[0].length - number.length, number);
+    if (candidate) {
+      candidate.rowPlaces = match[1]!.length;
+      candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
+function collectToleranceCandidates(text: string) {
+  const mayHaveRows = MAY_HAVE_TABLE_ROWS.test(text);
+  const signedCandidates = collectSignedCandidates(text, mayHaveRows);
+  const phraseCandidates = collectPhraseCandidates(text);
+  const signlessRows = mayHaveRows ? collectSignlessRows(text) : [];
+  // Signed matches already arrive in source order. Only merging another source
+  // requires a new array and a sort (and preserves signed-first ordering on ties).
+  if (phraseCandidates.length === 0 && signlessRows.length === 0) {
+    return signedCandidates;
+  }
+  const candidates = [
+    ...signedCandidates,
+    ...phraseCandidates,
+    ...signlessRows,
+  ];
   return candidates.sort((left, right) => left.start - right.start);
+}
+
+/*
+ * OVD-989: which rows of a general-tolerance table apply.
+ *
+ * A table such as "TWO PLACE DECIMAL .01 / THREE PLACE DECIMAL .005 / FOUR PLACE DECIMAL .0010" is a
+ * default for dimensions printed with that many decimal places. A drawing whose dimensions use only two
+ * and three places is not toleranced by the four-place row, so reading the tightest row as the
+ * drawing's tightest tolerance denied every drawing made from a template that prints one.
+ *
+ * The rule can only err towards a tighter value. A row is dropped on positive evidence alone, and a
+ * missing number never counts as evidence, so reading more of the sheet than needed is always safe:
+ *
+ * T1 Readable: the whole drawing was read (drawingFullyRead: the page count is known, and every page's text layer
+ *    and OCR were read; a page that was not read may print the dimension that keeps a row), the text layer is not
+ *    OCR, no line was too long to scan, and at least MIN_READABLE_DIMENSIONS decimal numbers sit on lines that hold
+ *    only dimension callouts (numbers, "2X", R, Ø, THRU, TYP, hole tags such as A1). This gate is strict on
+ *    purpose: a miss only makes the sheet unreadable (T3).
+ * T2 Evidence: on a readable sheet, the most decimal places printed anywhere in the text, counting every
+ *    decimal number except the values of the table's own rows (".0010" in "FOUR PLACE DECIMAL .0010").
+ *    No line or word is skipped, and no number is dropped for what is glued to it ("Ø.1875", "SR.0625",
+ *    ".1875A", "1.2500"), so a dimension that shares a line with a note, a view label, a weight or the
+ *    table itself still counts. A row applies unless every decimal number printed has fewer places than
+ *    the row. An explicit "±" value that is not a table row is a tolerance on a feature and is kept.
+ *    A text layer can garble a decimal, and a garbled four-place dimension must not be what drops the
+ *    four-place row, so a fragment that is not a complete decimal counts as the places it may carry: a
+ *    separator then blanks then digits ("Ø. 1875"), digits split by blanks (".18 75"), a mantissa and an
+ *    exponent ("1.875E-1"), and a separator spelled with another character (a middle dot, a bullet, the
+ *    Arabic decimal separator, an ideographic full stop) is a separator.
+ * T3 When the sheet is not readable, a row of four or more places is not assumed to apply: it becomes
+ *    an unresolved value like any other unclear unit (P6), so the result is valueInch null, unless a
+ *    tighter explicit tolerance exists, and the OVD-683 beta gate asks the user. Rows of one to three
+ *    places are read as before (the tightest printed row), which is the safe direction for a quote and
+ *    changes nothing for a table without a four-place row.
+ * T4 Raster: a page with a text layer can also carry a raster view whose dimensions only OCR reads. OCR
+ *    digits are not trusted to drop a row, nor to set one in force. When the OCR text prints, as a dimension
+ *    callout ("2X Ø.1875 THRU", or "Ø.1875" on a line with a view label, "Ø.1875 THRU SECTION A-A"), a decimal
+ *    that the text layer does not print as the same whole number, with more places than T2 found, the text layer
+ *    did not show every dimension, so the readable sheet is read as T3 reads one: a row of more places than both
+ *    T2's evidence and MOST_PLACES_ASSUMED_IN_FORCE is an unresolved value, never dropped. A decimal the text layer
+ *    prints (the table's own ".0010", every vector dimension OCR reads again) is no such evidence, but "1.0010" is
+ *    not ".0010". Nor is a line of the table or the notes, or a number glued to other text (OCR garbles the table:
+ *    ".005" as ", 5005").
+ *
+ * Known limit: a raster dimension that OCR does not read, reads with no more places than the text layer prints,
+ * reads glued to other text, or reads as exactly a number the text layer prints, is not seen.
+ */
+const NON_DIMENSION_LINE_PATTERNS: readonly RegExp[] = [
+  /\b(?:PLACE\s+DECIMAL|LINEAR|ANGULAR|BEND|BREAK\s+SHARP|RADII|WEIGHT|MASS)\b/i,
+  /\b(?:SCALE|SHEET|UNLESS\s+OTHERWISE|TOLERANC\w*|SURFACE|INTERPRET)\b/i,
+  /\b(?:ASME|ANSI|ISO|RA|RMS)\b|Y14/i,
+  /(?:^|[^A-Z0-9])X?\.X{1,4}(?![A-Z0-9])/i,
+];
+// A decimal separator and the digits after it. The digits before it are not matched: a pattern that starts
+// with \d* rescans a long digit run from every position in it, which is quadratic. `numberStartOf` finds the
+// start of the whole number by walking back, once per separator.
+const DECIMAL_NUMBER = /[.,]\d+/g;
+// What a line that holds only dimensions is made of: "20X R.425", ".656 THRU    2X    .089 THRU", "A1, A2".
+// The number is \d+(?:\.\d*)? and not \d+\.?\d*: with the optional dot between them, a long digit run followed by
+// anything that is not a digit can be split between the two \d+ groups in as many ways as it has digits.
+const DIMENSION_PREFIX = /^(?:\d{1,3}X)?[RCØ∅⌀]?/i;
+const DIMENSION_NUMBER = /^(?:\d+(?:\.\d*)?|\.\d+)?$/;
+// A token is a count ("2X"), a radius, diameter or chamfer sign, and a number, each optional. The prefix is taken first
+// and the rest must be a number or nothing: the optional prefix and the number never compete for the same characters,
+// so there is nothing to backtrack over.
+const isDimensionToken = (token: string) => DIMENSION_NUMBER.test(token.replace(DIMENSION_PREFIX, ""));
+const CALLOUT_WORDS = new Set([
+  "THRU", "ALL", "TYP", "TYPICAL", "DIA", "DIAMETER", "DEEP", "DP", "REF", "MAX", "MIN", "SQ", "SQUARE", "PLACES",
+  "PL", "EQ", "SP", "SPACES", "BSC", "BASIC", "CSK", "CBORE", "X",
+]);
+const HOLE_TAG_OR_BORDER_LETTER = /^(?:[A-Z]\d{1,2}|[A-H])$/i;
+const MAX_EVIDENCE_LINE_LENGTH = 2_000;
+const MIN_READABLE_DIMENSIONS = 3;
+// T3: rows of more places than this need a number printed to that many places to be believed.
+const MOST_PLACES_ASSUMED_IN_FORCE = 3;
+
+/** Where the number whose decimal separator is at `separator` begins: the digits before it belong to it. */
+function numberStartOf(text: string, separator: number): number {
+  let start = separator;
+  while (start > 0) {
+    const code = text.codePointAt(start - 1)!;
+    if (code < 48 || code > 57) {
+      break;
+    }
+    start -= 1;
+  }
+  return start;
+}
+
+function isDimensionOnlyLine(line: string) {
+  const tokens = line.split(/[\s,]+/).filter((token) => token.length > 0);
+  return (
+    tokens.length > 0 &&
+    tokens.every(
+      (token) => isDimensionToken(token) || CALLOUT_WORDS.has(token.toUpperCase()) || HOLE_TAG_OR_BORDER_LETTER.test(token),
+    )
+  );
+}
+
+/** T1: whether the dimensions are in the text layer, counted on dimension-only lines outside the table's rows. */
+function countReadableDimensions(
+  text: string,
+  tableValueStarts: ReadonlySet<number>,
+): { dimensions: number; complete: boolean } {
+  let dimensions = 0;
+  let complete = true;
+  let lineStart = 0;
+  for (const line of text.split("\n")) {
+    const offset = lineStart;
+    lineStart += line.length + 1;
+    if (line.length > MAX_EVIDENCE_LINE_LENGTH) {
+      complete = false;
+      continue;
+    }
+    if (NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line)) || !isDimensionOnlyLine(line)) {
+      continue;
+    }
+    for (const match of line.matchAll(DECIMAL_NUMBER)) {
+      if (!tableValueStarts.has(offset + numberStartOf(line, match.index ?? 0))) {
+        dimensions += 1;
+      }
+    }
+  }
+  return { dimensions, complete };
+}
+
+// Characters a text layer prints for a decimal point: a middle dot, a Greek ano teleia, a bullet, a one dot
+// leader, a hyphenation point, the bullet operator, the dot operator, a katakana middle dot, the Arabic decimal
+// separator, an ideographic full stop and its small and half-width forms. (NFKD has already made the
+// full-width full stop a full stop.) Each is one UTF-16 unit, so folding them keeps every offset. Two letters
+// directly before one make a name ("ACME·1234"), not a decimal; a radius or diameter sign is one letter.
+const DECIMAL_POINT_LOOK_ALIKES = /(?<![A-Za-z]{2})[\u00b7\u0387\u2022\u2024\u2027\u2219\u22c5\u30fb\u066b\u3002\ufe52\uff61]/g;
+// ... and the Arabic comma, for a decimal comma.
+const DECIMAL_COMMA_LOOK_ALIKES = /(?<![A-Za-z]{2})\u060c/g;
+// A separator, ONE blank, then at least three digits that nothing continues: "Ø. 1875", "R. 0625", "Ø. 750". The
+// garbled forms a text layer makes are separated by a single blank; the wider gaps of a layout line ("2X" and
+// ".500" three blanks apart) are columns, not a split number. The separator must not follow a letter ("NO. 1093"),
+// except the single letter of a radius or diameter sign, and nothing may continue the digits: a letter, a degree
+// sign, a digit or a point ("1234 MAIN", ". 1875A" and "10. 29. 2013" are not dimensions).
+const SEPARATOR_THEN_BLANK = /(?<![A-Za-z])[A-Za-zØ∅⌀]?([.,])[ \t\u00a0](\d{3,})(?![\dA-Za-z°.,])/g;
+// A decimal, ONE blank, then one to three more digits that nothing continues: ".18 75" is perhaps ".1875". A letter
+// ("2X") or a degree sign after the digits makes a callout or an angle, not the rest of a number.
+const DECIMAL_SPLIT_BY_BLANK = /[.,](\d+)[ \t\u00a0](\d{1,3})(?![\dA-Za-z°.,])/g;
+// A mantissa and an exponent: "1.875E-1" is 0.1875.
+const SCIENTIFIC = /(?<![0-9A-Za-z.,])(?:\d+[.,](\d+)|\d+|[.,](\d+))[eE]([-+]?\d{1,3})(?![0-9A-Za-z])/g;
+// What a separator then digits is when it is ordinary text: the point after a note number at the start of a line
+// ("2. 1018 STEEL"), or a written date ("10. 29. 2013", "OCT 19, 2026", "ASTM B633, 2019").
+const NOTE_NUMBER_BEFORE = /^[ \t]*\d{1,3}$/;
+const DAY_OR_MONTH_BEFORE = /(?:^|\D)\d{1,2}$/;
+const YEAR = /^(?:19|20)\d\d$/;
+
+function isNoteNumberOrDate(textBeforeSeparator: string, separator: string, digits: string): boolean {
+  if (NOTE_NUMBER_BEFORE.test(textBeforeSeparator)) {
+    return true;
+  }
+  return YEAR.test(digits) && (separator === "," || DAY_OR_MONTH_BEFORE.test(textBeforeSeparator));
+}
+
+/** The text with every look-alike decimal separator (a middle dot, the Arabic comma, ...) as a point or a comma. */
+function foldDecimalSeparators(text: string): string {
+  return text.replaceAll(DECIMAL_POINT_LOOK_ALIKES, ".").replaceAll(DECIMAL_COMMA_LOOK_ALIKES, ",");
+}
+
+/**
+ * T2: the most decimal places printed anywhere in the text, except the values of the table's own rows, with
+ * the garbled forms of a decimal counted as the places they may carry.
+ */
+function mostPlacesPrinted(sourceText: string, tableValueStarts: ReadonlySet<number>): number {
+  const text = foldDecimalSeparators(sourceText);
+  let most = 0;
+  for (const match of text.matchAll(DECIMAL_NUMBER)) {
+    if (tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
+      continue;
+    }
+    most = Math.max(most, match[0].length - 1);
+  }
+  for (const match of text.matchAll(SEPARATOR_THEN_BLANK)) {
+    const separator = match[1]!;
+    const digits = match[2]!;
+    const separatorAt = (match.index ?? 0) + match[0].length - digits.length - 2;
+    const lineStart = text.lastIndexOf("\n", separatorAt - 1) + 1;
+    if (!isNoteNumberOrDate(text.slice(lineStart, separatorAt), separator, digits)) {
+      most = Math.max(most, digits.length);
+    }
+  }
+  for (const match of text.matchAll(DECIMAL_SPLIT_BY_BLANK)) {
+    if (!tableValueStarts.has(numberStartOf(text, match.index ?? 0))) {
+      most = Math.max(most, match[1]!.length + match[2]!.length);
+    }
+  }
+  for (const match of text.matchAll(SCIENTIFIC)) {
+    const fraction = (match[1] ?? match[2] ?? "").length;
+    most = Math.max(most, fraction - Number(match[3]));
+  }
+  return most;
+}
+
+/**
+ * A decimal as the whole number it is, whatever its separator and the zeros before it: ".1875", "0.1875" and OCR's
+ * ",1875" are one number, and "1.0010" is not ".0010". `separator` is the position of the separator in `text`.
+ */
+function decimalKey(text: string, separator: number, fraction: string): string {
+  return `${text.slice(numberStartOf(text, separator), separator).replace(/^0+/, "")}.${fraction}`;
+}
+
+/**
+ * Whether a token of an OCR line is a dimension callout with its number ("Ø.1875", "2X", "R,50", "1.0010"): what
+ * isDimensionToken reads, with a decimal comma read as a point and a list comma after it dropped.
+ */
+function isDimensionCallout(token: string): boolean {
+  return isDimensionToken(trimDimensionPunctuation(token).replaceAll(",", "."));
+}
+
+/**
+ * T4: the most places of a decimal that the OCR text prints as a dimension callout ("2X Ø.1875 THRU", and "Ø.1875" in
+ * "Ø.1875 THRU SECTION A-A"), and that the text layer does not print anywhere as the same whole number, or 0. A decimal
+ * the text layer prints is the same number read twice: the vector dimensions OCR reads again, and the table's own
+ * ".0010" when OCR reads it apart from its row's words. A line of the table or the notes (NON_DIMENSION_LINE_PATTERNS)
+ * is not read, nor is a number glued to other text, which is where OCR garbles them (".005" as ", 5005").
+ */
+function mostPlacesOnlyInRaster(layerText: string, rasterText: string): number {
+  if (rasterText.trim().length === 0) {
+    return 0;
+  }
+  const layer = foldDecimalSeparators(layerText);
+  const inLayer = new Set(Array.from(layer.matchAll(DECIMAL_NUMBER), (match) => decimalKey(layer, match.index ?? 0, match[0].slice(1))));
+  let most = 0;
+  for (const line of foldDecimalSeparators(rasterText).split("\n")) {
+    if (line.length > MAX_EVIDENCE_LINE_LENGTH || NON_DIMENSION_LINE_PATTERNS.some((pattern) => pattern.test(line))) {
+      continue;
+    }
+    const dimensionsOnly = isDimensionOnlyLine(line);
+    for (const token of line.matchAll(/\S+/g)) {
+      if (!dimensionsOnly && !isDimensionCallout(token[0])) {
+        continue;
+      }
+      for (const match of token[0].matchAll(DECIMAL_NUMBER)) {
+        const fraction = match[0].slice(1);
+        if (!inLayer.has(decimalKey(line, (token.index ?? 0) + (match.index ?? 0), fraction))) {
+          most = Math.max(most, fraction.length);
+        }
+      }
+    }
+  }
+  return most;
+}
+
+function selectApplicableToleranceRows(
+  text: string,
+  candidates: ToleranceCandidate[],
+  dimensionsReadable: boolean,
+  rasterText: string,
+  dimensionText = text,
+): { candidates: ToleranceCandidate[]; unresolvedRows: Set<ToleranceCandidate> } {
+  const rows = candidates.filter((candidate) => candidate.rowPlaces !== null);
+  if (rows.length === 0) {
+    return { candidates, unresolvedRows: new Set() };
+  }
+
+  const dimensionRows = dimensionText === text ? rows : collectToleranceCandidates(dimensionText).filter((candidate) => candidate.rowPlaces !== null);
+  const tableValueStarts = new Set(dimensionRows.map((row) => row.numberStart));
+  const readable = dimensionsReadable ? countReadableDimensions(dimensionText, tableValueStarts) : null;
+  if (readable !== null && readable.complete && readable.dimensions >= MIN_READABLE_DIMENSIONS) {
+    const most = mostPlacesPrinted(dimensionText, tableValueStarts);
+    if (mostPlacesOnlyInRaster(dimensionText, rasterText) <= most) {
+      return {
+        candidates: candidates.filter((candidate) => candidate.rowPlaces === null || candidate.rowPlaces <= most),
+        unresolvedRows: new Set(),
+      };
+    }
+    // T4: OCR read a decimal that the text layer does not print, with more places than the text layer prints.
+    const inForce = Math.max(most, MOST_PLACES_ASSUMED_IN_FORCE);
+    return { candidates, unresolvedRows: new Set(rows.filter((row) => (row.rowPlaces ?? 0) > inForce)) };
+  }
+
+  return {
+    candidates,
+    unresolvedRows: new Set(rows.filter((row) => (row.rowPlaces ?? 0) > MOST_PLACES_ASSUMED_IN_FORCE)),
+  };
 }
 
 /**
@@ -649,24 +1040,54 @@ function readCandidate(candidate: ToleranceCandidate, declared: { inch: boolean;
   return { candidate, unit, inches, storedInches };
 }
 
-function estimateTightestTolerance(sourceText: string) {
+/**
+ * A table row that may or may not be in force (T3): its value is a possible tolerance, unresolved, and as small as the
+ * reading readCandidate gives it. A row readCandidate cannot resolve keeps every safeguard of that reading: scientific
+ * notation ("1e-3", whose mantissa is not its value) and a per-length ratio may be any size, so they block (0); a unit
+ * written after the value, or the drawing's units, sets its scale.
+ */
+function readUnresolvedRow(candidate: ToleranceCandidate, declared: { inch: boolean; metric: boolean }): UnresolvedReading {
+  const reading = readCandidate(candidate, declared);
+  return reading.unit === null ? reading : unresolvedReading(candidate, reading.inches);
+}
+
+function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean; rasterText?: string; dimensionText?: string } = {}) {
   const text = normalizeUnitText(sourceText);
   const declared = detectDeclaredUnits(text);
   const drawingUnits: DrawingUnits =
     declared.inch && declared.metric ? "mixed" : declared.inch ? "inch" : declared.metric ? "metric" : "unspecified";
-  const candidates = collectToleranceCandidates(text);
-  if (candidates.length === 0) {
+  const allCandidates = collectToleranceCandidates(text);
+  // Evidence belongs to the selection, not just its winner: filtering a table row can let a
+  // general note or feature callout win. Stacked/grid rows also remain title-block evidence.
+  const titleBlockProof = allCandidates.some((candidate) => candidate.rowPlaces !== null) ||
+    (hasToleranceLabel(text) && allCandidates.some((candidate) => hasToleranceLabel(
+      text.slice(Math.max(0, candidate.start - 240), candidate.start).split("\n").slice(-3).join("\n"))));
+  const { candidates: applicableCandidates, unresolvedRows } = selectApplicableToleranceRows(
+    text,
+    allCandidates,
+    options.dimensionsReadable !== false,
+    normalizeUnitText(options.rasterText ?? ""),
+    options.dimensionText === undefined ? text : normalizeUnitText(options.dimensionText),
+  );
+  if (allCandidates.length === 0) {
     return null;
   }
+  // Filtering may leave no applicable row, but must not erase what was read. Keep
+  // the tightest reading as a review-only suggestion, with all numeric safeguards.
+  const candidates = applicableCandidates.length > 0 ? applicableCandidates : allCandidates;
   pairDualDimensions(candidates);
 
-  const readings = candidates.map((candidate) => readCandidate(candidate, declared));
+  const readings = candidates.map((candidate) =>
+    unresolvedRows.has(candidate) ? readUnresolvedRow(candidate, declared) : readCandidate(candidate, declared),
+  );
   const resolved = readings
     .filter((reading): reading is ResolvedReading => reading.unit !== null)
     .sort((left, right) => left.inches - right.inches)[0];
   const blocking = readings
     .filter((reading): reading is UnresolvedReading => reading.unit === null)
     .sort((left, right) => left.smallestInches - right.smallestInches)[0];
+  const reviewReasons: string[] = [];
+  if (applicableCandidates.length !== allCandidates.length) reviewReasons.push("tolerance_rows_filtered");
 
   // P6: an unresolved value is ignored only when every reading of it is at least as loose as the
   // tightest resolved value; otherwise the true tightest tolerance is unknown and nothing is stored.
@@ -678,12 +1099,24 @@ function estimateTightestTolerance(sourceText: string) {
       valueInch: null,
       unit: "unknown" as const,
       drawingUnits,
+      titleBlockProof,
+      reviewReasons,
     };
   }
 
   const { candidate, unit } = resolved;
+  if (titleBlockProof) {
+    pairDualDimensions(allCandidates);
+    const tightestRead = allCandidates.reduce((tightest, item) => {
+      const reading = readCandidate(item, declared);
+      return Math.min(tightest, reading.unit === null ? reading.smallestInches : reading.inches);
+    }, Infinity);
+    if (resolved.inches !== tightestRead) reviewReasons.push("tolerance_differs_from_tightest_read");
+  }
   return {
     raw: `±${candidate.printed.includes("/") ? candidate.printed : candidate.value}${unit === "in" ? "" : ` ${UNIT_LABEL[unit]}`}`,
+    titleBlockProof,
+    reviewReasons,
     valueInch: resolved.storedInches,
     unit,
     drawingUnits,
@@ -702,11 +1135,11 @@ function detectTitleBlockBounds(lines: StructuredLine[]) {
     const pageLines = lines.filter((line) => line.page === page);
     const maxLineNumber = Math.max(...pageLines.map((line) => line.lineNumber));
     const lowerHalfStart = Math.max(1, Math.floor(pageLines.length * 0.45));
-    const candidates = pageLines.filter(
-      (line) =>
-        line.lineNumber >= lowerHalfStart &&
-        TITLE_BLOCK_KEYWORDS.some((keyword) => line.normalized.toUpperCase().includes(keyword)),
-    );
+    const candidates = pageLines.filter((line) => {
+      if (line.lineNumber < lowerHalfStart) return false;
+      const upper = line.normalized.toUpperCase();
+      return TITLE_BLOCK_KEYWORDS.some((keyword) => upper.includes(keyword));
+    });
 
     if (candidates.length === 0) {
       continue;
@@ -913,6 +1346,81 @@ function buildAnchoredCandidates(
   return candidates;
 }
 
+function groupLayoutLinesByPage(layoutLines: readonly StructuredLine[]): Map<number, StructuredLine[]> {
+  const layoutByPage = new Map<number, StructuredLine[]>();
+  for (const line of layoutLines) {
+    const pageLines = layoutByPage.get(line.page);
+    if (pageLines === undefined) {
+      layoutByPage.set(line.page, [line]);
+    } else {
+      pageLines.push(line);
+    }
+  }
+  return layoutByPage;
+}
+
+/** Full-page geometry. A candidate crop must never remove evidence from the approval read. */
+function selectWordBoxLines(page: PdfTextPage): TitleBlockTextLine[] | null {
+  if (page.words === undefined || page.words.length === 0) {
+    return null;
+  }
+  const lines = buildWordLines(page.words, page.page);
+  if (lines[0]) lines[0].borders = page.borders;
+  return lines;
+}
+
+/**
+ * The lines the title block reader sees: for a page with word boxes, its lines built from the boxes
+ * (true positions) across the entire page; for any other page, all its layout lines.
+ */
+function selectTitleBlockLines(
+  pages: readonly PdfTextPage[],
+  layoutLines: StructuredLine[],
+): TitleBlockTextLine[] {
+  // Grouped by page once: the number of pages is not bounded (pages past the text layer cap are empty), so
+  // looking up each page in the whole list of lines would be pages times lines.
+  const layoutByPage = groupLayoutLinesByPage(layoutLines);
+  const selected: TitleBlockTextLine[] = [];
+  for (const page of pages) {
+    const fromWords = selectWordBoxLines(page);
+    if (fromWords !== null) {
+      for (const line of fromWords) {
+        selected.push(line);
+      }
+      continue;
+    }
+    for (const line of layoutByPage.get(page.page) ?? []) {
+      selected.push({ page: line.page, lineNumber: line.lineNumber, raw: line.raw });
+    }
+  }
+  return selected;
+}
+
+/**
+ * OVD-985 and OVD-989: candidates for the four label-owned fields come from the cell each label owns
+ * (titleBlockCells.ts), never from "the next line" or "the whole next line". A label whose cell gave no
+ * clean value yields no candidate, so the field is flagged for review rather than filled from a
+ * neighbouring cell.
+ */
+function buildCellCandidates(reads: readonly CellRead[], field: CellField): CandidateSignal[] {
+  return reads
+    .filter((read) => read.field === field && read.status === "value" && read.value !== null)
+    .map((read) => ({
+      value: read.value as string,
+      page: read.page,
+      line: read.labelLine,
+      columnStart: read.labelStart,
+      columnEnd: read.labelEnd,
+      label: read.label.toUpperCase(),
+      score: 78 + (read.valueLines.length > 1 ? 6 : 0),
+      reasons:
+        read.valueLines.length > 1
+          ? ["label_match", "spatial_match", "multiline_merge"]
+          : ["label_match", "spatial_match"],
+      snippet: read.value as string,
+    }));
+}
+
 function addCandidate(candidates: CandidateSignal[], candidate: CandidateSignal) {
   const existing = candidates.find(
     (item) =>
@@ -1022,11 +1530,9 @@ function collectFallbackRevisionCandidates(
     }));
 }
 
-function collectFallbackSpecCandidates(
-  lines: StructuredLine[],
-  bounds: Map<number, TitleBlockBounds>,
-  field: "material" | "finish",
-) {
+// Used only when the title block has no FINISH label at all. A material is never guessed from finish
+// wording: a line that mentions a plate or a coating (the TITLE "SAMPLE PLATE") is not a material.
+function collectFallbackFinishCandidates(lines: StructuredLine[], bounds: Map<number, TitleBlockBounds>) {
   return lines
     .filter((line) => isWithinTitleBlock(line, bounds) && FINISH_KEYWORD_PATTERN.test(line.normalized))
     .map((line) => ({
@@ -1036,7 +1542,7 @@ function collectFallbackSpecCandidates(
       columnStart: line.firstColumn,
       columnEnd: line.lastColumn,
       label: null,
-      score: field === "finish" ? 30 : 20,
+      score: 30,
       reasons: ["regex_fit", "spatial_match"],
       snippet: line.normalized,
     }));
@@ -1053,6 +1559,30 @@ function buildRescuedField(value: string, reasons: string[], confidence = 0.9): 
   };
 }
 
+/** The confidence of a value the OCR rescue only suggests: the confidence of any other flagged suggestion. */
+const SUGGESTED_RESCUE_CONFIDENCE = 0.2;
+
+/**
+ * OVD-985, OVD-989: what the OCR rescue may do to a material or finish. Only the cell its label owns approves one
+ * (titleBlockCells.ts), so the rescue never does, and the field it touches is flagged for review: a field the cell reader
+ * rejected or flagged (empty, a stacked cell's label, two cells that disagree), or that has no label at all, gets the
+ * rescue's text as a suggestion only; a value the cell reader approved is kept, flagged, since the rescue's text found
+ * elsewhere on the sheet disagrees with it.
+ */
+function suggestRescuedValue(field: ExtractedFieldSignal, value: string): ExtractedFieldSignal {
+  if (field.value && !field.reviewNeeded) {
+    return { ...field, reviewNeeded: true, reasons: [...new Set([...field.reasons, "ocr_title_block_conflict"])] };
+  }
+  return {
+    value,
+    confidence: SUGGESTED_RESCUE_CONFIDENCE,
+    reviewNeeded: true,
+    reasons: ["ocr_title_block"],
+    sourceRegion: null,
+    snippet: value,
+  };
+}
+
 function parsePartReferenceFromStem(baseName: string) {
   const match = /^(\d{3,5}-\d{4,6})[-_\s]+([A-Z0-9]{1,4})$/i.exec(baseName.trim());
   if (!match) {
@@ -1061,27 +1591,15 @@ function parsePartReferenceFromStem(baseName: string) {
 
   return {
     partNumber: match[1].toUpperCase(),
-    revision: match[2].toUpperCase(),
+    // OVD-985: "1093-05589-QA.pdf" names a part and the approvals label QA, not a revision.
+    revision: isLabelLikeToken(match[2]) ? null : match[2].toUpperCase(),
   };
 }
 
 /**
- * Applies OCR title-block rescue heuristics after primary parser extraction and
- * before final field validation.
- *
- * This mutates `input.fields` in place. Filename-stem values from
- * `parsePartReferenceFromStem(input.baseName)` may replace empty,
- * review-needed, or structurally invalid `partNumber` and `revision` fields. OCR text may replace
- * `description` only when it is empty, review-needed, or contaminated by approval metadata; `material` only when it
- * is empty, review-needed, or visibly contains finish text; and `finish` only
- * when it is empty, review-needed, or lacks anodize evidence. The QB00002 title
- * block rescue constants use parser-style confidence scores of 0.9 for part
- * number, 0.88 for revision/description/finish, and 0.86 for material.
- *
- * @param input.baseName - Uploaded drawing filename stem used for part/revision fallback.
- * @param input.text - OCR/plain text from the drawing page.
- * @param input.fields - Mutable extraction field map to rescue in place.
- * @returns Nothing; successful rescues are written back to `input.fields`.
+ * Reconciles filename and OCR suggestions before the approval gate. A filename only fills a missing
+ * identity with review required, or confirms an exact cell match without changing its review state.
+ * Existing OCR material/finish rescues remain suggestions; only complete cell evidence can approve.
  */
 function rescueOcrTitleBlockFields(input: {
   baseName: string;
@@ -1091,24 +1609,18 @@ function rescueOcrTitleBlockFields(input: {
   const stemReference = parsePartReferenceFromStem(input.baseName);
 
   if (stemReference) {
-    const extractedPartNumber = input.fields.partNumber.value?.trim() ?? "";
-    const extractedRevision = input.fields.revision.value?.trim() ?? "";
-    const partNumberMatch = PART_NUMBER_PATTERN.exec(extractedPartNumber)?.[0] ?? null;
-    const partNumberWeak =
-      !extractedPartNumber ||
-      input.fields.partNumber.reviewNeeded ||
-      partNumberMatch !== extractedPartNumber;
-    const revisionWeak =
-      !extractedRevision ||
-      input.fields.revision.reviewNeeded ||
-      !/^[A-Z0-9]{1,4}$/i.test(extractedRevision);
-
-    if (partNumberWeak) {
-      input.fields.partNumber = buildRescuedField(stemReference.partNumber, ["filename_stem", "regex_fit"], 0.9);
-    }
-
-    if (revisionWeak) {
-      input.fields.revision = buildRescuedField(stemReference.revision, ["filename_stem", "regex_fit"], 0.88);
+    for (const name of ["partNumber", "revision"] as const) {
+      const value = stemReference[name];
+      const field = input.fields[name];
+      if (value === null) continue;
+      if (field.value === value && field.reasons.includes("label_match")) {
+        field.reasons = [...new Set([...field.reasons, "filename_confirmation"])];
+      } else if (!field.value || (name === "partNumber" && field.value === input.baseName.toUpperCase())) {
+        input.fields[name] = {
+          ...buildRescuedField(value, ["filename_stem", "regex_fit"], SUGGESTED_RESCUE_CONFIDENCE),
+          reviewNeeded: true,
+        };
+      }
     }
   }
 
@@ -1136,7 +1648,7 @@ function rescueOcrTitleBlockFields(input: {
 
   const materialMatch = /\b6061\s+Alloy\b/i.exec(input.text);
   if (materialMatch && (!input.fields.material.value || input.fields.material.reviewNeeded || /ANODIZE/i.test(input.fields.material.value))) {
-    input.fields.material = buildRescuedField("6061 Alloy", ["ocr_title_block", "label_match"], 0.86);
+    input.fields.material = suggestRescuedValue(input.fields.material, "6061 Alloy");
   }
 
   if (
@@ -1144,11 +1656,7 @@ function rescueOcrTitleBlockFields(input: {
     /CLASS\s*2/i.test(input.text) &&
     (!input.fields.finish.value || input.fields.finish.reviewNeeded || !/ANODIZE/i.test(input.fields.finish.value))
   ) {
-    input.fields.finish = buildRescuedField(
-      "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
-      ["ocr_title_block", "label_match"],
-      0.88,
-    );
+    input.fields.finish = suggestRescuedValue(input.fields.finish, "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
   }
 }
 
@@ -1158,13 +1666,13 @@ function applyFieldPenalties(
 ) {
   const reasons = [...candidate.reasons];
   let score = candidate.score;
-  let value = candidate.value;
+  const value = candidate.value;
 
   if (field === "partNumber") {
-    const partNumberMatch = value.match(PART_NUMBER_PATTERN);
-
-    if (partNumberMatch) {
-      value = partNumberMatch[0];
+    // A company-style number is recognised only as the whole value. A match inside a longer identifier
+    // is not substituted for it: "ACME-1093-05589" is not "1093-05589", "1093-05589.01" is not
+    // "1093-05589", and "XYZ-0070-3333" is not "0070-3333".
+    if (PART_NUMBER_PATTERN.exec(value)?.[0] === value) {
       reasons.push("regex_fit");
     }
 
@@ -1230,6 +1738,16 @@ function applyFieldPenalties(
     reasons.push("rejected_signature_block");
   }
 
+  // OVD-985: a title-block label is never a value. "Q.A." (the approvals row label) used to pass as a
+  // revision and a part number at 0.78 because it fits [A-Z0-9.-]{1,8}; no score keeps it now.
+  if (
+    (field === "partNumber" || field === "revision" || field === "material" || field === "finish") &&
+    isLabelLikeToken(value)
+  ) {
+    score = Math.min(score, 0) - 100;
+    reasons.push("rejected_label_token");
+  }
+
   return {
     ...candidate,
     value,
@@ -1256,7 +1774,13 @@ function pickBestCandidate(
 
   const ranked = [...deduped.values()].sort((left, right) => right.score - left.score);
   const top = ranked[0] ?? null;
-  const second = ranked[1] ?? null;
+  // Cell fields have a separate agreement proof. Description/process retain main's cross-page
+  // score-delta check even when both sheets print the same value.
+  const second =
+    (field === "description" || field === "process" ? ranked[1] : ranked.find(
+      (candidate, index) =>
+        index > 0 && candidate.value.trim().toUpperCase() !== (top?.value ?? "").trim().toUpperCase(),
+    )) ?? null;
 
   if (!top || top.score <= 0) {
     return {
@@ -1397,6 +1921,11 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
     }
   }
 
+  // OVD-989: the same pages' word boxes, for the title block reader. A failure here is not a failure of
+  // the text layer: that page keeps its layout text, the reader falls back to it, and drawingFullyRead
+  // is unchanged.
+  const wordBoxes = await readWordBoxes(localPath, layerTexts);
+
   // Every page is OCR'd even when a text layer exists, because a selectable
   // title block can sit next to an embedded raster marking that has no text.
   const ocrResults = await ocrPdfPages(localPath, pageCount);
@@ -1420,8 +1949,70 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
       ocrText: ocrResults[index].text,
       ocrStatus: ocrResults[index].status,
       ...(ocrResults[index].limit ? { ocrLimit: ocrResults[index].limit } : {}),
+      ...(hasTextLayer && wordBoxes[index] ? wordBoxes[index] : {}),
     })),
   };
+}
+
+/** Read rules and I7 negative evidence together; a failed scan never proves an empty page. */
+async function readPageBorders(localPath: string, page: number, deadline: number, size: { width: number; height: number }) {
+  try {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("geometry deadline");
+    const { stdout } = await execFileAsync("pdftocairo", ["-svg", "-f", String(page), "-l", String(page), localPath, "-"], {
+      timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remaining), maxBuffer: 16 * 1024 * 1024,
+    });
+    return readSvgGeometry(stdout, size);
+  } catch {
+    return { borders: [], vectorGeometry: { complete: false, issues: [{ cause: "vector_geometry_unavailable", bounds: null }] } };
+  }
+}
+
+/** Word geometry of every page with a text layer; undefined when Poppler could not or did not box it. */
+async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<Pick<PdfTextPage, "words" | "borders" | "vectorGeometry" | "wordGeometryComplete"> | undefined>> {
+  const boxes: Array<Pick<PdfTextPage, "words" | "borders" | "vectorGeometry" | "wordGeometryComplete"> | undefined> = [];
+  const deadline = Date.now() + PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
+  let sourceIssues;
+  try {
+    sourceIssues = (await fs.stat(localPath)).size <= 32 * 1024 * 1024
+      ? pdfSourceGeometryIssues(await fs.readFile(localPath))
+      : [{ cause: "pdf_source_limit", bounds: null }];
+  } catch {
+    sourceIssues = [{ cause: "pdf_source_unavailable", bounds: null }];
+  }
+  // Keep pages sequential: each scan consumes the shared word budget and deadline.
+  // Parallel processes would change which pages receive geometry and multiply peak memory.
+  let totalWords = 0;
+  for (let index = 0; index < layerTexts.length; index += 1) {
+    const remainingMs = deadline - Date.now();
+    // The geometry of a page costs memory until the task ends, so the words of all pages together are
+    // bounded; pages past the bound keep their layout text only.
+    if (layerTexts[index]!.trim().length === 0 || remainingMs <= 0 || totalWords >= MAX_WORDS_TOTAL) {
+      boxes.push(undefined);
+      continue;
+    }
+    try {
+      const { stdout } = await execFileAsync(
+        "pdftotext",
+        ["-bbox", "-cropbox", "-enc", "UTF-8", "-f", String(index + 1), "-l", String(index + 1), localPath, "-"],
+        { maxBuffer: 32 * 1024 * 1024, timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remainingMs) },
+      );
+      const words = parseBboxWords(typeof stdout === "string" ? stdout : "");
+      totalWords += words.length;
+      boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL
+        ? { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
+          ...await readPageBorders(localPath, index + 1, deadline, {
+            width: Number(/<page\b[^>]*\bwidth="([^"]+)"/.exec(stdout)?.[1]),
+            height: Number(/<page\b[^>]*\bheight="([^"]+)"/.exec(stdout)?.[1]),
+          }) } : undefined);
+    } catch {
+      boxes.push(undefined);
+    }
+  }
+  for (const page of boxes) {
+    if (page?.vectorGeometry) page.vectorGeometry.issues.push(...sourceIssues);
+  }
+  return boxes;
 }
 
 /** Time left before `deadline`, capped at `capMs`; zero or less means skip the call. */
@@ -1815,11 +2406,12 @@ export async function renderPdfPreviewAssets(
 export function inferDrawingSignalsFromPdf(input: {
   baseName: string;
   pdfText: PdfTextExtraction | null;
+  titleBlockApprovalEnabled?: boolean;
 }): ExtractedDrawingSignals {
   const fallbackTitle = titleCaseFromStem(input.baseName);
 
   if (!input.pdfText || input.pdfText.pages.length === 0) {
-    return {
+    const fallback: ExtractedDrawingSignals = {
       description: {
         value: fallbackTitle,
         confidence: 0.2,
@@ -1887,6 +2479,10 @@ export function inferDrawingSignalsFromPdf(input: {
       warnings: ["Unable to extract text from the drawing PDF. Review extracted fields manually."],
       debugCandidates: {},
     };
+    const fields = Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, fallback[name]]));
+    finalizeExtractionApproval({ fields, titleBlockApprovalEnabled: input.titleBlockApprovalEnabled });
+    Object.assign(fallback, fields);
+    return fallback;
   }
 
   const lines = collectStructuredLines(input.pdfText.pages);
@@ -1906,35 +2502,59 @@ export function inferDrawingSignalsFromPdf(input: {
     ],
     fallbackTitle,
   );
+  // OVD-985, OVD-989: the part number, revision, material and finish are the values of the cells their
+  // labels own. When a label is present but its cell gives no clean value, nothing is filled from
+  // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
+  // A part number shaped like a drawing number is still offered as a flagged suggestion.
+  const fullCellLines = selectTitleBlockLines(input.pdfText.pages, lines);
+  const fullRead = readTitleBlockPages(fullCellLines);
+  const { unreadPages } = fullRead;
+  const cellReads = currentRevisionReads(fullRead.reads);
+  // A crop may recover a useful partial suggestion, but only the full-page reads below can approve it.
+  const structuredCellLines = fullCellLines.map((line) => ({
+    ...line, normalized: normalizeWhitespace(line.raw), firstColumn: line.raw.search(/\S/), lastColumn: line.raw.length - 1,
+  }));
+  const candidateBounds = detectTitleBlockBounds(structuredCellLines);
+  for (const read of cellReads) {
+    if (!candidateBounds.has(read.page)) {
+      const pageReads = cellReads.filter((cell) => cell.page === read.page);
+      candidateBounds.set(read.page, {
+        startLine: Math.min(...pageReads.map((cell) => cell.labelLine)),
+        endLine: Math.max(...pageReads.map((cell) => cell.labelLine)) + 3,
+      });
+    }
+  }
+  const croppedReads = readTitleBlockPages(structuredCellLines.filter((line) => isWithinTitleBlock(line, candidateBounds))).reads;
+  const unresolvedCells = cellReads.filter((read) => read.status !== "value");
+  // If boxes contain no title-block labels, layout text can still supply a suggestion. The gate
+  // below requires the full-page evidence, so this fallback cannot approve missing geometry.
+  const pagesWithCells = new Set(cellReads.map((read) => read.page));
+  const candidateReads = currentRevisionReads([
+    ...cellReads,
+    ...croppedReads.filter((read) => unresolvedCells.some((full) => full.page === read.page && full.labelLine === read.labelLine &&
+      full.labelStart === read.labelStart && full.field === read.field)),
+    ...readTitleBlockPages(lines.filter((line) => !pagesWithCells.has(line.page))).reads,
+  ]);
+  const hasCellLabel = (field: CellField) => candidateReads.some((read) => read.field === field);
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
-    [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, PART_NUMBER_LABELS, bounds), titleBlockLines, lineAnchors, "partNumber"),
-      ...collectFallbackPartNumberCandidates(lines, bounds),
-    ],
+    [...buildCellCandidates(candidateReads, "partNumber"), ...collectFallbackPartNumberCandidates(lines, bounds)],
     input.baseName.toUpperCase(),
   );
   const revisionCandidate = pickBestCandidate(
     "revision",
     [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, REVISION_LABELS, bounds), titleBlockLines, lineAnchors, "revision"),
-      ...collectFallbackRevisionCandidates(lines, bounds),
+      ...buildCellCandidates(candidateReads, "revision"),
+      ...(hasCellLabel("revision") ? [] : collectFallbackRevisionCandidates(lines, bounds)),
     ],
     null,
   );
-  const materialCandidate = pickBestCandidate(
-    "material",
-    [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, MATERIAL_LABELS, bounds), titleBlockLines, lineAnchors, "material"),
-      ...collectFallbackSpecCandidates(lines, bounds, "material"),
-    ],
-    null,
-  );
+  const materialCandidate = pickBestCandidate("material", buildCellCandidates(candidateReads, "material"), null);
   const finishCandidate = pickBestCandidate(
     "finish",
     [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, FINISH_LABELS, bounds), titleBlockLines, lineAnchors, "finish"),
-      ...collectFallbackSpecCandidates(lines, bounds, "finish"),
+      ...buildCellCandidates(candidateReads, "finish"),
+      ...(hasCellLabel("finish") ? [] : collectFallbackFinishCandidates(lines, bounds)),
     ],
     null,
   );
@@ -1948,7 +2568,15 @@ export function inferDrawingSignalsFromPdf(input: {
   );
   const notes = collectNotes(lines);
   const threads = collectThreads(joinedText);
-  const inferredTightestTolerance = estimateTightestTolerance(joinedText);
+  // OVD-989: dimension decimals are read from a real text layer only; OCR digits are not trusted to
+  // rule a general-tolerance row out. A page with a text layer is OCR'd too (a raster view beside vector
+  // text): a decimal only its OCR prints keeps a row from being dropped (T4), never sets it in force. A row is
+  // dropped only when the whole drawing was read (T1): a page whose text layer or OCR was not read may print the
+  // four-place dimension that keeps the four-place row, and is no evidence that none exists.
+  const inferredTightestTolerance = estimateTightestTolerance(joinedText, {
+    dimensionsReadable: input.pdfText.ocr !== true && input.pdfText.drawingFullyRead === true,
+    rasterText: input.pdfText.ocr === true ? "" : input.pdfText.pages.map((page) => page.ocrText).join("\n"),
+  });
 
   const fieldResults = {
     description: descriptionCandidate.selected,
@@ -1964,6 +2592,59 @@ export function inferDrawingSignalsFromPdf(input: {
     text: joinedText,
     fields: fieldResults,
   });
+  const drawingFullyRead = input.pdfText.drawingFullyRead === true && input.pdfText.pageCountKnown === true &&
+    input.pdfText.pageCount === input.pdfText.pages.length &&
+    input.pdfText.pages.every((page) => page.ocrStatus === "ok");
+  const pagesComplete = unreadPages.length === 0 && drawingFullyRead;
+  const wordGeometryComplete = input.pdfText.pages.every((page) =>
+    ((page.words?.length ?? 0) > 0 && page.wordGeometryComplete === true) ||
+    (page.text.trim() === "" && page.ocrText?.trim() === "" && page.ocrStatus === "ok"));
+  const drawingProven = pagesComplete && wordGeometryComplete;
+  const ocrText = input.pdfText.pages.map((page) => page.ocrText).join("\n");
+  const independentRead = readTitleBlockPages(collectStructuredLines(input.pdfText.pages.map((page) =>
+    ({ ...page, text: page.ocrText ?? "" }))));
+  const independentComplete = independentRead.unreadPages.length === 0;
+  // Read all tolerances together so OCR inherits units; only vector dimensions prove row applicability.
+  // Independent OCR may veto a looser value; it cannot replace the primary suggestion.
+  const independentTolerance = ocrText.trim() ? estimateTightestTolerance(`${joinedText}\n${ocrText}`, {
+    dimensionsReadable: input.pdfText.ocr !== true && input.pdfText.drawingFullyRead === true,
+    rasterText: ocrText,
+    dimensionText: joinedText,
+  }) : null;
+  const toleranceTitleBlockProof = inferredTightestTolerance?.titleBlockProof || independentTolerance?.titleBlockProof;
+  const approval = finalizeExtractionApproval({
+    titleBlockApprovalEnabled: input.titleBlockApprovalEnabled,
+    fields: fieldResults,
+    titleBlockFields: [
+      ...candidateReads.map((read) => read.field),
+      ...(["description", "process"] as const).filter((field) =>
+        fieldResults[field].sourceRegion !== null && fieldResults[field].reasons.some((reason) =>
+          reason === "label_match" || reason === "spatial_match")),
+    ],
+    cellProof: { geometryByPage: new Map(input.pdfText.pages.map((page) => [page.page, page.vectorGeometry])), reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
+    tolerance: {
+      titleBlockProof: toleranceTitleBlockProof,
+      valueInch: inferredTightestTolerance?.valueInch ?? null,
+      independentValueInch: independentTolerance?.valueInch ?? null,
+      independentUnresolved: (toleranceTitleBlockProof && !independentComplete) ||
+        (independentTolerance !== null && independentTolerance.valueInch === null),
+      // Cell-reader caps and missing word boxes cannot invalidate a feature-only
+      // tolerance. Actual unread pages and independent contradictions still veto it.
+      drawingProven: toleranceTitleBlockProof
+        ? pagesComplete && (wordGeometryComplete || !input.titleBlockApprovalEnabled)
+        : drawingFullyRead,
+    },
+  });
+  // A tolerance is a document-wide minimum: unread or contradictory evidence blocks action.
+  const tightestTolerance = inferredTightestTolerance && !approval.toleranceProven
+    ? { ...inferredTightestTolerance, valueInch: null, unit: "unknown" as const }
+    : inferredTightestTolerance;
+  const toleranceReasons = [...new Set([
+    ...(inferredTightestTolerance?.reviewReasons ?? []),
+    ...(independentTolerance?.reviewReasons ?? []),
+  ])];
+  if (approval.toleranceApprovalDisabled) toleranceReasons.push("title_block_approval_disabled");
+  if (toleranceTitleBlockProof && !wordGeometryComplete && tightestTolerance?.valueInch != null) toleranceReasons.push("tolerance_geometry_unproven");
 
   const reviewFieldResults = {
     description: fieldResults.description,
@@ -2012,10 +2693,14 @@ export function inferDrawingSignalsFromPdf(input: {
     finish: fieldResults.finish,
     process: fieldResults.process,
     generalTolerance: toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null,
-    tightestTolerance: inferredTightestTolerance?.raw ?? null,
-    tightestToleranceValueInch: inferredTightestTolerance?.valueInch ?? null,
-    tightestToleranceUnit: inferredTightestTolerance?.unit ?? null,
-    tightestToleranceDrawingUnits: inferredTightestTolerance?.drawingUnits ?? null,
+    tightestTolerance: tightestTolerance?.raw ?? null,
+    ...(toleranceReasons.length > 0 ? {
+      tightestToleranceReviewNeeded: true,
+      tightestToleranceReasons: toleranceReasons,
+    } : {}),
+    tightestToleranceValueInch: tightestTolerance?.valueInch ?? null,
+    tightestToleranceUnit: tightestTolerance?.unit ?? null,
+    tightestToleranceDrawingUnits: tightestTolerance?.drawingUnits ?? null,
     quoteDescription: normalizeQuoteDescription(fieldResults.description.value),
     quoteFinish: normalizeQuoteFinish(fieldResults.finish.value),
     reviewFields,

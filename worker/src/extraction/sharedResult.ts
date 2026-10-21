@@ -69,6 +69,10 @@ export function buildStoredExtractionPayload(
     finish: extraction.finish,
     generalTolerance: extraction.generalTolerance,
     tolerances: {
+      ...(extraction.tightestTolerance.reviewNeeded ? {
+        reviewNeeded: true,
+        reasons: extraction.tightestTolerance.reasons,
+      } : {}),
       general: extraction.generalTolerance.raw,
       tightest: extraction.tightestTolerance.raw,
       // A zero or non-finite value is never stored (it would read as tighter than any gate).

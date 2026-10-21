@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
@@ -8,10 +9,21 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ClientSearch from "./ClientSearch";
+import ClientParts from "./ClientParts";
+import ClientQuotes from "./ClientQuotes";
+import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
 
 const useClientHomeControllerMock = vi.fn();
+const accountMenuMock = vi.fn();
+const fetchActivityMock = vi.fn();
+const fetchPlatformAdminNotificationsMock = vi.fn();
+
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchClientActivityEventsByJobIds: (...args: unknown[]) => fetchActivityMock(...args),
+  fetchPlatformAdminNotifications: (...args: unknown[]) => fetchPlatformAdminNotificationsMock(...args),
+}));
 
 vi.mock("@/features/quotes/use-client-home-controller", () => ({
   useClientHomeController: () => useClientHomeControllerMock(),
@@ -33,15 +45,20 @@ vi.mock("@/features/quotes/quote-intelligence-view-model", () => ({
   buildGlobalSearchResults: () => [],
   buildPartCollection: () => [],
   buildQuoteCollection: () => [],
+  filterPartCollection: () => [],
+  filterQuoteCollection: () => [],
   parseEngineeringQuery: () => ({ chips: [] }),
 }));
 
 vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
-  QuoteIntelligenceShell: ({ children }: { children: ReactNode }) => <>{children}</>,
+  QuoteIntelligenceShell: ({ children, accountSlot }: { children: ReactNode; accountSlot: ReactNode }) => <>{accountSlot}{children}</>,
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
-  WorkspaceAccountMenu: () => null,
+  WorkspaceAccountMenu: (props: { notificationCenter?: WorkspaceNotificationsController }) => {
+    accountMenuMock(props);
+    return null;
+  },
 }));
 
 vi.mock("@/components/quote-intelligence/QuoteIntelligenceLanding", () => ({
@@ -66,6 +83,10 @@ function SearchHistoryControls() {
   );
 }
 
+function QueryWrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider>;
+}
+
 function renderSearch() {
   return render(
     <MemoryRouter
@@ -77,16 +98,25 @@ function renderSearch() {
         <Route path="/search" element={<ClientSearch />} />
       </Routes>
     </MemoryRouter>,
+    { wrapper: QueryWrapper },
   );
 }
 
 describe("ClientSearch", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.clearAllMocks();
+    fetchActivityMock.mockResolvedValue([]);
+    fetchPlatformAdminNotificationsMock.mockResolvedValue([]);
+    window.localStorage.clear();
+    vi.stubGlobal("Notification", { permission: "default" });
     useClientHomeControllerMock.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: { organizationId: "org-1", role: "client" },
       isAuthInitializing: false,
-      accessibleJobs: [],
+      accessibleJobs: [{ id: "job-1" }],
+      isPlatformAdmin: false,
       accessibleJobsQuery: {
         isLoading: false,
         isError: false,
@@ -104,6 +134,25 @@ describe("ClientSearch", () => {
       },
       signOut: vi.fn(),
     });
+  });
+
+  it.each([
+    ["ClientParts", ClientParts],
+    ["ClientQuotes", ClientQuotes],
+    ["ClientSearch", ClientSearch],
+  ])("%s supplies browser permission and client preferences to the account menu", async (_name, Page) => {
+    render(<MemoryRouter><Page /></MemoryRouter>, { wrapper: QueryWrapper });
+
+    await waitFor(() => expect(accountMenuMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      notificationCenter: expect.objectContaining({
+        browserPermission: "default",
+        supportedTypes: ["client.quote_package_ready"],
+        isLoading: false,
+        errorMessage: null,
+        items: [],
+      }),
+    })));
+    await waitFor(() => expect(fetchActivityMock).toHaveBeenCalledWith(["job-1"], 12));
   });
 
   it("writes a trimmed query while letting browser history restore the input", async () => {

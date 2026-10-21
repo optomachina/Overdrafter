@@ -8,6 +8,7 @@ import {
 } from "@/features/quotes/client-workspace-fixtures";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { buildRequirementDraft } from "@/features/quotes/utils";
+import { shouldPollClientWorkspaceState } from "@/features/quotes/client-workspace-polling";
 
 const QUOTED_FIXTURE_PATH = "/projects/fx-project-quoted?fixture=client-quoted";
 const QUOTED_FIXTURE_JOB_ID = "fx-job-quoted-a";
@@ -63,6 +64,24 @@ describe("client workspace fixtures", () => {
   it("parses supported scenario IDs from the URL search string", () => {
     expect(getFixtureScenarioIdFromSearch("?fixture=client-quoted")).toBe("client-quoted");
     expect(getFixtureScenarioIdFromSearch("?fixture=unknown")).toBeNull();
+  });
+
+  it("provides the terminal no-drawing lifecycle for a STEP-only upload with unresolved material", async () => {
+    window.history.replaceState({}, "", "/parts/fx-job-needs-attention?fixture=client-uploaded-step");
+    const gateway = getActiveClientWorkspaceGateway()!;
+    const detail = await gateway.fetchPartDetail("fx-job-needs-attention");
+
+    expect(detail.part?.clientRequirement?.material).toBe("Unknown material");
+    expect(detail.part?.clientExtraction).toMatchObject({
+      lifecycle: "succeeded", hasDrawingFile: false, extractedAt: null,
+    });
+    expect(shouldPollClientWorkspaceState({
+      extractionLifecycle: detail.part?.clientExtraction?.lifecycle,
+      quoteRequestStatus: null,
+    })).toBe(false);
+    expect(detail.part?.drawingFile).toBeNull();
+    expect(detail.files.map((file) => file.file_kind)).toEqual(["cad"]);
+    expect(detail.drawingPreview.pages).toEqual([]);
   });
 
   it("returns fixture session data for a supported search string", () => {

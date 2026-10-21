@@ -1,4 +1,5 @@
 import path from "node:path";
+import { finalizeExtractionApproval } from "./extractionApproval.js";
 import type { SpendContext, SpendGuard } from "../spendGuard.js";
 import { DRAWING_FIELD_NAMES, SUPPORTED_REVIEW_FIELDS } from "../types.js";
 import type {
@@ -158,9 +159,6 @@ function mergeFieldSignals(input: {
     selection.field = {
       ...selection.field,
       confidence: Math.max(selection.field.confidence, modelField.confidence),
-      reviewNeeded:
-        selection.field.reviewNeeded &&
-        (modelField.confidence < MODEL_ACCEPT_CONFIDENCE || modelField.fieldSource === "unknown"),
     };
     return selection;
   }
@@ -212,6 +210,7 @@ export async function runHybridExtraction(
   const drawingSignals = inferDrawingSignalsFromPdf({
     baseName: inferredBase,
     pdfText: input.pdfText ?? null,
+    titleBlockApprovalEnabled: input.config?.titleBlockApprovalEnabled,
   });
 
   const parsedToleranceValueInch = drawingSignals.tightestToleranceValueInch;
@@ -221,6 +220,11 @@ export async function runHybridExtraction(
       : null;
 
   const warnings = [...drawingSignals.warnings];
+  const toleranceReasons = drawingSignals.tightestToleranceReasons ?? [];
+  if (toleranceReasons.includes("title_block_approval_disabled")) warnings.push("Title-block tolerance approval is disabled; review the suggested tolerance.");
+  if (toleranceReasons.includes("tolerance_rows_filtered")) warnings.push("General-tolerance rows were excluded by applicability filtering; review the suggested tolerance.");
+  if (toleranceReasons.includes("tolerance_differs_from_tightest_read")) warnings.push("The suggested tolerance differs from the tightest tolerance read; review it before approval.");
+  if (toleranceReasons.includes("tolerance_geometry_unproven")) warnings.push("Tolerance word geometry is unproven; review the suggested tolerance.");
   let modelResult: DrawingModelExtractionResult | null = null;
 
   if (
@@ -307,6 +311,12 @@ export async function runHybridExtraction(
       modelCandidates[fieldName] = merged.modelCandidate;
     }
   }
+
+  finalizeExtractionApproval({
+    titleBlockApprovalEnabled: input.config?.titleBlockApprovalEnabled,
+    fields: mergedFields,
+    deterministicFields: Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, drawingSignals[name]])),
+  });
 
   const description = mergedFields.description.value ?? normalizedTitle;
   const partNumber = mergedFields.partNumber.value ?? inferredBase.toUpperCase();
@@ -419,6 +429,10 @@ export async function runHybridExtraction(
       confidence: drawingSignals.generalTolerance ? 0.68 : input.drawingFile ? 0.2 : 0.1,
     },
     tightestTolerance: {
+      ...(drawingSignals.tightestToleranceReviewNeeded ? {
+        reviewNeeded: true,
+        reasons: drawingSignals.tightestToleranceReasons,
+      } : {}),
       raw: drawingSignals.tightestTolerance,
       // OVD-976: valueInch comes from the unit-aware parser. Never re-derive it from the raw text,
       // which would drop the drawing units; an unresolved tolerance stays null so the gate blocks it.

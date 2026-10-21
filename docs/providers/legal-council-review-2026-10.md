@@ -11,6 +11,22 @@ liability), and the OVD-722 kill-switch plan.
 
 Date: 2026-10-11. Owner: Blaine.
 
+## Owner decision addendum — 2026-10-21
+
+The readings and conclusions below are the historical 2026-10-11 review,
+superseded on clearance by this owner decision. After being shown each terms
+clause, Blaine Wilson explicitly cleared Xometry, Fictiv and Quickparts for
+quote-only automated quoting on his own provider accounts. He accepts ToS risk
+until a cease-and-desist; no orders. Their ToS stances remain `prohibited`
+(Xometry Customer Service Agreement §7.1.2), `prior-consent` (Fictiv), and
+`silent` (Quickparts). No vendor was contacted; agents never contact vendors.
+
+The [matrix](permissions-matrix.md) now includes a recorded owner override as a
+third clearance path, alongside allowed terms or written permission. Xometry,
+Fictiv, Quickparts and RMFG are matrix-cleared within their recorded scopes.
+The 1.0 scope, C&D stop, freshness checks, and separate runtime gates remain.
+This records clearance only; it enables nothing at runtime.
+
 ## Method
 
 Three independent readings were written against the same matrix, then reconciled.
@@ -69,7 +85,7 @@ checkpoint already covers that vendor.
 | Does Fictiv's prior-consent clause allow owner-approved risk? | No | Only as uncleared risk | No; wait for writing | Matrix stays false until written permission is recorded. |
 | Is Protolabs in scope? | Out of 1.0; terms prohibit automation | Out of 1.0 | Out of 1.0 | Kept in the matrix and marked **not in 1.0**. |
 
-## Final position
+## Final position (historical 2026-10-11; see owner decision above)
 
 1. The matrix is the only clearance record for paid automated quoting. A provider
    is cleared only when `enabled_for_paid_automation` is true under the published
