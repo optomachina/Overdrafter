@@ -20,11 +20,12 @@ export class CleanupRowConfirmation {
     private readonly fileNameSelector?: string,
     private readonly rowSelector?: string,
     private readonly rows?: Locator,
+    private readonly expectedFileName?: string,
   ) {}
 
   async bind(row: ElementHandle<Node>): Promise<void> {
     const fileName = await this.fileName(row);
-    if (!fileName || !this.rowSelector || !this.rows || !await row.evaluate((element, selected) => element.isConnected
+    if (!fileName || fileName !== this.expectedFileName || !this.rowSelector || !this.rows || !await row.evaluate((element, selected) => element.isConnected
       && (selected.length === 0 || selected[0] === element), this.selected ? [this.selected] : [])
       || (this.selected && fileName !== this.selectedFileName)) {
       throw new CleanupConfirmationUnproven();
@@ -51,6 +52,10 @@ export class CleanupRowConfirmation {
     // Include rows that arrived since an earlier, preparatory click as well.
     this.before = await this.snapshot();
     await this.verifyRows(false);
+    // Removing a container also removes its descendants, including customer rows.
+    if (!await row.evaluate((element, selector) => (element as Element).querySelectorAll(selector).length === 0, rowSelector)) {
+      throw new CleanupConfirmationUnproven();
+    }
     this.active = { fileName: this.selectedFileName };
     try {
       await target.click();

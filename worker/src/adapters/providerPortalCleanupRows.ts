@@ -16,7 +16,7 @@ export class UploadedPortalRows {
     private readonly rows: Locator,
     private readonly before: ElementHandle<Node>[],
     private readonly documentRoot: ElementHandle<Node>,
-    private readonly stagedFileName: string,
+    readonly stagedFileName: string,
     private readonly fileNameSelector?: string,
   ) {}
 

@@ -22,8 +22,8 @@ const session = createLocalPortalBrowserSession({
     const definition = buildQuickpartsProductionPortalDefinition();
     return {
       ...definition,
-      selectors: { ...definition.selectors, cleanupRow: ".row", cleanupRowFileName: ".fname",
-        cleanup: { removePart: { selector: "button.remove", scope: ".row" } } },
+      selectors: { ...definition.selectors, cleanupRow: ".row", cleanupRowFileName: ":scope > .fname",
+        cleanup: { removePart: { selector: ":scope > button.remove", scope: ".row" } } },
       hooks: { ...definition.hooks, cleanup: async (cleanup) => {
         await cleanup.click("removePart", "part.step");
         // Deliberately untrustworthy: DOM evidence must override these counts.
@@ -41,7 +41,7 @@ function row(name: string): string {
   return `<div class="row"><span class="fname">${name}</span><button class="remove">Remove</button></div>`;
 }
 
-function page(customerName: string, uploadName: string, captureRerender = false): string {
+function page(customerName: string, uploadName: string, captureRerender = false, nestCustomer = false): string {
   return localQuotePage({
     title: "QuickQuote",
     before: row(customerName),
@@ -56,10 +56,18 @@ function page(customerName: string, uploadName: string, captureRerender = false)
         const name = selected.querySelector('.fname').textContent;
         fetch('/clicked?name=' + encodeURIComponent(name));
         if (confirm('Delete ' + name + '?')) {
-          fetch('/deleted?name=' + encodeURIComponent(name));
+          for (const removed of [selected, ...selected.querySelectorAll('.row')]) {
+            fetch('/deleted?name=' + encodeURIComponent(removed.querySelector('.fname').textContent));
+          }
           selected.remove();
         }
       });
+      ${nestCustomer ? `new MutationObserver(() => {
+        const rows = [...document.querySelectorAll('.row')];
+        const uploaded = rows.find(row => row.querySelector('.fname').textContent === 'part.step');
+        const customer = rows.find(row => row.querySelector('.fname').textContent === 'other.step');
+        if (uploaded && customer && !uploaded.contains(customer)) uploaded.append(customer);
+      }).observe(document.documentElement, { childList: true, subtree: true });` : ''}
       ${captureRerender ? `document.addEventListener('click', (event) => {
         if (!event.target.closest('button.remove')) return;
         const rows = [...document.querySelectorAll('.row')];
@@ -74,6 +82,17 @@ function page(customerName: string, uploadName: string, captureRerender = false)
 }
 
 describe("row ownership and post-click evidence in Chromium (OVD-1022)", () => {
+  it("never clicks the owned row when it contains a pre-existing customer row", async () => {
+    const { output, error, observed } = await session.quoteAgainst(page("other.step", "part.step", false, true));
+    expect(error).toBeNull();
+    expect(observed.uploads).toHaveLength(1);
+    expect(output?.rawPayload.cartCleanup).toMatchObject({
+      status: "incomplete", removed: 0, reason: "manual_cleanup_required",
+    });
+    expect(observed.requests.filter((request) => /\/(clicked|deleted)\?/.test(request))).toEqual([]);
+    session.expectOnlyProviderHost(observed);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
   it("never clicks the customer's part.step when upload creates part (1).step", async () => {
     const { output, error, observed } = await session.quoteAgainst(page("part.step", "part (1).step"));
     expect(error).toBeNull();

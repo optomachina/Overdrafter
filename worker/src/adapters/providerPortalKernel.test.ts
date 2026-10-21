@@ -31,6 +31,7 @@ import {
   scrubProviderEvidenceText,
   type ProviderPortalDefinition,
   type ProviderPortalOfferCandidate,
+  type RunProviderPortalKernelDependencies,
 } from "./providerPortalKernel";
 
 const tempDirs: string[] = [];
@@ -1791,6 +1792,7 @@ describe("provider portal post-capture cleanup", () => {
     const removeClicks = vi.fn();
     let modalOpen = false;
     let afterClick: ((node: Element) => Promise<void>) | undefined;
+    let afterFileNameRead: ((node: Element) => void) | undefined;
     const append = (name: string, removable = true) => {
       const row = dom.window.document.createElement("div");
       const information = dom.window.document.createElement("div");
@@ -1820,10 +1822,17 @@ describe("provider portal post-capture cleanup", () => {
             }
             return value;
           };
-          return fn(node, unwrap(arg));
+          const value = fn(node, unwrap(arg));
+          if (node.classList.contains("cartInformationArea")) afterFileNameRead?.(node);
+          return value;
         },
         $$: async (selector: string) => {
           if (modalOpen) throw new Error("DOM lookup is paused by a native modal");
+          // jsdom's :scope query includes nested same-tag parents; match the
+          // direct-child semantics Chromium uses for these fixture selectors.
+          if (selector.startsWith(":scope > ")) {
+            return [...node.children].filter((child) => child.matches(selector.slice(9))).map(handle);
+          }
           return [...node.querySelectorAll(selector)].map(handle);
         },
         click: async () => {
@@ -1847,6 +1856,7 @@ describe("provider portal post-capture cleanup", () => {
     return { cart, append, locator, removeClicks,
       locate: (selector: string) => locate(() => [...cart.querySelectorAll(selector)]),
       onClick: (fn: (node: Element) => Promise<void>) => { afterClick = fn; },
+      onFileNameRead: (fn: (node: Element) => void) => { afterFileNameRead = fn; },
       setModalOpen: (open: boolean) => { modalOpen = open; },
       root: { elementHandle: async () => handle(dom.window.document.documentElement) } as unknown as Locator };
   }
@@ -1874,18 +1884,131 @@ describe("provider portal post-capture cleanup", () => {
     const run = async (hook: NonNullable<ProviderPortalDefinition["hooks"]["cleanup"]>, scoped = true,
       checkpoint?: VendorQuoteAdapterInput["providerKillSwitchCheckpoint"],
       selectors: Partial<ProviderPortalDefinition["selectors"]> = {},
-      hooks: Partial<ProviderPortalDefinition["hooks"]> = {}) => {
+      hooks: Partial<ProviderPortalDefinition["hooks"]> = {},
+      dependencies: RunProviderPortalKernelDependencies = {}) => {
       const def = cleanupDefinition(hook, hooks);
       def.selectors = { ...def.selectors, cleanupRow: ".row", cleanupRowFileName: ".cartInformationArea", cleanup: {
         ...cleanupSelectors, confirmRemove: { selector: "button.confirm", ...(scoped ? { scope: ".row" } : {}) },
       }, ...selectors };
       return runProviderPortalKernel(def, config(), Object.assign(await input(), {
         providerKillSwitchCheckpoint: checkpoint,
-      }), { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
+      }), { launchBrowser: async () => fake.browser, captureEvidence: async () => [], ...dependencies });
     };
     other.querySelector(".cartInformationArea")!.textContent = "other.step";
     return { fake, cart, selected, other, run };
   }
+
+  it.each(["current URL", "recorded navigation"])("keeps failure diagnostics when cleanup encounters an off-host %s", async (boundary) => {
+    const fixture = confirmationFixture();
+    const observations = new OperationalJevObservations();
+    const operational = new OperationalJevSession({ mode: "off" });
+    const failure = vi.spyOn(operational, "failure");
+    const audit = vi.fn(async () => undefined);
+    const cleanup = vi.fn(async () => ({ removed: 0, remaining: 1 }));
+    const reason = boundary === "current URL" ? "unexpected_origin" : "unexpected_navigation:login.example-sso.com";
+    const error = await fixture.run(cleanup, true, undefined, {}, {
+      configure: async () => {
+        vi.mocked(fixture.fake.page.url).mockReturnValue("https://login.example-sso.com/authorize");
+        if (boundary === "recorded navigation") {
+          vi.mocked(fixture.fake.page.mainFrame().url).mockReturnValue("https://login.example-sso.com/authorize");
+          for (const [event, listener] of vi.mocked(fixture.fake.page.on).mock.calls) {
+            if (event === "framenavigated") listener(fixture.fake.page.mainFrame());
+          }
+        }
+        throw new Error("Session expired; sign in again");
+      },
+    }, {
+      operationalJev: { session: operational, observations, scope: {
+        organizationId: "org-1", quoteRunId: "run-1", taskId: "cleanup-boundary", provider: "quickparts", sourceRevision: "e4aec109",
+      } },
+      failureTriage: { decide: async () => ({ model: "jev-1.13.0", choice: "expired_session", confidence: 1,
+        probabilities: { expired_session: 1, unsupported_part: 0, transient_vendor_issue: 0, engineering_review: 0, unknown: 0 },
+        inputTokens: 10, outputTokens: 10 }), audit },
+    }).catch((error: unknown) => error);
+    expect(error).toMatchObject({ code: "unexpected_ui_state", payload: {
+      terminalState: "unexpected_origin", reason, providerMutationPossible: true,
+      cartCleanup: { status: "failed", removed: 0, remaining: null, reason },
+      portalBoundary: { blockedOffhostCount: 0 },
+      failureTriage: { category: "expired_session", advisoryOnly: true },
+    } });
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledOnce();
+    await observations.drain();
+    expect(failure).toHaveBeenCalledOnce();
+    expect(supplierCartCleanupFromPayload((error as { payload: unknown }).payload).manualRemovalRequired).toBe(true);
+    expect(fixture.fake.context.close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps extracted offers when the origin changes before cleanup construction", async () => {
+    const fixture = confirmationFixture();
+    const cleanup = vi.fn(async () => ({ removed: 0, remaining: 1 }));
+    const result = await fixture.run(cleanup, true, undefined, {}, {}, {
+      captureEvidence: async () => {
+        vi.mocked(fixture.fake.page.url).mockReturnValue("https://login.example-sso.com/authorize");
+        return [];
+      },
+    });
+    expect(result).toMatchObject({ state: "offers_extracted",
+      offers: [expect.objectContaining({ providerOptionId: "economy-7d" })],
+      portalBoundary: { blockedOffhostCount: 0 },
+      cartCleanup: { status: "failed", removed: 0, remaining: null, reason: "unexpected_origin" },
+    });
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(supplierCartCleanupFromPayload(result).manualRemovalRequired).toBe(true);
+  });
+
+  it.each([0, 1, 2, Number.NaN])("preserves the hook's remaining count %s after verified removal", async (remaining) => {
+    const fixture = confirmationFixture();
+    const result = await fixture.run(async (cleanup) => {
+      expect(await cleanup.click("confirmRemove", "part.step")).toBe(true);
+      return { removed: 1, remaining };
+    });
+    expect(result.cartCleanup).toEqual({ status: remaining === 0 ? "removed" : "incomplete",
+      removed: 1, remaining: Number.isNaN(remaining) ? null : remaining, reason: null });
+    expect(supplierCartCleanupFromPayload(result).manualRemovalRequired).toBe(remaining !== 0);
+    expect(fixture.selected.isConnected).toBe(false);
+    expect(fixture.other.isConnected).toBe(true);
+  });
+
+  it("refuses a filename swapped between ownership proof and the first confirmation bind", async () => {
+    const fixture = confirmationFixture();
+    const clicked = vi.fn();
+    fixture.cart.cart.addEventListener("click", clicked);
+    let swapped = false;
+    const result = await fixture.run(async (cleanup) => {
+      fixture.cart.onFileNameRead((field) => {
+        if (swapped || field.parentElement !== fixture.selected) return;
+        // Return the original name to targets(), then reuse the same DOM rows.
+        swapped = true;
+        field.textContent = "other.step";
+        fixture.other.querySelector(".cartInformationArea")!.textContent = "part.step";
+      });
+      await cleanup.click("confirmRemove", "part.step");
+      return { removed: 1, remaining: 0 };
+    });
+    expect(swapped).toBe(true);
+    expect(result.cartCleanup).toEqual({ status: "incomplete", removed: 0, remaining: null, reason: "manual_cleanup_required" });
+    expect(clicked).not.toHaveBeenCalled();
+    expect(fixture.selected.isConnected).toBe(true);
+    expect(fixture.other.isConnected).toBe(true);
+  });
+
+  it("refuses the owned row's own remove control when another cleanup row is nested inside", async () => {
+    const fixture = confirmationFixture();
+    const clicked = vi.fn();
+    fixture.selected.addEventListener("click", clicked);
+    const result = await fixture.run(async (cleanup) => {
+      fixture.selected.append(fixture.other);
+      await cleanup.click("confirmRemove", "part.step");
+      return { removed: 1, remaining: 0 };
+    }, true, undefined, { cleanupRowFileName: ":scope > .cartInformationArea", cleanup: {
+      confirmRemove: { selector: ":scope > button.confirm", scope: ".row" },
+    } });
+    expect(result.cartCleanup).toEqual({ status: "incomplete", removed: 0, remaining: null, reason: "manual_cleanup_required" });
+    expect(clicked).not.toHaveBeenCalled();
+    expect(fixture.selected.isConnected).toBe(true);
+    expect(fixture.other.isConnected).toBe(true);
+  });
 
   it.each([1, 2])("refuses %i page-global confirmations, leaving the other row intact", async (count) => {
     const fixture = confirmationFixture();

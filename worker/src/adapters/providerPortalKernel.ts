@@ -1544,12 +1544,7 @@ async function cleanUpProviderPortal(
   };
   let rejectDialog: (error: unknown) => void = () => undefined;
   const dialogFailure = new Promise<never>((_, reject) => { rejectDialog = reject; });
-  const confirmation = new CleanupRowConfirmation(
-    definition.selectors.cleanupRowFileName,
-    definition.selectors.cleanupRow,
-    definition.selectors.cleanupRow
-      ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
-  );
+  let confirmation: CleanupRowConfirmation;
   // Native confirmation is a separate mutation, just like an in-page button.
   const acceptDialog = async (dialog: { type: () => string; message: () => string; accept: () => Promise<void>; dismiss: () => Promise<void> }) => {
     try {
@@ -1573,6 +1568,13 @@ async function cleanUpProviderPortal(
     return report;
   }
   try {
+    confirmation = new CleanupRowConfirmation(
+      definition.selectors.cleanupRowFileName,
+      definition.selectors.cleanupRow,
+      definition.selectors.cleanupRow
+        ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
+      session.cleanupRows?.stagedFileName,
+    );
     // A report-only hook must never accept an unrelated native confirmation.
     const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
     if (cleanupRules.length === 0 || cleanupRules.some((rule) => !rule.reportOnly)) {
@@ -1583,7 +1585,7 @@ async function cleanUpProviderPortal(
         const outcome = await hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, confirmation, session.cleanupRows), input);
         const removed = await confirmation.verifiedRemoved();
         if (outcome.removed > removed) throw new CleanupConfirmationUnproven();
-        return removed > 0 ? { removed, remaining: 0 } : outcome;
+        return removed > 0 ? { ...outcome, removed } : outcome;
       })(),
       dialogFailure,
       new Promise<never>((_, reject) => {
