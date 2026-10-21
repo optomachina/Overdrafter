@@ -8,6 +8,22 @@ vi.mock("@/components/auth/AuthPanel", () => ({
 }));
 
 describe("SignInDialog", () => {
+  it.each(["sign-in", "sign-up", "forgot-password"] as const)(
+    "bounds %s content to the viewport and allows internal scrolling",
+    (initialMode) => {
+      render(<SignInDialog open onOpenChange={() => undefined} initialMode={initialMode} />);
+
+      // jsdom cannot measure layout; the fixture journey checks actual reachability.
+      expect(screen.getByRole("dialog")).toHaveClass(
+        "max-h-[calc(100dvh-2rem)]",
+        "overflow-y-auto",
+        "overscroll-contain",
+        "sm:bottom-auto",
+        "sm:max-h-[calc(100dvh-6rem)]",
+      );
+    },
+  );
+
   it("renders an accessible title and description for sign-in mode", () => {
     render(<SignInDialog open onOpenChange={() => undefined} initialMode="sign-in" />);
 

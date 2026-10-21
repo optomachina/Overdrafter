@@ -19,7 +19,7 @@ export function SignInDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPortal>
         <DialogOverlay className="bg-muted backdrop-blur-[2px]" />
-        <DialogPrimitive.Content className="fixed inset-x-4 bottom-4 z-50 outline-none sm:inset-x-auto sm:right-6 sm:top-20 sm:w-[380px]">
+        <DialogPrimitive.Content className="fixed inset-x-4 bottom-4 z-50 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain outline-none sm:inset-x-auto sm:bottom-auto sm:right-6 sm:top-20 sm:w-[380px] sm:max-h-[calc(100dvh-6rem)]">
           <DialogPrimitive.Title className="sr-only">
             {initialMode === "sign-up" ? "Create account" : initialMode === "forgot-password" ? "Reset password" : "Log in"}
           </DialogPrimitive.Title>
