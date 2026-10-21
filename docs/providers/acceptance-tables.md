@@ -92,7 +92,8 @@ OVD-678 live wiring are not duplicated here.
 ### oshcut
 
 Permissions: [permissions-matrix.md](permissions-matrix.md#oshcut). Process-
-specific 1.0 route. Not cleared for paid automated quoting.
+specific 1.0 route. Not matrix-cleared for paid automated quoting; the OVD-677
+admission basis is `owner_approved` (OVD-641).
 
 ### sendcutsend
 

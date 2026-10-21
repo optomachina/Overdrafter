@@ -73,7 +73,8 @@ import { safeInline } from "./proof-check.mjs";
  * still lists those files' paths. A file with a safe category and no
  * sensitive class (classes [], category set) is the only non-sensitive file.
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
- * "<class>:sql:<id>: <reason>", "<category>:path:<glob>" or
+ * "<class>:sql:<id>: <reason>", "sql:oversized:><MAX_SQL_TOKENS>" (SQL_OVERSIZED_REASON),
+ * "<category>:path:<glob>" or
  * "unclassified:no-safe-category"; a rename's old name is prefixed
  * "previous:". gate_loosening.reasons hold this detector's reasons
  * ({kind, path, message, ...}) and the shared list's findGateLoosening
@@ -454,6 +455,32 @@ const SQL_PLAIN_CHAR = /[ \t\n\r\f\v\x21-\x7e]/;
 // Postgres ends a -- comment at LF or CR (non_newline is [^\n\r]).
 const LINE_END = /[\n\r]/g;
 const MAX_SQL_DEPTH = 8;
+/** SQL bodies that tokenize to more than this many tokens are not scanned; they fail closed. */
+export const MAX_SQL_TOKENS = 200_000;
+// Bound scanning work even for comments or literals with very few tokens.
+const MAX_SQL_CHARS = MAX_SQL_TOKENS * 256;
+
+/** Thrown by sqlWords when a body exceeds the token budget. */
+export class SqlTooLargeError extends Error {}
+/** The reason a SQL file too large to scan gets (it fails closed). */
+export const SQL_OVERSIZED_REASON = `sql:oversized:>${MAX_SQL_TOKENS}`;
+
+/** A fresh token budget, shared by one sqlWords call and its nested bodies. Every token is charged once, where it is pushed. */
+const newSqlBudget = () => ({ left: MAX_SQL_TOKENS });
+
+/** Fail closed before scanning a body longer than MAX_SQL_CHARS. */
+function checkSqlChars(sql) {
+  if (sql.length > MAX_SQL_CHARS) throw new SqlTooLargeError(`more than ${MAX_SQL_CHARS} characters`);
+}
+
+/** Append tokens one at a time (no spread, so no stack overflow), spending the budget. */
+function addSqlTokens(words, budget, tokens) {
+  for (const token of tokens) {
+    budget.left -= 1;
+    if (budget.left < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
+    words.push(token);
+  }
+}
 const STRING_LEXING_SETTINGS = ["standard_conforming_strings", "backslash_quote"];
 
 function quotedIdentifierWord(body) {
@@ -512,8 +539,10 @@ export function sqlWords(text) {
  * `guards` records non-exemptible depth-limit and dynamic-literal evidence.
  * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[], unknown: {char: number, line: number}|null, guards: object[]}}
  */
-export function sqlTokens(text, depth = 0, firstLine = 1, sourceLineAt = null) {
-  const scan = newScan(String(text), depth, firstLine, sourceLineAt);
+export function sqlTokens(text, depth = 0, firstLine = 1, sourceLineAt = null, budget = newSqlBudget()) {
+  const sql = String(text);
+  checkSqlChars(sql);
+  const scan = newScan(sql, depth, firstLine, sourceLineAt, budget);
   while (scan.index < scan.sql.length) scanToken(scan);
   scan.statements.push(trimSqlSpace(scan.current));
   // With an empty buffer psql's gexec can execute the previous query again.
@@ -530,11 +559,12 @@ export function sqlTokens(text, depth = 0, firstLine = 1, sourceLineAt = null) {
 }
 
 /** The state of one tokenizer run: the text, the output arrays and the scan position. */
-function newScan(sql, depth, firstLine, sourceLineAt) {
+function newScan(sql, depth, firstLine, sourceLineAt, budget) {
   const breaks = [];
   for (let at = sql.indexOf("\n"); at !== -1; at = sql.indexOf("\n", at + 1)) breaks.push(at);
   return {
     sql,
+    budget,
     depth,
     firstLine,
     sourceLineAt,
@@ -572,7 +602,7 @@ function lineAt({ breaks, firstLine, sourceLineAt }, offset) {
 }
 
 function pushWord(scan, word, line) {
-  scan.words.push(word);
+  addSqlTokens(scan.words, scan.budget, [word]);
   scan.lines.push(line);
   scan.starts.push(0);
   scan.ends.push(0);
@@ -581,6 +611,7 @@ function pushWord(scan, word, line) {
 
 function popWord(scan) {
   scan.words.pop();
+  scan.budget.left += 1;
   scan.lines.pop();
   scan.starts.pop();
   scan.ends.pop();
@@ -596,10 +627,13 @@ function appendAll(target, items) {
 function pushBody(scan, body, offset, positions = null) {
   // Decoding and continuation remove source characters; retain the original line of each token.
   const sourceLineAt = (at) => lineAt(scan, positions ? (positions[at] ?? offset) : offset + at);
-  const inner = sqlBodyTokens(body, scan.depth, sourceLineAt(0), sourceLineAt);
+  const inner = sqlBodyTokens(body, scan.depth, sourceLineAt(0), sourceLineAt, scan.budget);
   scan.unknown ??= inner.unknown;
   appendAll(scan.guards, inner.guards);
-  const raw = rawSqlTokens(body, sourceLineAt);
+  // Raw evidence can only add a guard for these words. Avoid an alternative reading
+  // of unrelated bodies: quote delimiters must not consume the parsed-token budget.
+  const raw = /grant|revoke|alter|set|standard_conforming_strings|backslash_quote/.test(body.toLowerCase())
+    ? rawSqlTokens(body, sourceLineAt) : { words: [], lines: [] };
   for (const [at, word] of raw.words.entries()) {
     if (STRING_LEXING_SETTINGS.includes(word)) scan.guards.push({ id: `auth_${word}`, line: raw.lines[at] });
   }
@@ -611,6 +645,7 @@ function pushBody(scan, body, offset, positions = null) {
   if (inner.words.length === 0) return;
   inner.starts[0] += 1;
   inner.ends[inner.ends.length - 1] += 1;
+  // Inner words were charged when produced; copying their metadata must not charge again.
   appendAll(scan.words, inner.words);
   appendAll(scan.lines, inner.lines);
   appendAll(scan.starts, inner.starts);
@@ -779,12 +814,13 @@ function scanToken(scan) {
   else if (!scanDollarQuoted(scan) && !scanIdentifier(scan)) scanOther(scan);
 }
 
-function sqlBodyTokens(body, depth, firstLine, sourceLineAt) {
-  if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine, sourceLineAt);
+function sqlBodyTokens(body, depth, firstLine, sourceLineAt, budget) {
+  checkSqlChars(body);
+  if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine, sourceLineAt, budget);
   const words = [];
   const lines = [];
   for (const match of body.matchAll(IDENTIFIERS)) {
-    words.push(match[0].toLowerCase());
+    addSqlTokens(words, budget, [match[0].toLowerCase()]);
     lines.push(sourceLineAt(match.index));
   }
   // Too deep to tokenize: an unexpected ASCII control character still counts as unknown.
@@ -802,6 +838,10 @@ function sqlBodyTokens(body, depth, firstLine, sourceLineAt) {
  */
 function rawSqlTokens(text, sourceLineAt = null) {
   const sql = String(text);
+  checkSqlChars(sql);
+  // This is an alternative reading of already charged source, not additional nested tokens.
+  // Bound each raw reading independently without charging parsed tokens a second time.
+  const budget = newSqlBudget();
   const words = [];
   const lines = [];
   const statement = [];
@@ -811,7 +851,7 @@ function rawSqlTokens(text, sourceLineAt = null) {
   for (const match of sql.matchAll(new RegExp(String.raw`${IDENT_START}${IDENT_CONT}*|[^ \t\n\r\f\v'"$]`, "gu"))) {
     line += sql.slice(last, match.index).split("\n").length - 1;
     last = match.index;
-    words.push(match[0].toLowerCase());
+    addSqlTokens(words, budget, [match[0].toLowerCase()]);
     lines.push(sourceLineAt ? sourceLineAt(match.index) : line);
     statement.push(statementIndex);
     if (match[0] === ";") statementIndex += 1;
@@ -1027,6 +1067,20 @@ function failClosedClasses(rules) {
  * @returns {{classes: string[], reasons: string[], hits: object[]}}
  */
 export function classifySql(text, config, path = null) {
+  try {
+    return classifySqlTokens(text, config, path);
+  } catch (error) {
+    if (!(error instanceof SqlTooLargeError)) throw error;
+    return oversizedSql(config);
+  }
+}
+
+/** Every configured SQL class is possible when scanning exceeds either size cap. */
+function oversizedSql(config) {
+  return { classes: [...new Set(config.sqlContent.rules.map((rule) => rule.class))], reasons: [SQL_OVERSIZED_REASON], hits: [] };
+}
+
+function classifySqlTokens(text, config, path) {
   const parsed = sqlTokens(text);
   // A character the tokenizer cannot classify may mean it is out of step with Postgres, so the file gets
   // no exemption at all: the rules also run over the raw text with comments and quotes read as code
@@ -1182,7 +1236,16 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     // SQL hits an exemption cleared; each one is a place the gate is looser than the plain rule.
     sql_exemptions: results.flatMap((file) => (file.sql_hits ?? []).filter((hit) => hit.gate_loosening)),
     errors: allErrors,
+    ...manualReview(results),
   };
+}
+
+/** A manual_review list for files whose SQL was too large to scan, or nothing. */
+function manualReview(results) {
+  const notices = results
+    .filter((file) => file.reasons.includes(SQL_OVERSIZED_REASON))
+    .map((file) => `SQL body ${file.path} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`);
+  return notices.length ? { manual_review: notices } : {};
 }
 
 /** The result for a run that could not classify anything. */
@@ -1566,6 +1629,8 @@ function summaryHeader(result) {
   ];
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  for (const notice of result.manual_review ?? []) lines.push(`- manual review: ${safeInline(notice)}`);
+  if (result.manual_review?.length) lines.push("");
   return lines;
 }
 
