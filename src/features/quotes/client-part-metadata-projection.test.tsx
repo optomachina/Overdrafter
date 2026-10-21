@@ -181,21 +181,56 @@ describe("client part metadata projection (OVD-978 draft)", () => {
   });
 });
 
-describe("client part metadata projection (live OVD-670 body, the regression)", () => {
+describe("client part metadata projection (live OVD-670 body)", () => {
   const rows = fixture.expected.liveOvd670;
 
-  it("hides every extraction state from the client: all parts read as uploaded and keep polling", () => {
-    for (const part of fixture.parts) {
-      const view = userView(rows, part.key);
+  it.each([
+    ["partial", "partial", false],
+    ["complete", "succeeded", false],
+    ["noDrawing", "succeeded", false],
+    ["queued", "queued", true],
+    ["failed", "failed", false],
+  ] as const)("preserves the nested %s state and polls only active work", (key, lifecycle, polls) => {
+    const view = userView(rows, key);
+    const row = rows.find((candidate) => candidate.partId === partByKey(key).partId)!;
 
-      expect(view.extraction.lifecycle).toBe("uploaded");
-      expect(view.extraction.warnings).toEqual([]);
-      expect(view.extraction.missingFields).toEqual([]);
-      expect(view.extraction.pageCount).toBe(0);
-      expect(keepsPolling(view.extraction.lifecycle)).toBe(true);
-    }
+    expect(view.extraction).toEqual(row.clientExtraction);
+    expect(view.extraction.lifecycle).toBe(lifecycle);
+    expect(keepsPolling(view.extraction.lifecycle)).toBe(polls);
+  });
 
-    render(<ClientExtractionStatusNotice diagnostics={userView(rows, "partial").extraction} />);
-    expect(screen.getByText("Waiting for drawing metadata")).toBeInTheDocument();
+  it("preserves nested diagnostics while keeping file flags at the top level", () => {
+    const source = rows[0];
+    const diagnostics = {
+      ...source.clientExtraction,
+      warningCount: 2,
+      warnings: ["Verify the drawing fields"],
+      missingFields: ["revision"],
+    };
+    const view = normalizeClientPartMetadata({
+      ...source,
+      lifecycle: "queued",
+      warningCount: 99,
+      hasDrawingFile: false,
+      clientExtraction: diagnostics,
+    });
+
+    expect(view?.extraction).toEqual({ ...diagnostics, hasDrawingFile: false });
+  });
+
+  it.each(["complete", "noDrawing"])("does not show a waiting notice for settled %s metadata", (key) => {
+    const { container } = render(<ClientExtractionStatusNotice diagnostics={userView(rows, key).extraction} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows the live partial review fields and failed extraction message", () => {
+    const partial = render(<ClientExtractionStatusNotice diagnostics={userView(rows, "partial").extraction} />);
+    expect(screen.getByText("Review 1 drawing field")).toBeInTheDocument();
+    expect(screen.getByText("Verify: Finish")).toBeInTheDocument();
+    partial.unmount();
+
+    render(<ClientExtractionStatusNotice diagnostics={userView(rows, "failed").extraction} />);
+    expect(screen.getByText("Drawing extraction failed")).toBeInTheDocument();
+    expect(screen.getByText("The PDF could not be parsed.")).toBeInTheDocument();
   });
 });
