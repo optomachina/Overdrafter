@@ -24,7 +24,6 @@
 -- and the audit event are unchanged. user_can_edit_job itself is not changed
 -- (finding 5 is held for Blaine); today it grants every org member and every
 -- project owner/editor, so legitimate callers see no difference.
-begin;
 
 create or replace function public.api_set_job_selected_vendor_quote_offer(
   p_job_id uuid,
@@ -223,4 +222,3 @@ from public, anon, authenticated, service_role;
 grant execute on function public.api_select_quote_option(uuid, uuid, text)
 to authenticated;
 
-commit;

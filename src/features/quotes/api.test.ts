@@ -7,6 +7,7 @@ import { getArchivedDeleteReporting } from "./archive-delete-errors";
 import { resetPlatformAdminRpcAvailabilityForTests } from "./api/session-api";
 import {
   getSupabaseAuthStorageKey,
+  readStartupSupabaseBootstrap,
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
 } from "./api/shared/startup-auth";
@@ -3547,6 +3548,31 @@ describe("quotes api helpers", () => {
       isVerifiedAuth: false,
       authState: "anonymous",
     });
+  });
+
+  it.each(["unchanged", "switched", "signed out"])("uses the current account inside the startup reuse window: %s", async (state) => {
+    const key = getSupabaseAuthStorageKey();
+    storageMock.setItem(key, JSON.stringify({ access_token: "token-1" }));
+    await readStartupSupabaseBootstrap();
+    const user = state === "signed out" ? null : { id: state === "switched" ? "user-2" : "user-1" };
+    if (state === "signed out") {
+      storageMock.removeItem(key);
+    } else {
+      storageMock.setItem(key, JSON.stringify({ access_token: state === "switched" ? "token-2" : "token-1" }));
+    }
+    supabaseMock.authGetSession.mockResolvedValue({
+      data: { session: user ? { access_token: state === "switched" ? "token-2" : "token-1", user } : null }, error: null,
+    });
+    supabaseMock.authGetUser.mockResolvedValue({ data: { user }, error: null });
+    supabaseMock.membershipsOrder.mockResolvedValue({ data: [], error: null });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      user,
+      authState: user ? "authenticated" : "anonymous",
+    });
+    expect(supabaseMock.authGetSession).toHaveBeenCalledTimes(state === "unchanged" ? 1 : 2);
+    if (user) expect(supabaseMock.membershipsEq).toHaveBeenCalledWith("user_id", user.id);
+    else expect(supabaseMock.membershipsEq).not.toHaveBeenCalled();
   });
 
   it("reads live auth state on later app-session fetches instead of reusing the startup snapshot", async () => {

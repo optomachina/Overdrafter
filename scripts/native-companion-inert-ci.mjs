@@ -1,3 +1,4 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -234,6 +235,6 @@ async function main() {
   finally { report.finishedAt = new Date().toISOString(); save(); }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

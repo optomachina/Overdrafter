@@ -1,3 +1,4 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -28,6 +29,6 @@ export function collectBootstrapHealth(cwd = process.cwd()) {
   };
 }
 
-if (process.argv[1]?.endsWith("agent-bootstrap-health.mjs")) {
+if (isEntryPoint(import.meta.url)) {
   console.log(JSON.stringify(collectBootstrapHealth(), null, 2));
 }

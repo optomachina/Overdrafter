@@ -96,7 +96,7 @@ export function AuthPanel({
 }: AuthPanelProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, refetch } = useAppSession();
+  const { user, authState, isError, isFetching, refetch } = useAppSession();
   const [authMode, setAuthMode] = useState<AuthPanelMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -346,6 +346,15 @@ export function AuthPanel({
           </button>
         </div>
       )}
+
+      {authMode === "sign-in" && !user && (authState === "session_error" || isError) ? (
+        <div className="mt-5 space-y-3 rounded-3xl border border-border bg-accent px-4 py-3 text-sm">
+          <p>We couldn’t restore your session. Try again or log in below.</p>
+          <Button type="button" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+            {isFetching ? "Retrying…" : "Retry session"}
+          </Button>
+        </div>
+      ) : null}
 
       {notice ? (
         <div className="mt-5 rounded-3xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">

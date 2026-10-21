@@ -52,19 +52,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import {
-  WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
-} from "@/features/notifications/use-workspace-notifications";
 import type {
   BrowserNotificationPermissionState,
   WorkspaceNotificationChannel,
   WorkspaceNotificationItem,
   WorkspaceNotificationsController,
-  WorkspaceNotificationType,
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
-import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, isSourcingAddressComplete, missingSourcingAddressFields, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
 import { ACCOUNT_SETTINGS_REQUEST_EVENT } from "@/components/chat/account-settings-request";
 import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
@@ -147,7 +143,7 @@ const COMPACT_PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
-  "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
+  "shrink-0 rounded-[2px] border border-border bg-accent px-2.5 py-1 font-mono text-[11px] font-medium text-foreground";
 function readBillingReturnState(): BillingReturnState {
   if (typeof window === "undefined") {
     return null;
@@ -560,6 +556,7 @@ export function WorkspaceAccountMenu({
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
   const [sourcingDestination, setSourcingDestination] = useState<SourcingDestination | null>(null);
+  const sourcingAddressComplete = sourcingDestination !== null && isSourcingAddressComplete(sourcingDestination.address);
   const [sourcingError, setSourcingError] = useState<string | null>(null);
   const [isConfirmingDestination, setIsConfirmingDestination] = useState(false);
   const companyNameInputRef = useRef<HTMLInputElement>(null);
@@ -688,20 +685,23 @@ export function WorkspaceAccountMenu({
         await updateOrganizationDetails(activeMembership.organizationId, patch);
         setOrgDetails(orgDetailsDraft);
       } else {
-        const {
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        } = orgDetailsDraft;
-        await updateOrganizationAddresses(activeMembership.organizationId, {
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        });
+        const normalize = (value: string | null) => value?.trim() || null;
+        const addressPatch = {
+          billingStreet: normalize(orgDetailsDraft.billingStreet),
+          billingCity: normalize(orgDetailsDraft.billingCity),
+          billingState: normalize(orgDetailsDraft.billingState),
+          billingZip: normalize(orgDetailsDraft.billingZip),
+          billingCountry: normalize(orgDetailsDraft.billingCountry),
+          shippingSameAsBilling: orgDetailsDraft.shippingSameAsBilling,
+          shippingStreet: normalize(orgDetailsDraft.shippingStreet),
+          shippingCity: normalize(orgDetailsDraft.shippingCity),
+          shippingState: normalize(orgDetailsDraft.shippingState),
+          shippingZip: normalize(orgDetailsDraft.shippingZip),
+          shippingCountry: normalize(orgDetailsDraft.shippingCountry),
+        };
+        await updateOrganizationAddresses(activeMembership.organizationId, addressPatch);
         // Only address fields were persisted; keep unsaved company edits out of saved state.
-        setOrgDetails((prev) => ({
-          ...prev,
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        }));
+        setOrgDetails((prev) => ({ ...prev, ...addressPatch }));
       }
       setEditingSection(null);
       try {
@@ -718,7 +718,7 @@ export function WorkspaceAccountMenu({
   }
 
   async function handleConfirmSourcingDestination() {
-    if (!activeMembership?.organizationId || !sourcingDestination) return;
+    if (!activeMembership?.organizationId || !sourcingDestination || !sourcingAddressComplete) return;
     setIsConfirmingDestination(true);
     setSourcingError(null);
     try {
@@ -751,30 +751,7 @@ export function WorkspaceAccountMenu({
     isDev: import.meta.env.DEV,
   });
   const showFixtures = isFixtureModeAvailable();
-  const notifications = notificationCenter ?? {
-    allItems: [],
-    browserPermission: "unsupported" as const,
-    errorMessage: null,
-    isLoading: false,
-    isRequestingPermission: false,
-    items: [],
-    markAllSeen: () => undefined,
-    requestBrowserPermission: async () => undefined,
-    setChannelEnabled: () => undefined,
-    setItemSeen: () => undefined,
-    supportedTypes: [] as WorkspaceNotificationType[],
-    typeDefinitions: WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
-    typePreferences: {
-      "client.quote_package_ready": { inApp: true, browser: false },
-      "internal.extraction_attention_required": { inApp: true, browser: false },
-      "internal.quote_responses_ready": { inApp: true, browser: false },
-      "internal.quote_follow_up_required": { inApp: true, browser: false },
-      "internal.quote_collection_failed": { inApp: true, browser: false },
-      "internal.client_selection_received": { inApp: true, browser: false },
-      "platform.provider_added": { inApp: true, browser: false },
-    },
-    unseenCount: 0,
-  };
+  const notifications = notificationCenter;
   const archiveItems = useMemo<ArchiveListItem[]>(
     () =>
       [
@@ -825,7 +802,7 @@ export function WorkspaceAccountMenu({
     setActivePanel(panelId);
 
     if (panelId === "notifications") {
-      notifications.markAllSeen();
+      notifications?.markAllSeen();
     }
   };
 
@@ -933,6 +910,7 @@ export function WorkspaceAccountMenu({
 
     switch (activePanel) {
       case "notifications":
+        if (!notifications) return null;
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
@@ -1256,11 +1234,22 @@ export function WorkspaceAccountMenu({
                     <div className="mt-4 border-t border-white/[0.08] pt-4 text-xs">
                       <p className="font-medium text-foreground">Quote shipping destination: {sourcingDestination.state === "confirmed" ? "Confirmed" : "Needs confirmation"}</p>
                       <p className="mt-2 text-muted-foreground">
-                        {[sourcingDestination.address.street, sourcingDestination.address.city,
+                        {sourcingAddressComplete ? [sourcingDestination.address.street, sourcingDestination.address.city,
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
-                          sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
+                          sourcingDestination.address.country].filter(Boolean).join(", ") : "Shipping address is incomplete and cannot be confirmed yet."}
                       </p>
-                      {canManageAddresses && sourcingDestination.state !== "confirmed" && (
+                      {!sourcingAddressComplete && (
+                        <p className="mt-2 text-foreground">
+                          Add {missingSourcingAddressFields(sourcingDestination.address).join(", ")} before confirming.
+                        </p>
+                      )}
+                      {canManageAddresses && !sourcingAddressComplete && (
+                        <button type="button" onClick={() => openEdit(orgDetails.shippingSameAsBilling ? "billing" : "shipping")}
+                          className="mt-3 text-xs text-foreground underline">
+                          Edit shipping address
+                        </button>
+                      )}
+                      {canManageAddresses && sourcingAddressComplete && sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
@@ -1268,7 +1257,7 @@ export function WorkspaceAccountMenu({
                       )}
                     </div>
                   )}
-                  {sourcingError && <p role="alert" className="mt-2 text-xs text-red-400">{sourcingError}</p>}
+                  {sourcingError && <p role="alert" className="mt-2 text-xs text-destructive dark:text-foreground">{sourcingError}</p>}
                 </div>
 
               </>
@@ -1277,12 +1266,14 @@ export function WorkspaceAccountMenu({
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Support</PanelSectionTitle>
               <div className="mt-4 space-y-3">
-                <HelpCenterButton
-                  icon={Bell}
-                  label="Notifications"
-                  description="Review browser permission, preferences, and seen state for workflow alerts."
-                  onClick={() => setActivePanel("notifications")}
-                />
+                {notificationCenter ? (
+                  <HelpCenterButton
+                    icon={Bell}
+                    label="Notifications"
+                    description="Review browser permission, preferences, and seen state for workflow alerts."
+                    onClick={() => setActivePanel("notifications")}
+                  />
+                ) : null}
                 <HelpCenterButton
                   icon={CircleHelp}
                   label="Help center"
@@ -1618,7 +1609,7 @@ export function WorkspaceAccountMenu({
                 {roleLabel}
               </p>
             </div>
-            {notifications.unseenCount > 0 ? (
+            {(notifications?.unseenCount ?? 0) > 0 ? (
               <span
                 className={cn(
                   "hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300",
@@ -1626,9 +1617,9 @@ export function WorkspaceAccountMenu({
                     ? "rounded-[2px] border-paper-hairline bg-paper-inset text-paper-muted lg:inline-flex"
                     : "md:inline-flex",
                 )}
-                aria-label={`${notifications.unseenCount} unseen notifications`}
+                aria-label={`${notifications?.unseenCount} unseen notifications`}
               >
-                {notifications.unseenCount}
+                {notifications?.unseenCount}
               </span>
             ) : null}
             <div
@@ -1652,21 +1643,23 @@ export function WorkspaceAccountMenu({
           collisionPadding={16}
           className={compact ? COMPACT_MENU_CONTENT_CLASS : MENU_CONTENT_CLASS}
         >
-          <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("notifications")}>
-            <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
-            <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-              <span>Notifications</span>
-              {notifications.unseenCount > 0 ? (
-                <span
-                  className={compact
-                    ? "rounded-[2px] border border-paper-hairline bg-paper-inset px-2.5 py-1 text-[11px] font-medium text-paper-muted"
-                    : NOTIFICATION_BADGE_CLASS}
-                >
-                  {notifications.unseenCount}
-                </span>
-              ) : null}
-            </span>
-          </DropdownMenuItem>
+          {notificationCenter ? (
+            <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("notifications")}>
+              <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <span>Notifications</span>
+                {(notifications?.unseenCount ?? 0) > 0 ? (
+                  <span
+                    className={compact
+                      ? "rounded-[2px] border border-paper-hairline bg-paper-inset px-2.5 py-1 text-[11px] font-medium text-paper-muted"
+                      : NOTIFICATION_BADGE_CLASS}
+                  >
+                    {notifications?.unseenCount}
+                  </span>
+                ) : null}
+              </span>
+            </DropdownMenuItem>
+          ) : null}
 
           <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />
@@ -1873,7 +1866,7 @@ export function WorkspaceAccountMenu({
                       <label htmlFor="billing-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                       <Input
                         id="billing-country"
-                        value={orgDetailsDraft.billingCountry}
+                        value={orgDetailsDraft.billingCountry ?? ""}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
                         className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
@@ -1969,7 +1962,7 @@ export function WorkspaceAccountMenu({
                           <label htmlFor="shipping-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                           <Input
                             id="shipping-country"
-                            value={orgDetailsDraft.shippingCountry}
+                            value={orgDetailsDraft.shippingCountry ?? ""}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
                             className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"

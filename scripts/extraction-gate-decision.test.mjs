@@ -76,6 +76,24 @@ describe("extraction gate decision", () => {
 });
 
 describe("extraction gate job failure", () => {
+  it("checks out the entry helper and requires evidence from each PR-2 CI gate", () => {
+    const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+    expect(workflow).toMatch(/sparse-checkout: \|\n\s+scripts\/extraction-gate-decision.mjs\n\s+scripts\/lib\/entry-point.mjs/);
+    for (const [name, command, evidence] of [
+      ["Verify migration lineage", 'npm run verify:migration-lineage -- --against-base | tee "$RUNNER_TEMP/migration-lineage.log"', "if ! grep -Fq 'Supabase migration-lineage verification passed'"],
+      ["Check provider integrations", 'npm run --silent provider:check | tee "$RUNNER_TEMP/provider-check.json"', "jq -e '.ok == true'"],
+      ["Decide extraction gate", 'node scripts/extraction-gate-decision.mjs | tee "$RUNNER_TEMP/extraction-gate-decision.log"', "if ! grep -Eq '^extraction-gate mode=\\S+ result=\\S+ exit='"],
+    ]) {
+      const step = workflow.split(/\n {6}- name: /).find((block) => block.startsWith(`${name}\n`));
+      expect(step, name).toBeDefined();
+      expect(step).toContain("set -euo pipefail");
+      expect(step).toContain(command);
+      expect(step).toContain(evidence);
+      expect(step).toMatch(/echo "::error::[^\n]+\n\s+exit 1/);
+    }
+    expect(workflow).toContain('test -s "$RUNNER_TEMP/provider-check.json"');
+  });
+
   it("fails ci in report mode (and every mode) whatever the parsed line says", () => {
     for (const mode of Object.values(MODES)) {
       for (const output of Object.values(OUTPUTS)) {

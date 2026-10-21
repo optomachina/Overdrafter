@@ -7,6 +7,7 @@ select plan(13);
 create or replace function pg_temp.ovd570_cleanup_race_fixture()
 returns void language plpgsql set search_path = pg_catalog as $$
 begin
+  delete from public.projects where id='88000000-0000-4000-8000-000000000006'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   delete from public.approved_part_requirements where part_id='88000000-0000-4000-8000-000000000005'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   delete from public.parts where id='88000000-0000-4000-8000-000000000005';
   delete from public.part_versions where organization_id='88000000-0000-4000-8000-000000000003'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
@@ -30,6 +31,17 @@ values ('88000000-0000-4000-8000-000000000003', '88000000-0000-4000-8000-0000000
 insert into public.jobs (id, organization_id, created_by, title)
 values ('88000000-0000-4000-8000-000000000004', '88000000-0000-4000-8000-000000000003',
   '88000000-0000-4000-8000-000000000002', 'Sourcing race');
+-- OVD-766 E: only the job owner and explicit project editors can edit a job,
+-- so the editor holds an explicit editor grant on a project containing it.
+insert into public.projects (id, organization_id, owner_user_id, name)
+values ('88000000-0000-4000-8000-000000000006', '88000000-0000-4000-8000-000000000003',
+  '88000000-0000-4000-8000-000000000002', 'Sourcing race');
+insert into public.project_memberships (project_id, user_id, role) values
+  ('88000000-0000-4000-8000-000000000006', '88000000-0000-4000-8000-000000000002', 'owner'),
+  ('88000000-0000-4000-8000-000000000006', '88000000-0000-4000-8000-000000000001', 'editor');
+insert into public.project_jobs (project_id, job_id, created_by)
+values ('88000000-0000-4000-8000-000000000006', '88000000-0000-4000-8000-000000000004',
+  '88000000-0000-4000-8000-000000000002');
 insert into public.parts (id, job_id, organization_id, name, normalized_key)
 values ('88000000-0000-4000-8000-000000000005', '88000000-0000-4000-8000-000000000004',
   '88000000-0000-4000-8000-000000000003', 'Race part', 'race-part');
@@ -91,6 +103,8 @@ select id from public.approved_part_requirements where part_id = '88000000-0000-
 select extensions.dblink_send_query('ovd570-race', $$select public.ovd570_race_attempt('deadline')$$);
 select ok(pg_temp.ovd570_wait_for_lock(), 'deadline confirmation actually waits on the requirement row');
 delete from public.organization_memberships where organization_id = '88000000-0000-4000-8000-000000000003';
+delete from public.project_memberships
+where project_id = '88000000-0000-4000-8000-000000000006' and user_id = '88000000-0000-4000-8000-000000000001';
 commit;
 select is((select result from extensions.dblink_get_result('ovd570-race') as response(result text)),
   'part_deadline_access_denied', 'editor revocation while waiting prevents deadline confirmation');
@@ -101,6 +115,8 @@ select is((select count(*) from private.part_deadline_history
 
 insert into public.organization_memberships (organization_id, user_id, role)
 values ('88000000-0000-4000-8000-000000000003', '88000000-0000-4000-8000-000000000001', 'internal_admin');
+insert into public.project_memberships (project_id, user_id, role)
+values ('88000000-0000-4000-8000-000000000006', '88000000-0000-4000-8000-000000000001', 'editor');
 begin;
 select id from public.organizations where id = '88000000-0000-4000-8000-000000000003' for update;
 select extensions.dblink_send_query('ovd570-race', $$select public.ovd570_race_attempt('address')$$);

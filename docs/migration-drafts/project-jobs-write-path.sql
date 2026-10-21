@@ -1,0 +1,52 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- Restrict public.project_jobs writes to the SECURITY DEFINER RPC path
+-- (defense in depth).
+--
+-- This file is a DRAFT. It is not under supabase/migrations/, is not part of
+-- migration lineage and has not been applied to any database. Promote it only
+-- inside a Blaine-approved migration window, staging first
+-- (docs/runbooks/staging.md). Plain SQL: no transaction control and no psql
+-- meta-commands. Rollback: project-jobs-write-path.rollback.sql.
+--
+-- Clients only read project_jobs (src/features/quotes/api/projects-api.ts and
+-- the create-payment-intent edge function). Every write already goes through a
+-- path that does not need a write grant for anon or authenticated, or the
+-- FOR ALL policy:
+--   insert   api_assign_job_to_project, api_create_client_draft
+--   delete   api_remove_job_from_project, api_dissolve_project
+--   cascade  ON DELETE CASCADE from projects and jobs, run as the table owner:
+--            api_delete_project, api_delete_archived_jobs,
+--            api_delete_archived_job and the job-archive-fallback edge function
+--            (which connects as postgres)
+--   service  worker/src/tools/importSpreadsheetQuotes.ts,
+--            worker/src/tools/importDmriflesQuotes.ts and scripts/seed-dev.mjs
+--            use the service_role key, which keeps its grants and bypasses RLS
+-- The RPCs are SECURITY DEFINER and owned by postgres. The archive, unarchive
+-- and access helpers only read the table.
+--
+-- 1. Revoke INSERT, UPDATE, DELETE and TRUNCATE on the table from PUBLIC, anon
+--    and authenticated. SELECT and service_role are unchanged.
+-- 2. Drop the FOR ALL policy project_jobs_manage_editors, so RLS refuses
+--    direct writes even if a later grant returns. Reads are unchanged:
+--    user_can_edit_project implies user_can_access_project, so
+--    project_jobs_select_accessible already returns every row the dropped
+--    policy returned.
+--
+-- No data change; no data loss on apply or rollback.
+-- Regression: supabase/tests/project_jobs_write_path.sql, which installs a byte
+-- copy of this file (supabase/tests/fixtures/project_jobs_write_path.inc).
+--
+-- On promotion: point the fixture byte check in
+-- scripts/run-supabase-policy-tests.node-test.mjs at the promoted file, drop
+-- public.project_jobs from the anon TRUNCATE list in
+-- supabase/tests/api_role_privilege_inventory.sql, add the file to the reviewed
+-- free-quote CI pins (scripts/free-quote-ci-profile.mjs and
+-- scripts/fixtures/free-quote-ci-source.json), and update the
+-- user_can_edit_project reason in supabase/tests/ovd736_anon_definer_privileges.sql
+-- (no project_jobs policy calls it after this).
+
+revoke insert, update, delete, truncate on table public.project_jobs from public, anon, authenticated;
+
+drop policy if exists "project_jobs_manage_editors" on public.project_jobs;

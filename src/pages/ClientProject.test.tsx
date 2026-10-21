@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,7 @@ import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientProject from "./ClientProject";
+import { useClientProjectController } from "@/features/quotes/use-client-project-controller";
 
 const {
   api,
@@ -875,6 +876,41 @@ describe("ClientProject", () => {
       reasonCode: "canceled",
       reason: "Quote request canceled.",
     });
+  });
+
+  it.each([
+    ["1,000/2,000", [1000, 2000]],
+    ["10/12.5", null],
+    ["250,500", null],
+    ["1,250 2,500", null],
+    ["1,250, 2,500", null],
+    ["2,500 7,500", null],
+    ["100,250 500", null],
+    ["1,500,25/50", null],
+    ["1,500, 2,500 / 5,000", null],
+    ["10,25,50", [10, 25, 50]],
+    ["100, 250, 500", [100, 250, 500]],
+  ])("validates project request quantities %j before saving", async (text, expected) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/project-1"]}>
+          <Routes><Route path="/projects/:projectId" element={children} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>;
+    }
+    const { result } = renderHook(() => useClientProjectController(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.requestDraftsByJobId["job-1"]).toBeDefined());
+    act(() => result.current.handleQuoteQuantityInputChange("job-1", text as string));
+    await act(async () => result.current.handleSaveRequest("job-1"));
+    if (expected) {
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({ requestedQuoteQuantities: expected });
+    } else {
+      expect(toastMock.error).toHaveBeenCalled();
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(toastMock.success).not.toHaveBeenCalled();
+    }
   });
 
   // OVD-992: a need-by date typed in the Add part prompt is a display filter only. The draft must not
