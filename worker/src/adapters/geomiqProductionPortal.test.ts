@@ -1,15 +1,13 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import {
   registerProductionPortalAuthorizationRefusals,
   type ProductionPortalDefaultDenyHarness,
 } from "../../test-support/productionPortalDefaultDeny";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
+import { observedLiveConfig, productionCadStager } from "../../test-support/productionPortalTestHarness";
 import { geomiqDispatchAuthorization, geomiqDispatchEnvelope } from "../../test-support/geomiqDispatchFixture";
 import { GEOMIQ_DISPATCH_ENVELOPE, geomiqDispatchAuthorizationDenial } from "./geomiqDispatchAuthorization";
 import { buildGeomiqProductionPortalDefinition } from "./geomiqProductionPortal";
@@ -30,32 +28,8 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
-const STORAGE_STATE = JSON.stringify({ cookies: [], origins: [] });
-
-function observedConfig() {
-  const sessionRead = vi.fn(() => ({ geomiq: STORAGE_STATE }));
-  const config = {
-    workerMode: "live",
-    workerLiveAdapters: ["geomiq"],
-    workerTempDir: os.tmpdir(),
-    browserTimeoutMs: 100,
-    playwrightHeadless: true,
-    playwrightDisableSandbox: false,
-    playwrightDisableDevShmUsage: false,
-    vendorStorageStatePaths: {},
-    vendorStorageStateDir: null,
-  } as unknown as WorkerConfig;
-  Object.defineProperty(config, "vendorStorageStateJson", { get: sessionRead, enumerable: true });
-  return { config, sessionRead };
-}
-
-async function stagedCad(name = "part.step", bytes = "synthetic geomiq cad bytes") {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geomiq-production-"));
-  tempDirs.push(dir);
-  const localPath = path.join(dir, name);
-  await fs.writeFile(localPath, bytes);
-  return { originalName: name, localPath, storageBucket: "job-files", storagePath: `cad/${name}`, trustedContentSha256: await sha256File(localPath) };
-}
+const observedConfig = () => observedLiveConfig("geomiq");
+const stagedCad = productionCadStager("geomiq", tempDirs);
 
 async function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {}): Promise<VendorQuoteAdapterInput> {
   const cad = await stagedCad();

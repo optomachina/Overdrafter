@@ -1,0 +1,34 @@
+-- OVD-677: OSH Cut reviewed dispatch envelope review row.
+--
+-- Targets the draft docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted into
+-- supabase/migrations, this file is renamed to
+-- supabase/tests/ovd677_oshcut_reviewed_envelope.sql, and
+-- supabase/tests/provider_dispatch_permits.sql adds 'oshcut' to its reviewed
+-- envelope expectations, in the same change.
+begin;
+select plan(3);
+
+select results_eq(
+  $$select provider::text, envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
+    from private.provider_dispatch_envelope_reviews
+    where withdrawn_at is null and provider = 'oshcut'$$,
+  $$values ('oshcut'::text, 'oshcut-quote-envelope'::text, 1, 7200, 'OVD-677'::text)$$,
+  'the draft records exactly one active reviewed OSH Cut envelope with a 7200 s permit TTL'
+);
+select is(
+  (select count(*) from private.quote_provider_admission_policies
+    where provider = 'oshcut' and (admission_state <> 'disabled' or generic_dispatch_enabled)),
+  0::bigint,
+  'the reviewed OSH Cut envelope leaves the OSH Cut admission disabled'
+);
+select is(
+  (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),
+  0::bigint,
+  'no provider is generically dispatchable by default'
+);
+
+select * from finish();
+rollback;

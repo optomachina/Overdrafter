@@ -634,6 +634,9 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
   });
 });
 
+// Each sweep runs the deploy script once per allowed egress value and refusal.
+const STABLE_EGRESS_SWEEP_TIMEOUT_MS = 60_000;
+
 describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
   const FICTIV_SECRET = "synthetic-fictiv-storage-state";
 
@@ -1042,6 +1045,40 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
   });
 });
 
+describe("deploy-cloud-run.sh OSH Cut default-off contract (OVD-677)", () => {
+  const OSHCUT_SECRET = "synthetic-oshcut-storage-state";
+  const OSHCUT_MOUNT = "/var/secrets/oshcut-storage-state/storage-state.json";
+  const QUICKPARTS_SECRET = "synthetic-quickparts-storage-state";
+
+  it("keeps OSH Cut disabled by default with no session binding or path map", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry");
+    expect(envVars).not.toHaveProperty("QUOTE_VENDOR_STORAGE_STATE_PATHS");
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))).not.toHaveProperty(OSHCUT_MOUNT);
+    expect((optionValue(deployCall, "--remove-secrets") ?? "").split(",")).not.toContain(OSHCUT_MOUNT);
+  });
+
+  it.each([
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET, ...STABLE_EGRESS_ENV }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut,quickparts", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET, QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET, ...STABLE_EGRESS_ENV }],
+    [{ WORKER_LIVE_ADAPTERS: "oshcut" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry, oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut,", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET, QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET, ...STABLE_EGRESS_ENV }],
+  ])("refuses every OSH Cut production configuration %j before invoking gcloud", async (envOverrides) => {
+    const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
 describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () => {
   async function restrictionMessageFromScript(script) {
     const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-message-"));
@@ -1055,7 +1092,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     }
   }
 
-  it("prints the current registry-built message and lists a temporary fourth adapter", async () => {
+  it("prints the current registry-built message and lists a temporary extra adapter", async () => {
     const repoRoot = path.resolve(process.cwd());
     const registry = await readProviderRegistry(repoRoot);
     const currentScript = renderProviderRegistryOutputs(registry)

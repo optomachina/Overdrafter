@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "../adapters/oshcutPortalDisabled.js";
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { chromium } from "playwright";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
 import type { LiveAutomationVendorName } from "../types.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
+import { enabledPortalVendors } from "./enabledPortalVendors.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
@@ -35,7 +37,7 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
     .filter(Boolean);
 
   if (requestedVendors.length === 1 && requestedVendors[0] === "all") {
-    return EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor);
+    return enabledPortalVendors(EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor), true);
   }
 
   const supportedVendors: LiveAutomationVendorName[] = [];
@@ -48,7 +50,7 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
     supportedVendors.push(workflow.vendor);
   }
 
-  return supportedVendors.length > 0 ? supportedVendors : null;
+  return supportedVendors.length > 0 ? enabledPortalVendors(supportedVendors) : null;
 }
 
 export function parseAuthArgs(argv: string[]): AuthArgs {
@@ -85,7 +87,8 @@ async function ensureParentDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
-async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
+export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
+  if (vendor === "oshcut") refuseOshcutPortalAutomation();
   const workflow = getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);
