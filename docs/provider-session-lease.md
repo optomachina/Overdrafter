@@ -275,14 +275,10 @@ provider route only builds it when `WORKER_PROVIDER_SESSION_LEASE=on`.
 
 The namespace key lives in Secret Manager project `overdrafter-worker-9133` as
 `worker-provider-session-namespace-key` (32 random bytes, hex; created
-2026-10-15, readable by `overdrafter-worker-runner`). Deploy with:
-
-```bash
-WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME=worker-provider-session-namespace-key \
-WORKER_PROVIDER_SESSION_LEASE=on \
-./scripts/deploy-cloud-run.sh
-```
-
-`deploy-cloud-run.sh` uses `--set-env-vars`, so a deploy without
-`WORKER_PROVIDER_SESSION_LEASE=on` turns the lease off again. The script
-refuses `on` without the secret name.
+2026-10-15, readable by `overdrafter-worker-runner`). `deploy-cloud-run.sh`
+defaults `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` to that name and
+`WORKER_PROVIDER_SESSION_LEASE` to `on`, binding the key by secret name only.
+Either can be overridden by env; `WORKER_PROVIDER_SESSION_LEASE=off` turns the
+lease off for that deploy, since `--set-env-vars` replaces the whole variable
+set. The script refuses `on` without the secret name, and
+`scripts/deploy-cloud-run-contract.test.mjs` pins both defaults.
