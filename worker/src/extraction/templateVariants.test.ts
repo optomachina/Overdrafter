@@ -1,10 +1,9 @@
 // @vitest-environment node
 //
-// Local gate, not CI evidence (OVD-989; related OVD-976 and OVD-985).
+// Local regression gate for the OVD-989 fix, not CI evidence.
 // Uses real poppler and a model extractor stub that must never be called.
-// Truth comes from a private manifest read at run time. A hand-maintained private
-// known-defects.json selects it.fails checks until fixed; TEMPLATE_VARIANTS_STRICT=1
-// runs them strictly. Neither input is written or derived from observed results.
+// Truth comes from a private manifest read at run time, never written or derived
+// from observed results. Every check asserts the fixed behavior.
 // The suite skips when the corpus or poppler is absent.
 // Use OVERDRAFTER_TEMPLATE_VARIANTS_DIR or test-fixtures/private/template-variants/.
 // PDFs use a neutral upload name so filename fallback cannot hide extraction defects.
@@ -160,31 +159,6 @@ const CHECK_TITLES: Record<Check, string> = {
   exportMarking: "flags an export-control note and nothing else",
 };
 
-type KnownDefects = Readonly<Record<string, Partial<Record<Check, string>>>>;
-
-function loadKnownDefects(dir: string, variants: Variant[]): KnownDefects {
-  const file = path.join(dir, "known-defects.json");
-  if (!fs.existsSync(file)) {
-    throw new Error("Corpus present but known-defects.json is missing; supply the hand-maintained defect list");
-  }
-  const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
-  const isObject = (candidate: unknown): candidate is Record<string, unknown> =>
-    typeof candidate === "object" && candidate !== null && !Array.isArray(candidate);
-  if (!isObject(value)) throw new Error("known-defects.json must be an object");
-  const ids = new Set(variants.map((variant) => variant.id));
-  for (const [id, checks] of Object.entries(value)) {
-    if (!ids.has(id)) throw new Error("known-defects.json contains an unknown variant id");
-    if (!isObject(checks)) throw new Error("known-defects.json check maps must be objects");
-    for (const [check, issue] of Object.entries(checks)) {
-      if (!Object.hasOwn(CHECKS, check)) throw new Error("known-defects.json contains an unknown check name");
-      if (typeof issue !== "string" || issue.trim() !== issue || !/^OVD-\d+$/.test(issue)) {
-        throw new Error("known-defects.json contains a malformed issue id");
-      }
-    }
-  }
-  return value as KnownDefects;
-}
-
 // An observation that agrees with the manifest in every compared value. It is built from
 // the truth alone, so it tests the comparators without involving the extractor.
 function mirror(truth: VariantTruth): Observation {
@@ -280,7 +254,6 @@ function escapeRegExp(value: string) {
 
 const CORPUS_DIR = resolveCorpusDir();
 const manifest = loadManifest(CORPUS_DIR);
-const KNOWN_DEFECTS = manifest ? loadKnownDefects(CORPUS_DIR, manifest.variants) : {};
 const expectedVariantIds = manifest?.variants.map((variant) => variant.id) ?? [];
 // CI installs poppler-utils for the test job but has no corpus. Without poppler the text
 // layer cannot be read at all, so the suite is reported as skipped rather than as a pass.
@@ -290,13 +263,11 @@ const skipReason = !hasPoppler
   : !manifest
     ? "no corpus manifest; set OVERDRAFTER_TEMPLATE_VARIANTS_DIR"
     : null;
-const strict = process.env.TEMPLATE_VARIANTS_STRICT === "1";
 
 describe.skipIf(skipReason !== null)(
   `template variants, deterministic PDF-text extraction${skipReason ? ` [skipped: ${skipReason}]` : ""}`,
   () => {
     const registered = new Set<string>();
-    const consumed = new Set<string>();
 
     for (const variant of manifest?.variants ?? []) {
       describe(variant.id, () => {
@@ -358,8 +329,7 @@ describe.skipIf(skipReason !== null)(
         });
 
         it("runs the real chain on the neutral upload name with a text layer and no model call", () => {
-          // Everything below is a precondition of the known-defect checks: an extraction
-          // that never ran would make every `it.fails` pass for the wrong reason.
+          // Verify the extraction ran through the deterministic path before comparing values.
           expect(path.basename(uploadPath)).toBe(NEUTRAL_UPLOAD_NAME);
           expect(pdfText).not.toBeNull();
           expect(pdfText?.pageCount).toBe(variant.pageCount);
@@ -401,10 +371,7 @@ describe.skipIf(skipReason !== null)(
 
         for (const check of ALL_CHECKS) {
           registered.add(`${variant.id}:${check}`);
-          const issue = KNOWN_DEFECTS[variant.id]?.[check];
-          if (issue) consumed.add(`${variant.id}:${check}`);
-          const runner = issue && !strict ? it.fails : it;
-          runner(issue ? `${issue}: ${CHECK_TITLES[check]}` : CHECK_TITLES[check], () => {
+          it(CHECK_TITLES[check], () => {
             expect(CHECKS[check](truth, observed)).toBeNull();
           });
         }
@@ -414,19 +381,6 @@ describe.skipIf(skipReason !== null)(
     it("runs every check on every variant of the corpus", () => {
       const expected = expectedVariantIds.flatMap((id) => EXPECTED_CHECKS.map((check) => `${id}:${check}`));
       expect([...registered].sort()).toEqual(expected.sort());
-    });
-
-    it("records known defects only for variants and checks that exist, and applies every one", () => {
-      const recorded: string[] = [];
-      for (const [id, checks] of Object.entries(KNOWN_DEFECTS)) {
-        expect(expectedVariantIds, id).toContain(id);
-        for (const [check, issue] of Object.entries(checks)) {
-          expect(ALL_CHECKS, `${id} ${check}`).toContain(check);
-          expect(issue, `${id} ${check}`).toMatch(/^OVD-\d+$/);
-          recorded.push(`${id}:${check}`);
-        }
-      }
-      expect([...consumed].sort()).toEqual(recorded.sort());
     });
   },
 );
