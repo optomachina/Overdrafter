@@ -1500,6 +1500,12 @@ function buildCleanupCapability(
       if (rows.length === 0) return false;
       if (rows.length !== 1) throw new CleanupConfirmationUnproven();
       const row = rows[0];
+      // Scope text locates a row; only the pre-upload snapshot proves ownership.
+      if (!uploadedRows) throw new CleanupConfirmationUnproven();
+      const owned = await uploadedRows.targets();
+      if (!await row.evaluate((element, rows) => rows.includes(element), owned)) {
+        throw new CleanupConfirmationUnproven();
+      }
       await confirmation.bind(row);
       const targets = rule.uploadedRows && !rule.scope ? [row] : await row.$$(rule.selector);
       if (targets.length === 0) return false;
@@ -1538,7 +1544,12 @@ async function cleanUpProviderPortal(
   };
   let rejectDialog: (error: unknown) => void = () => undefined;
   const dialogFailure = new Promise<never>((_, reject) => { rejectDialog = reject; });
-  const confirmation = new CleanupRowConfirmation(definition.selectors.cleanupRowFileName);
+  const confirmation = new CleanupRowConfirmation(
+    definition.selectors.cleanupRowFileName,
+    definition.selectors.cleanupRow,
+    definition.selectors.cleanupRow
+      ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
+  );
   // Native confirmation is a separate mutation, just like an in-page button.
   const acceptDialog = async (dialog: { type: () => string; message: () => string; accept: () => Promise<void>; dismiss: () => Promise<void> }) => {
     try {
@@ -1568,7 +1579,12 @@ async function cleanUpProviderPortal(
       session.page.on("dialog", acceptDialog);
     }
     const outcome = await Promise.race([
-      hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, confirmation, session.cleanupRows), input),
+      (async () => {
+        const outcome = await hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, confirmation, session.cleanupRows), input);
+        const removed = await confirmation.verifiedRemoved();
+        if (outcome.removed > removed) throw new CleanupConfirmationUnproven();
+        return removed > 0 ? { removed, remaining: 0 } : outcome;
+      })(),
       dialogFailure,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("CleanupTimeout")), timeoutMs);
