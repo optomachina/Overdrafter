@@ -88,6 +88,7 @@ const schema = z.object({
   WORKER_PROVIDER_SESSION_NAMESPACE_KEY: optionalSetting(),
   // OVD-829: on only after docs/migration-drafts/ovd-828-s1.sql is applied.
   WORKER_PROVIDER_DURABLE_DISPATCH_CAP: z.enum(["off", "on"]).default("off"),
+  DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL: z.string().optional(),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
   DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: optionalSetting(),
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
@@ -277,6 +278,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     providerSessionLease: parsed.WORKER_PROVIDER_SESSION_LEASE,
     providerSessionNamespaceKey,
     providerDurableDispatchCap: parsed.WORKER_PROVIDER_DURABLE_DISPATCH_CAP,
+    titleBlockApprovalEnabled: parsed.DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL === "1",
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,

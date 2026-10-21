@@ -530,13 +530,13 @@ export type OrganizationDetails = {
   billingCity: string | null;
   billingState: string | null;
   billingZip: string | null;
-  billingCountry: string;
+  billingCountry: string | null;
   shippingSameAsBilling: boolean;
   shippingStreet: string | null;
   shippingCity: string | null;
   shippingState: string | null;
   shippingZip: string | null;
-  shippingCountry: string;
+  shippingCountry: string | null;
 };
 
 export type AppSessionAuthState = "authenticated" | "anonymous" | "invalid_session" | "session_error";
@@ -616,6 +616,8 @@ export type AppSessionData = {
   isPlatformAdmin?: boolean;
   authState?: AppSessionAuthState;
   membershipError?: string;
+  /** True once the shared session projection has finished initial restoration. */
+  restoreComplete?: boolean;
 };
 
 export type PartAggregate = PartRecord & {

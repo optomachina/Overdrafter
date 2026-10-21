@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withMonospaceGeometry } from "../../test-support/pdfWordBoxes";
+import { pdfTextOf } from "../../test-support/titleBlockSheet";
 
 const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename, mockRm } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
@@ -34,11 +36,14 @@ import {
   PDF_TEXT_LAYER_MAX_PAGES,
   PDF_TEXT_LAYER_TOTAL_TIMEOUT_MS,
   PDF_TOOL_TIMEOUT_MS,
+  PDF_WORD_BOXES_TOTAL_TIMEOUT_MS,
   PDF_OCR_UNAVAILABLE_WARNING_CODE,
   renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
   renderPdfTitleBlockCrop,
 } from "./pdfDrawing";
+import { slowdown } from "../../test-support/timing";
+import { MAX_WORDS_TOTAL } from "./pdfWords";
 
 const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
 const TEST_QB00002_PDF_PATH = "/safe-test/input/1093-05589-02.pdf";
@@ -409,9 +414,10 @@ describe("pdfDrawing", () => {
 
     const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
-    expect(mockExecFileAsync.mock.calls.filter(([command]) => command === "pdftotext")).toHaveLength(
-      PDF_TEXT_LAYER_MAX_PAGES,
-    );
+    // The text layer is read with `-layout`; the word boxes of OVD-989 are a separate `-bbox` call.
+    expect(
+      mockExecFileAsync.mock.calls.filter(([command, args]) => command === "pdftotext" && args.includes("-layout")),
+    ).toHaveLength(PDF_TEXT_LAYER_MAX_PAGES);
     expect(result?.pages[PDF_TEXT_LAYER_MAX_PAGES].text).toBe("");
     expect(result?.drawingFullyRead).toBe(false);
   });
@@ -432,7 +438,9 @@ describe("pdfDrawing", () => {
 
       const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
-      const textCalls = mockExecFileAsync.mock.calls.filter(([command]) => command === "pdftotext");
+      const textCalls = mockExecFileAsync.mock.calls.filter(
+        ([command, args]) => command === "pdftotext" && args.includes("-layout"),
+      );
       expect(textCalls).toHaveLength(2);
       expect(textCalls[1][2]).toMatchObject({ timeout: PDF_TOOL_TIMEOUT_MS });
       expect(result?.pages.map((page) => page.text)).toEqual(["LAYER", "LAYER", ""]);
@@ -440,6 +448,167 @@ describe("pdfDrawing", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  describe("word boxes for the title block reader (OVD-989)", () => {
+    const BBOX = (text: string) =>
+      `<html><body><doc><page width="1224" height="792"><word xMin="10" yMin="20" xMax="60" yMax="30">${text}</word></page></doc></body></html>`;
+
+    function mockWordBoxes(options: { pages: number; layerText: (page: number) => string; bbox: (page: number) => string | Error }) {
+      mockPopplerAndTesseract({ pages: options.pages, layerText: options.layerText, ocrText: () => "OCR" });
+      const base = mockExecFileAsync.getMockImplementation()!;
+      mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+        if (command === "pdftotext" && args.includes("-bbox")) {
+          const result = options.bbox(Number(args[args.indexOf("-f") + 1]));
+          if (result instanceof Error) {
+            throw result;
+          }
+          return { stdout: result };
+        }
+        return base(command, args, ...rest);
+      });
+    }
+
+    const bboxCalls = () =>
+      mockExecFileAsync.mock.calls.filter(([command, args]) => command === "pdftotext" && args.includes("-bbox"));
+
+    it("reads the boxes of each page that has a text layer, bounded by the tool timeout", async () => {
+      // Pin elapsed time for the exact timeout assertion; budget-depletion tests below advance it explicitly.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+      try {
+        mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([["WORD1"], ["WORD2"]]);
+        expect(result?.pages[0].words?.[0]).toMatchObject({ xMin: 10, yMin: 20, xMax: 60, yMax: 30 });
+        expect(bboxCalls()).toHaveLength(2);
+        expect(bboxCalls()[0][1]).toEqual(["-bbox", "-cropbox", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"]);
+        // The options are pinned by value, not through the constants: a call without a timeout or with a
+        // bigger buffer than 32 MiB is what an attacker's file would use.
+        expect(bboxCalls()[0][2]).toEqual({ maxBuffer: 32 * 1024 * 1024, timeout: PDF_TOOL_TIMEOUT_MS });
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("keeps the layout text and the fully read answer when poppler cannot print the boxes", async () => {
+      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => (page === 1 ? new Error("bbox failed") : "not markup") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words)).toEqual([undefined, undefined]);
+      expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
+      expect(result?.drawingFullyRead).toBe(true);
+      expect(result?.ocr).toBe(false);
+    });
+
+    it("does not read boxes for a page without a text layer", async () => {
+      mockWordBoxes({ pages: 2, layerText: (page) => (page === 1 ? "LAYER 1" : ""), bbox: () => BBOX("WORD") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words !== undefined)).toEqual([true, false]);
+      expect(bboxCalls()).toHaveLength(1);
+    });
+
+    it("reads no boxes from a scan, whose text is OCR", async () => {
+      mockWordBoxes({ pages: 1, layerText: () => "", bbox: () => BBOX("WORD") });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.ocr).toBe(true);
+      expect(result?.pages[0].words).toBeUndefined();
+      expect(bboxCalls()).toHaveLength(0);
+    });
+
+    it("stops reading boxes at its own total budget of 30 seconds, without touching the text layer", async () => {
+      // The budget is pinned by value as well: the clock below moves by 30 s, not by the constant, so a
+      // budget made larger is not followed by the test.
+      expect(PDF_WORD_BOXES_TOTAL_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        mockWordBoxes({ pages: 3, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+          if (command === "pdftotext" && args.includes("-bbox")) {
+            now += 30_000;
+          }
+          return base(command, args, ...rest);
+        });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(bboxCalls()).toHaveLength(1);
+        expect(result?.pages.map((page) => page.words !== undefined)).toEqual([true, false, false]);
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2", "LAYER 3"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("gives a box call only the time left of the budget", async () => {
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+        const base = mockExecFileAsync.getMockImplementation()!;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+          if (command === "pdftotext" && args.includes("-bbox")) {
+            now += 25_000;
+          }
+          return base(command, args, ...rest);
+        });
+
+        await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(bboxCalls()).toHaveLength(2);
+        expect((bboxCalls()[0][2] as { timeout: number }).timeout).toBe(PDF_TOOL_TIMEOUT_MS);
+        expect((bboxCalls()[1][2] as { timeout: number }).timeout).toBe(5_000);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("trusts no words from markup that stops before the end of the document", async () => {
+      const whole = BBOX("WORD");
+      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => (page === 1 ? whole.slice(0, whole.indexOf("</page>")) : whole) });
+
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([undefined, ["WORD"]]);
+    });
+
+    describe("the words of all pages together are bounded", () => {
+      const manyWords = (count: number) =>
+        `<html><body><doc><page width="1224" height="792">${'<word xMin="1" yMin="2" xMax="30" yMax="12">w</word>'.repeat(count)}</page></doc></body></html>`;
+
+      it("reads no more pages once the words held reach the bound, and keeps their layout text", async () => {
+        mockWordBoxes({ pages: 6, layerText: (page) => `LAYER ${page}`, bbox: () => manyWords(15_000) });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        expect(MAX_WORDS_TOTAL).toBe(60_000);
+        expect(result?.pages.map((page) => page.words?.length)).toEqual([15_000, 15_000, 15_000, 15_000, undefined, undefined]);
+        expect(bboxCalls()).toHaveLength(4);
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2", "LAYER 3", "LAYER 4", "LAYER 5", "LAYER 6"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      });
+
+      it("drops the page that would pass the bound and reads no further", async () => {
+        mockWordBoxes({ pages: 5, layerText: (page) => `LAYER ${page}`, bbox: (page) => manyWords(page === 3 ? 20_000 : 15_000) });
+
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+        // 15,000 + 15,000 + 20,000 fit; the fourth page would make 65,000.
+        expect(result?.pages.map((page) => page.words?.length)).toEqual([15_000, 15_000, 20_000, undefined, undefined]);
+        expect(bboxCalls()).toHaveLength(4);
+      });
+    });
   });
 
   it("is not fully read when pdftotext fails on a page", async () => {
@@ -654,7 +823,7 @@ describe("pdfDrawing", () => {
   });
 
   it("extracts title-block values from the 1093-05589 regression layout", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: PRIMARY_REGRESSION_FIXTURE,
     });
@@ -665,14 +834,14 @@ describe("pdfDrawing", () => {
     expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.partNumber.reviewNeeded).toBe(false);
-    expect(result.revision.reviewNeeded).toBe(false);
+    expect(result.partNumber.reviewNeeded).toBe(true);
+    expect(result.revision.reviewNeeded).toBe(true);
     expect(result.description.reviewNeeded).toBe(false);
-    expect(result.finish.reviewNeeded).toBe(false);
-    expect(result.reviewFields).not.toContain("partNumber");
-    expect(result.reviewFields).not.toContain("revision");
+    expect(result.finish.reviewNeeded).toBe(true);
+    expect(result.reviewFields).toContain("partNumber");
+    expect(result.reviewFields).toContain("revision");
     expect(result.reviewFields).not.toContain("description");
-    expect(result.reviewFields).not.toContain("finish");
+    expect(result.reviewFields).toContain("finish");
     expect(result.reviewFields).not.toContain("process");
   });
 
@@ -688,7 +857,7 @@ describe("pdfDrawing", () => {
     const cellEdge = 58;
     const at = (column: number, text: string) => " ".repeat(column) + text;
 
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "column-bleed",
       pdfText: {
         pageCount: 1,
@@ -719,7 +888,7 @@ describe("pdfDrawing", () => {
   it("reads a full value when its label sits alone on a shorter line", () => {
     // The MATERIAL label is alone above its value. Clipping the value row to
     // the label row's width used to truncate "6061 Alloy" to "6061".
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "label-above-value",
       pdfText: {
         pageCount: 1,
@@ -745,7 +914,7 @@ describe("pdfDrawing", () => {
   });
 
   it("rejects finish specs and approval text as part number and finish winners", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: PRIMARY_REGRESSION_FIXTURE,
     });
@@ -757,7 +926,7 @@ describe("pdfDrawing", () => {
   });
 
   it("rescues title-block fields and tolerance from OCR text when layout anchors are noisy", () => {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: {
         pageCount: 1,
@@ -779,17 +948,50 @@ describe("pdfDrawing", () => {
     expect(result.partNumber.value).toBe("1093-05589");
     expect(result.revision.value).toBe("02");
     expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    // The rescue's text for the material and the finish is only a suggestion for review (Codex review of #884, round
+    // 5): the MATERIAL cell gave no clean value, and the OCR garbled FINISH, so no cell gave one for the finish.
+    for (const field of [result.material, result.finish]) {
+      expect(field).toMatchObject({ reviewNeeded: true, confidence: 0.2 });
+      expect(field.reasons).not.toContain("label_match");
+    }
     expect(result.material.value).toBe("6061 Alloy");
     expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
     expect(result.tightestTolerance).toBe("±0.005");
     expect(result.threads).toEqual([]);
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.reviewFields).toEqual([]);
+    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
   });
 
-  it("prefers the strict filename identity over structurally invalid OCR title-block values", () => {
-    const result = inferDrawingSignalsFromPdf({
+  // Codex review of #884, round 5: the OCR rescue filled a MATERIAL the cell reader had flagged with the sample's
+  // "6061 Alloy" found in an unrelated note, and approved it at 0.86. The rescue never approves a material or finish:
+  // a field the cell reader rejected or flagged, or that has no label, gets the text as a suggestion for review, and a
+  // value the cell reader approved is kept, flagged.
+  it("never approves a MATERIAL or FINISH the cell reader rejected or flagged with the rescue's sample text", () => {
+    const layout = [
+      "MATERIAL 7075-T6",
+      "         ALUMINUM",
+      "",
+      "NOTES: 1. TEST COUPON CUT FROM 6061 Alloy BAR STOCK.",
+      "2. ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2 SAMPLE PANEL ONLY.",
+    ];
+    const flagged = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: { pageCount: 1, pages: [{ page: 1, text: layout.join("\n") }] } });
+    for (const field of ["material", "finish"] as const) {
+      expect(flagged[field], field).toMatchObject({ reviewNeeded: true, confidence: 0.2 });
+      expect(flagged.reviewFields).toContain(field);
+    }
+
+    const approvedCell = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
+      baseName: "upload",
+      pdfText: { pageCount: 1, pages: [{ page: 1, text: ["FINISH  AS MACHINED", "", ...layout.slice(3)].join("\n") }] },
+    });
+    expect(approvedCell.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
+    expect(approvedCell.finish.reasons).toContain("ocr_title_block_conflict");
+    expect(approvedCell.reviewFields).toEqual(expect.arrayContaining(["material", "finish"]));
+  });
+
+  it("keeps a drawing candidate for review when the filename disagrees", () => {
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1093-05589-02",
       pdfText: {
         pageCount: 1,
@@ -832,21 +1034,21 @@ describe("pdfDrawing", () => {
       },
     });
 
-    expect(result.partNumber.value).toBe("1093-05589");
+    expect(result.partNumber).toMatchObject({ value: "0093-05589", reviewNeeded: true });
     expect(result.revision.value).toBe("02");
     expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.description.reasons).toContain("ocr_title_block");
-    expect(result.partNumber.reasons).toContain("filename_stem");
-    expect(result.revision.reasons).toContain("filename_stem");
+    expect(result.partNumber.reasons).not.toContain("filename_stem");
+    expect(result.revision).toMatchObject({ value: "02", reviewNeeded: true });
   });
 });
 
 describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   function tolerance(lines: string[]) {
-    const result = inferDrawingSignalsFromPdf({
+    const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
       baseName: "1000-00001-A",
-      pdfText: { pageCount: 1, pages: [{ page: 1, text: ["MATERIAL 6061-T6", ...lines].join("\n") }] },
+      pdfText: withMonospaceGeometry(pdfTextOf(["MATERIAL 6061-T6", ...lines].join("\n"))),
     });
     return {
       raw: result.tightestTolerance,
@@ -1328,7 +1530,7 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   describe("linear time on hostile text", () => {
     const BOUND_MS = 500;
     const read = (text: string) =>
-      inferDrawingSignalsFromPdf({ baseName: "1000-00001-A", pdfText: { pageCount: 1, pages: [{ page: 1, text }] } });
+      inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
     // V8 can compile a regex differently depending on the first long text it reads in the process: a
     // lookbehind over blanks was linear after a text with blanks and quadratic on a run of tabs after
     // a blank-free one. Each case reads a blank-free text of 2000 characters first (and the block does
@@ -1375,9 +1577,12 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(performance.now() - started).toBeLessThan(BOUND_MS);
     });
 
-    it("still reads the declared tolerance before a long run of combining marks", () => {
+    it("keeps a feature tolerance when only the title-block line cap is exceeded", () => {
       const result = read(`UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`);
+      expect(result.tightestTolerance).toBe("±0.005");
       expect(result.tightestToleranceValueInch).toBe(0.005);
+      expect(result.tightestToleranceReviewNeeded).toBeUndefined();
+      expect(result.tightestToleranceReasons).toBeUndefined();
       expect(result.tightestToleranceDrawingUnits).toBe("inch");
     });
 
@@ -1389,5 +1594,60 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(() => read(text)).not.toThrow();
       expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
     });
+  });
+});
+
+// The 32,000 page document is read in several alternating rounds with the 2,000 page one: seconds on a loaded machine.
+describe("title block lines of a document with many pages (OVD-989)", { timeout: 60_000 }, () => {
+  // Pages past the text layer cap have no text but are still pages, and their number is not bounded by
+  // anything the reader controls. Looking up each page in the whole list of lines made the selection
+  // pages times lines.
+  const textPage = (page: number) => ({
+    page,
+    text: Array.from({ length: 2_000 }, (_, line) => (line === 100 ? "DWG. NO." : line === 103 ? "   1000-00001" : `NOTE ${line} TEXT`)).join("\n"),
+    ocrText: "",
+    ocrStatus: "ok" as const,
+  });
+  const document = (pages: number) => ({
+    pageCount: pages,
+    pageCountKnown: true,
+    drawingFullyRead: false,
+    ocr: false,
+    pages: Array.from({ length: pages }, (_, index) =>
+      index < 50 ? textPage(index + 1) : { page: index + 1, text: "", ocrText: "", ocrStatus: "ok" as const },
+    ),
+  });
+  // The fastest of several runs: a loaded machine slows a run down and never speeds it up.
+  const time = (pages: number, runs = 3) => {
+    const pdfText = document(pages);
+    let ms = Number.POSITIVE_INFINITY;
+    let signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText });
+    for (let run = 0; run < runs; run += 1) {
+      const started = performance.now();
+      signals = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText });
+      ms = Math.min(ms, performance.now() - started);
+    }
+    return { ms, signals };
+  };
+
+  it("reads a document of 32,000 pages, 50 of them with text, and finds the part number", () => {
+    const { ms, signals } = time(32_000, 2);
+    expect(signals.partNumber.value).toBe("1000-00001");
+    // Pages times lines (100,000 lines, 32,000 pages) is minutes of work; the lines and the pages once are tenths of a second.
+    expect(ms).toBeLessThan(10_000);
+  });
+
+  it("does not take longer for 16 times as many empty pages than for the few it needs", () => {
+    const fewPages = document(2_000);
+    const manyPages = document(32_000);
+    // Pages without text cost a loop step each, so the ratio is about 1 (the 50 pages with text are the same). Pages
+    // times lines would be 16 times that again, at any speed of machine. The two are timed alternately, and the floor
+    // keeps noise on the fast one from deciding it.
+    const ratio = slowdown(
+      () => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText: fewPages }),
+      () => inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "bracket", pdfText: manyPages }),
+      { floorMs: 40 },
+    );
+    expect(ratio).toBeLessThan(8);
   });
 });
