@@ -599,6 +599,63 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
+  it.each([true, false])("names missing shipping fields and routes editing correctly when same-as-billing is %s", async (shippingSameAsBilling) => {
+    const address = { street: null, city: null, region: null, postalCode: null, country: "US" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
+      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
+      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+      shippingSameAsBilling, shippingStreet: null, shippingCity: null,
+      shippingState: null, shippingZip: null, shippingCountry: "US",
+    });
+    vi.spyOn(organizationsApi, "fetchSourcingDestination").mockResolvedValue({ address, state: "inferred" });
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByText("Add street, city, ZIP, state before confirming.")).toBeInTheDocument();
+    expect(screen.getByText("Shipping address is incomplete and cannot be confirmed yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm this shipping address for supplier quotes" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit shipping address" }));
+    expect(screen.getByText(shippingSameAsBilling ? "Edit Billing Address" : "Edit Shipping Address")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("saves a partial shipping address with normalized fields and shows a dash and incomplete note", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
+      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
+      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
+      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
+    });
+    vi.spyOn(organizationsApi, "fetchSourcingDestination")
+      .mockResolvedValueOnce({ address, state: "confirmed" })
+      .mockResolvedValue({ address: { ...address, street: null }, state: "inferred" });
+    const save = vi.spyOn(organizationsApi, "updateOrganizationAddresses").mockResolvedValue();
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByText("Quote shipping destination: Confirmed");
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    fireEvent.change(screen.getByLabelText("Street"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("City"), { target: { value: " Tucson " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("org-1", expect.objectContaining({
+      shippingStreet: null, shippingCity: "Tucson",
+    })));
+    await waitFor(() => expect(screen.queryByText("Edit Shipping Address")).not.toBeInTheDocument());
+    const streets = screen.getAllByText("Street", { exact: true });
+    expect(streets).toHaveLength(2);
+    for (const street of streets) expect(street.parentElement).toHaveTextContent("Street—");
+    expect(await screen.findByText("Shipping address is incomplete and cannot be confirmed yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add street before confirming.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm this shipping address for supplier quotes" })).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("requires a separate action to confirm the exact shipping destination", async () => {
     const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
     vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
