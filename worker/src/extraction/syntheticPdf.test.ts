@@ -27,6 +27,12 @@ function hasBinary(name: string): boolean {
   }
 }
 const hasPoppler = hasBinary("pdfinfo") && hasBinary("pdftotext");
+// The general-tolerance rows are judged by the dimensions only when the whole drawing was read, its OCR included (T1,
+// drawingFullyRead). CI installs tesseract; without it no page is OCR'd, and the four-place row is an unresolved value
+// (null) whether a dimension uses four places or not (T3).
+const fullyRead = hasBinary("tesseract");
+const ROW_DROPPED = fullyRead ? 0.005 : null;
+const FOUR_PLACE_ROW = fullyRead ? 0.001 : null;
 
 // Every test writes a PDF and reads it with poppler and, when it is installed, tesseract: about a second each on
 // an idle machine, several on a loaded one, so the default 5 seconds is not a bound the tests can keep.
@@ -66,7 +72,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
       expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
       // No dimension has four places, so the four-place row is not in force.
-      expect(signals.tightestToleranceValueInch).toBe(0.005);
+      expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
     });
   });
 
@@ -90,9 +96,9 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ["glued to a hole tag", [{ x: 120, y: 500, size: 9, text: ".1875A" }]],
     ] as Array<[string, PdfTextItem[]]>)("reads %s", async (_name, extra) => {
       const { signals } = await read({ extra });
-      expect(signals.tightestToleranceValueInch).toBe(0.001);
+      expect(signals.tightestToleranceValueInch).toBe(FOUR_PLACE_ROW);
       // The table row is what applies; its value is in inches.
-      expect(signals.tightestToleranceUnit).toBe("in");
+      expect(signals.tightestToleranceUnit).toBe(fullyRead ? "in" : "unknown");
     });
 
     it("drops the row when the same notes carry no four-place number", async () => {
@@ -103,7 +109,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
           { x: 700, y: 540, size: 9, text: "SURFACE FINISH: 63" },
         ],
       });
-      expect(signals.tightestToleranceValueInch).toBe(0.005);
+      expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
     });
   });
 
@@ -473,7 +479,11 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       for (const size of [6, 9]) {
         for (const [source, result] of await extractBoth(lowerFinish(null, overOneCharacter(label, value, 741, size)))) {
           expect(result.material.raw, `${source}, ${size} pt`).toBeNull();
-          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(["material"]);
+          // Layout text: with the MATERIAL cell empty and a 6 pt stacked label, poppler prints four blank lines between the
+          // label row and the 24 pt drawing number and revision, its most, so how far under their labels they are is not
+          // known and they are flagged too (far_value). Word boxes measure it and read them.
+          const flagged = source === "layout text" && size === 6 ? ["partNumber", "revision", "material"] : ["material"];
+          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(flagged);
           expect(result.status, `${source}, ${size} pt`).toBe("needs_review");
           expect(result.finish.raw, `${source}, ${size} pt`).toBe("AS MACHINED");
         }
@@ -586,7 +596,7 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: false });
       expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
       expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
-      expect(signals.tightestToleranceValueInch).toBe(0.005);
+      expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
     });
 
     it("reads a landscape sheet stored upright with /Rotate 90, whose words run past the width poppler gives the page", async () => {
@@ -599,7 +609,120 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: false });
       expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
       expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: false });
-      expect(signals.tightestToleranceValueInch).toBe(0.005);
+      expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
+    });
+  });
+
+  // #884 review, round 11, and Codex review, round 7: the sheets the reviews built, through the whole extraction
+  // (runHybridExtraction, no model), from poppler's word boxes and from its layout text alone. The field is empty and
+  // flagged, and the drawing needs review; nothing is approved from text that is not the cell's value.
+  describe("the sheets of the round 11 reviews, through the whole extraction", () => {
+    async function extractBoth(items: PdfTextItem[], edit: (pdfText: PdfTextExtraction) => PdfTextExtraction = (pdfText) => pdfText) {
+      const pdfText = edit(await pdfTextOf(items));
+      expect(pdfText.pages[0]?.words?.length ?? 0).toBeGreaterThan(0);
+      const layoutText = { ...pdfText, pages: pdfText.pages.map(({ words: _words, ...page }) => page) };
+      const extract = (text: PdfTextExtraction) =>
+        runHybridExtraction(
+          { part: { id: "part", name: "part" } as PartRecord, cadFile: null, drawingFile: { original_name: "bracket.pdf" } as JobFileRecord, pdfText: text },
+          { extractWithModel: async () => { throw new Error("model extraction must not run"); } },
+        );
+      return [
+        ["word boxes", await extract(pdfText)],
+        ["layout text", await extract(layoutText)],
+      ] as const;
+    }
+
+    // Codex M1: a label far above text in its columns, with nothing between. Word boxes measure the distance; layout
+    // text prints at most four blank lines however far it is, so the value under them is not read either (far_value).
+    it("does not read text 400 points under MATERIAL as the material", async () => {
+      const items: PdfTextItem[] = [
+        { x: 330, y: 100, size: 6, text: "MATERIAL" },
+        { x: 340, y: 500, size: 9, text: "6061-T6" },
+        { x: 700, y: 520, size: 6, text: "DWG. NO." },
+        { x: 700, y: 530, size: 9, text: "ABC-1001" },
+      ];
+      for (const [source, result] of await extractBoth(items)) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toContain("material");
+        expect(result.status, source).toBe("needs_review");
+        expect(result.partNumber, source).toBe("ABC-1001");
+      }
+    });
+
+    it("does not read text 200 points under MATERIAL, past the tolerance table, as the material", async () => {
+      const items = [
+        ...syntheticSheet({ material: null }).filter((item) => item.text !== "MATERIAL"),
+        { x: 330, y: 520, size: 6, text: "MATERIAL" },
+        { x: 340, y: 732, size: 9, text: "6061-T6" },
+      ];
+      for (const [source, result] of await extractBoth(items)) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+      }
+    });
+
+    // Codex M2: a two-page drawing whose second page was not read keeps the four-place row unresolved.
+    it("does not drop the four-place row when a page of the drawing was not read", async () => {
+      const unreadSecondPage = (pdfText: PdfTextExtraction): PdfTextExtraction => ({
+        ...pdfText,
+        pageCount: 2,
+        drawingFullyRead: false,
+        pages: [...pdfText.pages, { page: 2, text: "", ocrText: "", ocrStatus: "failed" }],
+      });
+      for (const [source, result] of await extractBoth(syntheticSheet(), unreadSecondPage)) {
+        expect(result.tightestTolerance.valueInch, source).toBeNull();
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+      }
+      for (const [source, result] of await extractBoth(syntheticSheet())) {
+        expect(result.tightestTolerance.valueInch, source).toBe(ROW_DROPPED);
+      }
+    });
+
+    // Opus MEDIUM 1: the cell's own value centred past its label's reach, and a stacked QTY cell at the left edge.
+    const centredMaterial = (valueX: number | null, qtyValueX: number, qtySize = 6): PdfTextItem[] => [
+      ...syntheticSheet({ material: null, finish: null }).filter((item) => item.text !== "FINISH"),
+      ...(valueX === null ? [] : [{ x: valueX, y: 728, size: 9, text: "AL 6061-T6" }]),
+      { x: 332, y: 742, size: qtySize, text: "QTY" },
+      { x: qtyValueX, y: 748, size: 9, text: "4" },
+      { x: 330, y: 765, size: 6, text: "FINISH" },
+      { x: 340, y: 775, size: 9, text: "AS MACHINED" },
+    ];
+
+    it.each([390, 400, 420])("leaves the material empty and flagged, not 'QTY', when its value starts at %i pt", async (x) => {
+      for (const [source, result] of await extractBoth(centredMaterial(x, x + 20))) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["material"]);
+        expect(result.status, source).toBe("needs_review");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+      }
+    });
+
+    it.each([6, 9])("leaves an empty material empty and flagged, not a %i pt 'QTY' over a centred '4'", async (size) => {
+      for (const [source, result] of await extractBoth(centredMaterial(null, 420, size))) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["material"]);
+      }
+    });
+
+    it.each([390, 420, 440])("leaves the finish empty and flagged, not 'QTY', when its value starts at %i pt", async (x) => {
+      const items = [
+        ...syntheticSheet({ finish: null }),
+        { x, y: 758, size: 9, text: "ANODIZE, BLACK" },
+        { x: 332, y: 772, size: 6, text: "QTY" },
+        { x: x + 20, y: 778, size: 9, text: "4" },
+      ];
+      for (const [source, result] of await extractBoth(items)) {
+        expect(result.finish.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["finish"]);
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+      }
+    });
+
+    it("still reads a value inside the label's reach over the stacked cell, from word boxes", async () => {
+      const [[, words]] = await extractBoth(centredMaterial(380, 400));
+      expect(words.material.raw).toBe("AL 6061-T6");
+      expect(words.reviewFields).toEqual([]);
     });
   });
 });

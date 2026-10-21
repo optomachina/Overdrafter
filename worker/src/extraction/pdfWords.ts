@@ -52,6 +52,30 @@ export function pointsPerColumn(words: readonly PdfWord[]): number {
   return Math.max(COLUMN_IN_TEXT_HEIGHTS * heights[Math.floor(heights.length / 2)]!, MIN_POINTS_PER_COLUMN);
 }
 
+/**
+ * The page's text height in points: the median height of its words (see pointsPerColumn). One line of a line's `y` is
+ * one text height of the sheet, as a line of `pdftotext -layout` is about one line of its text.
+ */
+function textHeightOf(words: readonly PdfWord[]): number {
+  return pointsPerColumn(words) / COLUMN_IN_TEXT_HEIGHTS;
+}
+
+/**
+ * The most lines one step down the page counts in `y`, however far the next line is: more than any distance the reader
+ * measures (MAX_DY in titleBlockCells.ts is 20 lines), and a bound that keeps a hostile coordinate finite.
+ */
+export const MAX_LINE_STEP = 100;
+
+/**
+ * How many lines down the page the next line is: its distance from the line above it in text heights, rounded, at
+ * least 1 (the next line is a line) and at most MAX_LINE_STEP. A distance that is not a number (a hostile coordinate) is
+ * one line.
+ */
+function lineStep(distance: number, textHeight: number): number {
+  const heights = distance / textHeight;
+  return heights >= 1.5 ? Math.min(MAX_LINE_STEP, Math.round(heights)) : 1;
+}
+
 // A gap wider than this many text heights separates two cells' text; narrower is the space inside a phrase.
 const CELL_GAP_IN_HEIGHTS = 0.6;
 // Words whose vertical centres differ by less than this share of the smaller height are on one line.
@@ -99,9 +123,16 @@ type Cluster = { words: PdfWord[]; centre: number; height: number };
  * Groups a page's words into lines, top to bottom, and each line's words left to right. The text of a
  * line separates words by one space, or by two where the gap is wider than a phrase's, which is what the
  * label rules in titleBlockCells.ts read as "a label can start here".
+ *
+ * A line's number is its place among the page's lines, top to bottom; its `y` is its distance down the page in text
+ * heights (lineStep), so the empty stretch of the sheet between two lines counts, as blank lines do in layout text. The
+ * reader limits what it reads by both (how far under a label its value may be, how far apart the lines of one value
+ * may be): by order alone, a label 400 points above the next text in its columns would read that text as the line
+ * under it.
  */
 export function buildWordLines(words: readonly PdfWord[], page: number): TitleBlockTextLine[] {
   const column = pointsPerColumn(words);
+  const pageTextHeight = textHeightOf(words);
   const ordered = [...words].sort((left, right) => left.yMin + left.yMax - (right.yMin + right.yMax) || left.xMin - right.xMin);
   const clusters: Cluster[] = [];
   for (const word of ordered) {
@@ -118,7 +149,9 @@ export function buildWordLines(words: readonly PdfWord[], page: number): TitleBl
     }
   }
 
+  let y = 0;
   return clusters.map((cluster, index): TitleBlockTextLine => {
+    y += index === 0 ? 1 : lineStep(cluster.centre - clusters[index - 1]!.centre, pageTextHeight);
     const lineWords = [...cluster.words].sort((left, right) => left.xMin - right.xMin);
     let raw = "";
     const placed: TitleBlockWord[] = [];
@@ -140,6 +173,6 @@ export function buildWordLines(words: readonly PdfWord[], page: number): TitleBl
       });
       raw += word.text;
     });
-    return { page, lineNumber: index + 1, raw, words: placed, pointsPerColumn: column };
+    return { page, lineNumber: index + 1, y, raw, words: placed, pointsPerColumn: column };
   });
 }

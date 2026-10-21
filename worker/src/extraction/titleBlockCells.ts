@@ -8,11 +8,17 @@
  *
  * Positions are columns, and "line" orders the lines of one page from top to bottom, so blank lines
  * count as vertical distance. Two sources feed the same rules:
- *  - `pdftotext -layout` text: a column is a character position;
- *  - word boxes (`pdftotext -bbox`, built into lines by pdfWords.ts): a column is 0.4 text heights, each
- *    word is a run, and the position is the word's true one. This is the source when the page has it,
- *    because layout columns are squeezed where a word is wider than its characters (a 24 pt drawing number
- *    beside 9 pt labels), and a column in text heights does not depend on the size of the sheet.
+ *  - `pdftotext -layout` text: a column is a character position, and a line a line of the text. poppler prints at
+ *    most four blank lines between two lines of text however far apart they are on the sheet, so a value under that
+ *    many is at an unknown distance from its label and is not read (far_value);
+ *  - word boxes (`pdftotext -bbox`, built into lines by pdfWords.ts): a column is 0.4 text heights, each word is a
+ *    run, and the position is the word's true one. A line's number orders the lines; its `y` measures how far down the
+ *    page it is in text heights (the empty stretch of the sheet counts), and what a cell reads must be near by both: a
+ *    value more than MAX_DY lines down the page under its label is not its value, and a line that would continue a value
+ *    but is more than MAX_LINE_GAP lines down the page under it flags the cell (far_value), however few lines of text lie
+ *    between. This is the source when the page has it, because layout columns are squeezed where a word is wider than
+ *    its characters (a 24 pt drawing number beside 9 pt labels), and a column in text heights does not depend on the
+ *    size of the sheet.
  *
  * Ownership rule:
  *
@@ -26,8 +32,9 @@
  *  3. A run on a later line belongs to the label whose cell it is in: its centre is no more than SLACK
  *     columns left of the label's left edge and it starts no more than REACH columns right of the label's
  *     right edge, and no label has been placed under that label in its own columns before the run (the next
- *     cell of the same stack: FINISH under MATERIAL, SCALE under DWG. NO.). Of the labels that fit, the
- *     nearest on the left wins. A run that fits no label belongs to none and is not read.
+ *     cell of the same stack: FINISH under MATERIAL, SCALE under DWG. NO.), and it is no more than MAX_DY lines
+ *     under the label (with word boxes, in order and down the page). Of the labels that fit, the nearest on the
+ *     left wins. A run that fits no label belongs to none and is not read.
  *  4. Words after the first word of a value continue it along the line (no label between, no wide gap);
  *     the line under a value continues it when it overlaps its columns and is still in the label's columns,
  *     and with word boxes the words after the first one that overlaps continue it too, even where they run
@@ -98,6 +105,13 @@ export type TitleBlockTextLine = {
    * the position of the line among the page's lines from top to bottom.
    */
   lineNumber: number;
+  /**
+   * Word boxes only (pdfWords.ts): the line's distance down the page in the page's text heights, the first line at 1, so
+   * the empty stretch of the sheet above it counts as blank lines do in layout text. What a cell reads is limited by it as
+   * well as by the order of the lines (ownerOf, chooseValueLines): two lines next to each other in order may be far apart
+   * on the sheet.
+   */
+  y?: number;
   raw: string;
   /**
    * Present on lines built from word boxes (pdfWords.ts). The columns of a `pdftotext -layout` line are
@@ -118,7 +132,7 @@ export type CellRead = {
   value: string | null;
   /**
    * Why the cell gave no value: no_value, multiple_values, label_token, bad_shape, unlisted_label, unconsumed_text,
-   * fine_pitch, unread_line, pointer, cut_short, label_in_value.
+   * fine_pitch, unread_line, far_value, pointer, cut_short, label_in_value.
    */
   reason: string | null;
   page: number;
@@ -236,7 +250,16 @@ const WORD_REACH = 8;
 const WORD_REVISION_REACH = 4;
 const LAYOUT_REACH = 12;
 const LAYOUT_REVISION_REACH = 5;
-/** Largest vertical distance, in layout lines, from a label to a value it owns. */
+/**
+ * How many columns past its label's right edge the value of a material or finish centred in a wide cell may start
+ * (unownedTextInCell): about 130 points with word boxes on a sheet of 9 pt text. Past the label's reach no cell owns
+ * it; text farther off than this is another cell's, a note or the border's.
+ */
+const CENTRED_VALUE_REACH = 40;
+/**
+ * Largest vertical distance, in layout lines, from a label to a value it owns. With word boxes it holds for the order of
+ * the lines and for their distance down the page in text heights (TitleBlockTextLine.y) alike.
+ */
 const MAX_DY = 20;
 /** Runs of one line that are closer than this are one value; farther runs are another cell. */
 const GAP_JOIN = 12;
@@ -285,8 +308,19 @@ const NEIGHBOUR_CELL_LABELS: readonly RegExp[] = [
 ];
 /** A run this close after an inline value continues it (the words of "SHEET 1 OF 1"). */
 const PHRASE_GAP = 6;
-/** Owned value lines further apart than this are not one value. */
+/**
+ * Owned value lines further apart than this are not one value; with word boxes, a line that is within it in order but
+ * not down the page flags the cell (chooseValueLines). It also bounds the windows that flag a cell for text near its
+ * value (ownsOtherText, hasOwnCellOnItsLine, unownedTextInCell), which count lines in order only: a sparse sheet must not
+ * put text a cell owns out of their reach.
+ */
 const MAX_LINE_GAP = 3;
+/**
+ * `pdftotext -layout` prints at most this many blank lines between two lines of text, however far apart they are on
+ * the sheet: a label and a line of text 400 points under it in its columns are five lines apart. Text after that many
+ * blank lines is at a distance the layout text does not give, so a cell's value is not read across them (far_value).
+ */
+const LAYOUT_MAX_BLANK_LINES = 4;
 /**
  * Layout text only: text that no cell owns, on a line of a material or finish, this many columns or fewer
  * after the end of the value, may be the rest of the value. At a fine pitch (`pdftotext -fixed 1`) the words of
@@ -305,6 +339,8 @@ type Label = {
   field: CellField | null;
   text: string;
   line: number;
+  /** How far down the page the line is: TitleBlockTextLine.y with word boxes, the line number on layout text. */
+  y: number;
   /** Columns: layout columns, or word extents in columns for a line built from word boxes. */
   start: number;
   end: number;
@@ -331,6 +367,8 @@ type Label = {
 type Run = {
   text: string;
   line: number;
+  /** How far down the page the line is: TitleBlockTextLine.y with word boxes, the line number on layout text. */
+  y: number;
   start: number;
   end: number;
   center: number;
@@ -440,6 +478,15 @@ function labelMayStartAt(raw: string, start: number, previousLabelEnd: number, d
   return digitFlags()[tokenEnd - 1] === 1;
 }
 
+/**
+ * How far down the page a line is (TitleBlockTextLine.y): its `y` with word boxes, its number on layout text (and on a
+ * line whose `y` is not a finite number). With word boxes every step down is at least one line, so two lines are never
+ * nearer by `y` than by their order.
+ */
+function yOf(line: TitleBlockTextLine): number {
+  return line.y !== undefined && Number.isFinite(line.y) ? line.y : line.lineNumber;
+}
+
 /** The column of a character position: the position itself in layout text, interpolated in a word otherwise. */
 function columnAt(line: TitleBlockTextLine, index: number, edge: "start" | "end"): number {
   const words = line.words;
@@ -510,6 +557,7 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
       field: spec.field,
       text: normalizeWhitespace(match[0]),
       line: line.lineNumber,
+      y: yOf(line),
       start: columnAt(line, start, "start"),
       end: columnAt(line, end, "end"),
       charStart: start,
@@ -563,6 +611,7 @@ function pushWordPart(line: TitleBlockTextLine, word: TitleBlockWord, from: numb
   into.push({
     text,
     line: line.lineNumber,
+    y: yOf(line),
     start,
     end,
     center: (start + end) / 2,
@@ -587,7 +636,7 @@ function findLayoutRuns(line: TitleBlockTextLine, labels: readonly Label[], into
     }
     const start = match.index ?? 0;
     const end = start + match[0].length;
-    into.push({ text: match[0], line: line.lineNumber, start, end, center: (start + end) / 2, fromWords: false });
+    into.push({ text: match[0], line: line.lineNumber, y: line.lineNumber, start, end, center: (start + end) / 2, fromWords: false });
   }
 }
 
@@ -718,14 +767,15 @@ function reachOf(field: CellField | null, words: boolean): number {
  * The label whose cell a run on a later line lies in, or null when it lies in none. A run belongs to a
  * cell when it sits under the label's columns (its centre is no more than SLACK left of the label's left
  * edge) and starts no farther than REACH right of the label's right edge: left aligned under the label, or
- * centred in a cell that starts at it. The nearest such label on the left wins. A run that satisfies this
- * for no label is text of an unlabelled cell and is never assigned.
+ * centred in a cell that starts at it, no more than MAX_DY lines under it in order and down the page. The nearest such
+ * label on the left wins. A run that satisfies this for no label is text of an unlabelled cell and is never assigned.
  */
 function ownerOf(run: Run, labels: readonly Label[], caps: ReadonlyMap<Label, number>): Label | null {
   let best: Label | null = null;
   for (const label of labels) {
     const dy = run.line - label.line;
-    if (dy < 1 || dy > MAX_DY) {
+    // MAX_DY down the page as well as in order: the next line of text under a label may be far under it on the sheet.
+    if (dy < 1 || dy > MAX_DY || run.y - label.y > MAX_DY) {
       continue;
     }
     if (run.center < label.start - label.slack || run.start > label.end + label.reach) {
@@ -954,12 +1004,19 @@ type PageLines = {
   labelsByLine: ReadonlyMap<number, Label[]>;
   /** The runs a label owns. */
   assigned: ReadonlySet<Run>;
+  /**
+   * Layout text only, ascending: the lines that follow LAYOUT_MAX_BLANK_LINES blank lines or more, whose distance from
+   * the text above them is not known (see farLinesOf).
+   */
+  farLines: readonly number[];
 };
 
 type ValueChoice = {
   lines: ValueLine[];
   /** A line of another cell of the stack came where the value was, or where its wrapped line was: see stackedLineVerdict. */
   stackedLabel: boolean;
+  /** Word boxes: a line that would continue the value is far under it down the page (see chooseValueLines). */
+  far: boolean;
   /** The first line the value did not take because it was the label of the cell under it; Infinity when there is none. */
   stoppedAt: number;
 };
@@ -1114,12 +1171,16 @@ function wrapColumnOf(stackOf: Label, line: number, runs: readonly Run[]): numbe
  * the cells that have an unlisted cell stacked under them), a first line that opens another cell, or that is a label
  * with its own value set apart beside it ("THICKNESS   .125", a 6 pt "PAINT" by a 9 pt "RAL 9005"), gives no value,
  * and each later line is judged by stackedLineVerdict.
+ *
+ * Word boxes: a line that would continue the value, within MAX_LINE_GAP lines of it in order but farther than that down
+ * the page, is not joined and there is no value (`far`): it may be the rest of the value set far under it or the text of
+ * another cell, and which one is not known. The value is not read without it either, which would cut it short.
  */
 function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: ValueLine[] = [];
-  const stopped = (line: number): ValueChoice => ({ lines: chosen, stackedLabel: false, stoppedAt: line });
-  const flagged = (): ValueChoice => ({ lines: chosen, stackedLabel: true, stoppedAt: Number.POSITIVE_INFINITY });
+  const stopped = (line: number): ValueChoice => ({ lines: chosen, stackedLabel: false, far: false, stoppedAt: line });
+  const flagged = (): ValueChoice => ({ lines: chosen, stackedLabel: true, far: false, stoppedAt: Number.POSITIVE_INFINITY });
   let wrapColumn: number | null = null;
   for (const line of lines) {
     const lineRuns = byLine.get(line) ?? [];
@@ -1141,14 +1202,18 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
     // Text that does not overlap the previous line's columns is another cell, and a single character is
     // a sheet-border zone marker ("4" under the FINISH value), so neither joins the value.
     const runs = previous === undefined ? joinContiguousRuns(lineRuns) : continuationRuns(lineRuns, previous.runs);
-    if (previous === undefined || runs.some((run) => alphanumericCount(run.text) >= 2)) {
+    const joins = runs.some((run) => alphanumericCount(run.text) >= 2);
+    if (previous !== undefined && joins && lineRuns[0]!.y - previous.runs[0]!.y > MAX_LINE_GAP) {
+      return { lines: chosen, stackedLabel: false, far: true, stoppedAt: Number.POSITIVE_INFINITY };
+    }
+    if (previous === undefined || joins) {
       chosen.push({ line, runs });
     }
     if (previous === undefined && stackOf !== null) {
       wrapColumn = wrapColumnOf(stackOf, line, runs);
     }
   }
-  return { lines: chosen, stackedLabel: false, stoppedAt: Number.POSITIVE_INFINITY };
+  return { lines: chosen, stackedLabel: false, far: false, stoppedAt: Number.POSITIVE_INFINITY };
 }
 
 /**
@@ -1159,6 +1224,10 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
  *    (hasTrailingLeftover). A single character counts: it never joins a value (chooseValueLines), so "QTY" over "4",
  *    "SHEETS" over "1" or "THICKNESS" over ".5" would otherwise read the label alone. Text under it says so whatever the
  *    sizes are: "ALUMINUM" over "6061-T6" cannot be told from "THICKNESS" over ".125", so there is no value;
+ *  - it is only label words and text that no cell owns lies in the cell's rows, right of where the line starts and
+ *    before the next cell, at any size (unownedTextInCell): the cell's own value, centred in a wide cell past the
+ *    label's reach, or the stacked cell's value set the same way ("QTY" under a centred "AL 6061-T6", or over a
+ *    centred "4");
  *  - word boxes, whatever the line is made of: text that no cell owns follows it on its line, set taller than the line's
  *    first word, right after it or before the next cell (a 6 pt "LOT #" by a 9 pt "A123", a 6 pt "THICKNESS (IN)" by a
  *    9 pt ".125", past the cell's reach): tallerUnownedTextFollows. A label beside its value is set smaller than it; a
@@ -1167,16 +1236,58 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
  * tells it from a label with an empty cell (a known limit). The price of the rule is a value of label words with a stray
  * character in its cell (a zone marker under "AS MACHINED"), which is flagged rather than read.
  */
-function firstLineIsStackedLabel(chosen: readonly ValueLine[], owned: readonly Run[], page: PageLines): boolean {
+function firstLineIsStackedLabel(label: Label, chosen: readonly ValueLine[], owned: readonly Run[], page: PageLines): boolean {
   const first = chosen[0];
   if (first === undefined) {
     return false;
   }
   const shape = shapeOfLine(first.runs);
-  if (shape.labelLead && !shape.rest && (ownsOtherText(first, owned) || hasTrailingLeftover(first, page.leftoverByLine, 1))) {
+  if (
+    shape.labelLead &&
+    !shape.rest &&
+    (ownsOtherText(first, owned) || hasTrailingLeftover(first, page.leftoverByLine, 1) || unownedTextInCell(label, first, owned, page))
+  ) {
     return true;
   }
   return tallerUnownedTextFollows(first, page);
+}
+
+/**
+ * Whether text that no cell owns lies in the rows of a cell whose value's first line is `first`: on a line between the
+ * label's line and `first`, or within MAX_LINE_GAP lines under `first`, starting right of where `first` starts, no more
+ * than CENTRED_VALUE_REACH columns past the label's right edge, and before the next cell on its line (the first label,
+ * or the first text another cell owns, after that point). Text starts past its label's reach when it is centred in a wide
+ * cell, and then no cell owns it (ownerOf), so the cell may own only the label of a cell stacked under it at its left
+ * edge. One character counts (a centred "4"). Text on the label's own line or on `first`'s own line is not looked at:
+ * there text far along the line is another cell's (tallerUnownedTextFollows reads the row where sizes tell).
+ */
+function unownedTextInCell(label: Label, first: ValueLine, owned: readonly Run[], page: PageLines): boolean {
+  const own = new Set(owned);
+  const firstStart = Math.min(...first.runs.map((run) => run.start));
+  const farthest = label.end + CENTRED_VALUE_REACH;
+  // `first` is at most MAX_DY lines under the label (ownerOf); the bound keeps the loop that short whatever the lines are.
+  const last = Math.min(first.line, label.line + MAX_DY) + MAX_LINE_GAP;
+  for (let line = label.line + 1; line <= last; line += 1) {
+    const leftovers = page.leftoverByLine.get(line);
+    if (line === first.line || leftovers === undefined) {
+      continue;
+    }
+    let nextCell = Number.POSITIVE_INFINITY;
+    for (const other of page.labelsByLine.get(line) ?? []) {
+      if (other.start > firstStart) {
+        nextCell = Math.min(nextCell, other.start);
+      }
+    }
+    for (const run of page.runsByLine.get(line) ?? []) {
+      if (run.start > firstStart && page.assigned.has(run) && !own.has(run)) {
+        nextCell = Math.min(nextCell, run.start);
+      }
+    }
+    if (leftovers.some((run) => run.start > firstStart && run.start <= farthest && run.start < nextCell)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1287,8 +1398,16 @@ function readOne(
   if (choice.stackedLabel) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
+  if (choice.far) {
+    return empty("ambiguous", "far_value", valueLines);
+  }
   if (chosen.length === 0) {
     return empty("empty", "no_value");
+  }
+  // Layout text: the value is under a run of blank lines as long as poppler prints, so how far it is from its label
+  // is not known (LAYOUT_MAX_BLANK_LINES). It may be text far down the sheet in the label's columns.
+  if (!label.fromWords && firstAfter(pageLines.farLines, label.line) <= chosen[0]!.line) {
+    return empty("ambiguous", "far_value", valueLines);
   }
   // Text under the value that heads the cell below it is that cell's, and does not count against this one.
   const considered = owned.filter((run) => run.line < choice.stoppedAt);
@@ -1308,7 +1427,7 @@ function readOne(
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
   // A first line that is the label of a cell stacked where the value would be, with its own value next to it.
-  if (describes && firstLineIsStackedLabel(chosen, considered, pageLines)) {
+  if (describes && firstLineIsStackedLabel(label, chosen, considered, pageLines)) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
 
@@ -1558,7 +1677,8 @@ function assignLineRuns(
 /**
  * A run directly under an owned run and overlapping its columns continues that value ("CLASS 2" under
  * "ANODIZE, BLACK, ..."), as long as no other label stands between. Top to bottom, so a wrap of several lines
- * chains.
+ * chains. A run far under it on the sheet still joins the cell here; chooseValueLines flags the cell rather than
+ * read it (far_value).
  */
 function continueWrappedRuns(ownership: PageOwnership, caps: ReadonlyMap<Label, number>): void {
   ownership.unowned.sort((left, right) => left.line - right.line);
@@ -1660,6 +1780,26 @@ function crossesUnreadLine(label: Label, caps: ReadonlyMap<Label, number>, unrea
   return firstAfter(unreadLines, from) <= to;
 }
 
+/**
+ * Layout text only, ascending: the lines of text that follow LAYOUT_MAX_BLANK_LINES blank lines or more. poppler prints
+ * no more blank lines than that between two lines of text, so the distance down the sheet from the text above such a
+ * line to it is not known. A line built from word boxes is never one: its distance is measured (TitleBlockTextLine.y).
+ */
+function farLinesOf(candidateLines: readonly TitleBlockTextLine[], unreadLines: readonly number[]): number[] {
+  const layout = new Set<number>();
+  const text: number[] = [...unreadLines];
+  for (const line of candidateLines) {
+    if (line.raw.trim().length > 0) {
+      text.push(line.lineNumber);
+      if (line.words === undefined || line.words.length === 0) {
+        layout.add(line.lineNumber);
+      }
+    }
+  }
+  text.sort((left, right) => left - right);
+  return text.filter((line, index) => index > 0 && layout.has(line) && line - text[index - 1]! - 1 >= LAYOUT_MAX_BLANK_LINES);
+}
+
 /** One read per cell label of one page's lines (null when the page is over a cap and is not read). */
 function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRead[] | null {
   // The caps are checked in the order the work grows, and each loop stops when its own cap is passed. A line over
@@ -1694,6 +1834,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     runsByLine,
     labelsByLine,
     assigned: ownership.assigned,
+    farLines: farLinesOf(candidateLines, unreadLines),
   };
   const finePitch = labels.some((label) => label.spread);
   const reads: CellRead[] = [];

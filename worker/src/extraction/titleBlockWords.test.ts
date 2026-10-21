@@ -14,6 +14,7 @@ import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing
 import {
   buildWordLines,
   FALLBACK_POINTS_PER_COLUMN,
+  MAX_LINE_STEP,
   MAX_WORDS_PER_PAGE,
   MIN_POINTS_PER_COLUMN,
   parseBboxWords,
@@ -299,6 +300,32 @@ describe("title block from word boxes", () => {
       expect(lines.map((line) => line.lineNumber)).toEqual(lines.map((_line, index) => index + 1));
     });
 
+    // Codex review of #884, round 7: lines are numbered in order, and each line's `y` is its distance down the page in
+    // text heights, so the reader can limit what it reads by the distance on the sheet as well.
+    it("measures each line's distance down the page in text heights", () => {
+      // 9 pt words in 9.9 pt boxes: the text height is 9.9 pt.
+      const words = [box("A", 100, 100), box("B", 100, 109.9), box("C", 100, 129.7), box("D", 100, 500), box("E", 100, 5_000)];
+      expect(buildWordLines(words, 1).map((line) => [line.raw, line.lineNumber, line.y])).toEqual([
+        ["A", 1, 1],
+        ["B", 2, 2],
+        ["C", 3, 4],
+        // 370.3 pt is 37.4 text heights.
+        ["D", 4, 41],
+        // Farther than any distance the reader measures counts MAX_LINE_STEP lines.
+        ["E", 5, 41 + MAX_LINE_STEP],
+      ]);
+    });
+
+    it("counts a line just under the one above it as the next line, and keeps a hostile coordinate finite", () => {
+      expect(buildWordLines([box("A", 100, 100), box("B", 100, 104)], 1).map((line) => line.y)).toEqual([1, 2]);
+      const huge = [box("A", 100, 100), { text: "B", xMin: 100, yMin: 1e308, xMax: 110, yMax: Number.MAX_VALUE }];
+      const ys = buildWordLines(huge, 1).map((line) => line.y!);
+      expect(ys).toHaveLength(2);
+      expect(ys.every((y) => Number.isFinite(y))).toBe(true);
+      expect(ys[1]! - ys[0]!).toBeGreaterThanOrEqual(1);
+      expect(ys[1]! - ys[0]!).toBeLessThanOrEqual(MAX_LINE_STEP);
+    });
+
     it("keeps words of one line in order of position, with two spaces where a cell ends", () => {
       const words = [box("RIGHT", 200, 10), box("LEFT", 20, 11), box("MID", 60, 9)];
       const lines = buildWordLines(words, 3);
@@ -322,6 +349,57 @@ describe("title block from word boxes", () => {
       });
       const dwg = cells.find((cell) => cell.field === "partNumber")!;
       expect(dwg.labelStart * pointsPerColumn(words)).toBeCloseTo(325, 0);
+    });
+  });
+
+  // Codex review of #884, round 7: lines built from word boxes were numbered by their order alone, so the next line of
+  // text under a label was one line under it however far down the sheet it was, and the reader's distance limits did not
+  // hold. What a cell reads is now limited by the distance down the page in text heights as well.
+  describe("the distance down the page", () => {
+    const cellOf = (words: PdfWord[], field: string) => readTitleBlockCells(buildWordLines(words, 1)).find((cell) => cell.field === field);
+
+    it("does not read text 400 points under MATERIAL as its value (the review's sheet)", () => {
+      const far = [...phrase("MATERIAL", 330, 100, 6), ...phrase("6061-T6", 340, 500, 9)];
+      expect(cellOf(far, "material")).toMatchObject({ status: "empty", value: null });
+      const signals = infer(["MATERIAL", "", "", "", "", "  6061-T6"].join("\n"), far);
+      expect(signals.material.reviewNeeded).toBe(true);
+      expect(signals.material.value === null || signals.material.confidence <= 0.2, `${signals.material.value}`).toBe(true);
+      expect(signals.reviewFields).toContain("material");
+      // The same two words one line apart are the label and its value.
+      const near = [...phrase("MATERIAL", 330, 100, 6), ...phrase("6061-T6", 340, 108, 9)];
+      expect(cellOf(near, "material")).toMatchObject({ status: "value", value: "6061-T6" });
+    });
+
+    it("owns text at most MAX_DY (20) text heights under its label, however few lines lie between", () => {
+      // Two 9 pt words in 9.9 pt boxes: the text height is 9.9 pt.
+      const at = (heights: number) => cellOf([...phrase("MATERIAL", 100, 100), ...phrase("6061-T6", 101, 100 + heights * 9.9)], "material");
+      expect(at(20)).toMatchObject({ status: "value", value: "6061-T6" });
+      expect(at(21)).toMatchObject({ status: "empty", value: null });
+    });
+
+    it("flags a value whose next line of text, which would continue it, is far under it on the sheet", () => {
+      const sheet = (heights: number) => [
+        ...phrase("FINISH", 100, 100),
+        ...phrase("ANODIZE, BLACK", 101, 110),
+        ...phrase("MIL-A-8625 TYPE II", 101, 110 + heights * 9.9),
+      ];
+      expect(cellOf(sheet(1), "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK MIL-A-8625 TYPE II" });
+      expect(cellOf(sheet(3), "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK MIL-A-8625 TYPE II" });
+      // Neither joined (it may be another cell's text) nor left out (it may be the rest of the value).
+      expect(cellOf(sheet(4), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+      expect(cellOf(sheet(30), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+      // An identifier is flagged the same way.
+      const drawingNumber = [...phrase("DWG. NO.", 100, 100), ...phrase("1000-1", 101, 110), ...phrase("2000-2", 101, 160)];
+      expect(cellOf(drawingNumber, "partNumber")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+    });
+
+    it("still ends a value at the label of a stacked cell far under it, and still flags text the cell owns near it in order", () => {
+      // A 6 pt label shaped like a label, the next line of text but five heights under the value: the value ends above it.
+      const stacked = [...phrase("MATERIAL", 330, 100, 6), ...phrase("AL 6061-T6", 340, 108, 9), ...phrase("QTY", 332, 160, 6), ...phrase("4", 340, 168, 9)];
+      expect(cellOf(stacked, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      // A stacked label at the top of a tall cell, its value near the bottom: the next line of text, four heights down.
+      const tall = [...phrase("MATERIAL", 330, 100, 6), ...phrase("QTY", 332, 108, 6), ...phrase("4", 340, 140, 9), ...phrase("FINISH", 330, 160, 6)];
+      expect(cellOf(tall, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
     });
   });
 });

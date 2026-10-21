@@ -1455,6 +1455,74 @@ describe("title block cells", () => {
     });
   });
 
+  // #884 review, round 11 (MEDIUM 1): a template that centres its values in wide cells prints a value past its label's
+  // reach, so no cell owns it. The label of a cell stacked under it at the cell's left edge (6 pt QTY, its own value
+  // centred too) was then the only text the cell owned, read as the material or finish and approved. Text that no cell
+  // owns in the cell's rows, right of where that line starts, flags a first line of label words only.
+  describe("a value centred past its label's reach, with a stacked cell at the left edge", () => {
+    const FLAGGED = { status: "ambiguous", value: null, reason: "unlisted_label" } as const;
+    // Eight 9 pt words: the text height is 9.9 pt and a column 3.96 pt. MATERIAL (6 pt, from 330 pt) ends at 356.4 pt,
+    // column 90; its reach ends at column 98 (388 pt), and text no cell owns counts up to column 130 (515 pt).
+    const page = ["ABC", "DEF", "GHI", "JKL", "MNO", "PQR", "STU", "VWX"].flatMap((text, index) => phrase(text, 60 + index * 40, 60, 9));
+    const label = (text: string, x: number, y: number, size = 6) => phrase(text, x, y, size);
+    const value = (text: string, x: number, y: number) => phrase(text, x, y, 9);
+    const materialSheet = (valueX: number | null, qtyValueX: number, qtySize = 6) => [
+      ...page,
+      ...label("MATERIAL", 330, 720),
+      ...(valueX === null ? [] : value("AL 6061-T6", valueX, 728)),
+      ...label("QTY", 332, 742, qtySize),
+      ...value("4", qtyValueX, 748),
+      ...label("FINISH", 330, 765),
+      ...value("AS MACHINED", 340, 775),
+    ];
+
+    it.each([400, 420, 460, 500])("flags a material whose value starts at %i pt, with QTY over a centred 4 under it", (x) => {
+      expect(wordRead(materialSheet(x, x + 20), "material")).toMatchObject(FLAGGED);
+      expect(wordRead(materialSheet(x, x + 20), "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+    });
+
+    it("still reads a value that starts inside the label's reach, over the stacked cell", () => {
+      expect(wordRead(materialSheet(380, 400), "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+    });
+
+    it.each([6, 9])("flags an empty material over a %i pt QTY whose 4 is centred", (size) => {
+      expect(wordRead(materialSheet(null, 420, size), "material")).toMatchObject(FLAGGED);
+    });
+
+    it.each([400, 440])("flags a finish whose value starts at %i pt, with QTY over a centred 4 under it", (x) => {
+      const words = [...page, ...label("FINISH", 330, 750), ...value("ANODIZE, BLACK", x, 758), ...label("QTY", 332, 772), ...value("4", x + 20, 778)];
+      expect(wordRead(words, "finish")).toMatchObject(FLAGGED);
+    });
+
+    describe("what does not count", () => {
+      const finish = (extra: PdfWord[]) => [...page, ...label("FINISH", 330, 750), ...value("AS MACHINED", 340, 758), ...extra];
+
+      it("flags a value of label words only with text that no cell owns right of it on the line under it (the price)", () => {
+        expect(wordRead(finish(value("XYZ", 420, 772)), "finish")).toMatchObject(FLAGGED);
+      });
+
+      it("reads it when that text is more than 40 columns past the label, after the next cell, or on the value's own line", () => {
+        // FINISH ends at column 88.3: 40 columns past it is 508 pt.
+        expect(wordRead(finish(value("XYZ", 560, 772)), "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+        // SIZE at 400 pt begins the next cell on that line.
+        expect(wordRead(finish([...label("SIZE", 400, 772), ...value("XYZ", 480, 772)]), "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+        expect(wordRead(finish(value("XYZ", 420, 758)), "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
+      it("does not look at a value that is not only label words", () => {
+        const words = [...page, ...label("FINISH", 330, 750), ...value("ANODIZE, BLACK", 340, 758), ...value("XYZ", 420, 772)];
+        expect(wordRead(words, "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK" });
+      });
+    });
+
+    it("flags the same sheets on layout text", () => {
+      expect(cell(layoutSheet([[0, "MATERIAL"]], [[2, "QTY"]], [[30, "4"]]), "material")).toMatchObject(FLAGGED);
+      expect(cell(layoutSheet([[0, "MATERIAL"]], [[28, "AL 6061-T6"]], [[2, "QTY"]], [[30, "4"]]), "material")).toMatchObject(FLAGGED);
+      // Past 40 columns it is another cell's, a note's or the border's (see "does not call a short run of letters a label").
+      expect(cell(layoutSheet([[0, "MATERIAL"]], [[2, "ALUMINUM"]], [[60, "4"]]), "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
+    });
+  });
+
   // A label and its value printed as one word, with a colon and no blank between ("MATERIAL:ALUMINUM", "REV:A") (Codex
   // review of #884): the label is the text up to and with the colon, and the rest of the word is the value.
   describe("a label and its value printed as one word", () => {
@@ -1604,13 +1672,21 @@ describe("title block cells", () => {
     it("sizes the inline window by the label's own words, not the tallest word of its line", () => {
       const label = (text: string, x: number, y = 100) => phrase(text, x, y, 6);
       const page = [...phrase("ABC", 60, 60, 9), ...phrase("DEF", 120, 60, 9), ...phrase("GHI", 180, 60, 9), ...phrase("JKL", 240, 60, 9)];
-      const tall = phrase("B", 500, 100, 24);
+      // poppler puts the 24 pt word on a line of its own, just under the label's. It is far right of the cell: within
+      // 40 columns of the label it would be text no cell owns in the rows of a value of letters only, which flags it
+      // (#884 review, round 11: unownedTextInCell), as the last assertion pins.
+      const tall = phrase("B", 760, 100, 24);
       // MATERIAL ends 6 * 6 * 0.55 * 8 = 26.4 pt after it starts; the value begins 44 pt later, past six label heights
       // (6 * 6.6 = 39.6 pt) and inside the 12 columns of a window sized by the 24 pt word (47.5 pt).
       const material = label("MATERIAL", 330);
       const labelEnd = Math.max(...material.map((word) => word.xMax));
       expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 44, 100, 9), ...tall], "material")).toMatchObject({ status: "empty", value: null });
       expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 20, 100, 9), ...tall], "material")).toMatchObject({ status: "value", value: "ZINC" });
+      const near = phrase("B", 500, 100, 24);
+      expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 20, 100, 9), ...near], "material")).toMatchObject({
+        status: "ambiguous",
+        reason: "unlisted_label",
+      });
     });
   });
 

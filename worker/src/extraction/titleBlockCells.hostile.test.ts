@@ -91,10 +91,25 @@ describe("each cap of the cell reader is tested alone", () => {
   });
 
   it("MAX_DY: a value more than 20 lines under its label is not owned", () => {
-    const lines = ["DWG. NO.", ...Array.from({ length: 20 }, () => ""), "  1000-1"];
+    // Lines of text out of the label's columns, not blank lines: poppler prints at most four blank lines in a row
+    // (see the next test), so a layout value is that far from its label only with text between.
+    const between = (count: number) => Array.from({ length: count }, () => `${" ".repeat(60)}x`);
+    const lines = ["DWG. NO.", ...between(20), "  1000-1"];
     expect(read(lines.join("\n"))[0]).toMatchObject({ status: "empty" });
-    const near = ["DWG. NO.", ...Array.from({ length: 19 }, () => ""), "  1000-1"];
+    const near = ["DWG. NO.", ...between(19), "  1000-1"];
     expect(read(near.join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
+  });
+
+  // Codex review of #884, round 7: `pdftotext -layout` prints no more than four blank lines between two lines of text,
+  // however far apart they are on the sheet, so a value under four blank lines is at a distance the layout text does
+  // not give. It is not read (far_value); word boxes measure the distance (titleBlockWords.test.ts).
+  it("LAYOUT_MAX_BLANK_LINES: a layout value under four blank lines is at an unknown distance and is not read", () => {
+    const blank = (count: number) => Array.from({ length: count }, () => "");
+    expect(read(["DWG. NO.", ...blank(4), "  1000-1"].join("\n"))[0]).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+    expect(read(["DWG. NO.", ...blank(19), "  1000-1"].join("\n"))[0]).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+    expect(read(["DWG. NO.", ...blank(3), "  1000-1"].join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
+    // Four blank lines under the value, or above the label, are not between them.
+    expect(read([...blank(4), "DWG. NO.", "  1000-1", ...blank(4), "x"].join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
   });
 });
 

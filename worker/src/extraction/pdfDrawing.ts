@@ -633,9 +633,11 @@ function collectToleranceCandidates(text: string) {
  * The rule can only err towards a tighter value. A row is dropped on positive evidence alone, and a
  * missing number never counts as evidence, so reading more of the sheet than needed is always safe:
  *
- * T1 Readable: the text layer is not OCR, no line was too long to scan, and at least MIN_READABLE_DIMENSIONS
- *    decimal numbers sit on lines that hold only dimension callouts (numbers, "2X", R, Ø, THRU, TYP, hole
- *    tags such as A1). This gate is strict on purpose: a miss only makes the sheet unreadable (T3).
+ * T1 Readable: the whole drawing was read (drawingFullyRead: the page count is known, and every page's text layer
+ *    and OCR were read; a page that was not read may print the dimension that keeps a row), the text layer is not
+ *    OCR, no line was too long to scan, and at least MIN_READABLE_DIMENSIONS decimal numbers sit on lines that hold
+ *    only dimension callouts (numbers, "2X", R, Ø, THRU, TYP, hole tags such as A1). This gate is strict on
+ *    purpose: a miss only makes the sheet unreadable (T3).
  * T2 Evidence: on a readable sheet, the most decimal places printed anywhere in the text, counting every
  *    decimal number except the values of the table's own rows (".0010" in "FOUR PLACE DECIMAL .0010").
  *    No line or word is skipped, and no number is dropped for what is glued to it ("Ø.1875", "SR.0625",
@@ -2497,9 +2499,11 @@ export function inferDrawingSignalsFromPdf(input: {
   const threads = collectThreads(joinedText);
   // OVD-989: dimension decimals are read from a real text layer only; OCR digits are not trusted to
   // rule a general-tolerance row out. A page with a text layer is OCR'd too (a raster view beside vector
-  // text): a decimal only its OCR prints keeps a row from being dropped (T4), never sets it in force.
+  // text): a decimal only its OCR prints keeps a row from being dropped (T4), never sets it in force. A row is
+  // dropped only when the whole drawing was read (T1): a page whose text layer or OCR was not read may print the
+  // four-place dimension that keeps the four-place row, and is no evidence that none exists.
   const inferredTightestTolerance = estimateTightestTolerance(joinedText, {
-    dimensionsReadable: input.pdfText.ocr !== true,
+    dimensionsReadable: input.pdfText.ocr !== true && input.pdfText.drawingFullyRead === true,
     rasterText: input.pdfText.ocr === true ? "" : input.pdfText.pages.map((page) => page.ocrText).join("\n"),
   });
 

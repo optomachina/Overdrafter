@@ -6,8 +6,8 @@
 // dimension uses four places; the tightest tolerance that applies is then the three-place row, .005.
 //
 // The rule (pdfDrawing.ts, T1 to T3):
-//   T1     the sheet is readable when its text layer is not OCR, no line is too long to scan, and at least
-//          three decimal numbers sit on lines that hold only dimension callouts;
+//   T1     the sheet is readable when the whole drawing was read (drawingFullyRead), its text layer is not OCR, no
+//          line is too long to scan, and at least three decimal numbers sit on lines that hold only dimension callouts;
 //   T2     on a readable sheet a row is dropped only when EVERY other decimal number printed anywhere in the
 //          text has fewer places than the row. Nothing is skipped: not a whole line, not a number with a
 //          letter or symbol glued to it (Ø.1875, n.1875, SR.0625, .1875A, 1.2500). Only the values of the
@@ -118,6 +118,39 @@ describe("general tolerance rows (OVD-989)", () => {
         ],
       };
       expect(toleranceOf([], { pdfText })).toMatchObject({ valueInch: 0.005 });
+    });
+  });
+
+  // Codex review of #884, round 7: a page that was not read is no evidence that no dimension uses four places, so a row is
+  // dropped only when the whole drawing was read (drawingFullyRead: the page count known, every page's text layer and
+  // OCR read). Otherwise the sheet is read as T3 reads one.
+  describe("a drawing that was not read whole", () => {
+    const pageOf = (page: number, text: string, ocrStatus: "ok" | "failed" | "unavailable" | "not_read" = "ok") => ({ page, text, ocrText: "", ocrStatus });
+    const firstPage = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, INCHES, ...ROWS].join("\n");
+
+    it("keeps the four-place row when a second page was not read (the review's extraction)", () => {
+      const pdfText: PdfTextExtraction = {
+        pageCount: 2,
+        pageCountKnown: true,
+        drawingFullyRead: false,
+        ocr: false,
+        pages: [pageOf(1, firstPage), pageOf(2, "", "failed")],
+      };
+      expect(toleranceOf([], { pdfText })).toMatchObject({ valueInch: null, unit: "unknown" });
+      // The same pages read whole drop it.
+      expect(toleranceOf([], { pdfText: { ...pdfText, drawingFullyRead: true, pages: [pageOf(1, firstPage), pageOf(2, "")] } })).toMatchObject({ valueInch: 0.005 });
+    });
+
+    it.each(["unavailable", "failed", "not_read"] as const)("keeps it when a page's OCR is %s: a raster view may print the dimension", (ocrStatus) => {
+      const pdfText: PdfTextExtraction = { pageCount: 1, pageCountKnown: true, drawingFullyRead: false, ocr: false, pages: [pageOf(1, firstPage, ocrStatus)] };
+      expect(toleranceOf([], { pdfText })).toMatchObject({ valueInch: null });
+    });
+
+    it("keeps it when the page count is not known, and reads rows of three places or fewer as before", () => {
+      const unknownCount: PdfTextExtraction = { pageCount: 1, pageCountKnown: false, drawingFullyRead: false, ocr: false, pages: [pageOf(1, firstPage)] };
+      expect(toleranceOf([], { pdfText: unknownCount })).toMatchObject({ valueInch: null });
+      const threePlaces = ["MATERIAL 6061-T6", ...DIMENSIONS_2_AND_3, INCHES, ...ROWS.slice(0, 2)].join("\n");
+      expect(toleranceOf([], { pdfText: { ...unknownCount, pages: [pageOf(1, threePlaces)] } })).toMatchObject({ valueInch: 0.005 });
     });
   });
 
