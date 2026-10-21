@@ -2395,6 +2395,19 @@ describe("offline quote options", () => {
     expect(screen.queryByText("Loading quote options…")).not.toBeInTheDocument();
     expect(api.fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
   });
+
+  it("does not show loading when collaboration is unavailable and the jobs query never runs", async () => {
+    api.isProjectCollaborationSchemaUnavailable.mockReturnValue(true);
+    try {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(buildProjectTree("/projects/project-1", client));
+      expect(await screen.findByText(/Choose a quote to continue/)).toBeInTheDocument();
+      expect(screen.queryByText("Loading quote options…")).not.toBeInTheDocument();
+      expect(api.fetchJobsByProject).not.toHaveBeenCalled();
+    } finally {
+      api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    }
+  });
 });
 
 });

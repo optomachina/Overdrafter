@@ -1368,7 +1368,7 @@ const ClientProject = () => {
                 <span id="project-review-order-reason" className="text-sm text-muted-foreground">
                   {projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError
                     ? "Unable to load quote options. Please try again."
-                    : areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery, projectJobs.length)
+                    : areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery)
                       ? "Loading quote options…"
                       : getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
                 </span>

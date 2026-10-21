@@ -1,8 +1,13 @@
-/** Pending queries have no data yet, including when their fetch is paused offline. */
-export function areQuoteOptionsLoading(
-  jobsQuery: { isPending: boolean },
-  workspaceQuery: { isPending: boolean },
-  jobCount: number,
-): boolean {
-  return jobsQuery.isPending || (jobCount > 0 && workspaceQuery.isPending);
+type QueryLoadState = { isPending: boolean; fetchStatus: "fetching" | "paused" | "idle" };
+
+/**
+ * No data yet and a fetch is running or paused offline. A disabled query is also
+ * pending but idle, and never fetches, so it does not count as loading.
+ */
+function isAwaitingFirstData(query: QueryLoadState): boolean {
+  return query.isPending && query.fetchStatus !== "idle";
+}
+
+export function areQuoteOptionsLoading(jobsQuery: QueryLoadState, workspaceQuery: QueryLoadState): boolean {
+  return isAwaitingFirstData(jobsQuery) || isAwaitingFirstData(workspaceQuery);
 }
