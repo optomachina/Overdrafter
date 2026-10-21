@@ -122,9 +122,9 @@ describe("configuration-only worker egress manifest", () => {
       rejected: ["weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,weerg", "quickparts,weerg"],
     },
     {
-      name: "accepts OSH Cut only alongside Xometry, in canonical order, on the governed egress (OVD-677)",
-      accepted: ["xometry,oshcut", "xometry,fictiv,oshcut", "xometry,oshcut,quickparts,weerg"],
-      rejected: ["oshcut", "oshcut,xometry", "xometry,quickparts,oshcut", "xometry,oshcut,oshcut"],
+      name: "refuses OSH Cut on the governed egress even in canonical order (OVD-677 default-off)",
+      accepted: [],
+      rejected: ["xometry,oshcut", "xometry,fictiv,oshcut", "xometry,oshcut,quickparts,weerg", "oshcut", "oshcut,xometry", "xometry,quickparts,oshcut", "xometry,oshcut,oshcut"],
     },
   ];
 

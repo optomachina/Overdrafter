@@ -66,15 +66,9 @@
     },
     {
       "key": "oshcut",
-      "liveAdapter": true,
-      "sessionSecrets": [
-        {
-          "secretNameEnv": "OSHCUT_STORAGE_STATE_SECRET_NAME",
-          "mountPath": "/var/secrets/oshcut-storage-state/storage-state.json",
-          "requiredWhenListed": true
-        }
-      ],
-      "egress": "stable_nat"
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
     },
     {
       "key": "partsbadger",

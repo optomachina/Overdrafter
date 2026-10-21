@@ -320,7 +320,6 @@ export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
 export const LIVE_ADAPTER_READINESS_CHECKS = {
   xometry: validateXometryReadiness,
   fictiv: validateFictivReadiness,
-  oshcut: validateOshcutReadiness,
   quickparts: validateQuickpartsReadiness,
   weerg: validateWeergReadiness,
 } as const satisfies Record<

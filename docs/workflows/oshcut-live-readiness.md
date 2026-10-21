@@ -1,34 +1,32 @@
 # OVD-677 OSH Cut live readiness
 
-Last updated: October 15, 2026
+Last updated: October 20, 2026
 
 This workflow describes the OSH Cut production quote path. It mirrors the
 Quickparts and Weerg paths in `docs/workflows/ovd674-quickparts-live-readiness.md`
 and `docs/workflows/ovd675-weerg-live-readiness.md`, and was scaffolded with
 `npm run fixture:onboard -- oshcut --stage=live` (OVD-687).
 
-**State (2026-10-15).** Blaine approved the OSH Cut go-live. The envelope
-`oshcut-quote-envelope.v1` is reviewed in code, the review-row migration is
-written, the permission basis is `owner_approved` and egress is the shared
-OVD-410 stable NAT. The adapter was rewritten against the authenticated
-capture below. The path stays **default-off**: the following are still
-protected actions under `AGENTS.md`, each needing Blaine's exact OK, and none
-is done by this branch:
+**State (2026-10-20).** Blaine directed that OSH Cut land **default-off**
+and remain outside the 1.0 portfolio (Xometry, Fictiv, Quickparts, RMFG).
+This supersedes the earlier go-live decision. The adapter and its synthetic
+fixtures remain, but the registry has `liveAdapter: false`, `sessionSecrets: []`,
+and `egress: "none"`; the envelope is absent from
+`REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. Production deployment rejects `oshcut`,
+and no generated deploy binding names its session secret. Even a
+database-admitted decision is refused as `provider_envelope_unknown`.
 
-- merging the PR and applying the review-row migration to production
-- recording the approved admission revision (template below)
-- deploying a worker with `oshcut` in `WORKER_LIVE_ADAPTERS` (no deploy
-  default or env file lists it)
-- the stage 3 certification run against the live quoting app
-
-Promotion follows the three stages in `docs/provider-integration.md` and the
-1.0 beta policy in `RUNBOOK.md`.
+The SQL below and under `provider-integrations/oshcut/admit/` is retained as
+future review material only. No migration or admission is promoted by this
+branch. Future enablement needs a separate reviewed source change with the
+Provider go-live checklist, plus exact authorization for production database,
+credential, deploy, and provider operations. Adapter merge is not go-live.
 
 ## What the code provides
 
 | Layer | Behavior |
 | --- | --- |
-| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/providerDispatchEnvelope.ts`, re-exported from `oshcutDispatchAuthorization.ts`) is listed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` with `requiredAdmission: "generic_dispatch"`. The review row is a **draft pending Blaine window**: `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` records it with a 7,200-second permit TTL; it admits nothing and leaves the OSH Cut admission `disabled`. It is not in `supabase/migrations`, not in the free-quote CI manifest, and its pgTAP checks wait in `supabase/tests/pending/ovd677_oshcut_reviewed_envelope.sql.pending`. Until it is applied, no OSH Cut permit can be minted, so dispatch fails closed. Review-only admit files are in `provider-integrations/oshcut/admit/`. |
+| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/providerDispatchEnvelope.ts`, re-exported from `oshcutDispatchAuthorization.ts`) is deliberately absent from `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. The review row is a **deferred draft, not approved for promotion**: `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` records it with a 7,200-second permit TTL; it admits nothing and leaves the OSH Cut admission `disabled`. It is not in `supabase/migrations`, not in the free-quote CI manifest, and its pgTAP checks wait in `supabase/tests/pending/ovd677_oshcut_reviewed_envelope.sql.pending`. Until it is applied, no OSH Cut permit can be minted, so dispatch fails closed. Review-only admit files are in `provider-integrations/oshcut/admit/`. |
 | Adapter production branch | `OshcutAdapter` (`worker/src/adapters/oshcut.ts`) first applies the static OSH Cut envelope: flat-sheet laser cutting, Aluminum 6061-T6, one CAD file in a listed format, no drawing, quantities 1 to 10,000. A package outside it ends as a finite `unsupported` or `manual_vendor_followup` result. An eligible production package is then checked with the shared `providerDispatchAuthorizationDenial` (provider, envelope, unexpired permit, exact quantity, exact staged CAD bytes); a denial throws a terminal `unsupported` with `providerInteractionAttempted: false`. |
 | Thickness rule | The envelope leaves stock thickness to the provider, but the cart prices nothing until one is picked. The approved requirement must state `spec_snapshot.sheetThicknessInch` (`OSHCUT_SHEET_THICKNESS_RULE`): a number of inches from 0.020 to 1.000 with at most three decimals, rendered as the filter label (`0.125"`). If it is missing or invalid, the adapter returns `manual_vendor_followup` with `terminalState: "configuration_required"` (`thickness_confirmation_required`) **before** any session read or upload. |
 | Abort signal (OVD-748) | After authorization and the thickness rule, `throwIfProviderAborted(input.signal, "before_navigation")`. |
@@ -38,28 +36,28 @@ Promotion follows the three stages in `docs/provider-integration.md` and the
 | Cart cleanup (standing rule) | Once the price is read, or after any failure that followed upload, the kernel runs the definition's cleanup hook: it deletes every cart row that shows the staged file name through a remove/delete/trash control in the row, then confirms an in-page or native dialog. The cleanup is bounded at 30 s and skipped while the kill switch is engaged. It never throws and never changes the result or error; a `providerPortalCleanup` log line and a `cartCleanup` report (`removed`, `not_found`, `incomplete`, `failed`, `skipped_kill_switch`) record it. The same cleanup runs on the live-harness evaluation definition (`buildOshcutEvaluationDefinition`). |
 | Live harness | `vendorWorkflowSmoke` (`npm --prefix worker run …` capture/certification runs) adds a `supplierCartCleanup` record per run and logs `liveHarnessSupplierCleanup`. Any run that reached upload without a confirmed removal, including through an adapter that declares no cleanup (`not_declared`), is flagged `SUPPLIER CART CLEANUP NEEDED` for manual removal. |
 | Registry | The production registry wraps the definition in `PortalQuoteWorkflowAdapter` behind `OshcutAdapter`. In live mode the registry is filtered to `WORKER_LIVE_ADAPTERS`, so a worker without `oshcut` has no OSH Cut adapter. |
-| Worker readiness and deploy | `oshcut` is listable in `WORKER_LIVE_ADAPTERS` (registry `liveAdapter: true`). When it is listed, readiness requires an OSH Cut storage state limited to `app.oshcut.com`, mounted from `OSHCUT_STORAGE_STATE_SECRET_NAME` at `/var/secrets/oshcut-storage-state/storage-state.json`. The captured session is stored in Secret Manager as `oshcut-storage-state` (project `overdrafter-worker-9133`). |
-| Stable egress | Shared: `oshcut` is an optional adapter on the governed OVD-410 service (`egress: "stable_nat"`), and `STABLE_EGRESS_PROVIDER_HOSTS.oshcut` declares `app.oshcut.com`. |
+| Worker readiness and deploy | `oshcut` is rejected in production `WORKER_LIVE_ADAPTERS` (`liveAdapter: false`). Its session secrets list is empty, and generated deployment wiring contains no OSH Cut secret binding. The retained session-readiness implementation is available for future qualification only. |
+| Stable egress | `egress: "none"`; OSH Cut is absent from the governed adapter combinations and `STABLE_EGRESS_PROVIDER_HOSTS`. |
 | Customer UI | Not changed. OSH Cut is outside `PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS`. |
 
 ## Default-off switches
 
-A new OSH Cut quote needs switches 1 to 5 on.
+Future enablement would need switches 1 to 5 on after a separately approved source change.
 
 1. **Admission policy.** `private.quote_provider_admission_policies` for
    `oshcut` stays `disabled` until the reviewed revision in
    `provider-integrations/oshcut/admit/oshcut_admission_revision.sql.review`
    is recorded (`approved`, `generic_dispatch_enabled = true`).
-2. **Reviewed envelope.** Done in code; the review row is a draft pending
-   Blaine window (`docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`).
+2. **Reviewed envelope.** Absent from the code allow-list; the review row is a deferred draft
+   requiring a separate go-live decision (`docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`).
    It exists only after Blaine approves a window and the draft is promoted
    into `supabase/migrations` and applied. Until then permits are refused.
 3. **Rollout.** The shared `automatic_quote_collection` rollout control.
 4. **Organization enablement.** The organization has OSH Cut enabled, and the
    part lists OSH Cut as applicable.
-5. **Worker adapters.** The worker runs with `oshcut` in
-   `WORKER_LIVE_ADAPTERS` and `OSHCUT_STORAGE_STATE_SECRET_NAME=oshcut-storage-state`.
-   No deploy does this today.
+5. **Worker adapters.** A future reviewed registry edit would need to enable
+   the adapter, its session binding, and egress, then regenerate the outputs.
+   Current production configuration rejects `oshcut` even with a secret name supplied.
 
 Turning off any of switches 1 to 5 stops queued tasks before the browser
 launches. Revoke a specific permit with `private.revoke_provider_dispatch_permit`.
@@ -83,10 +81,10 @@ launches. Revoke a specific permit with `private.revoke_provider_dispatch_permit
   `thickness_confirmation_required` before upload.
 - **Pricing latency.** The price wait is bounded at 30 s after configuration.
 
-## Inputs only Blaine can provide
+## Deferred go-live inputs (not authorized by adapter merge)
 
-1. **Merge and migration window.** Approve the PR, then a migration window
-   that promotes the draft
+1. **Separate go-live decision and migration window.** Approve future
+   enablement and a migration window that promotes the draft
    `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`
    into `supabase/migrations` (with the free-quote CI manifest entry and the
    pending pgTAP file renamed into `supabase/tests`) and applies it, as
@@ -123,13 +121,13 @@ where provider = 'oshcut'::public.vendor_name;
 Rollback: record a new revision with `admission_state = 'disabled'`,
 `generic_dispatch_enabled = false`, and `change_reason = 'policy_disabled'`.
 Then revoke any issued permits and withdraw the envelope review row
-(`withdrawn_at`). Redeploying without `oshcut` removes the session mount.
+(`withdrawn_at`). Any future enablement must define removal of its session mount; current deployment wiring never binds it.
 
 ## Permissions matrix (OVD-724)
 
 The matrix row stays `draft_outreach_prepared` with `tos_stance: silent`. Its
 notes record the `owner_approved` admission basis (OVD-641, 2026-10-15) and
-the shared egress. Owner approval is not a matrix clearance, so the derived
+the earlier shared-egress proposal, superseded by the default-off decision above. Owner approval is not a matrix clearance, so the derived
 `enabled_for_paid_automation` stays false. See
 [`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#oshcut)
 and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).

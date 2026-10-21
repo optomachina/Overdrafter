@@ -38,13 +38,18 @@ export function registerReviewedEnvelopeMigrationChecks(spec: ReviewedEnvelopeMi
   const sql = statements(spec.migration, spec.draft ? DRAFTS_DIR : MIGRATIONS_DIR);
   const evidence = spec.evidence.toLowerCase();
 
-  it("records exactly the envelope revision the worker reviews in code", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual({
+  it("records the envelope revision and keeps draft providers out of the reviewed allow-list", () => {
+    const reviewed = {
       provider: spec.provider,
       id: spec.envelope.id,
       version: spec.envelope.version,
       requiredAdmission: "generic_dispatch",
-    });
+    };
+    if (spec.draft) {
+      expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((entry) => entry.provider === spec.provider)).toBe(false);
+    } else {
+      expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual(reviewed);
+    }
     expect(sql).toContain("insert into private.provider_dispatch_envelope_reviews");
     expect(sql).toContain(
       `'${spec.provider}'::public.vendor_name, '${spec.envelope.id}', ${spec.envelope.version}, '${evidence}', 7200`,

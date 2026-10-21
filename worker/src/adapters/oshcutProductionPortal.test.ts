@@ -36,8 +36,8 @@ import {
  * OVD-677: the production OSH Cut branch is default-off. Without a current
  * generic provider-dispatch authorization for the OSH Cut envelope, bound to
  * the staged bytes and quantity, there is zero provider interaction: no
- * session is read and no browser launches. The envelope is reviewed in code
- * (OVD-677), so a real permit can name it only behind an approved admission.
+ * session is read and no browser launches. The envelope remains unreviewed,
+ * so production routing refuses even a database-admitted decision.
  * Synthetic data only.
  */
 
@@ -99,13 +99,8 @@ describe("OSH Cut production dispatch envelope (OVD-677)", () => {
     });
   });
 
-  it("lists the OSH Cut envelope as reviewed for generic dispatch (OVD-677 approval)", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.filter((reviewed) => reviewed.provider === "oshcut")).toEqual([{
-      provider: "oshcut",
-      id: "oshcut-quote-envelope",
-      version: 1,
-      requiredAdmission: "generic_dispatch",
-    }]);
+  it("keeps OSH Cut absent from the reviewed generic-dispatch allow-list", () => {
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.filter((reviewed) => reviewed.provider === "oshcut")).toEqual([]);
   });
 
   it("accepts exactly the authorized bytes and quantity at the adapter seam", async () => {
@@ -290,10 +285,11 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
 
   registerProductionPortalRoutingRefusals(defaultDenyHarness());
 
-  it("hands a database-admitted, owner-approved OSH Cut decision to the adapter", async () => {
+  it("refuses even a database-admitted OSH Cut decision before the adapter launches", async () => {
     const input = await authorizedInput({ providerDispatchAuthorization: undefined });
     await expectAdmittedDecisionReachesAdapter({
       vendor: "oshcut",
+      expectedDenial: "provider_envelope_unknown",
       envelope: oshcutDispatchEnvelope({ cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3 }),
       input,
       now: "2026-10-10T12:05:00.000Z",
@@ -317,9 +313,9 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
     expect(sessionRead).not.toHaveBeenCalled();
   });
 
-  it("declares the same hosts as the governed egress contract", async () => {
+  it("keeps its portal host constraint without enabling governed production egress", async () => {
     const { STABLE_EGRESS_PROVIDER_HOSTS } = await import("../../../scripts/xometry-stable-egress-contract.mjs");
-    expect([...STABLE_EGRESS_PROVIDER_HOSTS.oshcut]).toEqual([...OSHCUT_ALLOWED_HOSTS]);
+    expect(STABLE_EGRESS_PROVIDER_HOSTS).not.toHaveProperty("oshcut");
     expect([...buildOshcutProductionPortalDefinition().allowedHosts]).toEqual([...OSHCUT_ALLOWED_HOSTS]);
   });
 });

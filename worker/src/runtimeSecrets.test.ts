@@ -304,7 +304,7 @@ describe("runtimeSecrets", () => {
     ).toEqual([]);
   });
 
-  it("requires an OSH Cut session the portal kernel can open, only when a live worker lists oshcut (OVD-677)", async () => {
+  it("retains OSH Cut session validation but refuses production readiness even with a valid session", async () => {
     expect(await validateOshcutReadiness(makeConfig({ workerLiveAdapters: ["xometry", "quickparts"] }))).toEqual([]);
     expect(
       await validateOshcutReadiness(makeConfig({ workerMode: "simulate", workerLiveAdapters: ["oshcut"] })),
@@ -340,7 +340,9 @@ describe("runtimeSecrets", () => {
       JSON.stringify({ cookies: [{ name: "s", value: "v", domain: "app.oshcut.com" }], origins: [] }),
     );
     expect(await validateOshcutReadiness(config())).toEqual([]);
-    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["oshcut"] }))).toEqual([]);
+    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["oshcut"] }))).toEqual([
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: xometry, fictiv, quickparts, weerg.",
+    ]);
   });
 
   it("requires a Weerg session the portal kernel can open from the deploy's path map (OVD-675)", async () => {
@@ -393,7 +395,7 @@ describe("runtimeSecrets", () => {
 
   it("limits the production live-adapter set to adapters with a reviewed dispatch preflight", () => {
     const expected = [
-      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: xometry, fictiv, oshcut, quickparts, weerg.",
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: xometry, fictiv, quickparts, weerg.",
     ];
 
     expect(validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: [] }))).toEqual(

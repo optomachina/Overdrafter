@@ -1,7 +1,9 @@
+-- DEFERRED 2026-10-20: Blaine requires OSH Cut default-off for 1.0.
+-- Future review material only; do not promote or apply under PR #743.
 -- OVD-677
 -- Record the reviewed OSH Cut quote-only dispatch envelope
--- (oshcut-quote-envelope.v1), matching the worker's code-reviewed list in
--- worker/src/providerDispatchEnvelope.ts.
+-- (oshcut-quote-envelope.v1). A future enablement change must also add it to
+-- the worker's reviewed list; the current list deliberately excludes OSH Cut.
 --
 -- This row alone admits nothing. Generic dispatch for OSH Cut additionally
 -- requires an approved private.quote_provider_admission_policies revision with

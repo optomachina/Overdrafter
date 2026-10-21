@@ -62,6 +62,7 @@ export function productionCadStager(vendor: VendorName, tempDirs: string[]) {
 
 export type AdmittedDecisionCase = {
   vendor: VendorName;
+  expectedDenial?: "provider_envelope_unknown";
   envelope: ProviderDispatchEnvelope;
   input: VendorQuoteAdapterInput;
   /** Database clock for the decision; the task is claimed one minute earlier. */
@@ -74,8 +75,8 @@ export type AdmittedDecisionCase = {
 };
 
 /**
- * Proves a database-admitted decision for `vendor` reaches the adapter: the
- * routed preflight accepts the RPC result and calls `quote` exactly once.
+ * Proves how routed preflight handles a database-admitted decision: reviewed
+ * providers reach `quote` exactly once; an expected denial never calls it.
  */
 export async function expectAdmittedDecisionReachesAdapter(testCase: AdmittedDecisionCase) {
   const { vendor, envelope } = testCase;
@@ -106,7 +107,7 @@ export async function expectAdmittedDecisionReachesAdapter(testCase: AdmittedDec
     },
   };
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
-  await expect(quoteWithRoutedDispatchPreflight({
+  const dispatch = quoteWithRoutedDispatchPreflight({
     supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
     config: { workerMode: "live", workerName: "worker-1" },
     task: {
@@ -123,6 +124,12 @@ export async function expectAdmittedDecisionReachesAdapter(testCase: AdmittedDec
     killSwitchReader: (provider) => Promise.resolve({
       schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
     }),
-  })).resolves.toEqual({ artifacts: [] });
-  expect(quote).toHaveBeenCalledTimes(1);
+  });
+  if (testCase.expectedDenial) {
+    await expect(dispatch).rejects.toMatchObject({ denial: testCase.expectedDenial, retryable: false });
+    expect(quote).not.toHaveBeenCalled();
+  } else {
+    await expect(dispatch).resolves.toEqual({ artifacts: [] });
+    expect(quote).toHaveBeenCalledTimes(1);
+  }
 }
