@@ -12,6 +12,7 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
   QuoteIntelligenceShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
 }));
 vi.mock("@/components/quote-intelligence/useQuoteReferences", () => ({ useQuoteReferences: () => new Map() }));
+vi.mock("@/features/notifications/use-client-workspace-notifications", () => ({ useClientWorkspaceNotifications: () => ({}) }));
 vi.mock("@/features/quotes/use-quote-intelligence-workspace", () => ({
   useQuoteIntelligenceWorkspace: () => ({ metadataByJobId: new Map(), factsByJobId: new Map(), workspaceQuery: { isLoading: false } }),
 }));
