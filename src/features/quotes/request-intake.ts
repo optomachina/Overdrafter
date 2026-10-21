@@ -432,7 +432,7 @@ export function validateRequestedQuoteQuantitiesInput(value: string, fallbackQua
   const hasExplicitSeparator = /[/;]/.test(text);
   const commaGroup = /^\d{1,3}(,\d{3})+$/;
   const chunks = text.split(/\s+/).map((chunk) => chunk.replace(/,+$/, ""));
-  if (!hasExplicitSeparator && chunks.some((chunk) => commaGroup.test(chunk))) {
+  if (!hasExplicitSeparator && /,\d{3}(?=,|\s|$)/.test(text)) {
     return { quantities: [], invalidTokens: [text], error: QUOTE_QUANTITIES_AMBIGUOUS_ERROR };
   }
   const tokens = hasExplicitSeparator

@@ -135,6 +135,7 @@ describe("prompt intake main compatibility", () => {
 describe("validateRequestedQuoteQuantitiesInput", () => {
   it.each([
     ["1,000/2,000", [1000, 2000]],
+    ["0,500/10", [500, 10]],
     ["1,000;2,000", [1000, 2000]],
     ["250,500/1,000", [250500, 1000]],
     ["12,500 / 25,000", [12500, 25000]],
@@ -168,12 +169,18 @@ describe("validateRequestedQuoteQuantitiesInput", () => {
     ["1,500, 25 / 50", ["1,500,"]],
     ["1,000,25/50", ["1,000,25"]],
     ["1234,567/50", ["1234,567"]],
+    ["10,25,500/50", ["10,25,500"]],
+    ["12.5/25", ["12.5"]],
+    ["1,0", ["0"]],
+    ["x 40", ["x"]],
   ])("reports malformed tokens in mixed input %j", (text, invalidTokens) => {
     expect(validateRequestedQuoteQuantitiesInput(text as string, 12).invalidTokens).toEqual(invalidTokens);
   });
 
   it.each([
     "250,500", "100,250,500", "1,000", "1,250",
+    "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5",
+    "10,25,500", "1000,250", "1234,567", "1,500,250", "1,500", "1,500, 25", "1,500 ,25",
     "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500",
     "1,500, 2,500", "1,000, 2,000", "10 1,250,", "1,250,",
   ])("rejects ambiguous %j with guidance", (text) => {

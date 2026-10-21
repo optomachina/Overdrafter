@@ -274,6 +274,8 @@ const InternalJobDetail = () => {
           getQuantityInput={viewModel.getQuantityInput}
           job={queryState.job}
           onDraftQuantityChange={viewModel.setDraftQuantity}
+          onDraftQuantityCommit={viewModel.commitDraftQuantity}
+          getHiddenQuantityError={viewModel.getHiddenQuantityError}
           onQuoteQuantityInputChange={(partId, value) =>
             viewModel.setQuoteQuantityInputs((current) => ({
               ...current,

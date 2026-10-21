@@ -313,7 +313,9 @@ export function ClientPartRequestEditor({
                 </p>
               ) : (
                 <p id="client-request-quote-quantities-help" className="text-xs text-muted-foreground">
-                  {quoteQuantities.quantities[0] !== undefined && quoteQuantities.quantities[0] !== draft.quantity
+                  {quoteQuantitiesBlocked
+                    ? "Enter whole quantities separated by /, for example 10 / 25 / 50."
+                    : quoteQuantities.quantities[0] !== undefined && quoteQuantities.quantities[0] !== draft.quantity
                     ? `Saving sets Qty to ${quoteQuantities.quantities[0]}, the first quote quantity. Change Quote quantities to save a different Qty.`
                     : "The first quote quantity becomes the saved Qty. Leave blank to use Qty."}
                 </p>

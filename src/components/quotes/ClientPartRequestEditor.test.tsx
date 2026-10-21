@@ -616,6 +616,22 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     expect(host.save).toBeEnabled();
   });
 
+  it.each(["12.5/25", "1,500,25/50", "1,0", "x 40", "10,25,500"])(
+    "gives neutral help for invalid unblurred quote text %j", (text) => {
+      const host = renderHost();
+      fireEvent.change(host.quotes, { target: { value: text } });
+      expect(host.save).toBeDisabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      for (const field of [host.qty, host.quotes]) {
+        expect(field).toHaveAccessibleDescription("Enter whole quantities separated by /, for example 10 / 25 / 50.");
+        expect(field).not.toHaveAccessibleDescription(/Saving sets Qty/);
+      }
+      fireEvent.change(host.quotes, { target: { value: "25/50" } });
+      expect(host.save).toBeEnabled();
+      expect(host.qty).toHaveAccessibleDescription(/Saving sets Qty to 25/);
+    },
+  );
+
   it("blocks invalid quote quantities and recovers for grouped thousands", () => {
     const host = renderHost();
     fireEvent.change(host.quotes, { target: { value: "10/12.5" } });

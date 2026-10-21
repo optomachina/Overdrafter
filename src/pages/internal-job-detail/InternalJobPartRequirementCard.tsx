@@ -32,6 +32,8 @@ type InternalJobPartRequirementCardProps = {
   disabled: boolean;
   draft: ApprovedPartRequirement;
   onDraftChange: (updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement) => void;
+  hiddenQuantityError?: string | null;
+  onDraftQuantityCommit: () => void;
   onDraftQuantityChange: (quantity: string) => void;
   onQuoteQuantityInputChange: (value: string) => void;
   onQuoteQuantityInputCommit: () => void;
@@ -94,6 +96,8 @@ export function InternalJobPartRequirementCard({
   draft,
   onDraftChange,
   onDraftQuantityChange,
+  onDraftQuantityCommit,
+  hiddenQuantityError,
   onQuoteQuantityInputChange,
   onQuoteQuantityInputCommit,
   part,
@@ -218,6 +222,8 @@ export function InternalJobPartRequirementCard({
           </div>
         )}
       </div>
+
+      {hiddenQuantityError ? <p role="alert" className="mt-3 text-sm text-destructive">{hiddenQuantityError}</p> : null}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[13rem_1fr]">
         <div className="space-y-3">
@@ -374,7 +380,10 @@ export function InternalJobPartRequirementCard({
                     setQuantityTouched(false);
                     onDraftQuantityChange(event.target.value);
                   }}
-                  onBlur={() => setQuantityTouched(true)}
+                  onBlur={() => {
+                    setQuantityTouched(true);
+                    onDraftQuantityCommit();
+                  }}
                   aria-invalid={invalidQuantity || undefined}
                   aria-describedby={showQuantityError ? `${quantityInputId}-error` : undefined}
                 />

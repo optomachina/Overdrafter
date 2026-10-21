@@ -1554,18 +1554,26 @@ describe("ClientPart", () => {
       });
     });
 
-    it("saves grouped thousands in Quote quantities without truncation", async () => {
+    it.each([
+      ["1,000/2,000", [1000, 2000]], ["0,500/10", [500, 10]], ["10,25,50", [10, 25, 50]],
+    ])("saves valid Quote quantities %j without truncation", async (text, quantities) => {
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
-      act(() => result.current.setQuoteQuantityInput("1,000/2,000"));
+      act(() => result.current.setQuoteQuantityInput(text as string));
       act(() => result.current.handleSaveRequest());
       await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
       expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
-        requestedQuoteQuantities: [1000, 2000],
+        requestedQuoteQuantities: quantities,
       });
     });
 
-    it.each(["12.5", "250,500", "100,250,500", "1,000", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500", "1,500,25/50", "1,500, 2,500 / 5,000"])("rejects Quote quantities %j without a save or success toast", async (text) => {
+    it.each([
+      "12.5", "250,500", "100,250,500", "1,000", "1,250 2,500", "1,250, 2,500",
+      "2,500 7,500", "100,250 500", "1,500,25/50", "1,500, 2,500 / 5,000",
+      "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5", "10,25,500",
+      "1000,250", "1234,567", "1,500,250", "1,500", "1,500, 25", "1,500 ,25",
+      "10 1,250,", "10,25,500/50", "1234,567/50", "10/12.5", "12.5/25", "1,0", "x 40",
+    ])("rejects Quote quantities %j without a save or success toast", async (text) => {
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
       act(() => result.current.setQuoteQuantityInput(text));

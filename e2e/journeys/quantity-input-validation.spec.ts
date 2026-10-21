@@ -63,18 +63,22 @@ test.describe("part request quantity input validation", { tag: "@fixture" }, () 
     await expect(save).toBeEnabled();
 
     await expect(qty).toHaveAccessibleDescription(/the first quote quantity/);
-    for (const text of ["250,500", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500"]) {
+    for (const text of ["250,500", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500", "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5", "10,25,500", "1234,567", "1000,250"]) {
       await quoteQuantities.fill(text);
       await expect(page.getByRole("alert")).toHaveCount(0);
       await expect(save).toBeDisabled();
+      await expect(quoteQuantities).not.toHaveAccessibleDescription(/Saving sets Qty/);
+      await expect(qty).not.toHaveAccessibleDescription(/Saving sets Qty/);
       await quoteQuantities.press("Tab");
       await expect(page.getByRole("alert")).toHaveText(/Commas are ambiguous here/);
     }
 
-    for (const text of ["1,500,25/50", "1,500, 2,500 / 5,000", "10,25/50"]) {
+    for (const text of ["1,500,25/50", "1,500, 2,500 / 5,000", "10,25/50", "12.5/25", "1,0", "x 40"]) {
       await quoteQuantities.fill(text);
       await expect(page.getByRole("alert")).toHaveCount(0);
       await expect(save).toBeDisabled();
+      await expect(quoteQuantities).not.toHaveAccessibleDescription(/Saving sets Qty/);
+      await expect(qty).not.toHaveAccessibleDescription(/Saving sets Qty/);
       await quoteQuantities.press("Tab");
       await expect(quoteQuantitiesError).toBeVisible();
     }

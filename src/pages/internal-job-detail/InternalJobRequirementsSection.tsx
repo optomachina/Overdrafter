@@ -5,6 +5,8 @@ import { InternalJobPartRequirementCard } from "./InternalJobPartRequirementCard
 type InternalJobRequirementsSectionProps = {
   cadPreviewSources: Map<string, ReturnType<typeof import("@/lib/cad-preview").createCadPreviewSourceFromJobFile>>;
   getDraftForPart: (part: JobAggregate["parts"][number]) => ApprovedPartRequirement;
+  getHiddenQuantityError: (part: JobAggregate["parts"][number], draft: ApprovedPartRequirement) => string | null;
+  onDraftQuantityCommit: (partId: string, draft: ApprovedPartRequirement) => void;
   getQuantityInput: (partId: string, draft: ApprovedPartRequirement) => string;
   getQuoteQuantityInput: (partId: string, draft: ApprovedPartRequirement) => string;
   job: JobAggregate;
@@ -25,6 +27,8 @@ export function InternalJobRequirementsSection({
   getDraftForPart,
   getQuoteQuantityInput,
   getQuantityInput,
+  getHiddenQuantityError,
+  onDraftQuantityCommit,
   job,
   onDraftQuantityChange,
   onQuoteQuantityInputChange,
@@ -51,6 +55,8 @@ export function InternalJobRequirementsSection({
               partQueueTasks={partQueueTasks}
               showInternalDiagnostics={showInternalDiagnostics}
               draft={draft}
+              hiddenQuantityError={getHiddenQuantityError(part, draft)}
+              onDraftQuantityCommit={() => onDraftQuantityCommit(part.id, draft)}
               quantityInput={getQuantityInput(part.id, draft)}
               quoteQuantityInput={getQuoteQuantityInput(part.id, draft)}
               cadPreviewSource={cadPreviewSources.get(part.id) ?? null}
