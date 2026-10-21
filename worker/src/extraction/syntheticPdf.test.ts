@@ -1030,8 +1030,46 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       expect(infer(await pdfTextOf(items)).finish.reviewNeeded).toBe(true);
       const result = infer(await pdfTextOf(items, { rules: [{ x0: 50, x1: 400, y0: 640, y1: 640, gray: 0.75 }] }));
-      expect(result.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
-      expect(result.finish.reasons).toContain("geometry_non_black_or_light_stroke");
+      expect(result.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: !fullyRead });
+      expect(result.finish.reasons).not.toContain("title_block_geometry_incomplete");
+    });
+  });
+
+  describe("segment-local I7 through Cairo", () => {
+    const fields = [
+      ["partNumber", "PART NUMBER", "ABC-001", 200],
+      ["description", "TITLE", "SAMPLE PLATE", 300],
+      ["material", "MATERIAL", "AL 6061-T6", 400],
+      ["finish", "FINISH", "AS MACHINED", 500],
+    ] as const;
+    const items = fields.flatMap(([, label, value, y]) => [
+      { x: 100, y, size: 9, text: label }, { x: 100, y: y+12, size: 9, text: value },
+    ]);
+    const frame = "0.753 G 0.5 w 20 20 m 1204 20 l 1204 772 l 20 772 l h 200 20 m 200 30 l 400 772 m 400 762 l 20 400 m 30 400 l 1204 400 m 1194 400 l S";
+    it("grey compound border and zone ticks approve ABC-001 and SAMPLE PLATE", async () => {
+      const data = await pdfTextOf(items, { paint: frame });
+      expect(data.pages[0]!.vectorGeometry?.issues).toEqual([]);
+      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead });
+    });
+    it.each([
+      ["curve", "0 G 100 380 m 110 390 125 370 140 380 c S"],
+      ["image_xobject", "q 20 0 0 20 100 360 cm BI /W 1 /H 1 /BPC 8 /CS /G ID x EI Q"],
+      ["clip_path", "q 100 360 40 20 re W n 0 G 90 370 m 150 370 l S Q"],
+    ])("the compound border plus local %s reviews only material", async (cause, paintAfter) => {
+      const data = await pdfTextOf(items, { paint: frame, paintAfter });
+      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead || field === "material" });
+      expect(result.material.reasons).toContain(`geometry_${cause}`);
+    });
+    it("a light-grey divider vetoes MATERIAL binding to LOT CODE", async () => {
+      const data = await pdfTextOf([
+        { x: 100, y: 400, size: 9, text: "MATERIAL" },
+        { x: 100, y: 440, size: 9, text: "LOT CODE A123" },
+      ], { paint: frame+" 0.95 G 90 367 m 350 367 l S" });
+      expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 425 });
+      expect(data.pages[0]!.vectorGeometry?.issues).toEqual([]);
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
   });
 

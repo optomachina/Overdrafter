@@ -45,15 +45,18 @@ function rectangle(bounds: GeometryBounds, m: Matrix): GeometryBounds | null {
   return hull([[bounds.x0, bounds.y0], [bounds.x0, bounds.y1], [bounds.x1, bounds.y0], [bounds.x1, bounds.y1]]
     .map(([x, y]) => point(x!, y!, m)));
 }
-/** Cairo uses absolute M/L/C/Q/Z paths. Anything outside that grammar is unlocated evidence. */
+type PathSegment = { bounds: GeometryBounds; rule?: VectorRule };
+type Subpath = { points: [number, number][]; segments: PathSegment[] };
+/** Cairo uses absolute M/L/C/Q/Z paths. Keep subpaths and curve control hulls separate. */
 function pathGeometry(data: string, matrix: Matrix | null) {
   if (!matrix || data.length > 1_000_000 || data.replace(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?|[\s,]/gi, "") || /[mlcqz]/.test(data.replace(/e[-+]?\d+/gi, ""))) return null;
   const tokens = data.match(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) ?? [];
-  const points: [number, number][] = [], rules: VectorRule[] = [];
+  const subpaths: Subpath[] = [];
   let current: [number, number] | undefined, start: [number, number] | undefined;
-  let curve = false;
+  let subpath: Subpath | undefined;
   const edge = (end: [number, number]) => {
-    if (current) rules.push({ x0: current[0], y0: current[1], x1: end[0], y1: end[1] });
+    if (current && subpath) subpath.segments.push({ bounds: hull([current, end])!,
+      rule: { x0: current[0], y0: current[1], x1: end[0], y1: end[1] } });
     current = end;
   };
   for (let i = 0; i < tokens.length;) {
@@ -66,13 +69,35 @@ function pathGeometry(data: string, matrix: Matrix | null) {
     i += count;
     const part: [number, number][] = [];
     for (let j = 0; j < count; j += 2) part.push(point(coords[j]!, coords[j+1]!, matrix));
-    points.push(...part);
+    if (!hull(part)) return null;
     const end = part.at(-1)!;
-    if (command === "M") { current = end; start = end; }
-    else if (command === "L") { if (!current) return null; edge(end); }
-    else { if (!current) return null; curve = true; current = end; }
+    if (command === "M") {
+      current = end; start = end;
+      subpath = { points: [end], segments: [] }; subpaths.push(subpath);
+    } else {
+      if (!current || !subpath) return null;
+      subpath.points.push(...part);
+      if (command === "L") edge(end);
+      else { subpath.segments.push({ bounds: hull([current, ...part])! }); current = end; }
+    }
   }
-  return { bounds: hull(points), rules, curve };
+  return subpaths;
+}
+/** Unknown paint stays unclassified; a known non-white colour need not be black. */
+function strokeColour(value: string): "white" | "colour" | "unknown" {
+  const v = value.trim().toLowerCase();
+  if (v === "white") return "white";
+  if (/^(?:black|red|green|blue|gray|grey|yellow|cyan|magenta)$/.test(v)) return "colour";
+  if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/.test(v)) return /^#f{3}(?:f{3})?$/.test(v) ? "white" : "colour";
+  const rgb = /^rgb\(\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)\s*\)$/.exec(v);
+  if (!rgb) return "unknown";
+  const channels = rgb.slice(1).map((channel) => Number.parseFloat(channel) / (channel.endsWith("%") ? 100 : 255));
+  if (channels.some((channel) => channel < 0 || channel > 1)) return "unknown";
+  return channels.every((channel) => channel === 1) ? "white" : "colour";
+}
+function opacity(tag: string, name: string): number {
+  const value = Number(attribute(tag, name) ?? 1);
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : NaN;
 }
 function black(value: string | undefined): boolean {
   if (value === "black" || value === "#000000" || value === "#000") return true;
@@ -126,31 +151,62 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
   }
   const definitions = new Map<string, string>();
   for (const match of svg.matchAll(/<(?:image|symbol|g|clipPath)\b[^>]*\bid="([^"]+)"[^>]*>/g)) definitions.set(match[1]!, match[0]);
-  type Group = { matrix: Matrix | null; clip: boolean; unsupported: boolean; paintStyle?: boolean };
-  const groups: Group[] = [{ matrix: IDENTITY, clip: false, unsupported: false }];
+  // Clip definitions describe affected area, not only the boundary's stroked edges.
+  // Unresolved references/units/transforms remain unlocated negative evidence.
+  const clips = new Map<string, string>();
+  for (const match of svg.matchAll(/<clipPath\b[^>]*\bid="([^"]+)"[^>]*>[\s\S]*?<\/clipPath>/g)) clips.set(match[1]!, match[0]);
+  const clipCache = new Map<string, GeometryBounds | null>();
+  const localClipBounds = (id: string): GeometryBounds | null => {
+    const definition = clips.get(id);
+    if (!definition) return null;
+    const opening = definition.slice(0, definition.indexOf(">")+1);
+    if ((attribute(opening, "clipPathUnits") ?? "userSpaceOnUse") !== "userSpaceOnUse" ||
+      /\s(?:style|clip-path|mask|filter)=/.test(opening)) return null;
+    const clipMatrix = transformOf(opening);
+    const points: [number, number][] = [];
+    for (const match of definition.matchAll(/<[^>]*>/g)) {
+      const tag = match[0];
+      if (/^<\/?clipPath\b/.test(tag)) continue;
+      if (!/^<path\b/.test(tag) || /\s(?:clip-path|style|mask|filter)=/.test(tag)) return null;
+      const paths = pathGeometry(attribute(tag, "d") ?? "", compose(clipMatrix, transformOf(tag)));
+      if (!paths) return null;
+      for (const path of paths) for (const p of path.points) points.push(p);
+    }
+    return hull(points);
+  };
+  const clipBounds = (reference: string, matrix: Matrix | null): GeometryBounds | null => {
+    const id = /^url\(#([^)]*)\)$/.exec(reference)?.[1];
+    if (!id || !matrix) return null;
+    if (!clipCache.has(id)) clipCache.set(id, localClipBounds(id));
+    const bounds = clipCache.get(id);
+    return bounds ? rectangle(bounds, matrix) : null;
+  };
+  type Group = { matrix: Matrix | null; clip: boolean; unsupported: boolean; alpha: number; paintStyle?: boolean };
+  const groups: Group[] = [{ matrix: IDENTITY, clip: false, unsupported: false, alpha: 1 }];
   let inDefinitions = false, count = 0;
   for (const match of svg.matchAll(/<\/?[A-Za-z][^>]*>/g)) {
     const tag = match[0], name = /^<\/?([\w:]+)/.exec(tag)![1]!;
     if (name === "defs") { inDefinitions = !tag.startsWith("</") && !tag.endsWith("/>"); continue; }
     if (inDefinitions || name === "svg") continue;
     if (tag.startsWith("</")) { if (name === "g") groups.pop(); continue; }
-    const parent = groups.at(-1) ?? { matrix: null, clip: false, unsupported: true };
+    const parent = groups.at(-1) ?? { matrix: null, clip: false, unsupported: true, alpha: NaN };
     const matrix = compose(parent.matrix, transformOf(tag));
-    // The clip boundary itself is negative evidence, even when its painted child is elsewhere.
-    // Its full coverage is not resolved by this reader, so it conservatively vetoes the page.
-    if (attribute(tag, "clip-path") !== undefined) issue("clip_path");
-    const clip = parent.clip || attribute(tag, "clip-path") !== undefined;
-    const unsupported = parent.unsupported || /\s(?:style|mask|filter|opacity)=/.test(tag);
+    const alpha = parent.alpha * opacity(tag, "opacity");
+    const clipReference = attribute(tag, "clip-path");
+    if (clipReference !== undefined && alpha !== 0) issue("clip_path", clipBounds(clipReference, matrix));
+    const clip = parent.clip || clipReference !== undefined;
+    const unsupported = parent.unsupported || !Number.isFinite(alpha) || /\s(?:style|mask|filter)=/.test(tag);
     if (name === "g") {
-      if (!tag.endsWith("/>")) groups.push({ matrix, clip, unsupported, paintStyle: parent.paintStyle || /\s(?:fill|stroke|fill-opacity|stroke-opacity)=/.test(tag) });
+      if (!tag.endsWith("/>")) groups.push({ matrix, clip, unsupported, alpha, paintStyle: parent.paintStyle || /\s(?:fill|stroke|fill-opacity|stroke-opacity)=/.test(tag) });
       continue;
     }
+    if (alpha === 0) continue;
     if (++count > 30_000) { geometry.complete = false; issue("vector_scan_limit"); break; }
     if (name === "use") {
       const id = (attribute(tag, "xlink:href") ?? attribute(tag, "href") ?? "").replace(/^#/, "");
       if (/^glyph/.test(id) && definitions.has(id)) {
         // Glyph outlines are positively identified text, not arbitrary filled vector paint.
-        if (clip || unsupported || !matrix) issue(clip ? "clip_path" : "unclassified_text_transform");
+        if (unsupported || !matrix) issue("unclassified_text_transform");
         continue;
       }
       const target = definitions.get(id);
@@ -161,34 +217,50 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
       issue(target?.startsWith("<image") ? "image_xobject" : "form_xobject", bounds);
       continue;
     }
-    if (name !== "path") { issue(name === "image" ? "image_xobject" : "unclassified_content"); continue; }
+    if (name === "image") {
+      const x = Number(attribute(tag, "x") ?? 0), y = Number(attribute(tag, "y") ?? 0);
+      const width = Number(attribute(tag, "width")), height = Number(attribute(tag, "height"));
+      issue("image_xobject", matrix && width > 0 && height > 0
+        ? rectangle({ x0: x, y0: y, x1: x+width, y1: y+height }, matrix) : null);
+      continue;
+    }
+    if (name !== "path") { issue("unclassified_content"); continue; }
     const parsed = pathGeometry(attribute(tag, "d") ?? "", matrix);
     if (!parsed) { issue("unclassified_path"); continue; }
-    if (!parsed.bounds) continue; // Empty Cairo path paints nothing.
     const stroke = attribute(tag, "stroke"), fill = attribute(tag, "fill") ?? "black";
     const width = stroke && stroke !== "none" ? Number(attribute(tag, "stroke-width") ?? 1) : 0;
     const miter = Number(attribute(tag, "stroke-miterlimit") ?? 4);
-    let bounds: GeometryBounds | null = parsed.bounds;
-    if (!Number.isFinite(width) || width < 0 || !Number.isFinite(miter) || miter < 1 || !matrix) bounds = null;
-    else {
+    const strokeAlpha = alpha * opacity(tag, "stroke-opacity"), fillAlpha = alpha * opacity(tag, "fill-opacity");
+    const hasStroke = stroke !== undefined && stroke !== "none" && strokeAlpha !== 0 && width !== 0;
+    const hasFill = fill !== "none" && fillAlpha !== 0;
+    const colour = strokeColour(stroke ?? "none");
+    const expand = (bounds: GeometryBounds): GeometryBounds | null => {
+      if (!Number.isFinite(width) || width < 0 || !Number.isFinite(miter) || miter < 1 || !matrix) return null;
+      // Preserve the round-16 erasure margin, now independently around each segment.
       const dx = width/2 * miter * Math.hypot(matrix[0], matrix[2]);
       const dy = width/2 * miter * Math.hypot(matrix[1], matrix[3]);
-      bounds = { x0: bounds.x0-dx, x1: bounds.x1+dx, y0: bounds.y0-dy, y1: bounds.y1+dy };
-    }
-    if (clip) issue("clip_path", bounds);
-    if (unsupported || parent.paintStyle || !bounds || attribute(tag, "stroke-dasharray")) issue("unclassified_path", bounds);
-    if (parsed.curve) issue("curve", bounds);
-    if (fill !== "none") issue("fill", bounds);
-    const solidBlackStroke = stroke !== undefined && stroke !== "none" && black(stroke) &&
-      Number(attribute(tag, "stroke-opacity") ?? 1) === 1 && width > 0;
-    if (stroke && stroke !== "none" && !solidBlackStroke) issue("non_black_or_light_stroke", bounds);
-    const thinBar = fill !== "none" && black(fill) && !parsed.curve && parsed.rules.length === 4 &&
-      parsed.rules.every((r) => Math.abs(r.x0-r.x1) < 0.01 || Math.abs(r.y0-r.y1) < 0.01) &&
-      Math.min(parsed.bounds.x1-parsed.bounds.x0, parsed.bounds.y1-parsed.bounds.y0) <= 2;
-    if (!clip && !unsupported && !parsed.curve && !attribute(tag, "stroke-dasharray") && (solidBlackStroke || thinBar)) {
-      for (const rule of parsed.rules) {
-        if (rules.length >= 2_000) { geometry.complete = false; issue("border_limit"); break; }
-        rules.push(rule);
+      return { x0: bounds.x0-dx, x1: bounds.x1+dx, y0: bounds.y0-dy, y1: bounds.y1+dy };
+    };
+    const uncertain = unsupported || parent.paintStyle || !Number.isFinite(strokeAlpha) ||
+      !Number.isFinite(fillAlpha) || attribute(tag, "stroke-dasharray") !== undefined;
+    for (const subpath of parsed) {
+      const fillBounds = hull(subpath.points)!;
+      const thinBar = hasFill && black(fill) && subpath.segments.length === 4 &&
+        subpath.segments.every(({ rule: r }) => r && (Math.abs(r.x0-r.x1) < 0.01 || Math.abs(r.y0-r.y1) < 0.01)) &&
+        Math.min(fillBounds.x1-fillBounds.x0, fillBounds.y1-fillBounds.y0) <= 2;
+      if (hasFill) issue("fill", fillBounds);
+      for (const segment of subpath.segments) {
+        const bounds = expand(segment.bounds);
+        if (uncertain || !bounds) issue("unclassified_path", bounds);
+        if (hasStroke) {
+          if (!segment.rule) issue("curve", bounds);
+          if (colour === "white") issue("white_stroke", bounds);
+          if (colour === "unknown") issue("unclassified_stroke", bounds);
+        }
+        if (!clip && !uncertain && bounds && segment.rule && ((hasStroke && colour === "colour") || thinBar)) {
+          if (rules.length >= 2_000) { geometry.complete = false; issue("border_limit"); break; }
+          rules.push(segment.rule);
+        }
       }
     }
   }
@@ -202,7 +274,10 @@ export function geometryIssuesInRegion(geometry: PageVectorGeometry | undefined,
   const causes = geometry.complete ? [] : ["vector_geometry_incomplete"];
   for (const issue of geometry.issues) {
     const b = issue.bounds;
-    if (!region || !b || (b.x0 <= region.x1 && b.x1 >= region.x0 && b.y0 <= region.y1 && b.y1 >= region.y0)) causes.push(issue.cause);
+    // Inspect a small margin around both label and value, including paint just beyond a cell edge.
+    const margin = 2;
+    if (!region || !b || (b.x0 <= region.x1+margin && b.x1 >= region.x0-margin &&
+      b.y0 <= region.y1+margin && b.y1 >= region.y0-margin)) causes.push(issue.cause);
   }
   return [...new Set(causes)];
 }

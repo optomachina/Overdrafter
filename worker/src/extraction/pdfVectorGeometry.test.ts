@@ -45,8 +45,6 @@ describe("I7 complete vector geometry", () => {
     ["image_xobject", '<defs><image id="source-1" width="2" height="2"/></defs><use xlink:href="#source-1" transform="matrix(20,0,0,20,100,110)"/>'],
     ["form_xobject", '<defs><g id="surface-1"/></defs><use xlink:href="#surface-1"/>'],
     ["fill", '<path fill="rgb(0%, 0%, 0%)" d="M 100 110 L 150 110 L 150 130 Z"/>'],
-    ["non_black_or_light_stroke", path("M 90 115 L 350 115").replace('rgb(0%, 0%, 0%)', 'rgb(85%, 85%, 85%)')],
-    ["non_black_or_light_stroke", path("M 90 115 L 350 115").replace('rgb(0%, 0%, 0%)', 'rgb(100%, 0%, 0%)')],
     ["clip_path", `<g clip-path="url(#clip1)">${path("M 90 115 L 350 115")}</g>`],
     ["curve", path("M 90 110 C 150 110 200 130 350 130")],
   ])("%s in the region vetoes approval and never deletes existing rules", (cause, paint) => {
@@ -60,6 +58,20 @@ describe("I7 complete vector geometry", () => {
     // The veto must work without a helpful separating border, too.
     expect(infer(input(paint)).material.reviewNeeded).toBe(true);
   });
+
+  it.each(["rgb(85%, 85%, 85%)", "rgb(100%, 0%, 0%)"])(
+    "%s is an understood divider and never deletes existing rules", (colour) => {
+      const paint = path("M 90 115 L 350 115").replace("rgb(0%, 0%, 0%)", colour);
+      expect(infer(input("")).material.reviewNeeded).toBe(false);
+      for (const content of [paint, paint+rule, rule+paint]) {
+        const data = input(content);
+        expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 115 });
+        if (content !== paint) expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 120 });
+        expect(data.pages[0]!.vectorGeometry?.issues).toEqual([]);
+        expect(infer(data).material.reviewNeeded).toBe(true);
+        expect(infer(data).material.reasons).not.toContain("title_block_geometry_incomplete");
+      }
+    });
 
   it("located unsupported paint outside the title block does not erase its rules", () => {
     const gray = path("M 10 20 L 80 20").replace('rgb(0%, 0%, 0%)', 'rgb(85%, 85%, 85%)');
