@@ -226,7 +226,7 @@ describe("suggest-only evidence and main parity", () => {
     const lastWord = words.pop();
     const pdfText = withMonospaceGeometry(pdfTextOf(`TITLE: ${words.join(" ")} 10/20/2026\n${lastWord}`));
     const field = infer(pdfText, enabled).description;
-    expect(field.value === rescuedTitle).toBe(true);
+    expect(field.value).toBe(rescuedTitle);
     expect(field.sourceRegion).toBeNull();
     expect(field.reasons).toContain("ocr_title_block");
     expect(field.reviewNeeded).toBe(enabled !== true);

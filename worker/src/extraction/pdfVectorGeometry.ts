@@ -1,21 +1,20 @@
+import { svgNumbers as numbers, svgPathTokens, svgTags } from "./pdfParsing.js";
 import type { TitleBlockBorder } from "./titleBlockCells.js";
 
 export type GeometryBounds = { x0: number; y0: number; x1: number; y1: number };
 export type GeometryIssue = { cause: string; bounds: GeometryBounds | null };
-export type VectorRule = GeometryBounds;
 export type PageVectorGeometry = {
   /** Positive proof of a complete scan in the word boxes' coordinate frame. */
   complete: boolean;
   issues: GeometryIssue[];
   width?: number;
   height?: number;
-  rules?: VectorRule[];
+  rules?: GeometryBounds[];
 };
 type Matrix = [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
-const NUMBER = /[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
-const attribute = (tag: string, name: string) => new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(tag)?.[1];
-const numbers = (text: string) => text.match(NUMBER)?.map(Number) ?? [];
+const COORDINATE_COUNTS: Readonly<Record<string, number>> = { M: 2, L: 2, C: 6, Q: 4 };
+const attribute = (tag: string, name: string) => new RegExp(String.raw`(?:^|\s)${name}="([^"]*)"`).exec(tag)?.[1];
 function transformOf(tag: string): Matrix | null {
   const value = attribute(tag, "transform");
   if (!value) return IDENTITY;
@@ -45,12 +44,13 @@ function rectangle(bounds: GeometryBounds, m: Matrix): GeometryBounds | null {
   return hull([[bounds.x0, bounds.y0], [bounds.x0, bounds.y1], [bounds.x1, bounds.y0], [bounds.x1, bounds.y1]]
     .map(([x, y]) => point(x!, y!, m)));
 }
-type PathSegment = { bounds: GeometryBounds; rule?: VectorRule };
+type PathSegment = { bounds: GeometryBounds; rule?: GeometryBounds };
 type Subpath = { points: [number, number][]; segments: PathSegment[] };
 /** Cairo uses absolute M/L/C/Q/Z paths. Keep subpaths and curve control hulls separate. */
 function pathGeometry(data: string, matrix: Matrix | null) {
-  if (!matrix || data.length > 1_000_000 || data.replace(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?|[\s,]/gi, "") || /[mlcqz]/.test(data.replace(/e[-+]?\d+/gi, ""))) return null;
-  const tokens = data.match(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) ?? [];
+  if (!matrix || data.length > 1_000_000) return null;
+  const tokens = svgPathTokens(data);
+  if (!tokens) return null;
   const subpaths: Subpath[] = [];
   let current: [number, number] | undefined, start: [number, number] | undefined;
   let subpath: Subpath | undefined;
@@ -61,8 +61,12 @@ function pathGeometry(data: string, matrix: Matrix | null) {
   };
   for (let i = 0; i < tokens.length;) {
     const command = tokens[i++]!;
-    if (command === "Z") { if (!start || !current) return null; edge(start); continue; }
-    const count = command === "M" || command === "L" ? 2 : command === "C" ? 6 : command === "Q" ? 4 : 0;
+    if (command === "Z") {
+      if (!start || !current) return null;
+      edge(start);
+      continue;
+    }
+    const count = COORDINATE_COUNTS[command] ?? 0;
     if (!count || i + count > tokens.length) return null;
     const coords = tokens.slice(i, i + count).map(Number);
     if (!coords.every(Number.isFinite)) return null;
@@ -89,15 +93,16 @@ function strokeColour(value: string): "white" | "colour" | "unknown" {
   if (v === "white") return "white";
   if (/^(?:black|red|green|blue|gray|grey|yellow|cyan|magenta)$/.test(v)) return "colour";
   if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/.test(v)) return /^#f{3}(?:f{3})?$/.test(v) ? "white" : "colour";
-  const rgb = /^rgb\(\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)\s*\)$/.exec(v);
-  if (!rgb) return "unknown";
-  const channels = rgb.slice(1).map((channel) => Number.parseFloat(channel) / (channel.endsWith("%") ? 100 : 255));
+  if (!v.startsWith("rgb(") || !v.endsWith(")")) return "unknown";
+  const rgb = v.slice(4, -1).split(",").map((channel) => channel.trim());
+  if (rgb.length !== 3 || !rgb.every((channel) => /^\d+(?:\.\d+)?%?$/.test(channel))) return "unknown";
+  const channels = rgb.map((channel) => Number.parseFloat(channel) / (channel.endsWith("%") ? 100 : 255));
   if (channels.some((channel) => channel < 0 || channel > 1)) return "unknown";
   return channels.every((channel) => channel === 1) ? "white" : "colour";
 }
 function opacity(tag: string, name: string): number {
   const value = Number(attribute(tag, name) ?? 1);
-  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : NaN;
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : Number.NaN;
 }
 function black(value: string | undefined): boolean {
   if (value === "black" || value === "#000000" || value === "#000") return true;
@@ -124,7 +129,7 @@ export function mergeHorizontalBorders(borders: readonly TitleBlockBorder[]): Ti
 export function pdfSourceGeometryIssues(bytes: Buffer): GeometryIssue[] {
   if (bytes.length > 32 * 1024 * 1024) return [{ cause: "pdf_source_limit", bounds: null }];
   const names = new Set((bytes.toString("latin1").match(/\/[^\s()[\]{}<>/%]+/g) ?? [])
-    .map((name) => name.replace(/#([0-9a-f]{2})/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))));
+    .map((name) => name.replace(/#([0-9a-f]{2})/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))));
   const issues: GeometryIssue[] = [];
   if (names.has("/Form")) issues.push({ cause: "form_xobject", bounds: null });
   if (names.has("/ObjStm")) issues.push({ cause: "unclassified_pdf_object_stream", bounds: null });
@@ -134,13 +139,16 @@ export function pdfSourceGeometryIssues(bytes: Buffer): GeometryIssue[] {
 
 /** I7: unsupported paint is monotonic negative evidence, never a reason to discard earlier rules. */
 export function readSvgGeometry(svg: string, pageSize: { width: number; height: number }): { borders: TitleBlockBorder[]; vectorGeometry: PageVectorGeometry } {
-  const issues: GeometryIssue[] = [], rules: VectorRule[] = [];
+  const issues: GeometryIssue[] = [], rules: GeometryBounds[] = [];
   const geometry: PageVectorGeometry = { complete: true, issues, rules, ...pageSize };
   const issue = (cause: string, bounds: GeometryBounds | null = null) => {
     if (issues.length < 2_000) issues.push({ cause, bounds });
     else geometry.complete = false;
   };
-  const root = /<svg\b[^>]*>/.exec(svg)?.[0] ?? "";
+  let root = "";
+  for (const { tag } of svgTags(svg)) {
+    if (/^<svg\b/.test(tag)) { root = tag; break; }
+  }
   const viewBox = numbers(attribute(root, "viewBox") ?? "");
   if (/\s(?:transform|style|clip-path|mask|filter)=/.test(root)) issue("unclassified_page_transform");
   if (!svg.trimEnd().endsWith("</svg>") || !root) { geometry.complete = false; issue("incomplete_svg"); }
@@ -150,11 +158,25 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
     geometry.complete = false; issue("coordinate_frame_mismatch");
   }
   const definitions = new Map<string, string>();
-  for (const match of svg.matchAll(/<(?:image|symbol|g|clipPath)\b[^>]*\bid="([^"]+)"[^>]*>/g)) definitions.set(match[1]!, match[0]);
   // Clip definitions describe affected area, not only the boundary's stroked edges.
-  // Unresolved references/units/transforms remain unlocated negative evidence.
+  // Consume tags once so missing delimiters cannot restart a whole-suffix scan.
   const clips = new Map<string, string>();
-  for (const match of svg.matchAll(/<clipPath\b[^>]*\bid="([^"]+)"[^>]*>[\s\S]*?<\/clipPath>/g)) clips.set(match[1]!, match[0]);
+  let clipStart: { id: string; start: number } | undefined;
+  for (const { tag, start, end } of svgTags(svg)) {
+    if (/^<(?:image|symbol|g|clipPath)\b/.test(tag)) {
+      // The old greedy opening-tag pattern selected the last id, including a prefixed id.
+      let id: string | undefined;
+      for (const match of tag.matchAll(/\bid="([^"]+)"/g)) id = match[1];
+      if (id !== undefined) {
+        definitions.set(id, tag);
+        if (tag.startsWith("<clipPath") && !clipStart) clipStart = { id, start };
+      }
+    }
+    if (tag === "</clipPath>" && clipStart) {
+      clips.set(clipStart.id, svg.slice(clipStart.start, end));
+      clipStart = undefined;
+    }
+  }
   const clipCache = new Map<string, GeometryBounds | null>();
   const localClipBounds = (id: string): GeometryBounds | null => {
     const definition = clips.get(id);
@@ -164,8 +186,7 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
       /\s(?:style|clip-path|mask|filter)=/.test(opening)) return null;
     const clipMatrix = transformOf(opening);
     const points: [number, number][] = [];
-    for (const match of definition.matchAll(/<[^>]*>/g)) {
-      const tag = match[0];
+    for (const { tag } of svgTags(definition, true)) {
       if (/^<\/?clipPath\b/.test(tag)) continue;
       if (!/^<path\b/.test(tag) || /\s(?:clip-path|style|mask|filter)=/.test(tag)) return null;
       const paths = pathGeometry(attribute(tag, "d") ?? "", compose(clipMatrix, transformOf(tag)));
@@ -184,12 +205,15 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
   type Group = { matrix: Matrix | null; clip: boolean; unsupported: boolean; alpha: number; paintStyle?: boolean };
   const groups: Group[] = [{ matrix: IDENTITY, clip: false, unsupported: false, alpha: 1 }];
   let inDefinitions = false, count = 0;
-  for (const match of svg.matchAll(/<\/?[A-Za-z][^>]*>/g)) {
-    const tag = match[0], name = /^<\/?([\w:]+)/.exec(tag)![1]!;
+  for (const { tag } of svgTags(svg)) {
+    const name = /^<\/?([\w:]+)/.exec(tag)![1]!;
     if (name === "defs") { inDefinitions = !tag.startsWith("</") && !tag.endsWith("/>"); continue; }
     if (inDefinitions || name === "svg") continue;
-    if (tag.startsWith("</")) { if (name === "g") groups.pop(); continue; }
-    const parent = groups.at(-1) ?? { matrix: null, clip: false, unsupported: true, alpha: NaN };
+    if (tag.startsWith("</")) {
+      if (name === "g") groups.pop();
+      continue;
+    }
+    const parent = groups.at(-1) ?? { matrix: null, clip: false, unsupported: true, alpha: Number.NaN };
     const matrix = compose(parent.matrix, transformOf(tag));
     const alpha = parent.alpha * opacity(tag, "opacity");
     const clipReference = attribute(tag, "clip-path");
@@ -204,7 +228,7 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
     if (++count > 30_000) { geometry.complete = false; issue("vector_scan_limit"); break; }
     if (name === "use") {
       const id = (attribute(tag, "xlink:href") ?? attribute(tag, "href") ?? "").replace(/^#/, "");
-      if (/^glyph/.test(id) && definitions.has(id)) {
+      if (id.startsWith("glyph") && definitions.has(id)) {
         // Glyph outlines are positively identified text, not arbitrary filled vector paint.
         if (unsupported || !matrix) issue("unclassified_text_transform");
         continue;

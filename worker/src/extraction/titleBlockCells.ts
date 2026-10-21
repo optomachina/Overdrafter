@@ -362,7 +362,7 @@ const MAX_LABELS_PER_PAGE = 400;
 const MAX_RUNS_PER_PAGE = 2_000;
 
 type Label = {
-  revisionRole?: CellRead["revisionRole"];
+  revisionRole?: NonNullable<CellRead["revisionRole"]>;
   field: CellField | null;
   text: string;
   line: number;
@@ -1464,7 +1464,9 @@ function ownsOtherText(first: ValueLine, owned: readonly Run[]): boolean {
  * has no heights, so it never does.
  */
 function tallerUnownedTextFollows(entry: ValueLine, page: PageLines): boolean {
-  const firstWord = entry.runs.reduce((leftmost, run) => (run.start < leftmost.start ? run : leftmost));
+  const initialWord = entry.runs[0];
+  if (!initialWord) return false;
+  const firstWord = entry.runs.reduce((leftmost, run) => (run.start < leftmost.start ? run : leftmost), initialWord);
   const height = firstWord.height;
   if (height === undefined) {
     return false;
@@ -1960,8 +1962,11 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
     const history = heading || headers.some((text) => /^EC[ONR]$/i.test(text));
     const table = headers.some((text) => /^DESCRIPTION$/i.test(text)) &&
       headers.some((text) => /^(?:DATE|ENGINEER|APPROVED|BY)$/i.test(text));
+    let revisionRole: NonNullable<CellRead["revisionRole"]> = "current";
+    if (history) revisionRole = "history";
+    else if (table) revisionRole = "ambiguous";
     for (const label of row) {
-      if (label.field === "revision") label.revisionRole = history ? "history" : table ? "ambiguous" : "current";
+      if (label.field === "revision") label.revisionRole = revisionRole;
     }
   }
   const runs: Run[] = [];
@@ -2088,8 +2093,15 @@ function accountsForCellGeometry(
   const couldBeAboveValue = (word: TitleBlockWord) => word.x1 >= label.start - label.slack &&
     word.x0 < valueRight && word.y1 !== undefined && labelTop - word.y1 <=
       MAX_LINE_GAP * Math.max(labelBottom - labelTop, word.height ?? 0);
-  const previous = lines.filter((line) => line.lineNumber < label.line &&
-    (line.words ?? []).some(couldBeAboveValue)).at(-1);
+  // ES2022 has no findLast; walk backwards without allocating a filtered copy.
+  let previous: TitleBlockTextLine | undefined;
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index]!;
+    if (line.lineNumber < label.line && (line.words ?? []).some(couldBeAboveValue)) {
+      previous = line;
+      break;
+    }
+  }
   const top = Math.min(labelTop, ...(previous?.words ?? []).filter((word) =>
     word.x1 >= label.start - label.slack && word.x0 < right).map((word) => word.y0 ?? labelTop));
   const capLine = lines.find((line) => line.lineNumber >= (caps.get(label) ?? Infinity));

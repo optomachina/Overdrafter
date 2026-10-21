@@ -68,8 +68,10 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
         [read.value, ...(read.observations ?? []).filter((observation) => observation.binding === "label_owned")
           .map((observation) => observation.value)].some((value) => value !== null && comparable(value) !== comparable(field.value)));
       reviewNeeded ||= !proven || conflict;
-      reasons.add(proven ? "title_block_cell_proven" : input.cellProof.drawingProven
-        ? "title_block_cell_unread" : "title_block_page_unread");
+      let proofReason = "title_block_page_unread";
+      if (proven) proofReason = "title_block_cell_proven";
+      else if (input.cellProof.drawingProven) proofReason = "title_block_cell_unread";
+      reasons.add(proofReason);
       if (conflict) reasons.add("independent_source_conflict");
       if (!input.cellProof.independentComplete) reasons.add("independent_source_unread");
     }

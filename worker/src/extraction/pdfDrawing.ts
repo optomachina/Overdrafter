@@ -1,3 +1,4 @@
+import { hasToleranceLabel, trimDimensionPunctuation } from "./pdfParsing.js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -854,7 +855,7 @@ function decimalKey(text: string, separator: number, fraction: string): string {
  * isDimensionToken reads, with a decimal comma read as a point and a list comma after it dropped.
  */
 function isDimensionCallout(token: string): boolean {
-  return isDimensionToken(token.replace(/[,;]+$/, "").replaceAll(",", "."));
+  return isDimensionToken(trimDimensionPunctuation(token).replaceAll(",", "."));
 }
 
 /**
@@ -1058,9 +1059,8 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const allCandidates = collectToleranceCandidates(text);
   // Evidence belongs to the selection, not just its winner: filtering a table row can let a
   // general note or feature callout win. Stacked/grid rows also remain title-block evidence.
-  const toleranceLabel = /\b(?:unless otherwise specified|general tolerances?|tolerances?)\b|(?:^|\s)X?\.X{1,4}(?=\s|=|$)/im;
   const titleBlockProof = allCandidates.some((candidate) => candidate.rowPlaces !== null) ||
-    (toleranceLabel.test(text) && allCandidates.some((candidate) => toleranceLabel.test(
+    (hasToleranceLabel(text) && allCandidates.some((candidate) => hasToleranceLabel(
       text.slice(Math.max(0, candidate.start - 240), candidate.start).split("\n").slice(-3).join("\n"))));
   const { candidates: applicableCandidates, unresolvedRows } = selectApplicableToleranceRows(
     text,
@@ -1980,6 +1980,8 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
   } catch {
     sourceIssues = [{ cause: "pdf_source_unavailable", bounds: null }];
   }
+  // Keep pages sequential: each scan consumes the shared word budget and deadline.
+  // Parallel processes would change which pages receive geometry and multiply peak memory.
   let totalWords = 0;
   for (let index = 0; index < layerTexts.length; index += 1) {
     const remainingMs = deadline - Date.now();
