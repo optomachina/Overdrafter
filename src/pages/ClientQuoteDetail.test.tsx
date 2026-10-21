@@ -1,8 +1,9 @@
 import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import type { PropsWithChildren, ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ClientQuoteDetail from "@/pages/ClientQuoteDetail";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +11,12 @@ const mocks = vi.hoisted(() => ({
   useClientHomeController: vi.fn(),
   useClientPartController: vi.fn(),
   decisionPanelProps: vi.fn(),
+  accountMenuProps: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchClientActivityEventsByJobIds: vi.fn().mockResolvedValue([]),
+  fetchPlatformAdminNotifications: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@/features/quotes/quote-intelligence-view-model", async (importOriginal) => ({
@@ -30,8 +37,10 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
     title,
     description,
     children,
-  }: PropsWithChildren<{ title: string; description?: string }>) => (
+    accountSlot,
+  }: PropsWithChildren<{ title: string; description?: string; accountSlot?: ReactNode }>) => (
     <main>
+      {accountSlot}
       <h1>{title}</h1>
       <p>{description}</p>
       {children}
@@ -40,7 +49,10 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
-  WorkspaceAccountMenu: () => <button type="button">Account</button>,
+  WorkspaceAccountMenu: (props: unknown) => {
+    mocks.accountMenuProps(props);
+    return <button type="button">Account</button>;
+  },
 }));
 
 vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
@@ -61,6 +73,8 @@ vi.mock("@/components/SignInDialog", () => ({
 
 function createHomeState(jobIds: string[], authenticated = true) {
   return {
+    workspaceAccessScope: "user-1:org-1:client",
+    isPlatformAdmin: false,
     accessibleJobs: jobIds.map((id) => ({ id })),
     accessibleJobsQuery: {
       isFetching: false,
@@ -153,17 +167,32 @@ function renderQuote(code: string) {
         <Route path="/quotes" element={<div>Quotes collection</div>} />
       </Routes>
     </MemoryRouter>,
+    { wrapper: ({ children }) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider> },
   );
 }
 
 describe("ClientQuoteDetail", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    mocks.accountMenuProps.mockClear();
+    vi.stubGlobal("Notification", { permission: "default" });
     window.localStorage.clear();
     mocks.createQuoteDisplayCode.mockImplementation((jobId) =>
       jobId === "job-1" ? "ABC234" : "XYZ567",
     );
     mocks.useClientHomeController.mockReturnValue(createHomeState(["job-1"]));
     mocks.useClientPartController.mockReturnValue(createPartState());
+  });
+
+  it("supplies browser permission and client preferences to the quote detail account menu", () => {
+    renderQuote("ABC234");
+    expect(mocks.accountMenuProps).toHaveBeenLastCalledWith(expect.objectContaining({
+      notificationCenter: expect.objectContaining({
+        browserPermission: "default",
+        supportedTypes: ["client.quote_package_ready"],
+      }),
+    }));
   });
 
   it("resolves the short code only across accessible jobs", () => {
