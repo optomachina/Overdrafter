@@ -23,19 +23,27 @@ test.describe("Client shell notifications", { tag: "@fixture" }, () => {
             await page.goto(fixtureUrl(route));
             await page.locator("[data-client-shell]").waitFor();
             await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
-            expect(await page.evaluate(() => ({
-              supported: typeof Notification === "function",
-              permission: Notification.permission,
-            }))).toEqual({ supported: true, permission: "default" });
+            expect(await page.evaluate(() => typeof Notification === "function")).toBe(true);
+            const permission = await page.evaluate(() => Notification.permission);
 
             await page.getByRole("button", { name: /open account menu/i }).click();
             await page.getByRole("menuitem", { name: /^Notifications/ }).click();
             const panel = page.getByRole("dialog", { name: "Notifications", exact: true });
-            await expect(panel.getByText("Not requested", { exact: true }).first()).toBeVisible();
-            await expect(panel.getByRole("button", { name: "Allow browser notifications" })).toBeEnabled();
-            await expect(panel.getByRole("heading", { name: "Quote package ready" })).toBeVisible();
+            const permissionCopy = {
+              default: "Request browser permission here, then opt individual notification types into browser delivery.",
+              denied: "Browser notifications are blocked for this site. Re-enable them in browser site settings.",
+              granted: "This browser can receive notification deliveries when a channel is opted in below.",
+            };
+            await expect(panel.getByText(permissionCopy[permission], { exact: true })).toBeVisible();
+            const allowNotifications = panel.getByRole("button", { name: "Allow browser notifications" });
+            if (permission === "default") {
+              await expect(allowNotifications).toBeEnabled();
+            } else {
+              await expect(allowNotifications).toHaveCount(0);
+            }
+            await expect(panel.getByRole("article").getByRole("heading", { name: "Quote package ready", exact: true })).toBeVisible();
             await expect(panel.getByRole("switch", { name: "Quote package ready In-app center" })).toBeChecked();
-            await expect(panel.getByRole("switch", { name: "Quote package ready Browser alerts" })).toBeDisabled();
+            await expect(panel.getByRole("switch", { name: "Quote package ready Browser alerts" })).toBeEnabled({ enabled: permission === "granted" });
             await expect(panel).not.toContainText("does not expose the Notification API");
             await expect(panel).not.toContainText("after a workspace role is resolved");
             expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);

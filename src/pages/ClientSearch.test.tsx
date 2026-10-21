@@ -17,11 +17,12 @@ import type { WorkspaceNotificationsController } from "@/features/notifications/
 
 const useClientHomeControllerMock = vi.fn();
 const accountMenuMock = vi.fn();
-const fetchActivityMock = vi.fn().mockResolvedValue([]);
+const fetchActivityMock = vi.fn();
+const fetchPlatformAdminNotificationsMock = vi.fn();
 
 vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchClientActivityEventsByJobIds: (...args: unknown[]) => fetchActivityMock(...args),
-  fetchPlatformAdminNotifications: vi.fn().mockResolvedValue([]),
+  fetchPlatformAdminNotifications: (...args: unknown[]) => fetchPlatformAdminNotificationsMock(...args),
 }));
 
 vi.mock("@/features/quotes/use-client-home-controller", () => ({
@@ -106,6 +107,8 @@ describe("ClientSearch", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchActivityMock.mockResolvedValue([]);
+    fetchPlatformAdminNotificationsMock.mockResolvedValue([]);
     window.localStorage.clear();
     vi.stubGlobal("Notification", { permission: "default" });
     useClientHomeControllerMock.mockReturnValue({
@@ -140,12 +143,15 @@ describe("ClientSearch", () => {
   ])("%s supplies browser permission and client preferences to the account menu", async (_name, Page) => {
     render(<MemoryRouter><Page /></MemoryRouter>, { wrapper: QueryWrapper });
 
-    expect(accountMenuMock).toHaveBeenLastCalledWith(expect.objectContaining({
+    await waitFor(() => expect(accountMenuMock).toHaveBeenLastCalledWith(expect.objectContaining({
       notificationCenter: expect.objectContaining({
         browserPermission: "default",
         supportedTypes: ["client.quote_package_ready"],
+        isLoading: false,
+        errorMessage: null,
+        items: [],
       }),
-    }));
+    })));
     await waitFor(() => expect(fetchActivityMock).toHaveBeenCalledWith(["job-1"], 12));
   });
 

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import type { PropsWithChildren, ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,11 +12,13 @@ const mocks = vi.hoisted(() => ({
   useClientPartController: vi.fn(),
   decisionPanelProps: vi.fn(),
   accountMenuProps: vi.fn(),
+  fetchActivity: vi.fn(),
+  fetchPlatformAdminNotifications: vi.fn(),
 }));
 
 vi.mock("@/features/quotes/api/workspace-access", () => ({
-  fetchClientActivityEventsByJobIds: vi.fn().mockResolvedValue([]),
-  fetchPlatformAdminNotifications: vi.fn().mockResolvedValue([]),
+  fetchClientActivityEventsByJobIds: mocks.fetchActivity,
+  fetchPlatformAdminNotifications: mocks.fetchPlatformAdminNotifications,
 }));
 
 vi.mock("@/features/quotes/quote-intelligence-view-model", async (importOriginal) => ({
@@ -176,6 +178,8 @@ describe("ClientQuoteDetail", () => {
 
   beforeEach(() => {
     mocks.accountMenuProps.mockClear();
+    mocks.fetchActivity.mockResolvedValue([]);
+    mocks.fetchPlatformAdminNotifications.mockResolvedValue([]);
     vi.stubGlobal("Notification", { permission: "default" });
     window.localStorage.clear();
     mocks.createQuoteDisplayCode.mockImplementation((jobId) =>
@@ -185,14 +189,18 @@ describe("ClientQuoteDetail", () => {
     mocks.useClientPartController.mockReturnValue(createPartState());
   });
 
-  it("supplies browser permission and client preferences to the quote detail account menu", () => {
+  it("supplies browser permission and client preferences to the quote detail account menu", async () => {
     renderQuote("ABC234");
-    expect(mocks.accountMenuProps).toHaveBeenLastCalledWith(expect.objectContaining({
+    await waitFor(() => expect(mocks.accountMenuProps).toHaveBeenLastCalledWith(expect.objectContaining({
       notificationCenter: expect.objectContaining({
         browserPermission: "default",
         supportedTypes: ["client.quote_package_ready"],
+        isLoading: false,
+        errorMessage: null,
+        items: [],
       }),
-    }));
+    })));
+    expect(mocks.fetchActivity).toHaveBeenCalledWith(["job-1"], 12);
   });
 
   it("resolves the short code only across accessible jobs", () => {
