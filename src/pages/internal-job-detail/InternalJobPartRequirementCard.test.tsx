@@ -249,7 +249,6 @@ describe("InternalJobPartRequirementCard", () => {
         disabled={false}
         draft={makeDraft()}
         onDraftChange={() => undefined}
-        onDraftQuantityCommit={() => undefined}
         onDraftQuantityChange={() => undefined}
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
@@ -270,7 +269,6 @@ describe("InternalJobPartRequirementCard", () => {
         disabled={false}
         draft={makeDraft()}
         onDraftChange={() => undefined}
-        onDraftQuantityCommit={() => undefined}
         onDraftQuantityChange={() => undefined}
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
@@ -293,7 +291,6 @@ describe("InternalJobPartRequirementCard", () => {
         disabled={false}
         draft={makeDraft()}
         onDraftChange={() => undefined}
-        onDraftQuantityCommit={() => undefined}
         onDraftQuantityChange={() => undefined}
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
@@ -315,7 +312,6 @@ describe("InternalJobPartRequirementCard", () => {
         disabled={false}
         draft={makeDraft()}
         onDraftChange={() => undefined}
-        onDraftQuantityCommit={() => undefined}
         onDraftQuantityChange={() => undefined}
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
@@ -370,7 +366,6 @@ describe("internal requirement quantity save integration", () => {
         <button onClick={() => mutations.saveRequirementsMutation.mutate()}>Attempt programmatic save</button>
         <InternalJobRequirementsSection job={job} cadPreviewSources={vm.cadPreviewSources}
           getDraftForPart={vm.getDraftForPart} getQuoteQuantityInput={vm.getQuoteQuantityInput}
-          getHiddenQuantityError={vm.getHiddenQuantityError} onDraftQuantityCommit={vm.commitDraftQuantity}
           getQuantityInput={vm.getQuantityInput} onDraftQuantityChange={vm.setDraftQuantity}
           onQuoteQuantityInputChange={(partId, value) => vm.setQuoteQuantityInputs((current) => ({ ...current, [partId]: value }))}
           onQuoteQuantityInputCommit={vm.commitQuoteQuantityInput} updateDraft={vm.updateDraft}
@@ -431,92 +426,30 @@ describe("internal requirement quantity save integration", () => {
     );
   });
 
-  it.each(["quotes", "quantity"] as const)("blocks hidden invalid %s with a visible reason", async (field) => {
+  it.each(["quotes", "quantity"] as const)("allows saving after a service change hides invalid %s text", async (field) => {
     const host = renderRequirements();
     fireEvent.change(host[field], { target: { value: "12.5" } });
     fireEvent.blur(host[field]);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(host.save).toBeDisabled();
+
     const cadModeling = screen.getAllByRole("checkbox", { name: /CAD modeling/i })[1];
     fireEvent.click(cadModeling);
     expect(screen.getAllByLabelText("Quote quantities")).toHaveLength(1);
     expect(screen.getAllByLabelText("Quantity")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toHaveTextContent("Quantity edits are hidden");
-    expect(host.save).toBeDisabled();
-    await act(async () => fireEvent.click(screen.getByText("Attempt programmatic save")));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Quantity edits are hidden")));
-    expect(approveJobRequirements).not.toHaveBeenCalled();
-    expect(toast.success).not.toHaveBeenCalled();
-
-    fireEvent.click(cadModeling);
-    const input = screen.getAllByLabelText(field === "quotes" ? "Quote quantities" : "Quantity")[1];
-    expect(input).toHaveValue("12.5");
-    fireEvent.change(input, { target: { value: "10" } });
-    fireEvent.blur(input);
-    fireEvent.click(cadModeling);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(host.save).toBeEnabled();
     await act(async () => fireEvent.click(host.save));
     await waitFor(() => expect(approveJobRequirements).toHaveBeenCalledOnce());
     expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject({
-      requestedServiceKinds: ["manufacturing_quote", "cad_modeling"], quantity: 10, quoteQuantities: [10],
+      requestedServiceKinds: ["manufacturing_quote", "cad_modeling"],
+      quantity: 10,
     });
-  });
 
-  it.each([
-    ["10/12.5", ["5", "50"]],
-    ["250,500", ["", "5", "50"]],
-    ["250,500", ["", "50"]],
-  ] as const)("never saves a hidden stale draft after %s and Quantity retyping %j", async (text, steps) => {
-    const host = renderRequirements();
-    fireEvent.change(host.quotes, { target: { value: text } });
-    fireEvent.blur(host.quotes);
-    for (const value of steps) fireEvent.change(host.quantity, { target: { value } });
-    fireEvent.blur(host.quantity);
-    fireEvent.click(screen.getAllByRole("checkbox", { name: /CAD modeling/i })[1]);
-    expect(screen.getByRole("alert")).toHaveTextContent("Quantity edits are hidden");
+    // Returning to quote services exposes the retained text and blocks Save again.
+    fireEvent.click(cadModeling);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(host.save).toBeDisabled();
-    await act(async () => fireEvent.click(screen.getByText("Attempt programmatic save")));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Quantity edits are hidden")));
-    expect(approveJobRequirements).not.toHaveBeenCalled();
-    expect(toast.success).not.toHaveBeenCalled();
-  });
-
-  it.each([false, true])("blocks hidden valid edits too (blurred: %s)", async (blur) => {
-    const host = renderRequirements();
-    fireEvent.change(host.quantity, { target: { value: "50" } });
-    if (blur) fireEvent.blur(host.quantity);
-    fireEvent.click(screen.getAllByRole("checkbox", { name: /CAD modeling/i })[1]);
-    expect(host.save).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("Quantity edits are hidden");
-    await act(async () => fireEvent.click(screen.getByText("Attempt programmatic save")));
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(approveJobRequirements).not.toHaveBeenCalled();
-  });
-
-  describe.each([false, true])("Quantity commit (blur before save: %s)", (blur) => {
-    it.each([
-      [["5", "50"], 50],
-      [["1", "", "5", "50"], 50],
-      [["100"], 100],
-      [["", "1", "10", "100", "1000"], 1000],
-    ] as const)("saves only the final quantity from %j", async (steps, quantity) => {
-      const host = renderRequirements();
-      // Preserve later quote quantities while replacing the first.
-      fireEvent.change(host.quotes, { target: { value: "10/25/2000" } });
-      fireEvent.blur(host.quotes);
-      for (const value of steps) {
-        fireEvent.change(host.quantity, { target: { value } });
-        expect(host.quotes).toHaveValue("10/25/2000");
-      }
-      if (blur) {
-        fireEvent.blur(host.quantity);
-        expect(host.quotes).toHaveValue(`${quantity}/25/2000`);
-      }
-      await act(async () => fireEvent.click(host.save));
-      await waitFor(() => expect(approveJobRequirements).toHaveBeenCalledOnce());
-      expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject({
-        quantity, quoteQuantities: [quantity, 25, 2000],
-      });
-    });
   });
 
   it.each(["1,000/2,000", "2,500/5,000/10,000"])("does not alert while typing valid %j", (text) => {

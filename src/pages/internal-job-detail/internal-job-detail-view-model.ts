@@ -259,58 +259,46 @@ export function useInternalJobDetailViewModel({
   const getQuantityInput = (partId: string, draft: ApprovedPartRequirement) =>
     quantityInputs[partId] ?? String(draft.quantity);
 
-  const getHiddenQuantityError = (part: PartAggregate, draft: ApprovedPartRequirement) => {
-    if (requestedServicesSupportQuoteFields(draft.requestedServiceKinds)) return null;
-    const saved = buildRequirementDraft(part, jobRequestDefaults);
-    const quantity = parseRequestQuantityText(getQuantityInput(part.id, draft));
-    const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(part.id, draft), quantity);
-    if (quantity !== saved.quantity || quotes.invalidTokens.length > 0
-      || quotes.quantities.join("/") !== saved.quoteQuantities.join("/")) {
-      return "Quantity edits are hidden for these services. Restore manufacturing-only services and correct or reset Quantity and Quote quantities before saving.";
-    }
-    return null;
-  };
-
   const requirementsBlocked = (job?.parts ?? []).some((part) => {
     const draft = getDraftForPart(part);
+    if (!requestedServicesSupportQuoteFields(draft.requestedServiceKinds)) return false;
     const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(part.id, draft), draft.quantity);
-    return Boolean(getHiddenQuantityError(part, draft))
-      || parseRequestQuantityText(getQuantityInput(part.id, draft)) === null
+    return parseRequestQuantityText(getQuantityInput(part.id, draft)) === null
       || quotes.invalidTokens.length > 0 || quotes.quantities.length === 0;
   });
 
-  // Revalidate text at the mutation boundary, including saves before Quantity blur.
+  // Revalidate the visible text at the mutation boundary, even for programmatic saves.
   const getRequirementsForSave = () => (job?.parts ?? []).map((part) => {
     const draft = getDraftForPart(part);
-    const hiddenError = getHiddenQuantityError(part, draft);
-    if (hiddenError) throw new Error(hiddenError);
+    // Hidden quote fields retain the last valid draft; their unsaved text cannot block Save.
+    if (!requestedServicesSupportQuoteFields(draft.requestedServiceKinds)) {
+      return normalizeApprovedRequirementDraft(draft);
+    }
     const quantity = parseRequestQuantityText(getQuantityInput(part.id, draft));
     if (quantity === null) throw new Error(QUANTITY_FORMAT_ERROR);
     const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(part.id, draft), quantity);
     if (quotes.invalidTokens.length > 0 || quotes.quantities.length === 0) {
       throw new Error(quotes.error ?? QUOTE_QUANTITIES_FORMAT_ERROR);
     }
-    const quoteQuantities = quantity !== draft.quantity
-      ? [quantity, ...quotes.quantities.slice(1)] : quotes.quantities;
-    return normalizeApprovedRequirementDraft({ ...draft, quantity, quoteQuantities });
+    return normalizeApprovedRequirementDraft({ ...draft, quantity, quoteQuantities: quotes.quantities });
   });
 
-  const setDraftQuantity = (partId: string, _draft: ApprovedPartRequirement, text: string) => {
+  const setDraftQuantity = (partId: string, draft: ApprovedPartRequirement, text: string) => {
     setQuantityInputs((current) => ({ ...current, [partId]: text }));
-  };
-
-  const commitDraftQuantity = (partId: string, draft: ApprovedPartRequirement) => {
-    const quantity = parseRequestQuantityText(getQuantityInput(partId, draft));
-    if (quantity === null || quantity === draft.quantity) return;
-    const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(partId, draft), quantity);
-    // Preserve invalid quote text and its error until the operator corrects it.
-    if (quotes.invalidTokens.length > 0) return;
+    const quantity = parseRequestQuantityText(text);
+    if (quantity === null) return;
     const nextDraft = normalizeApprovedRequirementDraft({
-      ...draft, quantity, quoteQuantities: [quantity, ...quotes.quantities.slice(1)],
+      ...draft,
+      quantity,
     });
-    setQuoteQuantityInputs((current) => ({
-      ...current, [partId]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
-    }));
+
+    setQuoteQuantityInputs((current) => {
+      // Editing Qty must not erase an unresolved error in Quote quantities.
+      if (validateRequestedQuoteQuantitiesInput(current[partId] ?? "", quantity).invalidTokens.length > 0) {
+        return current;
+      }
+      return { ...current, [partId]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities) };
+    });
     updateDraft(partId, () => nextDraft);
   };
 
@@ -343,7 +331,6 @@ export function useInternalJobDetailViewModel({
     getQuoteQuantityInput,
     getQuantityInput,
     getRequirementsForSave,
-    getHiddenQuantityError,
     requirementsBlocked,
     jobRequestDefaults,
     latestPackage,
@@ -353,7 +340,6 @@ export function useInternalJobDetailViewModel({
     setActiveCompareRequestedQuantity,
     setClientSummary,
     setDraftQuantity,
-    commitDraftQuantity,
     setQuoteQuantityInputs,
     updateDraft,
     commitQuoteQuantityInput,
