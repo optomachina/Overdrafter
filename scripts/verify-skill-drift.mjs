@@ -14,10 +14,10 @@
  * "Absent" means the default skill directory or its SKILL.md is missing; a skill without
  * features/ is drift. An explicit --root or --skill-dir that does not exist is exit 2.
  */
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 export const DEFAULT_SKILL_DIR = ".agents/skills/verify-overdrafter";
 export const APP_ROUTES_FILE = "src/App.tsx";
@@ -409,7 +409,7 @@ function main(argv) {
   return report.status === "drift" ? 1 : 0;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (error) {

@@ -5,9 +5,12 @@ import { tmpdir } from 'node:os';
 import { resolve, join, dirname, relative } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import ts from 'typescript';
-// Each test spawns bash and node; 2.5 to 4.7s alone, so the 5s default times out when other suites share the CPU.
-vi.setConfig({ testTimeout: 30_000 });
 const root = resolve('.');
+// Every test here runs the real pre-push.sh in a fresh git fixture, which spawns bash, git and
+// two Node + TypeScript validator processes per run. That is about 2 s of work per test without extra
+// load, but it took up to about 10 s and hit the 5 s vitest default on loaded runners, so allow
+// headroom rather than weakening any assertion (OVD-1021).
+vi.setConfig({ testTimeout: 30_000 });
 const dirs = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 // Repo-relative files reachable from `entries` through relative imports. The TypeScript scanner

@@ -103,5 +103,5 @@ export function main(args = process.argv.slice(2)) {
   return decision === 'rerun' ? 0 : 3;
 }
 
-// isEntryPoint() defaults its module URL to emit-verdict.mjs, so name this module explicitly.
+// The shared isEntryPoint (re-exported by emit-verdict.mjs) has no default module URL and returns false without one, so pass this module's.
 if (isEntryPoint(import.meta.url)) process.exitCode = main();
