@@ -1,0 +1,62 @@
+[
+  {
+    "number": 1,
+    "title": "OVD-1 fixture",
+    "body": "",
+    "headRefName": "bwilson/ovd-1-fixture",
+    "mergedAt": "2026-10-01T12:00:00Z",
+    "labels": [],
+    "url": "https://github.com/example/repo/pull/1",
+    "additions": 10,
+    "deletions": 2,
+    "author": {
+      "login": "fixture"
+    }
+  },
+  {
+    "number": 2,
+    "title": "OVD-2 fixture",
+    "body": "",
+    "headRefName": "bwilson/ovd-2-fixture",
+    "mergedAt": "2026-10-10T12:00:00Z",
+    "labels": [
+      {
+        "name": "trial"
+      }
+    ],
+    "url": "https://github.com/example/repo/pull/2",
+    "additions": 10,
+    "deletions": 2,
+    "author": {
+      "login": "fixture"
+    }
+  },
+  {
+    "number": 3,
+    "title": "OVD-3 fixture",
+    "body": "",
+    "headRefName": "bwilson/ovd-3-fixture",
+    "mergedAt": "2026-10-12T12:00:00Z",
+    "labels": [],
+    "url": "https://github.com/example/repo/pull/3",
+    "additions": 10,
+    "deletions": 2,
+    "author": {
+      "login": "fixture"
+    }
+  },
+  {
+    "number": 4,
+    "title": "OVD-4 fixture",
+    "body": "",
+    "headRefName": "bwilson/ovd-4-fixture",
+    "mergedAt": "2026-10-16T12:00:00Z",
+    "labels": [],
+    "url": "https://github.com/example/repo/pull/4",
+    "additions": 10,
+    "deletions": 2,
+    "author": {
+      "login": "fixture"
+    }
+  }
+]

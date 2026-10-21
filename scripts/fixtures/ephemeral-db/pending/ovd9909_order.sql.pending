@@ -1,0 +1,6 @@
+-- OVD-924 fixture: pgTAP for ovd-9909-a and ovd-9909-b.
+begin;
+select plan(1);
+select ok(true, 'rollback order fixture');
+select * from finish();
+rollback;

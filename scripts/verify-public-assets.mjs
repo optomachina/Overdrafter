@@ -1,7 +1,7 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 export const BLOCKED_PUBLIC_ASSET_BASENAMES = new Set([
   "1093-05589-02.step",
@@ -183,10 +183,6 @@ async function main() {
   console.log(`Public validation-asset containment check passed for ${requestedRoots.join(", ")}.`);
 }
 
-const isDirectExecution = process.argv[1]
-  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-  : false;
-
-if (isDirectExecution) {
+if (isEntryPoint(import.meta.url)) {
   await main();
 }

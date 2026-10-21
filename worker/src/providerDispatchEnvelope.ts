@@ -136,6 +136,13 @@ export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quot
  */
 export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
 
+/**
+ * OVD-677: proposed OSH Cut quote-only envelope retained for adapter fixtures.
+ * Blaine's 2026-10-20 decision keeps OSH Cut default-off for 1.0. This
+ * identifier is deliberately absent from the reviewed dispatch allow-list.
+ */
+export const OSHCUT_DISPATCH_ENVELOPE = Object.freeze({ id: "oshcut-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",

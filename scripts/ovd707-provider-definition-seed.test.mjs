@@ -50,6 +50,13 @@ describe("OVD-707 provider definition seed draft", () => {
     }
   });
 
+  it("keeps default-off OSH Cut out of the approved seed and pending expectations", () => {
+    expect(bySlug.has("oshcut")).toBe(false);
+    expect(seedSql).not.toContain("OSHCUT_STORAGE_STATE");
+    const pending = read("supabase/tests/pending/ovd707_b_lifecycle.sql.pending");
+    expect(pending).toContain("array['fictiv', 'quickparts', 'weerg', 'xometry']");
+  });
+
   it("copies each registry entry verbatim as the admission object", () => {
     for (const entry of liveEntries) {
       expect(bySlug.get(entry.key)?.admission).toEqual(entry);

@@ -1,15 +1,22 @@
+import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { resolveRequirementProcess } from "../partContext.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { throwIfProviderAborted } from "../providerAbort.js";
 import {
+  VendorAutomationError,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
   type WorkerConfig,
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
+import { oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization.js";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup.js";
 import {
+  buildPortalWorkflowDefinition,
   PortalQuoteWorkflowAdapter,
   type PortalQuoteWorkflow,
 } from "./portalWorkflow.js";
+import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 
 export const OSHCUT_ENVELOPE_REVISION = "oshcut-sheet-laser-6061-t6.v2" as const;
 
@@ -51,10 +58,10 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     productionAdmissionRequired: true,
     actionTimeDisclosurePermitRequired: true,
     immediatePreflightRequired: true,
-    currentProductionState: "unavailable_pending_provider_neutral_preflight",
+    currentProductionState: "default_off_pending_admission",
   },
   geometryBoundary:
-    "Flat-sheet classification only; stock thickness, size, features, and final manufacturability remain provider-determined.",
+    "Flat-sheet classification only; stock thickness comes from the approved requirement (OSHCUT_SHEET_THICKNESS_RULE), and size, features, and final manufacturability remain provider-determined.",
   evidence: [
     {
       url: "https://www.oshcut.com/online-metal-fabrication/",
@@ -79,6 +86,32 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     checkoutAllowed: false,
   },
 } as const;
+
+/**
+ * OVD-677 reviewed thickness rule. The static envelope leaves stock thickness
+ * to the provider, but the OSH Cut cart prices nothing until a thickness is
+ * picked, and picking one silently would quote a different part. The approved
+ * requirement therefore states it as `spec_snapshot.sheetThicknessInch`: a
+ * positive inch value with at most three decimals inside the bounds below.
+ * The portal must then offer exactly that thickness filter (`0.125"`); any
+ * other value, or none, stops before upload.
+ */
+export const OSHCUT_SHEET_THICKNESS_RULE = Object.freeze({
+  field: "sheetThicknessInch",
+  minimumInch: 0.02,
+  maximumInch: 1,
+});
+
+/** Returns the reviewed OSH Cut thickness filter label, or null when unknown. */
+export function resolveOshcutThicknessLabel(input: Pick<VendorQuoteAdapterInput, "requirement">): string | null {
+  const snapshot = input.requirement.spec_snapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const value = (snapshot as Record<string, unknown>)[OSHCUT_SHEET_THICKNESS_RULE.field];
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < OSHCUT_SHEET_THICKNESS_RULE.minimumInch || value > OSHCUT_SHEET_THICKNESS_RULE.maximumInch) return null;
+  if (Math.abs(Math.round(value * 1000) - value * 1000) > 1e-6) return null;
+  return `${value.toFixed(3)}"`;
+}
 
 export type OshcutOperationalState =
   | "eligible"
@@ -262,7 +295,7 @@ export function assessOshcutEligibility(
   return assessment(
     "eligible",
     "static_envelope_match",
-    "The package matches the static OSH Cut envelope; production dispatch remains unavailable until separate admission and exact preflight exist.",
+    "The package matches the static OSH Cut envelope; production dispatch still requires admission and a provider-dispatch authorization for these exact files.",
   );
 }
 
@@ -306,23 +339,48 @@ function finiteOutput(
 }
 
 /**
+ * Dormant evaluation scaffolding. OVD-1022 blocks the kernel and every
+ * mutating hook; cleanup also refuses before any page access.
+ */
+export function buildOshcutEvaluationDefinition(workflow: PortalQuoteWorkflow): ProviderPortalDefinition {
+  const base = buildPortalWorkflowDefinition(workflow);
+  return {
+    ...base,
+    selectors: { ...base.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS } },
+    hooks: {
+      ...base.hooks,
+      beforeUpload: async () => { refuseOshcutPortalAutomation(); },
+      configure: async () => { refuseOshcutPortalAutomation(); },
+      cleanup: cleanupOshcutCart,
+    },
+  };
+}
+
+/**
  * Provider-local OSH Cut adapter behind the common `VendorAdapter.quote`
- * interface. Production remains zero-disclosure until OVD-380 supplies the
- * provider-neutral permit and immediate preflight contract.
+ * interface. OVD-1022 unconditionally refuses quote() before the retained
+ * implementation below can run. Live evaluation stays local evidence that is never a customer
+ * offer. Production dispatch (OVD-677) is default-off: it reaches the
+ * production portal only behind a current generic provider-dispatch
+ * authorization for the reviewed OSH Cut envelope, which in turn needs an
+ * approved admission, and only for a requirement with a reviewed thickness.
  */
 export class OshcutAdapter extends VendorAdapter {
-  private readonly delegate: Pick<VendorAdapter, "quote">;
+  private readonly evaluation: Pick<VendorAdapter, "quote">;
 
   constructor(
     config: WorkerConfig,
     workflow: PortalQuoteWorkflow,
-    delegate?: Pick<VendorAdapter, "quote">,
+    private readonly production: Pick<VendorAdapter, "quote">,
+    evaluation?: Pick<VendorAdapter, "quote">,
   ) {
     super("oshcut", config);
-    this.delegate = delegate ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow);
+    this.evaluation = evaluation
+      ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow, buildOshcutEvaluationDefinition(workflow));
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    refuseOshcutPortalAutomation();
     const eligibility = assessOshcutEligibility(input);
     if (eligibility.state !== "eligible") {
       return finiteOutput(
@@ -333,15 +391,76 @@ export class OshcutAdapter extends VendorAdapter {
       );
     }
 
-    if (input.executionContext !== "live_evaluation") {
-      return finiteOutput(
+    return input.executionContext === "live_evaluation"
+      ? this.quoteForEvaluation(input)
+      : this.quoteForProduction(input);
+  }
+
+  /**
+   * A worker that is not live answers with a finite result before authorization
+   * is considered; only live mode refuses. Nothing reaches the production
+   * delegate without a matching authorization.
+   */
+  private async quoteForProduction(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (this.config.workerMode !== "live") {
+      const finite = finiteOutput(
         input,
-        "unavailable",
-        "provider_neutral_preflight_unavailable",
-        "OSH Cut production quoting is unavailable until provider admission, exact action-time disclosure authorization, and immediate preflight are implemented.",
+        "manual_followup",
+        "simulate_hidden_vendor",
+        "OSH Cut production quoting is off for this worker; no request was sent.",
+      );
+      return {
+        ...finite,
+        rawPayload: {
+          ...finite.rawPayload,
+          reason: "simulate_hidden_vendor",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+        },
+      };
+    }
+    const denial = oshcutDispatchAuthorizationDenial(input);
+    if (denial) {
+      throw new VendorAutomationError(
+        "OSH Cut dispatch is not authorized for these exact files and quantity.",
+        "unexpected_ui_state",
+        {
+          vendor: "oshcut",
+          reason: denial,
+          terminalState: "unsupported",
+          envelopeRevision: OSHCUT_ENVELOPE_REVISION,
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+          quoteOnly: true,
+          orderProhibited: true,
+        },
       );
     }
+    if (!resolveOshcutThicknessLabel(input)) {
+      const finite = finiteOutput(
+        input,
+        "manual_followup",
+        "thickness_confirmation_required",
+        "Record the sheet thickness in inches on the approved requirement before quoting OSH Cut; no request was sent.",
+      );
+      return {
+        ...finite,
+        rawPayload: {
+          ...finite.rawPayload,
+          terminalState: "configuration_required",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+        },
+      };
+    }
+    // OVD-748: a withdrawn run stops here, before the portal reads a session.
+    throwIfProviderAborted(input.signal, "before_navigation");
+    // No OSH Cut-specific daily cap (Blaine Wilson, Oct 16, 2026): an optional
+    // per-supplier admin cap (default unlimited) comes only from the OVD-829 gate.
+    return this.production.quote(input);
+  }
 
+  private async quoteForEvaluation(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     if (!getAuthorizedLiveEvaluationFiles(input)) {
       return finiteOutput(
         input,
@@ -351,7 +470,7 @@ export class OshcutAdapter extends VendorAdapter {
       );
     }
 
-    const result = await this.delegate.quote(input);
+    const result = await this.evaluation.quote(input);
     const manualFollowup =
       result.status === "manual_vendor_followup" || result.status === "manual_review_pending";
     const operationalState = manualFollowup ? "manual_followup" : "unavailable";

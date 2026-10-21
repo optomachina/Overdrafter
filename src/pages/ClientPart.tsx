@@ -22,6 +22,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { getQuoteSelectionPrompt, hasPublishedQuotePackage } from "@/features/quotes/sourcing-result";
 import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -235,6 +236,7 @@ const ClientPart = () => {
     needByRemovalSavesDrawingThreads,
     revisionOptions,
     saveRequestMutation,
+    singleQuantity,
     selectedQuoteOption,
     previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
@@ -300,9 +302,12 @@ const ClientPart = () => {
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const hasPublishedPackage = hasPublishedQuotePackage(partDetail);
   const validSelectedQuoteOption =
     rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
     selectedQuoteOption;
+  // Keep optimistic highlighting, but review must use the persisted package choice.
+  const reviewQuoteOption = hasPublishedPackage ? selectedQuoteOption : validSelectedQuoteOption;
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -407,7 +412,8 @@ const ClientPart = () => {
     // The mutation's own error toast is the error state; only the local selection needs rolling back.
     handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
-  const reviewOrderDisabledForSelection = rankedQuoteOptions.length > 0 && !validSelectedQuoteOption;
+  const reviewOrderDisabledForSelection = (hasPublishedPackage || rankedQuoteOptions.length > 0) && !reviewQuoteOption;
+  const reviewOrderPrompt = getQuoteSelectionPrompt(hasPublishedPackage);
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
@@ -523,6 +529,7 @@ const ClientPart = () => {
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
+        singleQuantity={singleQuantity}
         statusContent={
           <>
             {revisionOptions.length > 1 ? (
@@ -983,24 +990,24 @@ const ClientPart = () => {
                       })),
                     }}
                     headerActions={
-                      <>
+                      <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
                         <Button
                           type="button"
                           className="rounded-full shadow-sm"
                           onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                          disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
-                          title={reviewOrderDisabledForSelection ? "Choose a quote to continue" : undefined}
+                          disabled={rankedQuoteOptions.length === 0 || !reviewQuoteOption}
+                          title={reviewOrderDisabledForSelection ? reviewOrderPrompt : undefined}
                           aria-describedby={reviewOrderDisabledForSelection ? "review-order-disabled-reason" : undefined}
                         >
                           Review order
                           <MoveRight className="ml-2 h-4 w-4" />
                         </Button>
                         {reviewOrderDisabledForSelection ? (
-                          <span id="review-order-disabled-reason" className="sr-only">
-                            Choose a quote to continue
+                          <span id="review-order-disabled-reason" className="text-sm text-muted-foreground">
+                            {reviewOrderPrompt}
                           </span>
                         ) : null}
-                      </>
+                      </div>
                     }
                     controls={
                       <>

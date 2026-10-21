@@ -13,6 +13,7 @@ import {
   validateFictivReadiness,
   validateLiveAdapterReadiness,
   validateQuickpartsReadiness,
+  validateOshcutReadiness,
   validateWeergReadiness,
   validateWorkerReadiness,
   validateXometryReadiness,
@@ -52,6 +53,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: "dev-local",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: false,
     drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,
@@ -303,6 +305,47 @@ describe("runtimeSecrets", () => {
     ).toEqual([]);
   });
 
+  it("retains OSH Cut session validation but refuses production readiness even with a valid session", async () => {
+    expect(await validateOshcutReadiness(makeConfig({ workerLiveAdapters: ["xometry", "quickparts"] }))).toEqual([]);
+    expect(
+      await validateOshcutReadiness(makeConfig({ workerMode: "simulate", workerLiveAdapters: ["oshcut"] })),
+    ).toEqual([]);
+
+    const workerTempDir = await fs.realpath(await makeTempDir());
+    const mounted = path.join(workerTempDir, "oshcut-storage-state", "storage-state.json");
+    const config = (overrides: Partial<WorkerConfig> = {}) =>
+      makeConfig({
+        workerTempDir,
+        workerLiveAdapters: ["xometry", "oshcut"],
+        vendorStorageStatePaths: { oshcut: mounted },
+        vendorStorageStateJson: {},
+        vendorStorageStateDir: null,
+        ...overrides,
+      });
+    const missing = [
+      "Live mode with oshcut requires a readable OSH Cut storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+    ];
+
+    expect(await validateOshcutReadiness(config())).toEqual(missing);
+
+    await fs.mkdir(path.dirname(mounted), { recursive: true });
+    // A cookie for the marketing site is outside the app.oshcut.com allowlist and is refused.
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: "www.oshcut.com" }], origins: [] }),
+    );
+    expect(await validateOshcutReadiness(config())).toEqual(missing);
+
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: "app.oshcut.com" }], origins: [] }),
+    );
+    expect(await validateOshcutReadiness(config())).toEqual([]);
+    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["oshcut"] }))).toEqual([
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: xometry, fictiv, quickparts, weerg.",
+    ]);
+  });
+
   it("requires a Weerg session the portal kernel can open from the deploy's path map (OVD-675)", async () => {
     // realpath: the kernel refuses symlinked path components (macOS /var -> /private/var).
     const workerTempDir = await fs.realpath(await makeTempDir());
@@ -360,7 +403,7 @@ describe("runtimeSecrets", () => {
       expected,
     );
     expect(
-      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry", "oshcut"] })),
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry", "geomiq"] })),
     ).toEqual(expected);
     expect(
       validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["sendcutsend"] })),

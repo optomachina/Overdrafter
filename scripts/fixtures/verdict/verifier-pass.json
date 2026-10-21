@@ -1,0 +1,13 @@
+{
+  "schema": "overdrafter.verdict/v1",
+  "role": "verifier",
+  "verdict": "PASS",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "patch_id": "cccccccccccccccccccccccccccccccccccccccc",
+  "diff_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "verifier": { "id": "astra-verifier", "model_family": "opus", "github_login": "verifier-bot" },
+  "evidence": [{ "kind": "verify-run", "url": "https://github.com/o/r/actions/runs/1" }],
+  "notes": [],
+  "readiness": { "conflicts": 0, "open_threads": 0, "checks": "green" },
+  "timestamp": "2026-10-15T12:00:00Z"
+}

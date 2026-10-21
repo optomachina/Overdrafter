@@ -159,7 +159,8 @@ export type LocalPortalBrowserSessionSpec = {
   cadBytes: string;
   cookieDomain: string;
   tempPrefix: string;
-  locators: PortalOfferLocators;
+  /** Option-card locators; absent for portals that do not price through cards. */
+  locators?: PortalOfferLocators;
   buildDefinition: () => ProviderPortalDefinition;
   bindAuthorization: (binding: { cadSha256: string; requestedQuantity: number }) => {
     envelope: ProviderDispatchEnvelope;
@@ -242,7 +243,10 @@ export function createLocalPortalBrowserSession(spec: LocalPortalBrowserSessionS
 
   return {
     cadBytes: spec.cadBytes,
-    optionCard: (option) => productionOptionCard(spec.locators, option),
+    optionCard: (option) => {
+      if (!spec.locators) throw new Error(`${spec.vendor} fixture declares no option-card locators.`);
+      return productionOptionCard(spec.locators, option);
+    },
     quoteAgainst: async (page, quantity = 3) => {
       const observed: LocalPortalObserved = { requests: [], uploads: [] };
       vi.spyOn(chromium, "launch").mockImplementation(async () =>

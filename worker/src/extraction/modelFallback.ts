@@ -7,6 +7,7 @@ import {
   type ExtractedDrawingSignals,
   type ExtractedFieldSignal,
 } from "./pdfDrawing.js";
+import { isPlaceholderOrLabelValue } from "./titleBlockCells.js";
 import {
   CRITICAL_MODEL_FIELDS,
   COMPETING_CANDIDATE_DELTA,
@@ -153,7 +154,7 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
   }
 
   const normalized = normalizeWhitespace(value);
-  const rejectionReasons: string[] = [];
+  const rejectionReasons: string[] = isPlaceholderOrLabelValue(normalized) ? ["rejected_label_token"] : [];
 
   switch (field) {
     case "partNumber":

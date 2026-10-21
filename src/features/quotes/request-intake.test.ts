@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  QUOTE_QUANTITIES_AMBIGUOUS_ERROR,
   formatRequestedByDateLabel,
   formatRequestedQuoteQuantitiesInput,
   normalizeRequestedQuoteQuantities,
   parseRequestIntake,
+  validateRequestedQuoteQuantitiesInput,
   parseRequestedQuoteQuantitiesInput,
 } from "./request-intake";
 
@@ -97,5 +99,93 @@ describe("request intake parsing", () => {
     expect(parseRequestedQuoteQuantitiesInput("10/25/25", 3)).toEqual([10, 25]);
     expect(formatRequestedQuoteQuantitiesInput([1, 10, 100])).toBe("1/10/100");
     expect(formatRequestedByDateLabel("2026-04-15")).toBe("Apr 15, 2026");
+  });
+});
+
+
+describe("prompt intake main compatibility", () => {
+  it.each([
+    ["Please quote 25.", [25]],
+    ["Please quote 10/25/50.", [10, 25, 50]],
+    ["Quantity: 25.", [25]],
+    ["Please quote 25 of these in 6061-T6/T651.", [25]],
+    ["Please quote 25 pcs per drawing 12-345/A", [25]],
+    ["qty 25; deburr all edges", [25]],
+    ["Need 25 pcs.", [25]],
+    ["Please quote 25 pieces in 6061-T6.", [25]],
+    ["Please quote 25, thanks", [25]],
+    ["Please quote 10 / 25 / 50 pcs", [10, 25, 50]],
+    ["Need these in 2 weeks", []],
+    ["Need it within 3 days please", []],
+    ["Need 2 day turnaround", []],
+    ["Need these in 2 weeks, quote 50", [50]],
+    ["need 50 of these", [50]],
+    ["Need 25 pcs", [25]],
+    ["Please quote 50.", [50]],
+    ["Quote 10/25/50.", [10, 25, 50]],
+    ["Please quote 50. Need by tomorrow", [50]],
+    ["qty 50.", [50]],
+    ["Please quote 50", [50]],
+    ["Quote 10/25/50", [10, 25, 50]],
+  ])("preserves main's quantities for %j", (prompt, quantities) => {
+    expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
+  });
+});
+
+describe("validateRequestedQuoteQuantitiesInput", () => {
+  it.each([
+    ["1,000/2,000", [1000, 2000]],
+    ["0,500/10", [500, 10]],
+    ["1,000;2,000", [1000, 2000]],
+    ["250,500/1,000", [250500, 1000]],
+    ["12,500 / 25,000", [12500, 25000]],
+    ["2,500/5,000/10,000", [2500, 5000, 10000]],
+    ["1000 12,500;25", [1000, 12500, 25]],
+    ["10,25,50", [10, 25, 50]],
+    ["500,1000", [500, 1000]],
+    ["100, 250, 500", [100, 250, 500]],
+    ["100, 25, 50", [100, 25, 50]],
+    ["25 50 100;200", [25, 50, 100, 200]],
+    ["25/25/50", [25, 50]],
+    ["", [12]],
+  ])("parses %j without truncation", (text, quantities) => {
+    expect(validateRequestedQuoteQuantitiesInput(text as string, 12)).toEqual({ quantities, invalidTokens: [] });
+  });
+
+  it.each(["12.5", "-5", "abc", "0", "2147483648", "1e3", "/"])(
+    "reports invalid token %j instead of silently dropping it",
+    (token) => {
+      expect(validateRequestedQuoteQuantitiesInput(token, 12).invalidTokens).toEqual([token]);
+    },
+  );
+
+  it.each([
+    ["10/12.5/25", ["12.5"]],
+    ["10,25/50", ["10,25"]],
+    ["1,25;50", ["1,25"]],
+    ["25, 50 100;200", ["25,"]],
+    ["1,500,25/50", ["1,500,25"]],
+    ["1,500, 2,500 / 5,000", ["1,500,"]],
+    ["1,500, 25 / 50", ["1,500,"]],
+    ["1,000,25/50", ["1,000,25"]],
+    ["1234,567/50", ["1234,567"]],
+    ["10,25,500/50", ["10,25,500"]],
+    ["12.5/25", ["12.5"]],
+    ["1,0", ["0"]],
+    ["x 40", ["x"]],
+  ])("reports malformed tokens in mixed input %j", (text, invalidTokens) => {
+    expect(validateRequestedQuoteQuantitiesInput(text as string, 12).invalidTokens).toEqual(invalidTokens);
+  });
+
+  it.each([
+    "250,500", "100,250,500", "1,000", "1,250",
+    "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5",
+    "10,25,500", "1000,250", "1234,567", "1,500,250", "1,500", "1,500, 25", "1,500 ,25",
+    "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500",
+    "1,500, 2,500", "1,000, 2,000", "10 1,250,", "1,250,",
+  ])("rejects ambiguous %j with guidance", (text) => {
+    expect(validateRequestedQuoteQuantitiesInput(text)).toEqual({
+      quantities: [], invalidTokens: [text], error: QUOTE_QUANTITIES_AMBIGUOUS_ERROR,
+    });
   });
 });

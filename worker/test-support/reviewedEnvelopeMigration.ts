@@ -4,6 +4,7 @@ import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../src/providerDispatchEnv
 import { VENDOR_TASK_RETRY_DELAYS_MS } from "../src/vendorTaskRetry.js";
 
 const MIGRATIONS_DIR = new URL("../../supabase/migrations/", import.meta.url);
+const DRAFTS_DIR = new URL("../../docs/migration-drafts/", import.meta.url);
 
 export type ReviewedEnvelopeMigrationSpec = {
   provider: string;
@@ -12,10 +13,15 @@ export type ReviewedEnvelopeMigrationSpec = {
   evidence: string;
   afterMigrations: readonly string[];
   untouchedProviders: readonly string[];
+  /**
+   * The migration is a draft in docs/migration-drafts awaiting a Blaine-approved
+   * window. It must not be in supabase/migrations yet.
+   */
+  draft?: boolean;
 };
 
-function statements(name: string) {
-  return readFileSync(new URL(name, MIGRATIONS_DIR), "utf8")
+function statements(name: string, dir: URL) {
+  return readFileSync(new URL(name, dir), "utf8")
     .split("\n")
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n")
@@ -29,16 +35,21 @@ function statements(name: string) {
  * clone that Sonar rejects on new code.
  */
 export function registerReviewedEnvelopeMigrationChecks(spec: ReviewedEnvelopeMigrationSpec) {
-  const sql = statements(spec.migration);
+  const sql = statements(spec.migration, spec.draft ? DRAFTS_DIR : MIGRATIONS_DIR);
   const evidence = spec.evidence.toLowerCase();
 
-  it("records exactly the envelope revision the worker reviews in code", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual({
+  it("records the envelope revision and keeps draft providers out of the reviewed allow-list", () => {
+    const reviewed = {
       provider: spec.provider,
       id: spec.envelope.id,
       version: spec.envelope.version,
       requiredAdmission: "generic_dispatch",
-    });
+    };
+    if (spec.draft) {
+      expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((entry) => entry.provider === spec.provider)).toBe(false);
+    } else {
+      expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual(reviewed);
+    }
     expect(sql).toContain("insert into private.provider_dispatch_envelope_reviews");
     expect(sql).toContain(
       `'${spec.provider}'::public.vendor_name, '${spec.envelope.id}', ${spec.envelope.version}, '${evidence}', 7200`,
@@ -72,7 +83,11 @@ export function registerReviewedEnvelopeMigrationChecks(spec: ReviewedEnvelopeMi
   });
 
   it("is ordered after the generic permit migrations and any earlier review it depends on", () => {
-    const migrations = readdirSync(MIGRATIONS_DIR).sort();
+    const applied = readdirSync(MIGRATIONS_DIR);
+    if (spec.draft) {
+      expect(applied).not.toContain(spec.migration);
+    }
+    const migrations = (spec.draft ? [...applied, spec.migration] : applied).sort();
     const index = migrations.indexOf(spec.migration);
     expect(index).toBeGreaterThan(-1);
     for (const earlier of spec.afterMigrations) {

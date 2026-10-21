@@ -287,6 +287,12 @@ export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
     description: "Quote comparison part whose stored choice is the expired vendor offer.",
     canonicalPath: "/parts/fx-job-comparison?fixture=client-comparison-lapsed-selection",
   },
+  {
+    id: "client-uploaded-step",
+    label: "Uploaded STEP",
+    description: "STEP-only upload with unresolved material.",
+    canonicalPath: "/parts/fx-job-needs-attention?fixture=client-uploaded-step",
+  },
 ] as const;
 
 export type ClientQuoteWorkspaceFixtureOverrides = {
@@ -1217,6 +1223,32 @@ function buildNeedsAttentionScenario(): FixtureState {
   };
 }
 
+// The live metadata RPC returns succeeded when there is no drawing to extract.
+function buildUploadedStepScenario(): FixtureState {
+  const state = buildNeedsAttentionScenario();
+  const job = state.accessibleJobs[0];
+  const detail = state.partDetailsByJobId[job.id];
+  const workspace = state.workspaceByJobId[job.id];
+  const part = detail.part!;
+  job.status = "uploaded";
+  job.description = "New STEP-only upload awaiting material confirmation.";
+  part.clientRequirement = { ...ensureFixtureClientRequirement(part)!, material: "Unknown material" };
+  part.approvedRequirement = null;
+  part.extraction = null;
+  part.drawingFile = null;
+  part.drawing_file_id = null;
+  part.clientExtraction = {
+    lifecycle: "succeeded", hasCadFile: true, hasDrawingFile: false,
+    warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
+    lastFailureCode: null, lastFailureMessage: null,
+    extractedAt: null, failedAt: null, updatedAt: null,
+  };
+  detail.files = workspace.files = [part.cadFile!];
+  detail.drawingPreview = workspace.drawingPreview = { pageCount: 0, thumbnail: null, pages: [] };
+  state.clientActivityByJobId[job.id] = [];
+  return state;
+}
+
 function buildQuotedScenario(): FixtureState {
   const user = createFixtureUser({
     id: "fixture-user-client",
@@ -1995,6 +2027,7 @@ const SCENARIO_BUILDERS: Record<FixtureScenarioId, () => FixtureState> = {
   "landing-anonymous": buildLandingScenario,
   "client-empty": buildEmptyScenario,
   "client-needs-attention": buildNeedsAttentionScenario,
+  "client-uploaded-step": buildUploadedStepScenario,
   "client-quoted": buildQuotedScenario,
   "client-published": buildPublishedScenario,
   "client-comparison": () => buildComparisonScenario(),

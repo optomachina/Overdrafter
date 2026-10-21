@@ -4,7 +4,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
-import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
+import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
 import * as organizationsApi from "@/features/quotes/api/organizations-api";
 import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 import { requestAccountSettingsPanel } from "./account-settings-request";
@@ -272,6 +272,27 @@ function makeNotificationCenter(
 async function openMainMenu() {
   fireEvent.pointerDown(screen.getByRole("button", { name: /open account menu/i }), { button: 0 });
   await screen.findByRole("menuitem", { name: "Settings" });
+}
+
+function makeShippingOrganizationDetails(
+  address: organizationsApi.SourcingDestination["address"],
+  overrides: Partial<OrganizationDetails> = {},
+): OrganizationDetails {
+  return {
+    id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
+    billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+    shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
+    shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
+    ...overrides,
+  };
+}
+
+async function renderAccountSettings(activeMembership = membership) {
+  render(<WorkspaceAccountMenu user={makeUser()} activeMembership={activeMembership} onSignOut={vi.fn()} />);
+  await openMainMenu();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+  });
 }
 
 async function openHelpSubmenu() {
@@ -599,21 +620,57 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
+  it.each([true, false])("names missing shipping fields and routes editing correctly when same-as-billing is %s", async (shippingSameAsBilling) => {
+    const address = { street: null, city: null, region: null, postalCode: null, country: "US" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue(makeShippingOrganizationDetails(address, { shippingSameAsBilling }));
+    vi.spyOn(organizationsApi, "fetchSourcingDestination").mockResolvedValue({ address, state: "inferred" });
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    await renderAccountSettings();
+
+    expect(await screen.findByText("Add street, city, ZIP, state before confirming.")).toBeInTheDocument();
+    expect(screen.getByText("Shipping address is incomplete and cannot be confirmed yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm this shipping address for supplier quotes" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit shipping address" }));
+    expect(screen.getByText(shippingSameAsBilling ? "Edit Billing Address" : "Edit Shipping Address")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("saves a partial shipping address with normalized fields and shows a dash and incomplete note", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue(makeShippingOrganizationDetails(address));
+    vi.spyOn(organizationsApi, "fetchSourcingDestination")
+      .mockResolvedValueOnce({ address, state: "confirmed" })
+      .mockResolvedValue({ address: { ...address, street: null }, state: "inferred" });
+    const save = vi.spyOn(organizationsApi, "updateOrganizationAddresses").mockResolvedValue();
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    await renderAccountSettings();
+    await screen.findByText("Quote shipping destination: Confirmed");
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    fireEvent.change(screen.getByLabelText("Street"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("City"), { target: { value: " Tucson " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("org-1", expect.objectContaining({
+      shippingStreet: null, shippingCity: "Tucson",
+    })));
+    await waitFor(() => expect(screen.queryByText("Edit Shipping Address")).not.toBeInTheDocument());
+    const streets = screen.getAllByText("Street", { exact: true });
+    expect(streets).toHaveLength(2);
+    for (const street of streets) expect(street.parentElement).toHaveTextContent("Street—");
+    expect(await screen.findByText("Shipping address is incomplete and cannot be confirmed yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add street before confirming.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm this shipping address for supplier quotes" })).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("requires a separate action to confirm the exact shipping destination", async () => {
     const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
-    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
-      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
-      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
-      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
-      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
-    });
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue(makeShippingOrganizationDetails(address));
     vi.spyOn(organizationsApi, "fetchSourcingDestination")
       .mockResolvedValueOnce({ address, state: "inferred" })
       .mockResolvedValueOnce({ address, state: "confirmed" });
     const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "internal_admin" }} onSignOut={vi.fn()} />);
-    await openMainMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await renderAccountSettings({ ...membership, role: "internal_admin" });
 
     const button = await screen.findByRole("button", { name: "Confirm this shipping address for supplier quotes" });
     expect(screen.getByText("123 Test Ave, Tucson, AZ 85701, US")).toBeInTheDocument();
@@ -626,12 +683,7 @@ describe("WorkspaceAccountMenu", () => {
   it("lets a client-role member edit the shipping address through the address-only API and confirm it", async () => {
     const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
     const editedAddress = { ...address, street: "500 Member Way" };
-    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
-      id: "org-1", name: "Wilson Works", companyName: "Wilson Works LLC", logoUrl: null, phone: null,
-      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
-      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
-      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
-    });
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue(makeShippingOrganizationDetails(address, { companyName: "Wilson Works LLC" }));
     vi.spyOn(organizationsApi, "fetchSourcingDestination")
       .mockResolvedValueOnce({ address, state: "inferred" })
       .mockResolvedValueOnce({ address: editedAddress, state: "inferred" })
@@ -639,9 +691,7 @@ describe("WorkspaceAccountMenu", () => {
     const saveAddresses = vi.spyOn(organizationsApi, "updateOrganizationAddresses").mockResolvedValue();
     const saveDetails = vi.spyOn(organizationsApi, "updateOrganizationDetails").mockResolvedValue();
     const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "client" }} onSignOut={vi.fn()} />);
-    await openMainMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await renderAccountSettings({ ...membership, role: "client" });
 
     await screen.findByText("Quote shipping destination: Needs confirmation");
     const editButtons = screen.getAllByRole("button", { name: "Edit" });
@@ -671,12 +721,7 @@ describe("WorkspaceAccountMenu", () => {
   it("refreshes shipping details after a confirmation conflict before retrying the exact address", async () => {
     const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
     const updatedAddress = { ...address, postalCode: "85703" };
-    const details = {
-      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
-      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
-      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
-      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
-    };
+    const details = makeShippingOrganizationDetails(address);
     vi.spyOn(organizationsApi, "fetchOrganizationDetails")
       .mockResolvedValueOnce(details)
       .mockResolvedValue({ ...details, shippingZip: updatedAddress.postalCode });
@@ -687,9 +732,7 @@ describe("WorkspaceAccountMenu", () => {
     const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination")
       .mockRejectedValueOnce(new Error("The shipping address changed."))
       .mockResolvedValueOnce();
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "internal_admin" }} onSignOut={vi.fn()} />);
-    await openMainMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await renderAccountSettings({ ...membership, role: "internal_admin" });
     fireEvent.click(await screen.findByRole("button", { name: "Confirm this shipping address for supplier quotes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The shipping address changed.");
     expect(await screen.findByText("123 Test Ave, Tucson, AZ 85703, US")).toBeInTheDocument();
@@ -841,6 +884,17 @@ describe("WorkspaceAccountMenu", () => {
       ),
     ).toBeInTheDocument();
     expect(window.location.search).toBe("");
+  });
+
+  it("hides notification entry points when no notification controller is supplied", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    expect(screen.queryByRole("menuitem", { name: /notifications/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: /notifications/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/does not expose the Notification API/)).not.toBeInTheDocument();
   });
 
   it("opens the notifications panel and marks current items seen", async () => {
