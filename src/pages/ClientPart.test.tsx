@@ -3680,6 +3680,36 @@ describe("ClientPart", () => {
     });
   });
 
+  it("asks for material on a freshly uploaded STEP-only part instead of rejecting launch scope", async () => {
+    const detail = createDispatchReadyPartDetail([]);
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(createPartDetail({
+      ...detail,
+      job: { ...detail.job, status: "uploaded" },
+      files: [detail.part.cadFile],
+      part: {
+        ...detail.part,
+        approvedRequirement: null,
+        clientRequirement: {
+          description: "Bracket", partNumber: null, revision: null,
+          material: "Unknown material", finish: null, tightestToleranceInch: null,
+          process: null, notes: null, quantity: 1, quoteQuantities: [1], requestedByDate: null,
+        },
+        clientExtraction: {
+          lifecycle: "uploaded", hasCadFile: true, hasDrawingFile: false,
+          warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
+          lastFailureCode: null, lastFailureMessage: null,
+          extractedAt: null, failedAt: null, updatedAt: null,
+        },
+      },
+    }));
+
+    await renderClientPartOnTab();
+    expect(await screen.findByRole("heading", { name: "Confirm the material" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", {
+      name: "This material is outside the launch scope",
+    })).not.toBeInTheDocument();
+  });
+
   it("shows a failure notice when drawing extraction fails", async () => {
     api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({

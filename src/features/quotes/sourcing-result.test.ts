@@ -7,6 +7,7 @@ import {
   PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS,
 } from "@/features/quotes/sourcing-result";
 import type {
+  ClientExtractionLifecycle,
   PartAggregate,
   PublishedQuoteOptionRecord,
   VendorCapabilityProfileRecord,
@@ -493,6 +494,39 @@ describe("buildClientSourcingResult", () => {
       outcome: "provider_recommendations_available",
       reason: "automatic_collection_fallback",
     });
+  });
+
+  it.each([
+    ["Unknown material", "succeeded", false, "material_unresolved"],
+    ["  UNKNOWN MATERIAL  ", "succeeded", false, "material_unresolved"],
+    ["Unknown material", "partial", true, "material_unresolved"],
+    ["Unknown material", "failed", true, "material_unresolved"],
+    ["", "queued", true, "part_not_ready"],
+    ["Unknown material", "queued", false, "part_not_ready"],
+    ["", "extracting", true, "part_not_ready"],
+    ["Unknown material", "extracting", false, "part_not_ready"],
+    ["Unknown material", "uploaded", true, "part_not_ready"],
+    ["Unknown material", "uploaded", false, "material_unresolved"],
+    ["17-4 PH stainless steel", "queued", true, "unsupported_material"],
+    ["6061-T6 aluminum", "queued", true, "free_preview"],
+  ] as const)("resolves material %j with %s extraction (drawing: %s) as %s", (
+    material, lifecycle: ClientExtractionLifecycle, hasDrawingFile, reason,
+  ) => {
+    const part = makeSupportedPart();
+    part.clientRequirement = {
+      description: null, partNumber: null, revision: null, material,
+      finish: null, tightestToleranceInch: null, process: "CNC milling",
+      notes: null, quantity: 1, quoteQuantities: [1], requestedByDate: null,
+    };
+    part.clientExtraction = {
+      lifecycle, hasDrawingFile, hasCadFile: true, pageCount: 0,
+      warningCount: 0, warnings: [], missingFields: [], lastFailureCode: null,
+      lastFailureMessage: null, extractedAt: null, failedAt: null, updatedAt: null,
+    };
+
+    expect(buildClientSourcingResult({
+      part, profiles: [makeProfile("xometry")], liveOffers: [], automaticCollectionEnabled: false,
+    })).toMatchObject({ reason });
   });
 
   it("bounds unsupported materials with a useful next action", () => {

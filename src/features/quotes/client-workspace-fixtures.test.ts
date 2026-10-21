@@ -65,6 +65,20 @@ describe("client workspace fixtures", () => {
     expect(getFixtureScenarioIdFromSearch("?fixture=unknown")).toBeNull();
   });
 
+  it("provides an uploaded STEP-only fixture with unresolved material", async () => {
+    window.history.replaceState({}, "", "/parts/fx-job-needs-attention?fixture=client-uploaded-step");
+    const gateway = getActiveClientWorkspaceGateway()!;
+    const detail = await gateway.fetchPartDetail("fx-job-needs-attention");
+
+    expect(detail.part?.clientRequirement?.material).toBe("Unknown material");
+    expect(detail.part?.clientExtraction).toMatchObject({
+      lifecycle: "uploaded", hasDrawingFile: false, extractedAt: null,
+    });
+    expect(detail.part?.drawingFile).toBeNull();
+    expect(detail.files.map((file) => file.file_kind)).toEqual(["cad"]);
+    expect(detail.drawingPreview.pages).toEqual([]);
+  });
+
   it("returns fixture session data for a supported search string", () => {
     const session = getFixtureSessionDataForSearch("?fixture=client-empty");
 
