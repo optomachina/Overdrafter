@@ -1687,6 +1687,48 @@ describe("ClientPart", () => {
     });
   });
 
+  describe("published package selection precedence", () => {
+    function publishedDetail() {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      return {
+        ...detail,
+        publishedQuoteOptions: [{
+          id: "option-A", package_id: "package-1", organization_id: "org-1",
+          option_kind: "lowest_cost", label: "Lowest cost", requested_quantity: 10,
+          published_price_usd: 402.5, lead_time_business_days: 7,
+          source_vendor_quote_id: "quote-1", source_vendor_quote_offer_id: "offer-1",
+          comparison_summary: null, markup_policy_version: "v1",
+          created_at: new Date().toISOString(),
+        }],
+        publishedQuoteSelection: null,
+      };
+    }
+
+    it("ignores the pre-publication pointer in the part controller", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(publishedDetail());
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions).toHaveLength(1));
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(result.current.previousQuoteSelectionUnavailable).toBe(false);
+      queryClient.clear();
+    });
+
+    it("disables Review order until a package choice is persisted", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(publishedDetail());
+      renderWithClient("/parts/job-1");
+      const button = await screen.findByRole("button", { name: "Review order" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Choose a package option to continue");
+      expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
+      api.persistClientQuoteSelection.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        const onSelect = lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void;
+        onSelect(lastQuoteDecisionPanelProps?.firstOption);
+      });
+      expect(button).toBeDisabled();
+    });
+  });
+
   describe("when the stored quote selection is gone", () => {
     const missingSelectionDetail = () => createLiveOfferPartDetail(new Date().toISOString(), "offer-gone");
 

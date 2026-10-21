@@ -1254,6 +1254,34 @@ describe("ClientProject", () => {
     expect(officialRfqLink.closest("li")?.parentElement).not.toHaveClass("lg:grid-cols-3");
   });
 
+  it.each([false, true])("uses package selection precedence in project review access (published: %s)", async (published) => {
+    const item = createProjectSummaryWorkspaceItem({
+      jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
+      totalPriceUsd: 100, leadTimeBusinessDays: 7,
+    });
+    if (published) {
+      item.publishedQuoteOptions = [{
+        id: "option-A", package_id: "package-1", organization_id: "org-1",
+        option_kind: "lowest_cost", label: "Lowest cost", requested_quantity: 10,
+        published_price_usd: 402.5, lead_time_business_days: 7,
+        source_vendor_quote_id: "job-1-result-1", source_vendor_quote_offer_id: "job-1-offer-1",
+        comparison_summary: null, markup_policy_version: "v1", created_at: new Date().toISOString(),
+      }];
+    }
+    item.publishedQuoteSelection = null;
+    api.fetchJobsByProject.mockResolvedValue([item.job]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+    renderWithClient("/projects/project-1");
+    const summary = await screen.findByRole("region", { name: "Project summary" });
+    if (published) {
+      expect(within(summary).getByText("No selections yet")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Review order" })).toHaveAccessibleDescription("Choose a package option to continue");
+    } else {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled());
+    }
+  });
+
   it("keeps valid imported quotes available in the project comparison", async () => {
     const workspaceItem = createWorkspaceItemFixture();
     const importedQuote = createVendorQuoteFixture({

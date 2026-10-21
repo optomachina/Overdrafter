@@ -3,7 +3,7 @@ import { scoreCapabilityMatch } from "@/features/quotes/scoring";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
-  getSelectedOption,
+  resolveStoredQuoteSelection,
   resolveOfferFixedDeliveryDate,
   type ClientQuoteSelectionOption,
 } from "@/features/quotes/selection";
@@ -299,7 +299,33 @@ export function buildClientQuoteComparisonOptions(input: {
   return input.candidates.filter((candidate) => input.liveOfferKeys.has(candidate.key));
 }
 
-/** Review surfaces use the package choice and price once options are published. */
+type WorkspaceSelectionState = Pick<
+  ClientQuoteWorkspaceItem,
+  "job" | "publishedQuoteOptions" | "publishedQuoteSelection"
+>;
+
+/** A published package owns selection; its source offer is never a fallback. */
+export function resolveWorkspaceSelectionIds(
+  item: WorkspaceSelectionState | null | undefined,
+  legacyOfferId = item?.job.selected_vendor_quote_offer_id,
+) {
+  const hasPublishedPackage = Boolean(item?.publishedQuoteOptions?.length || item?.publishedQuoteSelection);
+  return {
+    selectedOfferId: hasPublishedPackage ? null : legacyOfferId,
+    selectedPublishedOptionId: item?.publishedQuoteSelection?.option_id,
+  };
+}
+
+export function resolveWorkspaceStoredQuoteSelection(
+  options: readonly ClientQuoteSelectionOption[],
+  item: WorkspaceSelectionState | null | undefined,
+  legacyOfferId = item?.job.selected_vendor_quote_offer_id,
+) {
+  const { selectedOfferId, selectedPublishedOptionId } = resolveWorkspaceSelectionIds(item, legacyOfferId);
+  return resolveStoredQuoteSelection(options, selectedOfferId, selectedPublishedOptionId);
+}
+
+/** Workspaces and review surfaces share package selection precedence and pricing. */
 export function resolveWorkspaceQuoteSelection(item: ClientQuoteWorkspaceItem) {
   const requestedByDate = item.summary?.requestedByDate ?? item.job.requested_by_date ?? null;
   const vendorQuotes = item.part?.vendorQuotes ?? [];
@@ -318,13 +344,7 @@ export function resolveWorkspaceQuoteSelection(item: ClientQuoteWorkspaceItem) {
 
   return {
     options,
-    selectedOption: getSelectedOption(
-      options,
-      publishedOptions.length > 0 || item.publishedQuoteSelection
-        ? null
-        : item.job.selected_vendor_quote_offer_id,
-      item.publishedQuoteSelection?.option_id,
-    ),
+    ...resolveWorkspaceStoredQuoteSelection(options, item),
   };
 }
 

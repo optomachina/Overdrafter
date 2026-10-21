@@ -154,12 +154,18 @@ const ClientProjectReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}
+                  disabled={selectionSummary.selectedCount === 0}
+                >
                   Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </div>
+
+            {selectionSummary.selectedCount === 0 ? (
+              <p className="text-sm text-muted-foreground">Choose a package option to continue.</p>
+            ) : null}
 
             <section className="grid gap-3 md:grid-cols-4">
               <div className="rounded-[22px] border border-border bg-ws-card px-4 py-4">

@@ -301,9 +301,12 @@ const ClientPart = () => {
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const hasPublishedPackage = Boolean(partDetail?.publishedQuoteOptions?.length || partDetail?.publishedQuoteSelection);
   const validSelectedQuoteOption =
     rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
     selectedQuoteOption;
+  // Keep optimistic highlighting, but review must use the persisted package choice.
+  const reviewQuoteOption = hasPublishedPackage ? selectedQuoteOption : validSelectedQuoteOption;
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -408,7 +411,8 @@ const ClientPart = () => {
     // The mutation's own error toast is the error state; only the local selection needs rolling back.
     handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
-  const reviewOrderDisabledForSelection = rankedQuoteOptions.length > 0 && !validSelectedQuoteOption;
+  const reviewOrderDisabledForSelection = (hasPublishedPackage || rankedQuoteOptions.length > 0) && !reviewQuoteOption;
+  const reviewOrderPrompt = hasPublishedPackage ? "Choose a package option to continue" : "Choose a quote to continue";
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
@@ -990,16 +994,16 @@ const ClientPart = () => {
                           type="button"
                           className="rounded-full shadow-sm"
                           onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                          disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
-                          title={reviewOrderDisabledForSelection ? "Choose a quote to continue" : undefined}
+                          disabled={rankedQuoteOptions.length === 0 || !reviewQuoteOption}
+                          title={reviewOrderDisabledForSelection ? reviewOrderPrompt : undefined}
                           aria-describedby={reviewOrderDisabledForSelection ? "review-order-disabled-reason" : undefined}
                         >
                           Review order
                           <MoveRight className="ml-2 h-4 w-4" />
                         </Button>
                         {reviewOrderDisabledForSelection ? (
-                          <span id="review-order-disabled-reason" className="sr-only">
-                            Choose a quote to continue
+                          <span id="review-order-disabled-reason" className="text-sm text-muted-foreground">
+                            {reviewOrderPrompt}
                           </span>
                         ) : null}
                       </>

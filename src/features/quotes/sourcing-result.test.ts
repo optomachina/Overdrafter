@@ -4,6 +4,7 @@ import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import {
   buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
+  resolveWorkspaceStoredQuoteSelection,
   PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS,
 } from "@/features/quotes/sourcing-result";
 import type {
@@ -103,6 +104,20 @@ describe("buildClientQuoteComparisonOptions", () => {
     markup_policy_version: "v1_markup_20",
     created_at: "2026-03-02T00:00:00Z",
   } satisfies PublishedQuoteOptionRecord;
+
+  it("requires a published selection even when an old pointer matches a package source", () => {
+    const options = buildClientQuoteComparisonOptions({ candidates: [candidate], liveOfferKeys: new Set(), publishedOptions: [publishedOption], requestedByDate: null });
+    const item = { ...createClientQuoteWorkspaceItemFixture(), publishedQuoteOptions: [publishedOption], publishedQuoteSelection: null };
+    item.job.selected_vendor_quote_offer_id = candidate.persistedOfferId;
+    expect(resolveWorkspaceStoredQuoteSelection(options, item)).toEqual({ selectedOption: null, previousSelectionUnavailable: false });
+    expect(resolveWorkspaceStoredQuoteSelection([], item)).toEqual({ selectedOption: null, previousSelectionUnavailable: false });
+  });
+
+  it("keeps the legacy selection before publication", () => {
+    const item = createClientQuoteWorkspaceItemFixture();
+    item.job.selected_vendor_quote_offer_id = candidate.persistedOfferId;
+    expect(resolveWorkspaceStoredQuoteSelection([candidate], { ...item, publishedQuoteOptions: [], publishedQuoteSelection: null }).selectedOption).toBe(candidate);
+  });
 
   it("uses published client pricing instead of raw supplier amounts", () => {
     const [result] = buildClientQuoteComparisonOptions({

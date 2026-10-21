@@ -244,7 +244,8 @@ describe("client review pages", () => {
         scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
       );
       expect((await screen.findAllByText(/No current quote is selected|No quote selected/)).length).toBeGreaterThan(0);
-      if (scope === "part") expect(screen.getByRole("button", { name: /review handoff/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /review handoff/i })).toBeDisabled();
+      expect(screen.getByText(/Choose a package option to continue/)).toBeInTheDocument();
     });
   }
 

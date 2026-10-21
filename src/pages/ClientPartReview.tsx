@@ -167,7 +167,7 @@ const ClientPartReview = () => {
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-muted-foreground">
-                      No current quote is selected. Choose a valid quote before reviewing the procurement handoff.
+                      No current quote is selected. Choose a package option to continue.
                     </p>
                   )}
                 </div>

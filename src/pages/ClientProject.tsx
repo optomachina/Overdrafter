@@ -1352,6 +1352,18 @@ const ClientProject = () => {
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                onClick={() => navigate(appAwareHref(`/projects/${projectId}/review`))}
+                disabled={!Object.values(selectedOptionsByJobId).some(Boolean)}
+                aria-describedby={!Object.values(selectedOptionsByJobId).some(Boolean) ? "project-review-order-reason" : undefined}
+              >
+                Review order
+              </Button>
+              {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
+                <span id="project-review-order-reason" className="text-sm text-muted-foreground">
+                  Choose a package option to continue
+                </span>
+              ) : null}
               <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (
                 <Badge className={getQuoteRequestStatusBadgeClassName("received")}>
