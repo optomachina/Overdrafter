@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPackage from "./ClientPackage";
+import { toast } from "sonner";
 
 const mocks = vi.hoisted(() => ({
   fetchClientPackage: vi.fn(), selectQuoteOption: vi.fn(),
@@ -90,7 +91,7 @@ describe("published package selection eligibility", () => {
     const card = heading.closest(".border") as HTMLElement;
     expect(card).toHaveClass("border-primary");
     expect(within(card).getByText("Selected", { selector: "span" })).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "Save note" })).toBeEnabled();
+    expect(within(card).getByRole("button", { name: "Save note" })).toBeDisabled();
     expect(within(card).getByRole("button")).toHaveAttribute("aria-pressed", "true");
     const receipt = screen.getByText("Selection received").closest(".border") as HTMLElement;
     expect(receipt).toHaveTextContent("Fastest delivery · $150.00 · Qty 10");
@@ -105,14 +106,29 @@ describe("published package selection eligibility", () => {
     mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
     renderPackage();
     const save = await screen.findByRole("button", { name: "Save note" });
-    expect(save).toBeEnabled();
+    expect(save).toBeDisabled();
     expect(save).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Ship to dock B" } });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  Ship to dock B  " } });
+    expect(save).toBeEnabled();
     fireEvent.click(save);
     await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledExactlyOnceWith({
       packageId: "package-1", optionId: "option-1", note: "Ship to dock B",
     }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Decision note saved."));
   });
+
+  it.each(["", "   ", "Previous selection note", "  Previous selection note  "])(
+    "disables Save note for an empty or unchanged note (%j)", async (note) => {
+      mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
+      renderPackage();
+      const save = await screen.findByRole("button", { name: "Save note" });
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: note } });
+      expect(save).toBeDisabled();
+      fireEvent.click(save);
+      expect(mocks.selectQuoteOption).not.toHaveBeenCalled();
+      expect(screen.getByText("Previous selection note", { selector: "p" })).toBeInTheDocument();
+    },
+  );
 
   it("guards the mutation itself against missing sources and unknown option IDs", async () => {
     mocks.fetchClientPackage.mockResolvedValue(fixture(null));

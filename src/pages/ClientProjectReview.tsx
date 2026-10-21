@@ -90,6 +90,7 @@ const ClientProjectReview = () => {
     () => summarizeClientWorkspaceStates(selectedLineItems.map((lineItem) => lineItem.workspaceState)),
     [selectedLineItems],
   );
+  const quoteOptionsFailed = projectJobsQuery.isError || workspaceQuery.isError;
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (isAuthInitializing) {
@@ -159,7 +160,7 @@ const ClientProjectReview = () => {
                   Back to edit
                 </Button>
                 <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}
-                  disabled={selectionSummary.selectedCount === 0}
+                  disabled={quoteOptionsFailed || selectionSummary.selectedCount === 0}
                 >
                   Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
@@ -167,9 +168,11 @@ const ClientProjectReview = () => {
               </div>
             </div>
 
-            {selectionSummary.selectedCount === 0 ? (
+            {quoteOptionsFailed || selectionSummary.selectedCount === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {getQuoteSelectionPrompt((workspaceQuery.data ?? []).some(hasPublishedQuotePackage))}.
+                {quoteOptionsFailed
+                  ? "Unable to load quote options. Please try again."
+                  : `${getQuoteSelectionPrompt((workspaceQuery.data ?? []).some(hasPublishedQuotePackage))}.`}
               </p>
             ) : null}
 

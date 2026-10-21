@@ -1273,7 +1273,7 @@ describe("ClientProject", () => {
     expect(screen.queryByText("Choose a package option to continue")).not.toBeInTheDocument();
   });
 
-  it("shows neutral wording until quote options load", async () => {
+  it.each(["jobs", "workspace"])("shows neutral wording until %s load, then the published-package prompt", async (pendingQuery) => {
     const item = createProjectSummaryWorkspaceItem({
       jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
       totalPriceUsd: 100, leadTimeBusinessDays: 7,
@@ -1287,21 +1287,30 @@ describe("ClientProject", () => {
     }];
     item.publishedQuoteSelection = null;
     let resolveWorkspace!: (items: ClientQuoteWorkspaceItem[]) => void;
-    api.fetchJobsByProject.mockResolvedValue([item.job]);
-    api.fetchClientQuoteWorkspaceByJobIds.mockReturnValue(new Promise<ClientQuoteWorkspaceItem[]>((resolve) => {
-      resolveWorkspace = resolve;
-    }));
+    if (pendingQuery === "jobs") {
+      api.fetchJobsByProject.mockReturnValue(new Promise((resolve) => {
+        resolveWorkspace = () => resolve([item.job]);
+      }));
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+    } else {
+      api.fetchJobsByProject.mockResolvedValue([item.job]);
+      api.fetchClientQuoteWorkspaceByJobIds.mockReturnValue(new Promise<ClientQuoteWorkspaceItem[]>((resolve) => {
+        resolveWorkspace = resolve;
+      }));
+    }
     renderWithClient("/projects/project-1");
     const button = await screen.findByRole("button", { name: "Review order" });
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription("Loading quote options…");
     expect(screen.queryByText("Choose a quote to continue")).not.toBeInTheDocument();
+    if (pendingQuery === "jobs") expect(api.fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
     await act(async () => resolveWorkspace([item]));
     await waitFor(() => expect(button).toHaveAccessibleDescription("Choose a package option to continue"));
   });
 
-  it("explains a quote-options load failure instead of asking for a selection", async () => {
-    api.fetchClientQuoteWorkspaceByJobIds.mockRejectedValue(new Error("Workspace unavailable"));
+  it.each(["jobs", "workspace"])("explains a %s load failure instead of asking for a selection", async (failedQuery) => {
+    const query = failedQuery === "jobs" ? api.fetchJobsByProject : api.fetchClientQuoteWorkspaceByJobIds;
+    query.mockRejectedValue(new Error("Query unavailable"));
     renderWithClient("/projects/project-1");
     const button = await screen.findByRole("button", { name: "Review order" });
     await waitFor(() => expect(button).toHaveAccessibleDescription("Unable to load quote options. Please try again."));

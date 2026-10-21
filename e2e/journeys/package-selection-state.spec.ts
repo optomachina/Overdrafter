@@ -16,12 +16,14 @@ test.describe("published package selection", () => {
     const lowest = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Lowest cost", exact: true }) }).last();
     const fastest = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Fastest delivery", exact: true }) }).last();
     await expect(lowest).toBeVisible({ timeout: 30_000 });
-    // The selected option's button stays enabled as "Save note" so a decision note can be resaved.
+    // The selected option offers Save note only after a changed, non-empty note is typed.
     if (await lowest.getByRole("button", { name: "Save note", exact: true }).count() === 0) {
       await lowest.getByRole("button", { name: /Select (this|another) option/ }).click();
     }
     await expect(lowest.getByRole("button", { name: "Save note", exact: true })).toHaveAttribute("aria-pressed", "true");
     await fastest.getByRole("button", { name: "Select another option" }).click();
+    await expect(fastest.getByRole("button", { name: "Save note", exact: true })).toBeDisabled();
+    await page.getByRole("textbox", { name: "Decision notes" }).fill("Deliver to dock B");
     await expect(fastest.getByRole("button", { name: "Save note", exact: true })).toBeEnabled();
     await expect(fastest.getByRole("button")).toHaveAttribute("aria-pressed", "true");
     await expect(fastest.getByText("Selected", { exact: true }).first()).toBeVisible();

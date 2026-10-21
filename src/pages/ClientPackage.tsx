@@ -176,11 +176,11 @@ const ClientPackage = () => {
       return selectQuoteOption({
         packageId,
         optionId,
-        note: selectionNote,
+        note: selectionNote.trim(),
       });
     },
-    onSuccess: async () => {
-      toast.success("Quote option selected.");
+    onSuccess: async (_data, optionId) => {
+      toast.success(optionId === latestSelection?.option_id ? "Decision note saved." : "Quote option selected.");
       await queryClient.invalidateQueries({ queryKey: ["client-package", packageId] });
       await Promise.all([
         "packages", "client-part-summaries", "part-review", "project-review-workspace",
@@ -378,7 +378,8 @@ const ClientPackage = () => {
                         <Button
                           className="w-full rounded-full"
                           onClick={() => selectMutation.mutate(option.id)}
-                          disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending}
+                          disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending ||
+                            (isSelected && (!selectionNote.trim() || selectionNote.trim() === (latestSelection?.note ?? "").trim()))}
                           aria-pressed={isSelected}
                           aria-describedby={!option.source_vendor_quote_offer_id ? `quote-refresh-${option.id}` : undefined}
                         >
@@ -405,6 +406,7 @@ const ClientPackage = () => {
             </CardHeader>
             <CardContent>
               <Textarea
+                aria-label="Decision notes"
                 value={selectionNote}
                 onChange={(event) => setSelectionNote(event.target.value)}
                 disabled={!isVerifiedAuth}
