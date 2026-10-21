@@ -1,4 +1,5 @@
 /** Existing GitHub CI only. Owns one disposable database/network; never accepts a target URL. */
+import { isEntryPoint } from './lib/entry-point.mjs';
 import assert from 'node:assert/strict';
 import { pullFixtureImage } from './ovd591-image-pull.mjs';
 import { SOCKET_ADMIN_CLIENT_ENV, SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
@@ -7,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { IMAGE, acceptContainer } from './ovd591-sql-qualification.mjs';
 import { RETENTION_MIGRATION, RETENTION_BASELINE, RETENTION_CATALOG_SQL,
@@ -483,7 +484,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
   return result;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isEntryPoint(import.meta.url)) {
   const abort = new AbortController();
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => abort.abort());
   try {

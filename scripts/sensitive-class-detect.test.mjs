@@ -18,9 +18,12 @@ import {
   DETECTOR_REPO_PATH,
   GATE_LOOSENING_LINE,
   MAX_FILES,
+  MAX_SQL_TOKENS,
   OUTPUT_CLASSES,
   OUTPUT_VERSION,
   SQL_CONTENT_CLASSES,
+  SQL_OVERSIZED_REASON,
+  SqlTooLargeError,
   UNCLASSIFIED,
   WORKFLOW_REPO_PATH,
   classifyPath,
@@ -36,6 +39,8 @@ import {
   loadConfig,
   main,
   pathWords,
+  sqlTokens,
+  sqlWords,
 } from "./sensitive-class-detect.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -64,7 +69,7 @@ describe("config", () => {
     expect(loadConfig().errors).toEqual([]);
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
-    expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer"]);
+    expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer", "auth"]);
     expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
     expect(UNCLASSIFIED).toBe("unclassified");
   });
@@ -75,15 +80,46 @@ describe("config", () => {
     withKey.safe_categories.docs.path_keyword = ["readme"];
     expect(compileConfig(withKey).errors).toContain('safe_categories.docs: unknown rule key "path_keyword"');
     expect(compileConfig({ ...structuredClone(rawConfig), version: 2 }).config).toBeNull();
-    // Only rls and definer come from SQL content; path classes come from the shared list.
-    for (const name of ["nope", "auth", "migrations"]) {
+    // SQL rules may name rls, definer and shared-list auth.
+    for (const name of ["nope", "migrations"]) {
       const badRule = structuredClone(rawConfig);
-      badRule.sql_content.rules.push({ class: name, tokens: ["x"] });
+      badRule.sql_content.rules.push({ id: "invalid_class", class: name, tokens: ["x"], reason: "test" });
       expect(compileConfig(badRule).errors).toContain(`sql_content.rules[${badRule.sql_content.rules.length - 1}]: unknown class "${name}"`);
     }
+    const authRule = structuredClone(rawConfig);
+    authRule.sql_content.rules.push({ id: "extra_auth", class: "auth", tokens: ["x"], reason: "test" });
+    expect(compileConfig(authRule).errors).toEqual([]);
     const collides = structuredClone(rawConfig);
     collides.safe_categories.infra_ci = { paths: ["x/**"] };
     expect(compileConfig(collides).errors).toContain("safe_categories.infra_ci: name collides with a class");
+  });
+
+  it("requires every SQL rule to have a unique id and a reason", () => {
+    const ids = rawConfig.sql_content.rules.map((rule) => rule.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const bad = structuredClone(rawConfig);
+    const next = bad.sql_content.rules.length;
+    bad.sql_content.rules.push({ class: "rls", tokens: ["x"] }, { id: ids[0], class: "rls", tokens: ["x"], reason: "dup" });
+    expect(compileConfig(bad).errors).toEqual(
+      expect.arrayContaining([
+        `sql_content.rules[${next}]: invalid id`,
+        `sql_content.rules[${next}]: reason must be a non-empty string`,
+        `sql_content.rules[${next + 1}]: duplicate id "${ids[0]}"`,
+      ]),
+    );
+  });
+
+  it("rejects a SQL rule token that is an upper-case letter or mixed-case word", () => {
+    const bad = structuredClone(rawConfig);
+    const next = bad.sql_content.rules.length;
+    bad.sql_content.rules.push({ id: "upper_rule", class: "rls", tokens: ["A", "Set"], reason: "x" });
+    expect(compileConfig(bad).errors).toEqual(
+      expect.arrayContaining([
+        `sql_content.rules[${next}].tokens has invalid keyword "A"`,
+        `sql_content.rules[${next}].tokens has invalid keyword "Set"`,
+      ]),
+    );
   });
 
   it("compiles category and SQL globs with the shared matcher's syntax", () => {
@@ -406,10 +442,20 @@ describe("classifySql", () => {
     expect(sql(text)).toEqual(expected);
   });
 
+  // A body of more than about 100k words used to overflow the call stack in
+  // words.push(...), so detect() reported a read error instead of a class.
+  it.each([
+    ["a single-quoted string", (filler) => `select '${filler}'; create policy p on t using (true);`],
+    ["a dollar-quoted body", (filler) => `do $$ ${filler} $$; create policy p on t using (true);`],
+    ["a statement inside the body", (filler) => `do $$ ${filler} create policy p on t using (true); $$;`],
+  ])("reads a body of 150k words (%s)", (_name, build) => {
+    expect(sql(build("a ".repeat(150_000)))).toEqual(["rls"]);
+  });
+
   it("still sees tokens below the recursion limit", () => {
     const nested = Array.from({ length: 12 }, (_, level) => `$t${level}$`);
     const text = `do ${nested.join(" ")} create policy p on t ${nested.toReversed().join(" ")};`;
-    expect(sql(text)).toEqual(["rls"]);
+    expect(sql(text)).toEqual(["rls", "auth"]);
   });
 
   // Deliberate deviation from the OVD-844 test plan row "security definer
@@ -436,6 +482,1013 @@ describe("classifySql", () => {
   });
 });
 
+describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
+  const sql = (text) => classifySql(text, config);
+
+  it.each([
+    ["ALTER ROLE x BYPASSRLS;", "rls_bypassrls"],
+    ["create role y with nobypassrls;", "rls_nobypassrls"],
+    ["SET row_security = off;", "rls_set_row_security"],
+    ["set local row_security to off;", "rls_set_local_row_security"],
+    ["set session row_security = off;", "rls_set_session_row_security"],
+    ["reset row_security;", "rls_reset_row_security"],
+    ["select set_config('row_security','off',true);", "rls_set_config_row_security"],
+    ["select pg_catalog.set_config( 'row_security' , 'off', false);", "rls_set_config_row_security"],
+    ["ALTER DATABASE d SET row_security = off;", "rls_set_row_security"],
+    ["alter role app in database d set row_security to off;", "rls_set_row_security"],
+    ["create user u password 'x' bypassrls;", "rls_bypassrls"],
+    ["update pg_authid set rolbypassrls = true where rolname = 'x';", "rls_rolbypassrls"],
+    ["Alter\n  ROLE App_User\n  WITH LOGIN\n  ByPassRLS;", "rls_bypassrls"],
+    ["Create Role\n\tReader\n\tNoBypassRls\n\tNOLOGIN;", "rls_nobypassrls"],
+    ["DO $$ BEGIN ALTER ROLE x BYPASSRLS; END $$;", "rls_bypassrls"],
+    ["do $body$ begin perform set_config('row_security', 'off', true); end $body$;", "rls_set_config_row_security"],
+    // Review round 1: quoted names, named arguments and extra parentheses.
+    ['SET "row_security" = off;', "rls_set_row_security"],
+    ['SET SESSION "row_security" TO off;', "rls_set_session_row_security"],
+    ['SET LOCAL "ROW_SECURITY" TO off;', "rls_set_local_row_security"],
+    ['RESET "row_security";', "rls_reset_row_security"],
+    ["select \"set_config\"('row_security','off',true);", "rls_set_config_row_security"],
+    ["select pg_catalog.\"set_config\"('row_security','off',true);", "rls_set_config_row_security"],
+    ["select set_config(setting_name => 'row_security', new_value => 'off', is_local => true);", "rls_row_security"],
+    ["select set_config(new_value => 'off', is_local => true, setting_name => 'row_security');", "rls_row_security"],
+    ["select set_config(('row_security'), 'off', true);", "rls_row_security"],
+    ["select set_config('row_security'::text, 'off', true);", "rls_row_security"],
+    ["select current_setting('row_security');", "rls_row_security"],
+  ])("%s -> rls (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["rls"]);
+    const rule = rawConfig.sql_content.rules.find((entry) => entry.id === id);
+    expect(result.reasons).toContain(`rls:sql:${id}: ${rule.reason}`);
+  });
+
+  it.each([
+    ["set role authenticated;", "auth_set_role"],
+    ["set local role service_role;", "auth_set_local_role"],
+    ["SET SESSION AUTHORIZATION admin;", "auth_set_session_authorization"],
+    ["select set_config('role', 'service_role', true);", "auth_set_config_role"],
+    ["set session role postgres;", "auth_set_session_role"],
+    ["set local session authorization admin;", "auth_set_local_session_authorization"],
+    ["select set_config('session_authorization', 'admin', false);", "auth_set_config_session_authorization"],
+    // Review round 1: quoted names, named arguments, extra parentheses and RESET.
+    ["SET \"role\" TO 'service_role';", "auth_set_role"],
+    ["set local \"Role\" service_role;", "auth_set_local_role"],
+    ['SET SESSION "authorization" admin;', "auth_set_session_authorization"],
+    ["select \"set_config\"('role', 'service_role', true);", "auth_set_config_role"],
+    ["select pg_catalog.\"set_config\"('role', 'service_role', true);", "auth_set_config_role"],
+    ["select set_config(('role'), 'service_role', true);", "auth_set_config_paren_role"],
+    ["select set_config(setting_name => 'role', new_value => 'service_role', is_local => true);", "auth_set_config_named_role"],
+    ["select set_config(new_value => 'service_role', is_local => true, setting_name => 'role');", "auth_set_config_named_role"],
+    ["select set_config(setting_name := 'role', new_value := 'service_role', is_local := true);", "auth_set_config_named_role_legacy"],
+    ["select set_config(setting_name => 'session_authorization', new_value => 'admin', is_local => false);", "auth_session_authorization"],
+    ["select set_config(('session_authorization'), 'admin', false);", "auth_session_authorization"],
+    ["RESET ROLE;", "auth_reset_role"],
+    ['reset "role";', "auth_reset_role"],
+    ["RESET SESSION AUTHORIZATION;", "auth_reset_session_authorization"],
+    ["reset all;", "auth_reset_all"],
+    ["do $$ begin execute 'reset role'; end $$;", "auth_reset_role"],
+  ])("%s -> auth (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons.some((reason) => reason.startsWith(`auth:sql:${id}: `))).toBe(true);
+  });
+
+  it.each([
+    ["-- bypassrls\nselect 1;"],
+    ["/* set row_security = off */ select 1;"],
+    ["alter table t add column row_security_note text;"],
+    ["update t set row_security_note = 'x';"],
+    ["select current_setting('row_security_note');"],
+    ['select "row_security_note" from t;'],
+    ['alter table t add column "row security" text;'],
+    ["select set_config('search_path', 'pg_catalog', true);"],
+    ["select set_config('request.jwt.claims', jsonb_build_object('role', 'authenticated')::text, true);"],
+    ["create role reader;"],
+  ])("no false positive: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+
+  it("does not read a docs .md file outside the SQL paths", async () => {
+    const read = [];
+    const result = await detect({
+      files: [modified("docs/database-notes.md")],
+      readHeadFile: async (file) => (read.push(file), "ALTER ROLE x BYPASSRLS; SET row_security = off;"),
+      config,
+    });
+    expect(read).toEqual([]);
+    expect(result.files[0]).toMatchObject({ classes: [], category: "docs" });
+  });
+});
+
+describe("classifySql: role attributes, role grants and test SET ROLE scope (OVD-878)", () => {
+  const sql = (text, file = null) => classifySql(text, config, file);
+  const reasonFor = (id) => `auth:sql:${id}: ${rawConfig.sql_content.rules.find((rule) => rule.id === id).reason}`;
+
+  it.each([
+    ["ALTER ROLE x SUPERUSER;", "auth_role_superuser", 1],
+    ["create user y with createrole login;", "auth_role_createrole", 1],
+    ["ALTER ROLE z REPLICATION;", "auth_role_replication", 1],
+    ["alter user z with replication;", "auth_role_replication", 1],
+    ["GRANT service_role TO x;", "auth_grant_service_role", 1],
+    ["grant postgres to app;", "auth_grant_postgres", 1],
+    ["grant supabase_admin to app;", "auth_grant_supabase_admin", 1],
+    ["grant anon, authenticator to app;", "auth_grant_authenticator", 1],
+    ["select 1;\n\nCreate\n  Role\n  Admin\n  SuperUser\n  LOGIN;", "auth_role_superuser", 6],
+    ["DO $$\nBEGIN\n  ALTER ROLE x WITH CreateRole;\nEND $$;", "auth_role_createrole", 3],
+    ["do $$ begin execute 'grant service_role to app'; end $$;", "auth_grant_service_role", 1],
+  ])("%s -> auth (%s) on line %i", (text, id, line) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, class: "auth", line, sensitive: true }));
+  });
+
+  it.each([
+    ["supabase/migrations/20261001000000_x.sql"],
+    ["scripts/window-1/setup.sql"],
+    ["worker/sql/setup.sql"],
+    [".github/sql/setup.sql"],
+    ["docs/migration-drafts/x.sql"],
+    ["e2e/fixtures/x.sql"],
+  ])("SET LOCAL ROLE authenticated stays sensitive outside supabase/tests: %s", (file) => {
+    const result = sql("set local role authenticated;", file);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([{ id: "auth_set_local_role", class: "auth", path: file, line: 1, sensitive: true }]);
+  });
+
+  it.each([
+    ["set local role service_role;", "auth_set_local_role"],
+    ["SET ROLE postgres;", "auth_set_role"],
+    ["set role to supabase_admin;", "auth_set_role"],
+    ["set session role = authenticator;", "auth_set_session_role"],
+    ["set local role app_writer;", "auth_set_local_role"],
+    ["set session authorization postgres;", "auth_set_session_authorization"],
+    ["do $$ begin execute 'set local role service_role'; end $$;", "auth_set_local_role"],
+  ])("supabase/tests keeps a privileged switch sensitive: %s", (text, id) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+
+  // Release decision (final round): the only exempt thing is one top-level statement that is exactly
+  // SET [LOCAL] ROLE anon|authenticated (unquoted, comments stripped, optional ';') in supabase/tests/**.
+  it.each([
+    ["set role anon;", "auth_set_role"],
+    ["SET LOCAL ROLE authenticated", "auth_set_local_role"],
+    ["set /* c */ local role anon; -- trailing comment", "auth_set_local_role"],
+    ["set\n  role\n  anon;", "auth_set_role"],
+    ["SET ROLE ANON;", "auth_set_role"],
+    ["set local role authenticated;", "auth_set_local_role"],
+    ["set local role anon ;", "auth_set_local_role"],
+    ["set local role anon;\r\n", "auth_set_local_role"],
+  ])("supabase/tests exempts %j as gate_loosening", (text, id) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.hits).toEqual([{ id, class: "auth", path: "supabase/tests/x.sql", line: 1, sensitive: false, exemption: "tests_set_role_unprivileged", gate_loosening: true }]);
+  });
+
+  it.each([
+    ["do $$ begin execute ('set role anon') || '_x'; end $$;", "auth_set_role"],
+    ["execute ('set role anon') || '_x';", "auth_set_role"],
+    ["set role 'anon;';", "auth_set_role"],
+    ['set role "anon";', "auth_set_role"],
+    ["set role 'anon';", "auth_set_role"],
+    ['set role U&"anon";', "auth_set_role"],
+    ["do $$ begin set role anon; end $$;", "auth_set_role"],
+    ["do $$ begin execute 'set local role anon'; end $$;", "auth_set_local_role"],
+    ["do $$ begin execute format('set local role authenticated'); end $$;", "auth_set_local_role"],
+    ["select format('set role %s', 'anon');", "auth_set_role"],
+    ["set role anon, service_role;", "auth_set_role"],
+    ["set role anon x;", "auth_set_role"],
+    ["set role anon || '_x';", "auth_set_role"],
+    ["set role to anon;", "auth_set_role"],
+    ["set session role anon;", "auth_set_session_role"],
+    ["set local role service_role;", "auth_set_local_role"],
+    ["select set_config('role', 'anon', true);", "auth_set_config_role"],
+    ['reset "role";', "auth_reset_role"],
+    ["reset role all;", "auth_reset_role"],
+    ["do $$ begin reset role; end $$;", "auth_reset_role"],
+    ["do $$ begin execute 'reset role'; end $$;", "auth_reset_role"],
+  ])("supabase/tests keeps %j sensitive", (text, id) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+
+  it("exempts only the plain statement when a grant follows on the same line", () => {
+    const result = sql("SET ROLE anon; grant service_role to x;", "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toEqual([reasonFor("auth_grant_service_role")]);
+    expect(result.hits).toEqual([
+      expect.objectContaining({ id: "auth_set_role", line: 1, sensitive: false, exemption: "tests_set_role_unprivileged", gate_loosening: true }),
+      expect.objectContaining({ id: "auth_grant_service_role", line: 1, sensitive: true }),
+    ]);
+  });
+
+  it("does not exempt set role anon outside supabase/tests", () => {
+    const result = sql("set role anon;", "supabase/migrations/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([{ id: "auth_set_role", class: "auth", path: "supabase/migrations/x.sql", line: 1, sensitive: true }]);
+  });
+
+  it("keeps a privileged switch sensitive next to exempt switches and RESET ROLE in the same test file", () => {
+    const text = "begin;\nset local role authenticated;\nreset role;\nset local role service_role;\nreset role;\nrollback;";
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toEqual([reasonFor("auth_set_local_role")]);
+    expect(result.hits.map((hit) => [hit.line, hit.id, hit.sensitive])).toEqual([
+      [2, "auth_set_local_role", false],
+      [3, "auth_reset_role", false],
+      [4, "auth_set_local_role", true],
+      [5, "auth_reset_role", false],
+    ]);
+  });
+
+  // Release decision (final round): RESET ROLE only returns to the session role, so a plain top-level
+  // RESET ROLE is exempt in supabase/tests/** and stays sensitive everywhere else.
+  it("leaves a plain RESET ROLE unflagged in supabase/tests", () => {
+    const result = sql("set local role anon;\nRESET ROLE;", "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.hits).toEqual([
+      expect.objectContaining({ id: "auth_set_local_role", line: 1, sensitive: false, exemption: "tests_set_role_unprivileged", gate_loosening: true }),
+      { id: "auth_reset_role", class: "auth", path: "supabase/tests/x.sql", line: 2, sensitive: false, exemption: "tests_reset_role", gate_loosening: true },
+    ]);
+  });
+
+  it.each([["supabase/migrations/20261001000000_x.sql"], ["supabase/fixtures/x.sql"], ["docs/release/x.sql"], ["supabase/testsx/a.sql"]])(
+    "flags RESET ROLE outside supabase/tests: %s",
+    (file) => {
+      const result = sql("reset role;", file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.reasons).toEqual([reasonFor("auth_reset_role")]);
+      expect(result.hits).toEqual([{ id: "auth_reset_role", class: "auth", path: file, line: 1, sensitive: true }]);
+    },
+  );
+
+  it.each([
+    ["ALTER ROLE x NOSUPERUSER;", "auth_role_nosuperuser"],
+    ["create role r nocreaterole;", "auth_role_nocreaterole"],
+    ["alter user u noreplication;", "auth_role_noreplication"],
+  ])("tightening attribute is informational only: %s", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id, line: 1, sensitive: false, informational: true })]);
+  });
+
+  it.each([
+    ["-- ALTER ROLE x SUPERUSER;\nselect 1;"],
+    ["/* grant service_role to x; set role postgres; */ select 1;"],
+    ["alter table t add column superuser_flag boolean;"],
+    ["create table t (superuser boolean, replication text);"],
+    ["select rolsuper, rolcreaterole, rolreplication from pg_roles;"],
+    ["grant usage on schema app to service_role;"],
+    ["grant select on table t to anon, authenticated, service_role;"],
+    ["grant authenticated to app;"],
+    ["revoke service_role from app;"],
+    ["create publication p for table t;"],
+  ])("no false positive: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+
+  it.each([
+    ["create group g superuser;", "auth_role_superuser"],
+    ["CREATE GROUP g WITH CREATEROLE;", "auth_role_createrole"],
+    ["create group g replication;", "auth_role_replication"],
+    ["create role x in role service_role;", "auth_in_role_service_role"],
+    ["create role x in group postgres;", "auth_in_role_postgres"],
+    ["CREATE USER x WITH LOGIN IN ROLE app, supabase_admin;", "auth_in_role_supabase_admin"],
+    ['create group g in role "authenticator";', "auth_in_role_authenticator"],
+    ['create role "Anon" in role service_role;', "auth_in_role_service_role"],
+    ["alter group service_role add user x;", "auth_alter_group_service_role"],
+    ["ALTER GROUP postgres ADD USER x, y;", "auth_alter_group_postgres"],
+    ["alter group supabase_admin add user x;", "auth_alter_group_supabase_admin"],
+    ["alter group authenticator add user x;", "auth_alter_group_authenticator"],
+    ["do $$ begin execute 'create role x in role service_role'; end $$;", "auth_in_role_service_role"],
+  ])("%s -> auth (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+  });
+
+  it.each([
+    ["create group g nosuperuser;", "auth_role_nosuperuser"],
+    ["create role x in role app;", null],
+    ["create role service_role_copy in role app;", null],
+    ["create role x role service_role;", null],
+    ["alter group app add user service_role;", null],
+    ["alter group app drop user x;", null],
+    ["select * from t where role in (select role from groups);", null],
+  ])("no membership false positive: %s", (text, informational) => {
+    const result = sql(text);
+    expect(result.classes).toEqual([]);
+    expect(result.hits.map((hit) => hit.id)).toEqual(informational ? [informational] : []);
+  });
+
+  it.each([["Supabase/Tests/x.sql"], ["supabase/Tests/x.sql"], ["SUPABASE/TESTS/x.sql"]])(
+    "matches exemption paths case-sensitively: %s",
+    (file) => {
+      const result = sql("set local role anon;", file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    },
+  );
+  it.each([["supabase/tests/../migrations/a.sql"], ["supabase/tests/./a.sql"], ["supabase/tests//a.sql"], ["./supabase/tests/a.sql"]])(
+    "never exempts a path with a '.', '..' or empty segment: %s",
+    (file) => {
+      const result = sql("set local role anon;", file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    },
+  );
+});
+
+describe("classifySql: literal-aware statement boundaries (OVD-878)", () => {
+  const sql = (text) => classifySql(text, config);
+
+  it.each([
+    ["create role x with password ';' superuser;", "auth_role_superuser"],
+    ["alter role x with password $p$;$p$ createrole;", "auth_role_createrole"],
+    ["create role x valid until ';' replication;", "auth_role_replication"],
+    ["create role x password ';' in role service_role;", "auth_in_role_service_role"],
+    ["create role x password E'\\';' superuser;", "auth_role_superuser"],
+    ["create role x password $a$x$b$;$b$y$a$ superuser;", "auth_role_superuser"],
+    ["grant postgres, $q$;$q$ to x;", "auth_grant_postgres"],
+  ])("a ';' inside a string does not end the statement: %s", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+  });
+
+  it("ignores a ';' inside a string for informational rules too", () => {
+    expect(sql("alter role x password ';' nosuperuser;").hits.map((hit) => hit.id)).toEqual(["auth_role_nosuperuser"]);
+  });
+
+  it.each([
+    ["create role x; select 'superuser';"],
+    ["create role x; select $$superuser$$;"],
+    ["select 'create role x;' ; select superuser;"],
+    ["grant select on t to y; select postgres, 1 to_x;"],
+  ])("a ';' at the same or a shallower level still ends the statement: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+
+  it.each([
+    ["select ';'; set role anon;"],
+    ["select $q$;$q$; set role anon;"],
+    ['select ";"; set role anon;'],
+    ["/* ; */ set role anon /* ; */;"],
+    ["select 1 -- ;\n; set role anon;"],
+  ])("finds the exempt top-level statement past literal and comment ';': %j", (text) => {
+    const result = classifySql(text, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_set_role", gate_loosening: true })]);
+  });
+
+  it.each([
+    ["select E'\\'; set role anon; ';"],
+    ["select $q$ x; set role anon; $q$;"],
+    ["select '*/ set role anon; /*';"],
+  ])("never exempts a SET ROLE inside a literal: %j", (text) => {
+    const result = classifySql(text, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_set_role", sensitive: true })]);
+  });
+
+  it("does not read a comment opener inside a string as a comment", () => {
+    // The /* and */ sit in strings, so the SET ROLE between them is a plain top-level statement.
+    const result = classifySql("select 'a /*'; set role anon; select '*/';", config, "supabase/tests/x.sql");
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_set_role", gate_loosening: true })]);
+  });
+
+  it("splits statements at a ';' inside a string body at that body's level", () => {
+    const result = sql("do $$ begin create role x; perform 'superuser'; end $$;");
+    expect(result.classes).toEqual([]);
+    expect(sql("do $$ begin create role x password ';' superuser; end $$;").classes).toEqual(["auth"]);
+  });
+});
+
+describe("classifySql: role in EXECUTE or format() arguments (OVD-878)", () => {
+  const sql = (text, file = null) => classifySql(text, config, file);
+  const dynamic = (result) => result.hits.filter((hit) => hit.id.startsWith("auth_dynamic_"));
+
+  it.each([
+    ["do $$ begin execute format('set %s anon', 'role'); end $$;", "auth_dynamic_role"],
+    ["execute 'set role anon'", "auth_dynamic_role"],
+    ["do $$ begin execute 'set ' || 'ROLE' || ' anon'; end $$;", "auth_dynamic_role"],
+    ["do $$ begin execute $q$select set_config('role', 'anon', true)$q$; end $$;", "auth_dynamic_role"],
+    ["do $$ begin execute 'set ' || role || ' anon'; end $$;", "auth_dynamic_role"],
+    ["select format('set %s anon', 'role');", "auth_dynamic_role"],
+    ["select pg_catalog.\"format\"('grant %s', (select 'Roles'));", "auth_dynamic_roles"],
+    ["select format('x; %s', 'role');", "auth_dynamic_role"],
+    ["execute format('select (%s', ')') || 'role';", "auth_dynamic_role"],
+  ])("%j -> auth (%s), sensitive in supabase/tests too", (text, id) => {
+    for (const file of [null, "supabase/tests/x.sql"]) {
+      const result = sql(text, file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.reasons).toContain(`auth:sql:${id}: ${rawConfig.sql_content.rules.find((rule) => rule.id === id).reason}`);
+      expect(dynamic(result)).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    }
+  });
+
+  it.each([
+    ["select format('hello %s', 'world');"],
+    ["do $$ begin execute 'select 1'; end $$;"],
+    ["do $$ begin execute 'select 1'; perform role; end $$;"],
+    ["select format('%s', x), role from t;"],
+    ["select has_function_privilege('anon', 'f()', 'EXECUTE'), 'the service role cannot';"],
+    ["select $$execute x$$, role;"],
+    ["do $$ begin execute 'select controller, roles_x from t'; end $$;"],
+  ])("no auth_dynamic hit: %j", (text) => {
+    expect(dynamic(sql(text))).toEqual([]);
+  });
+
+  // Residual: a role switch spelled from fragments that never contain the word role is not detected.
+  it("does not detect 'role' split across literals (documented residual)", () => {
+    expect(sql("execute 'set ' || 'ro' || 'le anon';").classes).toEqual([]);
+  });
+
+  it.each([["set role anon;"], ["SET LOCAL ROLE authenticated"], ["set local role anon;\r\n"]])("leaves the exempt statement exempt: %j", (text) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ sensitive: false, exemption: "tests_set_role_unprivileged", gate_loosening: true })]);
+  });
+
+  it("cannot be exempted", () => {
+    const raw = structuredClone(rawConfig);
+    raw.sql_content.exemptions[0].rules.push("auth_dynamic_role");
+    expect(compileConfig(raw).errors).toContain('sql_content.exemptions[0]: rule "auth_dynamic_role" is not a SET [LOCAL] ROLE or RESET ROLE rule');
+  });
+});
+
+describe("classifySql: tokenizer stays in step with Postgres (OVD-878 final round)", () => {
+  const tests = "supabase/tests/x.sql";
+  const migration = "supabase/migrations/1.sql";
+  const ids = (result) => result.hits.map((hit) => `${hit.id}${hit.sensitive ? "" : "[EXEMPT]"}`);
+  const unknownReason = (result) => result.reasons.filter((reason) => reason.startsWith("sql:tokenizer_unknown_char: "));
+
+  // Review repro: a -- comment ends at a lone CR (Postgres non_newline is [^\n\r]), so the grant after it runs.
+  it.each([
+    [migration, "select 1;\n-- note\rgrant service_role to authenticated;\n", ["auth_grant_service_role"]],
+    [tests, "set role anon; --\rgrant service_role to authenticated;\n", ["auth_set_role[EXEMPT]", "auth_grant_service_role"]],
+    [migration, "-- a\r\ngrant service_role to x;\r\n-- b\ngrant postgres to y;", ["auth_grant_service_role", "auth_grant_postgres"]],
+  ])("a -- comment ends at CR, LF or CRLF: %s %j", (file, text, expected) => {
+    const result = classifySql(text, config, file);
+    expect(result.classes).toEqual(["auth"]);
+    expect(ids(result)).toEqual(expected);
+    expect(unknownReason(result)).toEqual([]);
+  });
+
+  it("does not exempt a SET ROLE that a lone CR moves out of a comment into the next statement", () => {
+    const result = classifySql("select 1 --\rset role postgres;\nset role anon;", config, tests);
+    expect(ids(result)).toEqual(["auth_set_role", "auth_set_role[EXEMPT]"]);
+  });
+
+  // Review repros: a non-ASCII letter is an identifier character to Postgres (every byte >= 0x80 is).
+  it("reads a\u00e9$$ as one identifier, so a grant after it is top-level code (full-hide repro)", () => {
+    const text = "select 1 as a\u00e9$$ /* $$ ' -- */ ; grant service_role to authenticated; /* ' */\n";
+    for (const file of [migration, tests]) {
+      const result = classifySql(text, config, file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(ids(result)).toEqual(["auth_grant_service_role"]);
+    }
+  });
+
+  it("does not exempt SET ROLE that Postgres reads as part of ALTER ROLE a\u00e9$$ ... SET ROLE anon", () => {
+    const result = classifySql("alter role a\u00e9$$ -- $$;\nset role anon;", config, tests);
+    expect(result.classes).toEqual(["auth"]);
+    expect(ids(result)).toEqual(["auth_set_role"]);
+  });
+
+  it("reads $\u00e9$...$\u00e9$ as a dollar-quoted string", () => {
+    expect(ids(classifySql("select $\u00e9$ x $\u00e9$; set role anon;", config, tests))).toEqual(["auth_set_role[EXEMPT]"]);
+    // A SET ROLE inside the $é$ string is never exempt.
+    const inside = classifySql("select $\u00e9$ x; set role anon; $\u00e9$;", config, tests);
+    expect(inside.classes).toEqual(["auth"]);
+    expect(ids(inside)).toEqual(["auth_set_role"]);
+  });
+
+  it("does not read \u00e9e'...' as an E'' string", () => {
+    // Postgres: identifier \u00e9e, then the standard string '\', then a top-level SET ROLE anon.
+    expect(ids(classifySql("select \u00e9e'\\'; set role anon;", config, tests))).toEqual(["auth_set_role[EXEMPT]"]);
+    // A real E'' string still takes backslash escapes.
+    expect(ids(classifySql("select e'\\'; set role anon;';", config, tests))).toEqual(["auth_set_role"]);
+  });
+
+  it("keeps non-ASCII letters and digits inside one word", () => {
+    expect(classifySql("create policy \u0436\u0436 on t; select \u00e9t\u00e9_\u0663;", config).hits.map((hit) => hit.id)).toEqual(["rls_create_policy"]);
+    expect(classifySql("select 'x' as \u00e9;", config, tests).reasons).toEqual([]);
+  });
+
+  // Extra round: as in scan.l, every code point >= U+0080 is an identifier and dollar-tag character.
+  it("flags the re-review repro ALTER ROLE x PASSWORD $\u2014$;$\u2014$ SUPERUSER; with the role class", () => {
+    const result = classifySql("ALTER ROLE x PASSWORD $\u2014$;$\u2014$ SUPERUSER;", config, migration);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_role_superuser", line: 1, sensitive: true })]);
+    expect(unknownReason(result)).toEqual([]);
+  });
+
+  it.each([
+    ["select 1 as a\u2014b, $\u{1F600}$ ; x $\u{1F600}$;\nset role anon;"],
+    ["select \u00a0x\u00a0, $\u00a0$;$\u00a0$, $\ufeff$ -- $\ufeff$;\nset role anon;"],
+    ["select $\u2014$ /* $\u2014$; set role anon;"],
+  ])("parses non-ASCII identifiers and dollar tags cleanly: %j", (text) => {
+    const result = classifySql(text, config, tests);
+    expect(result.reasons).toEqual([]);
+    expect(result.classes).toEqual([]);
+    expect(ids(result)).toEqual(["auth_set_role[EXEMPT]"]);
+  });
+
+  it.each([
+    ["set role anon\u00a0;", "auth_set_role"],
+    ["\ufeffset role anon; set local role service_role;", "auth_set_local_role"],
+    ["select a\u2014$$ /* $$ ' -- */ ; grant service_role to x; /* ' */", "auth_grant_service_role"],
+  ])("a non-ASCII character joins the word it touches, as in Postgres: %j", (text, id) => {
+    const result = classifySql(text, config, tests);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    expect(unknownReason(result)).toEqual([]);
+  });
+
+  // Belt and braces: an unexpected ASCII control character means the tokenizer may be out of step,
+  // so the file gets no exemption and fails closed with every SQL class plus the reason.
+  const SQL_CLASSES = ["auth", "definer", "rls"];
+  const failsClosed = (result, code, line) => {
+    expect([...result.classes].sort()).toEqual(SQL_CLASSES);
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    expect(unknownReason(result)).toEqual([
+      `sql:tokenizer_unknown_char: ${code} on line ${line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file and it fails closed`,
+    ]);
+  };
+
+  it.each([
+    ["set role anon;\u0007-- grant service_role to x\n", ["auth_set_role", "auth_grant_service_role"], "U+0007", 1],
+    ["select 1;\n/* \u2014 */ select '\u001b';\nset role anon; -- reset role\n", ["auth_reset_role", "auth_set_role"], "U+001B", 2],
+    ["\u0000set role anon;", ["auth_set_role"], "U+0000", 1],
+    ["select 1;\u007f\nset local role authenticated; /* set role postgres */", ["auth_set_local_role", "auth_set_role"], "U+007F", 1],
+  ])("an unexpected ASCII control character fails closed: %j", (text, expected, code, line) => {
+    const result = classifySql(text, config, tests);
+    failsClosed(result, code, line);
+    expect([...ids(result)].sort()).toEqual([...expected].sort());
+  });
+
+  it("fails closed on an unexpected ASCII character even with no rule hit", () => {
+    const result = classifySql("select 1;\u0008\nselect 2;", config, migration);
+    failsClosed(result, "U+0008", 1);
+    expect(result.hits).toEqual([]);
+  });
+
+  // Re-review @ 2c113e9a: the raw reading alone splits at every ';' and counts every ')', so the
+  // structural rules also run over the parsed tokens and both readings' hits are reported.
+  it.each([
+    ["ALTER ROLE x PASSWORD ';' SUPERUSER;", "auth_role_superuser"],
+    ["ALTER ROLE x /* ; */ SUPERUSER;", "auth_role_superuser"],
+    ["GRANT /* ; */ service_role TO x;", "auth_grant_service_role"],
+    ["CREATE ROLE x -- ;\nIN ROLE postgres;", "auth_in_role_postgres"],
+    ["select format(')' || 'set %s anon', 'role');", "auth_dynamic_role"],
+    ["EXECUTE 'x;' || 'role';", "auth_dynamic_role"],
+  ])("with an unexpected character, still reports what the parsed tokens find: %j", (text, id) => {
+    const result = classifySql(`select 'a \u0007 b';\n${text}`, config, tests);
+    failsClosed(result, "U+0007", 1);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+  });
+
+  it("reports a hit both readings find once", () => {
+    const result = classifySql("select '\u0007';\ngrant service_role to x; grant service_role to y;", config, tests);
+    expect(ids(result)).toEqual(["auth_grant_service_role", "auth_grant_service_role"]);
+  });
+
+  it("does not count a control character inside a comment as unknown", () => {
+    const result = classifySql("-- caf\u00e9 \u0007 \u{1F600}\n/* \u001b */ set role anon;", config, tests);
+    expect(ids(result)).toEqual(["auth_set_role[EXEMPT]"]);
+    expect(result.reasons).toEqual([]);
+  });
+
+  it("counts an unexpected character inside a string body as unknown", () => {
+    const result = classifySql("select 'a \u0007 b'; set role anon;", config, tests);
+    expect(ids(result)).toEqual(["auth_set_role"]);
+    failsClosed(result, "U+0007", 1);
+  });
+});
+
+describe("classifySql: quoted punctuation and SQL-only trimming (OVD-878)", () => {
+  it.each([
+    ['CREATE ROLE ";" SUPERUSER;', "auth_role_superuser"],
+    ['CREATE ROLE ";" CREATEROLE;', "auth_role_createrole"],
+    ['ALTER ROLE ";" REPLICATION;', "auth_role_replication"],
+    ['CREATE ROLE ";" IN ROLE postgres;', "auth_in_role_postgres"],
+    ['GRANT ";", postgres TO x;', "auth_grant_postgres"],
+    [`select format(")" || 'set %s anon', 'role');`, "auth_dynamic_role"],
+  ])("flags quoted punctuation without losing parsed hits in the raw-token union: %s", (text, id) => {
+    for (const prefix of ["", "select '\u0007';\n"]) {
+      const result = classifySql(prefix + text, config, "supabase/migrations/x.sql");
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+      if (prefix) expect([...result.classes].sort()).toEqual(["auth", "definer", "rls"]);
+    }
+  });
+
+  it.each([";", "(", ")"])("keeps quoted %s distinct from syntax without splitting statements", (punctuation) => {
+    const text = `select "${punctuation}";`;
+    const tokens = sqlTokens(text);
+    expect(tokens.words).toEqual(["select", `"${punctuation}"`, ";"]);
+    expect(tokens.statements).toEqual([text, ""]);
+  });
+
+  it.each([
+    ["SET ROLE anon\u00a0", "auth_set_role"],
+    ["SET ROLE anon\ufeff", "auth_set_role"],
+    ["SET ROLE anon\u2028", "auth_set_role"],
+    ["set local role authenticated\u3000", "auth_set_local_role"],
+  ])("does not exempt a role with trailing non-SQL whitespace at EOF: %j", (text, id) => {
+    const result = classifySql(text, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    expect(sqlTokens(text).statements).toEqual([text]);
+  });
+
+  it.each(["\n", "\t", "\r\n", "\f", "\v"])("keeps SET ROLE exempt with trailing SQL whitespace at EOF: %j", (whitespace) => {
+    const result = classifySql(`SET ROLE anon${whitespace}`, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_set_role", sensitive: false, gate_loosening: true })]);
+  });
+});
+
+describe("classifySql: confirmed privileged membership gaps (PR 824)", () => {
+  const postgresRoles = [
+    "pg_execute_server_program", "pg_write_server_files", "pg_read_server_files", "pg_write_all_data",
+    "pg_read_all_data", "pg_signal_backend", "pg_checkpoint", "pg_create_subscription",
+  ];
+  const supabaseRoles = [
+    "supabase_auth_admin", "supabase_storage_admin", "supabase_realtime_admin", "supabase_functions_admin",
+    "supabase_replication_admin", "supabase_read_only_user", "dashboard_user", "pgsodium_keymaker", "pgsodium_keyholder",
+  ];
+  const paths = ["supabase/migrations/20261021000000_probe.sql", "supabase/tests/database/probe.test.sql"];
+  const check = (text, id) => {
+    for (const file of paths) {
+      const result = classifySql(text, config, file);
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    }
+  };
+  for (const [family, roles] of [["PostgreSQL", postgresRoles], ["Supabase", supabaseRoles]]) {
+    it.each(roles)(`flags all three membership forms for ${family} privileged role %s`, (role) => {
+      check(`GRANT app, "${role}" TO anon;`, `auth_grant_${role}`);
+      check(`CREATE ROLE app IN ROLE other, ${role};`, `auth_in_role_${role}`);
+      check(`ALTER GROUP ${role} ADD USER anon;`, `auth_alter_group_${role}`);
+    });
+  }
+  const roles = ["postgres", "supabase_admin", "service_role", "authenticator", ...postgresRoles, ...supabaseRoles];
+  it.each(roles)("flags USER, ROLE and ADMIN member clauses on privileged role %s", (role) => {
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP", "ALTER ROLE", "ALTER USER"]) {
+      for (const clause of ["USER", "ROLE", "ADMIN"]) {
+        check(`${declaration} "${role}" WITH ${clause} anon, authenticated;`, `auth_members_${clause.toLowerCase()}_${role}`);
+      }
+    }
+  });
+  it.each([
+    "CREATE ROLE app USER service_role;", "CREATE ROLE app ROLE postgres;", "CREATE ROLE app ADMIN supabase_admin;",
+    "ALTER ROLE service_role NOSUPERUSER;", "ALTER ROLE service_role; SELECT user;",
+    "GRANT SELECT ON TABLE t TO pg_read_all_data;", "REVOKE pg_write_all_data FROM app;",
+    "ALTER GROUP supabase_auth_admin DROP USER anon;",
+  ])("does not confuse a member or recipient with the privileged role being granted: %s", (text) => {
+    expect(classifySql(text, config, paths[0]).classes).toEqual([]);
+  });
+});
+
+describe("sqlTokens and classifySql: continued and encoded strings (PR 824)", () => {
+  const migration = "supabase/migrations/20261021000000_probe.sql";
+  const tests = "supabase/tests/probe.sql";
+  it.each(["\n", "\r", "\r\n", " -- continuation\n"])("keeps RESET ROLE and GRANT inside a continued E-string DO body: %j", (gap) => {
+    const text = `DO E'BEGIN PERFORM '${gap}'\\'x --\\'; GRANT service_role TO anon;\nPERFORM 1;\nRESET ROLE;\nEND;';\nRESET ROLE;`;
+    const result = classifySql(text, config, tests);
+    const grantLine = gap.includes("\n") ? 2 : 1;
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: grantLine, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: grantLine + 2, sensitive: true }));
+    expect(result.hits.filter((hit) => hit.gate_loosening)).toEqual([
+      expect.objectContaining({ id: "auth_reset_role", line: grantLine + 4, exemption: "tests_reset_role" }),
+    ]);
+    expect(sqlTokens(text).statements).toEqual([text.slice(0, text.lastIndexOf("\n")), "RESET ROLE;", ""]);
+  });
+  it("concatenates split keywords across multiple continued segments and retains source lines", () => {
+    const text = "DO E'BEGIN; GR'\n'ANT service_'\n'role TO anon; RE'\n'SET ROLE; END;';";
+    const result = classifySql(text, config, tests);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: 2, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: 3, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+  it.each([" ", "\t", " /* gap */\n"])("does not continue strings without PostgreSQL quotecontinue whitespace: %j", (gap) => {
+    expect(sqlTokens(`SELECT E'GR'${gap}'ANT';`).words).toEqual(["select", "gr", "ant", ";"]);
+  });
+  it("keeps ordinary continued strings in standard rather than E-string escape mode", () => {
+    const result = classifySql("SELECT 'x'\n'\\'; RESET ROLE;", config, tests);
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_reset_role", line: 2, exemption: "tests_reset_role" })]);
+  });
+  it.each([
+    String.raw`ALTER ROLE anon U&"bypass\0072ls";`,
+    String.raw`GRANT U&"service\005frole" TO anon;`,
+    String.raw`SELECT set_config(U&'ro\006ce', 'service_role', false);`,
+    String.raw`SET U&"\0072ole" service_role;`,
+    String.raw`GRANT U&"postgre!0073" UESCAPE '!' TO anon;`,
+    String.raw`SELECT set_config(u&'ro!+00006ce' UESCAPE '!', 'service_role', false);`,
+    String.raw`DO $$ BEGIN EXECUTE U&'GRANT service\005frole TO anon'; END $$;`,
+  ])("fails closed on Unicode escaped identifiers and strings: %s", (text) => {
+    const result = classifySql(text, config, migration);
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_unicode_escape", sensitive: true }));
+  });
+  it.each([
+    [String.raw`DO $$ BEGIN EXECUTE E'ALTER USER anon SUPER\x55SER'; END $$;`, "auth_role_superuser"],
+    [String.raw`DO E'GRANT service\x5frole TO anon';`, "auth_grant_service_role"],
+    [String.raw`SELECT set_config(E'\x72ole', 'service_role', false);`, "auth_set_config_role"],
+    [String.raw`EXECUTE E'SET \x52OLE service_role';`, "auth_set_role"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\125SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\u0055SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\U00000055SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPERU\SER';`, "auth_role_superuser"],
+    ["DO E'GRANT service_'\n'\\x72ole TO anon';", "auth_grant_service_role"],
+  ])("decodes E-string escapes before privileged SQL matching: %s", (text, id) => {
+    for (const file of [migration, tests]) {
+      const result = classifySql(text, config, file);
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    }
+  });
+  it("retains source lines through decoded newlines and nested dollar bodies", () => {
+    const result = classifySql(String.raw`DO E'BEGIN\nDO $$GRANT service_role TO anon;$$;\nRESET ROLE; END;';`, config, tests);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: 1, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: 1, sensitive: true }));
+  });
+  it("does not flag escape spellings inside comments", () => {
+    expect(classifySql(String.raw`-- GRANT U&"service\005frole" TO anon;
+/* EXECUTE E'ALTER USER anon SUPER\x55SER'; */ SELECT 1;`, config, migration).classes).toEqual([]);
+  });
+});
+
+describe.each([
+  "supabase/migrations/20261021000000_probe.sql",
+  "supabase/tests/probe.sql",
+])("classifySql: five fail-closed gaps (PR 824) on %s", (file) => {
+  const check = (text, id) => {
+    const result = classifySql(text, config, file);
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, path: file, sensitive: true }));
+    expect(result.reasons.some((reason) => reason.startsWith(`auth:sql:${id}:`))).toBe(true);
+    return result;
+  };
+  const nest = (body, count) => {
+    const tags = Array.from({ length: count }, (_, level) => `$depth${level}$`);
+    return `DO ${tags.join("\n")} ${body} ${tags.toReversed().join("\n")};`;
+  };
+
+  it.each([9, 10, 16])("fails closed at nesting depth %i even without keywords", (depth) => {
+    for (const body of [
+      "", "SELECT 1", "GRANT service_role TO anon", "ALTER ROLE anon BYPASSRLS", "SECURITY DEFINER",
+      String.raw`EXECUTE E'GRANT service\x5frole TO anon'`,
+      String.raw`EXECUTE 'GRANT U&"service\005frole" TO anon'`,
+      String.raw`PERFORM set_config(E'\x72ole', 'service_role', false)`,
+    ]) check(nest(body, depth), "auth_depth_limit");
+  });
+  it("starts the depth guard at the fallback boundary and keeps its source line", () => {
+    expect(classifySql(nest("SELECT 1", 8), config, file).classes).toEqual([]);
+    const result = check(nest("SELECT 1", 9), "auth_depth_limit");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_depth_limit", line: 9 }));
+  });
+  it.each([
+    String.raw`EXECUTE E'GRANT service\x5frole TO anon'`,
+    String.raw`EXECUTE 'GRANT U&"service\005frole" TO anon'`,
+    String.raw`PERFORM set_config(E'\x72ole','service_role',false)`,
+  ])("flags the report's nested DO/EXECUTE repro: %s", (body) => {
+    let text = `DO $b0$ BEGIN ${body}; END $b0$`;
+    for (let level = 1; level < 5; level += 1) text = `DO $b${level}$ BEGIN EXECUTE $s${level}$ ${text} $s${level}$; END $b${level}$`;
+    check(`${text};`, "auth_depth_limit");
+  });
+
+  it.each(["standard_conforming_strings", "backslash_quote"])("guards every mention of %s", (setting) => {
+    for (const text of [
+      `SET ${setting} = off;`, `SET LOCAL "${setting}" = on;`,
+      `SELECT set_config('${setting}', 'off', false);`,
+      `DO $$ BEGIN PERFORM set_config('${setting}', 'off', false); END $$;`,
+      `SELECT set_config(replace('--${setting}', '--', ''), 'off', false);`,
+      `DO $$ BEGIN PERFORM set_config(replace('--${setting}', '--', ''), 'off', false); END $$;`,
+      `SELECT set_config(replace('--${setting}', '--', ''), 'off', false);\nSELECT 'x\\' -- '; ALTER ROLE anon BYPASSRLS; SELECT 1;`,
+      `ALTER ROLE anon SET ${setting} = off;`, `ALTER DATABASE db SET ${setting} = off;`,
+      `SELECT current_setting('${setting}');`, `SELECT '${setting.toUpperCase()}';`,
+      `SET ${setting} = off;\nSET ROLE anon;\nSELECT 'x\\' -- '; RESET ROLE; GRANT service_role TO anon; SELECT 1;\nRESET ROLE;`,
+      `SET ${setting} = off;\nSELECT 'x\\' -- '; ALTER ROLE anon BYPASSRLS; SELECT 1;`,
+      String.raw`SET ${setting} = off; SELECT set_config('\x72ole','service_role',false);`,
+    ]) check(text, `auth_${setting}`);
+  });
+  it("retains source lines for settings in transformed literals", () => {
+    const result = check("SELECT set_config(replace('\n--standard_conforming_strings', '--', ''), 'off', false);", "auth_standard_conforming_strings");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_standard_conforming_strings", line: 2 }));
+  });
+
+  it.each([
+    "pg_monitor", "pg_maintain", "pg_read_all_settings", "pg_use_reserved_connections", "pg_future_role",
+    "pg_", '"PG_MONITOR"', '"pg_future role"',
+    "supabase_etl_admin", "supabase_superuser", "pgbouncer",
+    "CURRENT_USER", "SESSION_USER", "CURRENT_ROLE",
+  ])("guards every membership form for %s", (role) => {
+    check(`GRANT /* target */ app, ${role} TO anon;`, "auth_grant_privileged_target");
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP"]) {
+      for (const clause of ["ROLE", "GROUP"]) {
+        check(`${declaration} app IN ${clause} other, ${role};`, "auth_in_role_privileged_target");
+      }
+    }
+    check(`ALTER GROUP ${role} /* members */ ADD USER anon;`, "auth_alter_group_privileged_target");
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP", "ALTER ROLE", "ALTER USER"]) {
+      for (const clause of ["USER", "ROLE", "ADMIN"]) {
+        check(`${declaration} ${role} WITH ${clause} anon;`, `auth_members_${clause.toLowerCase()}_privileged_target`);
+      }
+    }
+  });
+
+  it.each([
+    "DO $$ BEGIN EXECUTE format('GRANT %I TO anon', 'pg_read_all_data'); END $$;",
+    "DO $$ BEGIN EXECUTE format('GRANT %I TO anon', 'service_role'); END $$;",
+    "DO $$ BEGIN EXECUTE format('GRANT %s TO %s', 'supabase_auth_admin', 'anon'); END $$;",
+    "SELECT pg_catalog.\"format\"('REVOKE %I FROM anon', r);",
+    "SELECT pg_catalog.\"format\" /* gap */ ('GRANT %I TO anon', r);",
+    "SELECT format /* gap */ ('ALTER /* gap */ ROLE %I USER anon', r);",
+    "SELECT format('ALTER ROLE %I WITH USER anon', r);",
+    "SELECT format('SET ROLE %I', r);",
+    "SELECT 'GRANT ' || r || ' TO anon';", "SELECT 'REVOKE ' || r || ' FROM anon';",
+    "SELECT 'ALTER ROLE ' || r || ' USER anon';", "SELECT 'SET ROLE ' || r;",
+    "SELECT $$GRANT $$ || r || $$ TO anon$$;",
+    "SELECT concat('GRANT ', r, ' TO anon');", "SELECT concat_ws(' ', 'GRANT', r, 'TO anon');",
+    "DO $$ BEGIN EXECUTE replace('-- GRANT service_role TO anon', '--', ''); END $$;",
+    "DO $$ BEGIN EXECUTE replace('-- ALTER /* gap */ ROLE app USER anon', '--', ''); END $$;",
+    "DO $$ BEGIN EXECUTE replace('-- SET /* gap */ ROLE app', '--', ''); END $$;",
+    String.raw`DO $$ BEGIN EXECUTE replace(E'\x2d\x2d GRANT service_role TO anon','--',''); END $$;`,
+    String.raw`SELECT format('GRANT %I TO anon', 'service_role') \gexec`,
+    String.raw`SELECT '-- GRANT app TO anon' \gexec`,
+    String.raw`SELECT replace('-- GRANT service_role TO anon', '--', '');
+\gexec`,
+  ])("guards dynamic command literals: %s", (text) => {
+    check(text, "auth_dynamic_sql");
+  });
+  it.each([
+    String.raw`\set r service_role
+GRANT :r TO anon;`,
+    String.raw`GRANT :"r" TO anon;`, String.raw`GRANT :'r' TO anon;`,
+    String.raw`GRANT app TO :recipient;`, String.raw`SET ROLE :r;`,
+    String.raw`SET LOCAL ROLE :"r";`, String.raw`SET SESSION ROLE :'r';`,
+    String.raw`GRANT app TO anon \gexec`, String.raw`SET ROLE anon \gexec`,
+    String.raw`ALTER GROUP :r ADD USER anon;`, String.raw`ALTER ROLE :r USER anon;`,
+    String.raw`CREATE ROLE app IN ROLE :r;`,
+  ])("guards psql role commands: %s", (text) => {
+    check(text, "auth_psql_role");
+  });
+  it.each([
+    "SELECT format('hello %s', 'world');", "SELECT 'hello' || 'world';",
+    "-- SET standard_conforming_strings = off;\nSELECT 1;",
+    "/* SET backslash_quote = on; */ SELECT 1;",
+    "GRANT SELECT ON t TO pg_monitor;", "CREATE ROLE app USER pg_monitor;",
+    "ALTER GROUP pg_monitor DROP USER anon;", "SELECT 'standard_conforming_strings_note';",
+  ])("keeps unrelated SQL outside the new guards: %s", (text) => {
+    expect(classifySql(text, config, file).classes).toEqual([]);
+  });
+});
+
+describe("sqlTokens and classifySql: inputs of any size (OVD-878)", () => {
+  // Spreading an array of about 100k items into push() overflows the call stack.
+  const body = "a ".repeat(150_000);
+
+  it.each([
+    ["a single-quoted string", `'${body}'`],
+    ["a dollar-quoted body", `$$${body}$$`],
+  ])("tokenizes %s of 150000 words without overflowing the stack", (_label, text) => {
+    const tokens = sqlTokens(text);
+    expect(tokens.words).toHaveLength(150_000);
+    expect(tokens.lines).toHaveLength(150_000);
+    expect(tokens.statement).toHaveLength(150_000);
+    expect(tokens.starts[0]).toBe(1);
+    expect(tokens.ends.at(-1)).toBe(1);
+  });
+
+  it("still finds a role switch after a 150000-word body", () => {
+    const result = classifySql(`do $$${body} set role postgres; $$;`, config, "supabase/migrations/x.sql");
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_set_role", sensitive: true }));
+  });
+
+  it("fails closed on the original 200000-hit fixture above the token budget", () => {
+    const result = classifySql("set role anon;\n".repeat(200_000), config, "supabase/migrations/x.sql");
+    expect(new Set(result.classes)).toEqual(new Set(config.sqlContent.rules.map((rule) => rule.class)));
+    expect(result.reasons).toEqual([SQL_OVERSIZED_REASON]);
+    expect(result.hits).toEqual([]);
+  });
+
+  it("reports every hit at the token budget", () => {
+    const count = MAX_SQL_TOKENS / 4;
+    const result = classifySql("set role anon;\n".repeat(count), config, "supabase/migrations/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits.filter((hit) => hit.id === "auth_set_role")).toHaveLength(count);
+  });
+});
+
+describe("compileConfig: SQL exemptions (OVD-878)", () => {
+  const withExemption = (change) => {
+    const raw = structuredClone(rawConfig);
+    change(raw.sql_content.exemptions[0]);
+    return compileConfig(raw).errors;
+  };
+
+  it("requires every exemption to be marked gate_loosening and to name known, non-informational rules", () => {
+    expect(rawConfig.sql_content.exemptions.every((entry) => entry.gate_loosening === true && entry.reason)).toBe(true);
+    expect(withExemption((entry) => delete entry.gate_loosening)).toContain("sql_content.exemptions[0]: gate_loosening must be true");
+    expect(withExemption((entry) => entry.rules.push("nope_rule"))).toContain('sql_content.exemptions[0]: unknown rule "nope_rule"');
+    expect(withExemption((entry) => entry.rules.push("auth_role_nosuperuser"))).toContain('sql_content.exemptions[0]: rule "auth_role_nosuperuser" is informational');
+    expect(withExemption((entry) => (entry.extra = 1))).toContain('sql_content.exemptions[0]: unknown key "extra"');
+    expect(withExemption((entry) => (entry.reason = ""))).toContain("sql_content.exemptions[0]: reason must be a non-empty string");
+  });
+
+  it("limits exemptions to the SET [LOCAL] ROLE and RESET ROLE rules and unquoted lower-case targets", () => {
+    expect(withExemption((entry) => entry.rules.push("auth_reset_all"))).toContain('sql_content.exemptions[0]: rule "auth_reset_all" is not a SET [LOCAL] ROLE or RESET ROLE rule');
+    expect(withExemption((entry) => entry.rules.push("auth_set_session_role"))).toContain('sql_content.exemptions[0]: rule "auth_set_session_role" is not a SET [LOCAL] ROLE or RESET ROLE rule');
+    expect(withExemption((entry) => delete entry.targets)).toContain("sql_content.exemptions[0].targets must not be empty");
+    expect(withExemption((entry) => entry.targets.push("Anon"))).toContain('sql_content.exemptions[0].targets has invalid keyword "Anon"');
+    expect(withExemption((entry) => entry.targets.push(".*"))).toContain('sql_content.exemptions[0].targets has invalid keyword ".*"');
+  });
+
+  it("allows RESET ROLE only without targets", () => {
+    const reset = (change) => {
+      const raw = structuredClone(rawConfig);
+      change(raw.sql_content.exemptions[1]);
+      return compileConfig(raw).errors;
+    };
+    expect(reset(() => {})).toEqual([]);
+    expect(reset((entry) => (entry.targets = ["anon"]))).toContain("sql_content.exemptions[1].targets is only allowed with a SET [LOCAL] ROLE rule");
+  });
+
+  it("has exactly two exemptions: SET [LOCAL] ROLE anon or authenticated, and RESET ROLE, in supabase/tests", () => {
+    expect(rawConfig.sql_content.exemptions).toEqual([
+      expect.objectContaining({
+        id: "tests_set_role_unprivileged",
+        paths: ["supabase/tests/**"],
+        rules: ["auth_set_role", "auth_set_local_role"],
+        targets: ["anon", "authenticated"],
+        gate_loosening: true,
+      }),
+      expect.objectContaining({ id: "tests_reset_role", paths: ["supabase/tests/**"], rules: ["auth_reset_role"], gate_loosening: true }),
+    ]);
+    expect(rawConfig.sql_content.exemptions[1]).not.toHaveProperty("targets");
+  });
+});
+
+describe("detect: SQL hits and gate_loosening (OVD-878)", () => {
+  const files = {
+    "supabase/tests/roles.sql": "select 1;\nset local role authenticated;\nreset role;\nSET ROLE postgres;",
+    "supabase/migrations/20261001000000_roles.sql": "alter role x nosuperuser;\nset local role authenticated;",
+  };
+  const readHeadFile = async (file) => files[file];
+
+  it("reports every hit with rule id, path and line, and lists exempt hits as gate_loosening", async () => {
+    const result = await detect({ files: Object.keys(files).map(modified), readHeadFile, config });
+    const [tests, migration] = result.files;
+    expect(tests.classes).toEqual(["schema", "auth"]);
+    expect(tests.sql_hits.map(({ id, path: file, line, sensitive }) => [id, file, line, sensitive])).toEqual([
+      ["auth_set_local_role", "supabase/tests/roles.sql", 2, false],
+      ["auth_reset_role", "supabase/tests/roles.sql", 3, false],
+      ["auth_set_role", "supabase/tests/roles.sql", 4, true],
+    ]);
+    expect(migration.classes).toEqual(["schema", "migrations", "auth"]);
+    expect(migration.sql_hits).toEqual([
+      expect.objectContaining({ id: "auth_role_nosuperuser", line: 1, informational: true, sensitive: false }),
+      expect.objectContaining({ id: "auth_set_local_role", line: 2, sensitive: true }),
+    ]);
+    expect(result.sql_exemptions).toEqual([
+      expect.objectContaining({ id: "auth_set_local_role", path: "supabase/tests/roles.sql", line: 2, exemption: "tests_set_role_unprivileged", gate_loosening: true }),
+      expect.objectContaining({ id: "auth_reset_role", path: "supabase/tests/roles.sql", line: 3, exemption: "tests_reset_role", gate_loosening: true }),
+    ]);
+  });
+
+  it("shows hit locations and gate loosening in the job summary", async () => {
+    const result = await detect({ files: Object.keys(files).map(modified), readHeadFile, config });
+    const summary = formatSummary(result);
+    expect(summary).toContain("Gate loosening: 2 SQL hit(s) exempted by tests_set_role_unprivileged, tests_reset_role");
+    expect(summary).toContain("| auth_set_local_role | `supabase/tests/roles.sql:2` | auth | exempt (gate_loosening: tests_set_role_unprivileged) |");
+    expect(summary).toContain("| auth_reset_role | `supabase/tests/roles.sql:3` | auth | exempt (gate_loosening: tests_reset_role) |");
+    expect(summary).toContain("| auth_set_role | `supabase/tests/roles.sql:4` | auth | sensitive |");
+    expect(summary).toContain("| auth_role_nosuperuser | `supabase/migrations/20261001000000_roles.sql:1` | auth | informational |");
+  });
+});
+
 describe("detect", () => {
   const sqlFiles = {
     "supabase/migrations/20261001_policy.sql": "create policy p on t using (true);",
@@ -451,8 +1504,40 @@ describe("detect", () => {
     const result = await detect({ files: Object.keys(sqlFiles).map(modified), readHeadFile, config, sha: "h", baseSha: "b" });
     expect(result).toMatchObject({ version: OUTPUT_VERSION, sha: "h", base_sha: "b", status: "ok", classes: ["schema", "migrations", "rls", "definer"], multi_class: true });
     expect(result.files.map((file) => file.classes)).toEqual([["schema", "migrations", "rls"], ["schema", "definer"], ["schema"]]);
-    expect(result.files[0].reasons).toEqual(["schema:path:**/*.sql", "migrations:path:supabase/migrations/**", "rls:sql:create policy"]);
+    expect(result.files[0].reasons).toEqual(["schema:path:**/*.sql", "migrations:path:supabase/migrations/**", `rls:sql:rls_create_policy: ${rawConfig.sql_content.rules[0].reason}`]);
     expect(result.unclassified).toEqual([]);
+  });
+
+  it("reads head files one at a time, in file order", async () => {
+    let active = 0;
+    let peak = 0;
+    const order = [];
+    const slowRead = async (file) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      order.push(file);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return "select 1;";
+    };
+    const files = ["supabase/tests/a.sql", "docs/a.md", "supabase/tests/b.sql", "supabase/tests/c.sql"].map(modified);
+    const result = await detect({ files, readHeadFile: slowRead, config });
+    expect(result.status).toBe("ok");
+    expect(peak).toBe(1);
+    expect(order).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "supabase/tests/c.sql"]);
+  });
+
+  it("lists each file's error in file order and still classifies the files around it", async () => {
+    const files = [{ filename: "" }, modified("supabase/tests/a.sql"), null, modified("supabase/tests/b.sql"), modified("docs/a.md")];
+    const result = await detect({ files, readHeadFile: async (file) => { throw new Error(`no ${file}`); }, config });
+    expect(result.status).toBe("error");
+    expect(result.errors).toEqual([
+      'changed file 1: filename "" is not a non-empty path',
+      "could not read supabase/tests/a.sql at head: no supabase/tests/a.sql",
+      "changed file 3: is not an object",
+      "could not read supabase/tests/b.sql at head: no supabase/tests/b.sql",
+    ]);
+    expect(result.files.map((file) => file.path)).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "docs/a.md"]);
   });
 
   it("counts a sensitive old path of a rename", async () => {
@@ -526,6 +1611,122 @@ describe("detect", () => {
     const result = await detect({ files: [modified("supabase/fixtures/missing.sql")], readHeadFile, config });
     expect(result.status).toBe("error");
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
+  });
+
+  describe("oversized SQL bodies", () => {
+    const file = "supabase/fixtures/big.sql";
+    const expectedClasses = new Set(["schema", ...config.sqlContent.rules.map((rule) => rule.class)]);
+    const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });
+
+    it("scans a body just under the limit normally", async () => {
+      const result = await run(MAX_SQL_TOKENS);
+      expect(result).toMatchObject({ version: OUTPUT_VERSION, status: "ok", errors: [], sensitive_count: 1, unclassified: [], classes: ["schema"] });
+      expect(result.manual_review).toBeUndefined();
+    });
+
+    it("fails closed with a size message when the body is over the limit", async () => {
+      const result = await run(MAX_SQL_TOKENS + 1);
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.version).toBe(OUTPUT_VERSION);
+      expect(new Set(result.files[0].classes)).toEqual(expectedClasses);
+      expect(result.files[0].reasons).toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+      expect(formatSummary(result)).toContain("manual review: `SQL body " + file + " rejected for size");
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it.each([
+      ["a quoted string", `select '${";".repeat(500_000)}'`],
+      ["a dollar-quoted body", `do $$${";".repeat(500_000)}$$`],
+      ["a comment exceeding the character cap", `--${"x".repeat(MAX_SQL_TOKENS * 256)}`],
+    ])("fails closed on a dense space-free body in %s", async (_name, body) => {
+      const result = await detect({ files: [modified(file)], readHeadFile: async () => body, config });
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it("is deterministic across runs", async () => {
+      const first = await run(MAX_SQL_TOKENS + 1);
+      expect(await run(MAX_SQL_TOKENS + 1)).toEqual(first);
+    });
+
+    // A token in a quoted body is charged once, where it is tokenized, however
+    // deeply it is quoted. Each builder returns SQL whose flattened token count
+    // is exactly `tokens` (the quote and dollar-tag delimiters are not tokens).
+    describe("a token in a nested body is charged once", () => {
+      const select = (tokens) => Array(tokens).fill("select").join(" ");
+      const dollars = (body, levels) => Array.from({ length: levels }).reduce((inner, _, level) => `$q${level}$ ${inner} $q${level}$`, body);
+      const quotes = (body, levels) => Array.from({ length: levels }).reduce((inner) => `'${inner.replaceAll("'", "''")}'`, body);
+      const nested = [
+        ["a dollar-quoted body", (tokens) => dollars(select(tokens), 1)],
+        ["dollar-quoted bodies nested three deep", (tokens) => dollars(select(tokens), 3)],
+        ["a single-quoted body", (tokens) => quotes(select(tokens), 1)],
+        ["single-quoted bodies nested three deep", (tokens) => quotes(select(tokens), 3)],
+        ["single-quoted bodies nested past the depth limit", (tokens) => quotes(select(tokens), 10)],
+        ["a quoted string inside a dollar-quoted body", (tokens) => dollars(quotes(select(tokens), 2), 2)],
+        ["an E'' string after a word", (tokens) => `select e'${select(tokens - 1)}'`],
+        ["decoded E escapes nested in a dollar body", (tokens) => dollars(`E'${String.raw`\x73elect `.repeat(tokens)}'`, 1)],
+        ["continued E strings", (tokens) => `E'${select(tokens - 1)} '\n'${String.raw`\x73elect`}'`],
+        ["sibling quoted bodies sharing one budget", (tokens) => `${quotes(select(Math.floor(tokens / 2)), 1)} ${dollars(select(Math.ceil(tokens / 2)), 1)}`],
+      ];
+      const scan = (sql) => detect({ files: [modified(file)], readHeadFile: async () => sql, config });
+
+      it.each(nested)("tokenizes %s of exactly the limit once per token", (_name, build) => {
+        expect(sqlWords(build(MAX_SQL_TOKENS))).toHaveLength(MAX_SQL_TOKENS);
+      });
+
+      it.each(nested)("scans %s of exactly the limit normally", async (name, build) => {
+        const result = await scan(build(MAX_SQL_TOKENS));
+        // #824 intentionally adds auth when decoding reaches the depth limit.
+        const classes = name.includes("past the depth limit") ? ["schema", "auth"] : ["schema"];
+        expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 1, classes });
+        if (classes.includes("auth")) expect(result.files[0].sql_hits).toContainEqual(expect.objectContaining({ id: "auth_depth_limit" }));
+        expect(result.files[0].reasons).not.toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+        expect(result.manual_review).toBeUndefined();
+      });
+
+      it.each(nested)("fails closed on %s one token over the limit", async (_name, build) => {
+        const result = await scan(build(MAX_SQL_TOKENS + 1));
+        expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 1 });
+        expect(new Set(result.files[0].classes)).toEqual(expectedClasses);
+        expect(result.files[0].reasons).toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+        expect(result.manual_review).toEqual([
+          `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+        ]);
+      });
+
+      it.each([
+        ["U& string", (body) => `U&'${body}'`],
+        ["U& string nested in an E string", (body) => `E'U&''${body}'''`],
+        ["E string nested in U&", (body) => `U&'E''${body}'''`],
+      ])("charges the decoded body of %s", (_name, wrap) => {
+        const atLimit = wrap(select(MAX_SQL_TOKENS - 2)); // U and & are emitted too.
+        expect(sqlTokens(atLimit).words).toHaveLength(MAX_SQL_TOKENS);
+        expect(classifySql(atLimit, config).reasons).not.toContain(SQL_OVERSIZED_REASON);
+        const over = wrap(select(MAX_SQL_TOKENS - 1));
+        expect(() => sqlTokens(over)).toThrow(SqlTooLargeError);
+        expect(classifySql(over, config).reasons).toEqual([SQL_OVERSIZED_REASON]);
+      });
+
+      it("scans a DO block of 50k tokens (over half the limit) normally", () => {
+        const statements = 24_999;
+        const sql = `DO $$ BEGIN ${"NULL; ".repeat(statements)}END; $$;`;
+        expect(sqlWords(sql)).toHaveLength(2 * statements + 5);
+        expect(classifySql(sql, config)).toEqual({ classes: [], reasons: [], hits: [] });
+      });
+
+      it("still finds a sensitive statement inside a large nested body", () => {
+        const sql = dollars(`${select(MAX_SQL_TOKENS / 2)} execute 'create policy p on t'`, 2);
+        expect(classifySql(sql, config).classes).toEqual(["rls"]);
+      });
+    });
   });
 });
 
@@ -1082,13 +2283,26 @@ describe("gate_loosening: detector config diff against base", () => {
     expect(detectGateLoosening({ baseRaw: rawConfig, headRaw: null, gateFiles: [] }).detected).toBe(false);
   });
 
+  it("flags SQL constraint edits and added or widened SQL exemptions", () => {
+    expect(kinds(judge((head) => (head.sql_content.rules[0].informational = true)))).toEqual(["sql_rule_changed"]);
+    expect(kinds(judge((head) => (head.sql_content.rules[0].within = [["alter"]])))).toEqual(["sql_rule_changed"]);
+    expect(kinds(judge((head) => head.sql_content.exemptions[0].paths.push("fixtures/**")))).toEqual(["exemption_added"]);
+    const baseRaw = structuredClone(rawConfig);
+    delete baseRaw.sql_content.exemptions;
+    expect(kinds(detectGateLoosening({ baseRaw, headRaw: rawConfig, gateFiles: configChanged }))).toEqual(["exemption_added", "exemption_added"]);
+  });
+
   it("flags a removed sql_content rule and a narrowed sql_content path", () => {
     expect(kinds(judge((head) => head.sql_content.rules.pop()))).toEqual(["sql_rule_removed"]);
     expect(judge((head) => (head.sql_content.rules[0].tokens = ["create", "policy", "now"]))).toMatchObject({
       detected: true,
-      reasons: [{ kind: "sql_rule_removed", value: "rls:create policy" }],
+      reasons: [{ kind: "sql_rule_removed", value: JSON.stringify([rawConfig.sql_content.rules[0].id, "rls", ["create", "policy"], rawConfig.sql_content.rules[0].reason]) }],
     });
     expect(kinds(judge((head) => (head.sql_content.paths = ["**/*.sql"])))).toEqual(["rule_narrowed"]);
+  });
+
+  it.each(["id", "reason"])("flags an edited SQL rule %s", (field) => {
+    expect(kinds(judge((head) => (head.sql_content.rules[0][field] += "_changed")))).toEqual(["sql_rule_removed"]);
   });
 
   // A rename probe: docs/a.test.ts -> src/a.test.ts is unclassified on base
@@ -1207,7 +2421,7 @@ describe("gate_loosening: detector config diff against base", () => {
 
   it("does not flag an added sql_content rule or path", () => {
     const result = judge((head) => {
-      head.sql_content.rules.push({ class: "definer", tokens: ["set", "role"] });
+      head.sql_content.rules.push({ id: "new_definer", class: "definer", tokens: ["set", "role"], reason: "test" });
       head.sql_content.paths.push("**/*.ddl");
     });
     expect(result).toMatchObject({ detected: false, reasons: [] });

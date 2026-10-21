@@ -51,6 +51,7 @@ describe("loadConfig", () => {
       openRouterApiKey: null,
       workerBuildVersion: "dev-local",
       drawingExtractionModel: "gpt-5.4",
+      titleBlockApprovalEnabled: false,
       drawingExtractionEnableModelFallback: false,
       drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     });
@@ -184,6 +185,7 @@ describe("loadConfig", () => {
       openRouterApiKey: "test-openrouter-key",
       workerBuildVersion: "sha-123",
       drawingExtractionModel: "gpt-5.4",
+      titleBlockApprovalEnabled: false,
       drawingExtractionEnableModelFallback: true,
       drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
     });

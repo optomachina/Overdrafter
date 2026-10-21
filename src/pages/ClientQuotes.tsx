@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { useClientWorkspaceNotifications } from "@/features/notifications/use-client-workspace-notifications";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -39,6 +40,7 @@ export default function ClientQuotes() {
   const [query, setQuery] = useState("");
   const parsedQuery = useMemo(() => parseEngineeringQuery(query), [query]);
   const jobIds = useMemo(() => controller.accessibleJobs.map((job) => job.id), [controller.accessibleJobs]);
+  const notificationCenter = useClientWorkspaceNotifications(controller, jobIds);
   const referencesByJobId = useQuoteReferences(jobIds);
   const quoteWorkspace = useQuoteIntelligenceWorkspace(
     jobIds,
@@ -233,6 +235,7 @@ export default function ClientQuotes() {
       }
       accountSlot={
         <WorkspaceAccountMenu
+          notificationCenter={notificationCenter}
           user={controller.user}
           compact
           activeMembership={controller.activeMembership}
