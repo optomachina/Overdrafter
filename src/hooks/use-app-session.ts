@@ -132,6 +132,14 @@ export function useAppSession() {
       const currentSession =
         queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
 
+      if (currentSession?.user?.id !== session.user.id) {
+        if (currentSession) {
+          void queryClient.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
+          scheduleSessionRefresh();
+        }
+        hasResolvedInitialRestoreRef.current = false;
+        setHasResolvedInitialRestore(false);
+      }
       clearSubjectBoundClientState(
         queryClient,
         currentSession?.user?.id,
@@ -158,7 +166,7 @@ export function useAppSession() {
       sessionErrorRetriedRef.current = false;
       membershipErrorRetriedRef.current = false;
     },
-    [queryClient],
+    [queryClient, scheduleSessionRefresh],
   );
 
   useEffect(() => {
@@ -182,7 +190,19 @@ export function useAppSession() {
 
     void readStartupSupabaseBootstrap()
       .then((bootstrap) => {
-        if (cancelled) {
+        if (cancelled || initialAuthCheckRef.current !== "checking") {
+          return;
+        }
+
+        // The startup snapshot is memoized for the page lifetime. A new route
+        // observer must not seed the account that was signed out earlier.
+        const storedToken = getStoredSupabaseAccessToken();
+        if (bootstrap.session && storedToken && bootstrap.session.access_token !== storedToken) {
+          return;
+        }
+        // A late bootstrap seed must not overwrite a settled network failure.
+        const acceptedState = queryClient.getQueryState<AppSessionData>(APP_SESSION_QUERY_KEY);
+        if (acceptedState?.status === "error" || acceptedState?.data?.authState === "invalid_session") {
           return;
         }
 
@@ -350,12 +370,15 @@ export function useAppSession() {
 
   const sessionQuery = useQuery({
     queryKey: sessionQueryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (fixtureSession) {
         return fixtureSession;
       }
 
       const result = await fetchAppSessionData();
+      // A cancelled query can keep executing when the transport ignores abort.
+      // It must not mutate auth state, clear caches, or schedule another fetch.
+      signal.throwIfAborted();
       const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
 
       recordWorkspaceSessionDiagnostic(
@@ -391,8 +414,6 @@ export function useAppSession() {
 
         membershipErrorRetriedRef.current = false;
         sessionErrorRetriedRef.current = false;
-        terminalAuthStateRef.current = null;
-        pendingAuthTransitionRef.current = false;
         return { ...result, restoreComplete: true };
       }
 
@@ -403,11 +424,6 @@ export function useAppSession() {
           null,
           { force: true },
         );
-        terminalAuthStateRef.current = "invalid_session";
-        sessionErrorRetriedRef.current = false;
-        membershipErrorRetriedRef.current = false;
-        pendingAuthTransitionRef.current = false;
-        updateInitialAuthCheck("none");
         return { ...result, restoreComplete: true };
       }
 
@@ -435,6 +451,7 @@ export function useAppSession() {
       if (result.authState === "anonymous" && getStoredSupabaseAccessToken()) {
         try {
           const liveBootstrap = await readLiveSupabaseBootstrap();
+          signal.throwIfAborted();
           if (liveBootstrap.session) {
             pendingAuthTransitionRef.current = true;
             seedSessionFromSupabaseSession(liveBootstrap.session, "use-app-session.query.anonymous-live-session-rescue");
@@ -456,17 +473,13 @@ export function useAppSession() {
         }
       }
 
-      pendingAuthTransitionRef.current = false;
-      terminalAuthStateRef.current = null;
-      sessionErrorRetriedRef.current = false;
-      membershipErrorRetriedRef.current = false;
+      signal.throwIfAborted();
       clearSubjectBoundClientState(
         queryClient,
         currentSession?.user?.id,
         null,
         { force: true },
       );
-      updateInitialAuthCheck("none");
       return { ...result, restoreComplete: true };
     },
     initialData: fixtureSession ?? undefined,
@@ -476,16 +489,32 @@ export function useAppSession() {
   useEffect(() => {
     // Only an accepted shared result can finish restoration. Cancelled query functions
     // may still finish executing, and other observers may never run their own queryFn.
-    if (!isFixtureSession && sessionQuery.fetchStatus === "idle" && sessionQuery.data?.restoreComplete === true) {
+    if (isFixtureSession || sessionQuery.fetchStatus !== "idle") {
+      return;
+    }
+    if (sessionQuery.isError || sessionQuery.data?.restoreComplete === true) {
+      pendingAuthTransitionRef.current = false;
+      terminalAuthStateRef.current = sessionQuery.data?.authState === "invalid_session" ? "invalid_session" : null;
+      if (sessionQuery.isError || !sessionQuery.data?.user) {
+        sessionErrorRetriedRef.current = false;
+        membershipErrorRetriedRef.current = false;
+        updateInitialAuthCheck("none");
+      }
       markInitialRestoreResolved("use-app-session.shared-projection");
     }
-  }, [isFixtureSession, markInitialRestoreResolved, sessionQuery.data?.restoreComplete, sessionQuery.fetchStatus]);
+  }, [isFixtureSession, markInitialRestoreResolved, sessionQuery.data, sessionQuery.fetchStatus, sessionQuery.isError, updateInitialAuthCheck]);
 
-  const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
+  // Failed queries can retain a seeded (or previously authenticated) cache value.
+  // Expose the sign-in state while preserving the query's error/refetch API.
+  const sessionData = sessionQuery.isError ? EMPTY_APP_SESSION : sessionQuery.data;
+  const memberships = sessionData?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
-  const isAuthInitializing =
-    !hasResolvedInitialRestore &&
-    (initialAuthCheck === "present" || (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
+  const hasResolvedCurrentRestore = hasResolvedInitialRestore &&
+    (!sessionData?.user || isFixtureSession || sessionData.restoreComplete === true);
+  const isAuthInitializing = !sessionQuery.isError &&
+    !hasResolvedCurrentRestore &&
+    (Boolean(sessionData?.user) || initialAuthCheck === "present" ||
+      (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
   // The React Query cache is empty after a reload, so also trust the persisted Supabase
   // token read synchronously at startup. This only lets pages draw their shell chrome;
   // `user` stays null (and data queries stay disabled) until the session is verified.
@@ -624,14 +653,15 @@ export function useAppSession() {
 
   return {
     ...sessionQuery,
-    user: sessionQuery.data?.user ?? null,
+    data: sessionData,
+    user: sessionData?.user ?? null,
     memberships,
-    isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
-    isPlatformAdmin: sessionQuery.data?.isPlatformAdmin ?? false,
-    authState: sessionQuery.data?.authState ?? "anonymous",
-    membershipError: sessionQuery.data?.membershipError ?? null,
+    isVerifiedAuth: sessionData?.isVerifiedAuth ?? false,
+    isPlatformAdmin: sessionData?.isPlatformAdmin ?? false,
+    authState: sessionData?.authState ?? "anonymous",
+    membershipError: sessionData?.membershipError ?? null,
     isAuthInitializing,
-    hasResolvedInitialAuth: hasResolvedInitialRestore,
+    hasResolvedInitialAuth: !isAuthInitializing && (sessionQuery.isError || hasResolvedCurrentRestore),
     hasCachedSession,
     initialAuthCheck,
     activeOrganizationId: activeMembership?.organizationId ?? null,
