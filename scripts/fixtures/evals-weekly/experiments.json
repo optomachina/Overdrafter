@@ -1,0 +1,14 @@
+{
+  "experiments": [
+    {
+      "id": "fixture-only",
+      "title": "Synthetic trial",
+      "start": "2026-10-10",
+      "match": {
+        "prLabels": [
+          "trial"
+        ]
+      }
+    }
+  ]
+}
