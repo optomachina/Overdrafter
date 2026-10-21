@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
 import {
-  readLiveSupabaseBootstrap,
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
 } from "@/features/quotes/api/shared/startup-auth";
@@ -924,7 +923,7 @@ describe("useAppSession", () => {
       await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
     });
 
-    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
 
     vi.useRealTimers();
 
@@ -937,87 +936,6 @@ describe("useAppSession", () => {
       });
     });
 
-    expect(storageMock.getItem(tokenKey)).not.toBeNull();
-  });
-
-  it.each(["success", "timeout"])("keeps the job restore gate closed past startup timeout until the retry ends in %s", async (outcome) => {
-    vi.useFakeTimers();
-    const localSession = makeLocalSession();
-    const tokenKey = getSupabaseAuthStorageKey();
-    storageMock.setItem(tokenKey, JSON.stringify({ access_token: localSession.access_token }));
-    const retrySession = deferredPromise<{ data: { session: Session }; error: null }>();
-    const memberships = deferredPromise<AppSessionData>();
-    getSessionMock
-      .mockReturnValueOnce(new Promise(() => undefined)) // Memoized startup read.
-      .mockReturnValueOnce(new Promise(() => undefined)) // First live query read.
-      .mockReturnValue(retrySession.promise);
-    const sessionError: AppSessionData = {
-      user: null, memberships: [], isVerifiedAuth: false, authState: "session_error",
-    };
-    fetchAppSessionDataMock.mockImplementation(async () => {
-      const bootstrap = await readLiveSupabaseBootstrap();
-      return bootstrap.authState === "session_error" ? sessionError : memberships.promise;
-    });
-    function JobGate() {
-      const session = useAppSession();
-      const job = session.isAuthInitializing ? <span>Restoring job</span>
-        : !session.user ? <Navigate to="/?auth=signin" />
-        : <span>Job with {session.memberships.length} memberships</span>;
-      return <>
-        <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
-        <span data-testid="auth-state">{session.authState}</span>
-        <span data-testid="membership-count">{session.memberships.length}</span>
-        <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
-        <button type="button" disabled={session.isFetching} onClick={() => void session.refetch()}>Retry session</button>
-        <Routes>
-          <Route path="/internal/jobs/:jobId" element={job} />
-          <Route path="/" element={<span>Sign in</span>} />
-        </Routes>
-      </>;
-    }
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
-          <JobGate />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 20); });
-    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
-    expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("fetching");
-    expect(screen.getByText("Restoring job")).toBeInTheDocument();
-    expect(screen.queryByText("Sign in")).not.toBeInTheDocument();
-
-    if (outcome === "success") {
-      await act(async () => {
-        retrySession.resolve({ data: { session: localSession }, error: null });
-        await vi.advanceTimersByTimeAsync(20);
-      });
-      expect(screen.getByText("Restoring job")).toBeInTheDocument();
-      await act(async () => {
-        memberships.resolve(makeRestoredSession(localSession));
-        await vi.advanceTimersByTimeAsync(20);
-      });
-      expect(screen.getByText("Job with 1 memberships")).toBeInTheDocument();
-      expect(screen.queryByText("Sign in")).not.toBeInTheDocument();
-    } else {
-      await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS); });
-      expect(screen.getByText("Sign in")).toBeInTheDocument();
-      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
-      expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
-      expect(screen.getByRole("button", { name: "Retry session" })).toBeEnabled();
-      fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
-        await vi.advanceTimersByTimeAsync(20);
-      });
-      expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
-      expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
-    }
-    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
-    expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("idle");
     expect(storageMock.getItem(tokenKey)).not.toBeNull();
   });
 

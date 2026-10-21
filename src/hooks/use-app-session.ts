@@ -241,11 +241,6 @@ export function useAppSession() {
         }
 
         if (!bootstrap.session) {
-          // A timed-out startup read is inconclusive. The shared session query
-          // owns the bounded retry and must settle before the restore gate opens.
-          if (bootstrap.authState === "session_error") {
-            return;
-          }
           pendingAuthTransitionRef.current = false;
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.initial-check.no-session", {
