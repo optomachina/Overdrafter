@@ -235,6 +235,7 @@ const ClientPart = () => {
     needByRemovalSavesDrawingThreads,
     revisionOptions,
     saveRequestMutation,
+    singleQuantity,
     selectedQuoteOption,
     previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
@@ -523,6 +524,7 @@ const ClientPart = () => {
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
+        singleQuantity={singleQuantity}
         statusContent={
           <>
             {revisionOptions.length > 1 ? (

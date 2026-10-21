@@ -13,15 +13,23 @@ name: Ephemeral DB
 # It never connects to a hosted Supabase project and uses no secrets: the script
 # accepts only a loopback database URL (scripts/supabase-target-guard.mjs).
 #
-# Report mode: the job is non-required and continue-on-error, and the script
-# exits 0 whatever the result. The JSON report (schema ovd849.ephemeral-db.v1,
-# for OVD-845) is uploaded as the ephemeral-db-report artifact and summarised
-# in the step summary. To block on it later, pass enforce: true (which adds
-# --enforce) and make the check required; do not change branch protection here.
+# Report mode for the apply path: the job is non-required, and that step runs
+# the script without --enforce, so the step exits 0 whatever the result. The
+# JSON report (schema ovd849.ephemeral-db.v1, for OVD-845) is uploaded as the
+# ephemeral-db-report artifact and summarised in the step summary. To block on
+# the apply path later, pass enforce: true (which adds --enforce) and make the
+# check required; do not change branch protection here.
 #
-# This generalises the per-issue ovdNNN-pending-pgtap.yml workflows. Those still
-# own their rollback and DM-1R replay checks, and can be retired once this job
-# has proven itself.
+# This generalises the per-issue ovdNNN-pending-pgtap.yml workflows. Rollback
+# and DM-1R replay checks run in the "Roll back draft families (DM-1R)" step
+# (scripts/ephemeral-db-apply.mjs --rollback). That step has no continue-on-error
+# and fails this job when a family fails. The job stays off the required set,
+# so the red X matches today's per-issue workflows and does not block a merge.
+# The per-issue workflows can be retired once that stage has proven itself.
+#
+# The rollback step is pinned to the prepared base copy of the script and
+# fails closed until --rollback is supported on base. It never falls back to
+# the head script when the base copy lacks the flag.
 #
 # The script runs from the base commit (HEAD^1), so a PR cannot edit it to skip
 # itself. When the base has no copy yet (the PR that introduces it), the head
@@ -74,9 +82,10 @@ jobs:
   ephemeral-db:
     name: ephemeral-db
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    # Report mode: never blocks a PR until it is promoted with enforce: true.
-    continue-on-error: ${{ !inputs.enforce }}
+    # The apply path and the rollback stage each start a local database.
+    timeout-minutes: 45
+    # Not a required check. The apply step stays in report mode (exit 0).
+    # The rollback step has no continue-on-error and fails this job.
     env:
       DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
     steps:
@@ -130,16 +139,33 @@ jobs:
             --work-dir "$RUNNER_TEMP/ephemeral-db" --checker-source "$CHECKER_SOURCE" \
             --report "$RUNNER_TEMP/ephemeral-db-report.json" $ENFORCE
 
+      - name: Stop local database before rollback stage
+        # Free the loopback port before the rollback stage starts its own stack.
+        run: supabase stop --no-backup --workdir "$RUNNER_TEMP/ephemeral-db/base-project" || true
+
+      - name: Roll back draft families (DM-1R)
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs" \
+            --root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
+            --db-url "$DB_URL" --psql docker \
+            --work-dir "$RUNNER_TEMP/ephemeral-db-rollback" --checker-source "$CHECKER_SOURCE" \
+            --report "$RUNNER_TEMP/ephemeral-db-rollback-report.json" --rollback
+
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ephemeral-db-report
-          path: ${{ runner.temp }}/ephemeral-db-report.json
+          path: |
+            ${{ runner.temp }}/ephemeral-db-report.json
+            ${{ runner.temp }}/ephemeral-db-rollback-report.json
           if-no-files-found: warn
 
       - name: Stop local database
         if: always()
         # --workdir: stop the stack the base copy's config.toml started, even if
         # the PR changes project_id or ports in the head's config.toml.
-        run: supabase stop --no-backup --workdir "$RUNNER_TEMP/ephemeral-db/base-project" || true
+        run: |
+          supabase stop --no-backup --workdir "$RUNNER_TEMP/ephemeral-db/base-project" || true
+          supabase stop --no-backup --workdir "$RUNNER_TEMP/ephemeral-db-rollback/base-project" || true
