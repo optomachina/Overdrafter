@@ -1,12 +1,4 @@
--- ovd: post-rollback
--- OVD-949: verify rollbacks restore the post-OVD-736 (20261015074957) ACL.
-
-begin;
-create extension if not exists pgtap with schema extensions;
-set local search_path = public, extensions;
-
-select plan(12);
-
+-- OVD-949: the 12 post-rollback ACL assertions, shared by both rollback passes.
 select ok(
   not has_function_privilege('anon', 'public.api_admin_list_all_jobs()', 'EXECUTE') and not exists (
     select 1 from pg_catalog.pg_proc p,
@@ -85,5 +77,3 @@ select ok(
   'user_can_edit_job: authenticated and service_role keep EXECUTE'
 );
 
-select * from finish();
-rollback;
