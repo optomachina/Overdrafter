@@ -56,8 +56,9 @@ import {
  * The generic path admits only envelopes listed in
  * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. Fictiv's
  * (`fictiv-quote-envelope.v1`, OVD-673), Quickparts
- * (`quickparts-quote-envelope.v1`, OVD-674), and Weerg
- * (`weerg-quote-envelope.v1`, OVD-675) are listed here. A
+ * (`quickparts-quote-envelope.v1`, OVD-674), Weerg
+ * (`weerg-quote-envelope.v1`, OVD-675) are listed here. OSH Cut remains
+ * unreviewed and default-off for 1.0 (Blaine, 2026-10-20). A
  * database-approved decision for any other envelope is refused with
  * `provider_envelope_unknown` and no adapter launches.
  *

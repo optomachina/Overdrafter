@@ -55,7 +55,7 @@ draft | approved | active | suspended --retire--> retired (terminal)
 - **A2. Editing a live provider.** In v1 you edit only in `draft`. To change an active provider, you suspend, reopen, edit, submit, approve, record the dry run and activate it again. This creates a new version. While it is in draft, the provider is not served. See Q3.
 - **A3. Export-control fields (OVD-723).** There are two fields. `export_jurisdiction` is `us` or `foreign`, the same values `private.export_control_provider_jurisdiction` returns. `export_controlled_allowed` is a boolean. A foreign provider can never be set to `true`. Activation requires both fields to be set.
 - **A4. Dry-run gate.** `api_admin_record_provider_dry_run` records the result of an offline dry-run check with a required evidence reference, and who recorded it (`dry_run_recorded_by`). The database performs no dispatch. A pass is tied to the current `version`. Approving a new version, reopening, or recording a failing result clears the pass. Activation requires `dry_run_passed_version = version`. Resuming from `suspended` keeps the pass for the same version. Recording and activating are four-eyes steps (A12, Q2).
-- **A5. Seed.** Only the `liveAdapter: true` registry providers (today fictiv, quickparts, weerg and xometry) are seeded, as `approved`, version 1 (Q4). They have these sources:
+- **A5. Seed.** Only the `liveAdapter: true` registry providers (today fictiv, quickparts, weerg and xometry; OSH Cut remains default-off and is not seeded) are seeded, as `approved`, version 1 (Q4). They have these sources:
   - `admission`: the registry entry, verbatim.
   - `display_name`: the manifest `displayName`.
   - `host_allowlist`: the manifest `official.domains`.
@@ -237,4 +237,4 @@ workflow above is the faithful proof on a real local Supabase stack. Results:
 3. Add the OVD-602 allowlist rows above.
 4. Delete `.github/workflows/ovd707-pending-pgtap.yml` and the `ovd-707-*` Sonar CPD exclusion if the promoted migration no longer needs it.
 5. Resolve the remaining design questions (Q3, Q5, Q6); Q1, Q2 and Q4 are decided above.
-6. In the same window, for each seeded live provider (`fictiv`, `quickparts`, `weerg`, `xometry`): one admin records a real dry run, and a different admin activates it, or Blaine activates through the override. Until then the service read returns nothing for them.
+6. In the same window, for each seeded live provider (`fictiv`, `quickparts`, `weerg`, `xometry`): one admin records a real dry run, and a different admin activates it, or Blaine activates through the override. Until then the service read returns nothing for them. Default-off `oshcut` is not seeded or approved by this migration.

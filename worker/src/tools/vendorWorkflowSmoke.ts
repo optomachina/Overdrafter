@@ -1,3 +1,4 @@
+import { refuseOshcutPortalAutomation } from "../adapters/oshcutPortalDisabled.js";
 import "dotenv/config";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,8 @@ import {
   type LiveHarnessArtifactOptions,
   type LiveHarnessRunArtifacts,
 } from "./liveHarnessArtifacts.js";
+import { reportSupplierCartCleanup, type SupplierCartCleanupRecord } from "./liveHarnessSupplierCleanup.js";
+import { enabledPortalVendors } from "./enabledPortalVendors.js";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
@@ -118,6 +121,8 @@ type SmokeRow = {
   errorPayload: Record<string, unknown> | null;
   error: string | null;
   cleanupError: string | null;
+  /** Supplier-side removal of the uploaded test part (standing rule, 2026-10-15). */
+  supplierCartCleanup?: SupplierCartCleanupRecord;
   evidence: LiveEvaluationEvidenceV1;
 };
 
@@ -549,7 +554,8 @@ function assertSendCutSendCliAdmission(input: {
  */
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
-  const vendors = parseVendors(rawVendor);
+  const requestedVendors = parseVendors(rawVendor);
+  const vendors = requestedVendors ? enabledPortalVendors(requestedVendors) : null;
   const cadPath = readFlag(argv, "--cad") ?? env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH ?? null;
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
   const rawQuantities = readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null;
@@ -581,7 +587,8 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     manifestPath: sendCutSendManifestPath,
   });
 
-  const oshcutPackage = parseOshcutPackageMetadata(argv, vendors);
+  const skippedOshcut = requestedVendors?.includes("oshcut") && !vendors.includes("oshcut");
+  const oshcutPackage = skippedOshcut ? null : parseOshcutPackageMetadata(argv, vendors);
   if (vendors.includes("oshcut")) {
     assertExactOshcutPackageMetadata(oshcutPackage);
     for (const quantity of quantities) {
@@ -1328,6 +1335,14 @@ function formatBusinessDays(value: number | null): string {
 }
 
 export function formatRow(row: SmokeRow) {
+  const line = formatRowOutcome(row);
+  const cleanup = row.supplierCartCleanup;
+  return cleanup?.manualRemovalRequired
+    ? `${line} | SUPPLIER CART CLEANUP NEEDED (${cleanup.status}): remove the test part manually`
+    : line;
+}
+
+function formatRowOutcome(row: SmokeRow) {
   if (row.error) {
     const code = row.errorCode ? ` ${row.errorCode}` : "";
     return `  ${row.vendor} qty ${row.quantity}: ERROR${code} (${row.elapsedSec.toFixed(1)}s) - ${row.error}`;
@@ -1455,6 +1470,7 @@ export async function runQuote(
   killSwitchReader?: ProviderKillSwitchReader,
   runArtifacts: LiveHarnessRunArtifacts | null = null,
 ): Promise<SmokeRow> {
+  if (vendor === "oshcut") refuseOshcutPortalAutomation();
   await assertQuoteAdmission(args, vendor, quantity, stagedFiles, sendCutSendManifest);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -1518,6 +1534,7 @@ export async function runQuote(
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
         authorization: stagedFiles.authorization, accountMode, sensitivePaths, adapterInput });
+      nativeRow.supplierCartCleanup = reportSupplierCartCleanup({ vendor, quantity, payload: validated });
       console.log("done (local native-currency evidence)");
       return nativeRow;
     }
@@ -1564,9 +1581,16 @@ export async function runQuote(
         validityTerms: result.validityTerms,
       }),
     };
+    row.supplierCartCleanup = reportSupplierCartCleanup({ vendor, quantity, payload: result.rawPayload });
     await recordRunArtifacts(runArtifacts, row, result.quoteUrl, result.artifacts);
   } catch (error) {
     console.log("FAILED");
+    // Report uncertain supplier cleanup even when an interruption stops the run.
+    const supplierCartCleanup = reportSupplierCartCleanup({
+      vendor,
+      quantity,
+      payload: isVendorAutomationError(error) ? error.payload : adapterResult?.rawPayload,
+    });
     // A switched-off supplier or a spent daily cap stops the whole run.
     if (error instanceof ProviderKillSwitchError || error instanceof ProviderDispatchRefusedError) throw error;
     row = buildErrorRow(
@@ -1581,6 +1605,7 @@ export async function runQuote(
         accountMode,
       },
     );
+    row.supplierCartCleanup = supplierCartCleanup;
     await recordFailedRunArtifacts(runArtifacts, row, adapterResult, error);
   }
 
@@ -1619,6 +1644,8 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
+  if (args.vendors.length === 1 && args.vendors[0] === "oshcut") refuseOshcutPortalAutomation();
+  args = { ...args, vendors: enabledPortalVendors(args.vendors) };
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   await assertOperatorProvidersEnabled(
