@@ -1269,7 +1269,44 @@ describe("ClientProject", () => {
     await screen.findByRole("region", { name: "Project summary" });
     const button = screen.getByRole("button", { name: "Review order" });
     expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    await waitFor(() => expect(button).toHaveAccessibleDescription("Choose a quote to continue"));
+    expect(screen.queryByText("Choose a package option to continue")).not.toBeInTheDocument();
+  });
+
+  it("shows neutral wording until quote options load", async () => {
+    const item = createProjectSummaryWorkspaceItem({
+      jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
+      totalPriceUsd: 100, leadTimeBusinessDays: 7,
+    });
+    item.publishedQuoteOptions = [{
+      id: "option-A", package_id: "package-1", organization_id: "org-1",
+      option_kind: "lowest_cost", label: "Lowest cost", requested_quantity: 10,
+      published_price_usd: 402.5, lead_time_business_days: 7,
+      source_vendor_quote_id: "job-1-result-1", source_vendor_quote_offer_id: "job-1-offer-1",
+      comparison_summary: null, markup_policy_version: "v1", created_at: new Date().toISOString(),
+    }];
+    item.publishedQuoteSelection = null;
+    let resolveWorkspace!: (items: ClientQuoteWorkspaceItem[]) => void;
+    api.fetchJobsByProject.mockResolvedValue([item.job]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockReturnValue(new Promise<ClientQuoteWorkspaceItem[]>((resolve) => {
+      resolveWorkspace = resolve;
+    }));
+    renderWithClient("/projects/project-1");
+    const button = await screen.findByRole("button", { name: "Review order" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("Loading quote options…");
+    expect(screen.queryByText("Choose a quote to continue")).not.toBeInTheDocument();
+    await act(async () => resolveWorkspace([item]));
+    await waitFor(() => expect(button).toHaveAccessibleDescription("Choose a package option to continue"));
+  });
+
+  it("explains a quote-options load failure instead of asking for a selection", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockRejectedValue(new Error("Workspace unavailable"));
+    renderWithClient("/projects/project-1");
+    const button = await screen.findByRole("button", { name: "Review order" });
+    await waitFor(() => expect(button).toHaveAccessibleDescription("Unable to load quote options. Please try again."));
+    expect(button).toBeDisabled();
+    expect(screen.queryByText("Choose a quote to continue")).not.toBeInTheDocument();
     expect(screen.queryByText("Choose a package option to continue")).not.toBeInTheDocument();
   });
 

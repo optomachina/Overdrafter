@@ -1365,7 +1365,11 @@ const ClientProject = () => {
               </Button>
               {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
                 <span id="project-review-order-reason" className="text-sm text-muted-foreground">
-                  {getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
+                  {projectWorkspaceItemsQuery.isError
+                    ? "Unable to load quote options. Please try again."
+                    : projectWorkspaceItemsQuery.isLoading
+                      ? "Loading quote options…"
+                      : getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
                 </span>
               ) : null}
               <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>

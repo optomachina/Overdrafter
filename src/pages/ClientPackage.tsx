@@ -378,7 +378,7 @@ const ClientPackage = () => {
                         <Button
                           className="w-full rounded-full"
                           onClick={() => selectMutation.mutate(option.id)}
-                          disabled={isSelected || !option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending}
+                          disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending}
                           aria-pressed={isSelected}
                           aria-describedby={!option.source_vendor_quote_offer_id ? `quote-refresh-${option.id}` : undefined}
                         >
@@ -387,7 +387,7 @@ const ClientPackage = () => {
                           ) : (
                             <CheckCircle2 className="mr-2 h-4 w-4" />
                           )}
-                          {isSelected ? "Selected" : latestSelection ? "Select another option" : "Select this option"}
+                          {isSelected ? (option.source_vendor_quote_offer_id ? "Save note" : "Selected") : latestSelection ? "Select another option" : "Select this option"}
                         </Button>
                       </CardContent>
                     </Card>

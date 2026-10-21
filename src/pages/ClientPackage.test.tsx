@@ -90,7 +90,7 @@ describe("published package selection eligibility", () => {
     const card = heading.closest(".border") as HTMLElement;
     expect(card).toHaveClass("border-primary");
     expect(within(card).getByText("Selected", { selector: "span" })).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "Selected" })).toBeDisabled();
+    expect(within(card).getByRole("button", { name: "Save note" })).toBeEnabled();
     expect(within(card).getByRole("button")).toHaveAttribute("aria-pressed", "true");
     const receipt = screen.getByText("Selection received").closest(".border") as HTMLElement;
     expect(receipt).toHaveTextContent("Fastest delivery · $150.00 · Qty 10");
@@ -99,6 +99,19 @@ describe("published package selection eligibility", () => {
     expect(replacement).toBeEnabled();
     fireEvent.click(replacement);
     await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledWith({ packageId: "package-1", optionId: "option-1", note: "" }));
+  });
+
+  it("saves another decision note for the already selected option", async () => {
+    mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
+    renderPackage();
+    const save = await screen.findByRole("button", { name: "Save note" });
+    expect(save).toBeEnabled();
+    expect(save).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Ship to dock B" } });
+    fireEvent.click(save);
+    await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledExactlyOnceWith({
+      packageId: "package-1", optionId: "option-1", note: "Ship to dock B",
+    }));
   });
 
   it("guards the mutation itself against missing sources and unknown option IDs", async () => {

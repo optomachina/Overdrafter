@@ -91,7 +91,7 @@ function createProjectStorageKey(organizationId?: string, userEmail?: string): s
   return `${PROJECT_STORAGE_PREFIX}:${organizationId}:${userEmail.toLowerCase()}`;
 }
 
-export function useClientHomeController() {
+export function useClientHomeController({ loadPublishedWorkspace = false }: { loadPublishedWorkspace?: boolean } = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
@@ -159,7 +159,7 @@ export function useClientHomeController() {
   const publishedWorkspaceQuery = useQuery({
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(publishedJobIds, workspaceAccessScope),
     queryFn: () => fetchClientQuoteWorkspaceByJobIds(publishedJobIds),
-    enabled: hasWorkspaceAuthContext && publishedJobIds.length > 0,
+    enabled: loadPublishedWorkspace && hasWorkspaceAuthContext && publishedJobIds.length > 0,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
   });
   const workspaceItemsByJobId = useMemo(

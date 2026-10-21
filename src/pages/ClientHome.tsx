@@ -66,7 +66,7 @@ const ClientHome = () => {
     workspaceItemsByJobId,
     accessibleJobs,
     accessibleJobsQuery,
-  } = useClientHomeController();
+  } = useClientHomeController({ loadPublishedWorkspace: true });
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
     isPlatformAdmin,
