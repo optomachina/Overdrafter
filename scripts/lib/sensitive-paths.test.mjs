@@ -433,7 +433,9 @@ describe("import-boundary gate files", () => {
 
   it("classifies the import-boundary gate files as infra_ci", () => {
     const matcher = createMatcher(config);
-    for (const file of gateFiles) expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+    // A path with "adapter" in its name is also provider_dispatch (the shared list fails closed on any adapter path).
+    const alsoProviderDispatch = new Set(["scripts/eslint-adapter-import-boundary.test.mjs"]);
+    for (const file of gateFiles) expect(matcher.classify(file), file).toEqual(alsoProviderDispatch.has(file) ? ["provider_dispatch", "infra_ci"] : ["infra_ci"]);
   });
 
   it("does not match near-miss paths", () => {
@@ -505,7 +507,8 @@ describe("import-boundary gate coverage globs", () => {
         const matcher = createMatcher(config);
         for (const file of positives) {
           expect(only().classify(file), `${glob} should match ${file}`).toEqual(["infra_ci"]);
-          expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+          // Other globs may add a class (an "adapter" name is also provider_dispatch); infra_ci must still be there.
+          expect(matcher.classify(file), file).toContain("infra_ci");
         }
       });
 
@@ -527,7 +530,7 @@ describe("import-boundary gate coverage globs", () => {
 
       it("is needed: without it no other glob classifies its positive paths", () => {
         const withoutIt = createMatcher(parseSensitivePaths(withoutOnly(glob)));
-        for (const file of positives) expect(withoutIt.classify(file), `${glob} adds no coverage for ${file}`).toEqual([]);
+        for (const file of positives) expect(withoutIt.classify(file), `${glob} adds no infra_ci coverage for ${file}`).not.toContain("infra_ci");
       });
     });
   }

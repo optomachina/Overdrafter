@@ -1,7 +1,8 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 export const CATEGORIES = [
   "type-safety",
@@ -215,6 +216,6 @@ export function main(argv = process.argv.slice(2), io = { log: console.log, erro
   return args.failOnNeedsTask && result.needsTask.length > 0 ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   process.exitCode = main();
 }

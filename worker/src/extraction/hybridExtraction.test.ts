@@ -655,6 +655,40 @@ describe("runHybridExtraction", () => {
     expect(degraded.warnings.join(" ")).toContain("Model fallback failed");
   });
 
+  // OVD-978: api_list_client_part_metadata (docs/migration-drafts/ovd-978.sql) keeps these two
+  // operator-only diagnostics out of the client's warningCount by their "Model fallback "
+  // prefix. They embed the raw provider or spend-guard message, which a client must not see,
+  // and they say a model call did not run, not that a field needs review. Change the prefix
+  // only together with that filter.
+  it("writes the operator-only model diagnostics under the 'Model fallback ' prefix", async () => {
+    const input = {
+      part: makePart(),
+      cadFile: makeFile(),
+      drawingFile: makeFile({ id: "file-2", original_name: "widget-clamp.pdf", file_kind: "drawing" }),
+      drawingPath: "/tmp/widget-clamp.pdf",
+      runDir: "/tmp",
+      previewPagePath: "/tmp/drawing-page-1.png",
+      config: makeConfig(),
+      forceModelFallback: true,
+    };
+    const spendRefusal = Object.assign(new Error("Spending is halted by an operator kill switch"), {
+      name: "SpendCapExceededError",
+    });
+
+    const refused = await runHybridExtraction(input, { extractWithModel: vi.fn().mockRejectedValue(spendRefusal) });
+    const failed = await runHybridExtraction(input, {
+      extractWithModel: vi.fn().mockRejectedValue(new Error("429 Rate limit reached for the extraction model")),
+    });
+
+    const operatorWarnings = (warnings: string[]) => warnings.filter((warning) => warning.startsWith("Model fallback "));
+    expect(operatorWarnings(refused.warnings)).toEqual([
+      expect.stringContaining("Spending is halted by an operator kill switch"),
+    ]);
+    expect(operatorWarnings(failed.warnings)).toEqual([
+      expect.stringContaining("429 Rate limit reached for the extraction model"),
+    ]);
+  });
+
   it("fails closed when parser and model disagree without a clear winner", async () => {
     vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockReturnValue({
       description: {
