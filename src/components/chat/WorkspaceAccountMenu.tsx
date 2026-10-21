@@ -52,15 +52,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import {
-  WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
-} from "@/features/notifications/use-workspace-notifications";
 import type {
   BrowserNotificationPermissionState,
   WorkspaceNotificationChannel,
   WorkspaceNotificationItem,
   WorkspaceNotificationsController,
-  WorkspaceNotificationType,
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
@@ -147,7 +143,7 @@ const COMPACT_PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
-  "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
+  "shrink-0 rounded-[2px] border border-border bg-accent px-2.5 py-1 font-mono text-[11px] font-medium text-foreground";
 function readBillingReturnState(): BillingReturnState {
   if (typeof window === "undefined") {
     return null;
@@ -755,30 +751,7 @@ export function WorkspaceAccountMenu({
     isDev: import.meta.env.DEV,
   });
   const showFixtures = isFixtureModeAvailable();
-  const notifications = notificationCenter ?? {
-    allItems: [],
-    browserPermission: "unsupported" as const,
-    errorMessage: null,
-    isLoading: false,
-    isRequestingPermission: false,
-    items: [],
-    markAllSeen: () => undefined,
-    requestBrowserPermission: async () => undefined,
-    setChannelEnabled: () => undefined,
-    setItemSeen: () => undefined,
-    supportedTypes: [] as WorkspaceNotificationType[],
-    typeDefinitions: WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
-    typePreferences: {
-      "client.quote_package_ready": { inApp: true, browser: false },
-      "internal.extraction_attention_required": { inApp: true, browser: false },
-      "internal.quote_responses_ready": { inApp: true, browser: false },
-      "internal.quote_follow_up_required": { inApp: true, browser: false },
-      "internal.quote_collection_failed": { inApp: true, browser: false },
-      "internal.client_selection_received": { inApp: true, browser: false },
-      "platform.provider_added": { inApp: true, browser: false },
-    },
-    unseenCount: 0,
-  };
+  const notifications = notificationCenter;
   const archiveItems = useMemo<ArchiveListItem[]>(
     () =>
       [
@@ -829,7 +802,7 @@ export function WorkspaceAccountMenu({
     setActivePanel(panelId);
 
     if (panelId === "notifications") {
-      notifications.markAllSeen();
+      notifications?.markAllSeen();
     }
   };
 
@@ -937,6 +910,7 @@ export function WorkspaceAccountMenu({
 
     switch (activePanel) {
       case "notifications":
+        if (!notifications) return null;
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
@@ -1292,12 +1266,14 @@ export function WorkspaceAccountMenu({
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Support</PanelSectionTitle>
               <div className="mt-4 space-y-3">
-                <HelpCenterButton
-                  icon={Bell}
-                  label="Notifications"
-                  description="Review browser permission, preferences, and seen state for workflow alerts."
-                  onClick={() => setActivePanel("notifications")}
-                />
+                {notificationCenter ? (
+                  <HelpCenterButton
+                    icon={Bell}
+                    label="Notifications"
+                    description="Review browser permission, preferences, and seen state for workflow alerts."
+                    onClick={() => setActivePanel("notifications")}
+                  />
+                ) : null}
                 <HelpCenterButton
                   icon={CircleHelp}
                   label="Help center"
@@ -1633,7 +1609,7 @@ export function WorkspaceAccountMenu({
                 {roleLabel}
               </p>
             </div>
-            {notifications.unseenCount > 0 ? (
+            {(notifications?.unseenCount ?? 0) > 0 ? (
               <span
                 className={cn(
                   "hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300",
@@ -1641,9 +1617,9 @@ export function WorkspaceAccountMenu({
                     ? "rounded-[2px] border-paper-hairline bg-paper-inset text-paper-muted lg:inline-flex"
                     : "md:inline-flex",
                 )}
-                aria-label={`${notifications.unseenCount} unseen notifications`}
+                aria-label={`${notifications?.unseenCount} unseen notifications`}
               >
-                {notifications.unseenCount}
+                {notifications?.unseenCount}
               </span>
             ) : null}
             <div
@@ -1667,21 +1643,23 @@ export function WorkspaceAccountMenu({
           collisionPadding={16}
           className={compact ? COMPACT_MENU_CONTENT_CLASS : MENU_CONTENT_CLASS}
         >
-          <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("notifications")}>
-            <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
-            <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-              <span>Notifications</span>
-              {notifications.unseenCount > 0 ? (
-                <span
-                  className={compact
-                    ? "rounded-[2px] border border-paper-hairline bg-paper-inset px-2.5 py-1 text-[11px] font-medium text-paper-muted"
-                    : NOTIFICATION_BADGE_CLASS}
-                >
-                  {notifications.unseenCount}
-                </span>
-              ) : null}
-            </span>
-          </DropdownMenuItem>
+          {notificationCenter ? (
+            <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("notifications")}>
+              <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <span>Notifications</span>
+                {(notifications?.unseenCount ?? 0) > 0 ? (
+                  <span
+                    className={compact
+                      ? "rounded-[2px] border border-paper-hairline bg-paper-inset px-2.5 py-1 text-[11px] font-medium text-paper-muted"
+                      : NOTIFICATION_BADGE_CLASS}
+                  >
+                    {notifications?.unseenCount}
+                  </span>
+                ) : null}
+              </span>
+            </DropdownMenuItem>
+          ) : null}
 
           <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />

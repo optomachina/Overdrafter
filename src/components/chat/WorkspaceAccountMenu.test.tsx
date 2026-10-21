@@ -886,6 +886,17 @@ describe("WorkspaceAccountMenu", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("hides notification entry points when no notification controller is supplied", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    expect(screen.queryByRole("menuitem", { name: /notifications/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: /notifications/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/does not expose the Notification API/)).not.toBeInTheDocument();
+  });
+
   it("opens the notifications panel and marks current items seen", async () => {
     const notificationCenter = makeNotificationCenter();
     render(
