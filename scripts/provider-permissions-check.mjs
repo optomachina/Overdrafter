@@ -164,6 +164,22 @@ export function hasWrittenPermission(row) {
   return row?.written_permission?.recorded === true;
 }
 
+const OWNER_OVERRIDE_VALUES = Object.freeze({
+  recorded_by: "Blaine Wilson",
+  scope: "quote-only on owner accounts",
+  tos_risk_accepted_until: "cease_and_desist",
+  orders_allowed: false,
+});
+
+export function hasOwnerOverride(row) {
+  const override = row?.owner_override;
+  if (!isObject(override) || Object.keys(override).length !== 5) return false;
+  if (!Object.entries(OWNER_OVERRIDE_VALUES).every(([key, value]) => override[key] === value)) return false;
+  if (typeof override.recorded_on !== "string" || !ISO_DATE_PATTERN.test(override.recorded_on)) return false;
+  const date = new Date(`${override.recorded_on}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === override.recorded_on;
+}
+
 export function deriveEnabledForPaidAutomation(row) {
   if (!row || typeof row !== "object") {
     return false;
@@ -174,7 +190,7 @@ export function deriveEnabledForPaidAutomation(row) {
   if (row.permission_status === "cease_and_desist") {
     return false;
   }
-  return row.tos_stance === "allowed" || hasWrittenPermission(row);
+  return row.tos_stance === "allowed" || hasWrittenPermission(row) || hasOwnerOverride(row);
 }
 
 export function validatePermissionsMatrixSchema(schema) {
@@ -280,6 +296,9 @@ function assertProviderRow(row, index) {
   assertIsoDate(provider.date_checked, `${label}.date_checked`);
   assertProviderKillSwitch(provider, label);
   assertWrittenPermission(provider, label);
+  if (provider.owner_override !== undefined && provider.owner_override !== null) {
+    assertType(hasOwnerOverride(provider), `${label}.owner_override must record Blaine's dated quote-only owner-account decision, ToS risk until C&D, and no orders`);
+  }
   assertType(typeof provider.enabled_for_paid_automation === "boolean", `${label}.enabled_for_paid_automation must be a boolean`);
   assertProviderReplies(provider, label);
   assertType(typeof provider.notes === "string", `${label}.notes must be a string`);
@@ -371,6 +390,22 @@ export function parseMarkdownReplyCounts(markdown) {
     }
   }
   return counts;
+}
+
+export function assertMarkdownOwnerOverrides(markdown, providers) {
+  const sections = new Map(String(markdown).split(/^### /m).slice(1).map((section) => [
+    section.split(/\r?\n/, 1)[0].trim(), section,
+  ]));
+  for (const row of providers) {
+    const lines = sections.get(row.key)?.match(/^- owner_override: .*$/gm) ?? [];
+    const override = row.owner_override;
+    const expected = override
+      ? `- owner_override: ${override.recorded_by}; ${override.recorded_on}; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.`
+      : null;
+    if (expected ? lines.length !== 1 || lines[0] !== expected : lines.length !== 0) {
+      throw new Error(`markdown/JSON disagree on ${row.key}.owner_override`);
+    }
+  }
 }
 
 export function assertMarkdownAgreesWithJson(markdownRows, providers, replyCounts) {
@@ -861,10 +896,10 @@ export function assertPaidAutomationGate(providers) {
     if (row.in_1_0 !== true) {
       throw new Error(`${row.key} is enabled for paid automation but is not a 1.0 provider`);
     }
-    if (row.tos_stance !== "allowed" && !hasWrittenPermission(row)) {
-      throw new Error(`${row.key} is enabled for paid automation without an allowed stance or written permission`);
+    if (row.tos_stance !== "allowed" && !hasWrittenPermission(row) && !hasOwnerOverride(row)) {
+      throw new Error(`${row.key} is enabled for paid automation without an allowed stance, written permission or owner override`);
     }
-    if (row.permission_status === "cease_and_desist" || row.tos_stance === "prohibited") {
+    if (row.permission_status === "cease_and_desist" || (row.tos_stance === "prohibited" && !hasOwnerOverride(row))) {
       throw new Error(`${row.key} is enabled for paid automation while prohibited or under C&D`);
     }
   }
@@ -956,6 +991,7 @@ export async function checkProviderPermissions({
     document.providers,
     parseMarkdownReplyCounts(resolvedMarkdown),
   );
+  assertMarkdownOwnerOverrides(resolvedMarkdown, document.providers);
   const resolvedRegistry = registryDocument
     ?? await readJson(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH), "provider registry");
   const required10Keys = deriveRequired10Keys(
