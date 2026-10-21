@@ -29,6 +29,7 @@ import {
   QA_READY_LABEL,
   BASE_BRANCH,
   decide,
+  excludeHandoffChecks,
   duplicateMarkers,
   hasMarker,
   markerFor,
@@ -345,6 +346,8 @@ export async function selectTargets(api, { pr, sha }) {
 export async function run({ args, api, env = {}, log = console.log, lock }) {
   log(`qa-handoff mode=${sanitizeLog(args.mode)} repo=${sanitizeLog(args.repo)}${args.pr ? ` pr=${sanitizeLog(args.pr)}` : ""}${args.sha ? ` sha=${sanitizeLog(args.sha)}` : ""}`);
   const requiredChecks = await resolveRequiredChecks(api, env, log);
+  const { excluded } = excludeHandoffChecks(requiredChecks);
+  if (excluded.length > 0) log(`required checks excluded from handoff: ${excluded.map((name) => sanitizeLog(name)).join(", ")}`);
   const trustedAuthors = trustedMarkerAuthors(env.QA_HANDOFF_TRUSTED_MARKER_AUTHORS);
   log(`trusted marker authors: ${trustedAuthors.map((author) => sanitizeLog(author)).join(", ")}`);
   const targets = await selectTargets(api, args);

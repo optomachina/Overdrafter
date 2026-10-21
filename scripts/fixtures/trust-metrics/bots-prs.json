@@ -1,0 +1,105 @@
+[
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:codex"
+    ],
+    "title": "Feature",
+    "number": 1
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 2,
+    "body": "Model: opus per Release"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 3
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:codex"
+    ],
+    "title": "Feature",
+    "number": 4,
+    "body": "Model: opus"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:opus",
+      "model:codex"
+    ],
+    "title": "Feature",
+    "number": 5
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:codex"
+    ],
+    "title": "Feature",
+    "number": 6,
+    "user": {
+      "login": "codex[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 7,
+    "user": {
+      "login": "optomachina",
+      "type": "User"
+    },
+    "body": "Private fixture PR body text"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 8,
+    "body": "Codex and other reviewers: pending"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [],
+    "title": "Feature",
+    "number": 9,
+    "body": "```text\nModel: grok\n```"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:codex"
+    ],
+    "title": "Revert feature",
+    "number": 10
+  },
+  {
+    "created_at": "2026-10-01T00:00:00Z",
+    "merged_at": "2026-10-02T00:00:00Z",
+    "labels": [
+      "model:opus"
+    ],
+    "title": "Rollback feature",
+    "number": 11
+  }
+]

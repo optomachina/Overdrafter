@@ -1,0 +1,80 @@
+[
+  {
+    "id": 1,
+    "prNumber": 1,
+    "created_at": "2026-10-03T00:00:00Z",
+    "body": "QA: PASS"
+  },
+  {
+    "id": 2,
+    "prNumber": 1,
+    "created_at": "2026-10-03T01:00:00Z",
+    "body": "QA: FAIL"
+  },
+  {
+    "id": 3,
+    "prNumber": 2,
+    "created_at": "2026-10-03T02:00:00Z",
+    "body": "QA: PASS"
+  },
+  {
+    "id": 4,
+    "prNumber": 6,
+    "created_at": "2026-10-03T03:00:00Z",
+    "body": "QA: PASS"
+  },
+  {
+    "id": 5,
+    "prNumber": 10,
+    "created_at": "2026-10-03T04:00:00Z",
+    "body": "QA: PASS"
+  },
+  {
+    "id": 6,
+    "prNumber": 11,
+    "created_at": "2026-10-03T05:00:00Z",
+    "body": "QA: FAIL"
+  },
+  {
+    "id": 7,
+    "prNumber": 1,
+    "created_at": "2026-10-03T06:00:00Z",
+    "body": "Codex review @ 1a2b3c4d: APPROVED"
+  },
+  {
+    "id": 8,
+    "prNumber": 2,
+    "created_at": "2026-10-03T07:00:00Z",
+    "body": "Opus re-review @ deadbeef: CHANGES REQUIRED"
+  },
+  {
+    "id": 9,
+    "prNumber": 1,
+    "created_at": "2026-10-03T08:00:00Z",
+    "body": "Opus review: CHANGES REQUIRED @ 7717135c"
+  },
+  {
+    "id": 10,
+    "prNumber": 99,
+    "created_at": "2026-10-03T09:00:00Z",
+    "body": "Grok review @ deadbeef: APPROVED"
+  },
+  {
+    "id": 11,
+    "prNumber": 2,
+    "created_at": "2026-10-03T10:00:00Z",
+    "body": "Sonnet review @ deadbeef: APPROVED"
+  },
+  {
+    "id": 12,
+    "prNumber": 1,
+    "created_at": "2026-10-16T00:00:00Z",
+    "body": "Grok review @ deadbeef: APPROVED"
+  },
+  {
+    "id": 7,
+    "prNumber": 1,
+    "created_at": "2026-10-03T06:00:00Z",
+    "body": "Codex review @ 1a2b3c4d: APPROVED"
+  }
+]
