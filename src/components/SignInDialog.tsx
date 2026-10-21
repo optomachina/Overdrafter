@@ -31,6 +31,7 @@ export function SignInDialog({
                 : "Log in to OverDrafter to access uploads, quote reviews, and published packages."}
           </DialogDescription>
           <AuthPanel
+            className="dark:border-muted-foreground"
             initialMode={initialMode}
             redirectPath={redirectPath}
             onSuccess={() => onOpenChange(false)}

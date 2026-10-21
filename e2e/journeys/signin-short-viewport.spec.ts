@@ -18,6 +18,16 @@ test.describe("Auth dialog on short viewports", { tag: "@fixture" }, () => {
             await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
 
             const dialog = page.getByRole("dialog");
+            const panel = dialog.locator("section");
+            const overlay = page.locator(".bg-muted[data-state='open']");
+            await expect(overlay).toBeVisible();
+            await expect(panel).toHaveCSS("border-top-width", "1px");
+            await expect(panel).toHaveCSS("border-top-style", "solid");
+            const overlayColor = await overlay.evaluate((element) => getComputedStyle(element).backgroundColor);
+            // The scroll container clips the outer shadow; the border must remain
+            // distinct from the backdrop in dark mode as well as light mode.
+            await expect(panel).not.toHaveCSS("border-top-color", overlayColor);
+            await expect(panel).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
             // The panel's visible h2 is aria-hidden in favor of the dialog title.
             const heading = dialog.locator("h2[aria-hidden='true']");
             await expect(heading).toHaveText(mode === "signin" ? "Log in to OverDrafter" : "Create your account");

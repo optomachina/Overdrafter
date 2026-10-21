@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SignInDialog } from "./SignInDialog";
 
 vi.mock("@/components/auth/AuthPanel", () => ({
-  AuthPanel: () => <div>Auth panel</div>,
+  AuthPanel: ({ className }: { className?: string }) => <div className={className}>Auth panel</div>,
 }));
 
 describe("SignInDialog", () => {
@@ -21,6 +21,8 @@ describe("SignInDialog", () => {
         "sm:bottom-auto",
         "sm:max-h-[calc(100dvh-6rem)]",
       );
+      // Keep a theme-token edge when scrolling clips the panel's outer shadow.
+      expect(screen.getByText("Auth panel")).toHaveClass("dark:border-muted-foreground");
     },
   );
 
