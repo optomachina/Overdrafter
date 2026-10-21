@@ -1,0 +1,88 @@
+--- a/supabase/tests/client_part_metadata_no_drawing_lifecycle.sql
++++ b/supabase/tests/client_part_metadata_no_drawing_lifecycle.sql
+@@ -1,4 +1,6 @@
+ -- Test OVD-670: Parts with no drawing file should have lifecycle 'succeeded', not 'uploaded'
++-- OVD-978: extraction state is read at the top level (no clientExtraction key), and
++-- the drawing-backed part resolves every property, so it is 'succeeded'.
+ begin;
+ 
+ create extension if not exists pgtap with schema extensions;
+@@ -88,14 +90,19 @@
+   );
+ 
+ insert into public.approved_part_requirements (
+-  part_id, organization_id, approved_by, material, finish, quantity, quote_quantities
++  part_id, organization_id, approved_by, description, part_number, revision,
++  material, finish, tightest_tolerance_inch, quantity, quote_quantities
+ ) values
+   (
+     '00000000-0000-4000-8000-000000006751',
+     '00000000-0000-4000-8000-000000006701',
+     '00000000-0000-4000-8000-000000006711',
++    null,
++    null,
++    null,
+     'Aluminum 6061-T6',
+     'As Machined',
++    null,
+     1,
+     array[1]
+   ),
+@@ -103,8 +110,12 @@
+     '00000000-0000-4000-8000-000000006752',
+     '00000000-0000-4000-8000-000000006701',
+     '00000000-0000-4000-8000-000000006711',
++    'Test bracket',
++    'TB-1',
++    'A',
+     'Aluminum 6061-T6',
+     'As Machined',
++    0.005,
+     1,
+     array[1]
+   );
+@@ -115,7 +126,7 @@
+   '00000000-0000-4000-8000-000000006752',
+   '00000000-0000-4000-8000-000000006701',
+   'test-extractor-v1',
+-  '{"warnings":[],"missingFields":[],"reviewFields":[]}'::jsonb,
++  '{"pageCount":1,"reviewFields":[]}'::jsonb,
+   'approved'
+ );
+ 
+@@ -133,7 +144,7 @@
+ 
+ select is(
+   (
+-    select part -> 'clientExtraction' ->> 'lifecycle'
++    select part ->> 'lifecycle'
+     from jsonb_array_elements(
+       public.api_list_client_part_metadata(array['00000000-0000-4000-8000-000000006731']::uuid[])
+     ) as part
+@@ -145,7 +156,7 @@
+ 
+ select is(
+   (
+-    select part -> 'clientExtraction' ->> 'hasDrawingFile'
++    select part ->> 'hasDrawingFile'
+     from jsonb_array_elements(
+       public.api_list_client_part_metadata(array['00000000-0000-4000-8000-000000006731']::uuid[])
+     ) as part
+@@ -157,7 +168,7 @@
+ 
+ select is(
+   (
+-    select part -> 'clientExtraction' ->> 'hasCadFile'
++    select part ->> 'hasCadFile'
+     from jsonb_array_elements(
+       public.api_list_client_part_metadata(array['00000000-0000-4000-8000-000000006731']::uuid[])
+     ) as part
+@@ -180,7 +191,7 @@
+ 
+ select is(
+   (
+-    select part -> 'clientExtraction' ->> 'lifecycle'
++    select part ->> 'lifecycle'
+     from jsonb_array_elements(
+       public.api_list_client_part_metadata(array['00000000-0000-4000-8000-000000006731']::uuid[])
+     ) as part

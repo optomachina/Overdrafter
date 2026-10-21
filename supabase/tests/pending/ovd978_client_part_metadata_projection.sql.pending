@@ -1,0 +1,332 @@
+-- OVD-978: client part metadata projection (warnings, missing fields, shape).
+--
+-- Targets the draft docs/migration-drafts/ovd-978.sql,
+-- applied on top of 20261011170000_fix_no_drawing_lifecycle.sql and
+-- 20261015074957_ovd736_revoke_anon_definer_execute.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd978_client_part_metadata_projection.sql in the
+-- same change (and docs/migration-drafts/ovd-978-no-drawing-test.patch is
+-- applied to supabase/tests/client_part_metadata_no_drawing_lifecycle.sql).
+-- Pre-apply observation (the OVD-670 body): every top-level lifecycle,
+-- warningCount, missingFields and pageCount assertion fails, because those keys
+-- are nested under clientExtraction and warnings/missingFields are read from
+-- payload keys the worker never writes.
+--
+-- The extraction payloads below are the REAL worker shape: the output of
+-- buildStoredExtractionPayload (worker/src/extraction/sharedResult.ts) for the
+-- inputs in src/features/quotes/client-part-metadata-projection.fixture.json.
+-- worker/src/extraction/clientMetadataProjectionPayload.test.ts fails when a
+-- literal below stops equalling that output. The payloads carry no
+-- missingFields or warnings key; warnings go in the drawing_extractions.warnings
+-- column, as worker/src/index.ts writes them. The warning strings below are the
+-- worker's own templates (hybridExtraction.ts), including the two operator-only
+-- model diagnostics. Those carry raw provider and spend-guard text, so the
+-- projection must never return them.
+--
+-- Covers:
+--   * pg_proc: SECURITY DEFINER, search_path=public, language sql, STABLE,
+--     owner postgres; EXECUTE for authenticated and service_role, not anon/PUBLIC
+--   * top-level shape (no clientExtraction key)
+--   * partial: lifecycle, warningCount from the column (the operator-only model
+--     diagnostic is not counted), missingFields computed from resolved values,
+--     reviewFields from the payload's reviewNeeded flags, page count, extraction
+--     fallbacks for description / finish / threads
+--   * complete: succeeded, no missing fields, tolerance from the payload, and an
+--     operator-only warning in the column neither counts nor changes the lifecycle
+--   * data boundary: no warning text in any row, whatever the column holds, and
+--     a warnings column that is not an array counts as zero instead of erroring
+--   * no drawing: succeeded (OVD-670's intent kept), updatedAt null not -infinity
+--   * CAD-only extracted (worker-sim-v1): succeeded; material/finish null, not the
+--     serialised payload object, and listed as missing
+--   * queued and failed lifecycles, failure code and message
+--   * a signed in non-member sees no rows
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+
+select plan(48);
+
+insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
+values
+  ('97800000-0000-4000-8000-000000000911', 'authenticated', 'authenticated',
+   'ovd978-member@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb),
+  ('97800000-0000-4000-8000-000000000912', 'authenticated', 'authenticated',
+   'ovd978-outsider@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb); -- NOSONAR: deterministic fixture identity
+
+insert into public.organizations (id, name, slug)
+values ('97800000-0000-4000-8000-000000000901', 'OVD-978 projection org', 'ovd978-projection'); -- NOSONAR: deterministic fixture identifier
+
+insert into public.organization_memberships (organization_id, user_id, role)
+values ('97800000-0000-4000-8000-000000000901', '97800000-0000-4000-8000-000000000911', 'client');
+
+insert into public.jobs (id, organization_id, created_by, title, status)
+values ('97800000-0000-4000-8000-000000000931', '97800000-0000-4000-8000-000000000901',
+        '97800000-0000-4000-8000-000000000911', 'OVD-978 projection job', 'ready_to_quote'); -- NOSONAR: deterministic fixture identifier
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select v.id::uuid, '97800000-0000-4000-8000-000000000931', '97800000-0000-4000-8000-000000000901',
+       '97800000-0000-4000-8000-000000000911', 'job-files', v.path, v.name, v.name, v.kind::public.job_file_kind
+from (values
+  ('97800000-0000-4000-8000-000000000940', 'org/ovd978/part.step', 'part.step', 'cad'),
+  ('97800000-0000-4000-8000-000000000941', 'org/ovd978/partial.pdf', 'partial.pdf', 'drawing'),
+  ('97800000-0000-4000-8000-000000000943', 'org/ovd978/queued.pdf', 'queued.pdf', 'drawing'),
+  ('97800000-0000-4000-8000-000000000944', 'org/ovd978/failed.pdf', 'failed.pdf', 'drawing'),
+  ('97800000-0000-4000-8000-000000000945', 'org/ovd978/complete.pdf', 'complete.pdf', 'drawing')
+) as v(id, path, name, kind);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id, quantity)
+select v.id::uuid, '97800000-0000-4000-8000-000000000931', '97800000-0000-4000-8000-000000000901',
+       v.name, v.name, '97800000-0000-4000-8000-000000000940', v.drawing::uuid, v.quantity
+from (values
+  ('97800000-0000-4000-8000-000000000951', 'partial', '97800000-0000-4000-8000-000000000941', 1),
+  ('97800000-0000-4000-8000-000000000952', 'no-drawing', null, 1),
+  ('97800000-0000-4000-8000-000000000953', 'queued', '97800000-0000-4000-8000-000000000943', 1),
+  ('97800000-0000-4000-8000-000000000954', 'failed', '97800000-0000-4000-8000-000000000944', 1),
+  ('97800000-0000-4000-8000-000000000955', 'complete', '97800000-0000-4000-8000-000000000945', 3),
+  ('97800000-0000-4000-8000-000000000956', 'cad-only-extracted', null, 1),
+  ('97800000-0000-4000-8000-000000000957', 'malformed-warnings', null, 1)
+) as v(id, name, drawing, quantity);
+
+-- The customer set material and quantities; everything else comes from the drawing.
+insert into public.approved_part_requirements (
+  part_id, organization_id, approved_by, material, quantity, quote_quantities
+) values (
+  '97800000-0000-4000-8000-000000000951', '97800000-0000-4000-8000-000000000901',
+  '97800000-0000-4000-8000-000000000911', 'Aluminum 6061-T6', 5, array[5, 10, 5, 0]
+);
+
+insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, warnings, status)
+values
+  ('97800000-0000-4000-8000-000000000951', '97800000-0000-4000-8000-000000000901', 'worker-pdf-v3',
+   $partial_payload${"pageCount":2,"workerBuildVersion":"worker-test-build","description":"MOUNTING BRACKET","partNumber":"1093-05589","revision":null,"extractedDescriptionRaw":{"value":"MOUNTING BRACKET","confidence":0.97,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedPartNumberRaw":{"value":"1093-05589","confidence":0.98,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedRevisionRaw":{"value":null,"confidence":0,"reviewNeeded":false,"reasons":["not_found"],"sourceRegion":null},"extractedFinishRaw":{"value":"ANODIZE BLACK","confidence":0.55,"reviewNeeded":true,"reasons":["low_confidence"],"sourceRegion":null},"quoteDescription":"Mounting bracket","quoteFinish":"Black anodize","reviewFields":["finish"],"debugCandidates":{},"modelFallbackUsed":false,"modelName":null,"modelPromptVersion":null,"fieldSelections":{"description":"parser","partNumber":"parser","finish":"review"},"modelCandidates":{},"material":{"raw":"AL 6061-T6","normalized":"6061-T6 Aluminum","confidence":0.93,"reviewNeeded":false,"reasons":[]},"finish":{"raw":"ANODIZE BLACK","normalized":"Black anodize","confidence":0.55,"reviewNeeded":true,"reasons":["low_confidence"]},"generalTolerance":{"raw":null,"confidence":0},"tolerances":{"general":null,"tightest":null,"valueInch":null,"unit":null,"drawingUnits":null,"confidence":0},"notes":["BREAK ALL SHARP EDGES"],"threads":["1/4-20 UNC"," "],"geometryProjection":null}$partial_payload$::jsonb,
+   '["Finish extraction needs review.","Model fallback failed for drawing extraction: 429 Rate limit reached for the extraction model in organization org-SAMPLE on tokens per min."]'::jsonb,
+   'needs_review'),
+  ('97800000-0000-4000-8000-000000000955', '97800000-0000-4000-8000-000000000901', 'worker-pdf-v3',
+   $complete_payload${"pageCount":1,"workerBuildVersion":"worker-test-build","description":"SPACER","partNumber":"SP-100","revision":"C","extractedDescriptionRaw":{"value":"SPACER","confidence":0.99,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedPartNumberRaw":{"value":"SP-100","confidence":0.99,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedRevisionRaw":{"value":"C","confidence":0.99,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedFinishRaw":{"value":"PASSIVATE","confidence":0.95,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"quoteDescription":"Spacer","quoteFinish":"Passivate","reviewFields":[],"debugCandidates":{},"modelFallbackUsed":false,"modelName":null,"modelPromptVersion":null,"fieldSelections":{},"modelCandidates":{},"material":{"raw":"SST 304","normalized":"304 Stainless Steel","confidence":0.96,"reviewNeeded":false,"reasons":[]},"finish":{"raw":"PASSIVATE","normalized":"Passivate","confidence":0.95,"reviewNeeded":false,"reasons":[]},"generalTolerance":{"raw":"±.005","confidence":0.9},"tolerances":{"general":"±.005","tightest":"±.0005","valueInch":0.0005,"unit":null,"drawingUnits":null,"confidence":0.9},"notes":[],"threads":[],"geometryProjection":null}$complete_payload$::jsonb,
+   '["Model fallback skipped: spend cap reached (Spending is halted by an operator kill switch). Extraction used deterministic parsing only."]'::jsonb,
+   'approved'),
+  ('97800000-0000-4000-8000-000000000956', '97800000-0000-4000-8000-000000000901', 'worker-sim-v1',
+   $noDrawing_payload${"pageCount":0,"workerBuildVersion":"worker-test-build","description":"BLOCK","partNumber":"BLK-1","revision":null,"extractedDescriptionRaw":{"value":"BLOCK","confidence":0.4,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedPartNumberRaw":{"value":"BLK-1","confidence":0.4,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedRevisionRaw":{"value":null,"confidence":0,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"extractedFinishRaw":{"value":null,"confidence":0,"reviewNeeded":false,"reasons":[],"sourceRegion":null},"quoteDescription":"Block","quoteFinish":null,"reviewFields":[],"debugCandidates":{},"modelFallbackUsed":false,"modelName":null,"modelPromptVersion":null,"fieldSelections":{},"modelCandidates":{},"material":{"raw":null,"normalized":null,"confidence":0.15,"reviewNeeded":false,"reasons":[]},"finish":{"raw":null,"normalized":null,"confidence":0,"reviewNeeded":false,"reasons":[]},"generalTolerance":{"raw":null,"confidence":0},"tolerances":{"general":null,"tightest":null,"valueInch":null,"unit":null,"drawingUnits":null,"confidence":0},"notes":[],"threads":[],"geometryProjection":null}$noDrawing_payload$::jsonb,
+   '["No PDF drawing was attached. Material, finish, and tolerance values require review."]'::jsonb,
+   'needs_review'),
+  -- Not what the worker writes (it always writes an array): a malformed column
+  -- must not fail the call for every part in the job.
+  ('97800000-0000-4000-8000-000000000957', '97800000-0000-4000-8000-000000000901', 'worker-sim-v1',
+   '{}'::jsonb,
+   '{"unexpected":"Model fallback failed for drawing extraction: stored as an object"}'::jsonb,
+   'needs_review');
+
+insert into public.work_queue (organization_id, job_id, part_id, task_type, status, payload, last_error)
+values
+  ('97800000-0000-4000-8000-000000000901', '97800000-0000-4000-8000-000000000931',
+   '97800000-0000-4000-8000-000000000951', 'extract_part', 'completed', '{}'::jsonb, null),
+  ('97800000-0000-4000-8000-000000000901', '97800000-0000-4000-8000-000000000931',
+   '97800000-0000-4000-8000-000000000953', 'extract_part', 'queued', '{}'::jsonb, null),
+  ('97800000-0000-4000-8000-000000000901', '97800000-0000-4000-8000-000000000931',
+   '97800000-0000-4000-8000-000000000954', 'extract_part', 'failed',
+   '{"failureCode":"pdf_parse_failed"}'::jsonb, 'The PDF could not be parsed.'),
+  ('97800000-0000-4000-8000-000000000901', '97800000-0000-4000-8000-000000000931',
+   '97800000-0000-4000-8000-000000000955', 'extract_part', 'completed', '{}'::jsonb, null);
+
+-- ---------------------------------------------------------------------------
+-- Function attributes and privileges (unchanged from the replaced definition).
+-- ---------------------------------------------------------------------------
+select ok(
+  (select prosecdef from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  'api_list_client_part_metadata stays SECURITY DEFINER'
+);
+select is(
+  (select proconfig from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  array['search_path=public']::text[],
+  'search_path stays pinned to public'
+);
+select is(
+  (select l.lanname::text from pg_proc p join pg_language l on l.oid = p.prolang
+   where p.oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  'sql',
+  'language stays sql'
+);
+select is(
+  (select provolatile::text from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  's',
+  'volatility stays STABLE'
+);
+select is(
+  (select pg_get_userbyid(proowner)::text from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  'postgres',
+  'owner stays postgres'
+);
+select ok(
+  not has_function_privilege('anon', 'public.api_list_client_part_metadata(uuid[])', 'execute'),
+  'anon has no EXECUTE (OVD-736 kept)'
+);
+select ok(
+  not exists (
+    select 1 from pg_proc p, aclexplode(p.proacl) a
+    where p.oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure and a.grantee = 0
+  ),
+  'PUBLIC has no EXECUTE (OVD-736 kept)'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.api_list_client_part_metadata(uuid[])', 'execute'),
+  'authenticated keeps EXECUTE'
+);
+select ok(
+  has_function_privilege('service_role', 'public.api_list_client_part_metadata(uuid[])', 'execute'),
+  'service_role keeps EXECUTE'
+);
+
+-- The fixture is the real worker shape: no missingFields / warnings payload keys.
+select ok(
+  not exists (
+    select 1 from public.drawing_extractions
+    where part_id in ('97800000-0000-4000-8000-000000000951', '97800000-0000-4000-8000-000000000955')
+      and (extraction ? 'missingFields' or extraction ? 'warnings')
+  ),
+  'worker payloads carry no missingFields or warnings key'
+);
+
+create function pg_temp.ovd978_part(p_part_id uuid)
+returns jsonb
+language sql
+as $$
+  select part
+  from jsonb_array_elements(
+    public.api_list_client_part_metadata(array['97800000-0000-4000-8000-000000000931']::uuid[])
+  ) as part
+  where part ->> 'partId' = p_part_id::text
+$$;
+grant execute on function pg_temp.ovd978_part(uuid) to authenticated;
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"97800000-0000-4000-8000-000000000911","role":"authenticated","aal":"aal1"}',
+  true
+); -- NOSONAR: deterministic fixture identity
+
+select is(
+  jsonb_array_length(public.api_list_client_part_metadata(array['97800000-0000-4000-8000-000000000931']::uuid[])),
+  7,
+  'a member sees all seven parts'
+);
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(public.api_list_client_part_metadata(array['97800000-0000-4000-8000-000000000931']::uuid[])) part
+    where part ? 'clientExtraction'
+  ),
+  'no row nests extraction state under clientExtraction'
+);
+
+-- Partial: warning count from the column, missing fields from resolved values.
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'lifecycle', 'partial',
+  'partial: top-level lifecycle is partial');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') -> 'warnings', '[]'::jsonb,
+  'partial: warning text never leaves the database');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'warningCount', '1',
+  'partial: warningCount counts the field review warning, not the model fallback failure');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') -> 'missingFields',
+  '["revision","tightestToleranceInch"]'::jsonb,
+  'partial: missingFields lists the fields no source resolves');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') -> 'reviewFields',
+  '["finish"]'::jsonb,
+  'partial: reviewFields from the payload reviewNeeded flags');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'pageCount', '2',
+  'partial: pageCount from the payload');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'description', 'Mounting bracket',
+  'partial: description falls back to the extracted quote description');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'partNumber', '1093-05589',
+  'partial: part number falls back to the extraction');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'material', 'Aluminum 6061-T6',
+  'partial: the customer material wins over the extraction');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'finish', 'Black anodize',
+  'partial: finish falls back to the extracted quote finish');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') ->> 'threads', '1/4-20 UNC',
+  'partial: threads come from the extraction, blanks dropped');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000951') -> 'quoteQuantities', '[5, 10]'::jsonb,
+  'partial: quote quantities are normalised');
+
+-- Complete extraction.
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') ->> 'lifecycle', 'succeeded',
+  'complete: lifecycle is succeeded');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') -> 'missingFields', '[]'::jsonb,
+  'complete: no missing fields');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') -> 'warnings', '[]'::jsonb,
+  'complete: no warning text');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') ->> 'warningCount', '0',
+  'complete: an operator-only spend warning is not counted, so the part stays succeeded');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') ->> 'pageCount', '1',
+  'complete: pageCount 1');
+select is((pg_temp.ovd978_part('97800000-0000-4000-8000-000000000955') ->> 'tightestToleranceInch')::numeric, 0.0005::numeric,
+  'complete: tightest tolerance from the payload');
+
+-- No drawing: OVD-670's intended terminal state is kept.
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000952') ->> 'lifecycle', 'succeeded',
+  'no drawing: lifecycle is succeeded, not uploaded');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000952') ->> 'hasDrawingFile', 'false',
+  'no drawing: hasDrawingFile is false at the top level');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000952') ->> 'hasCadFile', 'true',
+  'no drawing: hasCadFile is true at the top level');
+select ok(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000952') -> 'updatedAt' = 'null'::jsonb,
+  'no drawing: updatedAt is null, not -infinity');
+
+-- CAD-only part the worker extracted (worker-sim-v1): still terminal, and the
+-- payload's null material/finish objects never leak into the properties.
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') ->> 'lifecycle', 'succeeded',
+  'cad-only extracted: lifecycle is succeeded');
+select ok(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') -> 'material' = 'null'::jsonb,
+  'cad-only extracted: material is null, not the serialised payload object');
+select ok(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') -> 'finish' = 'null'::jsonb,
+  'cad-only extracted: finish is null, not the serialised payload object');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') -> 'missingFields',
+  '["revision","material","finish","tightestToleranceInch"]'::jsonb,
+  'cad-only extracted: material and finish are listed as missing');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') -> 'warnings', '[]'::jsonb,
+  'cad-only extracted: warning text never leaves the database');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000956') ->> 'warningCount', '1',
+  'cad-only extracted: the no-drawing review warning is counted');
+
+-- Queued and failed.
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000953') ->> 'lifecycle', 'queued',
+  'queued: lifecycle is queued');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000954') ->> 'lifecycle', 'failed',
+  'failed: lifecycle is failed');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000954') ->> 'lastFailureCode', 'pdf_parse_failed',
+  'failed: lastFailureCode from the task payload');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000954') ->> 'lastFailureMessage', 'The PDF could not be parsed.',
+  'failed: lastFailureMessage from the task error');
+
+-- Data boundary: drawing_extractions is internal-only, so no warning text from
+-- it may reach a client. The fixture's operator diagnostics carry a rate-limit
+-- message with an organization name, a spend-guard reason and a stored object.
+select ok(
+  public.api_list_client_part_metadata(array['97800000-0000-4000-8000-000000000931']::uuid[])::text
+    !~* 'model fallback|spend cap|rate limit|kill switch|org-sample|stored as an object|needs review\.|PDF drawing was attached',
+  'no row carries any warning text from drawing_extractions.warnings'
+);
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000957') ->> 'warningCount', '0',
+  'malformed warnings column: counts as zero instead of erroring the call');
+select is(pg_temp.ovd978_part('97800000-0000-4000-8000-000000000957') -> 'warnings', '[]'::jsonb,
+  'malformed warnings column: no warning text');
+
+-- Access check unchanged: a signed in non-member sees nothing.
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"97800000-0000-4000-8000-000000000912","role":"authenticated","aal":"aal1"}',
+  true
+); -- NOSONAR: deterministic fixture identity
+select is(
+  public.api_list_client_part_metadata(array['97800000-0000-4000-8000-000000000931']::uuid[]),
+  '[]'::jsonb,
+  'a signed in non-member sees no rows'
+);
+
+select * from finish();
+rollback;
