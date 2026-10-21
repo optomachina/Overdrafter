@@ -173,7 +173,9 @@ describe("row ownership and post-click evidence in Chromium (OVD-1022)", () => {
 
   it("dismisses a second matching native dialog during the same click", async () => {
     const html = adversarialPage("", `
-      if (confirm('Delete part.step?')) fetch('/accepted?dialog=first');
+      // A fetch issued just before the next blocking confirm() can be lost when the page is torn down; a
+      // beacon is queued for delivery either way, so the accepted first dialog is always observable.
+      if (confirm('Delete part.step?')) navigator.sendBeacon('/accepted?dialog=first');
       if (confirm('Delete part.step?')) {
         fetch('/deleted?name=other.step');
         document.querySelector('.row').remove();
