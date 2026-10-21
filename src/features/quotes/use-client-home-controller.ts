@@ -56,6 +56,7 @@ import {
   createWorkspaceAccessScope,
   prefetchPartPage,
   prefetchProjectPage,
+  stableJobIds,
   workspaceQueryKeys,
   WORKSPACE_SHARED_STALE_TIME_MS,
 } from "@/features/quotes/workspace-navigation";
@@ -153,7 +154,7 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
   });
 
   const publishedJobIds = useMemo(
-    () => accessibleJobs.filter((job) => job.status === "published").map((job) => job.id).sort(),
+    () => stableJobIds(accessibleJobs.filter((job) => job.status === "published").map((job) => job.id)),
     [accessibleJobs],
   );
   const publishedWorkspaceQuery = useQuery({
