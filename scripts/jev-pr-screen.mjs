@@ -39,7 +39,7 @@ import { appendFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
+import { askJev, fallbackSourceForReason, gatedChoice, jevFallbackLine, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
 import { GITHUB_MARKER_IO, hashScreenState, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
 
@@ -87,6 +87,27 @@ export function finalTier(deterministic, gate) {
   const base = TIERS.includes(deterministic) ? deterministic : "risky";
   const jevTier = gate?.status === "accepted" && TIERS.includes(gate.choice) ? gate.choice : "normal";
   return maxTier(base, jevTier);
+}
+
+/**
+ * Loud-fallback source for a screen result (logging only; never changes tiers).
+ *   Jev success (ok + accepted + known tier) → null (no fallback)
+ *   ok:false with http_401/403 → default_jev_blocked
+ *   ok:false otherwise → jev_blocked
+ *   ok:true but uncertain gate → safe-default
+ *   ok:true but failed/unknown tier → jev_used:false
+ */
+export function classifyFallback(result, gate) {
+  const accepted = gate?.status === "accepted" && TIERS.includes(gate.choice);
+  if (result?.ok === true && accepted) return { source: null, reason: null };
+  // Reasons reach the JSONL row and stderr, so they are bounded to one sanitized token.
+  const token = (value) => sanitizeToken(String(value));
+  if (result?.ok !== true) {
+    const reason = token(result?.reason ?? gate?.reason ?? "no_result");
+    return { source: fallbackSourceForReason(reason), reason };
+  }
+  if (gate?.status === "uncertain") return { source: "safe-default", reason: "uncertain" };
+  return { source: "jev_used:false", reason: token(gate?.reason ?? gate?.status ?? "no_accepted_tier") };
 }
 
 /** Stands in for a sensitive-path list that could not be loaded: every PR then screens risky. */
@@ -181,6 +202,9 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
   const marker = markerHit ? markerFloor(markerTier) : null;
   const final = finalTier(deterministic, gate);
   const sha = sanitizeToken(pr.sha);
+  const latencyMs = loggedLatency(result, markerHit);
+  const fallback = classifyFallback(result, gate);
+  const warning = fallback.source ? jevFallbackLine(fallback.source, fallback.reason, latencyMs) : null;
   return {
     ts: now.toISOString(),
     kind: "pr_risk_screen",
@@ -201,13 +225,16 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
     final: marker ? maxTier(final, marker) : final,
-    latency_ms: loggedLatency(result, markerHit),
+    latency_ms: latencyMs,
     tokens: loggedTokens(result, markerHit),
     cache_hit: markerHit,
     marker_hit: markerHit, // alias of cache_hit, kept for older readers
     marker_tier: marker,
     caller: caller ? sanitizeToken(caller) : null,
     screener: SCREENER_ID,
+    fallback_source: fallback.source,
+    fallback_reason: fallback.reason,
+    warning,
   };
 }
 
@@ -376,7 +403,8 @@ async function screenOne(pr, context) {
   const state = screenState(verified);
   const stateHash = sha ? hashScreenState(state, base) : null;
   const hit = sha ? await readHit(sha, context.io, stateHash) : null;
-  const result = hit ? resultFromMarker(hit) : await context.ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+  // screen() writes the one WARN per fallback from the decision record, so askJev's own stderr WARN is off here.
+  const result = hit ? resultFromMarker(hit) : await context.ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000, warn: false });
   if (sha && await markerSha(verified, context.io, context.warn) !== sha) return incomplete(verified);
   try {
     if (hasPr) await acquisition.revalidate();
@@ -421,6 +449,11 @@ export async function screen(
       caller,
     }),
   );
+
+  // One WARN per fallback, including safe-default and jev_used:false, which askJev never sees.
+  for (const record of records) {
+    if (record.warning) warn(record.warning);
+  }
 
   try {
     for (const record of records) {
@@ -494,6 +527,7 @@ if (invokedAsScript()) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";
     const marker = r.cache_hit ? " (cache hit)" : "";
-    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${marker}`);
+    const fallback = r.warning ? ` | ${r.warning}` : "";
+    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${marker}${fallback}`);
   }
 }

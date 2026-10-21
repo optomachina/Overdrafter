@@ -25,6 +25,7 @@ const portableSuites = [
   "scripts/sensitive-paths-report.node-test.mjs",
   "scripts/check-migration-immutability.node-test.mjs",
   "scripts/check-secret-paths.node-test.mjs",
+  "scripts/check-migration-function-collisions.node-test.mjs",
 ];
 
 function portableCommand() {
