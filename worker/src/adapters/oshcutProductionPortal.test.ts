@@ -27,7 +27,6 @@ import {
 import {
   normalizeAnchoredProviderOffers,
   runProviderPortalKernel,
-  type ProviderPortalCleanupCapability,
   type ProviderPortalConfigurationCapability,
   type ProviderPortalReadCapability,
 } from "./providerPortalKernel";
@@ -320,63 +319,11 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
   });
 });
 
-/** A cart of rows by file name; `removable` controls whether the remove control exists. */
-function fakeCart(rows: string[], options: { removable?: boolean; confirmRequired?: boolean } = {}) {
-  const cart = [...rows];
-  let pendingConfirm: string | null = null;
-  const clicks: string[] = [];
-  const capability: ProviderPortalCleanupCapability = {
-    count: async (field, scopeText) => (field === "partRow" ? cart.filter((row) => row === scopeText).length : 0),
-    click: async (field, scopeText) => {
-      if (field === "removePart") {
-        const index = cart.indexOf(scopeText ?? "");
-        if (options.removable === false || index < 0) return false;
-        clicks.push(`remove:${scopeText}`);
-        if (options.confirmRequired) pendingConfirm = scopeText!;
-        else cart.splice(index, 1);
-        return true;
-      }
-      if (field === "confirmRemove" && pendingConfirm) {
-        clicks.push("confirm");
-        cart.splice(cart.indexOf(pendingConfirm), 1);
-        pendingConfirm = null;
-        return true;
-      }
-      return false;
-    },
-  };
-  return { capability, cart, clicks };
-}
-
 describe("OSH Cut cart cleanup (standing rule, OVD-677)", () => {
-  const input = { stagedCadFile: { originalName: "part.step" } } as VendorQuoteAdapterInput;
-
   it("is declared on the production definition with cart-scoped click rules", () => {
     const definition = buildOshcutProductionPortalDefinition();
     expect(definition.hooks.cleanup).toBe(cleanupOshcutCart);
     expect(definition.selectors.cleanup).toEqual({ ...OSHCUT_CART_CLEANUP_SELECTORS });
-  });
-
-  it("removes only the rows that show the uploaded file name", async () => {
-    const { capability, cart } = fakeCart(["part.step", "customer-bracket.dxf"]);
-    await expect(cleanupOshcutCart(capability, input)).resolves.toEqual({ removed: 1, remaining: 0 });
-    expect(cart).toEqual(["customer-bracket.dxf"]);
-  });
-
-  it("confirms an in-page dialog when one appears", async () => {
-    const { capability, cart, clicks } = fakeCart(["part.step"], { confirmRequired: true });
-    await expect(cleanupOshcutCart(capability, input)).resolves.toEqual({ removed: 1, remaining: 0 });
-    expect(clicks).toEqual(["remove:part.step", "confirm"]);
-    expect(cart).toEqual([]);
-  });
-
-  it("reports a row it could not remove", async () => {
-    const { capability } = fakeCart(["part.step"], { removable: false });
-    await expect(cleanupOshcutCart(capability, input)).resolves.toEqual({ removed: 0, remaining: 1 });
-  });
-
-  it("reports nothing to remove when no row shows the file name", async () => {
-    const { capability } = fakeCart(["customer-bracket.dxf"]);
-    await expect(cleanupOshcutCart(capability, input)).resolves.toEqual({ removed: 0, remaining: 0 });
+    expect(definition.selectors.cleanupRow).toBe(OSHCUT_CART_CLEANUP_SELECTORS.partRow.selector);
   });
 });

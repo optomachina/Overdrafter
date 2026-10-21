@@ -1,10 +1,12 @@
 // @vitest-environment node
 
 import fs from "node:fs/promises";
+import { JSDOM } from "jsdom";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Browser, BrowserContext, Locator, Page } from "playwright";
+import type { Browser, BrowserContext, ElementHandle, Locator, Page } from "playwright";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
@@ -1733,6 +1735,7 @@ describe("provider portal post-capture cleanup", () => {
   const cleanupSelectors = {
     partRow: { selector: ".row" },
     removePart: { selector: "button.remove", scope: ".row" },
+    confirmRemove: { selector: "button.confirm" },
   };
 
   function cleanupDefinition(
@@ -1767,6 +1770,160 @@ describe("provider portal post-capture cleanup", () => {
     expect(JSON.parse(String(info.mock.calls.at(-1)?.[0]))).toMatchObject({
       source: "providerPortalCleanup", provider: "quickparts", status: "removed",
     });
+  });
+
+  // Real DOM identity and selectors; no filename-filtering count stub.
+  function cartFixture(names: string[]) {
+    const dom = new JSDOM("<main></main>");
+    const cart = dom.window.document.querySelector("main")!;
+    const append = (name: string, removable = true) => {
+      const row = dom.window.document.createElement("div");
+      const information = dom.window.document.createElement("div");
+      information.className = "cartInformationArea";
+      information.textContent = name;
+      row.append(information);
+      if (removable) {
+        const button = dom.window.document.createElement("button");
+        button.className = "removeButton";
+        button.addEventListener("click", () => row.remove());
+        row.append(button);
+      }
+      cart.append(row);
+      return row;
+    };
+    names.forEach((name) => append(name));
+    const nodes = new Map<object, Element>();
+    const handle = (node: Element): ElementHandle<HTMLElement> => {
+      const result = {
+        evaluate: async (fn: (element: Element, arg: unknown) => unknown, arg: object[] = []) =>
+          fn(node, arg.map((value) => nodes.get(value))),
+        $$: async (selector: string) => [...node.querySelectorAll(selector)].map(handle),
+        click: async () => (node as HTMLElement).click(),
+      } as unknown as ElementHandle<HTMLElement>;
+      nodes.set(result, node);
+      return result;
+    };
+    const locator = { elementHandles: async () => [...cart.querySelectorAll(OSHCUT_CART_ROW)].map(handle) } as unknown as Locator;
+    return { cart, append, locator, root: { elementHandle: async () => handle(dom.window.document.documentElement) } as unknown as Locator };
+  }
+
+  it.each([
+    ["filename collisions", ["part.step", "customer-part.step"], true, false, false, "removed", 1, 0],
+    ["unrelated rows", ["customer-bracket.dxf"], true, false, false, "removed", 1, 0],
+    ["missing remove control", ["customer-bracket.dxf"], false, false, false, "incomplete", 0, 1],
+    ["no uploaded row", ["customer-bracket.dxf"], true, false, true, "not_found", 0, 0],
+    ["replaced pre-existing rows", ["part.step", "customer-part.step"], true, true, false, "failed", 0, null],
+  ] as const)("cleans only this run's exact rows: %s", async (_name, names, removable, rerender, noUpload, status, removed, remaining) => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([...names]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => {
+      if (rerender) cart.cart.replaceChildren(...[...cart.cart.children].map((row) => row.cloneNode(true)));
+      if (!noUpload) cart.append("part.step", removable);
+    });
+    const def = cleanupDefinition(cleanupOshcutCart);
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const result = await runProviderPortalKernel(def, config(), await input(), {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status, removed, remaining });
+    expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
+      .toEqual([...names, ...(!noUpload && (rerender || !removable) ? ["part.step"] : [])]);
+  });
+
+  it("stops if unknown rows appear after the owned set is frozen", async () => {
+    const fake = fakeBrowser();
+    const cart = cartFixture(["part.step", "customer-part.step"]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); cart.append("part.step"); });
+    const def = cleanupDefinition(async (cleanup) => {
+      expect(await cleanup.count("partRow")).toBe(2);
+      cart.append("later-customer.step");
+      return cleanupOshcutCart(cleanup);
+    });
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const result = await runProviderPortalKernel(def, config(), await input(), {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: "failed", removed: 0, remaining: null });
+    expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
+      .toEqual(["part.step", "customer-part.step", "part.step", "part.step", "later-customer.step"]);
+  });
+
+  it.each(["document replacement", "owned row replacement"])("fails closed after an empty snapshot and %s", async (change) => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => {
+      if (change === "document replacement") cart.cart.ownerDocument.documentElement.remove();
+      const row = cart.append("part.step");
+      // Simulate a framework rerender without any provider-side deletion.
+      row.querySelector("button")!.replaceWith(row.querySelector("button")!.cloneNode(true));
+      row.querySelector("button")!.addEventListener("click", () => { row.replaceWith(row.cloneNode(true)); });
+    });
+    const def = cleanupDefinition(cleanupOshcutCart);
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const result = await runProviderPortalKernel(def, config(), await input(), {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: "failed", remaining: null });
+    expect(cart.cart.querySelector(".cartInformationArea")!.textContent).toBe("part.step");
+  });
+
+  it("applies scopeText to a rule without scope", async () => {
+    const fake = fakeBrowser();
+    await runProviderPortalKernel(cleanupDefinition(async (cleanup) => {
+      await cleanup.count("partRow", "part.step");
+      return { removed: 0, remaining: 0 };
+    }), config(), await input(), { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
+    expect(fake.filter).toHaveBeenCalledWith({ hasText: "part.step" });
+  });
+
+  it.each(["removePart", "confirmRemove"])("stops before the next %s when killed after removal", async (next) => {
+    const fake = fakeBrowser();
+    let engaged = false;
+    fake.click.mockImplementation(async () => { engaged = true; });
+    const scopedInput = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    const result = await runProviderPortalKernel(cleanupDefinition(async (cleanup) => {
+      await cleanup.click("removePart");
+      await cleanup.click(next);
+      return { removed: 1, remaining: 0 };
+    }), config(), scopedInput, { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
+    expect(fake.click).toHaveBeenCalledTimes(1);
+    expect(result.cartCleanup).toMatchObject({ status: "skipped_kill_switch" });
+  });
+
+  it("checks the kill switch again before accepting a native confirmation", async () => {
+    const fake = fakeBrowser();
+    let engaged = false;
+    const dialog = { accept: vi.fn(async () => undefined), dismiss: vi.fn(async () => undefined) };
+    fake.click.mockImplementation(async () => {
+      engaged = true;
+      const handler = vi.mocked(fake.page.on).mock.calls.find(([event]) => event === "dialog")?.[1];
+      await handler?.(dialog);
+    });
+    const scopedInput = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    const result = await runProviderPortalKernel(cleanupDefinition(async (cleanup) => {
+      await cleanup.click("removePart");
+      return { removed: 1, remaining: 0 };
+    }), config(), scopedInput, { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).toHaveBeenCalledOnce();
+    expect(result.cartCleanup).toMatchObject({ status: "skipped_kill_switch" });
   });
 
   it("also cleans up after a failure that followed upload, keeping the original error", async () => {

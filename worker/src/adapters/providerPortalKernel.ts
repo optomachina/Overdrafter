@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { UploadedPortalRows } from "./providerPortalCleanupRows.js";
 import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
@@ -189,8 +190,10 @@ export type ProviderPortalDefinition = {
       selector: string;
       operation: "fill" | "select" | "click";
     }>>;
+    /** Snapshot before upload; cleanup can address only new DOM row identities. */
+    cleanupRow?: string;
     /** Click/count-only rules reachable from `hooks.cleanup`. */
-    cleanup?: Readonly<Record<string, { selector: string; scope?: string }>>;
+    cleanup?: Readonly<Record<string, { selector: string; scope?: string; uploadedRows?: boolean }>>;
   };
   supportedFileExtensions: readonly string[];
   terminalSignals: {
@@ -366,6 +369,9 @@ function assertProviderDefinition(definition: ProviderPortalDefinition): void {
     if (PROHIBITED_CONFIGURATION_SELECTOR.test(rule.selector)) {
       throw new Error(`${definition.provider} portal definition contains a prohibited configuration selector.`);
     }
+  }
+  if (PROHIBITED_CLEANUP_SELECTOR.test(definition.selectors.cleanupRow ?? "")) {
+    throw new Error(`${definition.provider} portal definition contains a prohibited cleanup selector.`);
   }
   for (const rule of Object.values(definition.selectors.cleanup ?? {})) {
     if (PROHIBITED_CLEANUP_SELECTOR.test(rule.selector) || PROHIBITED_CLEANUP_SELECTOR.test(rule.scope ?? "")) {
@@ -1440,31 +1446,45 @@ function buildCleanupCapability(
   definition: ProviderPortalDefinition,
   page: Page,
   boundary: PortalBoundaryState,
+  beforeMutation: () => Promise<void>,
+  uploadedRows?: UploadedPortalRows,
 ): ProviderPortalCleanupCapability {
-  const locate = (field: string, scopeText?: string): Locator => {
+  const locate = async (field: string, scopeText?: string) => {
     const rule = definition.selectors.cleanup?.[field];
     if (!rule || (scopeText !== undefined && PROHIBITED_CLEANUP_SELECTOR.test(scopeText))) {
       throw terminalError(definition, "configuration_required", "undeclared_cleanup_operation", {
         providerMutationPossible: boundary.providerMutationPossible,
       });
     }
-    if (!rule.scope) return guardedLocator(definition, page, boundary, rule.selector);
+    if (rule.uploadedRows) {
+      if (!uploadedRows) throw new Error("CleanupRowSnapshotMissing");
+      assertPortalBoundary(definition, page, boundary);
+      return uploadedRows.targets(rule.scope ? rule.selector : undefined);
+    }
+    if (!rule.scope) {
+      const locator = guardedLocator(definition, page, boundary, rule.selector);
+      return scopeText === undefined ? locator : locator.filter({ hasText: scopeText });
+    }
     const scopes = guardedLocator(definition, page, boundary, rule.scope);
     const scoped = scopeText === undefined ? scopes : scopes.filter({ hasText: scopeText });
     return scoped.locator(rule.selector);
   };
   return Object.freeze({
     count: async (field: string, scopeText?: string) => {
-      const count = await locate(field, scopeText).count();
+      const targets = await locate(field, scopeText);
+      const count = Array.isArray(targets) ? targets.length : await targets.count();
       assertPortalBoundary(definition, page, boundary);
       return count;
     },
     click: async (field: string, scopeText?: string) => {
-      const locator = locate(field, scopeText).first();
-      if (await locator.count() < 1) {
+      const targets = await locate(field, scopeText);
+      const locator = Array.isArray(targets) ? targets[0] : await targets.count() > 0 ? targets.first() : undefined;
+      if (!locator) {
         assertPortalBoundary(definition, page, boundary);
         return false;
       }
+      await beforeMutation();
+      assertPortalBoundary(definition, page, boundary);
       await locator.click();
       assertPortalBoundary(definition, page, boundary);
       return true;
@@ -1490,8 +1510,25 @@ async function cleanUpProviderPortal(
   const hook = definition.hooks.cleanup;
   if (!hook || !session.boundary.providerMutationPossible) return undefined;
   let report: ProviderPortalCleanupReport;
-  // Accept a native confirm ("Remove this part?") only while cleanup runs.
-  const acceptDialog = (dialog: { accept: () => Promise<void> }) => { dialog.accept().catch(() => undefined); };
+  let stopped = false;
+  const beforeMutation = async () => {
+    if (stopped) throw new Error("CleanupStopped");
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+    if (stopped) throw new Error("CleanupStopped");
+  };
+  let rejectDialog: (error: unknown) => void = () => undefined;
+  const dialogFailure = new Promise<never>((_, reject) => { rejectDialog = reject; });
+  // Native confirmation is a separate mutation, just like an in-page button.
+  const acceptDialog = async (dialog: { accept: () => Promise<void>; dismiss: () => Promise<void> }) => {
+    try {
+      await beforeMutation();
+      assertPortalBoundary(definition, session.page, session.boundary);
+      await dialog.accept();
+    } catch (error) {
+      rejectDialog(error);
+      await dialog.dismiss().catch(() => undefined);
+    }
+  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // OVD-722: an engaged kill switch stops every provider interaction, cleanup included.
@@ -1504,7 +1541,8 @@ async function cleanUpProviderPortal(
   try {
     session.page.on("dialog", acceptDialog);
     const outcome = await Promise.race([
-      hook(buildCleanupCapability(definition, session.page, session.boundary), input),
+      hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, session.cleanupRows), input),
+      dialogFailure,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("CleanupTimeout")), timeoutMs);
       }),
@@ -1515,8 +1553,9 @@ async function cleanUpProviderPortal(
     if (remaining === 0) status = removed > 0 ? "removed" : "not_found";
     report = { status, removed, remaining, reason: null };
   } catch (error) {
-    report = { status: "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
+    report = { status: error instanceof ProviderKillSwitchError ? "skipped_kill_switch" : "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
   } finally {
+    stopped = true;
     clearTimeout(timer);
     session.page.off?.("dialog", acceptDialog);
   }
@@ -1589,6 +1628,7 @@ function terminalResult(
 }
 
 type OpenProviderPortalSession = {
+  cleanupRows?: UploadedPortalRows;
   browser: Browser;
   context: BrowserContext;
   page: Page;
@@ -1663,6 +1703,12 @@ async function uploadAuthorizedPortalFiles(
   assertPortalBoundary(definition, session.page, session.boundary);
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
+  }
+  if (definition.selectors.cleanupRow) {
+    session.cleanupRows = await UploadedPortalRows.snapshot(
+      guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow),
+      guardedLocator(definition, session.page, session.boundary, "html"),
+    );
   }
   // OVD-722: re-read after the awaited locator lookup so a switch engaged in
   // that window still stops the upload. A request already sent cannot be recalled.

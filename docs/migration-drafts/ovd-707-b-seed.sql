@@ -46,8 +46,6 @@ begin
     select * from (values
     ('fictiv', 'Fictiv', 'portal', 'USD', array['fictiv.com']::text[], 'FICTIV_STORAGE_STATE_SECRET_NAME',
      '{"key": "fictiv", "liveAdapter": true, "sessionSecrets": [{"secretNameEnv": "FICTIV_STORAGE_STATE_SECRET_NAME", "mountEnv": "FICTIV_STORAGE_STATE_JSON", "requiredWhenListed": true}], "egress": "stable_nat", "adoptedAdapter": {"module": "worker/src/adapters/fictiv.ts", "defaultDenyTest": "worker/src/adapters/fictiv.test.ts"}}'::jsonb),
-    ('oshcut', 'OSH Cut', 'portal', 'USD', array['oshcut.com']::text[], 'OSHCUT_STORAGE_STATE_SECRET_NAME',
-     '{"key": "oshcut", "liveAdapter": true, "sessionSecrets": [{"secretNameEnv": "OSHCUT_STORAGE_STATE_SECRET_NAME", "mountPath": "/var/secrets/oshcut-storage-state/storage-state.json", "requiredWhenListed": true}], "egress": "stable_nat"}'::jsonb),
     ('quickparts', 'Quickparts', 'portal', 'USD', array['quickparts.com']::text[], 'QUICKPARTS_STORAGE_STATE_SECRET_NAME',
      '{"key": "quickparts", "liveAdapter": true, "sessionSecrets": [{"secretNameEnv": "QUICKPARTS_STORAGE_STATE_SECRET_NAME", "mountPath": "/var/secrets/quickparts-storage-state/storage-state.json", "requiredWhenListed": true}], "egress": "stable_nat", "adoptedAdapter": {"module": "worker/src/adapters/quickpartsPortal.ts"}}'::jsonb),
     ('weerg', 'Weerg', 'portal', 'EUR', array['weerg.com']::text[], 'WEERG_STORAGE_STATE_SECRET_NAME',

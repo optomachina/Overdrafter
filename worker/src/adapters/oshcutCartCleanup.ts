@@ -1,4 +1,3 @@
-import type { VendorQuoteAdapterInput } from "../types.js";
 import type {
   ProviderPortalCleanupCapability,
   ProviderPortalCleanupOutcome,
@@ -8,8 +7,8 @@ import type {
 /**
  * OSH Cut cart cleanup (Blaine's standing rule, 2026-10-15): once the price
  * is read, or after a failure that followed upload, the uploaded part is
- * deleted from the cart on `/cart/O-<uuid>`. Only rows that show the staged
- * file name are touched, so other parts in the account cart stay.
+ * deleted from the cart on `/cart/O-<uuid>`. Only exact row identities new since the pre-upload
+ * snapshot are touched, so pre-existing parts in the account cart stay.
  *
  * The capture of 2026-10-15 did not open the delete control, so these
  * selectors are a reviewed guess: a remove/delete/trash control inside the
@@ -17,10 +16,13 @@ import type {
  * is accepted by the kernel). A miss is reported as `not_found` or
  * `incomplete` in the `providerPortalCleanup` log for manual removal.
  */
+export const OSHCUT_CART_ROW = ":has(> .cartInformationArea)";
+
 export const OSHCUT_CART_CLEANUP_SELECTORS = Object.freeze({
-  partRow: Object.freeze({ selector: ":has(> .cartInformationArea)" }),
+  partRow: Object.freeze({ selector: OSHCUT_CART_ROW, uploadedRows: true }),
   removePart: Object.freeze({
-    scope: ":has(> .cartInformationArea)",
+    scope: OSHCUT_CART_ROW,
+    uploadedRows: true,
     selector: [
       "[aria-label*='remove' i]",
       "[aria-label*='delete' i]",
@@ -52,37 +54,28 @@ const POLL_MS = 200;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
-function stagedFileName(input: VendorQuoteAdapterInput): string | null {
-  const name = input.stagedCadFile?.originalName ?? input.cadFile?.original_name ?? null;
-  return name?.trim() || null;
-}
-
 async function waitForFewerRows(
   cleanup: ProviderPortalCleanupCapability,
-  name: string,
   before: number,
   deadline = Date.now() + ROW_GONE_WAIT_MS,
 ): Promise<number> {
-  const count = await cleanup.count("partRow", name);
+  const count = await cleanup.count("partRow");
   if (count < before || Date.now() >= deadline) return count;
   // An in-page confirm may render a moment after the remove click.
   await cleanup.click("confirmRemove");
   await sleep(POLL_MS);
-  return waitForFewerRows(cleanup, name, before, deadline);
+  return waitForFewerRows(cleanup, before, deadline);
 }
 
-/** Deletes every cart row that shows the staged file name; reports what is left. */
+/** Deletes only the frozen set of rows created since this run's upload snapshot. */
 export async function cleanupOshcutCart(
   cleanup: ProviderPortalCleanupCapability,
-  input: VendorQuoteAdapterInput,
 ): Promise<ProviderPortalCleanupOutcome> {
-  const name = stagedFileName(input);
-  if (!name) return { removed: 0, remaining: Number.NaN };
   let removed = 0;
-  let remaining = await cleanup.count("partRow", name);
+  let remaining = await cleanup.count("partRow");
   for (let attempt = 0; attempt < MAX_ROWS && remaining > 0; attempt += 1) {
-    if (!(await cleanup.click("removePart", name))) break;
-    const after = await waitForFewerRows(cleanup, name, remaining);
+    if (!(await cleanup.click("removePart"))) break;
+    const after = await waitForFewerRows(cleanup, remaining);
     if (after >= remaining) break;
     removed += remaining - after;
     remaining = after;

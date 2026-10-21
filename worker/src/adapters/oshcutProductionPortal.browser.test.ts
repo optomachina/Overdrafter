@@ -133,7 +133,7 @@ function cartPage(options: CartPageOptions = {}): string {
             + (config.remove === "none" ? "" : '<button class="removeButton" aria-label="Remove part">&times;</button>')
             + "</div>";
           document.querySelector(".cartInformationArea .error.link").addEventListener("click", openSlideover);
-          document.querySelector(".removeButton")?.addEventListener("click", onRemove);
+          document.querySelector("#cart .removeButton")?.addEventListener("click", onRemove);
           document.getElementById("note").innerHTML = config.afterUpload;
         }, 300);
       });
@@ -215,6 +215,18 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     },
     PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
   );
+
+  it("preserves pre-existing exact and substring filename collisions", async () => {
+    const before = ["part.step", "customer-part.step"].map((name) =>
+      `<div><div class="cartInformationArea">${name}</div><button class="removeButton"
+        onclick="fetch('/api/customer-part', {method: 'DELETE'}); this.parentElement.remove()">Remove</button></div>`,
+    ).join("");
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ before }));
+    expect(error).toBeNull();
+    expect(output).toMatchObject({ rawPayload: { cartCleanup: { status: "removed", removed: 1, remaining: 0 } } });
+    expect(removedFromCart(observed.requests)).toBe(1);
+    expect(observed.requests).not.toContain("DELETE https://app.oshcut.com/api/customer-part");
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("still removes the uploaded part when the attempt fails after upload, keeping the failure", async () => {
     const { output, error, observed } = await session.quoteAgainst(cartPage({ neverPriced: true }));
