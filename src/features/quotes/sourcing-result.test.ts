@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { buildClientPartAggregateFromMetadata } from "@/features/quotes/api/shared/normalizers";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
+import metadataFixture from "@/features/quotes/client-part-metadata-projection.fixture.json";
+import { normalizeClientPartMetadata } from "@/features/quotes/utils";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import {
   buildClientQuoteComparisonOptions,
@@ -527,6 +530,43 @@ describe("buildClientSourcingResult", () => {
     expect(buildClientSourcingResult({
       part, profiles: [makeProfile("xometry")], liveOffers: [], automaticCollectionEnabled: false,
     })).toMatchObject({ reason });
+  });
+
+  describe.each(["liveOvd670", "draft"] as const)("%s metadata sourcing", (projection) => {
+    it.each([
+      ["complete", "succeeded", "material_unresolved", "Confirm the material"],
+      ["partial", "partial", "material_unresolved", "Confirm the material"],
+      ["failed", "failed", "material_unresolved", "Confirm the material"],
+      ["queued", "queued", "part_not_ready", "Requirements are still being prepared"],
+      ["queued", "extracting", "part_not_ready", "Requirements are still being prepared"],
+    ] as const)("resolves normalized %s / %s extraction as %s", (key, lifecycle, reason, title) => {
+      const fixturePart = metadataFixture.parts.find((candidate) => candidate.key === key)!;
+      const row = metadataFixture.expected[projection].find((candidate) => candidate.partId === fixturePart.partId)!;
+      const metadata = normalizeClientPartMetadata({
+        ...row,
+        // Live rows use this placeholder when extraction has not resolved material.
+        material: "Unknown material",
+        ...("clientExtraction" in row
+          ? { clientExtraction: { ...row.clientExtraction, lifecycle } }
+          : { lifecycle }),
+      })!;
+      const workspace = createClientQuoteWorkspaceItemFixture();
+      const cadFile = workspace.part!.cadFile!;
+      const part = buildClientPartAggregateFromMetadata({
+        job: { ...workspace.job, id: metadata.jobId, organization_id: metadata.organizationId },
+        metadata,
+        files: [
+          cadFile,
+          { ...cadFile, id: "drawing-file", file_kind: "drawing", original_name: "bracket.pdf" },
+        ],
+        vendorQuotes: [],
+      });
+
+      expect(part.clientExtraction?.lifecycle).toBe(lifecycle);
+      expect(buildClientSourcingResult({
+        part, profiles: [makeProfile("xometry")], liveOffers: [], automaticCollectionEnabled: false,
+      })).toMatchObject({ reason, title });
+    });
   });
 
   it("bounds unsupported materials with a useful next action", () => {
