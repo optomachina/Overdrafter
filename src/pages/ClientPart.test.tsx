@@ -1554,6 +1554,27 @@ describe("ClientPart", () => {
       });
     });
 
+    it("saves grouped thousands in Quote quantities without truncation", async () => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => result.current.setQuoteQuantityInput("1,000/2,000"));
+      act(() => result.current.handleSaveRequest());
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        requestedQuoteQuantities: [1000, 2000],
+      });
+    });
+
+    it("rejects decimal Quote quantities without a save or success toast", async () => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => result.current.setQuoteQuantityInput("12.5"));
+      act(() => result.current.handleSaveRequest());
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(toastMock.error).toHaveBeenCalled();
+      expect(toastMock.success).not.toHaveBeenCalledWith("Request details updated.");
+    });
+
     it("saves [5] when only Quantity changed from a saved [1], for a participant the server scoped", async () => {
       vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
       mockQuantityScope.status = "multiple_allowed";

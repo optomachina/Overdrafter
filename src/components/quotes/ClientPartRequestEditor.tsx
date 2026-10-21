@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { SingleQuantityState } from "@/features/quotes/single-quantity";
+import { QUANTITY_FORMAT_ERROR, type SingleQuantityState } from "@/features/quotes/single-quantity";
+import { QUOTE_QUANTITIES_FORMAT_ERROR, validateRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 import { useSingleQuantityInput } from "@/features/quotes/use-single-quantity-input";
@@ -140,7 +141,13 @@ export function ClientPartRequestEditor({
   // error is held back until the field loses focus, so valid typing does not flash an assertive alert.
   const toleranceIncomplete = /^\s*0*\.?0*\s*$/.test(toleranceText);
   const toleranceInvalid = toleranceBlocked && (!toleranceIncomplete || toleranceTouched);
-  const quantityInput = useSingleQuantityInput(draft, singleQuantity, onChange);
+  const quantityInput = useSingleQuantityInput(
+    draft,
+    singleQuantity ?? { allowAboveOne: true, loading: false, unavailable: false },
+    onChange,
+  );
+  const quoteQuantities = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, draft.quantity);
+  const quoteQuantitiesBlocked = !singleQuantity && quoteQuantities.invalidTokens.length > 0;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -269,15 +276,18 @@ export function ClientPartRequestEditor({
               <Label htmlFor="client-request-qty">Qty</Label>
               <Input
                 id="client-request-qty"
-                value={numberFieldValue(draft.quantity)}
-                onChange={(event) =>
-                  onChange({
-                    quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
-                  })
-                }
+                value={quantityInput.value}
+                onChange={(event) => quantityInput.onTextChange(event.target.value)}
+                aria-invalid={quantityInput.blocked || undefined}
+                aria-describedby={quantityInput.blocked ? "client-request-qty-error" : undefined}
                 className="border-border bg-muted text-foreground"
                 inputMode="numeric"
               />
+              {quantityInput.blocked ? (
+                <p id="client-request-qty-error" role="alert" className="text-xs text-destructive">
+                  {QUANTITY_FORMAT_ERROR}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="client-request-quote-quantities">Quote quantities</Label>
@@ -287,7 +297,20 @@ export function ClientPartRequestEditor({
                 onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
                 className="border-border bg-muted text-foreground"
                 placeholder="10 / 25 / 50"
+                aria-invalid={quoteQuantitiesBlocked || undefined}
+                aria-describedby={quoteQuantitiesBlocked ? "client-request-quote-quantities-error" : "client-request-quote-quantities-help"}
               />
+              {quoteQuantitiesBlocked ? (
+                <p id="client-request-quote-quantities-error" role="alert" className="text-xs text-destructive">
+                  {QUOTE_QUANTITIES_FORMAT_ERROR}
+                </p>
+              ) : (
+                <p id="client-request-quote-quantities-help" className="text-xs text-muted-foreground">
+                  {quoteQuantities.quantities[0] !== undefined && quoteQuantities.quantities[0] !== draft.quantity
+                    ? `Saving sets Qty to ${quoteQuantities.quantities[0]}, the first quote quantity. Change Quote quantities to save a different Qty.`
+                    : "The first quote quantity becomes the saved Qty. Leave blank to use Qty."}
+                </p>
+              )}
             </div>
           </>
         )}
@@ -361,7 +384,7 @@ export function ClientPartRequestEditor({
           type="button"
           className="rounded-full"
           onClick={onSave}
-          disabled={isSaving || toleranceBlocked || quantityInput.blocked || (materialRequired && !draft.material.trim())}
+          disabled={isSaving || toleranceBlocked || quantityInput.blocked || quoteQuantitiesBlocked || (materialRequired && !draft.material.trim())}
         >
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save request details

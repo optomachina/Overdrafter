@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createCadPreviewSourceFromJobFile } from "@/lib/cad-preview";
 import type {
@@ -22,7 +23,8 @@ import {
 } from "@/features/quotes/utils";
 import {
   formatRequestedQuoteQuantitiesInput,
-  parseRequestedQuoteQuantitiesInput,
+  validateRequestedQuoteQuantitiesInput,
+  QUOTE_QUANTITIES_FORMAT_ERROR,
 } from "@/features/quotes/request-intake";
 
 export const INTERNAL_JOB_DETAIL_VENDORS = [
@@ -261,9 +263,16 @@ export function useInternalJobDetailViewModel({
   };
 
   const commitQuoteQuantityInput = (partId: string, draft: ApprovedPartRequirement) => {
+    const { quantities, invalidTokens } = validateRequestedQuoteQuantitiesInput(
+      quoteQuantityInputs[partId] ?? "", draft.quantity,
+    );
+    if (invalidTokens.length > 0 || quantities.length === 0) {
+      toast.error(QUOTE_QUANTITIES_FORMAT_ERROR);
+      return;
+    }
     const nextDraft = normalizeApprovedRequirementDraft({
       ...draft,
-      quoteQuantities: parseRequestedQuoteQuantitiesInput(quoteQuantityInputs[partId] ?? "", draft.quantity),
+      quoteQuantities: quantities,
     });
 
     setQuoteQuantityInputs((current) => ({

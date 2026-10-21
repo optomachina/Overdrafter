@@ -73,7 +73,8 @@ import {
 import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestIntake,
-  parseRequestedQuoteQuantitiesInput,
+  validateRequestedQuoteQuantitiesInput,
+  QUOTE_QUANTITIES_FORMAT_ERROR,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
@@ -1513,10 +1514,14 @@ export function useClientProjectController() {
       return;
     }
 
-    const requestedQuoteQuantities = parseRequestedQuoteQuantitiesInput(
+    const { quantities: requestedQuoteQuantities, invalidTokens } = validateRequestedQuoteQuantitiesInput(
       quoteQuantityInputsByJobId[jobId] ?? "",
       draft.quantity,
     );
+    if (invalidTokens.length > 0 || requestedQuoteQuantities.length === 0) {
+      toast.error(QUOTE_QUANTITIES_FORMAT_ERROR);
+      return;
+    }
     const nextDraft = {
       ...draft,
       requestedQuoteQuantities,

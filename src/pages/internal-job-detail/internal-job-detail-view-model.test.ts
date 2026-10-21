@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { toast } from "sonner";
+import { describe, expect, it, vi } from "vitest";
 import type { ApprovedPartRequirement, PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   buildOptionKindsByOfferId,
   buildVisibleQuoteRows,
   resolveClientSummary,
   resolveDraftForUpdate,
+  useInternalJobDetailViewModel,
 } from "./internal-job-detail-view-model";
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 function makeQuote(overrides: Partial<VendorQuoteAggregate> = {}): VendorQuoteAggregate {
   return {
@@ -171,5 +176,17 @@ describe("internal job detail view model helpers", () => {
         partId: "missing-part",
       }),
     ).toBeNull();
+  });
+});
+
+
+describe("internal quote quantity commits", () => {
+  it("preserves invalid text and reports it instead of committing a truncated list", () => {
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job: null, latestQuoteRun: null }));
+    act(() => result.current.setQuoteQuantityInputs({ "part-a": "10/12.5" }));
+    act(() => result.current.commitQuoteQuantityInput("part-a", { quantity: 10 } as ApprovedPartRequirement));
+    expect(result.current.quoteQuantityInputs["part-a"]).toBe("10/12.5");
+    expect(result.current.drafts).toEqual({});
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Enter whole numbers separated by /"));
   });
 });

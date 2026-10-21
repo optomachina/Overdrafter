@@ -4,6 +4,7 @@ import {
   formatRequestedQuoteQuantitiesInput,
   normalizeRequestedQuoteQuantities,
   parseRequestIntake,
+  validateRequestedQuoteQuantitiesInput,
   parseRequestedQuoteQuantitiesInput,
 } from "./request-intake";
 
@@ -97,5 +98,30 @@ describe("request intake parsing", () => {
     expect(parseRequestedQuoteQuantitiesInput("10/25/25", 3)).toEqual([10, 25]);
     expect(formatRequestedQuoteQuantitiesInput([1, 10, 100])).toBe("1/10/100");
     expect(formatRequestedByDateLabel("2026-04-15")).toBe("Apr 15, 2026");
+  });
+});
+
+
+describe("validateRequestedQuoteQuantitiesInput", () => {
+  it.each([
+    ["1,000/2,000", [1000, 2000]],
+    ["25, 50 100;200", [25, 50, 100, 200]],
+    ["25/25/50", [25, 50]],
+    ["", [12]],
+  ])("parses %j without truncation", (text, quantities) => {
+    expect(validateRequestedQuoteQuantitiesInput(text as string, 12)).toEqual({ quantities, invalidTokens: [] });
+  });
+
+  it.each(["12.5", "-5", "abc", "25,50", "0", "2147483648", "1e3", "/"])(
+    "reports invalid token %j instead of silently dropping it",
+    (token) => {
+      expect(validateRequestedQuoteQuantitiesInput(token, 12).invalidTokens).toEqual([token]);
+    },
+  );
+
+  it("reports invalid tokens in a mixed list", () => {
+    expect(validateRequestedQuoteQuantitiesInput("10/12.5/25", 12)).toEqual({
+      quantities: [10, 25], invalidTokens: ["12.5"],
+    });
   });
 });

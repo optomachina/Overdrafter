@@ -547,3 +547,64 @@ describe("ClientPartRequestEditor — single Quantity mode (OVD-997)", () => {
     expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("9");
   });
 });
+
+
+describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () => {
+  function renderHost() {
+    const onChange = vi.fn();
+    const onSave = vi.fn();
+    function Host() {
+      const [draft, setDraft] = useState(makeDraft({ material: "Aluminum" }));
+      const [quoteText, setQuoteText] = useState("");
+      return <ClientPartRequestEditor draft={draft} quoteQuantityInput={quoteText}
+        onQuoteQuantityInputChange={setQuoteText} onChange={(next) => {
+          onChange(next);
+          setDraft((current) => ({ ...current, ...next }));
+        }} onSave={onSave} onUploadRevision={noop} />;
+    }
+    render(<Host />);
+    return { onChange, onSave, qty: screen.getByLabelText("Qty"),
+      quotes: screen.getByLabelText("Quote quantities"),
+      save: screen.getByRole("button", { name: /save request details/i }) };
+  }
+
+  it.each(["1,000", "", "12.5"])("preserves invalid Qty %j and blocks Save", (text) => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: text } });
+    expect(host.qty).toHaveValue(text);
+    expect(host.onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number");
+    expect(host.save).toBeDisabled();
+  });
+
+  it("allows clearing and typing 50 without retaining the initial 1", () => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: "" } });
+    for (const value of ["5", "50"]) fireEvent.change(host.qty, { target: { value } });
+    expect(host.qty).toHaveValue("50");
+    expect(host.onChange).toHaveBeenLastCalledWith({ quantity: 50 });
+    expect(host.save).toBeEnabled();
+  });
+
+  it("never turns typed 12.5 into 125 or 12 after the decimal", () => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: "" } });
+    for (const value of ["1", "12"]) fireEvent.change(host.qty, { target: { value } });
+    host.onChange.mockClear();
+    for (const value of ["12.", "12.5"]) fireEvent.change(host.qty, { target: { value } });
+    expect(host.qty).toHaveValue("12.5");
+    expect(host.onChange).not.toHaveBeenCalled();
+    expect(host.save).toBeDisabled();
+  });
+
+  it("blocks invalid quote quantities and recovers for grouped thousands", () => {
+    const host = renderHost();
+    fireEvent.change(host.quotes, { target: { value: "10/12.5" } });
+    expect(host.save).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter whole numbers separated by /");
+    fireEvent.change(host.quotes, { target: { value: "1,000/2,000" } });
+    expect(host.save).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/Saving sets Qty to 1000, the first quote quantity/)).toBeInTheDocument();
+  });
+});

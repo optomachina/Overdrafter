@@ -1,3 +1,4 @@
+import { parseRequestQuantityText } from "@/features/quotes/single-quantity";
 import { addDays, addWeeks, format, isBefore, parse, startOfDay } from "date-fns";
 import {
   DEFAULT_REQUESTED_SERVICE_KIND,
@@ -407,6 +408,37 @@ export function parseRequestedQuoteQuantitiesInput(value: string, fallbackQuanti
       .filter(Boolean),
     fallbackQuantity,
   );
+}
+
+export const QUOTE_QUANTITIES_FORMAT_ERROR =
+  "Enter whole numbers separated by /, for example 10 / 25 / 50. Each must be from 1 to 2,147,483,647.";
+
+/** Validate user input separately from the permissive normalization used for extracted data. */
+export function validateRequestedQuoteQuantitiesInput(value: string, fallbackQuantity?: number | null): {
+  quantities: number[];
+  invalidTokens: string[];
+} {
+  const quantities: number[] = [];
+  const invalidTokens: string[] = [];
+  const text = value.trim();
+  if (!text) {
+    const fallback = parseRequestQuantityText(String(fallbackQuantity ?? ""));
+    return { quantities: fallback === null ? [] : [fallback], invalidTokens: [] };
+  }
+  const tokens = text.split(/[,](?=\s)|[/;\s]+/).filter(Boolean);
+  for (const token of tokens) {
+    const ungrouped = /^\d{1,3}(,\d{3})+$/.test(token) ? token.replace(/,/g, "") : token;
+    const quantity = parseRequestQuantityText(ungrouped);
+    if (quantity === null) {
+      invalidTokens.push(token);
+    } else if (!quantities.includes(quantity)) {
+      quantities.push(quantity);
+    }
+  }
+  if (tokens.length === 0) {
+    invalidTokens.push(text);
+  }
+  return { quantities, invalidTokens };
 }
 
 export function formatRequestedQuoteQuantitiesInput(quantities: readonly number[]): string {
