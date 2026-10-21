@@ -90,7 +90,7 @@ const ClientProjectReview = () => {
     () => summarizeClientWorkspaceStates(selectedLineItems.map((lineItem) => lineItem.workspaceState)),
     [selectedLineItems],
   );
-  const quoteOptionsFailed = projectJobsQuery.isError || workspaceQuery.isError;
+  const quoteOptionsFailed = projectJobsQuery.isLoadingError || workspaceQuery.isLoadingError;
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (isAuthInitializing) {

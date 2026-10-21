@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 const mocks = vi.hoisted(() => ({
   fetchClientPackage: vi.fn(), selectQuoteOption: vi.fn(),
-  selectionMutation: null as null | ((optionId: string) => Promise<unknown>),
+  selectionMutation: null as null | ((variables: { optionId: string; noteOnly: boolean }) => Promise<unknown>),
 }));
 vi.mock("@/features/quotes/api/workspace-access", () => mocks);
 vi.mock("@/features/quotes/api/session-access", () => ({ resendSignupConfirmation: vi.fn() }));
@@ -31,8 +31,8 @@ const fixture = (source: string | null) => ({
   options: [{ id: "option-1", source_vendor_quote_offer_id: source, label: "Historical option", option_kind: "lowest_cost", requested_quantity: 10, published_price_usd: 120, lead_time_business_days: 5, comparison_summary: "Published quote details", valid_until: null }],
   selections: [{ option_id: "option-1", created_at: "2026-10-01T13:00:00Z", note: "Previous selection note" }],
 });
-const renderPackage = () => render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+const renderPackage = (client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) => render(
+  <QueryClientProvider client={client}>
     <MemoryRouter initialEntries={["/package/package-1"]}><Routes><Route path="/package/:packageId" element={<ClientPackage />} /></Routes></MemoryRouter>
   </QueryClientProvider>,
 );
@@ -61,7 +61,7 @@ describe("published package selection eligibility", () => {
       fireEvent.keyUp(retired, { key });
     }
     fireEvent.click(retired);
-    await expect(Promise.resolve().then(() => mocks.selectionMutation!("option-1"))).rejects.toThrow(/refreshed quote/);
+    await expect(Promise.resolve().then(() => mocks.selectionMutation!({ optionId: "option-1", noteOnly: false }))).rejects.toThrow(/refreshed quote/);
     expect(mocks.selectQuoteOption).not.toHaveBeenCalled();
     fireEvent.click(linked);
     await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledExactlyOnceWith({ packageId: "package-1", optionId: "option-2", note: "" }));
@@ -102,6 +102,29 @@ describe("published package selection eligibility", () => {
     await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledWith({ packageId: "package-1", optionId: "option-1", note: "" }));
   });
 
+  it("keeps the option-selection toast when a refetch selects the option mid-flight", async () => {
+    const initial = fixture("offer-1");
+    initial.options.push({ ...initial.options[0], id: "option-2", label: "New option", source_vendor_quote_offer_id: "offer-2" });
+    mocks.fetchClientPackage.mockResolvedValue(initial);
+    let finish!: () => void;
+    mocks.selectQuoteOption.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPackage(client);
+    fireEvent.click(await screen.findByRole("button", { name: "Select another option" }));
+    await waitFor(() => expect(mocks.selectQuoteOption).toHaveBeenCalledWith({
+      packageId: "package-1", optionId: "option-2", note: "",
+    }));
+    mocks.fetchClientPackage.mockResolvedValue({
+      ...initial, selections: [{ ...initial.selections[0], option_id: "option-2", note: "" }],
+    });
+    await act(async () => { await client.refetchQueries({ queryKey: ["client-package"] }); });
+    const card = screen.getByRole("heading", { name: "New option" }).closest(".border") as HTMLElement;
+    await waitFor(() => expect(within(card).getByRole("button")).toHaveAttribute("aria-pressed", "true"));
+    expect(toast.success).not.toHaveBeenCalled();
+    await act(async () => { finish(); });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledExactlyOnceWith("Quote option selected."));
+  });
+
   it("saves another decision note for the already selected option", async () => {
     mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
     renderPackage();
@@ -135,7 +158,7 @@ describe("published package selection eligibility", () => {
     renderPackage();
     await screen.findByText("Historical option");
     for (const id of ["option-1", "not-in-package"]) {
-      await expect(Promise.resolve().then(() => mocks.selectionMutation!(id))).rejects.toThrow(/refreshed quote/);
+      await expect(Promise.resolve().then(() => mocks.selectionMutation!({ optionId: id, noteOnly: false }))).rejects.toThrow(/refreshed quote/);
     }
     expect(mocks.selectQuoteOption).not.toHaveBeenCalled();
   });

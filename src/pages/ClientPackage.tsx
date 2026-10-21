@@ -167,7 +167,7 @@ const ClientPackage = () => {
   };
 
   const selectMutation = useMutation({
-    mutationFn: (optionId: string) => {
+    mutationFn: ({ optionId }: { optionId: string; noteOnly: boolean }) => {
       const option = packageQuery.data?.options.find((candidate) => candidate.id === optionId);
       if (!option?.source_vendor_quote_offer_id) {
         throw new Error(refreshedQuoteMessage);
@@ -179,8 +179,8 @@ const ClientPackage = () => {
         note: selectionNote.trim(),
       });
     },
-    onSuccess: async (_data, optionId) => {
-      toast.success(optionId === latestSelection?.option_id ? "Decision note saved." : "Quote option selected.");
+    onSuccess: async (_data, variables) => {
+      toast.success(variables.noteOnly ? "Decision note saved." : "Quote option selected.");
       await queryClient.invalidateQueries({ queryKey: ["client-package", packageId] });
       await Promise.all([
         "packages", "client-part-summaries", "part-review", "project-review-workspace",
@@ -377,7 +377,7 @@ const ClientPackage = () => {
                         ) : null}
                         <Button
                           className="w-full rounded-full"
-                          onClick={() => selectMutation.mutate(option.id)}
+                          onClick={() => selectMutation.mutate({ optionId: option.id, noteOnly: isSelected })}
                           disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending ||
                             (isSelected && (!selectionNote.trim() || selectionNote.trim() === (latestSelection?.note ?? "").trim()))}
                           aria-pressed={isSelected}

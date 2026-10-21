@@ -1319,6 +1319,30 @@ describe("ClientProject", () => {
     expect(screen.queryByText("Choose a package option to continue")).not.toBeInTheDocument();
   });
 
+  it.each(["jobs", "workspace"].flatMap((query) => [true, false].map((selected) => [query, selected] as const)))("keeps Review order state after a background %s failure (selected: %s)", async (failedQuery, selected) => {
+    const item = createProjectSummaryWorkspaceItem({
+      jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
+      totalPriceUsd: 100, leadTimeBusinessDays: 7,
+    });
+    if (!selected) item.job.selected_vendor_quote_offer_id = null;
+    api.fetchJobsByProject.mockResolvedValue([item.job]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(buildProjectTree("/projects/project-1", client));
+    const button = await screen.findByRole("button", { name: "Review order" });
+    await waitFor(() => expect(api.fetchClientQuoteWorkspaceByJobIds).toHaveBeenCalled());
+    await waitFor(() => selected ? expect(button).toBeEnabled() : expect(button).toHaveAccessibleDescription("Choose a quote to continue"));
+    const query = failedQuery === "jobs" ? api.fetchJobsByProject : api.fetchClientQuoteWorkspaceByJobIds;
+    query.mockRejectedValue(new Error("Background refetch unavailable"));
+    const calls = query.mock.calls.length;
+    await act(async () => { await client.refetchQueries(); });
+    expect(query.mock.calls.length).toBeGreaterThan(calls);
+    expect(client.getQueryCache().getAll().some((entry) => entry.state.status === "error" && entry.state.data !== undefined)).toBe(true);
+    if (selected) expect(button).toBeEnabled();
+    else expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    expect(screen.queryByText("Unable to load quote options. Please try again.")).not.toBeInTheDocument();
+  });
+
   it.each([false, true])("uses package selection precedence in project review access (published: %s)", async (published) => {
     const item = createProjectSummaryWorkspaceItem({
       jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
