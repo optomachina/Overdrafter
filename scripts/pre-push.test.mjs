@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync, openSync, closeSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 const root = resolve('.');
+// Every test here runs the real pre-push.sh in a fresh git fixture, which spawns bash, git and
+// two Node + TypeScript validator processes per run. That is about 2 s of work per test without extra
+// load, but it took up to about 10 s and hit the 5 s vitest default on loaded runners, so allow
+// headroom rather than weakening any assertion (OVD-1021).
+vi.setConfig({ testTimeout: 30_000 });
 const dirs = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 function fixture() {
