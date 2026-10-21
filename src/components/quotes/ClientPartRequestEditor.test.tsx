@@ -361,3 +361,189 @@ describe("ClientPartRequestEditor — tightest tolerance typing", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+describe("ClientPartRequestEditor — single Quantity mode (OVD-997)", () => {
+  const OPEN = { allowAboveOne: true, loading: false, unavailable: false };
+  const FIXED = { allowAboveOne: false, loading: false, unavailable: false };
+  const LOADING = { allowAboveOne: false, loading: true, unavailable: false };
+  const UNAVAILABLE = { allowAboveOne: false, loading: false, unavailable: true };
+
+  // Stateful host mirroring the controller: onChange merges into the draft the editor receives back.
+  function renderHost(
+    singleQuantity: { allowAboveOne: boolean; loading: boolean; unavailable: boolean } | undefined,
+    initial: Partial<ClientPartRequestUpdateInput> = {},
+  ) {
+    const onSave = vi.fn();
+    let latest = makeDraft({ material: "6061-T6", ...initial });
+    function Host() {
+      const [draft, setDraft] = useState(latest);
+      latest = draft;
+      return (
+        <ClientPartRequestEditor
+          draft={draft}
+          quoteQuantityInput="1"
+          onQuoteQuantityInputChange={noop}
+          onChange={(next) => setDraft((current) => ({ ...current, ...next }))}
+          onSave={() => onSave(latest)}
+          onUploadRevision={noop}
+          singleQuantity={singleQuantity}
+        />
+      );
+    }
+    render(<Host />);
+    const input = () => screen.getByLabelText("Quantity") as HTMLInputElement;
+    const set = (text: string) => fireEvent.change(input(), { target: { value: text } });
+    const save = () => screen.getByRole("button", { name: /save request details/i });
+    return { input, set, save, onSave, current: () => latest };
+  }
+
+  it("keeps Qty and Quote quantities when the mode is off", () => {
+    renderHost(undefined);
+    expect(screen.getByLabelText("Qty")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quote quantities")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Quantity")).not.toBeInTheDocument();
+  });
+
+  it("shows one Quantity field, default 1, and no Qty or Quote quantities", () => {
+    const host = renderHost(OPEN);
+    expect(host.input().value).toBe("1");
+    expect(host.input()).toHaveAttribute("id", "client-request-quantity");
+    expect(host.input()).not.toHaveAttribute("readonly");
+    expect(screen.queryByLabelText("Qty")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Quote quantities")).not.toBeInTheDocument();
+    expect(screen.getByText("Each request is quoted at one quantity.")).toBeInTheDocument();
+    expect(host.save()).toBeEnabled();
+  });
+
+  it("lets a scoped participant type any whole quantity, keystroke by keystroke, and save it", () => {
+    const host = renderHost(OPEN);
+    host.set("");
+    expect(host.input().value).toBe("");
+    expect(host.current().quantity).toBe(1);
+    expect(host.save()).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    host.set("5");
+    host.set("50");
+    host.set("500000");
+    expect(host.input().value).toBe("500000");
+    expect(host.current().quantity).toBe(500000);
+    expect(host.save()).toBeEnabled();
+    fireEvent.click(host.save());
+    expect(host.onSave).toHaveBeenCalledOnce();
+    expect(host.onSave.mock.calls[0][0].quantity).toBe(500000);
+  });
+
+  it.each(["abc", "0", "-2", "2.5", "1e3", "10 / 25", "2147483648", "99999999999999999999"])(
+    "refuses %j, keeps the last valid quantity in the draft and blocks save",
+    (text) => {
+      const host = renderHost(OPEN, { quantity: 3 });
+      host.set(text);
+      expect(host.input().value).toBe(text);
+      expect(host.current().quantity).toBe(3);
+      expect(host.input()).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 2,147,483,647.");
+      expect(host.save()).toBeDisabled();
+    },
+  );
+
+  it("explains an emptied field only after the user leaves it, then recovers when corrected", () => {
+    const host = renderHost(OPEN);
+    host.set("");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(host.input());
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    host.set("8");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.input()).not.toHaveAttribute("aria-invalid");
+    expect(host.current().quantity).toBe(8);
+    expect(host.save()).toBeEnabled();
+  });
+
+  it("is fixed at 1 with an explanation when the server did not scope a larger quantity", () => {
+    const host = renderHost(FIXED);
+    expect(host.input().value).toBe("1");
+    expect(host.input()).toHaveAttribute("readonly");
+    expect(screen.getByText(/quotes 1 piece per request/i)).toBeInTheDocument();
+    expect(screen.getByText(/turned on for specific requests only/i)).toBeInTheDocument();
+    expect(host.input()).toHaveAttribute("aria-describedby", "client-request-quantity-help");
+    expect(host.save()).toBeEnabled();
+    host.set("5");
+    expect(host.input().value).toBe("1");
+    expect(host.current().quantity).toBe(1);
+  });
+
+  it("shows 1 and says a save changes it when a larger quantity was saved before", () => {
+    const host = renderHost(FIXED, { quantity: 25, requestedQuoteQuantities: [25] });
+    expect(host.input().value).toBe("1");
+    expect(
+      screen.getByText("This request is saved with quantity 25. Saving sets the quantity to 1."),
+    ).toBeInTheDocument();
+  });
+
+  it("notes that a save keeps one of several saved quantities", () => {
+    const host = renderHost(OPEN, { quantity: 10, requestedQuoteQuantities: [10, 25, 50] });
+    expect(host.input().value).toBe("10");
+    expect(
+      screen.getByText("This request is saved with quantities 10, 25, 50. Saving keeps only quantity 10."),
+    ).toBeInTheDocument();
+  });
+
+  it("waits for the server answer: read only, explained, and Save is off", () => {
+    const host = renderHost(LOADING, { quantity: 4, requestedQuoteQuantities: [4] });
+    expect(host.input().value).toBe("4");
+    expect(host.input()).toHaveAttribute("readonly");
+    expect(screen.getByText("Checking which quantities this request can use.")).toBeInTheDocument();
+    expect(screen.queryByText(/saved with/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save()).toBeDisabled();
+  });
+
+  it("keeps the saved quantity, says the check failed and keeps Save on when the answer is unavailable", () => {
+    const host = renderHost(UNAVAILABLE, { quantity: 25, requestedQuoteQuantities: [25, 50] });
+    expect(host.input().value).toBe("25");
+    expect(host.input()).toHaveAttribute("readonly");
+    expect(screen.getByText(/could not check which quantities this request can use/i)).toBeInTheDocument();
+    expect(screen.getByText(/reload the page to try again/i)).toBeInTheDocument();
+    // Not the server's policy: the "specific requests only" copy and the sets-to-1 note must not appear.
+    expect(screen.queryByText(/turned on for specific requests only/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/saving sets the quantity to 1/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("This request is saved with quantities 25, 50. Saving keeps them as they are."),
+    ).toBeInTheDocument();
+    host.set("5");
+    expect(host.input().value).toBe("25");
+    expect(host.current().quantity).toBe(25);
+    expect(host.save()).toBeEnabled();
+    fireEvent.click(host.save());
+    expect(host.onSave).toHaveBeenCalledOnce();
+    expect(host.onSave.mock.calls[0][0]).toMatchObject({ quantity: 25, requestedQuoteQuantities: [25, 50] });
+  });
+
+  it("follows the draft when it changes from outside", () => {
+    const drafts = [makeDraft({ material: "6061-T6", quantity: 2 }), makeDraft({ material: "6061-T6", quantity: 9 })];
+    const view = render(
+      <ClientPartRequestEditor
+        draft={drafts[0]}
+        quoteQuantityInput=""
+        onQuoteQuantityInputChange={noop}
+        onChange={noop}
+        onSave={noop}
+        onUploadRevision={noop}
+        singleQuantity={OPEN}
+      />,
+    );
+    expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("2");
+    view.rerender(
+      <ClientPartRequestEditor
+        draft={drafts[1]}
+        quoteQuantityInput=""
+        onQuoteQuantityInputChange={noop}
+        onChange={noop}
+        onSave={noop}
+        onUploadRevision={noop}
+        singleQuantity={OPEN}
+      />,
+    );
+    expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("9");
+  });
+});
