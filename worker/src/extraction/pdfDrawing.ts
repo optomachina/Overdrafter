@@ -15,6 +15,7 @@ import {
   type TitleBlockBorder,
 } from "./titleBlockCells.js";
 
+import { pdfSourceGeometryIssues, readSvgGeometry, type PageVectorGeometry } from "./pdfVectorGeometry.js";
 import { finalizeExtractionApproval } from "./extractionApproval.js";
 
 const execFileAsync = promisify(execFile);
@@ -87,6 +88,7 @@ export type PdfTextPage = {
    */
   words?: PdfWord[];
   borders?: TitleBlockBorder[];
+  vectorGeometry?: PageVectorGeometry;
   /** True only when every word in the full-page bbox output was read successfully. */
   wordGeometryComplete?: boolean;
 };
@@ -1913,118 +1915,32 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
   };
 }
 
-/**
- * Only visible, solid, straight rules are evidence of a cell boundary. Cairo resolves PDF coordinates
- * into the same displayed page points as Poppler's word boxes. Unsupported paths, clipping, group
- * transforms, dashes and styles confer no proof. A missing tool or timeout leaves the gate conservative.
- */
-async function readPageBorders(localPath: string, page: number, deadline: number): Promise<TitleBlockBorder[]> {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) return [];
+/** Read rules and I7 negative evidence together; a failed scan never proves an empty page. */
+async function readPageBorders(localPath: string, page: number, deadline: number, size: { width: number; height: number }) {
   try {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("geometry deadline");
     const { stdout } = await execFileAsync("pdftocairo", ["-svg", "-f", String(page), "-l", String(page), localPath, "-"], {
       timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remaining), maxBuffer: 16 * 1024 * 1024,
     });
-    if (!stdout.trimEnd().endsWith("</svg>")) return [];
-    let borders: TitleBlockBorder[] = [];
-    const groups: boolean[] = [];
-    let inDefinitions = false;
-    const attribute = (tag: string, name: string) => new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(tag)?.[1];
-    type PaintBounds = { x0: number; y0: number; x1: number; y1: number };
-    // A conservative control-point hull covers Cairo's absolute line/Bezier paths. Unsupported
-    // paint has unknown coverage and invalidates earlier rules; it must never silently disappear.
-    const paintBounds = (tag: string): PaintBounds | null => {
-      const pathData = attribute(tag, "d") ?? "";
-      if (!pathData || pathData.replace(/[MLCQZ]|[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?|[\s,]/g, "")) return null;
-      const numbers = pathData.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/g)?.map(Number) ?? [];
-      const transform = attribute(tag, "transform");
-      const matrix = transform === undefined ? [1, 0, 0, 1, 0, 0] :
-        /^matrix\(([-\d.e+,\s]+)\)$/i.exec(transform)?.[1]?.trim().split(/[,\s]+/).map(Number);
-      if (numbers.length === 0 || numbers.length % 2 || !matrix || matrix.length !== 6 || !matrix.every(Number.isFinite)) return null;
-      const [a, b, c, d, e, f] = matrix as [number, number, number, number, number, number];
-      const xs: number[] = [], ys: number[] = [];
-      for (let i = 0; i < numbers.length; i += 2) {
-        xs.push(a * numbers[i]! + c * numbers[i + 1]! + e);
-        ys.push(b * numbers[i]! + d * numbers[i + 1]! + f);
-      }
-      const stroke = attribute(tag, "stroke");
-      const width = stroke && stroke !== "none" ? Number(attribute(tag, "stroke-width") ?? 1) : 0;
-      const miter = attribute(tag, "stroke-linejoin") === "round" || attribute(tag, "stroke-linejoin") === "bevel"
-        ? 1 : Number(attribute(tag, "stroke-miterlimit") ?? 4);
-      if (!Number.isFinite(width) || width < 0 || !Number.isFinite(miter) || miter < 1) return null;
-      const dx = width / 2 * miter * Math.hypot(a, c), dy = width / 2 * miter * Math.hypot(b, d);
-      return { x0: Math.min(...xs) - dx, y0: Math.min(...ys) - dy, x1: Math.max(...xs) + dx, y1: Math.max(...ys) + dy };
-    };
-    const occlude = (bounds: PaintBounds | null) => {
-      borders = bounds === null ? [] : borders.filter((border) =>
-        border.y < bounds.y0 - 1 || border.y > bounds.y1 + 1 || border.x1 < bounds.x0 - 1 || border.x0 > bounds.x1 + 1);
-    };
-    const glyphs = new Map<string, PaintBounds | null>();
-    for (const glyph of stdout.matchAll(/<(?:g|symbol)\b[^>]*id="(glyph[^"]+)"[^>]*>([\s\S]*?)<\/(?:g|symbol)>/g)) {
-      const paths = [...glyph[2]!.matchAll(/<path\b[^>]*>/g)]
-        .filter((path) => (attribute(path[0], "d") ?? "").trim() !== "").map((path) => paintBounds(path[0]));
-      glyphs.set(glyph[1]!, paths.some((bounds) => bounds === null) ? null : {
-        x0: Math.min(...paths.map((bounds) => bounds!.x0)), y0: Math.min(...paths.map((bounds) => bounds!.y0)),
-        x1: Math.max(...paths.map((bounds) => bounds!.x1)), y1: Math.max(...paths.map((bounds) => bounds!.y1)),
-      });
-    }
-    for (const match of stdout.matchAll(/<defs\b[^>]*>|<\/defs>|<g\b[^>]*>|<\/g>|<(?:path|use|image|rect)\b[^>]*>/g)) {
-      const tag = match[0];
-      if (tag.startsWith("<defs")) { inDefinitions = true; continue; }
-      if (tag.startsWith("</defs")) { inDefinitions = false; continue; }
-      if (inDefinitions) continue;
-      if (tag.startsWith("</g")) { groups.pop(); continue; }
-      if (tag.startsWith("<g")) {
-        groups.push(groups.at(-1) === true || /(?:^|\s)(?:transform|clip-path|mask|style|opacity)=/.test(tag));
-        continue;
-      }
-      if (tag.startsWith("<use")) {
-        const glyph = glyphs.get((attribute(tag, "xlink:href") ?? "").replace(/^#/, ""));
-        const x = Number(attribute(tag, "x") ?? 0), y = Number(attribute(tag, "y") ?? 0);
-        occlude(glyph && Number.isFinite(x) && Number.isFinite(y) && groups.at(-1) !== true && !attribute(tag, "transform")
-          ? { x0: glyph.x0 + x, x1: glyph.x1 + x, y0: glyph.y0 + y, y1: glyph.y1 + y } : null);
-        continue;
-      }
-      if (!tag.startsWith("<path")) { occlude(null); continue; }
-      const colour = /^rgb\(([-\d.]+)%, ([-\d.]+)%, ([-\d.]+)%\)$/.exec(attribute(tag, "stroke") ?? "")?.slice(1).map(Number);
-      if (attribute(tag, "fill") !== "none") {
-        occlude(groups.at(-1) === true ? null : paintBounds(tag));
-      } else if (!colour?.every((channel) => channel >= 0 && channel <= 80)) {
-        // Unknown/light strokes may paint over a rule too; no safe coverage proof is available.
-        occlude(null);
-      }
-      if (groups.at(-1) === true || /\b(?:style|clip-path|mask|stroke-dasharray)=/.test(tag) ||
-        attribute(tag, "fill") !== "none" || attribute(tag, "stroke-opacity") !== "1" ||
-        !colour?.every((channel) => channel >= 0 && channel <= 80) || !(Number(attribute(tag, "stroke-width")) > 0)) continue;
-      const pathData = attribute(tag, "d") ?? "";
-      const segment = /M\s+([-\d.e+]+)\s+([-\d.e+]+)\s+L\s+([-\d.e+]+)\s+([-\d.e+]+)\s*/gi;
-      if (!pathData || pathData.replace(segment, "").trim()) continue;
-      const transform = attribute(tag, "transform");
-      const matrix = transform === undefined ? [1, 0, 0, 1, 0, 0] :
-        /^matrix\(([-\d.e+,\s]+)\)$/i.exec(transform)?.[1]?.trim().split(/[,\s]+/).map(Number);
-      if (!matrix || matrix.length !== 6 || !matrix.every(Number.isFinite)) continue;
-      const [a, b, c, d, e, f] = matrix as [number, number, number, number, number, number];
-      for (const coordinates of pathData.matchAll(segment)) {
-        const [x0, y0, x1, y1] = coordinates.slice(1).map(Number) as [number, number, number, number];
-        const first = { x: a * x0 + c * y0 + e, y: b * x0 + d * y0 + f };
-        const last = { x: a * x1 + c * y1 + e, y: b * x1 + d * y1 + f };
-        if ([first.x, first.y, last.x, last.y].every(Number.isFinite) && Math.abs(first.y - last.y) < 0.01 &&
-          Math.abs(first.x - last.x) > 1) {
-          borders.push({ x0: Math.min(first.x, last.x), x1: Math.max(first.x, last.x), y: first.y });
-        }
-        if (borders.length > 2_000) return [];
-      }
-    }
-    return borders;
+    return readSvgGeometry(stdout, size);
   } catch {
-    return [];
+    return { borders: [], vectorGeometry: { complete: false, issues: [{ cause: "vector_geometry_unavailable", bounds: null }] } };
   }
 }
 
 /** Word geometry of every page with a text layer; undefined when Poppler could not or did not box it. */
-async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<Pick<PdfTextPage, "words" | "borders" | "wordGeometryComplete"> | undefined>> {
-  const boxes: Array<Pick<PdfTextPage, "words" | "borders" | "wordGeometryComplete"> | undefined> = [];
+async function readWordBoxes(localPath: string, layerTexts: readonly string[]): Promise<Array<Pick<PdfTextPage, "words" | "borders" | "vectorGeometry" | "wordGeometryComplete"> | undefined>> {
+  const boxes: Array<Pick<PdfTextPage, "words" | "borders" | "vectorGeometry" | "wordGeometryComplete"> | undefined> = [];
   const deadline = Date.now() + PDF_WORD_BOXES_TOTAL_TIMEOUT_MS;
+  let sourceIssues;
+  try {
+    sourceIssues = (await fs.stat(localPath)).size <= 32 * 1024 * 1024
+      ? pdfSourceGeometryIssues(await fs.readFile(localPath))
+      : [{ cause: "pdf_source_limit", bounds: null }];
+  } catch {
+    sourceIssues = [{ cause: "pdf_source_unavailable", bounds: null }];
+  }
   let totalWords = 0;
   for (let index = 0; index < layerTexts.length; index += 1) {
     const remainingMs = deadline - Date.now();
@@ -2037,17 +1953,23 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
     try {
       const { stdout } = await execFileAsync(
         "pdftotext",
-        ["-bbox", "-enc", "UTF-8", "-f", String(index + 1), "-l", String(index + 1), localPath, "-"],
+        ["-bbox", "-cropbox", "-enc", "UTF-8", "-f", String(index + 1), "-l", String(index + 1), localPath, "-"],
         { maxBuffer: 32 * 1024 * 1024, timeout: Math.min(PDF_TOOL_TIMEOUT_MS, remainingMs) },
       );
       const words = parseBboxWords(typeof stdout === "string" ? stdout : "");
       totalWords += words.length;
       boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL
         ? { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
-          borders: await readPageBorders(localPath, index + 1, deadline) } : undefined);
+          ...await readPageBorders(localPath, index + 1, deadline, {
+            width: Number(/<page\b[^>]*\bwidth="([^"]+)"/.exec(stdout)?.[1]),
+            height: Number(/<page\b[^>]*\bheight="([^"]+)"/.exec(stdout)?.[1]),
+          }) } : undefined);
     } catch {
       boxes.push(undefined);
     }
+  }
+  for (const page of boxes) {
+    if (page?.vectorGeometry) page.vectorGeometry.issues.push(...sourceIssues);
   }
   return boxes;
 }
@@ -2648,7 +2570,7 @@ export function inferDrawingSignalsFromPdf(input: {
   }) : null;
   const approval = finalizeExtractionApproval({
     fields: fieldResults,
-    cellProof: { reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
+    cellProof: { geometryByPage: new Map(input.pdfText.pages.map((page) => [page.page, page.vectorGeometry])), reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
     tolerance: {
       valueInch: inferredTightestTolerance?.valueInch ?? null,
       independentValueInch: independentTolerance?.valueInch ?? null,

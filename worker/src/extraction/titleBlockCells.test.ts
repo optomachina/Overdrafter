@@ -659,7 +659,7 @@ describe("title block cells", () => {
           ocr: false,
           // Explicit monospaced fixture geometry: one point per character, 2.5-point text height.
           pages: texts.map((text, index) => ({ page: index + 1, text, ocrText: "", ocrStatus: "ok" as const,
-            wordGeometryComplete: true,
+            vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true,
             words: text.split("\n").flatMap((raw, row) => [...raw.matchAll(/\S+/g)].map((match) => ({
               text: match[0], xMin: match.index, xMax: match.index + match[0].length,
               yMin: row * 3, yMax: row * 3 + 2.5,
@@ -1751,7 +1751,7 @@ describe("title block cells", () => {
       const words = [...label("FINISH", 330, 730), ...value("ANODIZE, BLACK", 340, 738), ...value("MIL-A-8625 TYPE III", 340, 750)];
       const signals = inferDrawingSignalsFromPdf({
         baseName: "upload",
-        pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", wordGeometryComplete: true, words }] },
+        pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false, pages: [{ page: 1, text: "FINISH", ocrText: "", ocrStatus: "ok", vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true, words }] },
       });
       expect(signals.finish).toMatchObject({ value: "ANODIZE, BLACK MIL-A-8625 TYPE III", reviewNeeded: false });
     });

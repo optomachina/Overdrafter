@@ -443,18 +443,23 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     }
 
     it.each([
-      ["THICKNESS (IN)", ".125", 395],
-      ["THICKNESS (IN)", ".125", 420],
-      ["WT (LB)", "2.5", 395],
-      ["HEAT-TREAT", "RC 40-45", 380],
-      ["LOT #", "A123", 395],
-      ["# REQD", "4", 380],
-    ] as const)("(a) leaves an empty MATERIAL empty and flagged, not a 6 pt '%s' by a 9 pt '%s' (at x %s)", async (label, value, x) => {
+      ["THICKNESS (IN)", ".125", 395, true],
+      ["THICKNESS (IN)", ".125", 420, false],
+      ["WT (LB)", "2.5", 395, true],
+      ["HEAT-TREAT", "RC 40-45", 380, false],
+      ["LOT #", "A123", 395, true],
+      ["# REQD", "4", 380, true],
+    ] as const)("(a) leaves an empty MATERIAL empty and flagged, not a 6 pt '%s' by a 9 pt '%s' (at x %s)", async (label, value, x, unresolvedAboveFinish) => {
       for (const [source, result] of await extractBoth(lowerFinish(null, labelAndValue(label, value, 745, x)))) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(expectedReviewFields(source, ["material"]));
+        expect(result.reviewFields, source).toEqual(expectedReviewFields(source, unresolvedAboveFinish ? ["material", "finish"] : ["material"]));
         expect(result.status, source).toBe("needs_review");
         expect(result.finish.raw, source).toBe("AS MACHINED");
+        // Preserve the suggestion, but an unowned value directly above FINISH cannot prove its orientation.
+        if (unresolvedAboveFinish && fullyRead && source === "word boxes") {
+          expect(result.finish.reviewNeeded).toBe(true);
+          expect(result.finish.reasons).toContain("title_block_cell_unread");
+        }
       }
     });
 
@@ -611,11 +616,12 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(words.length).toBeGreaterThan(50);
       // poppler prints the stored page size (792 x 1224) in its markup; the words are at displayed positions.
       expect(Math.max(...words.map((word) => word.xMax))).toBeGreaterThan(792);
-      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: !fullyRead });
-      expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: !fullyRead });
-      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: !fullyRead });
-      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: !fullyRead });
+      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: true });
+      expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: true });
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
       expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
+      expect(signals.material.reasons).toContain("geometry_coordinate_frame_mismatch");
     });
   });
 
@@ -663,8 +669,10 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       for (const [source, result] of await extractBoth(items)) {
         expect(result.material.raw, source).toBeNull();
-        expect(result.reviewFields, source).toEqual(expectedReviewFields(source, ["material"]));
+        expect(result.reviewFields, source).toEqual(expectedReviewFields(source, ["material", "finish"]));
         expect(result.finish.raw, source).toBe("AS MACHINED");
+        expect(result.finish.reviewNeeded).toBe(true);
+        if (fullyRead && source === "word boxes") expect(result.finish.reasons).toContain("title_block_cell_unread");
       }
     });
 
@@ -1009,7 +1017,8 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         rules: [{ x0: 50, x1: 400, y0: 630, y1: 630 }],
         erase: [{ x: 45, y: 634, width: 360, height: 1, strokeWidth: 10 }],
       });
-      expect(text.pages[0]!.borders).toEqual([]);
+      expect(text.pages[0]!.borders).toContainEqual({ x0: 50, x1: 400, y: 630 });
+      expect(text.pages[0]!.vectorGeometry?.issues.some((issue) => issue.cause === "fill")).toBe(true);
       expect(infer(text).finish).toMatchObject({ value: "MIL-A-8625F", reviewNeeded: true });
     });
 
@@ -1021,7 +1030,74 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       ];
       expect(infer(await pdfTextOf(items)).finish.reviewNeeded).toBe(true);
       const result = infer(await pdfTextOf(items, { rules: [{ x0: 50, x1: 400, y0: 640, y1: 640, gray: 0.75 }] }));
-      expect(result.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: !fullyRead });
+      expect(result.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
+      expect(result.finish.reasons).toContain("geometry_non_black_or_light_stroke");
+    });
+  });
+
+  describe("I7 real PDF geometry", () => {
+    const items = [
+      { x: 100, y: 600, size: 9, text: "MATERIAL" },
+      { x: 100, y: 640, size: 9, text: "LOT CODE A123" },
+    ];
+    it.each([
+      ["rectangle", "90 167 260 -40 re S"],
+      ["polyline", "90 207 m 90 167 l 350 167 l 350 127 l S"],
+      ["closed path", "90 167 m 350 167 l h S"],
+      ["split segments", "90 167 m 125 167 l S 125 167 m 350 167 l S"],
+      ["filled bar", "0 g 90 167 260 0.6 re f"],
+    ])("reads %s rules through Cairo and vetoes cross-cell binding", async (_name, paint) => {
+      const data = await pdfTextOf(items, { paint: `0 G 0.5 w ${paint}` });
+      expect(data.pages[0]!.borders?.some((border) => border.x0 <= 90 && border.x1 >= 350 && Math.abs(border.y-625) < 1)).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+    });
+
+    it.each([
+      ["image", "q 20 0 0 20 1000 700 cm BI /W 1 /H 1 /BPC 8 /CS /G ID x EI Q"],
+      ["grey stroke", "0.85 G 0.5 w 150 350 m 450 350 l S"],
+      ["coloured stroke", "1 0 0 RG 0.5 w 150 350 m 450 350 l S"],
+    ])("later %s cannot empty the rule list or reopen approval", async (_name, paintAfter) => {
+      const data = await pdfTextOf(items, { rules: [{ x0: 90, x1: 350, y0: 625, y1: 625 }], paintAfter });
+      expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 625 });
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+    });
+
+    it("CropBox word boxes and rules share a frame and retain the divider veto", async () => {
+      const data = await pdfTextOf([
+        { x: 150, y: 330, size: 9, text: "MATERIAL" },
+        { x: 150, y: 370, size: 9, text: "LOT CODE A123" },
+      ], { cropBox: [50, 30, 1174, 762], rules: [{ x0: 140, x1: 400, y0: 355, y1: 355 }] });
+      expect(data.pages[0]!.words?.find((word) => word.text === "MATERIAL")?.xMin).toBe(100);
+      expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 325 });
+      expect(data.pages[0]!.vectorGeometry?.complete).toBe(true);
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
+    });
+
+    it.each([15, 20])("CropBox inset %s cannot create a phantom closing rule that drops CLASS 2", async (inset) => {
+      const data = await pdfTextOf([
+        { x: 100, y: 600+inset, size: 6, text: "FINISH" },
+        { x: 100, y: 612+inset, size: 9, text: "MIL-A-8625F" },
+        { x: 250, y: 628+inset, size: 9, text: "CLASS 2" },
+      ], { cropBox: [0, 0, 1224, 792-inset], rules: [{ x0: 50, x1: 400, y0: 644+inset, y1: 644+inset }] });
+      expect(data.pages[0]!.borders).toContainEqual({ x0: 50, x1: 400, y: 644 });
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).finish.reviewNeeded).toBe(true);
+    });
+
+    it("a Form XObject in the region cannot supply complete geometry", async () => {
+      const data = await pdfTextOf(items, { formPaint: "0 G 0.5 w 90 167 m 350 167 l S" });
+      const result = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data });
+      expect(result.material.reviewNeeded).toBe(true);
+      expect(result.material.reasons).toContain("title_block_geometry_incomplete");
+    });
+
+    it("labels printed beneath their values cannot approve the following cell", async () => {
+      const data = await pdfTextOf([
+        { x: 100, y: 600, size: 9, text: "AL 6061-T6" },
+        { x: 100, y: 614, size: 6, text: "MATERIAL" },
+        { x: 100, y: 630, size: 9, text: "ANODIZE BLACK" },
+        { x: 100, y: 644, size: 6, text: "FINISH" },
+      ]);
+      expect(inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: data }).material.reviewNeeded).toBe(true);
     });
   });
 

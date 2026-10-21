@@ -1,3 +1,4 @@
+import { geometryIssuesInRegion, type PageVectorGeometry } from "./pdfVectorGeometry.js";
 import type { ExtractedFieldSignal } from "./pdfDrawing.js";
 import { currentRevisionReads, isPlaceholderOrLabelValue, type CellRead } from "./titleBlockCells.js";
 
@@ -8,7 +9,7 @@ type ApprovalInput = {
   fields: Record<string, ExtractedFieldSignal>;
   /** Immutable deterministic verdicts, captured before model merging. */
   deterministicFields?: Record<string, ExtractedFieldSignal>;
-  cellProof?: { reads: readonly CellRead[]; independentReads: readonly CellRead[]; independentComplete: boolean; drawingProven: boolean };
+  cellProof?: { geometryByPage: ReadonlyMap<number, PageVectorGeometry | undefined>; reads: readonly CellRead[]; independentReads: readonly CellRead[]; independentComplete: boolean; drawingProven: boolean };
   tolerance?: { valueInch: number | null; independentValueInch: number | null; independentUnresolved?: boolean; drawingProven: boolean };
 };
 
@@ -20,9 +21,15 @@ type ApprovalInput = {
 export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApproved: boolean } {
   const reads = currentRevisionReads(input.cellProof?.reads ?? []);
   const independentReads = currentRevisionReads(input.cellProof?.independentReads ?? []);
+  const frames = [...(input.cellProof?.geometryByPage.entries() ?? [])].filter(([, geometry]) =>
+    geometry?.issues.some((issue) => issue.cause === "coordinate_frame_mismatch"));
   for (const [name, field] of Object.entries(input.fields)) {
     const reasons = new Set(field.reasons);
     let reviewNeeded = field.reviewNeeded;
+    if (frames.some(([page]) => !field.sourceRegion || field.sourceRegion.page === page)) {
+      reviewNeeded = true;
+      reasons.add("geometry_coordinate_frame_mismatch");
+    }
     const deterministic = input.deterministicFields?.[name];
     if (deterministic) {
       reviewNeeded ||= deterministic.reviewNeeded;
@@ -41,7 +48,16 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
       const agrees = (read: CellRead) => read.status === "value" && read.complete &&
         comparable(read.value) === comparable(field.value) &&
         (name !== "revision" || read.revisionRole === "current");
-      const proven = input.cellProof.drawingProven && input.cellProof.independentComplete && cells.some(agrees) &&
+      // I7: approval requires a positive complete vector scan for every participating region.
+      const geometryIssues = cells.flatMap((read) => geometryIssuesInRegion(
+        input.cellProof!.geometryByPage.get(read.page), read.geometryRegion));
+      const geometryProven = geometryIssues.length === 0;
+      if (!geometryProven) {
+        reviewNeeded = true;
+        reasons.add("title_block_geometry_incomplete");
+        for (const cause of geometryIssues) reasons.add(`geometry_${cause}`);
+      }
+      const proven = geometryProven && input.cellProof.drawingProven && input.cellProof.independentComplete && cells.some(agrees) &&
         cells.every((read) => (read.status === "empty" && read.complete) || agrees(read));
       const conflict = independentReads.some((read) => read.field === name &&
         [read.value, ...(read.observations ?? []).filter((observation) => observation.binding === "label_owned")

@@ -473,19 +473,25 @@ describe("pdfDrawing", () => {
       mockExecFileAsync.mock.calls.filter(([command, args]) => command === "pdftotext" && args.includes("-bbox"));
 
     it("reads the boxes of each page that has a text layer, bounded by the tool timeout", async () => {
-      mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
+      // Pin elapsed time for the exact timeout assertion; budget-depletion tests below advance it explicitly.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+      try {
+        mockWordBoxes({ pages: 2, layerText: (page) => `LAYER ${page}`, bbox: (page) => BBOX(`WORD${page}`) });
 
-      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+        const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
-      expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([["WORD1"], ["WORD2"]]);
-      expect(result?.pages[0].words?.[0]).toMatchObject({ xMin: 10, yMin: 20, xMax: 60, yMax: 30 });
-      expect(bboxCalls()).toHaveLength(2);
-      expect(bboxCalls()[0][1]).toEqual(["-bbox", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"]);
-      // The options are pinned by value, not through the constants: a call without a timeout or with a
-      // bigger buffer than 32 MiB is what an attacker's file would use.
-      expect(bboxCalls()[0][2]).toEqual({ maxBuffer: 32 * 1024 * 1024, timeout: PDF_TOOL_TIMEOUT_MS });
-      expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
-      expect(result?.drawingFullyRead).toBe(true);
+        expect(result?.pages.map((page) => page.words?.map((word) => word.text))).toEqual([["WORD1"], ["WORD2"]]);
+        expect(result?.pages[0].words?.[0]).toMatchObject({ xMin: 10, yMin: 20, xMax: 60, yMax: 30 });
+        expect(bboxCalls()).toHaveLength(2);
+        expect(bboxCalls()[0][1]).toEqual(["-bbox", "-cropbox", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"]);
+        // The options are pinned by value, not through the constants: a call without a timeout or with a
+        // bigger buffer than 32 MiB is what an attacker's file would use.
+        expect(bboxCalls()[0][2]).toEqual({ maxBuffer: 32 * 1024 * 1024, timeout: PDF_TOOL_TIMEOUT_MS });
+        expect(result?.pages.map((page) => page.text)).toEqual(["LAYER 1", "LAYER 2"]);
+        expect(result?.drawingFullyRead).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
     });
 
     it("keeps the layout text and the fully read answer when poppler cannot print the boxes", async () => {

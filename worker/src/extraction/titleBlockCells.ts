@@ -95,6 +95,8 @@
  * directly; the sheets in worker/test-support build both.
  */
 
+import { mergeHorizontalBorders, type GeometryBounds } from "./pdfVectorGeometry.js";
+
 export type CellField = "partNumber" | "revision" | "material" | "finish";
 
 /** One word of a line built from word boxes: its characters in `raw`, and where it sits, in layout columns. */
@@ -161,6 +163,7 @@ export type CellRead = {
   valueLines: number[];
   /** Positive evidence that the whole cell was consumed, not just a plausible candidate. */
   complete: boolean;
+  geometryRegion?: GeometryBounds;
   revisionRole?: "current" | "history" | "ambiguous";
   /** Independent evidence survives a rejected suggestion; it can veto but never grant approval. */
   observations?: Array<{ value: string; binding: "label_owned" | "unresolved" }>;
@@ -455,14 +458,16 @@ export function isLabelLikeToken(value: string): boolean {
 /** Values that supply no field evidence, shared by deterministic and model readers. */
 export function isPlaceholderOrLabelValue(value: string): boolean {
   const text = normalizeWhitespace(foldForLabelTest(value)).toUpperCase();
-  return /^(?:TBD|TBA|N\/?A|NONE|SEE NOTE(?:S|\(S\))?|SEE DWG|PER NOTE|--?)$/.test(text) || isLabelLikeToken(text);
+  const normalized = text.replace(/[^A-Z0-9]/g, "");
+  return /^(?:TBD|TBA|NA|NONE|TOBEDETERMINED|NOTAPPLICABLE|SEENOTES?|SEEDWG|PERNOTE|QA)$/.test(normalized) ||
+    /^[\s()[\]{}.-]+$/.test(text) || isLabelLikeToken(text);
 }
 
 /** Explicit current cells outrank history; ambiguous table headers can only supply suggestions. */
 export function currentRevisionReads(reads: readonly CellRead[]): CellRead[] {
   return reads.filter((read) => {
     if (read.field !== "revision") return true;
-    const peers = reads.filter((other) => other.page === read.page && other.field === "revision");
+    const peers = reads.filter((other) => other.field === "revision");
     if (peers.some((other) => other.revisionRole === "current")) return read.revisionRole === "current";
     if (peers.some((other) => other.revisionRole === "ambiguous")) return read.revisionRole === "ambiguous";
     return true;
@@ -1946,12 +1951,15 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
   }
   const labelsByLine = groupByLine(labels);
   // Header words alone cannot establish that a DESCRIPTION/DATE row is historical.
-  // Keep its value as ambiguous evidence; an explicit current cell wins on the same page.
+  // Keep its value as ambiguous evidence; an explicit current cell wins across the document.
   for (const row of labelsByLine.values()) {
     const headers = row.map((label) => label.text.replace(/:$/, ""));
-    const history = headers.some((text) => /^EC[ONR]$/i.test(text));
+    const firstLine = row[0]!.line;
+    const heading = labels.some((label) => /^REVISIONS:?$/i.test(label.text) && label.line < firstLine && !labels.some((between) =>
+        between.field === "revision" && between.line > label.line && between.line < firstLine));
+    const history = heading || headers.some((text) => /^EC[ONR]$/i.test(text));
     const table = headers.some((text) => /^DESCRIPTION$/i.test(text)) &&
-      headers.some((text) => /^(?:DATE|ENGINEER)$/i.test(text));
+      headers.some((text) => /^(?:DATE|ENGINEER|APPROVED|BY)$/i.test(text));
     for (const label of row) {
       if (label.field === "revision") label.revisionRole = history ? "history" : table ? "ambiguous" : "current";
     }
@@ -2059,9 +2067,7 @@ function accountsForCellGeometry(
   ownership: PageOwnership,
   caps: ReadonlyMap<Label, number>,
 ): boolean {
-  if (!read.complete || !label.fromWords) {
-    return false;
-  }
+  if (!label.fromWords) return false;
   const owned = ownership.ownedByLabel.get(label) ?? [];
   // Search reach chooses a candidate, never the cell's right boundary. Without an active known
   // neighbour on the right, the proof must inspect the remainder of the page's row.
@@ -2077,6 +2083,23 @@ function accountsForCellGeometry(
     word.from < label.charEnd && word.to > label.charStart) ?? [];
   const labelTop = Math.min(...labelWords.map((word) => word.y0 ?? -Infinity));
   const labelBottom = Math.max(...labelWords.map((word) => word.y1 ?? Infinity));
+  // A bottom label may own the nearby text above it. Distant notes or a different column
+  // cannot be that value; inspect the proposed value's column and the normal vertical reach.
+  const couldBeAboveValue = (word: TitleBlockWord) => word.x1 >= label.start - label.slack &&
+    word.x0 < valueRight && word.y1 !== undefined && labelTop - word.y1 <=
+      MAX_LINE_GAP * Math.max(labelBottom - labelTop, word.height ?? 0);
+  const previous = lines.filter((line) => line.lineNumber < label.line &&
+    (line.words ?? []).some(couldBeAboveValue)).at(-1);
+  const top = Math.min(labelTop, ...(previous?.words ?? []).filter((word) =>
+    word.x1 >= label.start - label.slack && word.x0 < right).map((word) => word.y0 ?? labelTop));
+  const capLine = lines.find((line) => line.lineNumber >= (caps.get(label) ?? Infinity));
+  if (column !== undefined) read.geometryRegion = {
+    x0: (label.start - label.slack) * column,
+    x1: Math.max(valueRight, right) * column,
+    y0: top,
+    y1: Math.max(valueBottom, Math.min(...(capLine?.words ?? []).map((word) => word.y0 ?? Infinity))),
+  };
+  if (!read.complete) return false;
   // A rule above OR below a proposed value separates it from its label. A rule below
   // the value can close the cell, but cannot repair an already broken binding.
   if (column !== undefined && lines.some((line) => read.valueLines.includes(line.lineNumber) &&
@@ -2097,18 +2120,19 @@ function accountsForCellGeometry(
   }
 
   for (const line of lines) {
-    if (line.lineNumber < label.line || line.lineNumber >= bottom) {
+    if (line.lineNumber < (previous?.lineNumber ?? label.line) || line.lineNumber >= bottom) {
       continue;
     }
     const lineLabels = labelsByLine.get(line.lineNumber) ?? [];
     for (const word of line.words ?? []) {
+      // Cheap row/column filtering precedes every border lookup (dense pages stay bounded).
+      if ((word.x0 + word.x1) / 2 < label.start - label.slack || word.x0 >= right ||
+        (line.lineNumber < label.line && !couldBeAboveValue(word))) continue;
+      if (line.lineNumber < label.line && column !== undefined && (lines[0]?.borders ?? []).some((border) =>
+        border.y >= (word.y1 ?? Infinity) && border.y <= labelTop &&
+        border.x0 / column <= label.start && border.x1 / column >= word.x1)) continue;
       if (column !== undefined && word.y0 !== undefined && ruledBorders.some((border) =>
-        word.y0! >= border.y && word.x0 * column >= border.x0 && word.x1 * column <= border.x1)) {
-        continue;
-      }
-      if ((word.x0 + word.x1) / 2 < label.start - label.slack || word.x0 >= right) {
-        continue;
-      }
+        word.y0! >= border.y && word.x0 * column >= border.x0 && word.x1 * column <= border.x1)) continue;
       const coveredByLabel = lineLabels.some((other) => other.charStart <= word.from && other.charEnd >= word.to);
       const coveredByValue = (ownership.ownedOnLine.get(line.lineNumber) ?? []).some(({ run, owner }) => {
         const end = run.separatorAfter !== undefined && run.text.endsWith(run.separatorAfter.text)
@@ -2132,6 +2156,7 @@ function accountsForCellGeometry(
 function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRead[] | null {
   // The caps are checked in the order the work grows, and each loop stops when its own cap is passed. A line over
   // MAX_LINE_LENGTH is not read, but the cells next to it are not read across it either (crossesUnreadLine).
+  if (pageText[0]?.borders) pageText = [{ ...pageText[0], borders: mergeHorizontalBorders(pageText[0].borders) }, ...pageText.slice(1)];
   const candidateLines: TitleBlockTextLine[] = [];
   const unreadLines: number[] = [];
   for (const line of pageText) {

@@ -6,6 +6,11 @@
 export type PdfTextItem = { x: number; y: number; size: number; text: string };
 
 export type MinimalPdfOptions = {
+  /** Synthetic raw PDF paint operators, in PDF coordinates. */
+  paint?: string;
+  paintAfter?: string;
+  formPaint?: string;
+  cropBox?: [number, number, number, number];
   /** Real vector rules, for testing the cell-boundary proof through Poppler. */
   rules?: Array<{ x0: number; y0: number; x1: number; y1: number; gray?: number }>;
   /** Opaque white paint after rules, to exercise erased-border evidence. */
@@ -40,18 +45,24 @@ export function minimalPdf(items: readonly PdfTextItem[], options: MinimalPdfOpt
     `${gray} G 0.5 w ${x0} ${height - y0} m ${x1} ${height - y1} l S`);
   const erase = (options.erase ?? []).map((rect) =>
     `q 1 g 1 G ${rect.strokeWidth ?? 0} w ${rect.x} ${height - rect.y - rect.height} ${rect.width} ${rect.height} re ${rect.strokeWidth ? "B" : "f"} Q`);
-  const stream = Buffer.from([...rules, ...erase, ...operators].join("\n"), "latin1");
+  const stream = Buffer.from([...rules, options.paint ?? "", ...erase, ...operators, options.paintAfter ?? "", options.formPaint ? "/Fm1 Do" : ""].join("\n"), "latin1");
+  const crop = options.cropBox ? ` /CropBox [${options.cropBox.join(" ")}]` : "";
   const rotate = rotated ? " /Rotate 90" : "";
   const mediaBox = rotated ? `[0 0 ${height} ${width}]` : `[0 0 ${width} ${height}]`;
   const objects: Buffer[] = [
     Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
     Buffer.from("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
     Buffer.from(
-      `<< /Type /Page /Parent 2 0 R /MediaBox ${mediaBox}${rotate} /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox ${mediaBox}${crop}${rotate} /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> ${options.formPaint ? "/XObject << /Fm1 6 0 R >>" : ""} >> >>`,
     ),
     Buffer.concat([Buffer.from(`<< /Length ${stream.length} >>\nstream\n`), stream, Buffer.from("\nendstream")]),
     Buffer.from("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
   ];
+
+  if (options.formPaint) {
+    const form = Buffer.from(options.formPaint, "latin1");
+    objects.push(Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Form /BBox [0 0 ${width} ${height}] /Length ${form.length} >>\nstream\n`), form, Buffer.from("\nendstream")]));
+  }
 
   const parts: Buffer[] = [Buffer.from("%PDF-1.4\n")];
   const offsets: number[] = [];

@@ -60,7 +60,7 @@ export function withMonospaceGeometry(pdfText: PdfTextExtraction): PdfTextExtrac
     ...pdfText,
     pages: pdfText.pages.map((page) => ({
       ...page,
-      wordGeometryComplete: true,
+      vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true,
       words: page.text.split("\n").flatMap((raw, row) => [...raw.matchAll(/\S+/g)].map((match) => ({
         text: match[0], xMin: match.index!, xMax: match.index! + match[0].length,
         yMin: row * 3, yMax: row * 3 + 2.5,

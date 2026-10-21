@@ -81,6 +81,9 @@ function hasBinary(name: string, args: string[]): boolean {
 // CI installs poppler-utils for the test job. Without it the text layer cannot be
 // read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
+const fullyRead = hasBinary("tesseract", ["-v"]);
+// This rotated PDF reports different bbox and SVG dimensions. I7 requires review even with OCR.
+const expectedReviewFields = ["description", "partNumber", "revision", "material", "finish"];
 
 describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-text extraction", () => {
   let pdfText: PdfTextExtraction | null;
@@ -138,7 +141,8 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
 
   it("extracts the material printed in the title block", () => {
     expect(extraction.material.raw).toBe(TRUTH.material);
-    expect(extraction.material.reviewNeeded).toBe(false);
+    expect(extraction.material.reviewNeeded).toBe(true);
+    expect(extraction.material.reasons).toContain("geometry_coordinate_frame_mismatch");
   });
 
   it("extracts the finish printed in the title block", () => {
@@ -165,7 +169,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
 
   it("completes with an editable, reviewable result for the user", () => {
     const summary = summarizeExtractionOutcome(extraction);
-    expect(summary.missingFields).toEqual([]);
+    expect(summary.missingFields).toEqual(fullyRead ? [] : ["tightestToleranceInch"]);
     // Every printed field is present; the lifecycle may still be partial because
     // of review warnings, which is acceptable as long as nothing is missing.
     expect(["partial", "succeeded"]).toContain(summary.lifecycle);
@@ -218,8 +222,8 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(realName.revision).toBe(TRUTH.revision);
     expect(realName.material.raw).toBe(TRUTH.material);
     expect(realName.finish.raw).toBe(extraction.finish.raw);
-    expect(realName.reviewFields).toEqual([]);
-    expect(realName.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+    expect(realName.reviewFields).toEqual(expectedReviewFields);
+    expect(realName.tightestTolerance.valueInch).toBe(fullyRead ? TRUTH.tightestLinearToleranceInch : null);
   });
 
   // Other poppler versions lay the same page out with different character cells; the pairing must not depend
@@ -308,9 +312,9 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     });
   });
 
-  it("reads the title block without a review flag on the identity fields, material or finish", () => {
-    expect(extraction.reviewFields).toEqual([]);
-    expect(extraction.tightestTolerance.valueInch).toBe(TRUTH.tightestLinearToleranceInch);
+  it("reads correct title-block values but reviews the rotated frame mismatch", () => {
+    expect(extraction.reviewFields).toEqual(expectedReviewFields);
+    expect(extraction.tightestTolerance.valueInch).toBe(fullyRead ? TRUTH.tightestLinearToleranceInch : null);
     expect(modelCalls).toHaveLength(0);
   });
 });

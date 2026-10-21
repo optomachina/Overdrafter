@@ -5,13 +5,14 @@ import type { JobFileRecord, PartRecord, WorkerConfig } from "../types";
 import { runHybridExtraction } from "./hybridExtraction";
 import { validateModelFieldValue, type DrawingModelExtractionResult } from "./modelFallback";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
+import { finalizeExtractionApproval } from "./extractionApproval";
 import type { PdfWord } from "./pdfWords";
 
 const fields = ["material", "finish", "partNumber", "revision"] as const;
 const labels = { material: "MATERIAL", finish: "FINISH", partNumber: "PART NUMBER", revision: "REV" };
 function pdf(words: PdfWord[], text = "", ocrText = ""): PdfTextExtraction {
   return { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, ocr: false,
-    pages: [{ page: 1, text, ocrText, ocrStatus: "ok", words, wordGeometryComplete: true }] };
+    pages: [{ page: 1, text, ocrText, ocrStatus: "ok", words, vectorGeometry: { complete: true, issues: [] }, wordGeometryComplete: true }] };
 }
 const infer = (pdfText: PdfTextExtraction) => inferDrawingSignalsFromPdf({ baseName: "upload", pdfText });
 function model(values: Partial<Record<keyof DrawingModelExtractionResult["fields"], string>>): DrawingModelExtractionResult {
@@ -106,7 +107,7 @@ describe("final extraction approval invariants", () => {
   });
 
   it.each(fields)("placeholders never approve a single %s cell", (field) => {
-    for (const value of ["TBD", "TBA", "N/A", "NA", "NONE", "SEE NOTE", "SEE NOTES", "SEE NOTE(S)", "SEE DWG", "PER NOTE", "-", "--", "Q.A.", "MATERIAL"]) {
+    for (const value of ["TBD", "T.B.D.", "TBD.", "TBA", "N.A.", "N/A.", "NONE.", "TO BE DETERMINED", "NOT APPLICABLE", " ( t.b.d. ) ", "[N / A]", "N/A", "NA", "NONE", "SEE NOTE", "SEE NOTES", "SEE NOTE(S)", "SEE DWG", "PER NOTE", "-", "--", "Q.A.", "MATERIAL"]) {
       const result = infer(pdf([...phrase(labels[field], 100, 100), ...phrase(value, 100, 120)]))[field];
       expect(result.reviewNeeded, value).toBe(true);
       expect(validateModelFieldValue(field, value), value).toContain("rejected_label_token");
@@ -138,5 +139,75 @@ describe("final extraction approval invariants", () => {
     expect(infer(input).tightestToleranceValueInch).toBe(0.005);
     input.pages[0]!.wordGeometryComplete = false;
     expect(infer(input).tightestToleranceValueInch).toBeNull();
+  });
+});
+
+// Every fixture below contains only the supplied words unless it explicitly supplies vector issues.
+describe("round 17 confirmed approval regressions", () => {
+  it.each([
+    ["material", "AL 6061-T6", "304 STAINLESS STEEL"],
+    ["finish", "AS MACHINED", "ANODIZE"],
+    ["partNumber", "ABC-001", "ABC-002"],
+    ["revision", "B", "A"],
+  ] as const)("I1 rejects a different 0.99 model value for proven %s", async (field, value, other) => {
+    const input = pdf([...phrase(labels[field], 100, 100), ...phrase(value, 100, 120)], `${labels[field]}\n${value}`);
+    expect(infer(input)[field]).toMatchObject({ value, reviewNeeded: false });
+    const result = await hybrid(input, model({ [field]: other }));
+    expect(result.reviewFields).toContain(field);
+    const selected = field === "material" || field === "finish" ? result[field].raw : result[field];
+    expect(selected).toBe(other);
+    const reason = field === "material" || field === "finish" ? result[field].reasons : (field === "partNumber" ? result.extractedPartNumberRaw : result.extractedRevisionRaw).reasons;
+    expect(reason).toContain("model_value_unproven");
+  });
+
+  it("I1 preserves a deterministic review veto even when the model agrees", () => {
+    const deterministic = infer(pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)])).material;
+    expect(deterministic.reviewNeeded).toBe(true);
+    const fields = { material: { ...deterministic, confidence: 0.99, reviewNeeded: false, reasons: [] } };
+    finalizeExtractionApproval({ fields, deterministicFields: { material: deterministic } });
+    expect(fields.material.reviewNeeded).toBe(true);
+  });
+
+  it("a value above its label cannot make MATERIAL approve the FINISH value", () => {
+    const input = pdf([...phrase("AL 6061-T6", 100, 100), box("MATERIAL", 100, 112, 6),
+      ...phrase("ANODIZE BLACK", 100, 130), box("FINISH", 100, 142, 6)]);
+    expect(infer(input).material.reviewNeeded).toBe(true);
+  });
+
+  it("REVISIONS with DESCRIPTION and APPROVED cannot approve a history revision", () => {
+    const input = pdf([box("REVISIONS", 100, 70), box("REV", 100, 100), box("DESCRIPTION", 200, 100),
+      box("APPROVED", 350, 100), box("A", 100, 120), box("REV", 100, 500),
+      box("DESCRIPTION", 200, 500), box("DATE", 350, 500), box("B", 100, 520)]);
+    expect(infer(input).revision).toMatchObject({ value: "B", reviewNeeded: true });
+  });
+
+  it("a REVISIONS heading remains history across intervening text rows", () => {
+    const input = pdf([box("REVISIONS", 100, 70), box("NOTES", 400, 80), box("ONE", 400, 90),
+      box("TWO", 400, 100), box("THREE", 400, 110), box("REV", 100, 200), box("A", 100, 220)]);
+    expect(infer(input).revision.reviewNeeded).toBe(true);
+  });
+
+  it.each([false, true])("current revision wins across pages, reversed=%s", (reverse) => {
+    const history = pdf([box("REV", 100, 100), box("ECO", 200, 100), box("DATE", 350, 100), box("A", 100, 112)], "REV   ECO   DATE\nA").pages[0]!;
+    const current = pdf(phrase("REV: B", 100, 100), "REV: B").pages[0]!;
+    const pages = (reverse ? [current, history] : [history, current]).map((page, i) => ({ ...page, page: i+1 }));
+    expect(infer({ ...pdf([]), pageCount: 2, pages }).revision).toMatchObject({ value: "B", reviewNeeded: false });
+  });
+
+  it("split collinear rules cannot lose a divider at the label junction", () => {
+    const input = pdf([box("MATERIAL", 100, 100), ...phrase("LOT CODE A123", 100, 140)]);
+    input.pages[0]!.borders = [{ x0: 90, x1: 125, y: 120 }, { x0: 125, x1: 350, y: 120 }];
+    expect(infer(input).material.reviewNeeded).toBe(true);
+  });
+
+  it("filters columns before rules on 5000 words and 2000 rules in under 2 seconds", () => {
+    const words = Array.from({ length: 100 }, (_, i) => [box("REV", 6600+i*25, 100), box("A", 6600+i*25, 115)]).flat();
+    for (let i = 0; i < 4800; i++) words.push(box(".", 10+(i%800)*6, 140+Math.floor(i/800)*12));
+    const input = pdf(words);
+    input.pages[0]!.borders = Array.from({ length: 2000 }, (_, i) => ({ x0: 5, x1: 14400, y: 400+i*0.15 }));
+    const start = performance.now();
+    const result = infer(input);
+    expect(performance.now()-start).toBeLessThan(2000);
+    expect(result.revision.value).toBe("A");
   });
 });
