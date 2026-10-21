@@ -57,8 +57,8 @@
  *    that has a word after its first one set apart from the words before it or taller than its first word, whatever
  *    they are made of ("THICKNESS   .125", a 6 pt "THICKNESS (IN)" by a 9 pt ".125"), or that is followed on its line by
  *    taller text no cell owns (a 6 pt "LOT #" by a 9 pt "A123" past the cell's reach), or that is only label words with
- *    a line under it ("THICKNESS" over ".125", "ANODIZE" over "PAINT") gives no value: see chooseValueLines and
- *    firstLineIsStackedLabel.
+ *    other text in its cell, a single character included ("THICKNESS" over ".125", "QTY" over "4", "ANODIZE" over
+ *    "PAINT") gives no value: see chooseValueLines and firstLineIsStackedLabel.
  *  - A later line that starts with words of letters ends the value (word boxes, set smaller than the value) or gives
  *    no value, unless it is the value's own wrapped line: the value is beside its label on the label's own line, the
  *    line starts where the value starts and goes on past its lead ("CLASS 2" under "FINISH  ANODIZE, ... TYPE II"). A
@@ -72,7 +72,8 @@
  * A label ends at a colon whatever follows it, so a label and its value printed as one word ("MATERIAL:ALUMINUM")
  * are read as the label and its inline value; with word boxes the part of the word after the label is a run.
  *
- * Every loop is bounded by the caps below, and the work per line is linear in its length.
+ * Every loop is bounded by the caps below, and the work per line is linear in its length. A line over MAX_LINE_LENGTH is
+ * not read, but no cell is read across it either (crossesUnreadLine): the field is flagged.
  *
  * A test that has a `pdftotext -layout` text, or a page of word boxes, can call readTitleBlockCells
  * directly; the sheets in worker/test-support build both.
@@ -115,7 +116,10 @@ export type CellRead = {
   status: CellReadStatus;
   /** The cell's value; null unless status is "value". */
   value: string | null;
-  /** Why the cell gave no value: no_value, multiple_values, label_token, bad_shape. */
+  /**
+   * Why the cell gave no value: no_value, multiple_values, label_token, bad_shape, unlisted_label, unconsumed_text,
+   * fine_pitch, unread_line, pointer, cut_short, label_in_value.
+   */
   reason: string | null;
   page: number;
   /** The label as printed, for example "DWG. NO.". */
@@ -318,6 +322,8 @@ type Label = {
    * pitch): the words of every value on it are apart like cells are.
    */
   spread: boolean;
+  /** True for a label on a line built from word boxes; false for one read from layout text. */
+  fromWords: boolean;
   /** Word boxes only: the height of the label's own text, in points. */
   height?: number;
 };
@@ -512,6 +518,7 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
       reach: reachOf(spec.field, words),
       inlineGap: inlineGapOf(line, height),
       spread: !words && /\s{3}/.test(match[0]),
+      fromWords: words,
       ...(height === undefined ? {} : { height }),
     });
     previousLabelEnd = end;
@@ -870,6 +877,9 @@ const ALIGNED_UNDER_LABEL = 4;
 
 type ValueLine = { line: number; runs: Run[] };
 
+/** Why a cell is not read before its text is looked at: see doubtOf and crossesUnreadLine. */
+type CellDoubt = "unconsumed_text" | "fine_pitch" | "unread_line";
+
 /**
  * Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the runs the
  * cell owns but the value did not take may be the rest of the value, and so may text that no cell owns on the
@@ -898,14 +908,19 @@ function leavesTextUnconsumed(
   return (field === "material" || field === "finish") && chosen.some((entry) => hasTrailingLeftover(entry, leftoverByLine));
 }
 
-/** Layout text only: text that no cell owns follows the value on its line within LAYOUT_TRAILING_WINDOW columns. */
-function hasTrailingLeftover(entry: ValueLine, leftoverByLine: ReadonlyMap<number, Run[]>): boolean {
+/**
+ * Layout text only: text that no cell owns follows the value on its line within LAYOUT_TRAILING_WINDOW columns, with at
+ * least `minimumAlphanumerics` letters or digits. Two, so that a zone letter of the sheet's border is not the rest of a
+ * value; one after a line of label words only, whose own value may be a single character ("QTY", then "4": see
+ * firstLineIsStackedLabel).
+ */
+function hasTrailingLeftover(entry: ValueLine, leftoverByLine: ReadonlyMap<number, Run[]>, minimumAlphanumerics = 2): boolean {
   if (!entry.runs.every((run) => !run.fromWords)) {
     return false;
   }
   const end = Math.max(...entry.runs.map((run) => run.end));
   return (leftoverByLine.get(entry.line) ?? []).some(
-    (run) => run.start >= end - 1 && run.start - end <= LAYOUT_TRAILING_WINDOW && alphanumericCount(run.text) >= 2,
+    (run) => run.start >= end - 1 && run.start - end <= LAYOUT_TRAILING_WINDOW && alphanumericCount(run.text) >= minimumAlphanumerics,
   );
 }
 
@@ -1139,26 +1154,38 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
 /**
  * Whether the first line of a material or finish is the label of a cell stacked where the value would be, with that
  * cell's own value next to it:
- *  - it is only label words (shapeOfLine: "THICKNESS", "THICKNESS (IN)", "LOT #") with a line under it in the cell
- *    ("THICKNESS" over ".125", "ANODIZE" over "PAINT"). A line under it says so whatever the sizes are: "ALUMINUM" over
- *    "6061-T6" cannot be told from "THICKNESS" over ".125", so there is no value;
+ *  - it is only label words (shapeOfLine: "THICKNESS", "THICKNESS (IN)", "LOT #") and the cell holds other text, on that
+ *    line or on a line under it (ownsOtherText), or on layout text, text that no cell owns follows it on its line
+ *    (hasTrailingLeftover). A single character counts: it never joins a value (chooseValueLines), so "QTY" over "4",
+ *    "SHEETS" over "1" or "THICKNESS" over ".5" would otherwise read the label alone. Text under it says so whatever the
+ *    sizes are: "ALUMINUM" over "6061-T6" cannot be told from "THICKNESS" over ".125", so there is no value;
  *  - word boxes, whatever the line is made of: text that no cell owns follows it on its line, set taller than the line's
  *    first word, right after it or before the next cell (a 6 pt "LOT #" by a 9 pt "A123", a 6 pt "THICKNESS (IN)" by a
  *    9 pt ".125", past the cell's reach): tallerUnownedTextFollows. A label beside its value is set smaller than it; a
  *    value is not. On layout text any such text already flags the cell (hasTrailingLeftover).
  * A line of label words alone, with nothing after it, is a value ("AS MACHINED", "CLEAR ANODIZE"): nothing on the sheet
- * tells it from a label with an empty cell (a known limit).
+ * tells it from a label with an empty cell (a known limit). The price of the rule is a value of label words with a stray
+ * character in its cell (a zone marker under "AS MACHINED"), which is flagged rather than read.
  */
-function firstLineIsStackedLabel(chosen: readonly ValueLine[], page: PageLines): boolean {
+function firstLineIsStackedLabel(chosen: readonly ValueLine[], owned: readonly Run[], page: PageLines): boolean {
   const first = chosen[0];
   if (first === undefined) {
     return false;
   }
   const shape = shapeOfLine(first.runs);
-  if (shape.labelLead && !shape.rest && chosen.length >= 2) {
+  if (shape.labelLead && !shape.rest && (ownsOtherText(first, owned) || hasTrailingLeftover(first, page.leftoverByLine, 1))) {
     return true;
   }
   return tallerUnownedTextFollows(first, page);
+}
+
+/**
+ * Whether the cell owns text besides the runs of its value's first line, on that line or on a line under it within
+ * MAX_LINE_GAP lines (`owned`: the runs above the cell stacked under it, see ValueChoice.stoppedAt). One character counts.
+ */
+function ownsOtherText(first: ValueLine, owned: readonly Run[]): boolean {
+  const own = new Set(first.runs);
+  return owned.some((run) => !own.has(run) && run.line >= first.line && run.line - first.line <= MAX_LINE_GAP);
 }
 
 /**
@@ -1222,7 +1249,7 @@ function readOne(
   inlineRuns: ReadonlySet<Run>,
   fenced: boolean,
   pageLines: PageLines,
-  doubt: "unconsumed_text" | "fine_pitch" | null,
+  doubt: CellDoubt | null,
 ): CellRead {
   const base = {
     field: label.field,
@@ -1245,8 +1272,9 @@ function readOne(
   if (fenced) {
     return empty("ambiguous", "unlisted_label");
   }
-  // Layout text only: a run just after the value, on its line, belongs to the band of another label. At a fine
-  // pitch the words of one value are apart like cells are, so the run may be the rest of this value.
+  // A line too long to read lies in the cell (crossesUnreadLine), or, on layout text only, a run just after the value,
+  // on its line, belongs to the band of another label: at a fine pitch the words of one value are apart like cells are,
+  // so the run may be the rest of this value.
   if (doubt !== null) {
     return empty("ambiguous", doubt);
   }
@@ -1280,7 +1308,7 @@ function readOne(
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
   // A first line that is the label of a cell stacked where the value would be, with its own value next to it.
-  if (describes && firstLineIsStackedLabel(chosen, pageLines)) {
+  if (describes && firstLineIsStackedLabel(chosen, considered, pageLines)) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
 
@@ -1584,7 +1612,7 @@ function doubtOf(
   ownership: PageOwnership,
   runsByLine: ReadonlyMap<number, Run[]>,
   finePitch: boolean,
-): "unconsumed_text" | "fine_pitch" | null {
+): CellDoubt | null {
   const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
   const unconsumed =
     ownership.straddled.has(label) ||
@@ -1600,13 +1628,55 @@ function doubtOf(
   return null;
 }
 
+/** The first number of `sorted` (ascending) that is greater than `after`, or Infinity. A binary search. */
+function firstAfter(sorted: readonly number[], after: number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (sorted[middle]! <= after) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return sorted[low] ?? Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Whether a line too long to read (`unreadLines`, MAX_LINE_LENGTH, ascending) lies where the label's cell could hold text:
+ * under the label, up to the next label under it in its columns (its cap) and within MAX_DY lines; or, on layout text,
+ * within MAX_LINE_GAP lines above it, where a coarse pitch prints a stack's lines out of order (hasStrayTextAbove).
+ * Such a line is not read, but it is still there: it may hold the label of the next cell, which would end this one, or
+ * the rest of this cell's value. Its columns are not known, so it counts across the whole line. The cell is not read
+ * across it ("MATERIAL" over an unread line that holds "FINISH", over "ANODIZE", is not the material "ANODIZE").
+ */
+function crossesUnreadLine(label: Label, caps: ReadonlyMap<Label, number>, unreadLines: readonly number[]): boolean {
+  if (unreadLines.length === 0) {
+    return false;
+  }
+  const from = label.fromWords ? label.line : label.line - MAX_LINE_GAP - 1;
+  const to = Math.min(caps.get(label) ?? Number.POSITIVE_INFINITY, label.line + MAX_DY);
+  return firstAfter(unreadLines, from) <= to;
+}
+
 /** One read per cell label of one page's lines (null when the page is over a cap and is not read). */
 function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRead[] | null {
-  // The caps are checked in the order the work grows, and each loop stops when its own cap is passed.
-  const candidateLines = pageText.filter((line) => line.raw.length <= MAX_LINE_LENGTH);
+  // The caps are checked in the order the work grows, and each loop stops when its own cap is passed. A line over
+  // MAX_LINE_LENGTH is not read, but the cells next to it are not read across it either (crossesUnreadLine).
+  const candidateLines: TitleBlockTextLine[] = [];
+  const unreadLines: number[] = [];
+  for (const line of pageText) {
+    if (line.raw.length <= MAX_LINE_LENGTH) {
+      candidateLines.push(line);
+    } else {
+      unreadLines.push(line.lineNumber);
+    }
+  }
   if (candidateLines.length > MAX_LINES_PER_PAGE) {
     return null;
   }
+  unreadLines.sort((left, right) => left - right);
   const geometry = readPageGeometry(withoutBorderMarkers(candidateLines));
   if (geometry === null) {
     return null;
@@ -1633,7 +1703,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     }
     const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
     const fenced = hasOwnCellOnItsLine(label, ownedRuns, ownership.inlineRuns, runsByLine, caps);
-    const doubt = doubtOf(label, ownership, runsByLine, finePitch);
+    const doubt = crossesUnreadLine(label, caps, unreadLines) ? "unread_line" : doubtOf(label, ownership, runsByLine, finePitch);
     reads.push(readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt));
   }
   return reads;

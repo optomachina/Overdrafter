@@ -458,6 +458,39 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       }
     });
 
+    // #884 review, round 6 (HIGH 1): the stacked label over a value of ONE character, its label at 6 pt or at the value's
+    // 9 pt. A single character never joins a value, so the label alone was read and the drawing approved.
+    const overOneCharacter = (label: string, value: string, y: number, size: number): PdfTextItem[] => [
+      { x: 332, y, size, text: label },
+      { x: 340, y: y + (size === 9 ? 12 : 10), size: 9, text: value },
+    ];
+    it.each([
+      ["QTY", "4"],
+      ["NO. REQD", "2"],
+      ["SHEETS", "1"],
+      ["THICKNESS", ".5"],
+    ] as const)("(a) leaves an empty MATERIAL empty and flagged, not '%s' over '%s'", async (label, value) => {
+      for (const size of [6, 9]) {
+        for (const [source, result] of await extractBoth(lowerFinish(null, overOneCharacter(label, value, 741, size)))) {
+          expect(result.material.raw, `${source}, ${size} pt`).toBeNull();
+          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(["material"]);
+          expect(result.status, `${source}, ${size} pt`).toBe("needs_review");
+          expect(result.finish.raw, `${source}, ${size} pt`).toBe("AS MACHINED");
+        }
+      }
+    });
+
+    it("(a) leaves an empty FINISH empty and flagged, not 'QTY' over '4'", async () => {
+      for (const size of [6, 9]) {
+        for (const [source, result] of await extractBoth(syntheticSheet({ finish: null, extra: overOneCharacter("QTY", "4", 767, size) }))) {
+          expect(result.finish.raw, `${source}, ${size} pt`).toBeNull();
+          expect(result.reviewFields, `${source}, ${size} pt`).toEqual(["finish"]);
+          expect(result.status, `${source}, ${size} pt`).toBe("needs_review");
+          expect(result.material.raw, `${source}, ${size} pt`).toBe("AL 6061-T6");
+        }
+      }
+    });
+
     it("never joins a stacked cell whose label is hyphenated to the material or finish above it", async () => {
       const sheets: Array<[field: "material" | "finish", cellValue: string, items: PdfTextItem[]]> = [
         ["material", "AL 6061-T6", lowerFinish("AL 6061-T6", [{ x: 340, y: 744, size: 9, text: "HEAT-TREAT RC 40-45" }])],

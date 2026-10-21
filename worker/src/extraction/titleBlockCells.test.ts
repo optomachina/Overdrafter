@@ -146,8 +146,14 @@ describe("title block cells", () => {
     });
 
     it("does not join a sheet-border zone marker under the value", () => {
-      const sheet = layoutSheet([[0, "FINISH"]], [[2, "AS MACHINED"]], "", [[8, "4"]]);
-      expect(cell(sheet, "finish").value).toBe("AS MACHINED");
+      for (const finish of ["ANODIZE, BLACK", "AL 6061-T6", "MIL-A-8625 TYPE II"]) {
+        const sheet = layoutSheet([[0, "FINISH"]], [[2, finish]], "", [[8, "4"]]);
+        expect(cell(sheet, "finish"), finish).toMatchObject({ status: "value", value: finish });
+      }
+      // #884 review, round 6: under a value of label words only, a lone character is how a stacked cell's label sits over
+      // its own one-character value ("QTY" over "4"), so the field is flagged rather than read. The safe direction.
+      const labelWords = layoutSheet([[0, "FINISH"]], [[2, "AS MACHINED"]], "", [[8, "4"]]);
+      expect(cell(labelWords, "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
     });
 
     it("does not take the sheet-border zone markers under the block as the value of an empty cell", () => {
@@ -1263,6 +1269,34 @@ describe("title block cells", () => {
         }
       });
 
+      // #884 review, round 6 (HIGH 1): a stacked label over a value of ONE character in an empty cell. A single character
+      // never joins a value (it may be a zone marker), so the label alone was read and approved. Text the cell owns under
+      // a line of label words, one character included, makes that line a label. 6 pt over 9 pt, and both at 9 pt.
+      const OVER_ONE_CHARACTER = [["QTY", "4"], ["NO. REQD", "2"], ["SHEETS", "1"], ["THICKNESS", ".5"], ["PROTECTION", "A"]] as const;
+      it.each(OVER_ONE_CHARACTER)("leaves an empty MATERIAL or FINISH empty and flagged, not '%s' over '%s'", (cellLabel, cellValue) => {
+        for (const size of [6, 9]) {
+          const stacked = (y: number) => [...phrase(cellLabel, 332, y, size), ...value(cellValue, 336, y + (size === 9 ? 11 : 9))];
+          const material = [...label("MATERIAL", 330, 720), ...stacked(736), ...label("FINISH", 330, 760), ...value("AS MACHINED", 340, 770)];
+          expect(wordRead(material, "material"), `${size} pt`).toMatchObject(FLAGGED);
+          expect(wordRead(material, "finish"), `${size} pt`).toMatchObject({ status: "value", value: "AS MACHINED" });
+          const finish = [...label("MATERIAL", 330, 700), ...value("AL 6061-T6", 340, 708), ...label("FINISH", 330, 730), ...stacked(746), ...label("SIZE", 600, 700)];
+          expect(wordRead(finish, "finish"), `${size} pt`).toMatchObject(FLAGGED);
+          expect(wordRead(finish, "material"), `${size} pt`).toMatchObject({ status: "value", value: "AL 6061-T6" });
+        }
+      });
+
+      it("keeps a lone character under a value out of it, and flags it only under a value of label words", () => {
+        for (const text of ["AL 6061-T6", "ANODIZE, BLACK", "MIL-A-8625 TYPE II"]) {
+          const words = [...label("FINISH", 330, 730), ...value(text, 340, 738), ...value("4", 345, 750), ...label("SIZE", 600, 700)];
+          expect(wordRead(words, "finish"), text).toMatchObject({ status: "value", value: text });
+        }
+        const labelWords = [...label("FINISH", 330, 730), ...value("AS MACHINED", 340, 738), ...value("4", 345, 750), ...label("SIZE", 600, 700)];
+        expect(wordRead(labelWords, "finish")).toMatchObject(FLAGGED);
+        // A value of label words whose cell ends at the label of the cell under it (set smaller) is still read.
+        const stopped = [...label("FINISH", 330, 730), ...value("AS MACHINED", 340, 738), ...label("QTY", 332, 752), ...value("4", 336, 761), ...label("SIZE", 600, 700)];
+        expect(wordRead(stopped, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+      });
+
       it("reads a first line whose words are set at one size, one word space apart, as the value", () => {
         // The rule above does not touch a value: every word after the first is as large as it and not set apart.
         for (const text of ["AL 6061-T6", "ANODIZE, BLACK, MIL-A-8625F, TYPE II", "STAINLESS STEEL (CRES) 304", "HEAT TREATED 4140"]) {
@@ -1388,6 +1422,26 @@ describe("title block cells", () => {
         expect(cell(sheet, "material")).toMatchObject(FLAGGED);
         expect(cell(sheet, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
       });
+
+      // #884 review, round 6 (HIGH 1), as layout text: the stacked label over a value of one character, or with it on its
+      // own line, inside the cell's reach (owned, but too far to join) or past it (owned by no cell).
+      it.each([["QTY", "4"], ["NO. REQD", "2"], ["SHEETS", "1"], ["THICKNESS", ".5"], ["PROTECTION", "A"]])(
+        "leaves an empty MATERIAL or FINISH empty and flagged, not '%s' with '%s'",
+        (cellLabel, cellValue) => {
+          const material = layoutSheet([[0, "MATERIAL"]], [[0, cellLabel]], [[2, cellValue]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
+          expect(cell(material, "material")).toMatchObject(FLAGGED);
+          expect(infer(material).material).toMatchObject({ value: null, reviewNeeded: true });
+          expect(cell(material, "finish")).toMatchObject({ status: "value", value: "AS MACHINED" });
+          const finish = layoutSheet([[0, "MATERIAL"]], [[2, "AL 6061-T6"]], [[0, "FINISH"]], [[0, cellLabel]], [[2, cellValue]]);
+          expect(cell(finish, "finish")).toMatchObject(FLAGGED);
+          expect(infer(finish).finish).toMatchObject({ value: null, reviewNeeded: true });
+          expect(cell(finish, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+          for (const column of [cellLabel.length + 6, 18, 30, 60]) {
+            const beside = layoutSheet([[0, "MATERIAL"]], [[0, cellLabel], [column, cellValue]], [[0, "FINISH"]], [[2, "AS MACHINED"]]);
+            expect(cell(beside, "material"), `at ${column}`).toMatchObject({ status: "ambiguous", value: null });
+          }
+        },
+      );
 
       it("fences a neighbour-cell word after one word of letters, beside or under an empty cell", () => {
         for (const text of ["SURFACE TREATMENT", "PAINT COLOR", "NO HEAT TREAT", "CASE HARDNESS"]) {
@@ -1557,6 +1611,42 @@ describe("title block cells", () => {
       const labelEnd = Math.max(...material.map((word) => word.xMax));
       expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 44, 100, 9), ...tall], "material")).toMatchObject({ status: "empty", value: null });
       expect(wordRead([...page, ...material, ...phrase("ZINC", labelEnd + 20, 100, 9), ...tall], "material")).toMatchObject({ status: "value", value: "ZINC" });
+    });
+  });
+
+  // Codex review of #884, round 6: a line over MAX_LINE_LENGTH (2,000 characters) is not read, and the cells around it
+  // are not read across it (crossesUnreadLine; the cap itself is pinned in titleBlockCells.hostile.test.ts).
+  describe("a line too long to read", () => {
+    const oversized = (text: string) => `${text}${" ".repeat(2_000)}OTHER`;
+
+    it("is no way for a cell to own the text under it", () => {
+      const sheet = ["MATERIAL", oversized("FINISH"), "ANODIZE"].join("\n");
+      expect(read(sheet)).toEqual([expect.objectContaining({ field: "material", status: "ambiguous", value: null, reason: "unread_line" })]);
+      expect(infer(sheet).material).toMatchObject({ value: null, reviewNeeded: true });
+      expect(infer(sheet).reviewFields).toEqual(expect.arrayContaining(["material", "finish"]));
+      // Under the cap the line is read: FINISH ends MATERIAL's cell and owns ANODIZE.
+      const short = ["MATERIAL", `FINISH${" ".repeat(1_900)}OTHER`, "ANODIZE"].join("\n");
+      expect(read(short).map((cellRead) => [cellRead.field, cellRead.status, cellRead.value])).toEqual([
+        ["material", "empty", null],
+        ["finish", "value", "ANODIZE"],
+      ]);
+    });
+
+    it("is no end of a value above it either: the line may hold the rest of it", () => {
+      expect(cell(["MATERIAL", "  AL 6061-T6", oversized("FINISH"), "ANODIZE"].join("\n"), "material")).toMatchObject({
+        status: "ambiguous",
+        value: null,
+        reason: "unread_line",
+      });
+    });
+
+    it("is the same on word boxes", () => {
+      const words = [...phrase("MATERIAL", 330, 720, 6), ...phrase(`FINISH ${"X".repeat(2_000)}`, 330, 740, 6), ...phrase("ANODIZE", 340, 760, 9)];
+      expect(buildWordLines(words, 1).some((line) => line.raw.length > 2_000)).toBe(true);
+      expect(wordRead(words, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unread_line" });
+      // Word boxes give true positions, so a long line just above a label is not where its value can be.
+      const above = [...phrase(`NOTE ${"X".repeat(2_000)}`, 330, 700, 6), ...phrase("MATERIAL", 330, 720, 6), ...phrase("AL 6061-T6", 340, 730, 9)];
+      expect(wordRead(above, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
     });
   });
 

@@ -44,6 +44,21 @@ describe("each cap of the cell reader is tested alone", () => {
     expect(read(shortLine).map((cell) => cell.value)).toEqual(["1000-1"]);
   });
 
+  // Codex review of #884, round 6: the line over the cap is not read, but it is still a line of the page. A cell whose
+  // text could be on it is not read across it; a cell out of its reach is read as before.
+  it("MAX_LINE_LENGTH: a line over the cap ends no cell, and flags only the cells within reach of it", () => {
+    const longLine = `x${" ".repeat(2_000)}x`;
+    expect(longLine.length).toBeGreaterThan(2_000);
+    const blank = (count: number) => Array.from({ length: count }, () => "");
+    // Under the label: within MAX_DY (20) lines of it, before the next label in its columns.
+    expect(read([...LABEL_AND_VALUE, ...blank(18), longLine].join("\n"))[0]).toMatchObject({ status: "ambiguous", reason: "unread_line" });
+    expect(read([...LABEL_AND_VALUE, ...blank(19), longLine].join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
+    expect(read([...LABEL_AND_VALUE, "SCALE", longLine].join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
+    // Above the label, on layout text: within MAX_LINE_GAP (3) lines, where a coarse pitch prints a value above its label.
+    expect(read([longLine, ...blank(2), ...LABEL_AND_VALUE].join("\n"))[0]).toMatchObject({ status: "ambiguous", reason: "unread_line" });
+    expect(read([longLine, ...blank(3), ...LABEL_AND_VALUE].join("\n"))[0]).toMatchObject({ status: "value", value: "1000-1" });
+  });
+
   it("MAX_LINES_PER_PAGE: a page of 401 lines is not read, 400 are (blank lines count)", () => {
     const page = (lines: number) => [...LABEL_AND_VALUE, ...Array.from({ length: lines - LABEL_AND_VALUE.length }, () => "")].join("\n");
     expect(read(page(401))).toEqual([]);
