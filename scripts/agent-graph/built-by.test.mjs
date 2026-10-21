@@ -135,14 +135,20 @@ describe('builder attribution', () => {
     ['empty body', '', {}, 'missing'],
     ['missing line', 'A PR without tags', {}, 'missing'],
     ['garbage', 'Built-by: nonsense', {}, 'unknown'],
-    ['existing free text', 'Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)', {}, 'unknown'],
+    // Only this existing row's expected status changes: free text is now accepted.
+    ['existing free text', 'Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)', {}, 'ok'],
     ['unauthorized builder', tag('codex', 'qa'), {}, 'unknown'],
     ['partial garbage', `${tag()}; nonsense`, {}, 'unknown'],
   ])('%s requests both pools', (_name, body, options, status) => {
     const result = parse(body, options);
     expect(result.status).toBe(status);
-    if (status !== 'missing') expect(result.findings.length).toBeGreaterThan(0);
-    expect(reviewers(result)).toEqual(both);
+    if (status === 'ok') {
+      expect(result.findings).toEqual([]);
+      expect(reviewers(result)).toEqual(['claude-sonnet']);
+    } else {
+      if (status !== 'missing') expect(result.findings.length).toBeGreaterThan(0);
+      expect(reviewers(result)).toEqual(both);
+    }
   });
   it('never throws on internal errors', () => {
     const throwing = new Proxy({}, { get() { throw new Error('test'); } });
@@ -206,5 +212,142 @@ describe('report-only CLI', () => {
       expect(source).not.toMatch(/check[-_]runs|createCheckRun|createCommitStatus|\/statuses|fetch\(|https?:|execSync|spawn\(/i);
       expect(source).not.toMatch(/writeFile|appendFile|process\.exit\(/);
     } finally { rmSync(directory, { recursive: true }); }
+  });
+});
+
+
+describe('free-text Built-by form', () => {
+  it('retains the first family token and routes the safe-build form', () => {
+    const result = parse('Built-by: Engineer / codex via safe-build (host)');
+    expect(result).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai', token: 'codex' }], status: 'ok', findings: [] });
+    expect(reviewers(result)).toEqual(['claude-sonnet']);
+  });
+  it('routes the real #848 grok form', () => {
+    const result = parse('Built-by: Engineer / grok-4.7 via Cursor cloud agent');
+    expect(result.status).toBe('ok');
+    expect(result.builders[0].family).toBe('grok');
+    expect(reviewers(result)).toEqual(['codex-xhigh']);
+  });
+  it.each([
+    ['  built-by:   eNgInEeR   /   CoDeX, via safe-build (host)  ', 'engineer', 'CoDeX', 'codex'],
+    ['BUILT-BY: Cursor Cloud / GPT-5 via agent', 'cursor-cloud', 'GPT-5', 'codex'],
+    ['Built-by: engineer / openai', 'engineer', 'openai', 'codex'],
+    ['Built-by: Engineer / sonnet', 'engineer', 'sonnet', 'claude-sonnet'],
+    ['Built-by: Engineer / claude', 'engineer', 'claude', 'claude-sonnet'],
+    ['Built-by: Engineer / opus', 'engineer', 'opus', 'claude-opus'],
+    ['Built-by: Engineer / claude-opus', 'engineer', 'claude-opus', 'claude-opus'],
+    ['Built-by: Engineer / jev', 'engineer', 'jev', 'jev'],
+    ['Built-by: Engineer / GPT-5.1, via safe-build (host)', 'engineer', 'GPT-5.1', 'codex'],
+    ['Built-by: Engineer / codex. via safe-build', 'engineer', 'codex', 'codex'],
+    ['Built-by: Engineer / codex via safe-build (host/ci+gpt, opus)', 'engineer', 'codex', 'codex'],
+    // Context naming the token's own family is still one builder (#824's lines, one at a time).
+    ['Built-by: Engineer / gpt-6-astra via Codex CLI (codex-safe, Workstation) for the Oct 17 repair round',
+      'engineer', 'gpt-6-astra', 'codex'],
+    ['Built-by: Engineer / claude-sonnet-5-5 via Claude Code for the Oct 20 repair', 'engineer', 'claude-sonnet-5-5', 'claude-sonnet'],
+    ['Built-by: Engineer / opus via Claude Code', 'engineer', 'opus', 'claude-opus'],
+    ['Built-by: Engineer / gpt-5-codex via OpenAI agent', 'engineer', 'gpt-5-codex', 'codex'],
+  ])('accepts %s', (body, bot, token, pool) => {
+    const result = parse(body);
+    expect(result.status).toBe('ok');
+    expect(result.builders[0]).toEqual({ bot, token, model: `model:${pool}`, family: routing.pools[pool].family });
+  });
+  it.each([
+    'Built-by: Jev', 'Built-by: Engineer /', 'Built-by: Engineer',
+    'Built-by: Engineer /   ', 'Built-by: garbage', 'Built-by: Engineer / mystery',
+    'Built-by: / codex',
+    'Built-by: Engineer / Codex (...) + grok-4.7 via Cursor cloud agent',
+    'Built-by: Engineer / Codex (...), grok-4.7 via Cursor cloud agent',
+    'Built-by: Engineer / Codex, grok-4.7 via Cursor cloud agent',
+    // A second builder glued to the first token or hidden behind later words.
+    'Built-by: Engineer / codex+opus',
+    'Built-by: Engineer / codex,opus',
+    'Built-by: Engineer / codex/opus',
+    'Built-by: Engineer / codex, Architect / claude-opus',
+    'Built-by: Engineer / codex + Architect / opus repair',
+    'Built-by: Engineer / codex via safe-build (host) + Architect / claude-opus',
+    'Built-by: Engineer / codex, Architect repaired it',
+    'Built-by: Engineer / codex, then cursor-cloud finished',
+    'Built-by: Engineer / codex via ci/cd',
+    // Another family after any glue, not only "+", "/" or ",".
+    'Built-by: Engineer / codex.opus',
+    'Built-by: Engineer / codex:opus',
+    'Built-by: Engineer / codex_opus',
+    'Built-by: Engineer / codex\\opus',
+    'Built-by: Engineer / codex\u2013opus',
+    'Built-by: Engineer / codex & opus',
+    'Built-by: Engineer / codex | opus',
+    'Built-by: Engineer / codex -> opus',
+    'Built-by: Engineer / codex and opus',
+    'Built-by: Engineer / codex then claude-opus repair',
+    'Built-by: Engineer / codex with Opus repair',
+    'Built-by: Engineer / gpt-6-astra via Codex CLI (codex-safe, Workstation) for the Oct 17 repair round and claude-sonnet-5-5 for the Oct 20 repair',
+    'Built-by: Engineer / claude-sonnet then gpt-5 finished',
+    'Built-by: Engineer / grok-4.7 then jev',
+    // Another family inside the token itself.
+    'Built-by: Engineer / codex-opus',
+    'Built-by: Engineer / gpt-5-claude',
+    'Built-by: Engineer / codexopus',
+    'Built-by: Engineer / opus-grok-4.7',
+    'Built-by: Engineer / codex\nBuilt-by: Engineer / grok-4.7',
+    `Built-by: Engineer / codex\n${tag()}`,
+  ])('fails safe for %s', body => {
+    const result = parse(body);
+    expect(result.status).toBe('unknown');
+    expect(result.findings.length).toBeGreaterThan(0);
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('preserves unknown bot names for the existing finding', () => {
+    const result = parse('Built-by: Strange Bot / codex');
+    expect(result.builders[0].bot).toBe('strange-bot');
+    expect(result.findings).toContain('Unknown bot: strange-bot');
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('requires the mapped pool to exist', () => {
+    const pools = { ...routing.pools };
+    delete pools.codex;
+    const result = parse('Built-by: Engineer / codex', { routing: { ...routing, pools } });
+    expect(result.status).toBe('unknown');
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('preserves canonical bot=... model=... parsing unchanged', () => {
+    expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
+  });
+  it('reads the free-text form in commit trailers and still gates partial attribution', () => {
+    const trailer = 'Build\n\nBuilt-by: Engineer / codex via safe-build (host)';
+    const commits = [{ sha: 'a', message: trailer }];
+    const result = parse('', { commits });
+    expect(result.status).toBe('ok');
+    expect(result.builders[0]).toMatchObject({ bot: 'engineer', model: 'model:codex', token: 'codex' });
+    expect(reviewers(result)).toEqual(['claude-sonnet']);
+    const partial = parse('', { commits: [...commits, { sha: 'b', message: 'untagged follow-up' }] });
+    expect(partial.status).toBe('unknown');
+    expect(reviewers(partial)).toEqual(both);
+  });
+  it('parses hostile free-text input in linear time and fails safe', () => {
+    const started = performance.now();
+    for (const body of [
+      `Built-by: Engineer / ${'('.repeat(50_000)}codex`,
+      `Built-by: ${'/ '.repeat(50_000)}`,
+      `Built-by: Engineer / codex ${', '.repeat(50_000)}grok`,
+      `Built-by: Engineer / ${' '.repeat(50_000)}x`,
+      `Built-by: Engineer / codex${'+'.repeat(50_000)}`,
+    ]) {
+      expect(reviewers(parse(body))).toEqual(both);
+    }
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+  it('scans boundary-free keyword lookalikes after a comma in linear time', () => {
+    const started = performance.now();
+    const result = parse(`Built-by: Engineer / codex, ${'xgpt qax '.repeat(50_000)}`);
+    expect(result.status).toBe('ok');
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+  it('scans other-family keyword lookalikes without a comma in linear time', () => {
+    const started = performance.now();
+    const result = parse(`Built-by: Engineer / claude ${'xgpt xopus-codexy '.repeat(50_000)}`);
+    expect(result.status).toBe('ok');
+    expect(reviewers(parse(`Built-by: Engineer / claude ${'xgpt '.repeat(50_000)}gpt`))).toEqual(both);
+    expect(reviewers(parse(`Built-by: Engineer / claude${'-x'.repeat(50_000)}gpt`))).toEqual(both);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });

@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "OVD-844 detector config: the SQL content rules (rls, definer) and the AGENTS.md 'Approval timing and low-risk auto-merge' safe categories. Sensitive path classes are not here: they come only from docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs (OVD-873), and this file never copies those globs. A path with any sensitive class is never in a safe category. Read by scripts/sensitive-class-detect.mjs; the auto-merge eligibility check (OVD-845) reads the detector's JSON result, not this file.",
+  "syntax": {
+    "paths": "Globs over the repo-relative path, compiled by the shared matcher (scripts/lib/sensitive-paths.mjs compileGlob): picomatch semantics with dot and nocase, supported syntax *, **, ? and {a,b}.",
+    "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
+    "exclude": "Globs; a path matching one is not in this entry.",
+    "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
+    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too; false positives are accepted to fail closed. Every changed file matching sql_content.paths, except a removal, is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer)."
+  },
+  "sql_content": {
+    "paths": ["**/*.{sql,pgsql,psql}"],
+    "rules": [
+      { "class": "rls", "tokens": ["create", "policy"] },
+      { "class": "rls", "tokens": ["alter", "policy"] },
+      { "class": "rls", "tokens": ["drop", "policy"] },
+      { "class": "rls", "tokens": ["row", "level", "security"] },
+      { "class": "definer", "tokens": ["security", "definer"] }
+    ]
+  },
+  "safe_categories": {
+    "docs": {
+      "description": "Markdown at the repo root and docs/**. AGENTS.md and CLAUDE.md carry governance sections a path cannot separate, so they stay out.",
+      "paths": ["*.md", "docs/**"],
+      "exclude": ["docs/migration-drafts/**", "docs/release/**/*.sql", "AGENTS.md", "CLAUDE.md"]
+    },
+    "tests": {
+      "description": "Tests only.",
+      "paths": ["**/*.test.{ts,tsx,mjs}", "**/*.node-test.mjs", "e2e/**"],
+      "exclude": ["e2e/fixtures/**/*.sql"]
+    },
+    "frontend_ui": {
+      "description": "Frontend UI outside auth, session, permission, sign-in, password, billing, pricing, checkout, stripe and dispatch paths.",
+      "paths": ["src/components/**", "src/pages/**", "src/features/**"],
+      "exclude_keywords": ["auth", "session", "permission", "login", "logout", "signin", "sign-in", "signout", "sign-out", "signup", "sign-up", "password", "billing", "pricing", "checkout", "stripe", "dispatch"]
+    },
+    "styles_assets": {
+      "description": "Styles and static assets.",
+      "paths": ["**/*.css", "public/**", "src/assets/**"]
+    },
+    "repo_scripts": {
+      "description": "Repo scripts, excluding deploy, release and secret, credential or token paths.",
+      "paths": ["scripts/**"],
+      "exclude": ["scripts/deploy*", "scripts/deploy*/**", "scripts/release*", "scripts/release*/**"],
+      "exclude_keywords": ["secret", "credential", "token"]
+    },
+    "agent_skills": {
+      "description": "Agent skills and prompts.",
+      "paths": [".codex/skills/**", ".claude/agents/**"]
+    }
+  }
+}

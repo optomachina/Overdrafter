@@ -19,10 +19,23 @@ Each entry has exactly `bot=<id> model=model:<pool-id>`. Model labels use
 a finding.
 
 The legacy body line `Model: model:codex` remains readable as model-only metadata
-with `bot=unknown`, so it gets fail-safe review. Free text such as
-`Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)` is unparseable and
-also gets fail-safe review. Use a single Built-by line; it supersedes legacy
-Model lines in the same body.
+with `bot=unknown`, so it gets fail-safe review. The free-text form
+`Built-by: <bot> / <family> (...)` is also accepted, for example
+`Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)`.
+Bot IDs and display names match case-insensitively. The token after `/` is the
+leading run of letters, digits, and hyphens (plus a `.` between digits, as in
+`grok-4.7`); it is retained as `token` and the rest of the word is context.
+Case-insensitive prefixes map to existing pools: `codex`, `gpt`, and `openai`
+to `codex`; `claude` and `sonnet` to `claude-sonnet`; `opus` and
+`claude-opus` to `claude-opus`; `grok` to `grok-overflow`; and `jev` to `jev`.
+Missing or unknown families get fail-safe review. So does a second builder:
+another family's keyword anywhere in the rest of the token (`codex-opus`), or,
+outside parentheses, another family's keyword at the start of a word whatever
+precedes it (`codex.opus`, `codex and opus`), a `+`, a second `/`, or a `,`
+followed later by any family keyword or a known bot ID or display name. Text
+inside balanced parentheses is not scanned. Free text is tried only for
+noncanonical entries. Use a single Built-by line; it supersedes legacy Model
+lines in the same body.
 
 Optional commit trailers use the same canonical Built-by syntax. Supply commits
 oldest first. A trailer takes precedence for its commit; a commit without one
