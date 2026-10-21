@@ -402,4 +402,114 @@ describe("title block from word boxes", () => {
       expect(cellOf(tall, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
     });
   });
+
+  // Codex review of #884, round 12: a word box of punctuation only ("-" printed one word space after "6061") was dropped
+  // before the value was judged, so a MATERIAL cell holding "6061 -" read as the material "6061" with nothing flagged,
+  // where layout text, which keeps the separator in its run, cuts the value short. A separator now stays with the value
+  // it is printed in, and a value that ends on one is flagged.
+  describe("a separator printed as a word box of its own", () => {
+    const cellOf = (words: PdfWord[], field: string) => readTitleBlockCells(buildWordLines(words, 1)).find((cell) => cell.field === field);
+    /** MATERIAL over its value as word boxes, one word space between the words, and the layout text poppler prints for it. */
+    const materialSheet = (value: string): [string, PdfWord[]] => [`MATERIAL\n  ${value}`, [...phrase("MATERIAL", 20, 600), ...phrase(value, 24, 615)]];
+
+    it("flags a material that ends on one, as layout text does (the review's sheet)", () => {
+      const [layout, words] = materialSheet("6061 -");
+      expect(buildWordLines(words, 1).map((line) => line.raw)).toEqual(["MATERIAL", "6061 -"]);
+      expect(cellOf(words, "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      for (const signals of [infer(layout, words), infer(layout)]) {
+        expect(signals.material.value).toBeNull();
+        expect(signals.material.reviewNeeded).toBe(true);
+        expect(signals.reviewFields).toContain("material");
+      }
+    });
+
+    it.each([",", ";", "/", "(", "[", "&", "-", "‐", "–", "—", "−"])("flags a material or finish that ends on a standalone %s", (separator) => {
+      expect(cellOf(materialSheet(`ALUMINUM 6061 ${separator}`)[1], "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      const finish = [...phrase("FINISH", 20, 600), ...phrase(`ANODIZE, BLACK ${separator}`, 24, 615)];
+      expect(cellOf(finish, "finish")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+    });
+
+    it("flags a value that ends on a standalone colon: the line opens another cell", () => {
+      expect(cellOf(materialSheet("LOT :")[1], "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+      expect(cellOf(materialSheet("6061 :")[1], "material")).toMatchObject({ value: null });
+    });
+
+    it("flags a value on its label's own line that ends on one", () => {
+      const words = [...phrase("MATERIAL", 20, 600), ...phrase("6061 -", 80, 600)];
+      expect(cellOf(words, "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      expect(infer("MATERIAL  6061 -", words).material).toMatchObject({ value: null, reviewNeeded: true });
+    });
+
+    it("flags a wrapped value whose last line ends on one", () => {
+      const words = [...phrase("FINISH", 100, 100), ...phrase("ANODIZE, BLACK", 101, 110), ...phrase("MIL-A-8625 TYPE II ,", 101, 120)];
+      expect(cellOf(words, "finish")).toMatchObject({ status: "rejected", value: null, reason: "cut_short", valueLines: [2, 3] });
+    });
+
+    it("flags one set a cell's gap apart from the value in the value's own cell, which layout text does not read", () => {
+      // "6061" ends at x = 43.8 and the dash starts at 60: wider than a word space, still under MATERIAL.
+      const words = [...phrase("MATERIAL", 20, 600), box("6061", 24, 615), box("-", 60, 615)];
+      expect(buildWordLines(words, 1).map((line) => line.raw)).toEqual(["MATERIAL", "6061  -"]);
+      expect(cellOf(words, "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      expect(infer("MATERIAL\n  6061   -", words).material).toMatchObject({ value: null, reviewNeeded: true });
+    });
+
+    it("flags a dangling separator in the same word box as the value", () => {
+      expect(cellOf(materialSheet("6061-")[1], "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+      expect(cellOf(materialSheet("ALUMINUM 6061,")[1], "material")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });
+    });
+
+    it("keeps one between the words of a value, as layout text does", () => {
+      for (const value of ["6061 - T6", "6061 / T651"]) {
+        const [layout, words] = materialSheet(value);
+        expect(cellOf(words, "material")).toMatchObject({ status: "value", value });
+        expect(infer(layout, words).material).toMatchObject({ value, reviewNeeded: false });
+        expect(infer(layout).material.value).toBe(value);
+      }
+    });
+
+    it("flags a part number or revision followed by one", () => {
+      const drawingNumber = [...phrase("DWG. NO.", 20, 600), ...phrase("ABC-001 -", 24, 615)];
+      expect(cellOf(drawingNumber, "partNumber")).toMatchObject({ status: "rejected", value: null, reason: "bad_shape" });
+      const revision = [...phrase("REV", 20, 600), ...phrase("B -", 22, 615)];
+      expect(cellOf(revision, "revision")).toMatchObject({ status: "rejected", value: null, reason: "bad_shape" });
+    });
+
+    it("leaves one under the next cell's label out of the value before it: a REV of - against a 24 pt drawing number", () => {
+      // 10 characters at 24 pt end at x = 497; the REV cell's dash starts at x = 500, one word space after them.
+      const words = titleRowWords({ number: "ABC-0070-3", numberX: 365, revision: "-" });
+      expect(buildWordLines(words, 1).map((line) => line.raw)).toContain("B  ABC-0070-3 -");
+      const signals = infer(SQUEEZED_LAYOUT, words);
+      expect(signals.partNumber).toMatchObject({ value: "ABC-0070-3", reviewNeeded: false });
+      // The dash is not a revision, and no cell reads it: the revision is left for the user.
+      expect(signals.revision.reviewNeeded).toBe(true);
+      expect(signals.revision.value).not.toBe("-");
+    });
+
+    it("does not read one alone in its cell, or after a border character", () => {
+      const [layout, words] = materialSheet("-");
+      expect(cellOf(words, "material")).toMatchObject({ status: "empty", value: null });
+      expect(infer(layout, words).material.reviewNeeded).toBe(true);
+      // Layout text blanks a border character; it is not part of the value with word boxes either.
+      expect(cellOf(materialSheet("6061-T6 |")[1], "material")).toMatchObject({ status: "value", value: "6061-T6" });
+    });
+
+    it("does not hide a stacked cell's label behind a stray separator", () => {
+      // "QTY ." over "4": label words and a full stop are still a label, with its own value under it.
+      const words = [...phrase("MATERIAL", 330, 100, 6), ...phrase("QTY .", 332, 108, 6), ...phrase("4", 340, 116, 9)];
+      expect(cellOf(words, "material")).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+    });
+
+    it("places the separators after a word once, however many there are", () => {
+      const sheet = [...phrase("MATERIAL", 20, 100)];
+      for (let line = 0; line < 40; line += 1) {
+        sheet.push(...phrase(`6061${" -".repeat(998)}`, 24, 110 + line * 10));
+      }
+      const lines = buildWordLines(sheet, 1);
+      expect(lines[1]!.raw).toHaveLength(2_000);
+      const started = performance.now();
+      const material = readTitleBlockCells(lines).find((cell) => cell.field === "material");
+      expect(performance.now() - started).toBeLessThan(3_000);
+      expect(material).toMatchObject({ value: null });
+    });
+  });
 });

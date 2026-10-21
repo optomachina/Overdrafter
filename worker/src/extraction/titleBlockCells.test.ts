@@ -617,7 +617,8 @@ describe("title block cells", () => {
 
   // A value that stops in the middle was cut short by the text around it.
   describe("a value that ends in the middle", () => {
-    it.each(["ANODIZE, CLASS", "ANODIZE, BLACK,", "6061 -", "ALUMINUM 6061-T6 (", "STEEL AND", "ANODIZE TYPE", "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS", "BLACK OXIDE PER", "ZINC /"])(
+    // The other dashes a sheet prints, and "&" for AND, end a value as "-" and AND do (#884 review, round 12).
+    it.each(["ANODIZE, CLASS", "ANODIZE, BLACK,", "6061 -", "ALUMINUM 6061-T6 (", "STEEL AND", "ANODIZE TYPE", "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS", "BLACK OXIDE PER", "ZINC /", "6061 —", "6061 –", "6061 −", "6061‐", "ANODIZE, BLACK &"])(
       "takes no value from %s",
       (value) => {
         expect(cell(layoutSheet([[0, "FINISH"], [8, value]]), "finish")).toMatchObject({ status: "rejected", value: null, reason: "cut_short" });

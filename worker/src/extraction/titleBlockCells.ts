@@ -82,6 +82,8 @@
  *
  * A label ends at a colon whatever follows it, so a label and its value printed as one word ("MATERIAL:ALUMINUM")
  * are read as the label and its inline value; with word boxes the part of the word after the label is a run.
+ * With word boxes, a separator printed as a word of its own ("-" one word space after "6061") stays in the value it is
+ * printed with, as layout text keeps it in its run, so a value that ends on one is cut short and not read (findWordRuns).
  *
  * Every loop is bounded by the caps below, and the work per line is linear in its length. A line over MAX_LINE_LENGTH is
  * not read, but no cell is read across it either (crossesUnreadLine): the field is flagged.
@@ -382,6 +384,12 @@ type Run = {
   fromWords: boolean;
   /** The word box's height in points, when known. */
   height?: number;
+  /**
+   * Word boxes only: the words of punctuation only ("-", ",") printed right after this run on its line, as one run at
+   * their extent (findWordRuns). They join this run's text when a word in their place would join its value
+   * (joinSeparators).
+   */
+  separatorAfter?: Run;
 };
 
 function normalizeWhitespace(value: string) {
@@ -577,15 +585,36 @@ function findLabels(line: TitleBlockTextLine, into: Label[], limit: number): voi
   }
 }
 
+/** A character a sheet draws cell borders with; layout text blanks them, and they never join a value. */
+const BORDER_CHARACTER = /[|│┃]/;
+
+/** Whether text holds no letter or digit: a separator or other punctuation printed as a word of its own. */
+function isPunctuationOnly(text: string): boolean {
+  return !/[A-Za-z0-9]/.test(text);
+}
+
+/** Word boxes: two blanks before `index` in a line's text, where pdfWords.ts marks a gap wider than a phrase's. */
+function setApartAt(raw: string, index: number): boolean {
+  return index >= 2 && raw.codePointAt(index - 1) === SPACE && raw.codePointAt(index - 2) === SPACE;
+}
+
 /**
  * The runs of a line built from word boxes: every word outside a label is a run at its true extent. Ownership is
  * decided word by word, so a number that runs up against the next cell is still split from it. The labels of a
  * line are in order, so one pass over both finds the words they cover. A word that a label covers only in part
  * ("MATERIAL:ALUMINUM", "NO:ABC-001": the label and its value with no blank between) keeps the part that no label
  * covers, as a run at the place its characters have in the word's box.
+ *
+ * A word of punctuation only ("-", ",", "/" printed apart from the word before it) is not a run of its own: it is never
+ * the text of a cell, as layout text reads no run without a letter or digit. It is kept with the run before it on its
+ * line (Run.separatorAfter) and joins that run's text where a word in its place would join the value (joinSeparators),
+ * so the value is judged with it and a separator it ends on cuts it short (DANGLING_END): dropping it read "6061 -" as
+ * "6061" (#884 review, round 12). A separator after a label or a border character, or alone in its cell, is not read.
  */
 function findWordRuns(line: TitleBlockTextLine, words: readonly TitleBlockWord[], labels: readonly Label[], into: Run[], limit: number): void {
   let labelIndex = 0;
+  // The run that the separators after it follow: the last part of the word before them, when that part was a run.
+  let lastRun: Run | null = null;
   for (const word of words) {
     if (into.length > limit) {
       return;
@@ -593,36 +622,78 @@ function findWordRuns(line: TitleBlockTextLine, words: readonly TitleBlockWord[]
     while (labelIndex < labels.length && labels[labelIndex]!.charEnd <= word.from) {
       labelIndex += 1;
     }
+    const text = line.raw.slice(word.from, word.to);
+    const touchesLabel = labelIndex < labels.length && labels[labelIndex]!.charStart < word.to;
+    if (!touchesLabel && isPunctuationOnly(text)) {
+      if (lastRun !== null && !BORDER_CHARACTER.test(text)) {
+        keepSeparator(line, word, text, lastRun);
+      } else {
+        lastRun = null;
+      }
+      continue;
+    }
     let from = word.from;
     for (let index = labelIndex; index < labels.length && labels[index]!.charStart < word.to; index += 1) {
       const label = labels[index]!;
       pushWordPart(line, word, from, label.charStart, into);
       from = Math.max(from, label.charEnd);
     }
-    pushWordPart(line, word, from, word.to, into);
+    lastRun = pushWordPart(line, word, from, word.to, into);
   }
 }
 
-/** The characters `from` to `to` of one word as a run, placed in the word's box by their share of its characters. */
-function pushWordPart(line: TitleBlockTextLine, word: TitleBlockWord, from: number, to: number, into: Run[]): void {
+/**
+ * Adds a word of punctuation only to the separators that follow `run` on its line: one run from the first of them to the
+ * last of the phrase the first one starts, so a line costs one placement per run however many separators it holds
+ * (joinSeparators). A separator set apart from the one before it (a cell's gap) is another cell's and is not kept.
+ */
+function keepSeparator(line: TitleBlockTextLine, word: TitleBlockWord, text: string, run: Run): void {
+  const setApart = setApartAt(line.raw, word.from);
+  const kept = run.separatorAfter;
+  if (kept === undefined) {
+    run.separatorAfter = {
+      text,
+      line: line.lineNumber,
+      y: yOf(line),
+      start: word.x0,
+      end: word.x1,
+      center: (word.x0 + word.x1) / 2,
+      cellBreakBefore: setApart,
+      fromWords: true,
+      ...(word.height !== undefined ? { height: word.height } : {}),
+    };
+  } else if (!setApart) {
+    kept.text = `${kept.text} ${text}`;
+    kept.end = Math.max(kept.end, word.x1);
+    kept.center = (kept.start + kept.end) / 2;
+  }
+}
+
+/**
+ * The characters `from` to `to` of one word as a run, placed in the word's box by their share of its characters; null
+ * when they hold no letter or digit (and then no run is added).
+ */
+function pushWordPart(line: TitleBlockTextLine, word: TitleBlockWord, from: number, to: number, into: Run[]): Run | null {
   const text = line.raw.slice(from, to);
-  if (to <= from || !/[A-Za-z0-9]/.test(text)) {
-    return;
+  if (to <= from || isPunctuationOnly(text)) {
+    return null;
   }
   const columnOf = (index: number) => word.x0 + ((index - word.from) / Math.max(1, word.to - word.from)) * (word.x1 - word.x0);
   const start = columnOf(from);
   const end = columnOf(to);
-  into.push({
+  const run: Run = {
     text,
     line: line.lineNumber,
     y: yOf(line),
     start,
     end,
     center: (start + end) / 2,
-    cellBreakBefore: from === word.from && from >= 2 && line.raw.codePointAt(from - 1) === SPACE && line.raw.codePointAt(from - 2) === SPACE,
+    cellBreakBefore: from === word.from && setApartAt(line.raw, from),
     fromWords: true,
     ...(word.height !== undefined ? { height: word.height } : {}),
-  });
+  };
+  into.push(run);
+  return run;
 }
 
 /** The runs of a `pdftotext -layout` line: what is left after the labels are blanked, split where blanks are two or more. */
@@ -810,8 +881,9 @@ const POINTER_AT_START = new RegExp(
 );
 const POINTER_TARGETS = "NOTES?|BOM|SPECS?|SPECIFICATIONS?|DWGS?|DRAWINGS?|SHEET|TABLE|ABOVE|BELOW";
 const POINTER_ANYWHERE = new RegExp(String.raw`\b(?:SEE|REFER\s+TO)\s+(?:${POINTER_TARGETS})\b`, "i");
-// A value that ends in a separator, an open bracket or a word that is always followed by more.
-const DANGLING_END = /(?:[,;:\-–([/]|\b(?:CLASS|TYPE|GRADE|COND(?:ITION)?|PER|AND|OR|TO|OF|WITH|NO\.?))\s*$/i;
+// A value that ends in a separator, an open bracket or a word that is always followed by more. The separators include the
+// other dashes a sheet prints (U+2010 to U+2015: hyphen to horizontal bar, U+2212: minus sign) and "&", which is AND.
+const DANGLING_END = /(?:[,;:\-\u2010-\u2015\u2212&([/]|\b(?:CLASS|TYPE|GRADE|COND(?:ITION)?|PER|AND|OR|TO|OF|WITH|NO\.?))\s*$/i;
 
 function alphanumericCount(value: string) {
   return (value.match(/[A-Za-z0-9]/g) ?? []).length;
@@ -1063,9 +1135,16 @@ function shapeOfLine(lineRuns: readonly Run[]): LineShape {
   const words: Array<{ text: string; breakBefore: boolean; height: number | undefined }> = [];
   for (const [index, run] of runs.entries()) {
     // Layout runs are split at two or more blanks; word boxes mark a gap wider than a phrase's (pdfWords.ts).
-    const setApart = index > 0 && (!run.fromWords || run.cellBreakBefore === true);
-    for (const [position, text] of run.text.trim().split(/\s+/).entries()) {
-      words.push({ text, breakBefore: position === 0 && setApart, height: run.height });
+    let breakBefore = index > 0 && (!run.fromWords || run.cellBreakBefore === true);
+    for (const text of run.text.trim().split(/\s+/)) {
+      // A separator printed as a word of its own ("PAINT -", "- PAINT") does not say whether the words around it are a
+      // label, so it neither ends a label's lead nor counts as text after it; a gap before it is the next word's. The
+      // value it is part of keeps it, and is judged with it (descriptionRejection).
+      if (isPunctuationOnly(text) && !LABEL_WORD.test(text)) {
+        continue;
+      }
+      words.push({ text, breakBefore, height: run.height });
+      breakBefore = false;
     }
   }
   // The lead is the words of letters the line starts with, up to a gap or a step up in size: what follows a label set
@@ -1704,6 +1783,7 @@ function assignLineRuns(
       ownership.contested.add(previousOwner!);
     }
     const owner: Label | null = byCell ?? (followsPrevious ? previousOwner : null);
+    joinSeparators(run, owner, lineLabels, labels, caps, ownership.inlineOwners);
     if (owner === null) {
       ownership.unowned.push(run);
     } else {
@@ -1711,6 +1791,36 @@ function assignLineRuns(
     }
     previousRun = run;
     previousOwner = owner;
+  }
+}
+
+/**
+ * Word boxes: adds to a run's text the separators printed right after it on its line (Run.separatorAfter) where a word
+ * in their place would join the run's value, so the value is judged with them ("6061 -" is cut short). They are placed as
+ * that word would be (assignLineRuns), and must be owned as the run is and within GAP_JOIN of it (joinContiguousRuns):
+ *  - in the run's phrase, with the run's owner (or with none when the run has none), unless they lie in another label's
+ *    band, where they are that cell's: a REV cell's "-" set right up against a large drawing number does not make the
+ *    number "ABC-001 -";
+ *  - set apart from the run by a cell's gap, only where the run's own label owns their place ("6061   -" in the MATERIAL
+ *    cell). Layout text does not read a separator set apart, which word boxes place: failing toward review, the value is
+ *    then judged with it.
+ */
+function joinSeparators(
+  run: Run,
+  owner: Label | null,
+  lineLabels: readonly Label[],
+  labels: readonly Label[],
+  caps: ReadonlyMap<Label, number>,
+  inlineOwners: ReadonlyMap<Run, Label>,
+): void {
+  const separator = run.separatorAfter;
+  if (separator === undefined || separator.start - run.end > GAP_JOIN) {
+    return;
+  }
+  const inPhrase = separator.cellBreakBefore !== true;
+  const separatorOwner = inlineOwnerOf(separator, lineLabels, run, inlineOwners) ?? ownerOf(separator, labels, caps) ?? (inPhrase ? owner : null);
+  if (separatorOwner === owner && (inPhrase || owner !== null)) {
+    run.text = `${run.text} ${separator.text}`;
   }
 }
 
