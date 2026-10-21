@@ -454,6 +454,7 @@ const SQL_PLAIN_CHAR = /[ \t\n\r\f\v\x21-\x7e]/;
 // Postgres ends a -- comment at LF or CR (non_newline is [^\n\r]).
 const LINE_END = /[\n\r]/g;
 const MAX_SQL_DEPTH = 8;
+const STRING_LEXING_SETTINGS = ["standard_conforming_strings", "backslash_quote"];
 
 function quotedIdentifierWord(body) {
   const word = body.toLowerCase();
@@ -480,7 +481,8 @@ function trimSqlSpace(text) {
  * (`DO LANGUAGE plpgsql $$…$$`), an old-style function body (`AS '…'`) or
  * dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails closed: a string
  * literal that merely mentions CREATE POLICY also matches.
- * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
+ * At MAX_SQL_DEPTH the body is split into plain words and auth_depth_limit
+ * fails closed, including for empty bodies or escapes the fallback cannot decode.
  *
  * E'' escapes and newline-separated string continuations are decoded before
  * matching; U& strings and identifiers fail closed through auth_unicode_escape.
@@ -488,7 +490,8 @@ function trimSqlSpace(text) {
  * (`'row_' || 'security'`, format(), EXECUTE of a variable) are not decoded,
  * and set_config with the setting name nested deeper than `(('role'))` or
  * passed as a variable does not match the role rules. auth_dynamic_role
- * catches EXECUTE and format() whose argument holds the word role, but not
+ * catches EXECUTE and format() whose argument holds the word role. Additional
+ * guards catch role commands in dynamic literals, including their raw comments, but not
  * one spelled from fragments (`execute 'set ' || 'ro' || 'le anon'`).
  */
 export function sqlWords(text) {
@@ -506,14 +509,24 @@ export function sqlWords(text) {
  * A -- comment ends at LF or CR. `unknown` is the first character (code point
  * and line), at any string depth, that is an unexpected ASCII control character
  * (not SQL whitespace, printable ASCII or a non-ASCII word character), or null.
- * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[], unknown: {char: number, line: number}|null}}
+ * `guards` records non-exemptible depth-limit and dynamic-literal evidence.
+ * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[], unknown: {char: number, line: number}|null, guards: object[]}}
  */
 export function sqlTokens(text, depth = 0, firstLine = 1, sourceLineAt = null) {
   const scan = newScan(String(text), depth, firstLine, sourceLineAt);
   while (scan.index < scan.sql.length) scanToken(scan);
   scan.statements.push(trimSqlSpace(scan.current));
-  const { words, lines, starts, ends, statement, statements, unknown } = scan;
-  return { words, lines, starts, ends, statement, statements, unknown };
+  // With an empty buffer psql's gexec can execute the previous query again.
+  const gexec = scan.words.some((_, at) => sequenceAt(scan.words, at, ["\\", "gexec"]));
+  for (const literal of scan.roleLiterals) {
+    const parsedWords = scan.words.filter((_, at) => scan.statement[at] === literal.statement);
+    const rawWords = rawSqlTokens(scan.statements[literal.statement]).words;
+    if (gexec || [parsedWords, rawWords].some(hasDynamicSqlContext)) {
+      scan.guards.push({ id: "auth_dynamic_sql", line: literal.line });
+    }
+  }
+  const { words, lines, starts, ends, statement, statements, unknown, guards } = scan;
+  return { words, lines, starts, ends, statement, statements, unknown, guards };
 }
 
 /** The state of one tokenizer run: the text, the output arrays and the scan position. */
@@ -532,6 +545,8 @@ function newScan(sql, depth, firstLine, sourceLineAt) {
     ends: [],
     statement: [],
     statements: [],
+    guards: [],
+    roleLiterals: [],
     // The first character no branch classifies, with its line; classifySql then applies no exemption.
     unknown: null,
     // The text of the statement being read, with each comment as a space.
@@ -583,6 +598,16 @@ function pushBody(scan, body, offset, positions = null) {
   const sourceLineAt = (at) => lineAt(scan, positions ? (positions[at] ?? offset) : offset + at);
   const inner = sqlBodyTokens(body, scan.depth, sourceLineAt(0), sourceLineAt);
   scan.unknown ??= inner.unknown;
+  appendAll(scan.guards, inner.guards);
+  const raw = rawSqlTokens(body, sourceLineAt);
+  for (const [at, word] of raw.words.entries()) {
+    if (STRING_LEXING_SETTINGS.includes(word)) scan.guards.push({ id: `auth_${word}`, line: raw.lines[at] });
+  }
+  // A runtime transform can turn a comment into executable SQL (e.g. replace('-- GRANT ...')).
+  // Inspect raw literal words as well as parsed words; never discard that evidence as a comment.
+  if (hasRoleCommand(inner.words) || hasRawRoleCommand(raw.words)) {
+    scan.roleLiterals.push({ line: sourceLineAt(0), statement: scan.statements.length });
+  }
   if (inner.words.length === 0) return;
   inner.starts[0] += 1;
   inner.ends[inner.ends.length - 1] += 1;
@@ -765,7 +790,8 @@ function sqlBodyTokens(body, depth, firstLine, sourceLineAt) {
   // Too deep to tokenize: an unexpected ASCII control character still counts as unknown.
   const odd = /[\x00-\x08\x0e-\x1f\x7f]/.exec(body);
   const unknown = odd ? { char: odd[0].codePointAt(0), line: sourceLineAt(odd.index) } : null;
-  return { words, lines, starts: words.map(() => 0), ends: words.map(() => 0), unknown };
+  return { words, lines, starts: words.map(() => 0), ends: words.map(() => 0), unknown,
+    guards: [{ id: "auth_depth_limit", line: firstLine }] };
 }
 
 /**
@@ -774,7 +800,7 @@ function sqlBodyTokens(body, depth, firstLine, sourceLineAt) {
  * included, with quote characters dropped so a quoted name is a plain word.
  * Everything sits at nesting level 0 and statements split at every ';'.
  */
-function rawSqlTokens(text) {
+function rawSqlTokens(text, sourceLineAt = null) {
   const sql = String(text);
   const words = [];
   const lines = [];
@@ -786,7 +812,7 @@ function rawSqlTokens(text) {
     line += sql.slice(last, match.index).split("\n").length - 1;
     last = match.index;
     words.push(match[0].toLowerCase());
-    lines.push(line);
+    lines.push(sourceLineAt ? sourceLineAt(match.index) : line);
     statement.push(statementIndex);
     if (match[0] === ";") statementIndex += 1;
   }
@@ -794,6 +820,46 @@ function rawSqlTokens(text) {
 }
 
 const sequenceAt = (words, start, tokens) => tokens.every((token, offset) => words[start + offset] === token);
+
+const hasRoleCommand = (words) => words.some((word, at) => word === "grant" || word === "revoke" ||
+  sequenceAt(words, at, ["alter", "role"]) || sequenceAt(words, at, ["set", "role"]));
+
+// Runtime transforms may remove comment delimiters or other separators between command words.
+const hasRawRoleCommand = (words) => words.includes("grant") || words.includes("revoke") ||
+  words.some((word, at) => (word === "alter" || word === "set") && words.lastIndexOf("role") > at);
+
+const hasDynamicSqlContext = (words) => words.some((word, at) => word === "execute" ||
+  (["format", "concat", "concat_ws"].includes(word) && words[at + 1] === "(") || sequenceAt(words, at, ["|", "|"]) ||
+  sequenceAt(words, at, ["\\", "gexec"]));
+
+// These are additive guards, never eligible for the SET/RESET ROLE test exemptions.
+// Match the entire pg_ namespace so newly introduced built-in roles fail closed too.
+function supplementalAuthRules(readings) {
+  const rules = STRING_LEXING_SETTINGS.map((setting) => ({
+    id: `auth_${setting}`, tokens: [setting], reason: `${setting} can change SQL string lexing`,
+  }));
+  const create = [["create", "role"], ["create", "user"], ["create", "group"]];
+  const roleStatements = [["grant"], ["set", "role"], ["set", "local", "role"], ["set", "session", "role"],
+    ...create, ["alter", "role"], ["alter", "user"], ["alter", "group"]];
+  for (const tokens of [[":"], ["\\", "gexec"]]) rules.push({
+    id: "auth_psql_role", tokens, within: roleStatements, reason: "psql can construct or execute a role command at runtime",
+  });
+  const roles = new Set(readings.flatMap(({ tokens }) => tokens.words).filter((word) =>
+    word.replace(/^"/, "").startsWith("pg_") ||
+    ["supabase_etl_admin", "supabase_superuser", "pgbouncer", "current_user", "session_user", "current_role"].includes(word)));
+  for (const role of roles) {
+    rules.push(
+      { id: "auth_grant_privileged_target", tokens: [role], within: [["grant"]], until: "to" },
+      { id: "auth_in_role_privileged_target", tokens: [role], within: create, after: [["in", "role"], ["in", "group"]] },
+      { id: "auth_alter_group_privileged_target", tokens: ["alter", "group", role, "add"] },
+    );
+    for (const clause of ["user", "role", "admin"]) rules.push({
+      id: `auth_members_${clause}_privileged_target`, tokens: [role],
+      within: [...create, ["alter", "role"], ["alter", "user"]], until: clause,
+    });
+  }
+  return rules.map((rule) => ({ class: "auth", reason: "Membership in a privileged or executor-resolved role", ...rule }));
+}
 
 /** The string nesting level of every word: 0 outside any string, 1 inside one, and so on. */
 function nestingLevels({ starts, ends }) {
@@ -971,13 +1037,26 @@ export function classifySql(text, config, path = null) {
   const classes = unknown ? failClosedClasses(config.sqlContent.rules) : [];
   const reasons = unknown ? [unknownCharReason(unknown)] : [];
   const hits = [];
-  for (const rule of config.sqlContent.rules) {
+  for (const rule of [...config.sqlContent.rules, ...supplementalAuthRules(readings)]) {
     // Per reading, this rule's hits; with two readings, keep per line the larger count.
     const merged = mergeReadingHits(readings.map((reading) => readingHits(rule, reading, exemptions, path)));
     appendAll(hits, merged);
     if (!merged.some((hit) => hit.sensitive)) continue;
     if (!classes.includes(rule.class)) classes.push(rule.class);
     reasons.push(`${rule.class}:sql:${rule.id}: ${rule.reason}`);
+  }
+  for (const guard of parsed.guards) {
+    if (!classes.includes("auth")) classes.push("auth");
+    const reason = {
+      auth_depth_limit: "SQL nesting reached the tokenizer depth limit",
+      auth_dynamic_sql: "A dynamic SQL literal contains a role command, possibly inside a runtime-transformed comment",
+      ...Object.fromEntries(STRING_LEXING_SETTINGS.map((setting) => [`auth_${setting}`, `${setting} can change SQL string lexing`])),
+    }[guard.id];
+    const message = `auth:sql:${guard.id}: ${reason}`;
+    if (!reasons.includes(message)) reasons.push(message);
+    if (!hits.some((hit) => hit.id === guard.id && hit.line === guard.line)) {
+      hits.push({ ...guard, class: "auth", path, sensitive: true });
+    }
   }
   hits.sort((a, b) => a.line - b.line);
   return { classes, reasons, hits };

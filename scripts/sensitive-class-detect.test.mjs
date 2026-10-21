@@ -451,7 +451,7 @@ describe("classifySql", () => {
   it("still sees tokens below the recursion limit", () => {
     const nested = Array.from({ length: 12 }, (_, level) => `$t${level}$`);
     const text = `do ${nested.join(" ")} create policy p on t ${nested.toReversed().join(" ")};`;
-    expect(sql(text)).toEqual(["rls"]);
+    expect(sql(text)).toEqual(["rls", "auth"]);
   });
 
   // Deliberate deviation from the OVD-844 test plan row "security definer
@@ -1232,6 +1232,132 @@ describe("sqlTokens and classifySql: continued and encoded strings (PR 824)", ()
   it("does not flag escape spellings inside comments", () => {
     expect(classifySql(String.raw`-- GRANT U&"service\005frole" TO anon;
 /* EXECUTE E'ALTER USER anon SUPER\x55SER'; */ SELECT 1;`, config, migration).classes).toEqual([]);
+  });
+});
+
+describe.each([
+  "supabase/migrations/20261021000000_probe.sql",
+  "supabase/tests/probe.sql",
+])("classifySql: five fail-closed gaps (PR 824) on %s", (file) => {
+  const check = (text, id) => {
+    const result = classifySql(text, config, file);
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, path: file, sensitive: true }));
+    expect(result.reasons.some((reason) => reason.startsWith(`auth:sql:${id}:`))).toBe(true);
+    return result;
+  };
+  const nest = (body, count) => {
+    const tags = Array.from({ length: count }, (_, level) => `$depth${level}$`);
+    return `DO ${tags.join("\n")} ${body} ${tags.toReversed().join("\n")};`;
+  };
+
+  it.each([9, 10, 16])("fails closed at nesting depth %i even without keywords", (depth) => {
+    for (const body of [
+      "", "SELECT 1", "GRANT service_role TO anon", "ALTER ROLE anon BYPASSRLS", "SECURITY DEFINER",
+      String.raw`EXECUTE E'GRANT service\x5frole TO anon'`,
+      String.raw`EXECUTE 'GRANT U&"service\005frole" TO anon'`,
+      String.raw`PERFORM set_config(E'\x72ole', 'service_role', false)`,
+    ]) check(nest(body, depth), "auth_depth_limit");
+  });
+  it("starts the depth guard at the fallback boundary and keeps its source line", () => {
+    expect(classifySql(nest("SELECT 1", 8), config, file).classes).toEqual([]);
+    const result = check(nest("SELECT 1", 9), "auth_depth_limit");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_depth_limit", line: 9 }));
+  });
+  it.each([
+    String.raw`EXECUTE E'GRANT service\x5frole TO anon'`,
+    String.raw`EXECUTE 'GRANT U&"service\005frole" TO anon'`,
+    String.raw`PERFORM set_config(E'\x72ole','service_role',false)`,
+  ])("flags the report's nested DO/EXECUTE repro: %s", (body) => {
+    let text = `DO $b0$ BEGIN ${body}; END $b0$`;
+    for (let level = 1; level < 5; level += 1) text = `DO $b${level}$ BEGIN EXECUTE $s${level}$ ${text} $s${level}$; END $b${level}$`;
+    check(`${text};`, "auth_depth_limit");
+  });
+
+  it.each(["standard_conforming_strings", "backslash_quote"])("guards every mention of %s", (setting) => {
+    for (const text of [
+      `SET ${setting} = off;`, `SET LOCAL "${setting}" = on;`,
+      `SELECT set_config('${setting}', 'off', false);`,
+      `DO $$ BEGIN PERFORM set_config('${setting}', 'off', false); END $$;`,
+      `SELECT set_config(replace('--${setting}', '--', ''), 'off', false);`,
+      `DO $$ BEGIN PERFORM set_config(replace('--${setting}', '--', ''), 'off', false); END $$;`,
+      `SELECT set_config(replace('--${setting}', '--', ''), 'off', false);\nSELECT 'x\\' -- '; ALTER ROLE anon BYPASSRLS; SELECT 1;`,
+      `ALTER ROLE anon SET ${setting} = off;`, `ALTER DATABASE db SET ${setting} = off;`,
+      `SELECT current_setting('${setting}');`, `SELECT '${setting.toUpperCase()}';`,
+      `SET ${setting} = off;\nSET ROLE anon;\nSELECT 'x\\' -- '; RESET ROLE; GRANT service_role TO anon; SELECT 1;\nRESET ROLE;`,
+      `SET ${setting} = off;\nSELECT 'x\\' -- '; ALTER ROLE anon BYPASSRLS; SELECT 1;`,
+      String.raw`SET ${setting} = off; SELECT set_config('\x72ole','service_role',false);`,
+    ]) check(text, `auth_${setting}`);
+  });
+  it("retains source lines for settings in transformed literals", () => {
+    const result = check("SELECT set_config(replace('\n--standard_conforming_strings', '--', ''), 'off', false);", "auth_standard_conforming_strings");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_standard_conforming_strings", line: 2 }));
+  });
+
+  it.each([
+    "pg_monitor", "pg_maintain", "pg_read_all_settings", "pg_use_reserved_connections", "pg_future_role",
+    "pg_", '"PG_MONITOR"', '"pg_future role"',
+    "supabase_etl_admin", "supabase_superuser", "pgbouncer",
+    "CURRENT_USER", "SESSION_USER", "CURRENT_ROLE",
+  ])("guards every membership form for %s", (role) => {
+    check(`GRANT /* target */ app, ${role} TO anon;`, "auth_grant_privileged_target");
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP"]) {
+      for (const clause of ["ROLE", "GROUP"]) {
+        check(`${declaration} app IN ${clause} other, ${role};`, "auth_in_role_privileged_target");
+      }
+    }
+    check(`ALTER GROUP ${role} /* members */ ADD USER anon;`, "auth_alter_group_privileged_target");
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP", "ALTER ROLE", "ALTER USER"]) {
+      for (const clause of ["USER", "ROLE", "ADMIN"]) {
+        check(`${declaration} ${role} WITH ${clause} anon;`, `auth_members_${clause.toLowerCase()}_privileged_target`);
+      }
+    }
+  });
+
+  it.each([
+    "DO $$ BEGIN EXECUTE format('GRANT %I TO anon', 'pg_read_all_data'); END $$;",
+    "DO $$ BEGIN EXECUTE format('GRANT %I TO anon', 'service_role'); END $$;",
+    "DO $$ BEGIN EXECUTE format('GRANT %s TO %s', 'supabase_auth_admin', 'anon'); END $$;",
+    "SELECT pg_catalog.\"format\"('REVOKE %I FROM anon', r);",
+    "SELECT pg_catalog.\"format\" /* gap */ ('GRANT %I TO anon', r);",
+    "SELECT format /* gap */ ('ALTER /* gap */ ROLE %I USER anon', r);",
+    "SELECT format('ALTER ROLE %I WITH USER anon', r);",
+    "SELECT format('SET ROLE %I', r);",
+    "SELECT 'GRANT ' || r || ' TO anon';", "SELECT 'REVOKE ' || r || ' FROM anon';",
+    "SELECT 'ALTER ROLE ' || r || ' USER anon';", "SELECT 'SET ROLE ' || r;",
+    "SELECT $$GRANT $$ || r || $$ TO anon$$;",
+    "SELECT concat('GRANT ', r, ' TO anon');", "SELECT concat_ws(' ', 'GRANT', r, 'TO anon');",
+    "DO $$ BEGIN EXECUTE replace('-- GRANT service_role TO anon', '--', ''); END $$;",
+    "DO $$ BEGIN EXECUTE replace('-- ALTER /* gap */ ROLE app USER anon', '--', ''); END $$;",
+    "DO $$ BEGIN EXECUTE replace('-- SET /* gap */ ROLE app', '--', ''); END $$;",
+    String.raw`DO $$ BEGIN EXECUTE replace(E'\x2d\x2d GRANT service_role TO anon','--',''); END $$;`,
+    String.raw`SELECT format('GRANT %I TO anon', 'service_role') \gexec`,
+    String.raw`SELECT '-- GRANT app TO anon' \gexec`,
+    String.raw`SELECT replace('-- GRANT service_role TO anon', '--', '');
+\gexec`,
+  ])("guards dynamic command literals: %s", (text) => {
+    check(text, "auth_dynamic_sql");
+  });
+  it.each([
+    String.raw`\set r service_role
+GRANT :r TO anon;`,
+    String.raw`GRANT :"r" TO anon;`, String.raw`GRANT :'r' TO anon;`,
+    String.raw`GRANT app TO :recipient;`, String.raw`SET ROLE :r;`,
+    String.raw`SET LOCAL ROLE :"r";`, String.raw`SET SESSION ROLE :'r';`,
+    String.raw`GRANT app TO anon \gexec`, String.raw`SET ROLE anon \gexec`,
+    String.raw`ALTER GROUP :r ADD USER anon;`, String.raw`ALTER ROLE :r USER anon;`,
+    String.raw`CREATE ROLE app IN ROLE :r;`,
+  ])("guards psql role commands: %s", (text) => {
+    check(text, "auth_psql_role");
+  });
+  it.each([
+    "SELECT format('hello %s', 'world');", "SELECT 'hello' || 'world';",
+    "-- SET standard_conforming_strings = off;\nSELECT 1;",
+    "/* SET backslash_quote = on; */ SELECT 1;",
+    "GRANT SELECT ON t TO pg_monitor;", "CREATE ROLE app USER pg_monitor;",
+    "ALTER GROUP pg_monitor DROP USER anon;", "SELECT 'standard_conforming_strings_note';",
+  ])("keeps unrelated SQL outside the new guards: %s", (text) => {
+    expect(classifySql(text, config, file).classes).toEqual([]);
   });
 });
 
