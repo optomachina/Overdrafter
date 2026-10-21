@@ -54,6 +54,38 @@
           "points": 3
         }
       ]
+    },
+    {
+      "id": "behind-main-strict",
+      "task": "PR in Merging is behind main under strict branch protection.",
+      "expectedBehaviors": [
+        "Updates the behind branch via update-branch merge, never rebase or force-push",
+        "Re-verifies ci and provider-go-live and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
+        "Stops without merging when the update changes the diff, and requires a fresh review and QA verdict at the new head before landing",
+        "Does not move the issue to Rework for being behind main"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Updates the behind branch via update-branch merge, never rebase or force-push",
+          "points": 2
+        },
+        {
+          "id": "b2",
+          "criterion": "Re-verifies ci and provider-go-live and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Stops without merging when the update changes the diff, and requires a fresh review and QA verdict at the new head before landing",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "Does not move the issue to Rework for being behind main",
+          "points": 2
+        }
+      ]
     }
   ]
 }

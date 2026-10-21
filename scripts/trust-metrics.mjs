@@ -6,6 +6,7 @@
 // Output is a pure function of the inputs and flags: generatedAt comes from
 // --generated-at (or the window end), never the wall clock, and every array
 // is sorted, so the same inputs always produce byte-identical JSON.
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -111,10 +112,23 @@ const inWindow = (iso, window) => {
 
 // ---------- normalization ----------
 
+const BOT_KEY = /^[a-z0-9][a-z0-9._-]*$/;
+const stripMarkdown = (line) => line.replaceAll(/[*`#>]/g, "").replaceAll(/(^|\s)(_+)([^_\s](?:.*?[^_\s])?)\2(?=\s|$)/g, "$1$3").trim();
+
+function authorBotKey(raw) {
+  const author = raw.user ?? raw.author;
+  const login = author?.login;
+  if (typeof login !== "string" || !(author.type === "Bot" || author.is_bot === true || /\[bot\]$/i.test(login))) return null;
+  const key = login.toLowerCase().replace(/\[bot\]$/, "");
+  return BOT_KEY.test(key) ? key : null;
+}
+
 /** Accepts the REST pulls shape or `gh pr list --json` camelCase. */
 export function normalizePullRequest(raw) {
   return {
     number: raw.number,
+    body: typeof raw.body === "string" ? raw.body : "",
+    authorBot: authorBotKey(raw),
     title: typeof raw.title === "string" ? raw.title : "",
     createdAt: raw.created_at ?? raw.createdAt ?? null,
     mergedAt: raw.merged_at ?? raw.mergedAt ?? null,
@@ -149,6 +163,129 @@ export function mergedInWindow(pullRequests, window, baseBranch = DEFAULT_BASE_B
 }
 
 // ---------- metrics ----------
+
+function collectLabelDeclarations(labels, add) {
+  for (const label of labels ?? []) {
+    const name = (typeof label === "string" ? label : label?.name)?.toLowerCase();
+    if (name?.startsWith("model:")) add(name.slice(6), "label");
+  }
+}
+
+function parseBodyModelToken(line) {
+  const text = stripMarkdown(line.trim().replace(/^[-*+]\s+/, "")).replace(/^[-+]\s+/, "");
+  const match = /^(?:build(?:er)?\s+)?model\s*:\s*/i.exec(text);
+  if (!match) return null;
+  // PR bodies often restate the label syntax ("Model: model:codex"); judge the key after one leading "model:".
+  const remainder = text.slice(match[0].length).replace(/^model:/i, "");
+  let token = /^\S*/.exec(remainder)[0];
+  if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
+  while (token.length > 0 && ",;:)·".includes(token.at(-1))) token = token.slice(0, -1);
+  return token.toLowerCase();
+}
+
+function collectBodyDeclarations(body, declare) {
+  let fenced = false;
+  for (const line of (body ?? "").split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const token = parseBodyModelToken(line);
+    if (token !== null) declare(token);
+  }
+}
+
+/** Builder evidence is unanimous or unknown; human author identities are discarded. */
+export function attributePullRequest(pr) {
+  const candidates = new Map();
+  const add = (key, source) => {
+    if (!key || key === "unknown" || !BOT_KEY.test(key)) return;
+    if (!candidates.has(key)) candidates.set(key, new Set());
+    candidates.get(key).add(source);
+  };
+  let conflictingBody = false;
+  collectLabelDeclarations(pr.labels, add);
+  collectBodyDeclarations(pr.body, (token) => {
+    if (BOT_KEY.test(token)) add(token, "body");
+    else conflictingBody = true;
+  });
+  add(pr.authorBot ?? authorBotKey(pr), "author");
+  const sources = [...new Set([...candidates.values()].flatMap((values) => [...values]))].sort(compareCodeUnits);
+  if (conflictingBody) return { bot: "unknown", status: "conflicting", sources: [...new Set([...sources, "body"])].sort(compareCodeUnits) };
+  if (candidates.size === 1) return { bot: [...candidates.keys()][0], status: "attributed", sources };
+  return { bot: "unknown", status: candidates.size ? "conflicting" : "no_signal", sources };
+}
+
+export function parseReviewVerdict(body) {
+  const first = (body ?? "").split("\n").find((line) => line.trim() !== "") ?? "";
+  const match = /^(\S+)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b/i.exec(stripMarkdown(first));
+  if (!match || !/^[a-z][a-z0-9._-]*$/i.test(match[1]) || match[1].toLowerCase() === "unknown") return null;
+  return { bot: match[1].toLowerCase(), round: match[2].toLowerCase(), sha: match[3].toLowerCase(), verdict: match[4].toLowerCase().replace(" ", "_") };
+}
+
+export function computeBotAttribution(merged) {
+  const result = { attributed: 0, noSignal: 0, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } };
+  for (const pr of merged) {
+    const attribution = attributePullRequest(pr);
+    result[attribution.status === "no_signal" ? "noSignal" : attribution.status] += 1;
+    if (attribution.status === "attributed") {
+      for (const source of attribution.sources) result.bySource[source] += 1;
+    }
+  }
+  return result;
+}
+
+function groupPullRequestsByBot(merged) {
+  const groups = new Map();
+  for (const pr of merged) {
+    const { bot } = attributePullRequest(pr);
+    if (!groups.has(bot)) groups.set(bot, []);
+    groups.get(bot).push(pr);
+  }
+  return groups;
+}
+
+function tallyBotReviews(merged, comments, window, groups) {
+  const reviews = new Map();
+  const numbers = new Set(merged.map((pr) => pr.number));
+  const seen = new Set();
+  for (const comment of comments.map(normalizeComment)) {
+    const time = Date.parse(comment.createdAt);
+    const verdict = parseReviewVerdict(comment.body);
+    if (!numbers.has(comment.prNumber) || !Number.isFinite(time) || time >= window.endExclusive || !verdict) continue;
+    if (comment.id !== 0 && seen.has(comment.id)) continue;
+    if (comment.id !== 0) seen.add(comment.id);
+    if (!groups.has(verdict.bot)) groups.set(verdict.bot, []);
+    if (!reviews.has(verdict.bot)) reviews.set(verdict.bot, { approved: 0, changesRequired: 0 });
+    reviews.get(verdict.bot)[verdict.verdict === "approved" ? "approved" : "changesRequired"] += 1;
+  }
+  return reviews;
+}
+
+function compareBotKeys(a, b) {
+  if (a === "unknown") return 1;
+  if (b === "unknown") return -1;
+  return compareCodeUnits(a, b);
+}
+
+function buildBotRow(bot, prs, reviews, comments, window) {
+  const { pass, fail, noVerdict } = computeQa(prs, comments, window);
+  return {
+    bot,
+    prs: prs.length,
+    qa: { pass, fail, noVerdict, passRate: pass + fail === 0 ? null : Math.round(pass / (pass + fail) * 10000) / 10000 },
+    reverts: computeReverts(prs),
+    reviews: reviews.get(bot) ?? { approved: 0, changesRequired: 0 },
+  };
+}
+
+export function computeBots(merged, comments, window) {
+  const groups = groupPullRequestsByBot(merged);
+  const reviews = tallyBotReviews(merged, comments, window, groups);
+  return [...groups.keys()].sort(compareBotKeys)
+    .map((bot) => buildBotRow(bot, groups.get(bot), reviews, comments, window));
+}
 
 export function computeMerges(merged, window) {
   const counts = new Map(windowWeeks(window).map((week) => [week, 0]));
@@ -331,8 +468,8 @@ export function buildSnapshot({
     reverts: computeReverts(merged),
     timeToMerge: computeTimeToMerge(merged),
     liveQuotes: computeLiveQuotes(harnessRows, window),
-    // OVD-786 owns per-bot attribution; v1 emits an empty list.
-    bots: [],
+    bots: computeBots(merged, comments, window),
+    botAttribution: computeBotAttribution(merged),
   };
 }
 
@@ -358,6 +495,8 @@ export function fetchGitHubInputs(repository, window) {
     .filter((pr) => pr.merged_at)
     .map((pr) => ({
       number: pr.number,
+      body: pr.body ?? "",
+      user: pr.user?.type === "Bot" ? { login: pr.user.login, type: pr.user.type } : null,
       title: pr.title,
       created_at: pr.created_at,
       merged_at: pr.merged_at,
@@ -476,7 +615,7 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.er
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isEntryPoint(import.meta.url)) {
   try {
     process.exitCode = runCli(process.argv.slice(2));
   } catch (error) {

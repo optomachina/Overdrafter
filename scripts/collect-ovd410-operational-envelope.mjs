@@ -9,11 +9,25 @@ export const OVD410_OPERATIONAL_ENVELOPE_PAGE_SIZE = 1_000;
 export const OVD410_OPERATIONAL_ENVELOPE_TIMEOUT_MS = 10_000;
 export const OVD410_OPERATIONAL_ENVELOPE_OVERALL_TIMEOUT_MS = 30_000;
 
+// The four commercial rollout controls this collector certifies. All four must
+// be present exactly once and off; the envelope reports exactly these four.
 export const OVD410_COMMERCIAL_CONTROLS = Object.freeze([
   "automatic_quote_collection",
   "commercial_admin_mutations",
   "order_administration",
   "promotion_codes",
+]);
+
+// Rollout controls that may appear in the response but are NOT certified here.
+// `controlled_beta_user_quantity` is seeded (off) by the OVD-987 migration, so
+// production returns five controls once that migration is applied. It only
+// widens which quantity the controlled Xometry beta accepts (one positive
+// integer instead of exactly 1); it is not one of the commercial controls
+// above, so this collector does not read, gate or report its state. Anything
+// outside the four above and this list still fails closed. Adding a name here
+// is a scope decision: change this list and its test together.
+export const OVD410_OUT_OF_SCOPE_CONTROLS = Object.freeze([
+  "controlled_beta_user_quantity",
 ]);
 
 const TABLE_CONTRACTS = Object.freeze([
@@ -187,14 +201,12 @@ function validateControls(response) {
   }
 
   const sourceControls = response.data.controls;
-  if (
-    !Array.isArray(sourceControls) ||
-    sourceControls.length !== OVD410_COMMERCIAL_CONTROLS.length
-  ) {
+  if (!Array.isArray(sourceControls)) {
     fail("Invalid rollout-control response.");
   }
 
-  const controls = sourceControls.map((control) => {
+  // Every row must be well formed, including the out-of-scope ones.
+  const rows = sourceControls.map((control) => {
     if (
       !control ||
       typeof control !== "object" ||
@@ -206,6 +218,25 @@ function validateControls(response) {
     }
     return { capability: control.capability, enabled: control.enabled };
   });
+
+  // Set the named out-of-scope controls aside by exact name, at most once each.
+  // They never stand in for a missing commercial control: the count below is
+  // taken over the remaining rows only.
+  const outOfScopeSeen = new Set();
+  const controls = [];
+  for (const row of rows) {
+    if (OVD410_OUT_OF_SCOPE_CONTROLS.includes(row.capability)) {
+      if (outOfScopeSeen.has(row.capability)) {
+        fail("Invalid rollout-control response.");
+      }
+      outOfScopeSeen.add(row.capability);
+    } else {
+      controls.push(row);
+    }
+  }
+  if (controls.length !== OVD410_COMMERCIAL_CONTROLS.length) {
+    fail("Invalid rollout-control response.");
+  }
   controls.sort((left, right) =>
     left.capability.localeCompare(right.capability),
   );

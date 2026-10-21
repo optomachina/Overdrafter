@@ -15,6 +15,10 @@ name: Sensitive class
 # job skips with a summary note. merge_group runs are a no op pass so the check
 # can never stall a merge queue. `edited` reruns the job when the PR is
 # retargeted to another base, so the result never describes a stale base.
+# BASE_SHA is the same expression as the checkout ref, and the script reports
+# status error when the PR's base in the API is not that commit (older rules
+# would be reported against a newer base) or when the head or base moves while
+# the file list is read.
 #
 # GitHub runs a run: block with no shell as `bash -e`, so the detect step
 # captures the script's exit code with `|| rc=$?`: a crash, any non-zero
@@ -82,6 +86,7 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -93,7 +98,7 @@ jobs:
           fi
           # bash -e would end the step on a non-zero exit; capture it instead.
           rc=0
-          node scripts/sensitive-class-detect.mjs --repo "$REPOSITORY" --pr "$PR_NUMBER" --head-sha "$HEAD_SHA" --json "$out" || rc=$?
+          node scripts/sensitive-class-detect.mjs --repo "$REPOSITORY" --pr "$PR_NUMBER" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --json "$out" || rc=$?
           if [ "$rc" -ne 0 ]; then
             rm -f "$out"
             echo "::warning title=Sensitive class::sensitive-class-detect exited $rc (report mode, not failing the job)"

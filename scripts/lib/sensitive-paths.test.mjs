@@ -96,6 +96,70 @@ describe("sensitive-paths config", () => {
   });
 });
 
+describe("OVD-939 C2 gate coverage", () => {
+  it.each([
+    ["scripts/lib/jev-screen-marker.mjs", ["infra_ci"]],
+    // jev-run-rate is named by no narrower glob; only scripts/lib/jev-* classifies it.
+    ["scripts/lib/jev-run-rate.mjs", ["infra_ci"]],
+    ["scripts/lib/jevx.mjs", []],
+    ["scripts/validate-pr-body.mjs", ["infra_ci"]],
+    ["scripts/ephemeral-db-apply.mjs", ["infra_ci"]],
+    ["scripts/run-supabase-policy-tests.mjs", ["auth", "infra_ci"]],
+    ["scripts/provider-kill.mjs", ["provider_dispatch", "infra_ci"]],
+    ["scripts/staging-reset-guard.mjs", ["infra_ci"]],
+    ["scripts/run-ovd418-production-release.sh", ["infra_ci"]],
+    ["scripts/run-ovd418-staging-check.sh", []],
+  ])("classifies %s with exactly its expected classes", (file, classes) => {
+    expect(classifyPaths([file], config).files[0].classes).toEqual(classes);
+    expect(picomatchClasses(file)).toEqual(classes);
+  });
+
+  it("uses distinct globs for second classes and detects removal of either one", () => {
+    const secondClass = [
+      ["scripts/run-supabase-policy-tests*", "auth", "scripts/run-supabase-policy-tests.mjs", "infra_ci"],
+      ["scripts/provider-kill*", "provider_dispatch", "scripts/provider-kill.mjs", "infra_ci"],
+    ];
+    const globs = config.globs.map((entry) => entry.glob);
+    expect(new Set(globs).size).toBe(globs.length);
+    for (const [extraGlob, extraClass, exactGlob, exactClass] of secondClass) {
+      expect(config.globs).toEqual(expect.arrayContaining([
+        { glob: extraGlob, class: extraClass },
+        { glob: exactGlob, class: exactClass },
+      ]));
+      for (const [glob, cls] of [[extraGlob, extraClass], [exactGlob, exactClass]]) {
+        const without = withGlobs((list) => list.splice(0, list.length, ...list.filter((entry) => entry.glob !== glob)));
+        expect(findGateLoosening({ baseText: without, headText: configText }).detected).toBe(false);
+        expect(findGateLoosening({ baseText: configText, headText: without }).reasons)
+          .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: cls })]);
+      }
+    }
+  });
+
+  it("depends on scripts/lib/jev-* for jev lib files no narrower glob names, and reports its removal", () => {
+    const glob = "scripts/lib/jev-*";
+    const path = "scripts/lib/jev-run-rate.mjs";
+    expect(config.globs).toContainEqual({ glob, class: "infra_ci" });
+    const without = withGlobs((list) => list.splice(0, list.length, ...list.filter((entry) => entry.glob !== glob)));
+    expect(classifyPaths([path], parseSensitivePaths(without)).files[0].classes).toEqual([]);
+    expect(findGateLoosening({ baseText: without, headText: configText }).detected).toBe(false);
+    expect(findGateLoosening({ baseText: configText, headText: without }).reasons)
+      .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: "infra_ci" })]);
+  });
+
+  it("still rejects a duplicate glob even when the class differs", () => {
+    expect(() => parseSensitivePaths(withGlobs((list) => list.push({ glob: "scripts/provider-kill.mjs", class: "provider_dispatch" }))))
+      .toThrow(/duplicate glob scripts\/provider-kill\.mjs/);
+  });
+
+  it("includes the new exact gate-code paths", () => {
+    expect(GATE_CODE_FILES).toEqual(expect.arrayContaining([
+      "scripts/validate-pr-body.mjs",
+      "scripts/ephemeral-db-apply.mjs",
+      "scripts/run-supabase-policy-tests.mjs",
+    ]));
+  });
+});
+
 describe("shared fixture", () => {
   it("covers about 40 paths and every class", () => {
     expect(fixture.length).toBeGreaterThanOrEqual(40);
@@ -174,6 +238,14 @@ describe("matcher semantics", () => {
     expect(compileGlob("**/.env").test("a/b/.env")).toBe(true);
     expect(compileGlob("**/.env").test(".env")).toBe(true);
     expect(compileGlob("**/.env").test("a/.envx")).toBe(false);
+  });
+
+  it("classifies the shared CLI entry-point guard and its test as infra_ci (OVD-950)", () => {
+    const matcher = createMatcher(config);
+    for (const file of ["scripts/lib/entry-point.mjs", "scripts/lib/entry-point.test.mjs"]) {
+      expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+      expect(classifyPaths([file], config).files[0], file).toMatchObject({ path: file, classes: ["infra_ci"] });
+    }
   });
 
   it("ignores case so renamed or upper-case paths still match", () => {
