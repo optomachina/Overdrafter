@@ -2,7 +2,7 @@
 
 import fs from "node:fs/promises";
 import { JSDOM } from "jsdom";
-import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1776,6 +1776,7 @@ describe("provider portal post-capture cleanup", () => {
   function cartFixture(names: string[]) {
     const dom = new JSDOM("<main></main>");
     const cart = dom.window.document.querySelector("main")!;
+    const removeClicks = vi.fn();
     const append = (name: string, removable = true) => {
       const row = dom.window.document.createElement("div");
       const information = dom.window.document.createElement("div");
@@ -1785,7 +1786,7 @@ describe("provider portal post-capture cleanup", () => {
       if (removable) {
         const button = dom.window.document.createElement("button");
         button.className = "removeButton";
-        button.addEventListener("click", () => row.remove());
+        button.addEventListener("click", () => { removeClicks(name); row.remove(); });
         row.append(button);
       }
       cart.append(row);
@@ -1804,14 +1805,14 @@ describe("provider portal post-capture cleanup", () => {
       return result;
     };
     const locator = { elementHandles: async () => [...cart.querySelectorAll(OSHCUT_CART_ROW)].map(handle) } as unknown as Locator;
-    return { cart, append, locator, root: { elementHandle: async () => handle(dom.window.document.documentElement) } as unknown as Locator };
+    return { cart, append, locator, removeClicks, root: { elementHandle: async () => handle(dom.window.document.documentElement) } as unknown as Locator };
   }
 
   it.each([
     ["filename collisions", ["part.step", "customer-part.step"], true, false, false, "removed", 1, 0],
     ["unrelated rows", ["customer-bracket.dxf"], true, false, false, "removed", 1, 0],
     ["missing remove control", ["customer-bracket.dxf"], false, false, false, "incomplete", 0, 1],
-    ["no uploaded row", ["customer-bracket.dxf"], true, false, true, "not_found", 0, 0],
+    ["no uploaded row", ["customer-bracket.dxf"], true, false, true, "incomplete", 0, 0],
     ["replaced pre-existing rows", ["part.step", "customer-part.step"], true, true, false, "failed", 0, null],
   ] as const)("cleans only this run's exact rows: %s", async (_name, names, removable, rerender, noUpload, status, removed, remaining) => {
     const fake = fakeBrowser();
@@ -1824,7 +1825,7 @@ describe("provider portal post-capture cleanup", () => {
       if (!noUpload) cart.append("part.step", removable);
     });
     const def = cleanupDefinition(cleanupOshcutCart);
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
     });
@@ -1833,25 +1834,163 @@ describe("provider portal post-capture cleanup", () => {
       .toEqual([...names, ...(!noUpload && (rerender || !removable) ? ["part.step"] : [])]);
   });
 
+  it.each([
+    ["late unrelated row", ["part.step", "customer-bracket.dxf"]],
+    ["two similar names", ["part.step", "customer-part.step"]],
+    ["duplicate exact names", ["part.step", "part.step"]],
+    ["substring prefix", ["customer-part.step"]],
+    ["substring suffix", ["part.step.backup"]],
+    ["case mismatch", ["PART.step"]],
+    ["leading whitespace mismatch", [" part.step"]],
+    ["trailing whitespace mismatch", ["part.step "]],
+    ["zero candidates", []],
+  ])("leaves ambiguous rows for manual cleanup: %s", async (_case, names) => {
+    const fake = fakeBrowser();
+    const cart = cartFixture(["existing-customer.step"]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => { if (names[0]) cart.append(names[0]); });
+    const def = cleanupDefinition(cleanupOshcutCart, {
+      // Arrives after upload, before cleanup's first lookup: either a delayed
+      // pre-existing customer row or a concurrent session's new part.
+      extractOffers: async () => { names.slice(1).forEach((name) => cart.append(name)); return [candidate()]; },
+    });
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(def, config(), await input(), {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    const report = {
+      status: "incomplete", removed: 0, remaining: names.length,
+      reason: "manual_cleanup_required", manualCleanupRows: names.map((fileName) => ({ fileName })),
+    };
+    expect(result.cartCleanup).toEqual(report);
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject(report);
+    expect(cart.removeClicks).not.toHaveBeenCalled();
+    expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
+      .toEqual(["existing-customer.step", ...names]);
+  });
+
+  it.each(["nested suffix", "mixed control text", "missing filename field"])("refuses an unproven filename field: %s", async (change) => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => {
+      const row = cart.append("part.step");
+      row.querySelector(".cartInformationArea")!.insertAdjacentHTML("beforeend",
+        change === "nested suffix" ? "<span>.backup</span>" : "<span>Select material</span>");
+    });
+    const def = cleanupDefinition(cleanupOshcutCart);
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW,
+      cleanupRowFileName: change === "missing filename field" ? ".missing" : OSHCUT_CART_FILE_NAME,
+      cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const result = await runProviderPortalKernel(def, config(), await input(), {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required" });
+    expect(cart.removeClicks).not.toHaveBeenCalled();
+  });
+
+  it.each(["late arrival", "filename changed", "kill switch"])("rechecks before deleting after %s during the mutation checkpoint", async (change) => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
+    let cleanupStarted = false;
+    const def = cleanupDefinition(async (cleanup) => {
+      cleanupStarted = true;
+      return cleanupOshcutCart(cleanup);
+    });
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const approved = await input();
+    approved.providerKillSwitchCheckpoint = async () => {
+      if (!cleanupStarted) return;
+      if (change === "kill switch") throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", "before_configure");
+      if (change === "late arrival") cart.append("later-customer.step");
+      else cart.cart.querySelector(".cartInformationArea")!.textContent = "customer-part.step";
+    };
+    const result = await runProviderPortalKernel(def, config(), approved, {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: change === "kill switch" ? "skipped_kill_switch" : "incomplete", removed: 0 });
+    expect(cart.removeClicks).not.toHaveBeenCalled();
+  });
+
+  it("refuses in-page confirmation if another row arrives during its kill-switch checkpoint", async () => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    let removalPending = false;
+    fake.setInputFiles.mockImplementation(async () => {
+      const row = cart.append("part.step");
+      const button = row.querySelector("button")!;
+      button.replaceWith(button.cloneNode(true));
+      row.querySelector("button")!.addEventListener("click", () => { removalPending = true; });
+    });
+    const def = cleanupDefinition(cleanupOshcutCart);
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const approved = await input();
+    approved.providerKillSwitchCheckpoint = async () => { if (removalPending) cart.append("later-customer.step"); };
+    const result = await runProviderPortalKernel(def, config(), approved, {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(removalPending).toBe(true);
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, remaining: 2, reason: "manual_cleanup_required" });
+    expect(fake.click).not.toHaveBeenCalled();
+    expect(cart.cart.children).toHaveLength(2);
+  });
+
+  it("does not confirm after the owned row disappears during the checkpoint", async () => {
+    const fake = fakeBrowser();
+    const cart = cartFixture([]);
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
+      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
+    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
+    let confirming = false;
+    const def = cleanupDefinition(async (cleanup) => {
+      expect(await cleanup.count("partRow")).toBe(1);
+      confirming = true;
+      expect(await cleanup.click("confirmRemove")).toBe(false);
+      return { removed: 0, remaining: 0 };
+    });
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    const approved = await input();
+    approved.providerKillSwitchCheckpoint = async () => { if (confirming) cart.cart.replaceChildren(); };
+    const result = await runProviderPortalKernel(def, config(), approved, {
+      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ removed: 0, remaining: 0 });
+    expect(fake.click).not.toHaveBeenCalled();
+  });
+
   it("stops if unknown rows appear after the owned set is frozen", async () => {
     const fake = fakeBrowser();
     const cart = cartFixture(["part.step", "customer-part.step"]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
     vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
       ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
-    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); cart.append("part.step"); });
+    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
     const def = cleanupDefinition(async (cleanup) => {
-      expect(await cleanup.count("partRow")).toBe(2);
+      expect(await cleanup.count("partRow")).toBe(1);
       cart.append("later-customer.step");
       return cleanupOshcutCart(cleanup);
     });
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
     });
-    expect(result.cartCleanup).toMatchObject({ status: "failed", removed: 0, remaining: null });
+    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, remaining: 2, reason: "manual_cleanup_required" });
+    expect(cart.removeClicks).not.toHaveBeenCalled();
     expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
-      .toEqual(["part.step", "customer-part.step", "part.step", "part.step", "later-customer.step"]);
+      .toEqual(["part.step", "customer-part.step", "part.step", "later-customer.step"]);
   });
 
   it.each(["document replacement", "owned row replacement"])("fails closed after an empty snapshot and %s", async (change) => {
@@ -1868,11 +2007,13 @@ describe("provider portal post-capture cleanup", () => {
       row.querySelector("button")!.addEventListener("click", () => { row.replaceWith(row.cloneNode(true)); });
     });
     const def = cleanupDefinition(cleanupOshcutCart);
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
     });
-    expect(result.cartCleanup).toMatchObject({ status: "failed", remaining: null });
+    expect(result.cartCleanup).toMatchObject(change === "document replacement"
+      ? { status: "failed", remaining: null }
+      : { status: "incomplete", remaining: 1, reason: "manual_cleanup_required" });
     expect(cart.cart.querySelector(".cartInformationArea")!.textContent).toBe("part.step");
   });
 

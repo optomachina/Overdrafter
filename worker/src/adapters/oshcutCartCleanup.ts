@@ -7,8 +7,8 @@ import type {
 /**
  * OSH Cut cart cleanup (Blaine's standing rule, 2026-10-15): once the price
  * is read, or after a failure that followed upload, the uploaded part is
- * deleted from the cart on `/cart/O-<uuid>`. Only exact row identities new since the pre-upload
- * snapshot are touched, so pre-existing parts in the account cart stay.
+ * deleted from the cart on `/cart/O-<uuid>`. With no upload-correlated provider identity, cleanup requires exactly one new
+ * row with the exact staged filename. Ambiguity is left for manual cleanup.
  *
  * The capture of 2026-10-15 did not open the delete control, so these
  * selectors are a reviewed guess: a remove/delete/trash control inside the
@@ -17,6 +17,7 @@ import type {
  * `incomplete` in the `providerPortalCleanup` log for manual removal.
  */
 export const OSHCUT_CART_ROW = ":has(> .cartInformationArea)";
+export const OSHCUT_CART_FILE_NAME = ".cartInformationArea";
 
 export const OSHCUT_CART_CLEANUP_SELECTORS = Object.freeze({
   partRow: Object.freeze({ selector: OSHCUT_CART_ROW, uploadedRows: true }),
@@ -67,7 +68,7 @@ async function waitForFewerRows(
   return waitForFewerRows(cleanup, before, deadline);
 }
 
-/** Deletes only the frozen set of rows created since this run's upload snapshot. */
+/** Deletes only the upload row proven by the kernel; ambiguity stops the pass. */
 export async function cleanupOshcutCart(
   cleanup: ProviderPortalCleanupCapability,
 ): Promise<ProviderPortalCleanupOutcome> {

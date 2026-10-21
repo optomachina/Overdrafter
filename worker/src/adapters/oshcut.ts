@@ -9,7 +9,7 @@ import {
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
 import { oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization.js";
-import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_ROW } from "./oshcutCartCleanup.js";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup.js";
 import {
   buildPortalWorkflowDefinition,
   PortalQuoteWorkflowAdapter,
@@ -345,7 +345,7 @@ export function buildOshcutEvaluationDefinition(workflow: PortalQuoteWorkflow): 
   const base = buildPortalWorkflowDefinition(workflow);
   return {
     ...base,
-    selectors: { ...base.selectors, cleanupRow: OSHCUT_CART_ROW, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS } },
+    selectors: { ...base.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS } },
     hooks: { ...base.hooks, cleanup: cleanupOshcutCart },
   };
 }

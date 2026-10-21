@@ -53,6 +53,8 @@ type CartPageOptions = {
   /** Omits the price cells entirely. */
   noPriceCells?: boolean;
   extraHead?: string;
+  /** Synthetic exact filename field; mixed control text must fail closed. */
+  exactFileNameField?: boolean;
   /** How the part row's remove control behaves; `none` renders no control. */
   remove?: "immediate" | "native_confirm" | "modal_confirm" | "none";
 };
@@ -67,6 +69,7 @@ function cartPage(options: CartPageOptions = {}): string {
     neverPriced: options.neverPriced === true,
     noPriceCells: options.noPriceCells === true,
     remove: options.remove ?? "immediate",
+    exactFileNameField: options.exactFileNameField === true,
   });
   const fileInput = options.fileInput === false ? "" : `<input type="file" id="cad" accept=".dxf,.step">`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>OSH Cut</title>${options.extraHead ?? ""}</head><body>
@@ -89,7 +92,7 @@ function cartPage(options: CartPageOptions = {}): string {
       const maybeCommit = () => {
         if (!selected.has(${JSON.stringify(OSHCUT_PRODUCTION_MATERIAL_LABEL)}) || !selected.has('0.125"')) return;
         document.querySelector(".Slideover").remove();
-        document.querySelector(".cartInformationArea .error.link").outerHTML = "<span>6061 T6 Aluminum 0.125&quot;</span>";
+        document.querySelector("#cart .error.link").outerHTML = "<span>6061 T6 Aluminum 0.125&quot;</span>";
         if (!config.neverPriced && !config.noPriceCells) setTimeout(price, 400);
       };
       const openSlideover = () => {
@@ -127,12 +130,14 @@ function cartPage(options: CartPageOptions = {}): string {
         history.pushState({}, "", "/cart/O-0b6c1f2e-1111-4a2b-8c3d-000000000001/P-0b6c1f2e-2222-4a2b-8c3d-000000000002");
         setTimeout(() => {
           document.getElementById("cart").innerHTML = '<div class="cartRow">'
-            + '<div class="cartInformationArea">part.step <span class="error link">Select material</span></div>'
+            + (config.exactFileNameField
+              ? '<div class="cartInformationArea">part.step</div><span class="error link">Select material</span>'
+              : '<div class="cartInformationArea">part.step <span class="error link">Select material</span></div>')
             + '<div class="cartQuantity"><input class="input" type="text" value="1"></div>'
             + cells("-")
             + (config.remove === "none" ? "" : '<button class="removeButton" aria-label="Remove part">&times;</button>')
             + "</div>";
-          document.querySelector(".cartInformationArea .error.link").addEventListener("click", openSlideover);
+          document.querySelector("#cart .error.link").addEventListener("click", openSlideover);
           document.querySelector("#cart .removeButton")?.addEventListener("click", onRemove);
           document.getElementById("note").innerHTML = config.afterUpload;
         }, 300);
@@ -205,7 +210,7 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
   it.each(["immediate", "native_confirm", "modal_confirm"] as const)(
     "removes the uploaded part from the cart after reading the price (%s remove)",
     async (remove) => {
-      const { output, error, observed } = await session.quoteAgainst(cartPage({ remove }));
+      const { output, error, observed } = await session.quoteAgainst(cartPage({ remove, exactFileNameField: true }));
       expect(error).toBeNull();
       expect(output).toMatchObject({
         totalPriceUsd: 1234.5,
@@ -221,15 +226,32 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
       `<div><div class="cartInformationArea">${name}</div><button class="removeButton"
         onclick="fetch('/api/customer-part', {method: 'DELETE'}); this.parentElement.remove()">Remove</button></div>`,
     ).join("");
-    const { output, error, observed } = await session.quoteAgainst(cartPage({ before }));
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ before, exactFileNameField: true }));
     expect(error).toBeNull();
     expect(output).toMatchObject({ rawPayload: { cartCleanup: { status: "removed", removed: 1, remaining: 0 } } });
     expect(removedFromCart(observed.requests)).toBe(1);
     expect(observed.requests).not.toContain("DELETE https://app.oshcut.com/api/customer-part");
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
+  it.each(["customer-bracket.dxf", "customer-part.step"])(
+    "leaves both new rows for manual cleanup when %s arrives after upload",
+    async (fileName) => {
+      const afterUpload = `<div><div class="cartInformationArea">${fileName}</div><button class="removeButton"
+        onclick="fetch('/api/customer-part', {method: 'DELETE'}); this.parentElement.remove()">Remove</button></div>`;
+      const { output, error, observed } = await session.quoteAgainst(cartPage({ afterUpload, exactFileNameField: true }));
+      expect(error).toBeNull();
+      expect(output).toMatchObject({ rawPayload: { cartCleanup: {
+        status: "incomplete", removed: 0, remaining: 2, reason: "manual_cleanup_required",
+        manualCleanupRows: [{ fileName: "part.step" }, { fileName }],
+      } } });
+      expect(removedFromCart(observed.requests)).toBe(0);
+      expect(observed.requests).not.toContain("DELETE https://app.oshcut.com/api/customer-part");
+    },
+    PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
+  );
+
   it("still removes the uploaded part when the attempt fails after upload, keeping the failure", async () => {
-    const { output, error, observed } = await session.quoteAgainst(cartPage({ neverPriced: true }));
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ neverPriced: true, exactFileNameField: true }));
     expect(output).toBeNull();
     expect(error).toMatchObject({
       payload: {
@@ -241,8 +263,17 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     expect(removedFromCart(observed.requests)).toBe(1);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
+  it("leaves mixed filename/control markup for manual cleanup", async () => {
+    const { output, error, observed } = await session.quoteAgainst(cartPage());
+    expect(error).toBeNull();
+    expect(output).toMatchObject({ rawPayload: { cartCleanup: {
+      status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required",
+    } } });
+    expect(removedFromCart(observed.requests)).toBe(0);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
   it("logs a cleanup that cannot find the remove control without changing the quote", async () => {
-    const { output, error, observed } = await session.quoteAgainst(cartPage({ remove: "none" }));
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ remove: "none", exactFileNameField: true }));
     expect(error).toBeNull();
     expect(output).toMatchObject({
       status: "instant_quote_received",

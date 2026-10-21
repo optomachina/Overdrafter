@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { UploadedPortalRows } from "./providerPortalCleanupRows.js";
+import { CleanupRowsUnproven, UploadedPortalRows } from "./providerPortalCleanupRows.js";
 import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
@@ -151,6 +151,7 @@ export type ProviderPortalCleanupReport = {
   removed: number;
   remaining: number | null;
   reason: string | null;
+  manualCleanupRows?: Array<{ fileName: string | null }>;
 };
 
 /** Upper bound for one cleanup pass; it never delays the result longer. */
@@ -190,8 +191,10 @@ export type ProviderPortalDefinition = {
       selector: string;
       operation: "fill" | "select" | "click";
     }>>;
-    /** Snapshot before upload; cleanup can address only new DOM row identities. */
+    /** Snapshot before upload; new DOM identities are candidates, not ownership proof. */
     cleanupRow?: string;
+    /** Field whose entire unnormalized text is the full filename. */
+    cleanupRowFileName?: string;
     /** Click/count-only rules reachable from `hooks.cleanup`. */
     cleanup?: Readonly<Record<string, { selector: string; scope?: string; uploadedRows?: boolean }>>;
   };
@@ -370,7 +373,8 @@ function assertProviderDefinition(definition: ProviderPortalDefinition): void {
       throw new Error(`${definition.provider} portal definition contains a prohibited configuration selector.`);
     }
   }
-  if (PROHIBITED_CLEANUP_SELECTOR.test(definition.selectors.cleanupRow ?? "")) {
+  if ([definition.selectors.cleanupRow, definition.selectors.cleanupRowFileName]
+    .some((selector) => PROHIBITED_CLEANUP_SELECTOR.test(selector ?? ""))) {
     throw new Error(`${definition.provider} portal definition contains a prohibited cleanup selector.`);
   }
   for (const rule of Object.values(definition.selectors.cleanup ?? {})) {
@@ -1478,12 +1482,19 @@ function buildCleanupCapability(
     },
     click: async (field: string, scopeText?: string) => {
       const targets = await locate(field, scopeText);
-      const locator = Array.isArray(targets) ? targets[0] : await targets.count() > 0 ? targets.first() : undefined;
+      let locator = Array.isArray(targets) ? targets[0] : await targets.count() > 0 ? targets.first() : undefined;
       if (!locator) {
         assertPortalBoundary(definition, page, boundary);
         return false;
       }
       await beforeMutation();
+      if (Array.isArray(targets)) {
+        const rechecked = await locate(field, scopeText);
+        if (!Array.isArray(rechecked) || !rechecked[0]) return false;
+        locator = rechecked[0];
+      } else if (uploadedRows && (await uploadedRows.targets()).length !== 1) {
+        return false;
+      }
       assertPortalBoundary(definition, page, boundary);
       await locator.click();
       assertPortalBoundary(definition, page, boundary);
@@ -1553,7 +1564,9 @@ async function cleanUpProviderPortal(
     if (remaining === 0) status = removed > 0 ? "removed" : "not_found";
     report = { status, removed, remaining, reason: null };
   } catch (error) {
-    report = { status: error instanceof ProviderKillSwitchError ? "skipped_kill_switch" : "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
+    report = error instanceof CleanupRowsUnproven
+      ? { status: "incomplete", removed: 0, remaining: error.rows.length, reason: "manual_cleanup_required", manualCleanupRows: error.rows }
+      : { status: error instanceof ProviderKillSwitchError ? "skipped_kill_switch" : "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
   } finally {
     stopped = true;
     clearTimeout(timer);
@@ -1708,6 +1721,8 @@ async function uploadAuthorizedPortalFiles(
     session.cleanupRows = await UploadedPortalRows.snapshot(
       guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow),
       guardedLocator(definition, session.page, session.boundary, "html"),
+      files.cad.name,
+      definition.selectors.cleanupRowFileName,
     );
   }
   // OVD-722: re-read after the awaited locator lookup so a switch engaged in
