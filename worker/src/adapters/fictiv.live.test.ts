@@ -49,6 +49,7 @@ function makeConfig(): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: "dev-local",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: false,
     drawingExtractionDebugAllowedModels: ["gpt-5.4"],
   };

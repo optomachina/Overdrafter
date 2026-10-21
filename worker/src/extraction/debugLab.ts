@@ -547,6 +547,7 @@ export async function previewStoredPartExtraction(
     const drawingSignals = inferDrawingSignalsFromPdf({
       baseName: path.basename(context.drawingFile.original_name, path.extname(context.drawingFile.original_name)),
       pdfText,
+      titleBlockApprovalEnabled: config.titleBlockApprovalEnabled,
     });
     const cropPath = path.join(runDir, "drawing-title-block.png");
     const cropAsset = await renderPdfTitleBlockCrop(stagedDrawingFile.localPath, cropPath).catch(() => null);
