@@ -234,6 +234,21 @@ describe("client review pages", () => {
       });
     }
 
+    it.each([null, "offer-gone"])(`${scope} review asks for a quote before publication (pointer: %s)`, async (pointer) => {
+      const [item] = await api.fetchClientQuoteWorkspaceByJobIds();
+      item.job.selected_vendor_quote_offer_id = pointer;
+      item.publishedQuoteOptions = [];
+      item.publishedQuoteSelection = null;
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+      renderWithClient(
+        <Routes><Route path={scope === "part" ? "/parts/:jobId/review" : "/projects/:projectId/review"} element={scope === "part" ? <ClientPartReview /> : <ClientProjectReview />} /></Routes>,
+        scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
+      );
+      expect(await screen.findByText(/Choose a quote to continue/)).toBeInTheDocument();
+      expect(screen.queryByText(/Choose a package option to continue/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /review handoff/i })).toBeDisabled();
+    });
+
     it(`${scope} review does not treat a pre-publication pick as a package selection`, async () => {
       const [item] = await api.fetchClientQuoteWorkspaceByJobIds();
       item.publishedQuoteOptions = [{ id: "option-A", package_id: "package-1", source_vendor_quote_offer_id: "offer-1", requested_quantity: 10, published_price_usd: 150, lead_time_business_days: 7, created_at: "2026-03-01T00:00:00Z" }];

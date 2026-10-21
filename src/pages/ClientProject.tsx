@@ -39,7 +39,11 @@ import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assign
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
-import type { ClientSourcingResult } from "@/features/quotes/sourcing-result";
+import {
+  getQuoteSelectionPrompt,
+  hasPublishedQuotePackage,
+  type ClientSourcingResult,
+} from "@/features/quotes/sourcing-result";
 import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
 import type { ClientQuoteRequestStatus } from "@/features/quotes/types";
 import {
@@ -1361,7 +1365,7 @@ const ClientProject = () => {
               </Button>
               {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
                 <span id="project-review-order-reason" className="text-sm text-muted-foreground">
-                  Choose a package option to continue
+                  {getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
                 </span>
               ) : null}
               <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>

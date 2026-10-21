@@ -304,12 +304,22 @@ type WorkspaceSelectionState = Pick<
   "job" | "publishedQuoteOptions" | "publishedQuoteSelection"
 >;
 
+export function hasPublishedQuotePackage(
+  item: Pick<WorkspaceSelectionState, "publishedQuoteOptions" | "publishedQuoteSelection"> | null | undefined,
+) {
+  return Boolean(item?.publishedQuoteOptions?.length || item?.publishedQuoteSelection);
+}
+
+export function getQuoteSelectionPrompt(hasPublishedPackage: boolean) {
+  return hasPublishedPackage ? "Choose a package option to continue" : "Choose a quote to continue";
+}
+
 /** A published package owns selection; its source offer is never a fallback. */
 export function resolveWorkspaceSelectionIds(
   item: WorkspaceSelectionState | null | undefined,
   legacyOfferId = item?.job.selected_vendor_quote_offer_id,
 ) {
-  const hasPublishedPackage = Boolean(item?.publishedQuoteOptions?.length || item?.publishedQuoteSelection);
+  const hasPublishedPackage = hasPublishedQuotePackage(item);
   return {
     selectedOfferId: hasPublishedPackage ? null : legacyOfferId,
     selectedPublishedOptionId: item?.publishedQuoteSelection?.option_id,

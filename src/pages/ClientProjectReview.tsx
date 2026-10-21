@@ -26,7 +26,11 @@ import {
 import {
   summarizeSelectedQuoteOptions,
 } from "@/features/quotes/selection";
-import { resolveWorkspaceQuoteSelection } from "@/features/quotes/sourcing-result";
+import {
+  getQuoteSelectionPrompt,
+  hasPublishedQuotePackage,
+  resolveWorkspaceQuoteSelection,
+} from "@/features/quotes/sourcing-result";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -164,7 +168,9 @@ const ClientProjectReview = () => {
             </div>
 
             {selectionSummary.selectedCount === 0 ? (
-              <p className="text-sm text-muted-foreground">Choose a package option to continue.</p>
+              <p className="text-sm text-muted-foreground">
+                {getQuoteSelectionPrompt((workspaceQuery.data ?? []).some(hasPublishedQuotePackage))}.
+              </p>
             ) : null}
 
             <section className="grid gap-3 md:grid-cols-4">

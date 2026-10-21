@@ -1719,6 +1719,10 @@ describe("ClientPart", () => {
       const button = await screen.findByRole("button", { name: "Review order" });
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription("Choose a package option to continue");
+      const reason = screen.getByText("Choose a package option to continue");
+      expect(reason).toBeVisible();
+      expect(reason.parentElement).toBe(button.parentElement);
+      expect(button.parentElement).toHaveClass("flex", "flex-col", "lg:items-end");
       expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
       api.persistClientQuoteSelection.mockReturnValue(new Promise(() => {}));
       await act(async () => {

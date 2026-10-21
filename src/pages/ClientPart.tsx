@@ -22,6 +22,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { getQuoteSelectionPrompt, hasPublishedQuotePackage } from "@/features/quotes/sourcing-result";
 import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -301,7 +302,7 @@ const ClientPart = () => {
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const hasPublishedPackage = Boolean(partDetail?.publishedQuoteOptions?.length || partDetail?.publishedQuoteSelection);
+  const hasPublishedPackage = hasPublishedQuotePackage(partDetail);
   const validSelectedQuoteOption =
     rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
     selectedQuoteOption;
@@ -412,7 +413,7 @@ const ClientPart = () => {
     handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
   const reviewOrderDisabledForSelection = (hasPublishedPackage || rankedQuoteOptions.length > 0) && !reviewQuoteOption;
-  const reviewOrderPrompt = hasPublishedPackage ? "Choose a package option to continue" : "Choose a quote to continue";
+  const reviewOrderPrompt = getQuoteSelectionPrompt(hasPublishedPackage);
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
@@ -989,7 +990,7 @@ const ClientPart = () => {
                       })),
                     }}
                     headerActions={
-                      <>
+                      <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
                         <Button
                           type="button"
                           className="rounded-full shadow-sm"
@@ -1006,7 +1007,7 @@ const ClientPart = () => {
                             {reviewOrderPrompt}
                           </span>
                         ) : null}
-                      </>
+                      </div>
                     }
                     controls={
                       <>

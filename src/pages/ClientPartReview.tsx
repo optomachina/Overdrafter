@@ -16,7 +16,11 @@ import {
   createDefaultProcurementHandoffState,
   summarizeProcurementHandoff,
 } from "@/features/quotes/procurement-handoff";
-import { resolveWorkspaceQuoteSelection } from "@/features/quotes/sourcing-result";
+import {
+  getQuoteSelectionPrompt,
+  hasPublishedQuotePackage,
+  resolveWorkspaceQuoteSelection,
+} from "@/features/quotes/sourcing-result";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -167,7 +171,7 @@ const ClientPartReview = () => {
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-muted-foreground">
-                      No current quote is selected. Choose a package option to continue.
+                      No current quote is selected. {getQuoteSelectionPrompt(hasPublishedQuotePackage(workspaceQuery.data))}.
                     </p>
                   )}
                 </div>

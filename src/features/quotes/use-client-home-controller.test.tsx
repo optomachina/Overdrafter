@@ -1,3 +1,4 @@
+import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
 import "@testing-library/jest-dom/vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import { createClientDraft } from "@/features/quotes/api/jobs-api";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { useClientHomeController } from "./use-client-home-controller";
 
+const fetchClientQuoteWorkspaceMock = vi.fn();
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const createSelfServiceOrganizationMock = vi.fn();
 const createJobsFromUploadFilesMock = vi.fn();
@@ -48,6 +50,10 @@ vi.mock("@/features/quotes/api/archive-api", () => ({
 
 vi.mock("@/features/quotes/api/compatibility-api", () => ({
   checkClientIntakeCompatibility: vi.fn(async () => "available"),
+}));
+
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchClientQuoteWorkspaceByJobIds: (...args: unknown[]) => fetchClientQuoteWorkspaceMock(...args),
 }));
 
 vi.mock("@/features/quotes/api/jobs-api", () => ({
@@ -134,6 +140,7 @@ function createWorkspaceDataResult() {
 
 vi.mock("@/features/quotes/workspace-navigation", () => ({
   WORKSPACE_SHARED_STALE_TIME_MS: 30_000,
+  workspaceQueryKeys: { clientQuoteWorkspace: (ids: string[], scope: string) => ["client-quote-workspace", scope, ids] },
   createWorkspaceAccessScope: ({
     userId,
     organizationId,
@@ -223,6 +230,7 @@ function emitSignedInAuthEvent() {
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
+    fetchClientQuoteWorkspaceMock.mockResolvedValue([]);
     useClientWorkspaceDataMock.mockImplementation(() => createWorkspaceDataResult());
     useWarmClientWorkspaceNavigationMock.mockImplementation(() => undefined);
     getSessionMock.mockResolvedValue({
@@ -277,6 +285,23 @@ describe("useClientHomeController membership recovery", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("loads package selection data for published jobs", async () => {
+    const item = createClientQuoteWorkspaceItemFixture();
+    item.job.status = "published";
+    const workspace = createWorkspaceDataResult();
+    useClientWorkspaceDataMock.mockReturnValue({
+      ...workspace,
+      accessibleJobs: [item.job, { ...item.job, id: "quoting-job", status: "quoting" }],
+    });
+    fetchAppSessionDataMock.mockResolvedValue(createSessionData({}));
+    fetchClientQuoteWorkspaceMock.mockResolvedValue([item]);
+    const { result, unmount } = renderHook(() => useClientHomeController(), { wrapper: createWrapper() });
+    emitSignedInAuthEvent();
+    await waitFor(() => expect(result.current.workspaceItemsByJobId.get(item.job.id)).toEqual(item));
+    expect(fetchClientQuoteWorkspaceMock).toHaveBeenCalledWith([item.job.id]);
+    unmount();
   });
 
   it("allows uploads after delayed membership recovery for an existing user", async () => {

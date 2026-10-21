@@ -1254,6 +1254,25 @@ describe("ClientProject", () => {
     expect(officialRfqLink.closest("li")?.parentElement).not.toHaveClass("lg:grid-cols-3");
   });
 
+  it.each([false, true])("asks for a quote without a published package (quotes present: %s)", async (hasQuotes) => {
+    const item = createProjectSummaryWorkspaceItem({
+      jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
+      totalPriceUsd: 100, leadTimeBusinessDays: 7,
+    });
+    item.job.selected_vendor_quote_offer_id = null;
+    item.publishedQuoteOptions = [];
+    item.publishedQuoteSelection = null;
+    if (!hasQuotes && item.part) item.part.vendorQuotes = [];
+    api.fetchJobsByProject.mockResolvedValue([item.job]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+    renderWithClient("/projects/project-1");
+    await screen.findByRole("region", { name: "Project summary" });
+    const button = screen.getByRole("button", { name: "Review order" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    expect(screen.queryByText("Choose a package option to continue")).not.toBeInTheDocument();
+  });
+
   it.each([false, true])("uses package selection precedence in project review access (published: %s)", async (published) => {
     const item = createProjectSummaryWorkspaceItem({
       jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
@@ -1276,7 +1295,7 @@ describe("ClientProject", () => {
     if (published) {
       expect(within(summary).getByText("No selections yet")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Review order" })).toHaveAccessibleDescription("Choose a package option to continue");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toHaveAccessibleDescription("Choose a package option to continue"));
     } else {
       await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled());
     }
