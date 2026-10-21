@@ -708,6 +708,31 @@ describe("title block cells", () => {
       expect(revision.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: false });
     });
 
+    it("keeps conflicting material evidence flagged when another sheet exceeds the label cap", () => {
+      const readable = "MATERIAL AL 6061-T6";
+      const conflicting = "MATERIAL SEE NOTE 1";
+      expect(inferPages(readable, conflicting).material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+      const capped = `${conflicting}\n${"PN  ".repeat(450)}`;
+      for (const signals of [inferPages(readable, capped), inferPages(capped, readable)]) {
+        expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+        expect(signals.material.reasons).toContain("title_block_page_unread");
+        expect(signals.reviewFields).toContain("material");
+      }
+    });
+
+    it("requires review of every cell field when another sheet cannot be read", () => {
+      const readable = `${block("1000-123", "A")}\nFINISH BLACK ANODIZE`;
+      const expected = { partNumber: "1000-123", revision: "A", material: "AL 6061-T6", finish: "BLACK ANODIZE" };
+      const complete = inferPages(readable, readable);
+      const incomplete = inferPages(readable, "PN  ".repeat(450));
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(complete[field]).toMatchObject({ value: expected[field], reviewNeeded: false });
+        expect(incomplete[field]).toMatchObject({ value: expected[field], reviewNeeded: true });
+        expect(incomplete[field].reasons).toContain("title_block_page_unread");
+        expect(incomplete.reviewFields).toContain(field);
+      }
+    });
+
     it("keeps the flagged drawing number its cell gave, rather than the file name's", () => {
       const signals = inferNamedPages("1093-05589-02", block("1000-123", "A"), block("1000 123", "A"));
       expect(signals.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: true });

@@ -2045,13 +2045,24 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
 }
 
 /**
- * One read per cell label (DWG. NO., REV, MATERIAL, FINISH) found in the given title-block lines.
- * Pass the lines of a single drawing in reading order; pages are read independently.
+ * Read pages independently, preserving pages skipped at a parsing cap. Their labels are not known,
+ * so they may contain conflicting evidence for any cell field, even when another page reads cleanly.
  */
-export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellRead[] {
+export function readTitleBlockPages(lines: readonly TitleBlockTextLine[]): { reads: CellRead[]; unreadPages: number[] } {
   const reads: CellRead[] = [];
+  const unreadPages: number[] = [];
   for (const [page, pageText] of groupByPage(lines)) {
-    reads.push(...(readPage(page, pageText) ?? []));
+    const pageReads = readPage(page, pageText);
+    if (pageReads === null) {
+      unreadPages.push(page);
+    } else {
+      reads.push(...pageReads);
+    }
   }
-  return reads;
+  return { reads, unreadPages };
+}
+
+/** Cell reads only. Use readTitleBlockPages when deciding whether a drawing's fields can be approved. */
+export function readTitleBlockCells(lines: readonly TitleBlockTextLine[]): CellRead[] {
+  return readTitleBlockPages(lines).reads;
 }

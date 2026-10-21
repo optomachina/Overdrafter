@@ -7,7 +7,7 @@ import type { SupportedReviewField } from "../types.js";
 import { buildWordLines, MAX_WORDS_TOTAL, parseBboxWords, type PdfWord } from "./pdfWords.js";
 import {
   isLabelLikeToken,
-  readTitleBlockCells,
+  readTitleBlockPages,
   type CellField,
   type CellRead,
   type TitleBlockTextLine,
@@ -2481,7 +2481,7 @@ export function inferDrawingSignalsFromPdf(input: {
   // labels own. When a label is present but its cell gives no clean value, nothing is filled from
   // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
   // A part number shaped like a drawing number is still offered as a flagged suggestion.
-  const cellReads = readTitleBlockCells(selectTitleBlockLines(input.pdfText.pages, lines, bounds));
+  const { reads: cellReads, unreadPages } = readTitleBlockPages(selectTitleBlockLines(input.pdfText.pages, lines, bounds));
   const hasCellLabel = (field: CellField) => cellReads.some((read) => read.field === field);
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
@@ -2542,6 +2542,15 @@ export function inferDrawingSignalsFromPdf(input: {
   // After the rescue, so that a value a cell gave is flagged, not replaced by the file name's.
   for (const field of CELL_FIELDS) {
     fieldResults[field] = flagBesideUnreadCell(fieldResults[field], cellReads, field);
+    // A capped page may contribute to any cell field. Apply this after OCR rescue and fallback selection,
+    // so neither can approve a value while another page's potentially conflicting evidence is unread.
+    if (unreadPages.length > 0) {
+      fieldResults[field] = {
+        ...fieldResults[field],
+        reviewNeeded: true,
+        reasons: [...new Set([...fieldResults[field].reasons, "title_block_page_unread"])],
+      };
+    }
   }
 
   const reviewFieldResults = {
