@@ -314,7 +314,11 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       lastFailureMessage?: string | null;
     } | null;
   }) => {
-    if (diagnostics?.lifecycle === "extracting") {
+    if (!diagnostics || diagnostics.lifecycle === "succeeded") {
+      return null;
+    }
+
+    if (diagnostics.lifecycle === "queued" || diagnostics.lifecycle === "extracting") {
       return <div>Drawing extraction in progress</div>;
     }
 
@@ -336,7 +340,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       );
     }
 
-    return null;
+    return <div>Waiting for drawing metadata</div>;
   },
 }));
 
