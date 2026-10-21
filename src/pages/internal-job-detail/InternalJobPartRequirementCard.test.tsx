@@ -1,8 +1,16 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { approveJobRequirements } from "@/features/quotes/api/extraction-api";
+import { useInternalJobDetailViewModel } from "./internal-job-detail-view-model";
+import { useInternalJobDetailMutations } from "./use-internal-job-detail-mutations";
+import { InternalJobRequirementsSection } from "./InternalJobRequirementsSection";
+import { InternalJobHeaderActions } from "./InternalJobHeaderActions";
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ApprovedPartRequirement,
+  JobAggregate,
   ApprovedPartRequirementRecord,
   DrawingExtractionRecord,
   PartAggregate,
@@ -18,9 +26,6 @@ vi.mock("@/components/quotes/RfqLineItemMetadataFields", () => ({
   RfqLineItemMetadataFields: () => <div>RFQ metadata</div>,
 }));
 
-vi.mock("@/components/quotes/RequestServiceIntentFields", () => ({
-  RequestServiceIntentFields: () => <div>Request service intent</div>,
-}));
 
 vi.mock("@/components/quotes/RequestSummaryBadges", () => ({
   RequestSummaryBadges: () => <div>Request summary badges</div>,
@@ -323,5 +328,153 @@ describe("InternalJobPartRequirementCard", () => {
     expect(screen.getByText("Part queue activity")).toBeInTheDocument();
     expect(screen.getByText("Attempts: 2")).toBeInTheDocument();
     expect(screen.getByText(/temporary worker timeout/i)).toBeInTheDocument();
+  });
+});
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/features/quotes/api/extraction-api", () => ({
+  approveJobRequirements: vi.fn().mockResolvedValue(2), requestExtraction: vi.fn(),
+}));
+
+// Exercise the real view model, cards, header and mutation with a populated two-part job.
+// Only the network boundary is mocked: a rejected save must never call it or announce success.
+describe("internal requirement quantity save integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(approveJobRequirements).mockResolvedValue(2);
+  });
+
+  function renderRequirements() {
+    const job = {
+      job: { id: "job-1", title: "Bracket" },
+      parts: [makePart("parser"), { ...makePart("parser"), id: "part-2" }],
+      packages: [],
+    } as unknown as JobAggregate;
+    function Host() {
+      const vm = useInternalJobDetailViewModel({ job, latestQuoteRun: null });
+      const mutations = useInternalJobDetailMutations({
+        clientSummary: vm.clientSummary, getRequirementsForSave: vm.getRequirementsForSave,
+        forcePublish: false, jobId: "job-1", latestQuoteRunId: null,
+        navigate: vi.fn(), signOut: vi.fn(), userEmail: null,
+      });
+      return <>
+        <InternalJobHeaderActions onRequestExtraction={vi.fn()} onStartQuoteRun={vi.fn()}
+          onSaveRequirements={() => mutations.saveRequirementsMutation.mutate()}
+          requestExtractionPending={false} startQuoteRunPending={false}
+          saveRequirementsPending={mutations.saveRequirementsMutation.isPending}
+          requirementsBlocked={vm.requirementsBlocked} writeActionsDisabled={false} />
+        <button onClick={() => mutations.saveRequirementsMutation.mutate()}>Attempt programmatic save</button>
+        <InternalJobRequirementsSection job={job} cadPreviewSources={vm.cadPreviewSources}
+          getDraftForPart={vm.getDraftForPart} getQuoteQuantityInput={vm.getQuoteQuantityInput}
+          getQuantityInput={vm.getQuantityInput} onDraftQuantityChange={vm.setDraftQuantity}
+          onQuoteQuantityInputChange={(partId, value) => vm.setQuoteQuantityInputs((current) => ({ ...current, [partId]: value }))}
+          onQuoteQuantityInputCommit={vm.commitQuoteQuantityInput} updateDraft={vm.updateDraft}
+          workQueue={[]} showInternalDiagnostics={false} writeActionsDisabled={false} />
+      </>;
+    }
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}>
+      <Host />
+    </QueryClientProvider>);
+    return {
+      quantity: screen.getAllByLabelText("Quantity")[1] as HTMLInputElement,
+      quotes: screen.getAllByLabelText("Quote quantities")[1],
+      save: screen.getByRole("button", { name: "Save approved requirements" }),
+    };
+  }
+
+  it.each([
+    ["quotes", "10/12.5/25", "Enter whole numbers"],
+    ["quotes", "25/50/abc", "Enter whole numbers"],
+    ["quotes", "250,500", "Commas are ambiguous"],
+    ["quotes", "1,250 2,500", "Commas are ambiguous"],
+    ["quotes", "1,250, 2,500", "Commas are ambiguous"],
+    ["quotes", "2,500 7,500", "Commas are ambiguous"],
+    ["quotes", "100,250 500", "Commas are ambiguous"],
+    ["quotes", "1,500,25/50", "Enter whole numbers"],
+    ["quotes", "1,500, 2,500 / 5,000", "Enter whole numbers"],
+    ["quotes", "0", "Enter whole numbers"],
+    ["quotes", "-5", "Enter whole numbers"],
+    ["quantity", "12.5", "Enter a whole number"],
+    ["quantity", "", "Enter a whole number"],
+    ["quantity", "0", "Enter a whole number"],
+    ["quantity", "-5", "Enter a whole number"],
+    ["quantity", "abc", "Enter a whole number"],
+  ] as const)("blocks %s %j in any part, including direct mutation calls, then saves a correction", async (field, text, error) => {
+    const host = renderRequirements();
+    expect(host.save).toBeEnabled();
+    fireEvent.change(host[field], { target: { value: text } });
+    fireEvent.blur(host[field]);
+    expect(host[field]).toHaveValue(text);
+    expect(host[field]).toHaveAccessibleDescription(expect.stringContaining(error));
+    expect(host.save).toBeDisabled();
+    fireEvent.click(host.save);
+    expect(approveJobRequirements).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByText("Attempt programmatic save")));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(error)));
+    expect(approveJobRequirements).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+
+    // A working success path proves the no-save assertions above are not vacuous.
+    fireEvent.change(host[field], { target: { value: field === "quotes" ? "1,000/2,000" : "50" } });
+    fireEvent.blur(host[field]);
+    await waitFor(() => expect(host.save).toBeEnabled());
+    await act(async () => fireEvent.click(host.save));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Approved 2 part requirement set(s)."));
+    expect(approveJobRequirements).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject(
+      field === "quotes" ? { quoteQuantities: [10, 1000, 2000] } : { quantity: 50 },
+    );
+  });
+
+  it.each(["quotes", "quantity"] as const)("allows saving after a service change hides invalid %s text", async (field) => {
+    const host = renderRequirements();
+    fireEvent.change(host[field], { target: { value: "12.5" } });
+    fireEvent.blur(host[field]);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(host.save).toBeDisabled();
+
+    const cadModeling = screen.getAllByRole("checkbox", { name: /CAD modeling/i })[1];
+    fireEvent.click(cadModeling);
+    expect(screen.getAllByLabelText("Quote quantities")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Quantity")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
+    await act(async () => fireEvent.click(host.save));
+    await waitFor(() => expect(approveJobRequirements).toHaveBeenCalledOnce());
+    expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject({
+      requestedServiceKinds: ["manufacturing_quote", "cad_modeling"],
+      quantity: 10,
+    });
+
+    // Returning to quote services exposes the retained text and blocks Save again.
+    fireEvent.click(cadModeling);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(host.save).toBeDisabled();
+  });
+
+  it.each(["1,000/2,000", "2,500/5,000/10,000"])("does not alert while typing valid %j", (text) => {
+    const host = renderRequirements();
+    fireEvent.change(host.quotes, { target: { value: "1,000" } });
+    fireEvent.blur(host.quotes);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    for (let length = 1; length <= text.length; length += 1) {
+      fireEvent.change(host.quotes, { target: { value: text.slice(0, length) } });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }
+    fireEvent.blur(host.quotes);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
+  });
+
+  it("allows clearing and typing 50, and keeps a separate quote error until corrected", () => {
+    const host = renderRequirements();
+    fireEvent.change(host.quotes, { target: { value: "250,500" } });
+    fireEvent.change(host.quantity, { target: { value: "" } });
+    for (const character of "50") {
+      fireEvent.change(host.quantity, { target: { value: host.quantity.value + character } });
+    }
+    expect(host.quantity).toHaveValue("50");
+    expect(host.quotes).toHaveValue("250,500");
+    expect(host.save).toBeDisabled();
   });
 });

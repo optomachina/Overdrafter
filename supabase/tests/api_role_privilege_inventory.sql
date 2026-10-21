@@ -16,7 +16,7 @@
 --   admin-aal2                platform admin with an AAL2 (MFA) check
 --   intended-public-read      harmless answer about the caller, readable by any signed in user
 --   known-debt                grant is wider than intended; the named issue removes it
--- Since OVD-736 (20261015074957) PUBLIC and anon execute no SECURITY DEFINER
+-- Since OVD-736 (20261016013742) PUBLIC and anon execute no SECURITY DEFINER
 -- function in these schemas, so their allowlists are empty.
 begin;
 

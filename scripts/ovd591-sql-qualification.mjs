@@ -1,11 +1,11 @@
 /** Run only against an operator-provisioned, exclusively owned synthetic fixture.
  * No registry request, container creation, migration, credential lookup or reset. */
+import { isEntryPoint } from './lib/entry-point.mjs';
 import assert from 'node:assert/strict';
 import { runPsqlConcurrency } from './ovd591-psql-concurrency.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { admitQualificationPaths, admitSourceInputs, sha256 as sha } from './ovd591-qualification-paths.mjs';
-import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 export const IMAGE = 'public.ecr.aws/supabase/postgres:17.6.1.095';
 // Runs only inside the admitted fixture; no credential value enters host argv or SQL text.
 export const FIXTURE_PASSWORD_SESSION = [
@@ -126,7 +126,7 @@ export async function runQualification(container, destination, provisioningPath,
   } catch (error) { receipt.status = 'failed'; receipt.error = error.message; throw error; }
   finally { receipt.finishedAt = new Date().toISOString(); save(); }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isEntryPoint(import.meta.url)) {
   try {
     assert([5, 6].includes(process.argv.length));
     if (process.argv.length === 6) assert.equal(process.argv[5], '--concurrency=psql');

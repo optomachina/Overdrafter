@@ -58,7 +58,7 @@ const InternalJobDetail = () => {
   });
   const mutations = useInternalJobDetailMutations({
     clientSummary: viewModel.clientSummary,
-    drafts: viewModel.drafts,
+    getRequirementsForSave: viewModel.getRequirementsForSave,
     forcePublish: queryState.readinessQuery.data?.ready === false,
     jobId,
     latestQuoteRunId: queryState.latestQuoteRun?.id ?? null,
@@ -211,6 +211,7 @@ const InternalJobDetail = () => {
           onSaveRequirements={() => mutations.saveRequirementsMutation.mutate()}
           onStartQuoteRun={() => mutations.startQuoteRunMutation.mutate()}
           requestExtractionPending={mutations.requestExtractionMutation.isPending}
+          requirementsBlocked={viewModel.requirementsBlocked}
           saveRequirementsPending={mutations.saveRequirementsMutation.isPending}
           startQuoteRunPending={mutations.startQuoteRunMutation.isPending}
           writeActionsDisabled={fullyWriteActionsDisabled}
@@ -270,6 +271,7 @@ const InternalJobDetail = () => {
           cadPreviewSources={viewModel.cadPreviewSources}
           getDraftForPart={viewModel.getDraftForPart}
           getQuoteQuantityInput={viewModel.getQuoteQuantityInput}
+          getQuantityInput={viewModel.getQuantityInput}
           job={queryState.job}
           onDraftQuantityChange={viewModel.setDraftQuantity}
           onQuoteQuantityInputChange={(partId, value) =>

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -275,6 +275,8 @@ describe("detectProviderEnablement", () => {
     const findings = detectProviderEnablement(change([{ path: "scripts/validate-pr-body.mjs", added: ["x"] }]));
     expect(findings).toEqual([{ file: "scripts/validate-pr-body.mjs", reason: "edits the PR body gate itself", kind: "gate" }]);
     expect(enablesProvider(change([{ path: ".github/workflows/pr-body-gate.yml", added: ["x"] }]))).toBe(false);
+    expect(detectProviderEnablement(change([{ path: "scripts/lib/entry-point.mjs", added: ["x"] }])))
+      .toEqual([{ file: "scripts/lib/entry-point.mjs", reason: "edits the PR body gate itself", kind: "gate" }]);
   });
 
   it("detects an admission migration that enables a provider", () => {
@@ -1009,6 +1011,37 @@ describe("main", () => {
   });
 });
 
+describe("PR body CLI through a symlinked gate directory", () => {
+  it("emits skip evidence and rejects an invalid body when validation is required", () => {
+    // Keep the copied gate below the checkout so it resolves the installed TypeScript package.
+    const scratch = mkdtempSync(path.join(process.cwd(), ".ovd950-pr-body-"));
+    try {
+      const real = path.join(scratch, "real");
+      mkdirSync(path.join(real, "scripts", "lib"), { recursive: true });
+      for (const file of ["validate-pr-body.mjs", "provider-enablement-detect.mjs", "lib/entry-point.mjs"]) {
+        copyFileSync(new URL(file, import.meta.url), path.join(real, "scripts", file));
+      }
+      const link = path.join(scratch, "link");
+      symlinkSync(real, link, process.platform === "win32" ? "junction" : "dir");
+      const body = path.join(scratch, "body.md");
+      const changed = path.join(scratch, "empty.txt");
+      writeFileSync(body, "Invalid PR body\n");
+      writeFileSync(changed, "");
+      const args = [path.join(link, "scripts", "validate-pr-body.mjs"), body, "--changed-files-from", changed];
+      const run = (extra) => spawnSync(process.execPath, [...args, ...extra], { encoding: "utf8", timeout: 10_000 });
+      const skipped = run(["--skip-unless-enabling"]);
+      expect(skipped.error).toBeUndefined();
+      expect(skipped.status, skipped.stderr).toBe(0);
+      expect(skipped.stdout).toMatch(/^No provider enablement or gate edit in this diff/m);
+      const rejected = run([]);
+      expect(rejected.error).toBeUndefined();
+      expect(rejected.status, rejected.stderr).toBe(1);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("provider go-live docs and workflows", () => {
   const read = (...parts) => readFileSync(path.join(...parts), "utf8");
 
@@ -1119,6 +1152,28 @@ describe("provider go-live docs and workflows", () => {
     expect(workflow).not.toMatch(/^\s+- edited$/m);
     expect(workflow).not.toContain("provider-go-live");
     expect(workflow).not.toContain("validate-pr-body");
+  });
+
+  it("copies the optional helper from the selected gate source without changing fallback selection", () => {
+    const gate = read(".github", "workflows", "pr-body-gate.yml");
+    expect(gate).toContain('files="scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs"');
+    const copy = gate.slice(gate.indexOf('helper="scripts/lib/entry-point.mjs"'), gate.indexOf('echo "Gate scripts taken from:'));
+    expect(copy).toContain('mkdir -p "$gate/$(dirname "$helper")"');
+    expect(copy).toContain('if [ "$source" = base ]; then');
+    expect(copy).toContain('if git cat-file -e "HEAD^1:$helper" 2>/dev/null; then');
+    expect(copy).toContain('git show "HEAD^1:$helper" > "$gate/$helper"');
+    expect(copy).toContain('elif [ -f "$helper" ]; then');
+    expect(copy).toContain('cp "$helper" "$gate/$helper"');
+    expect(copy).not.toContain('source=head');
+  });
+
+  it("requires validator evidence after a successful process exit", () => {
+    const gate = read(".github", "workflows", "pr-body-gate.yml");
+    const step = gate.slice(gate.indexOf('- name: Validate provider go-live PR section'));
+    expect(step).toContain("set -euo pipefail");
+    expect(step).toContain('--verify-links | tee "$RUNNER_TEMP/pr-body-validation.log"');
+    expect(step).toContain("if ! grep -Eq '^(PR body validation passed|No provider enablement or gate edit in this diff)'");
+    expect(step).toMatch(/echo "::error::[^\n]+\n\s+exit 1/);
   });
 });
 
