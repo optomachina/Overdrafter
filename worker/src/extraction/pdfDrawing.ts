@@ -1389,6 +1389,24 @@ function buildCellCandidates(reads: readonly CellRead[], field: CellField): Cand
     }));
 }
 
+const CELL_FIELDS: readonly CellField[] = ["partNumber", "revision", "material", "finish"];
+
+/**
+ * A value read from one cell is not approved while another cell of the same field (another sheet's title block, or a
+ * second label of the field) was rejected or is ambiguous: "SEE NOTE 1" or a cell that could not be read on sheet 2 is
+ * evidence about the field that sheet 1's "AL 6061-T6" does not outweigh (#884 review, round 14). buildCellCandidates
+ * offers only clean values, so without this the other cell was silently dropped. The value is kept, flagged. An empty
+ * cell holds nothing that disagrees and does not flag it, and a value the field took from somewhere else than a cell
+ * (the file name, a flagged suggestion) is left as the rest of the extraction decided.
+ */
+function flagBesideUnreadCell(field: ExtractedFieldSignal, reads: readonly CellRead[], cellField: CellField): ExtractedFieldSignal {
+  if (field.reviewNeeded || !field.value || !field.reasons.includes("label_match")) {
+    return field;
+  }
+  const unread = reads.some((read) => read.field === cellField && (read.status === "rejected" || read.status === "ambiguous"));
+  return unread ? { ...field, reviewNeeded: true, reasons: [...new Set([...field.reasons, "title_block_cell_unread"])] } : field;
+}
+
 function addCandidate(candidates: CandidateSignal[], candidate: CandidateSignal) {
   const existing = candidates.find(
     (item) =>
@@ -2521,6 +2539,10 @@ export function inferDrawingSignalsFromPdf(input: {
     text: joinedText,
     fields: fieldResults,
   });
+  // After the rescue, so that a value a cell gave is flagged, not replaced by the file name's.
+  for (const field of CELL_FIELDS) {
+    fieldResults[field] = flagBesideUnreadCell(fieldResults[field], cellReads, field);
+  }
 
   const reviewFieldResults = {
     description: fieldResults.description,

@@ -641,16 +641,17 @@ describe("title block cells", () => {
   });
 
   describe("the same title block on more than one sheet", () => {
-    const block = (partNumber: string, revision: string) =>
+    /** One sheet's title block; a null material leaves the MATERIAL cell empty. */
+    const block = (partNumber: string, revision: string, material: string | null = "AL 6061-T6") =>
       layoutSheet(
         [[0, "MATERIAL"], [40, "DWG. NO."], [80, "REV"]],
         "",
-        [[2, "AL 6061-T6"], [42, partNumber], [81, revision]],
+        [...(material === null ? [] : [[2, material] as const]), [42, partNumber], [81, revision]],
         [[40, "SCALE 1:1"], [70, "SHEET 1 OF 2"]],
       );
-    const inferPages = (...texts: string[]) =>
+    const inferNamedPages = (baseName: string, ...texts: string[]) =>
       inferDrawingSignalsFromPdf({
-        baseName: "upload",
+        baseName,
         pdfText: {
           pageCount: texts.length,
           pageCountKnown: true,
@@ -659,6 +660,7 @@ describe("title block cells", () => {
           pages: texts.map((text, index) => ({ page: index + 1, text, ocrText: "", ocrStatus: "ok" as const })),
         },
       });
+    const inferPages = (...texts: string[]) => inferNamedPages("upload", ...texts);
 
     it("agrees with itself: identical values on two sheets are not a tie", () => {
       const signals = inferPages(block("1000-123", "A"), block("1000-123", "A"));
@@ -676,6 +678,46 @@ describe("title block cells", () => {
     it("counts values that differ only in case as the same", () => {
       const signals = inferPages(block("1000-123", "a"), block("1000-123", "A"));
       expect(signals.revision.reviewNeeded).toBe(false);
+    });
+
+    // #884 review, round 14: only a clean value is a candidate, so a cell another sheet rejected ("SEE NOTE 1") or could
+    // not read was dropped, and the first sheet's value was approved. It is evidence about the field: the value is kept,
+    // flagged.
+    it.each([
+      ["points elsewhere", block("1000-123", "A", "SEE NOTE 1")],
+      ["stops in the middle", block("1000-123", "A", "6061 -")],
+      ["names another field's label", block("1000-123", "A", "ALUMINUM FINISH ANODIZE")],
+    ])("flags a material whose cell on another sheet %s", (_case, other) => {
+      for (const signals of [inferPages(block("1000-123", "A"), other), inferPages(other, block("1000-123", "A"))]) {
+        expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
+        expect(signals.material.reasons).toContain("title_block_cell_unread");
+        expect(signals.reviewFields).toContain("material");
+        expect(signals.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: false });
+        expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: false });
+      }
+    });
+
+    it("flags a drawing number or revision whose cell on another sheet was rejected", () => {
+      const partNumber = inferPages(block("1000-123", "A"), block("1000 123", "A"));
+      expect(partNumber.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: true });
+      expect(partNumber.reviewFields).toContain("partNumber");
+      expect(partNumber.revision).toMatchObject({ value: "A", reviewNeeded: false });
+      const revision = inferPages(block("1000-123", "A"), block("1000-123", "10/29/13"));
+      expect(revision.revision).toMatchObject({ value: "A", reviewNeeded: true });
+      expect(revision.reviewFields).toContain("revision");
+      expect(revision.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: false });
+    });
+
+    it("keeps the flagged drawing number its cell gave, rather than the file name's", () => {
+      const signals = inferNamedPages("1093-05589-02", block("1000-123", "A"), block("1000 123", "A"));
+      expect(signals.partNumber).toMatchObject({ value: "1000-123", reviewNeeded: true });
+      expect(signals.revision).toMatchObject({ value: "A", reviewNeeded: false });
+    });
+
+    it("does not flag a value beside an empty cell of the same field on another sheet", () => {
+      const signals = inferPages(block("1000-123", "A"), block("1000-123", "A", null));
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: false });
+      expect(signals.reviewFields).not.toContain("material");
     });
   });
 

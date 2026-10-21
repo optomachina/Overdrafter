@@ -84,6 +84,9 @@
  * are read as the label and its inline value; with word boxes the part of the word after the label is a run.
  * With word boxes, a separator printed as a word of its own ("-" one word space after "6061") stays in the value it is
  * printed with, as layout text keeps it in its run, so a value that ends on one is cut short and not read (findWordRuns).
+ * Words are owned one by one, so a material or finish printed as one phrase that runs on under another label's columns
+ * ("... TEMPER T651" with T651 under Q.A.), or that starts left of its own cell, is not cut there: every cell it is
+ * printed in is flagged (markCutPhrases).
  *
  * Every loop is bounded by the caps below, and the work per line is linear in its length. A line over MAX_LINE_LENGTH is
  * not read, but no cell is read across it either (crossesUnreadLine): the field is flagged.
@@ -1685,7 +1688,10 @@ type PageOwnership = {
   /** Runs that no label owns. */
   unowned: Run[];
   assigned: Set<Run>;
-  /** Labels whose value is followed on its line by a run that belongs to another label's band (layout text). */
+  /**
+   * Labels whose cell holds part of a phrase another label's cell (or none) holds the rest of: on layout text, a value
+   * followed on its line by a run of another label's band; with word boxes, both sides of a phrase cut (markCutPhrases).
+   */
   contested: Set<Label>;
   /** Layout text only: labels that claim one run, by where it starts and by where its centre is (startOwnerOf). */
   straddled: Set<Label>;
@@ -1750,6 +1756,45 @@ function markStraddledRun(
   }
 }
 
+/** Whether `run` is printed in one phrase with `previous`, the run before it on its line: no label and no cell's gap between. */
+function inOnePhrase(previous: Run, run: Run, lineLabels: readonly Label[]): boolean {
+  return (
+    run.start - previous.end <= GAP_JOIN &&
+    run.cellBreakBefore !== true &&
+    !lineLabels.some((label) => label.start >= previous.end - 1 && label.end <= run.start + 1)
+  );
+}
+
+/**
+ * Word boxes: marks the labels whose cells hold a phrase in parts (PageOwnership.contested), once every run has its owner
+ * (continueWrappedRuns included). Words are owned one by one, so a phrase that runs on under another label's columns is
+ * cut there: a material "... TEMPER T651" whose last word lies under the approvals column Q.A. read as "... TEMPER", and
+ * with MATERIAL and FINISH side by side, "ALUMINUM 6061-T6 ALLOY" read as the material "ALUMINUM 6061-T6" and the finish
+ * "ALLOY" (#884 review, round 14). Two words of one phrase (inOnePhrase) that are not owned alike, by two labels or by a
+ * label and none (a phrase that starts left of its cell), mark every label that owns one of them: which cell the phrase is
+ * is not known. Only a material or finish is flagged for it (doubtOf): an identifier has no word space in it. Layout
+ * text is marked as it is placed (assignLineRuns).
+ */
+function markCutPhrases(ownership: PageOwnership, runsByLine: ReadonlyMap<number, Run[]>, labelsByLine: ReadonlyMap<number, Label[]>): void {
+  for (const [line, lineRuns] of runsByLine) {
+    const words = lineRuns.filter((run) => run.fromWords).sort((left, right) => left.start - right.start);
+    const lineLabels = labelsByLine.get(line) ?? [];
+    for (let index = 1; index < words.length; index += 1) {
+      const previous = words[index - 1]!;
+      const run = words[index]!;
+      const previousOwner = ownership.ownerOfRun.get(previous);
+      const owner = ownership.ownerOfRun.get(run);
+      if (previousOwner !== owner && inOnePhrase(previous, run, lineLabels)) {
+        for (const label of [previousOwner, owner]) {
+          if (label !== undefined) {
+            ownership.contested.add(label);
+          }
+        }
+      }
+    }
+  }
+}
+
 /** Places the runs of one line, left to right, with the label that owns each. */
 function assignLineRuns(
   ownership: PageOwnership,
@@ -1773,12 +1818,9 @@ function assignLineRuns(
     if (inline === null && byCell !== null && !run.fromWords) {
       markStraddledRun(ownership, run, byCell, previousRun, labels, caps);
     }
-    const followsPrevious: boolean =
-      previousRun !== null &&
-      previousOwner !== null &&
-      run.start - previousRun.end <= GAP_JOIN &&
-      run.cellBreakBefore !== true &&
-      !lineLabels.some((label) => label.start >= previousRun!.end - 1 && label.end <= run.start + 1);
+    const followsPrevious: boolean = previousRun !== null && previousOwner !== null && inOnePhrase(previousRun, run, lineLabels);
+    // Layout text: the run before may be a value, and this run another cell's text set close after it at a coarse pitch, or
+    // the rest of the value at a fine one. Word boxes are marked once every run has its owner (markCutPhrases).
     if (followsPrevious && byCell !== null && byCell !== previousOwner && !run.fromWords) {
       ownership.contested.add(previousOwner!);
     }
@@ -1874,8 +1916,9 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
 }
 
 /**
- * Why a cell's value is doubtful on layout text, or null. Word boxes give true positions and leave no such doubt
- * (a run that is left over there is another cell's), so only runs read from layout text count here.
+ * Why a cell's value is doubtful, or null. Mostly layout text: word boxes give true positions (a run that is left over
+ * there is another cell's), so only runs read from layout text count for a straddled run, stray text above or a fine
+ * pitch. A material or finish whose phrase is cut by another cell (`contested`) is doubtful on either source.
  */
 function doubtOf(
   label: Label,
@@ -1979,6 +2022,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     assignLineRuns(ownership, lineRuns, labelsByLine.get(lineNumber) ?? [], labels, caps);
   }
   continueWrappedRuns(ownership, caps);
+  markCutPhrases(ownership, runsByLine, labelsByLine);
   const pageLines: PageLines = {
     leftoverByLine: groupByLine(ownership.unowned.filter((run) => !ownership.assigned.has(run))),
     runsByLine,

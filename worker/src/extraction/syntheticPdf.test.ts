@@ -780,5 +780,72 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
         expect(result.status, source).toBe("approved");
       }
     });
+
+    // #884 review, round 14 (Opus): words are owned one by one, so a material or finish printed as one phrase that runs on
+    // under another label's columns was cut there from word boxes and approved, with no review field. Every cell the
+    // phrase is printed in is flagged, as layout text flags it.
+    const sideBySide = (left: string, right: string, value: string): PdfTextItem[] => [
+      ...syntheticSheet({ material: null, finish: null }).filter((item) => item.text !== "MATERIAL" && item.text !== "FINISH"),
+      { x: 330, y: 720, size: 6, text: left },
+      { x: left === "MATERIAL" ? 425 : 440, y: 720, size: 6, text: right },
+      { x: 340, y: 732, size: 9, text: value },
+    ];
+    it.each([
+      // "T651" lies under the approvals label Q.A. (the material was stored as "... TEMPER").
+      ["a material whose last word is under Q.A.", syntheticSheet({ material: "ALUMINUM 6061-T6 PLATE QQ-A-250/11 TEMPER T651" }), ["material"]],
+      // "5643" lies under Q.A. (stored as "... AMS").
+      ["a material whose number is under Q.A.", syntheticSheet({ material: "STAINLESS STEEL 17-4 PH CONDITION H1150 AMS 5643" }), ["material"]],
+      // MATERIAL and FINISH side by side, FINISH empty: the material "ALUMINUM 6061-T6" and the finish "ALLOY".
+      ["a material that runs under FINISH beside it", sideBySide("MATERIAL", "FINISH", "ALUMINUM 6061-T6 ALLOY"), ["material", "finish"]],
+      // FINISH and MATERIAL side by side, MATERIAL empty: the material "SEALED HOT", the tail of the finish.
+      ["a finish that runs under MATERIAL beside it", sideBySide("FINISH", "MATERIAL", "ANODIZE, BLACK, SEALED HOT"), ["material", "finish"]],
+    ] as const)("leaves %s empty and flagged, not cut at the column", async (_case, items, flagged) => {
+      for (const [source, result] of await extractBoth([...items])) {
+        expect(result.material.raw, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(flagged);
+        expect(result.status, source).toBe("needs_review");
+        expect(result.finish.raw, source).toBe(flagged.length === 1 ? "AS MACHINED" : null);
+        expect(result.partNumber, source).toBe("ABC-1001");
+      }
+    });
+
+    // #884 review, round 14 (Codex): only a clean value is a candidate, so a cell another sheet rejected or could not read was
+    // dropped and the first sheet's value approved, where main flags it. The value is kept, flagged.
+    const withSheet = (second: PdfTextExtraction) => (first: PdfTextExtraction): PdfTextExtraction => ({
+      ...first,
+      pageCount: 2,
+      pages: [first.pages[0]!, { ...second.pages[0]!, page: 2 }],
+    });
+
+    it("flags the material and finish when another sheet's cells point elsewhere", async () => {
+      const pointers = await pdfTextOf(syntheticSheet({ material: "SEE NOTE 1", finish: "SEE NOTE 2" }));
+      for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(pointers))) {
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+        expect(result.reviewFields, source).toEqual(["material", "finish"]);
+        expect(result.status, source).toBe("needs_review");
+      }
+    });
+
+    it("still approves the fields when the other sheet repeats them or leaves the cells empty", async () => {
+      const repeated = await pdfTextOf(syntheticSheet());
+      for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(repeated))) {
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+        expect(result.reviewFields, source).toEqual([]);
+        expect(result.status, source).toBe("approved");
+      }
+      const empty = await pdfTextOf(syntheticSheet({ material: null, finish: null }));
+      for (const [source, result] of await extractBoth(syntheticSheet(), withSheet(empty))) {
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+        expect(result.finish.raw, source).toBe("AS MACHINED");
+        // An empty cell holds nothing that disagrees. On layout text alone, that sheet's 24 pt drawing number and revision
+        // are under four blank lines once the MATERIAL and FINISH rows are empty, so they are not read (a known limit), and
+        // a cell that could not be read flags the field the first sheet gave.
+        expect(result.reviewFields, source).toEqual(source === "word boxes" ? [] : ["partNumber", "revision"]);
+        expect(result.partNumber, source).toBe("ABC-1001");
+        expect(result.revision, source).toBe("B");
+      }
+    });
   });
 });

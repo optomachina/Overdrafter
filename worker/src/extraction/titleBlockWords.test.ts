@@ -387,7 +387,9 @@ describe("title block from word boxes", () => {
       expect(cellOf(sheet(3), "finish")).toMatchObject({ status: "value", value: "ANODIZE, BLACK MIL-A-8625 TYPE II" });
       // Neither joined (it may be another cell's text) nor left out (it may be the rest of the value).
       expect(cellOf(sheet(4), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
-      expect(cellOf(sheet(30), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
+      // 30 heights under its label no label owns that line, and only its words over the line above continue the value
+      // (continueWrappedRuns): "II" is past them, so the phrase is cut, which flags the cell first (markCutPhrases).
+      expect(cellOf(sheet(30), "finish")).toMatchObject({ status: "ambiguous", value: null, reason: "unconsumed_text" });
       // An identifier is flagged the same way.
       const drawingNumber = [...phrase("DWG. NO.", 100, 100), ...phrase("1000-1", 101, 110), ...phrase("2000-2", 101, 160)];
       expect(cellOf(drawingNumber, "partNumber")).toMatchObject({ status: "ambiguous", value: null, reason: "far_value" });
@@ -510,6 +512,63 @@ describe("title block from word boxes", () => {
       const material = readTitleBlockCells(lines).find((cell) => cell.field === "material");
       expect(performance.now() - started).toBeLessThan(3_000);
       expect(material).toMatchObject({ value: null });
+    });
+  });
+
+  // #884 review, round 14: words are owned one by one, so a material or finish printed as one phrase that runs on under
+  // another label's columns was cut there and approved: "... TEMPER" for "... TEMPER T651" with T651 under Q.A., and
+  // "ALUMINUM 6061-T6 ALLOY" under MATERIAL and FINISH side by side as the material "ALUMINUM 6061-T6" and the finish
+  // "ALLOY". Every cell the phrase is printed in is flagged instead; layout text already flags them.
+  describe("a material or finish printed as one phrase across two cells", () => {
+    const cellOf = (words: PdfWord[], field: string) => readTitleBlockCells(buildWordLines(words, 1)).find((cell) => cell.field === field);
+    const flagged = { status: "ambiguous", value: null, reason: "unconsumed_text" };
+
+    it("flags a material whose last word lies under the approvals label above it", () => {
+      // "T651" starts at x = 164.7, under Q.A. (160 to 179.8); "TEMPER" is centred left of it.
+      const words = [box("Q.A.", 160, 585), box("MATERIAL", 20, 600), ...phrase("ALUMINUM 6061-T6 PLATE TEMPER T651", 24, 615)];
+      expect(buildWordLines(words, 1).map((line) => line.raw)).toEqual(["Q.A.", "MATERIAL", "ALUMINUM 6061-T6 PLATE TEMPER T651"]);
+      expect(cellOf(words, "material")).toMatchObject(flagged);
+    });
+
+    it("flags a finish whose last word lies under another label, and both cells of a phrase under MATERIAL and FINISH side by side", () => {
+      // "SEALED" (89.4 to 119.1) is centred under Q.A.; "BLACK" is centred left of it.
+      const finish = [box("Q.A.", 95, 585), box("FINISH", 20, 600), ...phrase("ANODIZE BLACK SEALED", 24, 615)];
+      expect(cellOf(finish, "finish")).toMatchObject(flagged);
+      // "ALLOY" starts at x = 104.25, under FINISH; "6061-T6" is centred left of it.
+      const sideBySide = [box("MATERIAL", 20, 600), box("FINISH", 110, 600), ...phrase("ALUMINUM 6061-T6 ALLOY", 24, 615)];
+      expect(cellOf(sideBySide, "material")).toMatchObject(flagged);
+      expect(cellOf(sideBySide, "finish")).toMatchObject(flagged);
+      const finishFirst = [box("FINISH", 20, 600), box("MATERIAL", 110, 600), ...phrase("ANODIZE BLACK SEALED", 24, 615)];
+      expect(cellOf(finishFirst, "material")).toMatchObject(flagged);
+      expect(cellOf(finishFirst, "finish")).toMatchObject(flagged);
+    });
+
+    it("flags a phrase that starts left of its cell, in no cell", () => {
+      // "ALUMINUM" is centred at x = 43.8, left of MATERIAL's reach; "6061-T6" is under the label.
+      const words = [box("MATERIAL", 60, 600), ...phrase("ALUMINUM 6061-T6", 24, 615)];
+      expect(cellOf(words, "material")).toMatchObject(flagged);
+    });
+
+    it("flags the field through the whole extraction, from word boxes and from layout text alike", () => {
+      const words = [box("MATERIAL", 20, 600), box("FINISH", 110, 600), ...phrase("ALUMINUM 6061-T6 ALLOY", 24, 615)];
+      const layout = "MATERIAL          FINISH\n  ALUMINUM 6061-T6 ALLOY";
+      for (const signals of [infer(layout, words), infer(layout)]) {
+        expect(signals.material).toMatchObject({ value: null, reviewNeeded: true });
+        expect(signals.finish).toMatchObject({ value: null, reviewNeeded: true });
+      }
+    });
+
+    it("still reads a value that ends before the next cell, and one set a cell's gap apart from the next cell's text", () => {
+      const sideBySide = [box("MATERIAL", 20, 600), box("FINISH", 110, 600), ...phrase("ALUMINUM 6061-T6", 24, 615)];
+      expect(cellOf(sideBySide, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061-T6" });
+      expect(cellOf(sideBySide, "finish")).toMatchObject({ status: "empty", value: null });
+      const apart = [box("MATERIAL", 20, 600), box("FINISH", 110, 600), ...phrase("AL 6061-T6", 24, 615), ...phrase("ANODIZE", 112, 615)];
+      expect(buildWordLines(apart, 1).map((line) => line.raw)).toEqual(["MATERIAL  FINISH", "AL 6061-T6  ANODIZE"]);
+      expect(cellOf(apart, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+      expect(cellOf(apart, "finish")).toMatchObject({ status: "value", value: "ANODIZE" });
+      // A value that runs on past every label's reach keeps its words: no other cell holds them.
+      const long = [box("MATERIAL", 20, 600), ...phrase("ALUMINUM 6061-T6 PLATE QQ-A-250/11 TEMPER T651", 24, 615)];
+      expect(cellOf(long, "material")).toMatchObject({ status: "value", value: "ALUMINUM 6061-T6 PLATE QQ-A-250/11 TEMPER T651" });
     });
   });
 });
