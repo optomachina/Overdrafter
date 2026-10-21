@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import { JSDOM } from "jsdom";
 import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS, OSHCUT_CART_FILE_NAME, OSHCUT_CART_ROW } from "./oshcutCartCleanup";
+import { buildOshcutProductionPortalDefinition, OSHCUT_PRODUCTION_LOCATORS } from "./oshcutProductionPortal";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1805,9 +1806,65 @@ describe("provider portal post-capture cleanup", () => {
       nodes.set(result, node);
       return result;
     };
-    const locator = { elementHandles: async () => [...cart.querySelectorAll(OSHCUT_CART_ROW)].map(handle) } as unknown as Locator;
+    const locator = {
+      count: async () => cart.querySelectorAll(OSHCUT_CART_ROW).length,
+      elementHandles: async () => [...cart.querySelectorAll(OSHCUT_CART_ROW)].map(handle),
+    } as unknown as Locator;
     return { cart, append, locator, removeClicks, root: { elementHandle: async () => handle(dom.window.document.documentElement) } as unknown as Locator };
   }
+
+  it.each([
+    [0, false], [1, false], [2, false], [0, true],
+  ])("OSH Cut checks %i initial rows (late row: %s) before any mutation", async (rowCount, lateRow) => {
+    const fake = fakeBrowser({ bodyText: rowCount ? "Select material" : "Upload parts" });
+    const cart = cartFixture(Array.from({ length: rowCount }, () => "existing.step"));
+    const quantity = cart.cart.ownerDocument.createElement("input");
+    quantity.value = "12";
+    cart.cart.firstElementChild?.append(quantity);
+    let before = cart.cart.innerHTML;
+    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
+    vi.mocked(fake.page.locator).mockImplementation((selector) => {
+      if (selector === OSHCUT_CART_ROW) return cart.locator;
+      if (selector === "html") return cart.root;
+      if (selector === OSHCUT_PRODUCTION_LOCATORS.singlePrice) return { allInnerTexts: async () => ["$20.00"] } as unknown as Locator;
+      if (selector === OSHCUT_PRODUCTION_LOCATORS.extendedPrice) return { allInnerTexts: async () => ["$100.00"] } as unknown as Locator;
+      return originalLocator(selector);
+    });
+    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
+    fake.fill.mockImplementation(async (value: string) => { quantity.value = value; });
+    const def = buildOshcutProductionPortalDefinition({ controlWaitMs: 0, priceWaitMs: 0 });
+    const quoteInput = await input();
+    quoteInput.requirement = {
+      ...quoteInput.requirement, material: "Aluminum 6061-T6",
+      spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet", sheetThicknessInch: 0.125 },
+    };
+    quoteInput.providerPortalApproval = buildExpectedProviderPortalApproval(def, quoteInput)!;
+    if (lateRow) quoteInput.beforeProviderDisclosure = async () => {
+      cart.append("late-existing.step").append(quantity);
+      before = cart.cart.innerHTML;
+    };
+    const run = runProviderPortalKernel(def, {
+      ...config(), vendorStorageStateJson: { oshcut: JSON.stringify({ cookies: [], origins: [] }) },
+    }, quoteInput, { launchBrowser: async () => fake.browser, captureEvidence: async () => [] });
+    if (rowCount || lateRow) {
+      await expect(run).rejects.toMatchObject({
+        message: "OSH Cut cart not empty; manual attention required.",
+        payload: { terminalState: "manual_review", reason: "oshcut_cart_not_empty", providerMutationPossible: false },
+      });
+      expect(fake.setInputFiles).not.toHaveBeenCalled();
+      expect(fake.fill).not.toHaveBeenCalled();
+      expect(fake.click).not.toHaveBeenCalled();
+      expect(fake.selectOption).not.toHaveBeenCalled();
+      expect(cart.cart.innerHTML).toBe(before);
+      expect(quantity.value).toBe("12");
+    } else {
+      await expect(run).resolves.toMatchObject({ state: "offers_extracted" });
+      expect(fake.setInputFiles).toHaveBeenCalledTimes(1);
+      expect(fake.fill).toHaveBeenCalledWith("5");
+      expect(fake.click).toHaveBeenCalledTimes(3);
+    }
+    expect(cart.removeClicks).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["filename collisions", ["part.step", "customer-part.step"], true, false, false, "incomplete", 0, 1],

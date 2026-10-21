@@ -221,6 +221,8 @@ export type ProviderPortalDefinition = {
     envelope: { id: string; version: number };
   };
   hooks: {
+    /** Read-only guard at initial classification and again immediately before upload. */
+    beforeUpload?: (reader: ProviderPortalReadCapability) => void | Promise<void>;
     assessEligibility: (
       input: VendorQuoteAdapterInput,
     ) => ProviderPortalEligibility | Promise<ProviderPortalEligibility>;
@@ -1739,6 +1741,7 @@ async function uploadAuthorizedPortalFiles(
   // translated into a portal failure) and the lane is held; nothing has been
   // uploaded.
   await input.beforeProviderDisclosure?.();
+  await definition.hooks.beforeUpload?.(buildReadCapability(definition, session.page, session.boundary));
   assertPortalBoundary(definition, session.page, session.boundary);
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
@@ -1863,6 +1866,8 @@ async function runProviderPortalInteraction(
   });
   assertPortalBoundary(definition, session.page, session.boundary);
   let snapshot = await snapshotPortal(session.page);
+  await definition.hooks.beforeUpload?.(buildReadCapability(definition, session.page, session.boundary));
+  assertPortalBoundary(definition, session.page, session.boundary);
   let state = await definition.hooks.classifyPortalState(snapshot);
   const initialTerminal = await captureTerminalPortalState(interaction, state, snapshot);
   if (initialTerminal) {

@@ -278,6 +278,18 @@ export function buildOshcutProductionPortalDefinition(
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     productionDispatch: { envelope: { ...OSHCUT_DISPATCH_ENVELOPE } },
     hooks: {
+      // Never upload into or configure a cart containing someone else's part.
+      // Check rows, not prices: unconfigured and unpriced parts count too.
+      beforeUpload: async (reader) => {
+        if (await reader.count(OSHCUT_CART_ROW) !== 0) {
+          throw new VendorAutomationError("OSH Cut cart not empty; manual attention required.", "unexpected_ui_state", {
+            vendor: "oshcut",
+            terminalState: "manual_review",
+            reason: "oshcut_cart_not_empty",
+            providerMutationPossible: false,
+          });
+        }
+      },
       // The kernel has already refused files outside the envelope and any
       // drawing, and re-checked the authorization, before this hook runs.
       assessEligibility: assessOshcutProductionEligibility,

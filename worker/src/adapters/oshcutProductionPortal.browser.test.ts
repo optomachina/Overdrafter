@@ -220,14 +220,17 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
   );
 
-  it("preserves pre-existing exact and substring filename collisions", async () => {
+  it("refuses pre-existing exact and substring filename collisions before upload", async () => {
     const before = ["part.step", "customer-part.step"].map((name) =>
       `<div><div class="cartInformationArea">${name}</div><button class="removeButton"
         onclick="fetch('/api/customer-part', {method: 'DELETE'}); this.parentElement.remove()">Remove</button></div>`,
     ).join("");
     const { output, error, observed } = await session.quoteAgainst(cartPage({ before, exactFileNameField: true }));
-    expect(error).toBeNull();
-    expect(output).toMatchObject({ rawPayload: { cartCleanup: { status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required", manualCleanupRows: [{ fileName: "part.step" }] } } });
+    expect(output).toBeNull();
+    expect(error).toMatchObject({ payload: {
+      terminalState: "manual_review", reason: "oshcut_cart_not_empty", providerMutationPossible: false,
+    } });
+    expect(observed.uploads).toHaveLength(0);
     expect(removedFromCart(observed.requests)).toBe(0);
     expect(observed.requests).not.toContain("DELETE https://app.oshcut.com/api/customer-part");
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
