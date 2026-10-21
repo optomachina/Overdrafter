@@ -1577,10 +1577,12 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(performance.now() - started).toBeLessThan(BOUND_MS);
     });
 
-    it("suggests the declared tolerance but cannot approve an oversized page", () => {
+    it("keeps a feature tolerance when only the title-block line cap is exceeded", () => {
       const result = read(`UNITS: INCH ±.005 a${"̴̀".repeat(40_000)}`);
       expect(result.tightestTolerance).toBe("±0.005");
-      expect(result.tightestToleranceValueInch).toBeNull();
+      expect(result.tightestToleranceValueInch).toBe(0.005);
+      expect(result.tightestToleranceReviewNeeded).toBeUndefined();
+      expect(result.tightestToleranceReasons).toBeUndefined();
       expect(result.tightestToleranceDrawingUnits).toBe("inch");
     });
 

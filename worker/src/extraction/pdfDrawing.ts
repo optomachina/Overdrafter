@@ -1049,16 +1049,19 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const titleBlockProof = allCandidates.some((candidate) => candidate.rowPlaces !== null) ||
     (toleranceLabel.test(text) && allCandidates.some((candidate) => toleranceLabel.test(
       text.slice(Math.max(0, candidate.start - 240), candidate.start).split("\n").slice(-3).join("\n"))));
-  const { candidates, unresolvedRows } = selectApplicableToleranceRows(
+  const { candidates: applicableCandidates, unresolvedRows } = selectApplicableToleranceRows(
     text,
     allCandidates,
     options.dimensionsReadable !== false,
     normalizeUnitText(options.rasterText ?? ""),
     options.dimensionText === undefined ? text : normalizeUnitText(options.dimensionText),
   );
-  if (candidates.length === 0) {
+  if (allCandidates.length === 0) {
     return null;
   }
+  // Filtering may leave no applicable row, but must not erase what was read. Keep
+  // the tightest reading as a review-only suggestion, with all numeric safeguards.
+  const candidates = applicableCandidates.length > 0 ? applicableCandidates : allCandidates;
   pairDualDimensions(candidates);
 
   const readings = candidates.map((candidate) =>
@@ -1071,7 +1074,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
     .filter((reading): reading is UnresolvedReading => reading.unit === null)
     .sort((left, right) => left.smallestInches - right.smallestInches)[0];
   const reviewReasons: string[] = [];
-  if (candidates.length !== allCandidates.length) reviewReasons.push("tolerance_rows_filtered");
+  if (applicableCandidates.length !== allCandidates.length) reviewReasons.push("tolerance_rows_filtered");
 
   // P6: an unresolved value is ignored only when every reading of it is at least as loose as the
   // tightest resolved value; otherwise the true tightest tolerance is unknown and nothing is stored.
@@ -2574,9 +2577,10 @@ export function inferDrawingSignalsFromPdf(input: {
     text: joinedText,
     fields: fieldResults,
   });
-  const pagesComplete = unreadPages.length === 0 && input.pdfText.drawingFullyRead === true && input.pdfText.pageCountKnown === true &&
+  const drawingFullyRead = input.pdfText.drawingFullyRead === true && input.pdfText.pageCountKnown === true &&
     input.pdfText.pageCount === input.pdfText.pages.length &&
     input.pdfText.pages.every((page) => page.ocrStatus === "ok");
+  const pagesComplete = unreadPages.length === 0 && drawingFullyRead;
   const wordGeometryComplete = input.pdfText.pages.every((page) =>
     ((page.words?.length ?? 0) > 0 && page.wordGeometryComplete === true) ||
     (page.text.trim() === "" && page.ocrText?.trim() === "" && page.ocrStatus === "ok"));
@@ -2592,21 +2596,28 @@ export function inferDrawingSignalsFromPdf(input: {
     rasterText: ocrText,
     dimensionText: joinedText,
   }) : null;
+  const toleranceTitleBlockProof = inferredTightestTolerance?.titleBlockProof || independentTolerance?.titleBlockProof;
   const approval = finalizeExtractionApproval({
     titleBlockApprovalEnabled: input.titleBlockApprovalEnabled,
     fields: fieldResults,
     titleBlockFields: [
       ...candidateReads.map((read) => read.field),
       ...(["description", "process"] as const).filter((field) =>
-        fieldResults[field].sourceRegion !== null && fieldResults[field].reasons.includes("label_match")),
+        fieldResults[field].sourceRegion !== null && fieldResults[field].reasons.some((reason) =>
+          reason === "label_match" || reason === "spatial_match")),
     ],
     cellProof: { geometryByPage: new Map(input.pdfText.pages.map((page) => [page.page, page.vectorGeometry])), reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
     tolerance: {
-      titleBlockProof: inferredTightestTolerance?.titleBlockProof || independentTolerance?.titleBlockProof,
+      titleBlockProof: toleranceTitleBlockProof,
       valueInch: inferredTightestTolerance?.valueInch ?? null,
       independentValueInch: independentTolerance?.valueInch ?? null,
-      independentUnresolved: !independentComplete || (independentTolerance !== null && independentTolerance.valueInch === null),
-      drawingProven: pagesComplete && (wordGeometryComplete || !input.titleBlockApprovalEnabled),
+      independentUnresolved: (toleranceTitleBlockProof && !independentComplete) ||
+        (independentTolerance !== null && independentTolerance.valueInch === null),
+      // Cell-reader caps and missing word boxes cannot invalidate a feature-only
+      // tolerance. Actual unread pages and independent contradictions still veto it.
+      drawingProven: toleranceTitleBlockProof
+        ? pagesComplete && (wordGeometryComplete || !input.titleBlockApprovalEnabled)
+        : drawingFullyRead,
     },
   });
   // A tolerance is a document-wide minimum: unread or contradictory evidence blocks action.
@@ -2618,7 +2629,7 @@ export function inferDrawingSignalsFromPdf(input: {
     ...(independentTolerance?.reviewReasons ?? []),
   ])];
   if (approval.toleranceApprovalDisabled) toleranceReasons.push("title_block_approval_disabled");
-  if (!wordGeometryComplete && tightestTolerance?.valueInch != null) toleranceReasons.push("tolerance_geometry_unproven");
+  if (toleranceTitleBlockProof && !wordGeometryComplete && tightestTolerance?.valueInch != null) toleranceReasons.push("tolerance_geometry_unproven");
 
   const reviewFieldResults = {
     description: fieldResults.description,

@@ -34,6 +34,13 @@ Priority order per field:
 
 `finalizeExtractionApproval` in `worker/src/extraction/extractionApproval.ts` is the shared final approval step after deterministic rescues and after model merging. It preserves deterministic review flags, requires complete cell proof, rejects placeholder and label-only values, and vetoes independent-source contradictions. OCR can contradict a field or a tolerance; a successful OCR run alone does not prove agreement. A model can suggest a value or reinforce confidence, but cannot turn an unproven deterministic read into an approval. Current revision cells take precedence over revision history; ambiguous revision-table roles require review.
 
+### I1: model confidence cannot replace deterministic proof
+
+Confident model-only values without deterministic proof always require review,
+including descriptions sourced from notes. This is an intended change from main,
+independent of the title-block approval setting. Model agreement also cannot clear
+an existing deterministic review requirement.
+
 ### I7: approval needs complete geometry
 
 A title-block value is approved only when the border reader positively understood every vector item in its region. `pdfVectorGeometry.ts` retains border segments and separate, monotonic geometry issues. An unclassified path, image or form XObject, fill, non-black/light stroke, clip path or curve in or crossing the region requires review. Unknown coverage, tool failure, scan limits or missing geometry cannot prove an empty region. Known glyph references are text evidence, not arbitrary vector fills. A bounded PDF-name scan preserves Form XObject provenance that Cairo may inline away; compressed object dictionaries, encryption and an unavailable or over-limit source remain unproven rather than silently bypassing that scan.
@@ -199,21 +206,29 @@ approval gate applies this veto both after deterministic extraction and after mo
 merging; model agreement cannot override it.
 
 The disabled reason applies only to fields with title-block evidence, including
-description and process read from title-block label anchors. Fields with no such
-evidence retain their existing reasons. Description and process retain the
-cross-sheet score-delta review check, even when two sheets print identical values.
+description and process read from title-block label anchors, spatial title-block
+descriptions, and OCR title rescues even when they have no source region. Fields
+with no such evidence retain their existing reasons. Description and process
+retain the cross-sheet score-delta review check, even when two sheets print identical values.
 
-General-tolerance evidence, including stacked or grid rows, retains its raw text
-and numeric `valueInch` as a suggestion with `reviewNeeded: true` and the same
-disabled reason. This applies even when a general note or feature callout wins.
+With approval off, recognized general-tolerance evidence (decimal-place rows or
+the current label heuristic) retains otherwise valid raw text and numeric
+`valueInch` as a suggestion with `reviewNeeded: true` and the same disabled reason.
+This applies even when a general note or feature callout wins.
+Recognition is not exhaustive: abbreviated labels (`TOL`, `GENERAL TOL.`), stacked
+headings, `N PL` forms and the three-line/240-character lookbehind remain heuristic
+limitations tracked in OVD-1034.
 With either setting, discarded applicability rows add `tolerance_rows_filtered`;
-a selection that differs from the tightest reading adds
+if every candidate is filtered out, the tightest value read remains a suggestion
+requiring review, subject to the same unit and numeric safeguards.
+A selection that differs from the tightest reading adds
 `tolerance_differs_from_tightest_read`. Reasons persist in stored tolerances and
-generate warnings. With approval off, missing word geometry retains a numeric
-feature tolerance as a suggestion marked `tolerance_geometry_unproven`, provided
-the drawing is otherwise fully read and independent evidence does not veto it.
-Non-title-block fields and model-fallback notes descriptions keep their existing
-approval behavior. With `1`, the
-existing I1–I7 proof checks and tolerance checks remain in force. The switch is not
-an endorsement of the known round-18 geometry/heading holes; the flag regression
+generate warnings. Missing word geometry and title-block reader caps do not null
+feature tolerances without title-block evidence or add title-block review reasons,
+provided the drawing is otherwise fully read and independent evidence does not
+veto them. With approval off, a recognized title-block tolerance lacking word
+geometry also gets `tolerance_geometry_unproven`. Model-only values follow I1 above
+with either setting; their review requirement intentionally differs from main.
+With `1`, the existing I1–I7 proof checks and tolerance checks remain in force.
+The switch is not an endorsement of the known round-18 geometry/heading holes; the flag regression
 suite records those as expected failures while approval is enabled.

@@ -29,7 +29,7 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
   for (const [name, field] of Object.entries(input.fields)) {
     const reasons = new Set(field.reasons);
     const hasTitleBlockEvidence = input.titleBlockFields?.includes(name) ||
-      reads.some((read) => read.field === name) || reasons.has("title_block_cell_proven");
+      reads.some((read) => read.field === name) || reasons.has("title_block_cell_proven") || reasons.has("ocr_title_block");
     let reviewNeeded = field.reviewNeeded;
     if (frames.some(([page]) => !field.sourceRegion || field.sourceRegion.page === page)) {
       reviewNeeded = true;
