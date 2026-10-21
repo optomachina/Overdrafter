@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { isBuiltin } from "node:module";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { treeDigest, readBoundFile, verifyArtifactBindings, createDiskAdmission, readDirectApproval } from "./ovd419-diagnostic-bindings.mjs";
 import { bootstrapBytes, bootstrapApproval, verifyTranscriptLines } from "./run-ovd419-job-diagnostic.mjs";
 import { packet, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
@@ -63,6 +66,38 @@ describe("byte and closure bindings", () => {
     await expect(readDirectApproval(ref, packet(), Date.now())).rejects.toThrow();
     await expect(bootstrapApproval(packet(), ref)).rejects.toThrow();
   }));
+});
+
+/** Module specifiers of every static import and re-export; these load before any module body runs. */
+function staticModuleSpecifiers(source) {
+  const file = ts.createSourceFile("launcher.mjs", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const specifiers = [];
+  const visit = (node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) specifiers.push(node.moduleSpecifier.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return specifiers;
+}
+
+describe("launcher bootstrap import surface", () => {
+  it("statically imports only node: builtins, so no non-builtin module runs before the byte gates", async () => {
+    const source = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "run-ovd419-job-diagnostic.mjs"), "utf8");
+    const specifiers = staticModuleSpecifiers(source);
+    expect(specifiers).toContain("node:crypto");
+    expect(specifiers.filter((specifier) => !specifier.startsWith("node:") || !isBuiltin(specifier))).toEqual([]);
+  });
+  it("flags relative, bare and re-exported static imports so the check cannot pass vacuously", () => {
+    const source = [
+      'import { isEntryPoint } from "./lib/entry-point.mjs";',
+      'import sdk from "some-package";',
+      'import "./side-effect.mjs";',
+      'export * from "./reexport.mjs";',
+      'import { createHash } from "node:crypto";',
+      'const later = await import("./dynamic-after-gates.mjs");',
+    ].join("\n");
+    expect(staticModuleSpecifiers(source)).toEqual(["./lib/entry-point.mjs", "some-package", "./side-effect.mjs", "./reexport.mjs", "node:crypto"]);
+  });
 });
 
 describe("direct approval provenance with in-memory TEST ONLY transcripts", () => {

@@ -1,0 +1,17 @@
+{
+  "schema": "overdrafter.verdict/v1",
+  "role": "reviewer",
+  "verdict": "PASS",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "patch_id": "cccccccccccccccccccccccccccccccccccccccc",
+  "diff_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "verifier": { "id": "grok-review", "model_family": "grok", "github_login": "grok-bot" },
+  "evidence": [{ "kind": "verify-run", "url": "https://github.com/o/r/actions/runs/1" }],
+  "notes": [],
+  "readiness": { "conflicts": 0, "open_threads": 0, "checks": "green" },
+  "findings": [
+    { "severity": "high", "file": "src/a.ts", "line": 12, "model": "grok", "message": "null deref" },
+    { "severity": "info", "file": "README.md", "line": null, "model": "codex", "corroborated": false }
+  ],
+  "timestamp": "2026-10-15T12:00:00Z"
+}

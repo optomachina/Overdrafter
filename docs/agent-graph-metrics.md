@@ -33,3 +33,4 @@ Log each one in the PR or its Linear issue with the label `founder-intervention`
 ## Reading the numbers
 
 Review weekly. Falling cost and interventions per accepted PR with steady throughput means the graph is paying off; a rising share of draft-with-diagnostics PRs or infra reruns points at the preflight or runners, not the agents.
+Automated weekly report: see [docs/evals-weekly-report.md](evals-weekly-report.md) (OVD-894).

@@ -11,9 +11,11 @@
  * Node fetch only honors HTTPS_PROXY when run with NODE_USE_ENV_PROXY=1.
  *
  * Every call returns a result object and never throws, so callers can fall
- * back to ordinary reasoning or deterministic tools. Jev output is advisory:
- * it is never an authorization, acceptance result, or filter on required
- * instructions or evidence.
+ * back to ordinary reasoning or deterministic tools. Each failed call writes one
+ * "WARN jev-fallback" line to stderr; options.warn redirects it (a function) or
+ * turns it off (false) for a caller that already reports every failure itself.
+ * Jev output is advisory: it is never an authorization, acceptance result, or
+ * filter on required instructions or evidence.
  *
  * Smoke: NODE_USE_ENV_PROXY=1 node scripts/jev-client.mjs --smoke
  */
@@ -48,16 +50,56 @@ function networkReason(error) {
   return `network_${sanitizeToken(String(error?.cause?.code ?? error?.name ?? "error"))}`;
 }
 
+/**
+ * Map a non-ok askJev reason to a loud fallback source (logging only).
+ * default_jev_blocked: auth/credential block (http_401/403)
+ * jev_blocked: other failed Jev calls
+ */
+export function fallbackSourceForReason(reason) {
+  if (reason === "http_401" || reason === "http_403") return "default_jev_blocked";
+  return "jev_blocked";
+}
+
+/** The one-line WARN text for a Jev fallback. Built only from sanitized tokens and a number, never secrets or raw response text. */
+export function jevFallbackLine(source, reason, latencyMs) {
+  const src = sanitizeToken(String(source ?? "jev_blocked")) ?? "jev_blocked";
+  const why = reason == null ? "null" : (sanitizeToken(String(reason)) ?? "unknown");
+  const ms = Number.isFinite(latencyMs) ? latencyMs : "null";
+  return `WARN jev-fallback source=${src} reason=${why} latencyMs=${ms}`;
+}
+
+/**
+ * Where askJev sends its fallback WARN: stderr by default (loud), a caller's
+ * function to redirect it, or `false` for a caller that already reports every
+ * failure itself (the PR screen writes one WARN per decision row). Any other
+ * value keeps the default so a mistyped option can never silence a failure.
+ */
+function warnSink(warn) {
+  if (warn === false) return () => {};
+  if (typeof warn === "function") return (line) => warn(line);
+  return (line) => console.error(line);
+}
+
 export async function askJev(state, questions, options) {
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
-  const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000 } = options ?? {};
+  const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000, warn } = options ?? {};
+  const emit = warnSink(warn);
+  const failed = (reason, extra = {}) => {
+    const latencyMs = latency();
+    try {
+      emit(jevFallbackLine(fallbackSourceForReason(reason), reason, latencyMs));
+    } catch {
+      // A caller's broken sink must not turn a failed call into a throw; askJev never throws.
+    }
+    return { ok: false, reason, ...extra, latencyMs };
+  };
   let payload;
   try {
     payload = JSON.stringify({ state, model, questions });
   } catch {
     // A BigInt or circular input is a caller error, not a network failure; never sent.
-    return { ok: false, reason: "invalid_request", latencyMs: latency() };
+    return failed("invalid_request");
   }
   const headers = { "Content-Type": "application/json" };
   const apiKey = process.env.TYPESAFE_API_KEY?.trim();
@@ -70,21 +112,21 @@ export async function askJev(state, questions, options) {
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await response.text();
-    if (!response.ok) return { ok: false, reason: `http_${response.status}`, latencyMs: latency() };
+    if (!response.ok) return failed(`http_${response.status}`);
     let body;
     try {
       body = JSON.parse(text);
     } catch {
-      return { ok: false, reason: "malformed_response", latencyMs: latency() };
+      return failed("malformed_response");
     }
-    if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, reason: "malformed_response", latencyMs: latency() };
-    if (body.model !== model) return { ok: false, reason: "unexpected_model_version", model: sanitizeToken(body.model), latencyMs: latency() };
+    if (!body || typeof body !== "object" || Array.isArray(body)) return failed("malformed_response");
+    if (body.model !== model) return failed("unexpected_model_version", { model: sanitizeToken(body.model) });
     for (const id of Object.keys(questions ?? {})) {
-      if (!isValidAnswer(questions[id], body.answers?.[id])) return { ok: false, reason: "malformed_response", latencyMs: latency() };
+      if (!isValidAnswer(questions[id], body.answers?.[id])) return failed("malformed_response");
     }
     return { ok: true, model: body.model, answers: body.answers, usage: body.usage ?? null, latencyMs: latency() };
   } catch (error) {
-    return { ok: false, reason: networkReason(error), latencyMs: latency() };
+    return failed(networkReason(error));
   }
 }
 

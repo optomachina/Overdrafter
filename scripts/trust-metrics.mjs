@@ -6,6 +6,7 @@
 // Output is a pure function of the inputs and flags: generatedAt comes from
 // --generated-at (or the window end), never the wall clock, and every array
 // is sorted, so the same inputs always produce byte-identical JSON.
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -614,7 +615,7 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.er
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isEntryPoint(import.meta.url)) {
   try {
     process.exitCode = runCli(process.argv.slice(2));
   } catch (error) {
