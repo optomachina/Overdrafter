@@ -140,6 +140,7 @@ function createWorkspaceDataResult() {
 
 vi.mock("@/features/quotes/workspace-navigation", () => ({
   WORKSPACE_SHARED_STALE_TIME_MS: 30_000,
+  stableJobIds: (ids: string[]) => [...new Set(ids)].sort((left, right) => left.localeCompare(right)),
   workspaceQueryKeys: { clientQuoteWorkspace: (ids: string[], scope: string) => ["client-quote-workspace", scope, ids] },
   createWorkspaceAccessScope: ({
     userId,
