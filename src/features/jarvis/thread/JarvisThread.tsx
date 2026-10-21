@@ -20,6 +20,13 @@ function safeArtifactUrl(uri: string): boolean {
 }
 
 type StatusEvent = Extract<GraphEvent, { type: 'status' }>;
+type FailureEvent = Extract<GraphEvent, { type: 'error' }>;
+
+// The event that ended the run, if any: an applied cancel, an error or the result. The first one wins, because the graph emits
+// nothing after it but control answers. The thread stops its clock there and never starts it again for that run.
+function endingEvent(events: readonly GraphEvent[]): GraphEvent | undefined {
+  return events.find(e => e.type === 'error' || e.type === 'result' || (e.type === 'control_applied' && e.kind === 'cancel'));
+}
 
 // Reverse scan instead of Array#findLast: the app tsconfig targets ES2020 without the ES2023 lib.
 function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: GraphEvent) => e is T): T | undefined {
@@ -55,20 +62,31 @@ function controlState({ applied, queued }: ControlLifecycle, sending: string): s
   return queued.pause || sending === 'Pausing' ? 'Pausing' : '';
 }
 
-type LaneContext = { pending: boolean; stopped: string | undefined; status: StatusEvent | undefined; offline: boolean; state: string; now: number; completed: ReadonlySet<string> };
+// `now` is the clock the elapsed time reads. The thread freezes it at the event that ended the run, so a finished run stops counting.
+type LaneContext = { pending: boolean; stopped: string | undefined; status: StatusEvent | undefined; failure: FailureEvent | undefined; offline: boolean; state: string; now: number; completed: ReadonlySet<string> };
 
 function laneLabel(node: string, lane: LaneContext): string {
-  const { pending, stopped, status, offline, state, now, completed } = lane;
+  const { pending, stopped, status, failure, offline, state, now, completed } = lane;
+  const seen = offline ? 'LAST SEEN ' : '';
+  const elapsed = (from: StatusEvent) => `${Math.max(0, Math.floor((now - from.at) / 1000))}s`;
+  if (failure) {
+    // A failed run is over, so no lane is working, pausing or waiting for an answer, whatever command was still queued behind the
+    // error. The lane the graph failed in says so, and its clock stopped at the error. The others keep what they had finished.
+    if (failure.nodeId === node) return status?.nodeId === node ? `${seen}FAILED · ${elapsed(status)}` : `${seen}FAILED`;
+    return completed.has(node) ? 'DONE' : 'WAITING';
+  }
   if (node === 'domain_agent' && pending) return stopped ? stopped.toUpperCase() : 'WAITS FOR YOU';
-  if (status?.nodeId === node) return `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s`;
+  if (status?.nodeId === node) return `${seen}${state || 'WORKING'} · ${elapsed(status)}`;
   return completed.has(node) ? 'DONE' : 'WAITING';
 }
 
 const nodeNames: Record<string, string> = { concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' };
 
-// What the polite live region says: the result once there is one, otherwise only the stage and its state (never the elapsed timer).
-function announcement(result: Extract<GraphEvent, { type: 'result' }> | undefined, status: StatusEvent | undefined, deciding: boolean, state: string): string | undefined {
+// What the polite live region says: the result once there is one, a failure as failed rather than as the stage it was in,
+// otherwise only the stage and its state (never the elapsed timer).
+function announcement(result: Extract<GraphEvent, { type: 'result' }> | undefined, failure: FailureEvent | undefined, status: StatusEvent | undefined, deciding: boolean, state: string): string | undefined {
   if (result) return result.summary;
+  if (failure) return `${nodeNames[failure.nodeId] ?? failure.nodeId} · failed`;
   if (!status) return undefined;
   return `${nodeNames[status.nodeId] ?? status.nodeId} · ${deciding ? 'WAITS FOR YOU' : state || status.state}`;
 }
@@ -148,7 +166,6 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   // ends the epoch each request captured when it was issued, so a late result is ignored instead of clearing the lock, the pending state
   // or the error of whatever run is shown now. It is an epoch, not the run id: a request from an earlier visit to the same run is stale too.
   useEffect(() => { setError(''); return () => { epoch.current += 1; }; }, [source, runId]);
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const closeConfirm = useCallback(() => setConfirm(false), []);
   const heading = useRef<HTMLHeadingElement>(null);
   const status = lastOf(events, (e): e is StatusEvent => e.type === 'status');
@@ -159,12 +176,23 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const { latest: control, applied } = lifecycle;
   // This tab's command ends only with its own applied or rejected event, matched through the idempotency key the server echoes on
   // its request. Any other command's outcome (a remote pause, a duplicate cancel) leaves the lock and the key where they are.
+  // Settling also ends the transport alert: a request whose reply was lost shows "Try again" until the server's own answer for the
+  // same command arrives, and that answer (an applied state or a "Control rejected" line) is the truth the alert must not contradict.
   useEffect(() => {
     for (const command of lifecycle.commands) {
       if (!command.settled || keys.current.get(command.kind) !== command.idempotencyKey) continue;
-      keys.current.delete(command.kind); inFlight.current = false; setCommand('');
+      keys.current.delete(command.kind); inFlight.current = false; setCommand(''); setError('');
     }
   }, [lifecycle]);
+  // A run that ended (cancelled, failed or completed) has nothing left to time: the clock the lanes read stops at the ending event
+  // and the interval stops with it. A different run starts it again, with a fresh reading so its first elapsed time is not stale.
+  const ending = endingEvent(events), over = ending !== undefined;
+  useEffect(() => {
+    if (over) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [over]);
   // Nothing resumes a job, so any applied pause or cancel leaves a pending decision unanswerable.
   const stopped = applied?.state;
   const deciding = pending && !stopped;
@@ -175,7 +203,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), step = refs.find(a => a.kind === 'step');
   const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
   const state = controlState(lifecycle, command);
-  const lane: LaneContext = { pending, stopped, status, offline, state, now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
+  const lane: LaneContext = { pending, stopped, status, failure, offline, state, now: ending?.at ?? now, completed: new Set(events.flatMap(e => e.type === 'status' && e.state === 'completed' ? [e.nodeId] : [])) };
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
     const issued = epoch.current;
@@ -195,7 +223,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <h1 ref={heading} tabIndex={-1}>Jarvis</h1>
     </header>
     <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <p aria-live="polite" className="sr-only">{announcement(result, status, deciding, state)}</p>
+    <p aria-live="polite" className="sr-only">{announcement(result, failure, status, deciding, state)}</p>
     <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map(node => <li key={node}>
         <span>{nodeNames[node]}</span>

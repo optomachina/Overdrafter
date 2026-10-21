@@ -638,3 +638,131 @@ it('stops listening to the source when it unmounts or the run changes', () => {
   view.unmount();
   expect(unsubscribe).toHaveBeenCalledTimes(2);
 });
+
+// A run that ended (failed, cancelled or completed) has nothing left to time. The lanes read a clock frozen at the ending event,
+// the interval stops, and the lane the run ended in names how it ended instead of staying WORKING.
+describe('a run that ended stops its clock and shows how it ended', () => {
+  afterEach(() => vi.useRealTimers());
+  const status = (seq: number, nodeId: 'concept_picks' | 'domain_agent' | 'verify', state: 'started' | 'completed', at = 1000): GraphEvent => ({ ...base, seq, at, nodeId, type: 'status', state, message: `${nodeId} ${state}` });
+  const error = (seq: number, at: number, nodeId: 'domain_agent' | 'verify' = 'domain_agent'): GraphEvent => ({ ...base, seq, at, nodeId, type: 'error', code: nodeId === 'verify' ? 'verify_failed' : 'agent_failed', message: 'No model returned' });
+  const lanes = () => [...document.querySelectorAll('.jt-lanes li')].map(li => li.lastElementChild?.textContent);
+  const live = () => document.querySelector('[aria-live="polite"]')?.textContent;
+
+  it('turns WORKING into FAILED at the error and stops counting', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    const s = setup(); s.send(status(1, 'domain_agent', 'started'));
+    expect(lanes()).toEqual(['WAITING', 'WORKING · 10s', 'WAITING']);
+    expect(live()).toBe('CAD model · started');
+    // The error is stamped 5s after the stage started, though the clock on the wall is further on: the lane reads the error's time.
+    act(() => vi.advanceTimersByTime(2000));
+    s.send(error(2, 6000));
+    expect(lanes()).toEqual(['WAITING', 'FAILED · 5s', 'WAITING']);
+    expect(screen.queryByText(/WORKING/)).toBeNull();
+    expect(live()).toBe('CAD model · failed');
+    expect(screen.getByRole('alert').textContent).toBe('CAD: FAIL · No model returned');
+    act(() => vi.advanceTimersByTime(30000));
+    expect(lanes()).toEqual(['WAITING', 'FAILED · 5s', 'WAITING']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('marks the lane the graph failed in and keeps the stages it finished as DONE', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    const s = setup();
+    s.send(status(1, 'concept_picks', 'started'), status(2, 'concept_picks', 'completed'), status(3, 'domain_agent', 'started'), status(4, 'domain_agent', 'completed'), status(5, 'verify', 'started'));
+    expect(lanes()).toEqual(['DONE', 'DONE', 'WORKING · 10s']);
+    s.send(error(6, 4000, 'verify'));
+    expect(lanes()).toEqual(['DONE', 'DONE', 'FAILED · 3s']);
+    expect(live()).toBe('Independent check · failed');
+    act(() => vi.advanceTimersByTime(30000));
+    expect(lanes()).toEqual(['DONE', 'DONE', 'FAILED · 3s']);
+  });
+  it('shows FAILED, not a pending command, when the run failed with a pause still queued behind the error', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    const s = setup(); s.send(status(1, 'domain_agent', 'started'), requested(2, 'pause', 'queued'));
+    expect(lanes()[1]).toBe('Pausing · 10s');
+    // The graph answers every command still queued when it fails with a terminal rejection, after the error itself.
+    s.send(error(3, 4000));
+    expect(lanes()[1]).toBe('FAILED · 3s');
+    expect(live()).toBe('CAD model · failed');
+    s.send(rejected(4, 'pause', 'queued', 'terminal'));
+    expect(lanes()[1]).toBe('FAILED · 3s');
+    expect(screen.getByText('Control rejected · terminal')).toBeTruthy();
+    expect(screen.queryAllByRole('button')).toEqual([]);
+  });
+  it('shows FAILED without a timer when the error is the first thing the lane has heard', () => {
+    const s = setup(); s.send(error(1, 1000));
+    expect(lanes()).toEqual(['WAITING', 'FAILED', 'WAITING']);
+    expect(screen.queryByText(/WORKING/)).toBeNull();
+  });
+  it('stops the timer of a cancelled run at the cancel', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    const s = setup(); s.send(status(1, 'domain_agent', 'started'));
+    expect(lanes()[1]).toBe('WORKING · 10s');
+    s.send({ ...base, seq: 2, at: 4000, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [] });
+    expect(lanes()[1]).toBe('cancelled · 3s');
+    act(() => vi.advanceTimersByTime(30000));
+    expect(lanes()[1]).toBe('cancelled · 3s');
+    expect(live()).toBe('CAD model · cancelled');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('shows no timer and stops the interval once the run completed', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    const s = setup(); s.send(status(1, 'domain_agent', 'started'));
+    expect(vi.getTimerCount()).toBe(1);
+    s.send({ ...base, seq: 2, at: 5000, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Plate ready', picks: {}, artifacts: [] });
+    expect(lanes()).toEqual([]);
+    expect(screen.queryByText(/WORKING|\d+s$/)).toBeNull();
+    expect(live()).toBe('Plate ready');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('starts the clock again for the next run after a run ended', () => {
+    vi.useFakeTimers(); vi.setSystemTime(11000);
+    let push: (events: GraphEvent[]) => void = () => { };
+    const source: EventSource = { listen: fn => { push = fn; return () => { }; }, retry: vi.fn() };
+    const client = { resolve: vi.fn(), control: vi.fn() };
+    const view = render(<JarvisThread source={source} client={client} runId="run" />);
+    act(() => push([status(1, 'domain_agent', 'started'), error(2, 6000)]));
+    expect(lanes()[1]).toBe('FAILED · 5s');
+    expect(vi.getTimerCount()).toBe(0);
+    view.rerender(<JarvisThread source={source} client={client} runId="other" />);
+    act(() => push([{ ...status(1, 'domain_agent', 'started'), runId: 'other' }]));
+    expect(lanes()[1]).toBe('WORKING · 10s');
+    act(() => vi.advanceTimersByTime(1000));
+    expect(lanes()[1]).toBe('WORKING · 11s');
+  });
+});
+
+// A request whose reply was lost shows "Try again" while the server may still have received it. The server's own answer for that
+// command, echoed with this tab's key, is the truth, so the alert ends there instead of contradicting an applied or rejected command.
+describe('the transport alert ends when this tab\'s own command settles', () => {
+  const lost = 'Control request failed. Try again.';
+  const started: GraphEvent = { ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' };
+  async function lostReply() {
+    const s = setup(); s.client.control.mockRejectedValueOnce(new Error('network down'));
+    s.send(started);
+    fireEvent.click(screen.getByRole('button', { name: 'PAUSE' }));
+    await act(async () => { });
+    expect(screen.getByRole('alert').textContent).toBe(lost);
+    return s;
+  }
+
+  it('drops the alert when the command it was about is applied', async () => {
+    const s = await lostReply();
+    s.send(requested(2, 'pause', 'c', sentKey(s.client)));
+    expect(screen.getByRole('alert').textContent).toBe(lost);
+    s.send({ ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'pause', state: 'paused' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('You paused the job at a checkpoint.')).toBeTruthy();
+  });
+  it('drops the alert when the command it was about is rejected, and the rejection says why', async () => {
+    const s = await lostReply();
+    s.send(requested(2, 'pause', 'c', sentKey(s.client)), rejected(3, 'pause', 'c', 'duplicate'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Control rejected · duplicate')).toBeTruthy();
+  });
+  it('keeps the alert while only another tab\'s command settles', async () => {
+    const s = await lostReply();
+    s.send(requested(2, 'pause', 'remote', 'other-tab'), rejected(3, 'pause', 'remote', 'duplicate'));
+    expect(screen.getByRole('alert').textContent).toBe(lost);
+    expect(screen.getByText('Control rejected · duplicate')).toBeTruthy();
+  });
+});
