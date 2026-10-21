@@ -276,7 +276,18 @@ export class CadAgent implements DomainAgent {
       throw new Error(`worker output failed verification (bbox deviation ${worst.toFixed(4)} mm)`);
     }
 
-    const uri = (file: string) => pathToFileURL(path.join(outcome.runDir as string, file)).href;
+    const runDir = path.resolve(outcome.runDir);
+    const uri = (file: string) => {
+      const resolved = path.resolve(runDir, file);
+      const relative = path.relative(runDir, resolved);
+      if (!file || path.basename(file) !== file || !relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error("worker output failed verification (artifact file must stay inside the run folder)");
+      }
+      return pathToFileURL(resolved).href;
+    };
+    // Validate every supplied file before publishing any artifact.
+    // An absent or empty usdz still means "no AR file" and is skipped, as before.
+    for (const file of [result.files.step, result.files.glb, result.files.iso, result.files.top, result.files.usdz || null]) if (file !== null) uri(file);
     const dimensionsMm = { ...measured };
     emit({ type: "status", state: "info", message: `Worker ${outcome.id} verified: STEP measures ${measured.x} x ${measured.y} x ${measured.z} mm` });
     await ctx.checkpoint();

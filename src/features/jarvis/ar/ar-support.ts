@@ -17,15 +17,18 @@ export type ArSupport = { state: "available"; mode: "quick-look" | "scene-viewer
   | { state: "ar-safari"; href: string }
   | { state: "unavailable" };
 
+export function isHttps(url?: string): boolean {
+  try { return new URL(url ?? "").protocol === "https:"; } catch { return false; }
+}
+
 // Small adapter boundary for model-viewer's canActivateAR/activateAR after OVD-804.
 export function detectAr(model: ArModel, device: ArDevice): ArSupport {
   const ios = /iPad|iPhone|iPod/i.test(device.userAgent)
     || (/Macintosh/i.test(device.userAgent) && device.maxTouchPoints > 1);
-  if (ios && device.standalone) return { state: "ar-safari", href: model.viewUrl };
-  if (ios && device.supportsAr && model.usdzUrl) return { state: "available", mode: "quick-look", href: model.usdzUrl };
-  let httpsGlb = false;
-  try { httpsGlb = new URL(model.glbUrl ?? "").protocol === "https:"; } catch { /* Missing or invalid URL. */ }
-  if (!ios && /Android/i.test(device.userAgent) && httpsGlb) {
+  if (ios && device.standalone) return isHttps(model.usdzUrl) && isHttps(model.viewUrl)
+    ? { state: "ar-safari", href: model.viewUrl } : { state: "unavailable" };
+  if (ios && device.supportsAr && isHttps(model.usdzUrl)) return { state: "available", mode: "quick-look", href: model.usdzUrl! };
+  if (!ios && /Android/i.test(device.userAgent) && isHttps(model.glbUrl) && isHttps(model.viewUrl)) {
     return { state: "available", mode: "scene-viewer", href: `intent://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(model.glbUrl!)}&mode=ar_preferred&title=${encodeURIComponent(model.name)}#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(model.viewUrl)};end;` };
   }
   return { state: "unavailable" };

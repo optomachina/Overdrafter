@@ -3,11 +3,8 @@
 -- DRAFT ONLY. NOT APPLIED anywhere; runs only inside the same Blaine-approved
 -- migration window as the forward draft. Restores the four definitions from
 -- supabase/migrations/20260325120000_add_platform_admin_god_mode.sql exactly
--- (search_path public, auth, private; is_platform_admin() check only) and the
--- EXECUTE grants that exist today: PUBLIC, anon and authenticated.
---
--- If OVD-736 has been applied by the time this runs, omit the PUBLIC and anon
--- grants at the end so the rollback does not reopen what OVD-736 closed.
+-- (search_path public, auth, private; is_platform_admin() check only).
+-- Grants restore the post-OVD-736 state (20261015074957): no EXECUTE for PUBLIC or anon; EXECUTE for authenticated and service_role. Never re-grant PUBLIC or anon (OVD-949).
 
 create or replace function public.api_admin_list_organizations()
 returns jsonb
@@ -184,13 +181,25 @@ begin
 end;
 $$;
 
-grant execute on function public.api_admin_list_organizations() to authenticated;
-grant execute on function public.api_admin_list_all_users() to authenticated;
-grant execute on function public.api_admin_list_all_jobs() to authenticated;
-grant execute on function public.api_admin_list_all_projects() to authenticated;
+revoke all on function public.api_admin_list_organizations() from public, anon;
+revoke all on function public.api_admin_list_all_users() from public, anon;
+revoke all on function public.api_admin_list_all_jobs() from public, anon;
+revoke all on function public.api_admin_list_all_projects() from public, anon;
+grant execute on function public.api_admin_list_organizations() to authenticated, service_role;
+grant execute on function public.api_admin_list_all_users() to authenticated, service_role;
+grant execute on function public.api_admin_list_all_jobs() to authenticated, service_role;
+grant execute on function public.api_admin_list_all_projects() to authenticated, service_role;
 
--- Today's PUBLIC and anon grants (OVD-736 known debt). Omit if OVD-736 is applied.
-grant execute on function public.api_admin_list_organizations() to public, anon;
-grant execute on function public.api_admin_list_all_users() to public, anon;
-grant execute on function public.api_admin_list_all_jobs() to public, anon;
-grant execute on function public.api_admin_list_all_projects() to public, anon;
+do $ovd949$
+declare f regprocedure;
+begin
+  foreach f in array array['public.api_admin_list_organizations()', 'public.api_admin_list_all_users()', 'public.api_admin_list_all_jobs()', 'public.api_admin_list_all_projects()']::regprocedure[] loop
+    if has_function_privilege('anon', f, 'EXECUTE') or exists (
+      select 1 from pg_catalog.pg_proc p,
+        pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+      where p.oid = f and a.grantee = 0 and a.privilege_type = 'EXECUTE') then
+      raise exception 'OVD-949: % is executable by anon or PUBLIC after rollback', f;
+    end if;
+  end loop;
+end;
+$ovd949$;

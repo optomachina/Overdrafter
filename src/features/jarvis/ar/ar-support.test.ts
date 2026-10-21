@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectAr } from "./ar-support";
+import { detectAr, isHttps } from "./ar-support";
 
 import { model, ios, android, desktop } from "./ar-fixtures";
 
@@ -20,4 +20,13 @@ describe("AR platform adapter", () => {
       expect(detectAr(input, device)).toEqual({ state: "unavailable" });
     }
   });
+});
+
+it.each([undefined, "", "invalid", "javascript:alert(1)", "http://files.example/model"])("rejects unsafe or missing URLs: %s", (url) => {
+  expect(isHttps(url)).toBe(false);
+  expect(detectAr({ ...model, usdzUrl: url }, ios)).toEqual({ state: "unavailable" });
+  expect(detectAr({ ...model, usdzUrl: url }, { ...ios, standalone: true })).toEqual({ state: "unavailable" });
+  expect(detectAr({ ...model, viewUrl: url! }, { ...ios, standalone: true })).toEqual({ state: "unavailable" });
+  expect(detectAr({ ...model, viewUrl: url! }, android)).toEqual({ state: "unavailable" });
+  expect(detectAr({ ...model, glbUrl: url }, android)).toEqual({ state: "unavailable" });
 });

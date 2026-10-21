@@ -1,6 +1,7 @@
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
+-- ovd: idempotent
 -- OVD-707 (PR 1 of 3, group b): one-time seed of the live providers in
 -- provider-registry.v1.json into private.provider_definitions as approved,
 -- version 1 (not active).
