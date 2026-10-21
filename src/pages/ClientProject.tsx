@@ -37,6 +37,7 @@ import { getClientItemPresentation } from "@/features/quotes/client-presentation
 import { formatTolerance } from "@/features/quotes/format-part-fields";
 import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
+import { areQuoteOptionsLoading } from "@/features/quotes/quote-options-loading";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
 import {
@@ -1367,7 +1368,7 @@ const ClientProject = () => {
                 <span id="project-review-order-reason" className="text-sm text-muted-foreground">
                   {projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError
                     ? "Unable to load quote options. Please try again."
-                    : projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading
+                    : areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery, projectJobs.length)
                       ? "Loading quote options…"
                       : getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
                 </span>

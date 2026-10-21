@@ -1,9 +1,9 @@
 import "@testing-library/jest-dom/vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClientPartRequirementView,
   ClientQuoteWorkspaceItem,
@@ -2351,4 +2351,52 @@ describe("ClientProject", () => {
     }
   });
 
+
+describe("offline quote options", () => {
+  it.each(["cold open", "workspace retry"])("shows loading during %s and recovers online", async (scenario) => {
+    const item = createProjectSummaryWorkspaceItem({
+      jobId: "job-1", partId: "part-1", partNumber: "BRKT-001", description: "Bracket",
+      totalPriceUsd: 100, leadTimeBusinessDays: 7,
+    });
+    item.publishedQuoteOptions = [{
+      id: "option-A", package_id: "package-1", organization_id: "org-1",
+      option_kind: "lowest_cost", label: "Lowest cost", requested_quantity: 10,
+      published_price_usd: 100, lead_time_business_days: 7,
+      source_vendor_quote_id: "result-1", source_vendor_quote_offer_id: "offer-1",
+      comparison_summary: null, markup_policy_version: "v1", created_at: new Date().toISOString(),
+    }];
+    item.publishedQuoteSelection = null;
+    api.fetchJobsByProject.mockResolvedValue([item.job]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([item]);
+    if (scenario === "cold open") onlineManager.setOnline(false);
+    else api.fetchClientQuoteWorkspaceByJobIds.mockImplementationOnce(async () => {
+      onlineManager.setOnline(false);
+      throw new Error("Offline during workspace retry");
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 0 } } });
+    render(buildProjectTree("/projects/project-1", client));
+    await waitFor(() => expect(client.getQueryCache().getAll().some(
+      (query) => query.state.fetchStatus === "paused",
+    )).toBe(true));
+    expect(await screen.findByText("Loading quote options…")).toBeInTheDocument();
+    expect(screen.queryByText(/Choose a (quote|package option) to continue/)).not.toBeInTheDocument();
+    if (scenario === "cold open") expect(api.fetchJobsByProject).not.toHaveBeenCalled();
+    else expect(api.fetchClientQuoteWorkspaceByJobIds).toHaveBeenCalledTimes(1);
+    await act(async () => { onlineManager.setOnline(true); });
+    expect(await screen.findByText(/Choose a package option to continue/)).toBeInTheDocument();
+    expect(screen.queryByText("Loading quote options…")).not.toBeInTheDocument();
+  });
+
+  it("keeps the normal prompt when there are no jobs", async () => {
+    api.fetchJobsByProject.mockResolvedValue([]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(buildProjectTree("/projects/project-1", client));
+    expect(await screen.findByText(/Choose a quote to continue/)).toBeInTheDocument();
+    expect(screen.queryByText("Loading quote options…")).not.toBeInTheDocument();
+    expect(api.fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
+  });
 });
+
+});
+
+afterEach(() => { cleanup(); onlineManager.setOnline(true); });

@@ -15,6 +15,7 @@ import {
   fetchProject,
 } from "@/features/quotes/api/workspace-access";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { areQuoteOptionsLoading } from "@/features/quotes/quote-options-loading";
 import {
   buildClientWorkspaceState,
   summarizeClientWorkspaceStates,
@@ -132,9 +133,10 @@ const ClientProjectReview = () => {
       }
     >
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-        {projectJobsQuery.isLoading || workspaceQuery.isLoading ? (
+        {areQuoteOptionsLoading(projectJobsQuery, workspaceQuery, projectJobs.length) ? (
           <div className="flex min-h-[320px] items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground" role="status">Loading quote options…</span>
           </div>
         ) : (
           <>
