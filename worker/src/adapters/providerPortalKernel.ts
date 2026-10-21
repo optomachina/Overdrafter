@@ -155,6 +155,7 @@ export type ProviderPortalCleanupReport = {
   remaining: number | null;
   reason: string | null;
   manualCleanupRows?: Array<{ fileName: string | null }>;
+  lostPreUploadRows?: Array<{ fileName: string | null }>;
 };
 
 /** Upper bound for one cleanup pass; it never delays the result longer. */
@@ -1575,6 +1576,8 @@ async function cleanUpProviderPortal(
         ? guardedLocator(definition, session.page, session.boundary, definition.selectors.cleanupRow) : undefined,
       session.cleanupRows?.stagedFileName,
       () => verifyCleanupShadowVisibility(session.context, session.page),
+      session.page,
+      session.cleanupRows?.preUploadRows,
     );
     // A report-only hook must never accept an unrelated native confirmation.
     const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
@@ -1600,7 +1603,8 @@ async function cleanUpProviderPortal(
     report = { status, removed, remaining, reason: null };
   } catch (error) {
     report = error instanceof CleanupConfirmationUnproven
-      ? { status: "incomplete", removed: 0, remaining: null, reason: "manual_cleanup_required" }
+      ? { status: "incomplete", removed: 0, remaining: null, reason: "manual_cleanup_required",
+        ...(error.lostPreUploadRows ? { lostPreUploadRows: error.lostPreUploadRows } : {}) }
       : error instanceof CleanupRowsUnproven
       ? { status: "incomplete", removed: 0, remaining: error.rows.length, reason: "manual_cleanup_required", manualCleanupRows: error.rows }
       : { status: error instanceof ProviderKillSwitchError ? "skipped_kill_switch" : "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
@@ -1761,6 +1765,8 @@ async function uploadAuthorizedPortalFiles(
       guardedLocator(definition, session.page, session.boundary, "html"),
       files.cad.name,
       definition.selectors.cleanupRowFileName,
+      session.page,
+      definition.selectors.cleanupRow,
     );
   }
   // OVD-722: re-read after the awaited locator lookup so a switch engaged in

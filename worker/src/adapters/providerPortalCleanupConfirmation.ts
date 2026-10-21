@@ -13,7 +13,7 @@ export async function trackCleanupShadowRoots(page: Page): Promise<void> {
 }
 
 export class CleanupConfirmationUnproven extends Error {
-  constructor() {
+  constructor(readonly lostPreUploadRows?: Array<{ fileName: string | null }>) {
     super("manual_cleanup_required");
     this.name = "CleanupConfirmationUnproven";
   }
@@ -63,6 +63,8 @@ export class CleanupRowConfirmation {
     private readonly rows?: Locator,
     private readonly expectedFileName?: string,
     private readonly verifyShadowVisibility?: () => Promise<void>,
+    private readonly page?: Page,
+    private readonly preUploadRows?: ReadonlyArray<{ row: ElementHandle<Node>; fileName: string | null }>,
   ) {}
 
   async bind(row: ElementHandle<Node>): Promise<void> {
@@ -88,10 +90,50 @@ export class CleanupRowConfirmation {
     // Include rows that arrived since an earlier, preparatory click as well.
     this.before = await this.snapshot();
     await this.verifyRows(false);
+    await this.verifyStructure(row, target).catch(() => { throw new CleanupConfirmationUnproven(); });
+    this.active = { fileName: this.selectedFileName, dialogSeen: false };
+    try {
+      // P3 residual risk: a re-render during the click can change this snapshot.
+      await target.click();
+      this.clicked = true;
+    } finally {
+      this.active = undefined;
+      await this.verifyPreUploadRows();
+    }
+    await this.verifyStructure(row).catch(() => { throw new CleanupConfirmationUnproven(); });
+    // A first click can open an in-row confirmation. It may leave our row in
+    // place, but must never remove, replace, or rename any other row.
+    await this.verifyRows(false);
+  }
+
+  /** The selected subtree must be isolated from every other cart identity. */
+  private async verifyStructure(row: ElementHandle<Node>, target?: ElementHandle<Node>): Promise<void> {
+    if (!this.page || !this.preUploadRows) throw new CleanupConfirmationUnproven();
+    // Reject frame elements even before they acquire a document. Playwright's
+    // frame inventory also covers owned frames that DOM queries cannot expose.
+    if (!await row.evaluate((element) => !(element as Element).matches("iframe, frame, object, embed"))
+      || (await row.$$("iframe, frame, object, embed")).length > 0) {
+      throw new CleanupConfirmationUnproven();
+    }
+    for (const frame of this.page.frames()) {
+      if (frame === this.page.mainFrame()) continue;
+      const owner = await frame.frameElement();
+      try {
+        if (await owner.evaluate((element, selected) => {
+          for (let node: Node | null = element; node; node = node.parentNode ?? (node as ShadowRoot).host ?? null) {
+            if (node === selected) return true;
+          }
+          return false;
+        }, row)) throw new CleanupConfirmationUnproven();
+      } finally {
+        await owner.dispose();
+      }
+    }
     // Resolve selectors with Playwright, never pass its selector language to CSS
     // APIs. Reject both nesting directions (including across open shadow roots):
     // removal deletes descendants and a click can bubble into an ancestor row.
-    if (!await target.evaluate((element, { selected, rows }) => {
+    const current = await this.snapshot();
+    if (!await row.evaluate((selected, { target, rows, before }) => {
       const contains = (parent: Node, child: Node): boolean => {
         for (let node: Node | null = child; node; ) {
           if (node === parent) return true;
@@ -99,27 +141,29 @@ export class CleanupRowConfirmation {
         }
         return false;
       };
-      return selected.isConnected && element.isConnected && contains(selected, element)
-        && rows.includes(selected) && rows.every((other) => other === selected
+      return (!target || (selected.isConnected && target.isConnected && contains(selected, target) && rows.includes(selected)))
+        && before.every((other) => !contains(selected, other) && !contains(other, selected))
+        && rows.every((other) => other === selected
           || (!contains(selected, other) && !contains(other, selected)));
-    }, { selected: row, rows: this.before.map(({ row }) => row) })) {
+    }, { target, rows: [...this.before!, ...current].map(({ row }) => row), before: this.preUploadRows.map(({ row }) => row) })) {
       throw new CleanupConfirmationUnproven();
     }
     await this.verifyVisibleSubtree();
-    // Only the click path opens CDP, immediately before mutation. Report-only
-    // hooks and post-click verification must not create protocol sessions.
+    // Pierce before and after mutation; report-only hooks never open CDP.
     if (!this.verifyShadowVisibility) throw new CleanupConfirmationUnproven();
     await this.verifyShadowVisibility();
-    this.active = { fileName: this.selectedFileName, dialogSeen: false };
-    try {
-      await target.click();
-      this.clicked = true;
-    } finally {
-      this.active = undefined;
+  }
+
+  private async verifyPreUploadRows(): Promise<void> {
+    if (!this.page || !this.preUploadRows) throw new CleanupConfirmationUnproven();
+    const lost: Array<{ fileName: string | null }> = [];
+    for (const { row, fileName } of this.preUploadRows) {
+      // isConnected alone remains true in the document of a removed iframe.
+      const connected = await row.evaluate((element) => element.isConnected).catch(() => false);
+      const frame = await row.ownerFrame().catch(() => null);
+      if (!connected || !frame || !this.page.frames().includes(frame)) lost.push({ fileName });
     }
-    // A first click can open an in-row confirmation. It may leave our row in
-    // place, but must never remove, replace, or rename any other row.
-    await this.verifyRows(false);
+    if (lost.length) throw new CleanupConfirmationUnproven(lost);
   }
 
   private async verifyVisibleSubtree(): Promise<void> {
@@ -142,6 +186,7 @@ export class CleanupRowConfirmation {
   }
 
   private async verifyRows(requireRemoved: boolean): Promise<void> {
+    await this.verifyPreUploadRows();
     await this.verifyVisibleSubtree();
     const current = await this.snapshot();
     // An ambiguous field cannot prove that the selected filename is absent

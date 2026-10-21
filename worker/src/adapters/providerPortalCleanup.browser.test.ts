@@ -84,9 +84,9 @@ function page(customerName: string, uploadName: string, captureRerender = false,
   });
 }
 
-function adversarialPage(mutation: string, click: string, customerName = "other.step"): string {
+function adversarialPage(mutation: string, click: string, customerName = "other.step", cart = false): string {
   return localQuotePage({
-    title: "QuickQuote", before: row(customerName),
+    title: "QuickQuote", before: cart ? `<div id="cart">${row(customerName)}</div>` : row(customerName),
     afterUpload: row("part.step") + session.optionCard({
       id: "standard", label: "Standard", quantity: "3", unit: "10.00", total: "30.00", lead: "5",
     }),
@@ -110,6 +110,82 @@ function adversarialPage(mutation: string, click: string, customerName = "other.
 }
 
 describe("row ownership and post-click evidence in Chromium (OVD-1022)", () => {
+  it.each([false, true])("refuses a customer row hidden in an owned iframe (uploadedRows: %s)", async (owned) => {
+    uploadedRows = owned;
+    const html = adversarialPage(`
+      const frame = uploaded.appendChild(document.createElement('iframe'));
+      frame.contentDocument.body.append(customer);
+      navigator.sendBeacon('/prepared?connected=' + customer.isConnected + '&framed=' +
+        (customer.ownerDocument === frame.contentDocument));
+    `, `
+      const selected = event.target.closest('.row');
+      if (confirm('Delete part.step?')) {
+        for (const frame of selected.querySelectorAll('iframe')) {
+          for (const row of frame.contentDocument.querySelectorAll('.row')) {
+            navigator.sendBeacon('/deleted?name=' + row.querySelector('.fname').textContent);
+          }
+        }
+        selected.remove();
+      }
+    `);
+    const { output, error, observed } = await session.quoteAgainst(html);
+    expect(error).toBeNull();
+    expect(observed.uploads).toHaveLength(1);
+    expect(observed.requests.some((request) => request.includes('/prepared?connected=true&framed=true'))).toBe(true);
+    expect(output?.rawPayload.cartCleanup).toMatchObject({
+      status: "incomplete", removed: 0, reason: "manual_cleanup_required",
+    });
+    expect(observed.requests.filter((request) => /\/(clicked|deleted)\?/.test(request))).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it.each([false, true])("rejects a nested pre-upload identity that no longer matches a structural selector (uploadedRows: %s)", async (owned) => {
+    cleanupRow = "#cart > .row";
+    uploadedRows = owned;
+    const html = adversarialPage(`
+      document.querySelector('#cart').append(uploaded);
+      uploaded.append(customer);
+      navigator.sendBeacon('/prepared?matches=' + customer.matches('#cart > .row'));
+    `, `
+      const selected = event.target.closest('.row');
+      if (confirm('Delete part.step?')) {
+        for (const row of [selected, ...selected.querySelectorAll('.row')]) {
+          navigator.sendBeacon('/deleted?name=' + row.querySelector('.fname').textContent);
+        }
+        selected.remove();
+      }
+    `, "other.step", true);
+    const { output, error, observed } = await session.quoteAgainst(html);
+    expect(error).toBeNull();
+    expect(observed.uploads).toHaveLength(1);
+    expect(observed.requests.some((request) => request.includes('/prepared?matches=false'))).toBe(true);
+    expect(output?.rawPayload.cartCleanup).toMatchObject({
+      status: "incomplete", removed: 0, reason: "manual_cleanup_required",
+    });
+    expect(observed.requests.filter((request) => /\/(clicked|deleted)\?/.test(request))).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it.each([false, true])("names a pre-upload row lost during the click (in a frame: %s)", async (framed) => {
+    const html = adversarialPage(framed ? `
+      const frame = document.querySelector('main').appendChild(document.createElement('iframe'));
+      frame.id = 'customer-frame';
+      frame.contentDocument.body.append(customer);
+    ` : "", `
+      if (confirm('Delete part.step?')) {
+        ${framed ? "document.querySelector('#customer-frame').remove();" : "document.querySelector('.row').remove();"}
+        event.target.closest('.row').remove();
+        navigator.sendBeacon('/deleted?name=other.step');
+      }
+    `);
+    const { output, error, observed } = await session.quoteAgainst(html);
+    expect(error).toBeNull();
+    expect(observed.requests.some((request) => request.includes('/clicked?'))).toBe(true);
+    expect(observed.requests.some((request) => request.includes('/deleted?name=other.step'))).toBe(true);
+    expect(output?.rawPayload.cartCleanup).toMatchObject({
+      status: "incomplete", removed: 0, reason: "manual_cleanup_required",
+      lostPreUploadRows: [{ fileName: "other.step" }],
+    });
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
   it.each([
     ["open", false, true], ["closed", false, true],
     ["open", true, true], ["closed", true, true],

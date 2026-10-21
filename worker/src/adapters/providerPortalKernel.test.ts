@@ -342,6 +342,7 @@ function fakeBrowser(options: {
     waitForLoadState: vi.fn(async () => undefined),
     waitForTimeout: vi.fn(async () => undefined),
     mainFrame: vi.fn(() => mainFrame),
+    frames: vi.fn(() => [mainFrame]),
     on: vi.fn((event: string, listener: (value: unknown) => void) => {
       pageListeners.set(event, [...(pageListeners.get(event) ?? []), listener]);
       return page;
@@ -1788,7 +1789,7 @@ describe("provider portal post-capture cleanup", () => {
   });
 
   // Real DOM identity and selectors; no filename-filtering count stub.
-  function cartFixture(names: string[]) {
+  function cartFixture(names: string[], frame?: ReturnType<Page["mainFrame"]>) {
     const dom = new JSDOM("<main></main>", { runScripts: "outside-only" });
     const cart = dom.window.document.querySelector("main")!;
     const removeClicks = vi.fn();
@@ -1814,6 +1815,7 @@ describe("provider portal post-capture cleanup", () => {
     const nodes = new Map<object, Element>();
     const handle = (node: Element): ElementHandle<HTMLElement> => {
       const result = {
+        ownerFrame: async () => frame,
         evaluate: async (fn: (element: Element, arg: unknown) => unknown, arg: unknown = []) => {
           if (modalOpen) throw new Error("DOM evaluation is paused by a native modal");
           const unwrap = (value: unknown): unknown => {
@@ -1869,7 +1871,7 @@ describe("provider portal post-capture cleanup", () => {
 
   function confirmationFixture() {
     const fake = fakeBrowser();
-    const cart = cartFixture([]);
+    const cart = cartFixture([], fake.page.mainFrame());
     vi.mocked(fake.page.addInitScript).mockImplementation(async (script) => { cart.runInitScript(script); });
     const selected = cart.append("part.step", false);
     const other = cart.append("customer-part.step", false);
@@ -2267,10 +2269,12 @@ describe("provider portal post-capture cleanup", () => {
       : { status: "incomplete", removed: 0, reason: "manual_cleanup_required" });
     expect(fixture.selected.isConnected).toBe(evidence !== "user-agent");
     expect(fixture.other.isConnected).toBe(true);
-    expect(fixture.fake.context.newCDPSession).toHaveBeenCalledTimes(1);
-    expect(detach).toHaveBeenCalledTimes(evidence === "creation failed" ? 0 : 1);
+    const checks = evidence === "user-agent" ? 2 : 1;
+    expect(fixture.fake.context.newCDPSession).toHaveBeenCalledTimes(checks);
+    expect(detach).toHaveBeenCalledTimes(evidence === "creation failed" ? 0 : checks);
     if (evidence !== "creation failed") {
-      expect(send).toHaveBeenCalledExactlyOnceWith("DOM.getDocument", { depth: -1, pierce: true });
+      expect(send).toHaveBeenCalledTimes(checks);
+      expect(send).toHaveBeenCalledWith("DOM.getDocument", { depth: -1, pierce: true });
     }
   });
 
