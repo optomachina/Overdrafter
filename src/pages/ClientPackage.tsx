@@ -29,6 +29,11 @@ import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/q
 
 const refreshedQuoteMessage = "This option needs a refreshed quote before it can be selected. Please contact the estimating team.";
 
+function getSelectionButtonLabel(isSelected: boolean, hasSourceOffer: boolean, hasSelection: boolean) {
+  if (isSelected) return hasSourceOffer ? "Save note" : "Selected";
+  return hasSelection ? "Select another option" : "Select this option";
+}
+
 const ClientPackage = () => {
   const navigate = useNavigate();
   const params = useParams();
@@ -388,7 +393,7 @@ const ClientPackage = () => {
                           ) : (
                             <CheckCircle2 className="mr-2 h-4 w-4" />
                           )}
-                          {isSelected ? (option.source_vendor_quote_offer_id ? "Save note" : "Selected") : latestSelection ? "Select another option" : "Select this option"}
+                          {getSelectionButtonLabel(isSelected, Boolean(option.source_vendor_quote_offer_id), Boolean(latestSelection))}
                         </Button>
                       </CardContent>
                     </Card>

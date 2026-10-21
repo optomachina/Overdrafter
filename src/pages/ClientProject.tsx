@@ -41,7 +41,7 @@ import { areQuoteOptionsLoading } from "@/features/quotes/quote-options-loading"
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
 import {
-  getQuoteSelectionPrompt,
+  getQuoteOptionsReason,
   hasPublishedQuotePackage,
   type ClientSourcingResult,
 } from "@/features/quotes/sourcing-result";
@@ -1366,11 +1366,11 @@ const ClientProject = () => {
               </Button>
               {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
                 <span id="project-review-order-reason" className="text-sm text-muted-foreground">
-                  {projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError
-                    ? "Unable to load quote options. Please try again."
-                    : areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery)
-                      ? "Loading quote options…"
-                      : getQuoteSelectionPrompt(Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage))}
+                  {getQuoteOptionsReason({
+                    loadFailed: projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError,
+                    loading: areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery),
+                    hasPublishedPackage: Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage),
+                  })}
                 </span>
               ) : null}
               <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>

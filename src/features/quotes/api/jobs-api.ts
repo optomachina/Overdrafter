@@ -238,6 +238,35 @@ async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelec
   return jobsWithSelection;
 }
 
+function resolveSelectedOffersByJobId(
+  jobsWithSelection: JobSelectedOfferRow[],
+  latestPackageByJobId: Map<string, PublishedQuotePackageRecord>,
+  options: PublishedQuoteOptionRecord[],
+  selections: ClientSelectionRecord[],
+  quoteWorkspaceByJobId: Map<string, ClientQuoteWorkspaceProjection>,
+) {
+  const selectedOffersByJobId = new Map<string, SelectedOfferSummary>();
+  for (const job of jobsWithSelection) {
+    const pkg = latestPackageByJobId.get(job.id);
+    if (pkg) {
+      // A published package owns the choice, including the absence of a choice.
+      const selection = selections.find((row) => row.package_id === pkg.id);
+      const option = options.find((row) => row.package_id === pkg.id && row.id === selection?.option_id);
+      if (option) {
+        selectedOffersByJobId.set(job.id, {
+          supplier: option.label,
+          total_price_usd: option.published_price_usd,
+          lead_time_business_days: option.lead_time_business_days,
+        });
+      }
+    } else if (job.selected_vendor_quote_offer_id) {
+      const offer = quoteWorkspaceByJobId.get(job.id)?.selectedOffer;
+      if (offer) selectedOffersByJobId.set(job.id, offer);
+    }
+  }
+  return selectedOffersByJobId;
+}
+
 async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSelectionState> {
   if (scope.kind === "jobIds" && scope.jobIds.length === 0) {
     return emptyJobSelectionState();
@@ -264,25 +293,9 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
   ]);
   const options = ensureData(optionsResult.data, optionsResult.error) as PublishedQuoteOptionRecord[];
   const selections = ensureData(selectionsResult.data, selectionsResult.error) as ClientSelectionRecord[];
-  const selectedOffersByJobId = new Map<string, SelectedOfferSummary>();
-  for (const job of jobsWithSelection) {
-    const pkg = latestPackageByJobId.get(job.id);
-    if (pkg) {
-      // A published package owns the choice, including the absence of a choice.
-      const selection = selections.find((row) => row.package_id === pkg.id);
-      const option = options.find((row) => row.package_id === pkg.id && row.id === selection?.option_id);
-      if (option) {
-        selectedOffersByJobId.set(job.id, {
-          supplier: option.label,
-          total_price_usd: option.published_price_usd,
-          lead_time_business_days: option.lead_time_business_days,
-        });
-      }
-    } else if (job.selected_vendor_quote_offer_id) {
-      const offer = quoteWorkspaceByJobId.get(job.id)?.selectedOffer;
-      if (offer) selectedOffersByJobId.set(job.id, offer);
-    }
-  }
+  const selectedOffersByJobId = resolveSelectedOffersByJobId(
+    jobsWithSelection, latestPackageByJobId, options, selections, quoteWorkspaceByJobId,
+  );
 
   return {
     selectedOffersByJobId,
@@ -478,6 +491,21 @@ export async function fetchJobsByOrganization(organizationId: string): Promise<J
   return ensureData(data, error);
 }
 
+function withSelectedOffers(
+  summaries: Iterable<JobPartSummary>,
+  selectedOffersByJobId: Map<string, SelectedOfferSummary>,
+): JobPartSummary[] {
+  return Array.from(summaries, (summary) => {
+    const selectedOffer = selectedOffersByJobId.get(summary.jobId);
+    return {
+      ...summary,
+      selectedSupplier: selectedOffer?.supplier ?? null,
+      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
+      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
+    };
+  });
+}
+
 export async function fetchJobPartSummariesByOrganization(
   organizationId: string,
 ): Promise<JobPartSummary[]> {
@@ -597,15 +625,7 @@ export async function fetchJobPartSummariesByOrganization(
     });
   }
 
-  return Array.from(summariesByJobId.values(), (summary) => {
-    const selectedOffer = selectedOffersByJobId.get(summary.jobId);
-    return {
-      ...summary,
-      selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
-      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
-    };
-  });
+  return withSelectedOffers(summariesByJobId.values(), selectedOffersByJobId);
 }
 
 export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<JobPartSummary[]> {
@@ -732,15 +752,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     });
   }
 
-  return Array.from(summariesByJobId.values(), (summary) => {
-    const selectedOffer = selectedOffersByJobId.get(summary.jobId);
-    return {
-      ...summary,
-      selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
-      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
-    };
-  });
+  return withSelectedOffers(summariesByJobId.values(), selectedOffersByJobId);
 }
 
 export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {

@@ -314,6 +314,17 @@ export function getQuoteSelectionPrompt(hasPublishedPackage: boolean) {
   return hasPublishedPackage ? "Choose a package option to continue" : "Choose a quote to continue";
 }
 
+export function getQuoteOptionsReason({ loadFailed, loading, hasPublishedPackage, promptSuffix = "" }: {
+  loadFailed: boolean;
+  loading: boolean;
+  hasPublishedPackage: boolean;
+  promptSuffix?: string;
+}) {
+  if (loadFailed) return "Unable to load quote options. Please try again.";
+  if (loading) return "Loading quote options…";
+  return `${getQuoteSelectionPrompt(hasPublishedPackage)}${promptSuffix}`;
+}
+
 /** A published package owns selection; its source offer is never a fallback. */
 export function resolveWorkspaceSelectionIds(
   item: WorkspaceSelectionState | null | undefined,

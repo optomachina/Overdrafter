@@ -28,7 +28,7 @@ import {
   summarizeSelectedQuoteOptions,
 } from "@/features/quotes/selection";
 import {
-  getQuoteSelectionPrompt,
+  getQuoteOptionsReason,
   hasPublishedQuotePackage,
   resolveWorkspaceQuoteSelection,
 } from "@/features/quotes/sourcing-result";
@@ -92,6 +92,13 @@ const ClientProjectReview = () => {
     [selectedLineItems],
   );
   const quoteOptionsFailed = projectJobsQuery.isLoadingError || workspaceQuery.isLoadingError;
+  const isHandoffUnavailable = quoteOptionsFailed || selectionSummary.selectedCount === 0;
+  const quoteOptionsReason = getQuoteOptionsReason({
+    loadFailed: quoteOptionsFailed,
+    loading: areQuoteOptionsLoading(projectJobsQuery, workspaceQuery),
+    hasPublishedPackage: (workspaceQuery.data ?? []).some(hasPublishedQuotePackage),
+    promptSuffix: ".",
+  });
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (isAuthInitializing) {
@@ -136,7 +143,7 @@ const ClientProjectReview = () => {
         {areQuoteOptionsLoading(projectJobsQuery, workspaceQuery) ? (
           <div className="flex min-h-[320px] items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground" role="status">Loading quote options…</span>
+            <output className="ml-2 text-sm text-muted-foreground">Loading quote options…</output>
           </div>
         ) : (
           <>
@@ -162,7 +169,7 @@ const ClientProjectReview = () => {
                   Back to edit
                 </Button>
                 <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}
-                  disabled={quoteOptionsFailed || selectionSummary.selectedCount === 0}
+                  disabled={isHandoffUnavailable}
                 >
                   Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
@@ -170,11 +177,9 @@ const ClientProjectReview = () => {
               </div>
             </div>
 
-            {quoteOptionsFailed || selectionSummary.selectedCount === 0 ? (
+            {isHandoffUnavailable ? (
               <p className="text-sm text-muted-foreground">
-                {quoteOptionsFailed
-                  ? "Unable to load quote options. Please try again."
-                  : `${getQuoteSelectionPrompt((workspaceQuery.data ?? []).some(hasPublishedQuotePackage))}.`}
+                {quoteOptionsReason}
               </p>
             ) : null}
 
