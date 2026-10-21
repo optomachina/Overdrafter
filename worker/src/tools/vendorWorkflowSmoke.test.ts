@@ -1061,6 +1061,41 @@ describe("runQuote", () => {
       expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("liveHarnessSupplierCleanup"));
     });
 
+    it.each(["xometry", "fictiv"] as const)("warns before rethrowing a %s kill-switch interruption after upload", async (vendor) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+      vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote);
+      let engaged = false;
+      const killSwitchReader = vi.fn(async (provider: string) => ({
+        schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider, engaged, globalEngaged: false,
+      }));
+      const upload = vi.fn(async () => { engaged = true; });
+      const configure = vi.fn();
+      const quote = vi.fn<VendorAdapter["quote"]>(async (input) => {
+        await input.providerKillSwitchCheckpoint?.("before_upload");
+        await upload();
+        await input.providerKillSwitchCheckpoint?.("before_configure");
+        configure();
+        throw new Error("unreachable");
+      });
+      const args = parseSmokeArgs(["--vendor", vendor, "--cad", "./part.step", "--confirm-non-export-controlled"]);
+
+      await expect(runQuote(
+        { workerTempDir: "/private/runtime" } as WorkerConfig, args, vendor, 1, staged(),
+        () => ({ [vendor]: { quote } }), null, null, killSwitchReader,
+      )).rejects.toMatchObject({
+        reasonCode: "provider_kill_switch_engaged", provider: vendor, checkpoint: "before_configure",
+      });
+      expect(upload).toHaveBeenCalledOnce();
+      expect(configure).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledOnce();
+      expect(JSON.parse(warn.mock.calls[0][0])).toMatchObject({
+        source: "liveHarnessSupplierCleanup", vendor, quantity: 1,
+        status: "unknown", manualRemovalRequired: true,
+        action: `Review the ${vendor} cart/quote manually and remove any uploaded test part.`,
+      });
+    });
+
     it("warns for manual removal when the cleanup failed, without changing the outcome", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
       const error = new VendorAutomationError("price pending", "selector_failure", {

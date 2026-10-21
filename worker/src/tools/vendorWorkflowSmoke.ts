@@ -1585,6 +1585,12 @@ export async function runQuote(
     await recordRunArtifacts(runArtifacts, row, result.quoteUrl, result.artifacts);
   } catch (error) {
     console.log("FAILED");
+    // Report uncertain supplier cleanup even when an interruption stops the run.
+    const supplierCartCleanup = reportSupplierCartCleanup({
+      vendor,
+      quantity,
+      payload: isVendorAutomationError(error) ? error.payload : adapterResult?.rawPayload,
+    });
     // A switched-off supplier or a spent daily cap stops the whole run.
     if (error instanceof ProviderKillSwitchError || error instanceof ProviderDispatchRefusedError) throw error;
     row = buildErrorRow(
@@ -1599,11 +1605,7 @@ export async function runQuote(
         accountMode,
       },
     );
-    row.supplierCartCleanup = reportSupplierCartCleanup({
-      vendor,
-      quantity,
-      payload: isVendorAutomationError(error) ? error.payload : adapterResult?.rawPayload,
-    });
+    row.supplierCartCleanup = supplierCartCleanup;
     await recordFailedRunArtifacts(runArtifacts, row, adapterResult, error);
   }
 
