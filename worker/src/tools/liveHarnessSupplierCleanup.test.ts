@@ -42,6 +42,22 @@ describe("live harness supplier cart cleanup record (standing rule, 2026-10-15)"
     });
   });
 
+  it.each([{}, { providerInteractionAttempted: true }])(
+    "warns when the payload does not rule out provider interaction: %j", (payload) => {
+      const log = vi.fn();
+      const record = reportSupplierCartCleanup({ vendor: "sendcutsend", quantity: 1, payload }, log);
+      expect(record).toMatchObject({ status: "unknown", manualRemovalRequired: true });
+      const [line, warn] = log.mock.calls[0]!;
+      expect(warn).toBe(true);
+      expect(JSON.parse(line)).toMatchObject({ level: "warn", action: expect.stringContaining("manually") });
+    },
+  );
+
+  it("still warns when an adapter declares a possible mutation alongside a no-interaction claim", () => {
+    const payload = { providerMutationPossible: true, providerInteractionAttempted: false };
+    expect(supplierCartCleanupFromPayload(payload)).toMatchObject({ status: "not_declared", manualRemovalRequired: true });
+  });
+
   it.each([null, undefined, {}, { providerMutationPossible: null }, { providerMutationPossible: "false" }])(
     "requires manual review when mutation evidence is missing or invalid: %j", (payload) => {
       expect(supplierCartCleanupFromPayload(payload)).toMatchObject({

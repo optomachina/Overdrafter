@@ -60,12 +60,15 @@ export function supplierCartCleanupFromPayload(payload: unknown): SupplierCartCl
     };
   }
   const mutation = source.providerMutationPossible;
+  // An adapter that never touched the provider (SendCutSend's offline evaluation) needs no cleanup, but an
+  // explicit providerMutationPossible: true still wins over a contradictory "no interaction" claim.
+  const cleanupNotNeeded = mutation === false || (mutation !== true && source.providerInteractionAttempted === false);
   return {
-    status: mutation === true ? "not_declared" : mutation === false ? "not_needed" : "unknown",
+    status: cleanupNotNeeded ? "not_needed" : mutation === true ? "not_declared" : "unknown",
     removed: 0,
     remaining: null,
     reason: null,
-    manualRemovalRequired: mutation !== false,
+    manualRemovalRequired: !cleanupNotNeeded,
   };
 }
 
