@@ -453,6 +453,11 @@ const SUFFIX_TOKENS: ReadonlyArray<readonly [RegExp, ValueSuffix]> = [
 function readValueSuffix(lineRest: string): { suffix: ValueSuffix | null; text: string } {
   const opening = /^[ \t]*([[(][ \t]*)?/.exec(lineRest)?.[0] ?? "";
   const rest = lineRest.slice(opening.length);
+  // Another tolerance sign cannot begin any unit suffix. Dense callouts should not
+  // pay for every suffix pattern just to discover that there is no unit here.
+  if (rest.startsWith("±") || rest.startsWith("∓")) {
+    return { suffix: null, text: "" };
+  }
   for (const [pattern, suffix] of SUFFIX_TOKENS) {
     const token = pattern.exec(rest)?.[0];
     if (token === undefined) {
@@ -625,10 +630,18 @@ function collectSignlessRows(text: string): ToleranceCandidate[] {
 
 function collectToleranceCandidates(text: string) {
   const mayHaveRows = MAY_HAVE_TABLE_ROWS.test(text);
+  const signedCandidates = collectSignedCandidates(text, mayHaveRows);
+  const phraseCandidates = collectPhraseCandidates(text);
+  const signlessRows = mayHaveRows ? collectSignlessRows(text) : [];
+  // Signed matches already arrive in source order. Only merging another source
+  // requires a new array and a sort (and preserves signed-first ordering on ties).
+  if (phraseCandidates.length === 0 && signlessRows.length === 0) {
+    return signedCandidates;
+  }
   const candidates = [
-    ...collectSignedCandidates(text, mayHaveRows),
-    ...collectPhraseCandidates(text),
-    ...(mayHaveRows ? collectSignlessRows(text) : []),
+    ...signedCandidates,
+    ...phraseCandidates,
+    ...signlessRows,
   ];
   return candidates.sort((left, right) => left.start - right.start);
 }
@@ -1122,11 +1135,11 @@ function detectTitleBlockBounds(lines: StructuredLine[]) {
     const pageLines = lines.filter((line) => line.page === page);
     const maxLineNumber = Math.max(...pageLines.map((line) => line.lineNumber));
     const lowerHalfStart = Math.max(1, Math.floor(pageLines.length * 0.45));
-    const candidates = pageLines.filter(
-      (line) =>
-        line.lineNumber >= lowerHalfStart &&
-        TITLE_BLOCK_KEYWORDS.some((keyword) => line.normalized.toUpperCase().includes(keyword)),
-    );
+    const candidates = pageLines.filter((line) => {
+      if (line.lineNumber < lowerHalfStart) return false;
+      const upper = line.normalized.toUpperCase();
+      return TITLE_BLOCK_KEYWORDS.some((keyword) => upper.includes(keyword));
+    });
 
     if (candidates.length === 0) {
       continue;
