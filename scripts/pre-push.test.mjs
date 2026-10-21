@@ -1,16 +1,43 @@
 // @vitest-environment node
-import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync, openSync, closeSync, readFileSync } from 'node:fs';
+import { afterEach, expect, test, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync, openSync, closeSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname, relative } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
+import ts from 'typescript';
+// Each test spawns bash and node; 2.5 to 4.7s alone, so the 5s default times out when other suites share the CPU.
+vi.setConfig({ testTimeout: 30_000 });
 const root = resolve('.');
 const dirs = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
+// Repo-relative files reachable from `entries` through relative imports. The TypeScript scanner
+// ignores comments and strings and sees static, re-export and dynamic imports alike.
+function relativeImportClosure(entries) {
+  const seen = new Set(), queue = [...entries];
+  while (queue.length) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(join(root, file), 'utf8');
+    for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
+      if (fileName.startsWith('.')) queue.push(relative(root, resolve(root, dirname(file), fileName)));
+    }
+  }
+  return [...seen].sort();
+}
+// The bash array that pre-push.sh copies from the base ref.
+function copiedFromBase(name) {
+  const match = readFileSync(join(root, 'scripts/pre-push.sh'), 'utf8').match(new RegExp(`^${name}=\\(([^)]*)\\)$`, 'm'));
+  if (!match) throw new Error(`pre-push.sh no longer defines ${name}`);
+  return match[1].trim().split(/\s+/);
+}
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-')); dirs.push(dir);
   mkdirSync(join(dir, 'scripts')); mkdirSync(join(dir, 'bin'));
-  for (const file of ['pre-push.sh', 'preflight.sh', 'validate-pr-body.mjs', 'provider-enablement-detect.mjs', 'verdict-schema.mjs']) copyFileSync(join(root, 'scripts', file), join(dir, 'scripts', file));
+  for (const file of ['scripts/pre-push.sh', 'scripts/preflight.sh', 'scripts/verdict-schema.mjs', ...relativeImportClosure(['scripts/validate-pr-body.mjs'])]) {
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    copyFileSync(join(root, file), join(dir, file));
+  }
   symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'));
   writeFileSync(join(dir, 'bin/npm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -94,4 +121,38 @@ test('base validator exiting zero without a pass line fails closed', () => {
   expect(result.stdout).toContain('pre-push: pr-body-gate FAIL (validation failed)');
   expect(result.stdout).toContain('pre-push: pr-body-full WARN (validation failed)');
   expect(result.stdout.match(/validator output/g)).toHaveLength(2);
+});
+
+test('every relative import reachable from the base-copied gate scripts is itself copied', () => {
+  const copied = [...copiedFromBase('gate_files'), ...copiedFromBase('gate_optional_files')];
+  const reachable = relativeImportClosure(copied);
+  // Pin known edges so a scanner regression cannot turn this into an empty comparison.
+  expect(reachable).toEqual(expect.arrayContaining(['scripts/validate-pr-body.mjs', 'scripts/provider-enablement-detect.mjs', 'scripts/lib/entry-point.mjs']));
+  expect(reachable.filter(file => !copied.includes(file)), 'imported by a base-copied script but missing from pre-push.sh').toEqual([]);
+  for (const file of copied) expect(existsSync(join(root, file)), `${file} is listed in pre-push.sh`).toBe(true);
+});
+test('a base that predates the entry-point helper still runs the gate', () => {
+  const { dir, git, run } = fixture();
+  const validator = join(dir, 'scripts/validate-pr-body.mjs');
+  const current = readFileSync(validator, 'utf8');
+  const legacy = current.replace(/^import \{ isEntryPoint \} from "\.\/lib\/entry-point\.mjs";\n/m, 'const isEntryPoint = () => true;\n');
+  expect(legacy).not.toBe(current);
+  writeFileSync(validator, legacy);
+  git('rm', '-q', 'scripts/lib/entry-point.mjs'); git('add', 'scripts'); git('commit', '-qm', 'base before the helper'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const result = run('--body', 'body.md');
+  expect(result.status, result.stdout + result.stderr).toBe(0); expect(result.stdout).toContain('pre-push: pr-body-gate PASS');
+});
+test('a base validator that imports a helper the base lacks fails closed', () => {
+  const { git, run } = fixture();
+  git('rm', '-q', 'scripts/lib/entry-point.mjs'); git('commit', '-qm', 'base lost the helper'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const result = run('--body', 'body.md');
+  expect(result.status).toBe(1); expect(result.stdout).toContain('pre-push: pr-body-gate FAIL (validation failed)');
+});
+test('head-side entry-point helper cannot replace the base helper', () => {
+  const { dir, git, run } = fixture();
+  writeFileSync(join(dir, 'scripts/lib/entry-point.mjs'), 'console.log("HEAD HELPER RAN");\nexport const isEntryPoint = () => true;\n');
+  git('add', 'scripts'); git('commit', '-qm', 'adversarial helper edit');
+  const result = run('--body', 'body.md');
+  expect(result.status).toBe(1); expect(result.stdout).toContain('pre-push: pr-body-gate FAIL');
+  expect(result.stdout + result.stderr).not.toContain('HEAD HELPER RAN');
 });

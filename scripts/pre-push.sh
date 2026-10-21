@@ -25,6 +25,12 @@ else
 fi
 gate=''
 trap '[[ -z "$gate" ]] || rm -rf -- "$gate"' EXIT
+# Base-ref files the gate runs. A copied script may import only other copied files; the
+# optional helper is absent from a base that predates it, and a base script that does
+# import it fails closed in node when the copy is missing. scripts/pre-push.test.mjs
+# walks the relative imports of these files and fails if one is not listed.
+gate_files=(scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs)
+gate_optional_files=(scripts/lib/entry-point.mjs)
 reason=''
 if [[ ! -f "$body" ]]; then reason='body file missing'
 elif ! git rev-parse --verify origin/main^{commit} >/dev/null 2>&1; then reason='origin/main missing'
@@ -34,7 +40,12 @@ elif ! canonical_gate=$(cd "$gate" && pwd -P); then reason='temporary directory 
 else
   gate="$canonical_gate"
   mkdir -p "$gate/scripts"
-  for file in scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs; do
+  for file in "${gate_files[@]}"; do
+    if ! git show "$base:$file" > "$gate/$file" 2>/dev/null; then reason='base copy missing'; fi
+  done
+  for file in "${gate_optional_files[@]}"; do
+    git cat-file -e "$base:$file" 2>/dev/null || continue
+    mkdir -p "$gate/$(dirname "$file")"
     if ! git show "$base:$file" > "$gate/$file" 2>/dev/null; then reason='base copy missing'; fi
   done
   if ! ln -s "$PWD/node_modules" "$gate/node_modules"; then reason='dependency setup failed'; fi
