@@ -10,10 +10,11 @@ import { OSHCUT_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope.js";
  *
  * Adapter-side binding for production OSH Cut launches: the shared
  * provider check (`providerDispatchAuthorization.ts`) bound to the
- * OSH Cut envelope identity, reviewed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`
- * and recorded by the draft migration
+ * OSH Cut envelope identity, deliberately absent from
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` while OSH Cut is default-off.
+ * The review row is future material in the deferred draft migration
  * `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`
- * (OVD-677, draft pending Blaine window). Nothing here assumes that draft is
+ * (OVD-677; not applied under PR #743). Nothing here assumes that draft is
  * applied: without the review row the database mints no OSH Cut permit, and
  * this check denies any launch that lacks a valid permit (fail closed). The
  * review admits nothing on its own: a permit also needs an approved OSH Cut
