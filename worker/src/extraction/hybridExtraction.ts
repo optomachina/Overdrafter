@@ -220,7 +220,11 @@ export async function runHybridExtraction(
       : null;
 
   const warnings = [...drawingSignals.warnings];
-  if (drawingSignals.tightestToleranceReviewNeeded) warnings.push("Title-block tolerance approval is disabled; review the suggested tolerance.");
+  const toleranceReasons = drawingSignals.tightestToleranceReasons ?? [];
+  if (toleranceReasons.includes("title_block_approval_disabled")) warnings.push("Title-block tolerance approval is disabled; review the suggested tolerance.");
+  if (toleranceReasons.includes("tolerance_rows_filtered")) warnings.push("General-tolerance rows were excluded by applicability filtering; review the suggested tolerance.");
+  if (toleranceReasons.includes("tolerance_differs_from_tightest_read")) warnings.push("The suggested tolerance differs from the tightest tolerance read; review it before approval.");
+  if (toleranceReasons.includes("tolerance_geometry_unproven")) warnings.push("Tolerance word geometry is unproven; review the suggested tolerance.");
   let modelResult: DrawingModelExtractionResult | null = null;
 
   if (

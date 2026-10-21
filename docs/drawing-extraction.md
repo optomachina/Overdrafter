@@ -85,7 +85,7 @@ Known limits: a dimension that is in neither the text layer nor the OCR text (ou
   - `unavailable`: the tesseract binary is missing, or its `--version` probe failed or timed out.
   - `not_read`: the page is past `PDF_OCR_MAX_PAGES`, or the total OCR budget ran out before the next call for that page could start. No tool ran to completion on that page, so nothing about its content is known.
 - Only `ok` means the raster content of the page was read.
-- `words` (OVD-989) holds the text layer's word boxes in points, from `pdftotext -bbox`, for each page that has a text layer. The title-block reader uses this geometry to prove cell ownership. Complete word geometry (`wordGeometryComplete`) on every nonempty page is also required to retain any numeric tightest tolerance; missing or incomplete boxes keep that tolerance unresolved (`valueInch: null`). The geometry is absent when poppler cannot print the boxes (or prints markup that stops before the end of the document), when the page has more than `MAX_WORDS_PER_PAGE` words, or when the document's pages together have more than `MAX_WORDS_TOTAL`, and its absence never changes `text`, `drawingFullyRead` or the export scan.
+- `words` (OVD-989) holds the text layer's word boxes in points, from `pdftotext -bbox`, for each page that has a text layer. The title-block reader uses this geometry to prove cell ownership. With title-block approval enabled, complete word geometry (`wordGeometryComplete`) on every nonempty page is also required to retain any numeric tightest tolerance; missing or incomplete boxes keep that tolerance unresolved (`valueInch: null`). With approval disabled, a fully read drawing can retain the value as a suggestion marked `tolerance_geometry_unproven`; independent contradictions still veto it. The geometry is absent when poppler cannot print the boxes (or prints markup that stops before the end of the document), when the page has more than `MAX_WORDS_PER_PAGE` words, or when the document's pages together have more than `MAX_WORDS_TOTAL`, and its absence never changes `text`, `drawingFullyRead` or the export scan.
 - `ocrLimit` is set only when a fixed limit kept the page from being read, so no rerun of the same bytes can read it: `page_cap` (`not_read`, past `PDF_OCR_MAX_PAGES`) or `pixel_cap` (`failed`, over `PDF_OCR_MAX_PIXELS`). A timeout, a spent budget, or a tool error sets no limit. The export gate records such a drawing as final (`drawing_too_many_pages`, `drawing_sheet_too_large`).
 - `pageCountKnown` is false when `pdfinfo` failed or printed no page count. `pageCount` is then a floor of 1, and later pages may exist unread.
 - `drawingFullyRead` is the single fail closed answer for part B and any export gate. It is true only when `pageCountKnown` is true, the text layer of every page was read without error, and every page has `ocrStatus` `ok`. Anything else must hold the drawing. `ocr` keeps its older meaning: no text layer anywhere and OCR produced text.
@@ -198,9 +198,22 @@ leave it off. Title-block reads default to suggestions requiring review, with re
 approval gate applies this veto both after deterministic extraction and after model
 merging; model agreement cannot override it.
 
-General-tolerance table reads retain their raw text and numeric `valueInch`,
-with `reviewNeeded: true` and the same reason. These review markers also persist in stored payloads. Explicit feature tolerances
-and non-title-block approval paths are unaffected by the switch. With `1`, the
+The disabled reason applies only to fields with title-block evidence, including
+description and process read from title-block label anchors. Fields with no such
+evidence retain their existing reasons. Description and process retain the
+cross-sheet score-delta review check, even when two sheets print identical values.
+
+General-tolerance evidence, including stacked or grid rows, retains its raw text
+and numeric `valueInch` as a suggestion with `reviewNeeded: true` and the same
+disabled reason. This applies even when a general note or feature callout wins.
+With either setting, discarded applicability rows add `tolerance_rows_filtered`;
+a selection that differs from the tightest reading adds
+`tolerance_differs_from_tightest_read`. Reasons persist in stored tolerances and
+generate warnings. With approval off, missing word geometry retains a numeric
+feature tolerance as a suggestion marked `tolerance_geometry_unproven`, provided
+the drawing is otherwise fully read and independent evidence does not veto it.
+Non-title-block fields and model-fallback notes descriptions keep their existing
+approval behavior. With `1`, the
 existing I1–I7 proof checks and tolerance checks remain in force. The switch is not
 an endorsement of the known round-18 geometry/heading holes; the flag regression
 suite records those as expected failures while approval is enabled.

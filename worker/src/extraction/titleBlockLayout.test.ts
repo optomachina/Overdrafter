@@ -195,10 +195,13 @@ describe("B-size title block layout", () => {
       expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 
-    it("reads the same tolerance with and without the four-place row", async () => {
+    it("reads the same tolerance but flags the discarded four-place row", async () => {
       const withRow = (await extract({ fourPlaceRow: true })).stored.tolerances;
       const withoutRow = (await extract({ fourPlaceRow: false })).stored.tolerances;
-      expect(withRow).toEqual(withoutRow);
+      const { reviewNeeded, reasons, ...value } = withRow;
+      expect(value).toEqual(withoutRow);
+      expect(reviewNeeded).toBe(true);
+      expect(reasons).toEqual(["tolerance_rows_filtered", "tolerance_differs_from_tightest_read"]);
       expect(withRow).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 

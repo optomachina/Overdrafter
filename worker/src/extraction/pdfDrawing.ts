@@ -1042,9 +1042,16 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const declared = detectDeclaredUnits(text);
   const drawingUnits: DrawingUnits =
     declared.inch && declared.metric ? "mixed" : declared.inch ? "inch" : declared.metric ? "metric" : "unspecified";
+  const allCandidates = collectToleranceCandidates(text);
+  // Evidence belongs to the selection, not just its winner: filtering a table row can let a
+  // general note or feature callout win. Stacked/grid rows also remain title-block evidence.
+  const toleranceLabel = /\b(?:unless otherwise specified|general tolerances?|tolerances?)\b|(?:^|\s)X?\.X{1,4}(?=\s|=|$)/im;
+  const titleBlockProof = allCandidates.some((candidate) => candidate.rowPlaces !== null) ||
+    (toleranceLabel.test(text) && allCandidates.some((candidate) => toleranceLabel.test(
+      text.slice(Math.max(0, candidate.start - 240), candidate.start).split("\n").slice(-3).join("\n"))));
   const { candidates, unresolvedRows } = selectApplicableToleranceRows(
     text,
-    collectToleranceCandidates(text),
+    allCandidates,
     options.dimensionsReadable !== false,
     normalizeUnitText(options.rasterText ?? ""),
     options.dimensionText === undefined ? text : normalizeUnitText(options.dimensionText),
@@ -1063,6 +1070,8 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const blocking = readings
     .filter((reading): reading is UnresolvedReading => reading.unit === null)
     .sort((left, right) => left.smallestInches - right.smallestInches)[0];
+  const reviewReasons: string[] = [];
+  if (candidates.length !== allCandidates.length) reviewReasons.push("tolerance_rows_filtered");
 
   // P6: an unresolved value is ignored only when every reading of it is at least as loose as the
   // tightest resolved value; otherwise the true tightest tolerance is unknown and nothing is stored.
@@ -1074,13 +1083,24 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
       valueInch: null,
       unit: "unknown" as const,
       drawingUnits,
+      titleBlockProof,
+      reviewReasons,
     };
   }
 
   const { candidate, unit } = resolved;
+  if (titleBlockProof) {
+    pairDualDimensions(allCandidates);
+    const tightestRead = allCandidates.reduce((tightest, item) => {
+      const reading = readCandidate(item, declared);
+      return Math.min(tightest, reading.unit === null ? reading.smallestInches : reading.inches);
+    }, Infinity);
+    if (resolved.inches !== tightestRead) reviewReasons.push("tolerance_differs_from_tightest_read");
+  }
   return {
     raw: `±${candidate.printed.includes("/") ? candidate.printed : candidate.value}${unit === "in" ? "" : ` ${UNIT_LABEL[unit]}`}`,
-    titleBlockProof: candidate.rowPlaces !== null,
+    titleBlockProof,
+    reviewReasons,
     valueInch: resolved.storedInches,
     unit,
     drawingUnits,
@@ -1738,13 +1758,13 @@ function pickBestCandidate(
 
   const ranked = [...deduped.values()].sort((left, right) => right.score - left.score);
   const top = ranked[0] ?? null;
-  // A candidate with the same value as the winner agrees with it (the same title block printed on two
-  // sheets); only a different value is a rival that can make the choice uncertain.
+  // Cell fields have a separate agreement proof. Description/process retain main's cross-page
+  // score-delta check even when both sheets print the same value.
   const second =
-    ranked.find(
+    (field === "description" || field === "process" ? ranked[1] : ranked.find(
       (candidate, index) =>
         index > 0 && candidate.value.trim().toUpperCase() !== (top?.value ?? "").trim().toUpperCase(),
-    ) ?? null;
+    )) ?? null;
 
   if (!top || top.score <= 0) {
     return {
@@ -2566,7 +2586,7 @@ export function inferDrawingSignalsFromPdf(input: {
     ({ ...page, text: page.ocrText ?? "" }))));
   const independentComplete = independentRead.unreadPages.length === 0;
   // Read all tolerances together so OCR inherits units; only vector dimensions prove row applicability.
-  // OCR may veto a looser value; it cannot supply an actionable numeric value itself.
+  // Independent OCR may veto a looser value; it cannot replace the primary suggestion.
   const independentTolerance = ocrText.trim() ? estimateTightestTolerance(`${joinedText}\n${ocrText}`, {
     dimensionsReadable: input.pdfText.ocr !== true && input.pdfText.drawingFullyRead === true,
     rasterText: ocrText,
@@ -2575,19 +2595,30 @@ export function inferDrawingSignalsFromPdf(input: {
   const approval = finalizeExtractionApproval({
     titleBlockApprovalEnabled: input.titleBlockApprovalEnabled,
     fields: fieldResults,
+    titleBlockFields: [
+      ...candidateReads.map((read) => read.field),
+      ...(["description", "process"] as const).filter((field) =>
+        fieldResults[field].sourceRegion !== null && fieldResults[field].reasons.includes("label_match")),
+    ],
     cellProof: { geometryByPage: new Map(input.pdfText.pages.map((page) => [page.page, page.vectorGeometry])), reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
     tolerance: {
-      titleBlockProof: inferredTightestTolerance?.titleBlockProof,
+      titleBlockProof: inferredTightestTolerance?.titleBlockProof || independentTolerance?.titleBlockProof,
       valueInch: inferredTightestTolerance?.valueInch ?? null,
       independentValueInch: independentTolerance?.valueInch ?? null,
       independentUnresolved: !independentComplete || (independentTolerance !== null && independentTolerance.valueInch === null),
-      drawingProven,
+      drawingProven: pagesComplete && (wordGeometryComplete || !input.titleBlockApprovalEnabled),
     },
   });
   // A tolerance is a document-wide minimum: unread or contradictory evidence blocks action.
   const tightestTolerance = inferredTightestTolerance && !approval.toleranceProven
     ? { ...inferredTightestTolerance, valueInch: null, unit: "unknown" as const }
     : inferredTightestTolerance;
+  const toleranceReasons = [...new Set([
+    ...(inferredTightestTolerance?.reviewReasons ?? []),
+    ...(independentTolerance?.reviewReasons ?? []),
+  ])];
+  if (approval.toleranceApprovalDisabled) toleranceReasons.push("title_block_approval_disabled");
+  if (!wordGeometryComplete && tightestTolerance?.valueInch != null) toleranceReasons.push("tolerance_geometry_unproven");
 
   const reviewFieldResults = {
     description: fieldResults.description,
@@ -2637,9 +2668,9 @@ export function inferDrawingSignalsFromPdf(input: {
     process: fieldResults.process,
     generalTolerance: toleranceMatch?.[1] ? cleanCapturedValue(toleranceMatch[1]) : null,
     tightestTolerance: tightestTolerance?.raw ?? null,
-    ...(approval.toleranceApprovalDisabled ? {
+    ...(toleranceReasons.length > 0 ? {
       tightestToleranceReviewNeeded: true,
-      tightestToleranceReasons: ["title_block_approval_disabled"],
+      tightestToleranceReasons: toleranceReasons,
     } : {}),
     tightestToleranceValueInch: tightestTolerance?.valueInch ?? null,
     tightestToleranceUnit: tightestTolerance?.unit ?? null,

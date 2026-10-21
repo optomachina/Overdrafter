@@ -11,6 +11,7 @@ import { loadConfig } from "../config";
 import type { JobFileRecord, PartRecord } from "../types";
 import { finalizeExtractionApproval } from "./extractionApproval";
 import { runHybridExtraction } from "./hybridExtraction";
+import type { DrawingModelExtractionResult } from "./modelFallback";
 import { extractPdfText, inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 import { buildStoredExtractionPayload } from "./sharedResult";
 
@@ -70,6 +71,128 @@ it("leaves explicit feature tolerances unchanged", async () => {
   const pdfText = withMonospaceGeometry(pdfTextOf("DIMENSIONS ARE IN INCHES\n1.25 ±.005"));
   expect(infer(pdfText).tightestToleranceValueInch).toBe(0.005);
   expect((await hybrid(pdfText)).tightestTolerance).toEqual((await hybrid(pdfText, true)).tightestTolerance);
+});
+
+describe("suggest-only evidence and main parity", () => {
+  const inches = "DIMENSIONS ARE IN INCHES\n.18\n.656\n.089\n1.375";
+  const table = "TWO PLACE DECIMAL ±.01\nFOUR PLACE DECIMAL ±.0005";
+  for (const [name, text, value] of [
+    ["general note wins", `${inches}\nUNLESS OTHERWISE SPECIFIED TOLERANCES ±.010\nFOUR PLACE DECIMAL ±.0005`, 0.01],
+    ["feature wins", `${inches}\n${table}\n3.000 ±.005`, 0.005],
+    ["table row wins", `${inches}\n${table}`, 0.01],
+    ["feature tighter than the general row wins", `${inches}\n${table}\n3.000 ±.001`, 0.001],
+  ] as const) {
+    it.each([false, true])(`${name}: filtered evidence reaches storage and warnings (enabled=%s)`, async (enabled) => {
+      const result = await hybrid(withMonospaceGeometry(pdfTextOf(text)), enabled);
+      const stored = buildStoredExtractionPayload(result, 1, "test");
+      expect(stored.tolerances).toMatchObject({ valueInch: value, reviewNeeded: true });
+      expect(stored.tolerances.reasons).toContain("tolerance_rows_filtered");
+      expect(stored.tolerances.reasons).toContain("tolerance_differs_from_tightest_read");
+      expect(stored.tolerances.reasons?.includes(reason)).toBe(!enabled);
+      expect(result.warnings).toContain("General-tolerance rows were excluded by applicability filtering; review the suggested tolerance.");
+      expect(result.warnings).toContain("The suggested tolerance differs from the tightest tolerance read; review it before approval.");
+      expect(result.warnings.includes("Title-block tolerance approval is disabled; review the suggested tolerance.")).toBe(!enabled);
+    });
+  }
+  it.each([false, true])("marks a dropped row even when a tighter feature wins (enabled=%s)", async (enabled) => {
+    const result = await hybrid(withMonospaceGeometry(pdfTextOf(`${inches}\nFOUR PLACE DECIMAL ±.005\n3.000 ±.001`)), enabled);
+    expect(result.tightestTolerance).toMatchObject({ valueInch: 0.001, reviewNeeded: true });
+    expect(result.tightestTolerance.reasons).toContain("tolerance_rows_filtered");
+    expect(result.tightestTolerance.reasons).not.toContain("tolerance_differs_from_tightest_read");
+  });
+  it.each([false, true])("retains discarded table evidence from independent OCR (enabled=%s)", async (enabled) => {
+    const pdfText = withMonospaceGeometry(pdfTextOf(`${inches}\n3.000 ±.005`));
+    pdfText.pages[0]!.ocrText = table;
+    const result = await hybrid(pdfText, enabled);
+    expect(buildStoredExtractionPayload(result, 1, "test").tolerances).toMatchObject({ valueInch: 0.005, reviewNeeded: true });
+    expect(result.tightestTolerance.reasons).toContain("tolerance_rows_filtered");
+    expect(result.tightestTolerance.reasons).toContain("tolerance_differs_from_tightest_read");
+    expect(result.tightestTolerance.reasons?.includes(reason)).toBe(!enabled);
+  });
+  it.each([
+    "TOLERANCES\n.XXX\n±.005", "TOLERANCES\n.XX .XXX\n±.01 ±.005",
+    "X.XXX = ±.005", "UNLESS OTHERWISE SPECIFIED TOLERANCES ±.005",
+  ])("gates tolerance evidence independently of row layout: %s", async (text) => {
+    const pdfText = withMonospaceGeometry(pdfTextOf(`DIMENSIONS ARE IN INCHES\n${text}`));
+    expect((await hybrid(pdfText)).tightestTolerance).toMatchObject({ valueInch: 0.005, reviewNeeded: true, reasons: [reason] });
+    expect((await hybrid(pdfText, true)).tightestTolerance.reviewNeeded).toBeUndefined();
+  });
+  it.each([false, true])("preserves geometry-free feature values as suggestions (ocr=%s)", async (ocr) => {
+    const pdfText = pdfTextOf("DIMENSIONS ARE IN INCHES\n1.25 ±.005", { ocr });
+    for (const enabled of [undefined, false, true]) {
+      const result = await hybrid(pdfText, enabled);
+      const stored = buildStoredExtractionPayload(result, 1, "test");
+      if (enabled) expect(stored.tolerances).toMatchObject({ valueInch: null, unit: "unknown" });
+      else {
+        expect(stored.tolerances).toMatchObject({ valueInch: 0.005, unit: "in", reviewNeeded: true, reasons: ["tolerance_geometry_unproven"] });
+        expect(result.warnings).toContain("Tolerance word geometry is unproven; review the suggested tolerance.");
+        expect(result.warnings).not.toContain("Title-block tolerance approval is disabled; review the suggested tolerance.");
+      }
+    }
+  });
+  it.each([false, true])("keeps main's field reasons when no title-block evidence exists (geometry=%s)", async (geometry) => {
+    const raw = pdfTextOf("DIMENSIONS ARE IN INCHES\n1.25 ±.005");
+    const pdfText = geometry ? withMonospaceGeometry(raw) : raw;
+    for (const enabled of [false, true]) {
+      const signal = infer(pdfText, enabled);
+      for (const [field] of cells) expect(signal[field].reasons).toEqual(["regex_fit"]);
+      const result = await hybrid(pdfText, enabled);
+      for (const field of [result.extractedPartNumberRaw, result.extractedRevisionRaw, result.material, result.finish]) {
+        expect(field.reasons).toEqual(["regex_fit"]);
+      }
+    }
+  });
+  it("does not restore a geometry-free suggestion vetoed by independent OCR", async () => {
+    const pdfText = pdfTextOf("DIMENSIONS ARE IN INCHES\n1.25 ±.005");
+    pdfText.pages[0]!.ocrText = "DIMENSIONS ARE IN INCHES\n1.25 ±.001";
+    expect((await hybrid(pdfText)).tightestTolerance.valueInch).toBeNull();
+  });
+  it("only gates the field actually read from a title-block cell", () => {
+    const signal = infer(withMonospaceGeometry(pdfTextOf("MATERIAL: AL 6061-T6")));
+    expect(signal.material.reasons).toContain(reason);
+    for (const field of ["partNumber", "revision", "finish"] as const) expect(signal[field].reasons).toEqual(["regex_fit"]);
+  });
+  const title = "TITLE: SAMPLE PLATE\nPROCESS: MILLING\nPART NUMBER: ABC-001\nREV: B\nMATERIAL: AL 6061-T6\nFINISH: AS MACHINED";
+  it.each([false, true])("gates title-block description and process (enabled=%s)", async (enabled) => {
+    const pdfText = withMonospaceGeometry(pdfTextOf(title));
+    const signal = infer(pdfText, enabled);
+    for (const field of ["description", "process"] as const) {
+      expect(signal[field].reviewNeeded).toBe(!enabled);
+      expect(signal[field].reasons.includes(reason)).toBe(!enabled);
+    }
+    const result = await hybrid(pdfText, enabled);
+    expect(result.extractedDescriptionRaw.reviewNeeded).toBe(!enabled);
+    expect(result.extractedDescriptionRaw.reasons.includes(reason)).toBe(!enabled);
+    expect(result.reviewFields.includes("description")).toBe(!enabled);
+  });
+  it.each([false, true])("retains the cross-sheet description/process delta check (geometry=%s)", async (geometry) => {
+    const raw = pdfTextOf(title);
+    raw.pageCount = 2;
+    raw.pages.push({ ...raw.pages[0]!, page: 2 });
+    const pdfText = geometry ? withMonospaceGeometry(raw) : raw;
+    for (const enabled of [false, true]) {
+      const signal = infer(pdfText, enabled);
+      for (const field of ["description", "process"] as const) expect(signal[field].reviewNeeded).toBe(true);
+      const result = await hybrid(pdfText, enabled);
+      expect(result.extractedDescriptionRaw.reviewNeeded).toBe(true);
+      expect(result.reviewFields).toContain("description");
+    }
+  });
+  it.each([false, true])("preserves HEAD's model-fallback notes-description review (enabled=%s)", async (enabled) => {
+    const fields = Object.fromEntries(["description", "partNumber", "revision", "material", "finish", "process"].map((field) =>
+      [field, { value: field === "description" ? "Sample Plate" : null, confidence: 0.99, fieldSource: "notes", reasons: [] }])) as DrawingModelExtractionResult["fields"];
+    const result = await runHybridExtraction({
+      part: { id: "part-1", name: "sample" } as PartRecord, cadFile: null,
+      drawingFile: { original_name: "upload.pdf" } as JobFileRecord,
+      pdfText: pdfTextOf("NOTES:\n1. MAKE SAMPLE PLATE PER CAD"), config: config(enabled),
+      drawingPath: "/tmp/sample.pdf", runDir: "/tmp", forceModelFallback: true,
+    }, { extractWithModel: async () => ({ fields, attempts: [{ attempt: "full_page", titleBlockSufficient: false, fields }], modelName: "test-model", promptVersion: "test",
+      usedTitleBlockCrop: false, usedFullPage: true, usage: null }) });
+    expect(result.fieldSelections.description).toBe("model");
+    expect(result.extractedDescriptionRaw).toMatchObject({ value: "Sample Plate", reviewNeeded: true,
+      reasons: ["model_fallback", "regex_fit", "model_value_unproven"] });
+    expect(result.reviewFields).toContain("description");
+  });
 });
 it("leaves non-title-block approval paths unchanged", () => {
   const field = { value: "MILLING", reviewNeeded: false, confidence: 0.9, reasons: ["label_match"], sourceRegion: null, snippet: "MILLING" };

@@ -10,6 +10,8 @@ type ApprovalInput = {
   fields: Record<string, ExtractedFieldSignal>;
   /** Immutable deterministic verdicts, captured before model merging. */
   deterministicFields?: Record<string, ExtractedFieldSignal>;
+  /** Fields actually read from title-block cells or label anchors, including layout fallbacks. */
+  titleBlockFields?: readonly string[];
   cellProof?: { geometryByPage: ReadonlyMap<number, PageVectorGeometry | undefined>; reads: readonly CellRead[]; independentReads: readonly CellRead[]; independentComplete: boolean; drawingProven: boolean };
   tolerance?: { valueInch: number | null; independentValueInch: number | null; independentUnresolved?: boolean; drawingProven: boolean; titleBlockProof?: boolean };
 };
@@ -26,6 +28,8 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
     geometry?.issues.some((issue) => issue.cause === "coordinate_frame_mismatch"));
   for (const [name, field] of Object.entries(input.fields)) {
     const reasons = new Set(field.reasons);
+    const hasTitleBlockEvidence = input.titleBlockFields?.includes(name) ||
+      reads.some((read) => read.field === name) || reasons.has("title_block_cell_proven");
     let reviewNeeded = field.reviewNeeded;
     if (frames.some(([page]) => !field.sourceRegion || field.sourceRegion.page === page)) {
       reviewNeeded = true;
@@ -44,7 +48,7 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
       reviewNeeded = true;
       reasons.add("rejected_label_token");
     }
-    if (input.cellProof && CELL_FIELDS.has(name)) {
+    if (input.cellProof && CELL_FIELDS.has(name) && hasTitleBlockEvidence) {
       const cells = reads.filter((read) => read.field === name);
       const agrees = (read: CellRead) => read.status === "value" && read.complete &&
         comparable(read.value) === comparable(field.value) &&
@@ -70,8 +74,7 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
       if (!input.cellProof.independentComplete) reasons.add("independent_source_unread");
     }
     // Apply after all proof paths, including deterministic evidence carried through model merging.
-    if (!input.titleBlockApprovalEnabled && (reasons.has("title_block_cell_proven") ||
-      (input.cellProof && CELL_FIELDS.has(name)))) {
+    if (!input.titleBlockApprovalEnabled && hasTitleBlockEvidence) {
       reviewNeeded = true;
       reasons.add("title_block_approval_disabled");
     }
