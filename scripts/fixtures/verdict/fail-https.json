@@ -1,0 +1,13 @@
+{
+  "schema": "overdrafter.verdict/v1",
+  "role": "verifier",
+  "verdict": "FAIL",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "patch_id": "cccccccccccccccccccccccccccccccccccccccc",
+  "diff_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "verifier": { "id": "astra-verifier", "model_family": "opus", "github_login": "verifier-bot" },
+  "evidence": [{ "kind": "log", "url": "https://example.com/log" }],
+  "notes": ["high: acceptance item 2 failed"],
+  "readiness": { "conflicts": 0, "open_threads": 0, "checks": "red" },
+  "timestamp": "2026-10-15T12:00:00Z"
+}

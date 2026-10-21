@@ -2587,7 +2587,7 @@ const REAL_SCRIPTS = {
       "generate:favicon", "provider:add", "fixture:onboard", "provider:sync", "provider:check", "provider:permissions", "preflight", "lint",
       "typecheck", "typecheck:worker", "preview", "e2e", "e2e:fixture", "e2e:authenticated", "e2e:quote-confirmation", "e2e:ui", "e2e:prepare",
       "test", "test:functions", "test:integration:quote", "test:live:fictiv", "test:watch", "test:coverage", "validate:pr-body", "migration:next",
-      "verify:migration-lineage", "verify:ovd372-head", "verify:ovd417-head", "compare:ovd372-schema", "verify:public-assets",
+      "verify:migration-lineage", "verify:migration-function-collisions", "verify:ovd372-head", "verify:ovd417-head", "compare:ovd372-schema", "verify:public-assets",
       "verify:removed-public-assets", "verify:xometry-egress", "verify:xometry-recovery-host", "render:pr-body", "verify:worker", "verify",
       "test:engineering-inbox", "test:engineering-queue", "test:engineering-worker-sessions", "test:engineering-native-ownership",
       "demo:engineering-evidence", "test:agent-control-plane", "test:portable-node", "stripe:catalog",
