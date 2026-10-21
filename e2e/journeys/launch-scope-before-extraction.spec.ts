@@ -1,11 +1,11 @@
 import { test, expect } from "../test";
 
 // OVD-1029: exercise the real part page with the STEP-only metadata shape
-// returned before OVD-978, including the server's placeholder material.
+// returned by the live RPC: succeeded with no drawing and placeholder material.
 const PART_ROUTE = "/parts/fx-job-needs-attention?fixture=client-uploaded-step&debug=1";
 
 test.describe("Launch scope before extraction", { tag: "@fixture" }, () => {
-  test("asks for material on an uploaded STEP instead of rejecting launch scope", async ({ page }) => {
+  test("asks for material on a STEP-only upload without a stale drawing notice", async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 375, height: 812 });
 
@@ -19,6 +19,7 @@ test.describe("Launch scope before extraction", { tag: "@fixture" }, () => {
       const guidance = page.getByRole("region", { name: "Quote information", exact: true });
       const heading = guidance.getByRole("heading", { name: "Confirm the material", exact: true });
       await expect(heading).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText("Waiting for drawing metadata", { exact: true })).toHaveCount(0);
       await heading.scrollIntoViewIfNeeded();
       await expect(guidance).toContainText("Provider fit cannot be reviewed until the material is known.");
       await expect(guidance).toContainText("Set the material to the required aluminum alloy in the request details.");

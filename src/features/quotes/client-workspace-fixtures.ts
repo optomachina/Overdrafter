@@ -1223,7 +1223,7 @@ function buildNeedsAttentionScenario(): FixtureState {
   };
 }
 
-// Reproduce the metadata returned for a STEP-only upload before OVD-978.
+// The live metadata RPC returns succeeded when there is no drawing to extract.
 function buildUploadedStepScenario(): FixtureState {
   const state = buildNeedsAttentionScenario();
   const job = state.accessibleJobs[0];
@@ -1238,7 +1238,7 @@ function buildUploadedStepScenario(): FixtureState {
   part.drawingFile = null;
   part.drawing_file_id = null;
   part.clientExtraction = {
-    lifecycle: "uploaded", hasCadFile: true, hasDrawingFile: false,
+    lifecycle: "succeeded", hasCadFile: true, hasDrawingFile: false,
     warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
     lastFailureCode: null, lastFailureMessage: null,
     extractedAt: null, failedAt: null, updatedAt: null,

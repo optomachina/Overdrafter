@@ -3680,7 +3680,7 @@ describe("ClientPart", () => {
     });
   });
 
-  it("asks for material on a freshly uploaded STEP-only part instead of rejecting launch scope", async () => {
+  it("asks for material on a STEP-only upload with succeeded extraction and no stale drawing notice", async () => {
     const detail = createDispatchReadyPartDetail([]);
     api.fetchPartDetailByJobId.mockResolvedValueOnce(createPartDetail({
       ...detail,
@@ -3695,7 +3695,7 @@ describe("ClientPart", () => {
           process: null, notes: null, quantity: 1, quoteQuantities: [1], requestedByDate: null,
         },
         clientExtraction: {
-          lifecycle: "uploaded", hasCadFile: true, hasDrawingFile: false,
+          lifecycle: "succeeded", hasCadFile: true, hasDrawingFile: false,
           warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
           lastFailureCode: null, lastFailureMessage: null,
           extractedAt: null, failedAt: null, updatedAt: null,
@@ -3705,6 +3705,7 @@ describe("ClientPart", () => {
 
     await renderClientPartOnTab();
     expect(await screen.findByRole("heading", { name: "Confirm the material" })).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for drawing metadata")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", {
       name: "This material is outside the launch scope",
     })).not.toBeInTheDocument();
