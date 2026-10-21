@@ -15,10 +15,13 @@ const mocks = vi.hoisted(() => ({
   toastWarning: vi.fn(),
   toastError: vi.fn(),
   user: null as { id: string } | null,
+  authState: "anonymous",
+  isError: false,
+  isFetching: false,
 }));
 
 vi.mock("@/hooks/use-app-session", () => ({
-  useAppSession: () => ({ user: mocks.user, refetch: mocks.refetch }),
+  useAppSession: () => ({ user: mocks.user, refetch: mocks.refetch, authState: mocks.authState, isError: mocks.isError, isFetching: mocks.isFetching }),
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -89,7 +92,26 @@ describe("AuthPanel password strength handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.user = null;
+    mocks.authState = "anonymous";
+    mocks.isError = false;
+    mocks.isFetching = false;
     mocks.refetch.mockResolvedValue(undefined);
+  });
+
+  it.each(["session_error", "query_error"])("offers a session retry after %s", async (failure) => {
+    mocks.authState = failure === "session_error" ? failure : "anonymous";
+    mocks.isError = failure === "query_error";
+    renderPanel();
+    expect(screen.getByText("We couldn’t restore your session. Try again or log in below.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await waitFor(() => expect(mocks.refetch).toHaveBeenCalledTimes(1));
+  });
+
+  it("disables session retry while a restore request is running", () => {
+    mocks.authState = "session_error";
+    mocks.isFetching = true;
+    renderPanel();
+    expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled();
   });
 
   it.each(["/", "/?app=ios"])(
