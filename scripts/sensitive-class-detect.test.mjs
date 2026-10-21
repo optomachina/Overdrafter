@@ -1120,6 +1120,121 @@ describe("classifySql: quoted punctuation and SQL-only trimming (OVD-878)", () =
   });
 });
 
+describe("classifySql: confirmed privileged membership gaps (PR 824)", () => {
+  const postgresRoles = [
+    "pg_execute_server_program", "pg_write_server_files", "pg_read_server_files", "pg_write_all_data",
+    "pg_read_all_data", "pg_signal_backend", "pg_checkpoint", "pg_create_subscription",
+  ];
+  const supabaseRoles = [
+    "supabase_auth_admin", "supabase_storage_admin", "supabase_realtime_admin", "supabase_functions_admin",
+    "supabase_replication_admin", "supabase_read_only_user", "dashboard_user", "pgsodium_keymaker", "pgsodium_keyholder",
+  ];
+  const paths = ["supabase/migrations/20261021000000_probe.sql", "supabase/tests/database/probe.test.sql"];
+  const check = (text, id) => {
+    for (const file of paths) {
+      const result = classifySql(text, config, file);
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    }
+  };
+  for (const [family, roles] of [["PostgreSQL", postgresRoles], ["Supabase", supabaseRoles]]) {
+    it.each(roles)(`flags all three membership forms for ${family} privileged role %s`, (role) => {
+      check(`GRANT app, "${role}" TO anon;`, `auth_grant_${role}`);
+      check(`CREATE ROLE app IN ROLE other, ${role};`, `auth_in_role_${role}`);
+      check(`ALTER GROUP ${role} ADD USER anon;`, `auth_alter_group_${role}`);
+    });
+  }
+  const roles = ["postgres", "supabase_admin", "service_role", "authenticator", ...postgresRoles, ...supabaseRoles];
+  it.each(roles)("flags USER, ROLE and ADMIN member clauses on privileged role %s", (role) => {
+    for (const declaration of ["CREATE ROLE", "CREATE USER", "CREATE GROUP", "ALTER ROLE", "ALTER USER"]) {
+      for (const clause of ["USER", "ROLE", "ADMIN"]) {
+        check(`${declaration} "${role}" WITH ${clause} anon, authenticated;`, `auth_members_${clause.toLowerCase()}_${role}`);
+      }
+    }
+  });
+  it.each([
+    "CREATE ROLE app USER service_role;", "CREATE ROLE app ROLE postgres;", "CREATE ROLE app ADMIN supabase_admin;",
+    "ALTER ROLE service_role NOSUPERUSER;", "ALTER ROLE service_role; SELECT user;",
+    "GRANT SELECT ON TABLE t TO pg_read_all_data;", "REVOKE pg_write_all_data FROM app;",
+    "ALTER GROUP supabase_auth_admin DROP USER anon;",
+  ])("does not confuse a member or recipient with the privileged role being granted: %s", (text) => {
+    expect(classifySql(text, config, paths[0]).classes).toEqual([]);
+  });
+});
+
+describe("sqlTokens and classifySql: continued and encoded strings (PR 824)", () => {
+  const migration = "supabase/migrations/20261021000000_probe.sql";
+  const tests = "supabase/tests/probe.sql";
+  it.each(["\n", "\r", "\r\n", " -- continuation\n"])("keeps RESET ROLE and GRANT inside a continued E-string DO body: %j", (gap) => {
+    const text = `DO E'BEGIN PERFORM '${gap}'\\'x --\\'; GRANT service_role TO anon;\nPERFORM 1;\nRESET ROLE;\nEND;';\nRESET ROLE;`;
+    const result = classifySql(text, config, tests);
+    const grantLine = gap.includes("\n") ? 2 : 1;
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: grantLine, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: grantLine + 2, sensitive: true }));
+    expect(result.hits.filter((hit) => hit.gate_loosening)).toEqual([
+      expect.objectContaining({ id: "auth_reset_role", line: grantLine + 4, exemption: "tests_reset_role" }),
+    ]);
+    expect(sqlTokens(text).statements).toEqual([text.slice(0, text.lastIndexOf("\n")), "RESET ROLE;", ""]);
+  });
+  it("concatenates split keywords across multiple continued segments and retains source lines", () => {
+    const text = "DO E'BEGIN; GR'\n'ANT service_'\n'role TO anon; RE'\n'SET ROLE; END;';";
+    const result = classifySql(text, config, tests);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: 2, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: 3, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+  it.each([" ", "\t", " /* gap */\n"])("does not continue strings without PostgreSQL quotecontinue whitespace: %j", (gap) => {
+    expect(sqlTokens(`SELECT E'GR'${gap}'ANT';`).words).toEqual(["select", "gr", "ant", ";"]);
+  });
+  it("keeps ordinary continued strings in standard rather than E-string escape mode", () => {
+    const result = classifySql("SELECT 'x'\n'\\'; RESET ROLE;", config, tests);
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_reset_role", line: 2, exemption: "tests_reset_role" })]);
+  });
+  it.each([
+    String.raw`ALTER ROLE anon U&"bypass\0072ls";`,
+    String.raw`GRANT U&"service\005frole" TO anon;`,
+    String.raw`SELECT set_config(U&'ro\006ce', 'service_role', false);`,
+    String.raw`SET U&"\0072ole" service_role;`,
+    String.raw`GRANT U&"postgre!0073" UESCAPE '!' TO anon;`,
+    String.raw`SELECT set_config(u&'ro!+00006ce' UESCAPE '!', 'service_role', false);`,
+    String.raw`DO $$ BEGIN EXECUTE U&'GRANT service\005frole TO anon'; END $$;`,
+  ])("fails closed on Unicode escaped identifiers and strings: %s", (text) => {
+    const result = classifySql(text, config, migration);
+    expect(result.classes).toContain("auth");
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_unicode_escape", sensitive: true }));
+  });
+  it.each([
+    [String.raw`DO $$ BEGIN EXECUTE E'ALTER USER anon SUPER\x55SER'; END $$;`, "auth_role_superuser"],
+    [String.raw`DO E'GRANT service\x5frole TO anon';`, "auth_grant_service_role"],
+    [String.raw`SELECT set_config(E'\x72ole', 'service_role', false);`, "auth_set_config_role"],
+    [String.raw`EXECUTE E'SET \x52OLE service_role';`, "auth_set_role"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\125SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\u0055SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPER\U00000055SER';`, "auth_role_superuser"],
+    [String.raw`EXECUTE E'ALTER USER anon SUPERU\SER';`, "auth_role_superuser"],
+    ["DO E'GRANT service_'\n'\\x72ole TO anon';", "auth_grant_service_role"],
+  ])("decodes E-string escapes before privileged SQL matching: %s", (text, id) => {
+    for (const file of [migration, tests]) {
+      const result = classifySql(text, config, file);
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    }
+  });
+  it("retains source lines through decoded newlines and nested dollar bodies", () => {
+    const result = classifySql(String.raw`DO E'BEGIN\nDO $$GRANT service_role TO anon;$$;\nRESET ROLE; END;';`, config, tests);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_grant_service_role", line: 1, sensitive: true }));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id: "auth_reset_role", line: 1, sensitive: true }));
+  });
+  it("does not flag escape spellings inside comments", () => {
+    expect(classifySql(String.raw`-- GRANT U&"service\005frole" TO anon;
+/* EXECUTE E'ALTER USER anon SUPER\x55SER'; */ SELECT 1;`, config, migration).classes).toEqual([]);
+  });
+});
+
 describe("sqlTokens and classifySql: inputs of any size (OVD-878)", () => {
   // Spreading an array of about 100k items into push() overflows the call stack.
   const body = "a ".repeat(150_000);

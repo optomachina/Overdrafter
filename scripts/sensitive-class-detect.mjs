@@ -482,8 +482,9 @@ function trimSqlSpace(text) {
  * literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  *
- * Known limits: names spelled with escapes (`E'row\x5fsecurity'`,
- * `U&'row\005fsecurity'`, `U&"row\005fsecurity"`) or built at run time
+ * E'' escapes and newline-separated string continuations are decoded before
+ * matching; U& strings and identifiers fail closed through auth_unicode_escape.
+ * Known limits: names built at run time
  * (`'row_' || 'security'`, format(), EXECUTE of a variable) are not decoded,
  * and set_config with the setting name nested deeper than `(('role'))` or
  * passed as a variable does not match the role rules. auth_dynamic_role
@@ -507,8 +508,8 @@ export function sqlWords(text) {
  * (not SQL whitespace, printable ASCII or a non-ASCII word character), or null.
  * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[], unknown: {char: number, line: number}|null}}
  */
-export function sqlTokens(text, depth = 0, firstLine = 1) {
-  const scan = newScan(String(text), depth, firstLine);
+export function sqlTokens(text, depth = 0, firstLine = 1, sourceLineAt = null) {
+  const scan = newScan(String(text), depth, firstLine, sourceLineAt);
   while (scan.index < scan.sql.length) scanToken(scan);
   scan.statements.push(trimSqlSpace(scan.current));
   const { words, lines, starts, ends, statement, statements, unknown } = scan;
@@ -516,13 +517,14 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
 }
 
 /** The state of one tokenizer run: the text, the output arrays and the scan position. */
-function newScan(sql, depth, firstLine) {
+function newScan(sql, depth, firstLine, sourceLineAt) {
   const breaks = [];
   for (let at = sql.indexOf("\n"); at !== -1; at = sql.indexOf("\n", at + 1)) breaks.push(at);
   return {
     sql,
     depth,
     firstLine,
+    sourceLineAt,
     breaks,
     words: [],
     lines: [],
@@ -542,7 +544,8 @@ function newScan(sql, depth, firstLine) {
 }
 
 /** The 1-based line of a text offset: the first line plus the line feeds before it. */
-function lineAt({ breaks, firstLine }, offset) {
+function lineAt({ breaks, firstLine, sourceLineAt }, offset) {
+  if (sourceLineAt) return sourceLineAt(offset);
   let low = 0;
   let high = breaks.length;
   while (low < high) {
@@ -575,8 +578,10 @@ function appendAll(target, items) {
 }
 
 /** Append the words of a string or dollar-quoted body that starts at `offset`; they sit one nesting level deeper. */
-function pushBody(scan, body, offset) {
-  const inner = sqlBodyTokens(body, scan.depth, lineAt(scan, offset));
+function pushBody(scan, body, offset, positions = null) {
+  // Decoding and continuation remove source characters; retain the original line of each token.
+  const sourceLineAt = (at) => lineAt(scan, positions ? (positions[at] ?? offset) : offset + at);
+  const inner = sqlBodyTokens(body, scan.depth, sourceLineAt(0), sourceLineAt);
   scan.unknown ??= inner.unknown;
   if (inner.words.length === 0) return;
   inner.starts[0] += 1;
@@ -615,28 +620,68 @@ function scanBlockComment(scan) {
   scan.current += " ";
 }
 
+// PostgreSQL scan.l quotecontinue allows whitespace and -- comments with at least one LF or CR.
+// Block comments do not participate in string continuation.
+function continuedQuote(sql, from) {
+  let index = from;
+  let newline = false;
+  while (index < sql.length) {
+    if (/[ \t\n\r\f\v]/.test(sql[index])) {
+      newline ||= sql[index] === "\n" || sql[index] === "\r";
+      index += 1;
+    } else if (sql.startsWith("--", index)) {
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
+    } else break;
+  }
+  return newline && sql[index] === "'" ? index : -1;
+}
+
+// Consume the full escape, including octal bytes, hex bytes and Unicode code points.
+// Unrecognized escapes quote the next character (e.g. \S is S), not a word separator.
+function readEscape(sql, from) {
+  const tail = sql.slice(from + 1);
+  const numeric = /^(?:[0-7]{1,3}|x[\da-fA-F]{1,2}|u[\da-fA-F]{4}|U[\da-fA-F]{8})/.exec(tail)?.[0];
+  if (numeric) {
+    const octal = /^[0-7]/.test(numeric);
+    let code = Number.parseInt(octal ? numeric : numeric.slice(1), octal ? 8 : 16);
+    if (octal) code &= 0xff;
+    return { value: String.fromCodePoint(code <= 0x10ffff ? code : 0xfffd), end: from + 1 + numeric.length };
+  }
+  const next = sql[from + 1];
+  const controls = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+  return { value: controls[next] ?? next ?? "\\", end: Math.min(sql.length, from + 2) };
+}
+
 // The body of the quoted string or name that opens at `from`, and where the scan resumes (after the
 // closing quote, or at the end of an unterminated one). A doubled quote is one quote character.
 function readQuoted(sql, from, quote, escapes) {
   let body = "";
+  const positions = [];
+  const append = (value, at) => {
+    body += value;
+    for (let i = 0; i < value.length; i += 1) positions.push(at);
+  };
   let index = from + 1;
   while (index < sql.length) {
     const char = sql[index];
     if (escapes && char === "\\") {
-      // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
-      body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2);
-      index += 2;
+      const escape = readEscape(sql, index);
+      append(escape.value, index);
+      index = escape.end;
     } else if (char === quote && sql[index + 1] === quote) {
-      body += quote;
+      append(quote, index);
       index += 2;
     } else if (char === quote) {
-      return { body, end: index + 1 };
+      const continuation = quote === "'" ? continuedQuote(sql, index + 1) : -1;
+      if (continuation === -1) return { body, positions, end: index + 1 };
+      // Keep the original string's escape mode, including for every subsequent segment.
+      index = continuation + 1;
     } else {
-      body += char;
+      append(char, index);
       index += 1;
     }
   }
-  return { body, end: index };
+  return { body, positions, end: index };
 }
 
 // A single-quoted string is SQL again; a double-quoted name is one word.
@@ -647,9 +692,9 @@ function scanQuoted(scan) {
   // E'' only when the word right before the quote is exactly e (not the tail of aée or xe).
   const escapes = quote === "'" && scan.lastWordEnd === from && scan.lastWord === "e";
   if (escapes && scan.words.at(-1) === "e") popWord(scan);
-  const { body, end } = readQuoted(sql, from, quote, escapes);
+  const { body, positions, end } = readQuoted(sql, from, quote, escapes);
   scan.index = end;
-  if (quote === "'") pushBody(scan, body, from);
+  if (quote === "'") pushBody(scan, body, from, positions);
   else if (body !== "") pushWord(scan, quotedIdentifierWord(body), lineAt(scan, from));
   scan.current += sql.slice(from, end);
 }
@@ -709,17 +754,17 @@ function scanToken(scan) {
   else if (!scanDollarQuoted(scan) && !scanIdentifier(scan)) scanOther(scan);
 }
 
-function sqlBodyTokens(body, depth, firstLine) {
-  if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine);
+function sqlBodyTokens(body, depth, firstLine, sourceLineAt) {
+  if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine, sourceLineAt);
   const words = [];
   const lines = [];
   for (const match of body.matchAll(IDENTIFIERS)) {
     words.push(match[0].toLowerCase());
-    lines.push(firstLine + (body.slice(0, match.index).match(/\n/g)?.length ?? 0));
+    lines.push(sourceLineAt(match.index));
   }
   // Too deep to tokenize: an unexpected ASCII control character still counts as unknown.
   const odd = /[\x00-\x08\x0e-\x1f\x7f]/.exec(body);
-  const unknown = odd ? { char: odd[0].codePointAt(0), line: firstLine + (body.slice(0, odd.index).match(/\n/g)?.length ?? 0) } : null;
+  const unknown = odd ? { char: odd[0].codePointAt(0), line: sourceLineAt(odd.index) } : null;
   return { words, lines, starts: words.map(() => 0), ends: words.map(() => 0), unknown };
 }
 
