@@ -1,60 +1,13 @@
 // @vitest-environment node
 //
-// Real-template regression corpus for the deterministic drawing extractor
-// (Linear OVD-989; related OVD-985 and OVD-976).
-//
-// LOCAL GATE, NOT CI EVIDENCE. The corpus is a set of PDFs exported from the project
-// owner's own drawing template, one variant per selectable template field (units,
-// general-tolerance block, ASME edition, drawing number, revision, material, finish,
-// notes, ITAR note, EAR note). The repository is public, so neither the PDFs nor their
-// manifest are committed. They live in test-fixtures/private/template-variants/
-// (gitignored) or in the folder named by OVERDRAFTER_TEMPLATE_VARIANTS_DIR. When the
-// manifest or poppler is absent this whole suite is skipped, as it is in CI.
-//
-// Tier: real poppler (pdfinfo, pdftotext) and real file bytes. No model, no database, no
-// storage, no network. The model extractor is injected as a stub that fails the test if it
-// is ever called. This is not staging or live evidence.
-//
-// Expected values are NOT derived from the code under test. manifest.json records what a
-// person read on each rendered page (title block, tolerance block, notes) and which
-// general tolerance applies to the dimensions actually shown. It is read at run time.
-//
-// Each PDF is copied byte for byte to "upload.pdf" in a temporary folder, so the file-name
-// fallback of the part number (rescueOcrTitleBlockFields in pdfDrawing.ts) cannot hide a
-// title-block defect.
-//
-// KNOWN_DEFECTS maps a variant id and a check name to the open Linear issue that explains
-// why the extractor is wrong today. Those checks run as `it.fails`: the suite is green
-// while the issue is open and turns red when a fix lands, and then the entry is deleted.
-// The map is static on purpose. It must never be computed from the observed result, or a
-// fix could not flip it. TEMPLATE_VARIANTS_STRICT=1 runs the known defects as ordinary
-// assertions.
-//
-// Observed when this file was written (poppler 26.10.0), per failure class:
-//  - Title block (OVD-989): each label sits on one text row and its value on a later row.
-//    The DWG. NO. and REV values are two rows below their labels (a blank row between) and
-//    the MATERIAL value is five rows below, but the anchored reader looks one row down for
-//    the part number, revision and material (two for the finish), so nothing is paired. The
-//    part number falls back to the upload name (the fallback pattern needs digits-digits
-//    numbers), the revision stays empty, and the material stays empty, except in TV09 and
-//    TV13 where an unlabeled finish keyword (ANODIZE) matches the material fallback and the
-//    finish cell text is read as the material. The finish is read from the SURFACE FINISH
-//    block, because the label FINISH is a substring of SURFACE FINISH. All four fields are
-//    flagged for review and nothing is approved, which the noSilentApproval check pins.
-//  - Four-place row (OVD-989): the inch general-tolerance block prints a FOUR PLACE row, but
-//    no dimension on the sheet uses four decimals. The tightest printed row is stored, which
-//    is tighter than the manifest's applicable tolerance. TV02, which has no such row, stores
-//    the applicable value.
-//  - Metric (filed under OVD-989 because its regression set must cover metric templates):
-//    the metric rows carry no "PLACE DECIMAL" words and the plus-minus glyph is not in the
-//    text layer, so no metric row is read. The only plus-minus signs left in the text are the
-//    inspection-environment figures, so the raw tightest text is the humidity percentage and
-//    the stored inch value is null (OVD-976 fails closed, and the units are read correctly
-//    as metric). Null is safe but is not the applicable value.
-//  - OVD-985 ("Q.A." read as part number and revision) does not occur in this corpus: the
-//    template has no "Q.A." label, so no entry cites it.
-// TV07 prints a drawing number that visually touches the REV cell. Its text layer still
-// carries the number and the revision as separate tokens, so the manifest truth is unchanged.
+// Local gate, not CI evidence (OVD-989; related OVD-976 and OVD-985).
+// Uses real poppler and a model extractor stub that must never be called.
+// Truth comes from a private manifest read at run time. A hand-maintained private
+// known-defects.json selects it.fails checks until fixed; TEMPLATE_VARIANTS_STRICT=1
+// runs them strictly. Neither input is written or derived from observed results.
+// The suite skips when the corpus or poppler is absent.
+// Use OVERDRAFTER_TEMPLATE_VARIANTS_DIR or test-fixtures/private/template-variants/.
+// PDFs use a neutral upload name so filename fallback cannot hide extraction defects.
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -73,7 +26,7 @@ const MM_PER_INCH = 25.4;
 // approved_part_requirements.tightest_tolerance_inch is numeric(10,4): a stored tolerance
 // is the printed one to within one step of that column.
 const STORED_TOLERANCE_STEP = 0.0001;
-const EXPECTED_VARIANT_IDS = Array.from({ length: 13 }, (_, index) => `TV${String(index + 1).padStart(2, "0")}`);
+const EXPECTED_VARIANT_COUNT = 13;
 
 type ToleranceTruth = { value: number; unit: "in" | "mm" };
 
@@ -207,31 +160,30 @@ const CHECK_TITLES: Record<Check, string> = {
   exportMarking: "flags an export-control note and nothing else",
 };
 
-const TITLE_BLOCK_NOT_PAIRED = {
-  partNumber: "OVD-989",
-  revision: "OVD-989",
-  material: "OVD-989",
-  finish: "OVD-989",
-} as const;
-const FOUR_PLACE_ROW_STORED = { toleranceSafe: "OVD-989", toleranceApplicable: "OVD-989" } as const;
-const METRIC_ROWS_NOT_READ = { toleranceApplicable: "OVD-989" } as const;
+type KnownDefects = Readonly<Record<string, Partial<Record<Check, string>>>>;
 
-// Static on purpose: see the header. Delete an entry when its fix lands and the check turns red.
-const KNOWN_DEFECTS: Readonly<Record<string, Partial<Record<Check, string>>>> = {
-  TV01: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV02: { ...TITLE_BLOCK_NOT_PAIRED },
-  TV03: { ...TITLE_BLOCK_NOT_PAIRED, ...METRIC_ROWS_NOT_READ },
-  TV04: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV05: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV06: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV07: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV08: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV09: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV10: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV11: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV12: { ...TITLE_BLOCK_NOT_PAIRED, ...FOUR_PLACE_ROW_STORED },
-  TV13: { ...TITLE_BLOCK_NOT_PAIRED, ...METRIC_ROWS_NOT_READ },
-};
+function loadKnownDefects(dir: string, variants: Variant[]): KnownDefects {
+  const file = path.join(dir, "known-defects.json");
+  if (!fs.existsSync(file)) {
+    throw new Error("Corpus present but known-defects.json is missing; supply the hand-maintained defect list");
+  }
+  const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+  const isObject = (candidate: unknown): candidate is Record<string, unknown> =>
+    typeof candidate === "object" && candidate !== null && !Array.isArray(candidate);
+  if (!isObject(value)) throw new Error("known-defects.json must be an object");
+  const ids = new Set(variants.map((variant) => variant.id));
+  for (const [id, checks] of Object.entries(value)) {
+    if (!ids.has(id)) throw new Error("known-defects.json contains an unknown variant id");
+    if (!isObject(checks)) throw new Error("known-defects.json check maps must be objects");
+    for (const [check, issue] of Object.entries(checks)) {
+      if (!Object.hasOwn(CHECKS, check)) throw new Error("known-defects.json contains an unknown check name");
+      if (typeof issue !== "string" || issue.trim() !== issue || !/^OVD-\d+$/.test(issue)) {
+        throw new Error("known-defects.json contains a malformed issue id");
+      }
+    }
+  }
+  return value as KnownDefects;
+}
 
 // An observation that agrees with the manifest in every compared value. It is built from
 // the truth alone, so it tests the comparators without involving the extractor.
@@ -255,7 +207,7 @@ const DEVIATIONS: Record<Check, (same: Observation, truth: VariantTruth) => Obse
   partNumber: (same) => ({ ...same, partNumber: "Q.A." }),
   revision: (same) => ({ ...same, revision: "Q.A." }),
   material: (same, truth) => ({ ...same, material: truth.finish }),
-  finish: (same) => ({ ...same, finish: "63 OR BETTER" }),
+  finish: (same, truth) => ({ ...same, finish: `${truth.finish} incorrect` }),
   drawingUnits: (same, truth) => ({ ...same, drawingUnits: truth.units === "mm" ? "inch" : "metric" }),
   // The applicable tolerance divided by five: a tighter row that governs no dimension.
   toleranceSafe: (same, truth) => ({ ...same, valueInch: toInch(truth.tightestApplicableLinearTolerance) / 5 }),
@@ -307,6 +259,9 @@ function loadManifest(dir: string): Manifest | null {
   const variants: unknown = (JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { variants?: unknown }).variants;
   if (!Array.isArray(variants) || variants.length === 0) throw new Error("manifest.json has no variants");
   variants.forEach(assertVariantShape);
+  if (variants.length !== EXPECTED_VARIANT_COUNT || new Set(variants.map((variant) => variant.id)).size !== variants.length) {
+    throw new Error("manifest.json must contain the complete corpus with unique variant ids");
+  }
   return { variants: variants as Variant[] };
 }
 
@@ -325,6 +280,8 @@ function escapeRegExp(value: string) {
 
 const CORPUS_DIR = resolveCorpusDir();
 const manifest = loadManifest(CORPUS_DIR);
+const KNOWN_DEFECTS = manifest ? loadKnownDefects(CORPUS_DIR, manifest.variants) : {};
+const expectedVariantIds = manifest?.variants.map((variant) => variant.id) ?? [];
 // CI installs poppler-utils for the test job but has no corpus. Without poppler the text
 // layer cannot be read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
@@ -455,14 +412,14 @@ describe.skipIf(skipReason !== null)(
     }
 
     it("runs every check on every variant of the corpus", () => {
-      const expected = EXPECTED_VARIANT_IDS.flatMap((id) => EXPECTED_CHECKS.map((check) => `${id}:${check}`));
+      const expected = expectedVariantIds.flatMap((id) => EXPECTED_CHECKS.map((check) => `${id}:${check}`));
       expect([...registered].sort()).toEqual(expected.sort());
     });
 
     it("records known defects only for variants and checks that exist, and applies every one", () => {
       const recorded: string[] = [];
       for (const [id, checks] of Object.entries(KNOWN_DEFECTS)) {
-        expect(EXPECTED_VARIANT_IDS, id).toContain(id);
+        expect(expectedVariantIds, id).toContain(id);
         for (const [check, issue] of Object.entries(checks)) {
           expect(ALL_CHECKS, `${id} ${check}`).toContain(check);
           expect(issue, `${id} ${check}`).toMatch(/^OVD-\d+$/);
