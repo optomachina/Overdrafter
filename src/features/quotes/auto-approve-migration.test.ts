@@ -276,7 +276,8 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
   it("replaces only a CAD-only worker extraction of a part that has a drawing, and is otherwise verbatim", () => {
     // A part that holds the CAD-only extraction the worker wrote before its drawing existed completed
     // its reuse task with that row kept (ON CONFLICT DO NOTHING) and, with the completed-task
-    // dedupe above, was never extracted from its drawing. Every other row is still kept.
+    // dedupe above, was never extracted from its drawing. Every other row is still kept. The
+    // early return of review r10 (next test) is the only other change to the function body.
     const original = extractFunction(
       readFileSync(path.join(migrationsDir, "20260812042000_add_canonical_part_identity.sql"), "utf8"),
       "api_reuse_trusted_part_version_artifacts",
@@ -285,7 +286,46 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     expect(current).toMatch(
       /on conflict \(part_id\) do update\s+set extractor_version = excluded\.extractor_version,[\s\S]*?where v_target\.drawing_file_id is not null\s+and public\.drawing_extractions\.extractor_version like 'worker-sim-%';/,
     );
+    const earlyReturn = / {2}-- OVD-979 \(review r10, Codex\)[\s\S]*?\n {2}end if;\n\n/;
     const conflictClause = / {2}-- OVD-979 \(review r2\): a part that has a drawing[\s\S]*?like 'worker-sim-%';\n/;
-    expect(current.replace(conflictClause, "  on conflict (part_id) do nothing;\n")).toBe(original);
+    expect(
+      current.replace(earlyReturn, "").replace(conflictClause, "  on conflict (part_id) do nothing;\n"),
+    ).toBe(original);
+  });
+
+  it("never copies a CAD-only source extraction onto a part that has a drawing (review r10)", () => {
+    // The worker assigns the canonical version before it extracts, so a source whose attach task failed
+    // before it stored anything owns a complete version and still holds the CAD-only row. Copying it over
+    // the target's CAD-only row completed the target's task with no drawing data, and the completed-task
+    // guard of api_request_extraction then kept it from ever being extracted. The reuse falls back to the
+    // worker's independent extraction instead, and only after the source is settled (the pending checks).
+    const reuse = extractFunction(requestSql, "api_reuse_trusted_part_version_artifacts");
+    expect(reuse).toMatch(
+      /if v_target\.drawing_file_id is not null\s+and exists \(\s+select 1 from public\.drawing_extractions extraction\s+where extraction\.part_id = v_source\.id\s+and extraction\.extractor_version like 'worker-sim-%'\s+\) then\s+return pg_catalog\.jsonb_build_object\(\s+'result', 'source_cad_only',\s+'partId', v_target\.id,\s+'partVersionId', v_version\.id,\s+'sourcePartId', v_source\.id,\s+'artifactsReady', false,\s+'extractTargetIndependently', true\s+\);\s+end if;/,
+    );
+    const pending = reuse.lastIndexOf("'result', 'existing_version_pending'");
+    const earlyReturn = reuse.indexOf("'result', 'source_cad_only'");
+    const copy = reuse.indexOf("insert into public.drawing_extractions (");
+    expect(pending).toBeGreaterThan(0);
+    expect(earlyReturn).toBeGreaterThan(pending);
+    expect(copy).toBeGreaterThan(earlyReturn);
+  });
+
+  it("rests on the worker extracting the target itself when the reuse asks for it (review r10)", () => {
+    // artifactsReady false with extractTargetIndependently true must fall through to the extraction (and
+    // not throw CanonicalArtifactsPendingError, which only waits for the source), and the version the
+    // worker writes for a staged drawing must stay distinguishable from the CAD-only one.
+    const worker = readFileSync(path.join(process.cwd(), "worker/src/index.ts"), "utf8");
+    const start = worker.indexOf("async function handleExtractTask(");
+    const handler = worker.slice(start, worker.indexOf("async function handleGenerateCadPreviewTask("));
+    expect(handler).toMatch(
+      /if \(!artifactsReady\) \{\s+if \(!extractTargetIndependently\) \{\s+throw new CanonicalArtifactsPendingError\(sourcePartId\);\s+\}\s+\} else \{/,
+    );
+    expect(handler.indexOf("await runDrawingExtractionForTask(")).toBeGreaterThan(handler.indexOf("} else {"));
+    const shared = readFileSync(path.join(process.cwd(), "worker/src/extraction/sharedResult.ts"), "utf8");
+    expect(shared).toContain('SIM_EXTRACTOR_VERSION = "worker-sim-v1"');
+    expect(shared).toMatch(
+      /currentExtractorVersion\(hasDrawingFile: boolean\) \{\s+return hasDrawingFile \? PDF_EXTRACTOR_VERSION : SIM_EXTRACTOR_VERSION;/,
+    );
   });
 });

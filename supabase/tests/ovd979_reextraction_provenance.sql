@@ -13,13 +13,14 @@
 -- supabase/tests/pending/ovd979_reextraction_provenance.sql.pending, so the
 -- policy-test runner and the ephemeral-db stage run it against the migrations.
 -- Observed on a local Supabase Postgres 17.11 holding the 153 migrations of main
--- (real schema, triggers and access helpers): with both rollbacks applied 33 of
--- 79 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
+-- (real schema, triggers and access helpers): with both rollbacks applied 37 of
+-- 89 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
 -- F3, F4b, H1, V2, M1, M2, RU0, RU2, RU3, W1, W2, W3, W5, Z1, Z2, Z2b, Z3, PP0, PP1,
--- PP2, PP2b, PP3, PP4, PP5b, PC1 and G1 fail: corrections overwritten, 0 tasks
--- queued on attach, stale editor defaults, placeholder material, tolerance
--- filled, quoted jobs moved to ready_to_quote, reuse keeping the CAD-only row);
--- with the two migrations applied 79 of 79 pass. Sections D, E and Q cover
+-- PP2, PP2b, PP3, PP4, PP5b, PC1, CS0, CS1, CS4, CS5, CS7, CS8 and G1 fail:
+-- corrections overwritten, 0 tasks queued on attach, stale editor defaults,
+-- placeholder material, tolerance filled, quoted jobs moved to ready_to_quote,
+-- reuse keeping the CAD-only row); with the two migrations applied 89 of 89 pass.
+-- Sections D, E and Q cover
 -- review r0 R1-R4;
 -- B5b, B8, B9, D-1 and the F, R, H, N jobs close the review r1 mutation gaps;
 -- A3b, B8, M, V, H1 (repeated auto-approval) and RU0-RU6 close review r2 (the
@@ -38,6 +39,15 @@
 -- is not queued again, so its approval and previews never finish); PP6 and PV1
 -- guard the other direction (a completed task, or a failure that names another
 -- drawing, queues nothing).
+-- Review r10 (the Codex medium of fix round 5): CS0-CS8 cover the trusted reuse
+-- of a source placement that still holds the CAD-only extraction because its
+-- own attach task failed before it stored anything (ovd979_reuse_step runs the
+-- worker's resolve-then-reuse step). On the revision 4 bytes of
+-- 20261020002127, CS1, CS2, CS4 and CS5 fail (the CAD-only row was copied onto a
+-- part that has a drawing and the reuse reported success); CS0, CS3, CS3b and
+-- CS6-CS8 pass there and guard the other directions (a package with no drawing
+-- is still reused, a source with a drawing extraction is still reused, and a
+-- source whose retry is queued is waited for).
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
@@ -49,7 +59,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(79);
+select plan(89);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -1470,6 +1480,235 @@ select is(
   'PC1 an attach task that was cancelled after storing its extraction, with no failure on record, is queued again'
 );
 reset role;
+
+-- ---------------------------------------------------------------- review r10 (Codex): reuse of a CAD-only source
+-- The worker assigns the canonical version before it extracts
+-- (api_resolve_trusted_part_intake, then runDrawingExtractionForTask), so a
+-- source placement whose attach task failed before it stored anything owns a
+-- complete version and still holds the CAD-only extraction it got before its
+-- drawing existed. Another placement of the same package resolves to that
+-- version, and the reuse copied the CAD-only row over the target's own CAD-only
+-- row: the target's attach task completed with no drawing data and, with the
+-- completed-task guard, was never extracted from its drawing.
+-- K: the source placement (CAD, then the drawing attached; the attach task is
+--    claimed, resolves its version and fails before it stores anything).
+-- L: the same package, extracted CAD-only first, then the drawing attached.
+-- M: the same package uploaded with its drawing, no extraction row yet.
+-- Q: the same package that already stores its own drawing extraction (a retry
+--    after a failure that came after the extraction was stored).
+-- N, O: a CAD-only package (no drawing anywhere) whose source row is CAD-only.
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-000000979ba0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 K', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979bb0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 L', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979bc0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 M', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979bd0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 Q', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979be0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 N', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979bf0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 O', 'uploaded');
+
+create temp table ovd979_steps (name text primary key, body jsonb);
+
+-- The worker's reuse step (handleExtractTask): resolve the intake, then reuse
+-- the artifacts of the source version it names.
+create function pg_temp.ovd979_reuse_step(p_part uuid) returns jsonb language plpgsql as $$
+declare
+  v_intake jsonb;
+begin
+  v_intake := public.api_resolve_trusted_part_intake(p_part);
+  return jsonb_build_object(
+    'result', v_intake ->> 'result',
+    'source', v_intake ->> 'sourcePartId',
+    'reuse', public.api_reuse_trusted_part_version_artifacts(
+      p_part, (v_intake ->> 'sourcePartId')::uuid, (v_intake ->> 'partVersionId')::uuid)
+  );
+end;
+$$;
+
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ba1', '00000000-0000-4000-8000-000000979ba0', 'cad', '4');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bb1', '00000000-0000-4000-8000-000000979bb0', 'cad', '4');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979be1', '00000000-0000-4000-8000-000000979be0', 'cad', '2');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bf1', '00000000-0000-4000-8000-000000979bf0', 'cad', '2');
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-000000979ba3', '00000000-0000-4000-8000-000000979ba0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979ba1', null),
+  ('00000000-0000-4000-8000-000000979bb3', '00000000-0000-4000-8000-000000979bb0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979bb1', null),
+  ('00000000-0000-4000-8000-000000979be3', '00000000-0000-4000-8000-000000979be0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979be1', null),
+  ('00000000-0000-4000-8000-000000979bf3', '00000000-0000-4000-8000-000000979bf0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979bf1', null);
+
+insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status)
+values ('00000000-0000-4000-8000-000000979be3', '00000000-0000-4000-8000-000000979001', 'worker-sim-v1',
+  '{"marker": "cad-package-source"}'::jsonb, 'approved');
+
+-- K and L are extracted CAD-only first (the worker writes worker-sim-v1 when no
+-- drawing is staged).
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979ba0');
+select public.api_request_extraction('00000000-0000-4000-8000-000000979bb0');
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979ba0', '00000000-0000-4000-8000-000000979ba3', 'worker-sim-v1', 'cad', 1,
+  '{"marker": "source-cad-only"}'::jsonb
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979bb0', '00000000-0000-4000-8000-000000979bb3', 'worker-sim-v1', 'cad', 1,
+  '{"marker": "target-cad-only"}'::jsonb
+);
+
+-- The drawing is attached to K first (so K owns the version of the full
+-- package), then to L.
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ba2', '00000000-0000-4000-8000-000000979ba0', 'drawing', '3');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bb2', '00000000-0000-4000-8000-000000979bb0', 'drawing', '3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979ba0');
+select public.api_request_extraction('00000000-0000-4000-8000-000000979bb0');
+reset role;
+
+-- K's attach task: claimed, resolves its canonical version, fails before the
+-- worker has stored the drawing extraction.
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-000000979ba3' and task_type = 'extract_part' and status = 'queued';
+select public.api_resolve_trusted_part_intake('00000000-0000-4000-8000-000000979ba3');
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-000000979ba3');
+
+select is(
+  array[
+    (select extractor_version from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979ba3'),
+    (select version_state::text from public.part_versions
+     where id = (select part_version_id from public.parts where id = '00000000-0000-4000-8000-000000979ba3')),
+    (select (source_part_id = '00000000-0000-4000-8000-000000979ba3')::text from public.part_versions
+     where id = (select part_version_id from public.parts where id = '00000000-0000-4000-8000-000000979ba3'))
+  ] || pg_temp.ovd979_attach_statuses('00000000-0000-4000-8000-000000979ba3'),
+  array['worker-sim-v1', 'complete', 'true', 'failed'],
+  'CS0 the source''s attach task failed after its package took the canonical version: it still holds the CAD-only extraction'
+);
+
+-- L's attach task: claimed, and the worker asks for the existing version's artifacts.
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-000000979bb3' and task_type = 'extract_part' and status = 'queued';
+insert into ovd979_steps values ('L', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bb3'));
+select is(
+  (select array[body ->> 'result', body ->> 'source', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}']
+   from ovd979_steps where name = 'L'),
+  array['existing_version', '00000000-0000-4000-8000-000000979ba3', 'false', 'true'],
+  'CS1 (Codex) a CAD-only source row is not reused for a part that has a drawing: the worker extracts the target itself'
+);
+select is(
+  (select array[extractor_version, extraction ->> 'marker']
+   from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979bb3'),
+  array['worker-sim-v1', 'target-cad-only'],
+  'CS2 the target keeps its own row: another CAD-only extraction does not replace it'
+);
+
+-- The worker then extracts the target from its drawing, in the worker's order.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979bb0', '00000000-0000-4000-8000-000000979bb3', 'worker-pdf-v3', 'own', 5,
+  '{"marker": "own-drawing"}'::jsonb
+);
+select is(
+  array[
+    (select extractor_version from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979bb3'),
+    (select description from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-000000979bb3'),
+    (select status::text from public.jobs where id = '00000000-0000-4000-8000-000000979bb0')
+  ],
+  array['worker-pdf-v3', 'EXTRACTED DESC own', 'ready_to_quote'],
+  'CS3 the target''s own extraction from its drawing finishes the approval and rolls the job up'
+);
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-000000979bb0'), 0,
+  'CS3b the attach is done: nothing is queued again for the target'
+);
+reset role;
+
+-- M: the same package uploaded with its drawing; Q: the same package with its
+-- own drawing extraction already stored. Both are added now, so K still owns
+-- the version.
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bc1', '00000000-0000-4000-8000-000000979bc0', 'cad', '4');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bc2', '00000000-0000-4000-8000-000000979bc0', 'drawing', '3');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bd1', '00000000-0000-4000-8000-000000979bd0', 'cad', '4');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979bd2', '00000000-0000-4000-8000-000000979bd0', 'drawing', '3');
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-000000979bc3', '00000000-0000-4000-8000-000000979bc0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979bc1', '00000000-0000-4000-8000-000000979bc2'),
+  ('00000000-0000-4000-8000-000000979bd3', '00000000-0000-4000-8000-000000979bd0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979bd1', '00000000-0000-4000-8000-000000979bd2');
+insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status)
+values ('00000000-0000-4000-8000-000000979bd3', '00000000-0000-4000-8000-000000979001', 'worker-pdf-v3',
+  '{"marker": "own-drawing-row"}'::jsonb, 'approved');
+
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values
+  ('M', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bc3')),
+  ('Q', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bd3')),
+  ('O', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bf3'));
+
+select is(
+  (select array[body ->> 'result', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}',
+      (select count(*)::text from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979bc3')]
+   from ovd979_steps where name = 'M'),
+  array['existing_version', 'false', 'true', '0'],
+  'CS4 a part with a drawing and no extraction does not take a CAD-only source row either: nothing is copied'
+);
+select is(
+  (select array[body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}',
+      (select extractor_version || '/' || (extraction ->> 'marker') from public.drawing_extractions
+       where part_id = '00000000-0000-4000-8000-000000979bd3')]
+   from ovd979_steps where name = 'Q'),
+  array['false', 'true', 'worker-pdf-v3/own-drawing-row'],
+  'CS5 a part that stored its own drawing extraction is extracted again rather than completed from a CAD-only source'
+);
+select is(
+  (select array[body ->> 'result', body ->> 'source', body #>> '{reuse,artifactsReady}',
+      (select extractor_version || '/' || (extraction ->> 'marker') from public.drawing_extractions
+       where part_id = '00000000-0000-4000-8000-000000979bf3')]
+   from ovd979_steps where name = 'O'),
+  array['existing_version', '00000000-0000-4000-8000-000000979be3', 'true', 'worker-sim-v1/cad-package-source'],
+  'CS6 a package with no drawing still reuses its CAD-only source row'
+);
+
+-- K is extracted again (its failed attach task is retried and now succeeds): the
+-- same package is then reused from a drawing extraction. While the retry is
+-- queued the source is still pending, and the target waits for it rather than
+-- extracting the drawing a second time.
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-000000979ba3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979ba0');
+reset role;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('Mp', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bc3'));
+select is(
+  (select array[body #>> '{reuse,result}', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}']
+   from ovd979_steps where name = 'Mp'),
+  array['existing_version_pending', 'false', 'false'],
+  'CS7 while the source''s retry is queued the target waits for it: a pending source is not a CAD-only source'
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979ba0', '00000000-0000-4000-8000-000000979ba3', 'worker-pdf-v3', 'src', 6,
+  '{"marker": "drawing-source"}'::jsonb
+);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('M2', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979bc3'));
+select is(
+  (select array[body ->> 'result', body #>> '{reuse,artifactsReady}',
+      (select extractor_version || '/' || (extraction ->> 'marker') from public.drawing_extractions
+       where part_id = '00000000-0000-4000-8000-000000979bc3')]
+   from ovd979_steps where name = 'M2'),
+  array['existing_version', 'true', 'worker-pdf-v3/drawing-source'],
+  'CS8 once the source holds a drawing extraction, the same package reuses it'
+);
 
 -- ---------------------------------------------------------------- attributes and grants
 select ok(

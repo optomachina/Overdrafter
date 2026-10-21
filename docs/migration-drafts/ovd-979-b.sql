@@ -52,8 +52,9 @@
 --      already held a CAD-only extraction kept it, completed its task and (by
 --      rule 3) was never extracted again. The reuse now replaces the row of a
 --      part that has a drawing when that row is CAD-only (worker-sim-%) with
---      the source version's extraction. Every other row stays as it was. The
---      rest of that function is verbatim from 20260812042000, ACL restated.
+--      the source version's extraction. Every other row stays as it was. Apart
+--      from rule 8, the rest of that function is verbatim from 20260812042000,
+--      ACL restated.
 --   7. Review r6 (Codex): the worker stores the drawing_extractions row
 --      (extractor_version 'worker-pdf-v3', so no longer worker-sim-%) before it
 --      persists the previews and auto-approves (handleExtractTask in
@@ -65,6 +66,18 @@
 --      drawingFileId exists, whatever extractor_version the row now has. Rule 3
 --      still holds for it: nothing is queued while a task is queued or running,
 --      and nothing once a task for this drawing has completed.
+--   8. Review r10 (Codex): the worker assigns the canonical version before it
+--      extracts, so a source placement whose attach task failed before it stored
+--      anything owns a complete version and still holds the CAD-only extraction
+--      it got before its drawing existed. The reuse (rule 6) copied that row
+--      over the target's own CAD-only row and reported success: the target's
+--      attach task completed without drawing data and, by rule 3, was never
+--      extracted again. The reuse now returns artifactsReady false with
+--      extractTargetIndependently true, and copies nothing, when the target has a
+--      drawing and the source's extraction is CAD-only (worker-sim-%). The worker
+--      then extracts the target from its own drawing (the path it already takes
+--      when the source has no extraction). A package with no drawing is still
+--      reused, and so is a source that holds a drawing extraction.
 -- ORDERING (blocks apply): apply this file only after OVD-976 (unit-aware
 -- drawing tolerance parsing in the worker) is deployed, and only after
 -- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
@@ -205,7 +218,8 @@ revoke execute on function public.api_request_extraction(uuid) from public, anon
 grant execute on function public.api_request_extraction(uuid) to authenticated, service_role;
 
 -- OVD-979 (review r2): verbatim from 20260812042000_add_canonical_part_identity.sql
--- except the conflict clause of the drawing_extractions insert (marked below).
+-- except the conflict clause of the drawing_extractions insert and, since review
+-- r10, the early return before that insert (both marked below).
 create or replace function public.api_reuse_trusted_part_version_artifacts(
   p_target_part_id uuid,
   p_source_part_id uuid,
@@ -298,6 +312,27 @@ begin
       'sourcePartId', v_source.id,
       'artifactsReady', false,
       'extractTargetIndependently', false
+    );
+  end if;
+
+  -- OVD-979 (review r10, Codex): a part that has a drawing never takes the
+  -- CAD-only extraction a source placement got before its own drawing existed
+  -- (its attach task can fail after the version was assigned and before the
+  -- drawing was extracted). Nothing is copied and the worker extracts the target
+  -- from its own drawing, as it does when the source has no extraction.
+  if v_target.drawing_file_id is not null
+    and exists (
+      select 1 from public.drawing_extractions extraction
+      where extraction.part_id = v_source.id
+        and extraction.extractor_version like 'worker-sim-%'
+    ) then
+    return pg_catalog.jsonb_build_object(
+      'result', 'source_cad_only',
+      'partId', v_target.id,
+      'partVersionId', v_version.id,
+      'sourcePartId', v_source.id,
+      'artifactsReady', false,
+      'extractTargetIndependently', true
     );
   end if;
 
