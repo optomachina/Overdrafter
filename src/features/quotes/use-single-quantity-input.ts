@@ -10,7 +10,8 @@ import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
  * State of the single Quantity field (OVD-997). It keeps the typed text locally, for the same reason
  * as the tolerance field: clearing the field to retype must not snap back to a number on every
  * keystroke. Only a whole number reaches the draft, so a half typed value can never be saved.
- * `state` is undefined when the mode is off; the field then does nothing and never blocks Save.
+ * The flag-off editor passes an editable state too, so Qty validation also blocks Save there.
+ * An undefined state makes this hook inactive; it is not the editor's flag-off configuration.
  */
 export function useSingleQuantityInput(
   draft: ClientPartRequestUpdateInput,

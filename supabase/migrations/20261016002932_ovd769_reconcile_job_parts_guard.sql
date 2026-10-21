@@ -49,7 +49,6 @@
 --     its "KNOWN GAP: unverified org A member can reconcile job parts" check.
 -- =====================================================================
 
-begin;
 
 create or replace function public.api_reconcile_job_parts(p_job_id uuid)
 returns jsonb
@@ -156,4 +155,3 @@ $$;
 revoke all on function public.api_reconcile_job_parts(uuid) from public, anon;
 grant execute on function public.api_reconcile_job_parts(uuid) to authenticated;
 
-commit;

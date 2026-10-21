@@ -34,8 +34,13 @@ jobs:
 
       - name: Verify migration lineage
         run: |
+          set -euo pipefail
           git fetch origin main --depth=1
-          npm run verify:migration-lineage -- --against-base
+          npm run verify:migration-lineage -- --against-base | tee "$RUNNER_TEMP/migration-lineage.log"
+          if ! grep -Fq 'Supabase migration-lineage verification passed' "$RUNNER_TEMP/migration-lineage.log"; then
+            echo "::error::Migration lineage verifier exited successfully without validation evidence."
+            exit 1
+          fi
 
       - name: Verify migration function collisions
         run: npm run verify:migration-function-collisions
@@ -99,7 +104,13 @@ jobs:
         run: npm run test:portable-node
 
       - name: Check provider integrations
-        run: npm run provider:check
+        run: |
+          set -euo pipefail
+          npm run --silent provider:check | tee "$RUNNER_TEMP/provider-check.json"
+          if ! test -s "$RUNNER_TEMP/provider-check.json" || ! jq -e '.ok == true' "$RUNNER_TEMP/provider-check.json" > /dev/null; then
+            echo "::error::Provider check exited successfully without an ok JSON verdict."
+            exit 1
+          fi
 
       - name: Verify free-quote SQL source fixtures
         run: |
@@ -644,7 +655,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
-          sparse-checkout: scripts/extraction-gate-decision.mjs
+          sparse-checkout: |
+            scripts/extraction-gate-decision.mjs
+            scripts/lib/entry-point.mjs
           sparse-checkout-cone-mode: false
 
       # EXTRACTION_GATE_MODE comes from the repository variable
@@ -666,4 +679,10 @@ jobs:
           EXTRACTION_GATE_OUTPUT: ${{ needs.extraction-gate.outputs.result-line }}
           EXTRACTION_GATE_CORPUS: ${{ needs.extraction-gate.outputs.corpus }}
           EXTRACTION_GATE_JOB_RESULT: ${{ needs.extraction-gate.result }}
-        run: node scripts/extraction-gate-decision.mjs
+        run: |
+          set -euo pipefail
+          node scripts/extraction-gate-decision.mjs | tee "$RUNNER_TEMP/extraction-gate-decision.log"
+          if ! grep -Eq '^extraction-gate mode=\S+ result=\S+ exit=' "$RUNNER_TEMP/extraction-gate-decision.log"; then
+            echo "::error::Extraction gate decision exited successfully without decision evidence."
+            exit 1
+          fi

@@ -385,6 +385,32 @@ describe("replay of real diffs against the #792 drafts tree", () => {
   });
 });
 
+describe("promoted OVD-766 rollback coverage", () => {
+  it("does not leave a pending rollback family after the Oct 15 promotion", () => {
+    const diff = [
+      ...["a", "b", "c", "d", "e"].map((part) => `D\tdocs/migration-drafts/ovd-766-${part}.sql`),
+      "D\tdocs/migration-drafts/ovd-771.sql",
+      "M\tdocs/migration-drafts/ovd-766-notes.md",
+      "D\tsupabase/tests/pending/ovd766_rollback_acl.sql.pending",
+      "A\tsupabase/tests/ovd766_rollback_acl.sql",
+    ].join("\n");
+    const report = runEphemeralDb({ root: ROOT, base: "HEAD^1", head: "HEAD", dbUrl: DB_URL,
+      exec: fakeExec({ diff }).exec, workDir: workDir(), planOnly: true, rollback: true });
+    expect(report.result).toBe("planned");
+    expect(report.families).toEqual([]);
+    expect(report.pendingTests.selected).toEqual([]);
+  });
+
+  it("keeps the transactional rollback fixtures equal to the retained rollback SQL", () => {
+    for (const part of ["b", "c", "e"]) {
+      const source = readFileSync(join(ROOT, `docs/migration-drafts/ovd-766-${part}.rollback.sql`), "utf8");
+      const withoutTransaction = source.replace(/^(?:begin|commit);\r?\n/gim, "");
+      expect(readFileSync(join(ROOT, `supabase/tests/fixtures/ovd766_${part}_rollback.inc`), "utf8"))
+        .toBe(withoutTransaction);
+    }
+  });
+});
+
 describe("runEphemeralDb with fixture drafts", () => {
   it("applies a family's drafts without a wrapping transaction and runs its pending tests", () => {
     const fake = fakeExec({ diff: `M\t${DRAFT_OK_ROLLBACK}\n` });

@@ -8,12 +8,11 @@ import { approveJobRequirements, requestExtraction } from "@/features/quotes/api
 import { publishQuotePackage } from "@/features/quotes/api/packages-api";
 import { resendSignupConfirmation } from "@/features/quotes/api/session-api";
 import { startQuoteRun } from "@/features/quotes/api/quote-requests-api";
-import { normalizeApprovedRequirementDraft } from "@/features/quotes/request-scenarios";
 import type { ApprovedPartRequirement } from "@/features/quotes/types";
 
 type UseInternalJobDetailMutationsOptions = {
   clientSummary: string;
-  drafts: Record<string, ApprovedPartRequirement>;
+  getRequirementsForSave: () => ApprovedPartRequirement[];
   forcePublish: boolean;
   jobId: string;
   latestQuoteRunId: string | null;
@@ -24,7 +23,7 @@ type UseInternalJobDetailMutationsOptions = {
 
 export function useInternalJobDetailMutations({
   clientSummary,
-  drafts,
+  getRequirementsForSave,
   forcePublish,
   jobId,
   latestQuoteRunId,
@@ -49,7 +48,7 @@ export function useInternalJobDetailMutations({
     mutationFn: () =>
       approveJobRequirements(
         jobId,
-        Object.values(drafts).map((draft) => normalizeApprovedRequirementDraft(draft)),
+        getRequirementsForSave(),
       ),
     onSuccess: async (approvedCount) => {
       toast.success(`Approved ${approvedCount} part requirement set(s).`);
