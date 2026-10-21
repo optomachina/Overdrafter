@@ -270,7 +270,7 @@
     {
       "path": "supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql",
       "issue": "OVD-979",
-      "sha256": "47081db6f123dad4daf7f5de661ff199d950ade60f0e8775122321b4be180100"
+      "sha256": "1b6213768ae43b468135adc85c9052a4b9ff2cf5a882d0a261df32081f973974"
     }
   ],
   "baselineSuites": [
@@ -688,6 +688,6 @@
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8",
     "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c",
     "supabase/migrations/20261020002126_ovd979_auto_approve_keep_user_corrections.sql": "720e7516e40d8a1ec6aedf30aab9112edaf759d188b6e430de43317857f78187",
-    "supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql": "47081db6f123dad4daf7f5de661ff199d950ade60f0e8775122321b4be180100"
+    "supabase/migrations/20261020002127_ovd979_request_extraction_drawing_attached.sql": "1b6213768ae43b468135adc85c9052a4b9ff2cf5a882d0a261df32081f973974"
   }
 }

@@ -258,7 +258,12 @@ select is(
   'a concurrent duplicate waits while the source extraction is active'
 );
 
-delete from public.work_queue
+-- The source's task ends without having stored an extraction. (It completes
+-- rather than disappears: OVD-979 trusts a source extraction only when an
+-- extract_part task of the source completed, and the extraction inserted below
+-- stands for the one that task produced.)
+update public.work_queue
+set status = 'completed'
 where id = '82000000-0000-4000-8000-000000000023';
 
 select is(

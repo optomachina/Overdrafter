@@ -13,13 +13,15 @@
 -- supabase/tests/pending/ovd979_reextraction_provenance.sql.pending, so the
 -- policy-test runner and the ephemeral-db stage run it against the migrations.
 -- Observed on a local Supabase Postgres 17.11 holding the 153 migrations of main
--- (real schema, triggers and access helpers): with both rollbacks applied 37 of
--- 89 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
+-- (real schema, triggers and access helpers): with both rollbacks applied 39 of
+-- 98 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
 -- F3, F4b, H1, V2, M1, M2, RU0, RU2, RU3, W1, W2, W3, W5, Z1, Z2, Z2b, Z3, PP0, PP1,
--- PP2, PP2b, PP3, PP4, PP5b, PC1, CS0, CS1, CS4, CS5, CS7, CS8 and G1 fail:
+-- PP2, PP2b, PP3, PP4, PP5b, PC1, CS0, CS1, CS4, CS5, CS7, CS8, RF0, RF1, RF2, RF3,
+-- RF3b, RF5, RF7 and G1 fail:
 -- corrections overwritten, 0 tasks queued on attach, stale editor defaults,
 -- placeholder material, tolerance filled, quoted jobs moved to ready_to_quote,
--- reuse keeping the CAD-only row); with the two migrations applied 89 of 89 pass.
+-- reuse keeping the CAD-only row or an unfinished one); with the two migrations
+-- applied 98 of 98 pass.
 -- Sections D, E and Q cover
 -- review r0 R1-R4;
 -- B5b, B8, B9, D-1 and the F, R, H, N jobs close the review r1 mutation gaps;
@@ -48,6 +50,18 @@
 -- CS6-CS8 pass there and guard the other directions (a package with no drawing
 -- is still reused, a source with a drawing extraction is still reused, and a
 -- source whose retry is queued is waited for).
+-- Review r11 (the Codex medium of fix round 6): RF0-RF7 cover the trusted reuse
+-- of a source whose attach task stored its drawing extraction and then failed (or
+-- was cancelled) before the previews and the approval were done, and of a source
+-- with no extract_part task on record. The reuse trusts a source row only when
+-- the task that produced it completed (the source needs a completed extract_part
+-- task that no failed or cancelled task created at or after it follows). On the
+-- revision 5 bytes of 20261020002127, RF1, RF2, RF5 and RF7 fail (the row was
+-- copied and the reuse reported success); RF0, RF3, RF3b, RF4 and RF6 pass there
+-- and guard the other directions (a source retried to completion is reused, a
+-- source whose retry is queued is waited for). Because the reuse now needs a
+-- completed task on record, the fixtures that insert a reuse source row directly
+-- (RU1 and RU6, CS6) also insert the completed task that produced it.
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
@@ -59,7 +73,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(89);
+select plan(98);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -979,6 +993,16 @@ values
   ('00000000-0000-4000-8000-0000009795e3', '00000000-0000-4000-8000-000000979001', 'worker-sim-v1',
     '{"marker": "cad-only"}'::jsonb, 'approved');
 
+-- The two reuse sources were extracted by worker tasks that completed (every
+-- extraction row is written under an extract_part task; the reuse trusts a
+-- source row only when that task completed, review r11).
+insert into public.work_queue (organization_id, job_id, part_id, task_type, status, payload)
+values
+  ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-0000009795a0', '00000000-0000-4000-8000-0000009795a3',
+    'extract_part', 'completed', '{}'::jsonb),
+  ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-0000009795d0', '00000000-0000-4000-8000-0000009795d3',
+    'extract_part', 'completed', '{}'::jsonb);
+
 -- T: extracted CAD-only first (the worker writes worker-sim-v1 when no drawing
 -- is staged), then the drawing is attached.
 set local role authenticated;
@@ -1543,6 +1567,10 @@ values
 insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status)
 values ('00000000-0000-4000-8000-000000979be3', '00000000-0000-4000-8000-000000979001', 'worker-sim-v1',
   '{"marker": "cad-package-source"}'::jsonb, 'approved');
+-- N's CAD-only row was written by a task that completed (review r11).
+insert into public.work_queue (organization_id, job_id, part_id, task_type, status, payload)
+values ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979be0', '00000000-0000-4000-8000-000000979be3',
+  'extract_part', 'completed', '{}'::jsonb);
 
 -- K and L are extracted CAD-only first (the worker writes worker-sim-v1 when no
 -- drawing is staged).
@@ -1708,6 +1736,203 @@ select is(
    from ovd979_steps where name = 'M2'),
   array['existing_version', 'true', 'worker-pdf-v3/drawing-source'],
   'CS8 once the source holds a drawing extraction, the same package reuses it'
+);
+
+-- ---------------------------------------------------------------- review r11 (Codex): reuse of a source whose task failed after it stored its extraction
+-- The worker stores the drawing_extractions row first and persists the previews,
+-- auto-approves and completes the task afterwards, so a source whose task fails
+-- in between holds a drawing-derived row (not CAD-only) and maybe some preview
+-- rows, with nothing queued or running. The reuse copied that row, the target's
+-- attach task completed and the completed-task guard of api_request_extraction
+-- kept the target from ever being repaired.
+-- F: the source (CAD extracted first by a task that completed, then the drawing
+--    attached; the attach task stores its extraction and one of its previews and fails).
+-- G1: the same package uploaded with its drawing while F's task has failed;
+-- G2: the same while F's task is cancelled instead; G3: the same while F's retry
+--    is queued; G4: the same once F's retry completed.
+-- H: another package whose source row has no extract_part task on record; I: its target.
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-000000979ca0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 F', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979cb0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 G1', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979cc0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 G2', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979cd0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 G3', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979ce0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 G4', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979cf0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 H', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979c90', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 I', 'uploaded');
+
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ca1', '00000000-0000-4000-8000-000000979ca0', 'cad', '5');
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values ('00000000-0000-4000-8000-000000979ca3', '00000000-0000-4000-8000-000000979ca0', '00000000-0000-4000-8000-000000979001',
+  'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979ca1', null);
+
+-- F is extracted CAD-only first, by a task that completes.
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979ca0');
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979ca0', '00000000-0000-4000-8000-000000979ca3', 'worker-sim-v1', 'cad', 1,
+  '{"marker": "f-cad-only"}'::jsonb
+);
+
+-- The drawing is attached; the attach task stores the drawing extraction and
+-- one preview row, then fails (persistDrawingPreviewAssets, auto-approval).
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ca2', '00000000-0000-4000-8000-000000979ca0', 'drawing', '1');
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-000000979ca3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979ca0');
+reset role;
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979ca0', '00000000-0000-4000-8000-000000979ca3', 'worker-pdf-v3', 'src', 6,
+  '{"marker": "f-stored-then-failed"}'::jsonb, '{}'::text[], false, false
+);
+insert into public.drawing_preview_assets (part_id, organization_id, page_number, kind, storage_path)
+values ('00000000-0000-4000-8000-000000979ca3', '00000000-0000-4000-8000-000000979001', 1, 'page', 'org/ovd979/f-page-1.png');
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-000000979ca3');
+
+select is(
+  array[
+    (select extractor_version from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979ca3'),
+    (select count(*)::text from public.drawing_preview_assets where part_id = '00000000-0000-4000-8000-000000979ca3'),
+    (select (source_part_id = '00000000-0000-4000-8000-000000979ca3')::text from public.part_versions
+     where id = (select part_version_id from public.parts where id = '00000000-0000-4000-8000-000000979ca3'))
+  ] || (select array_agg(status::text order by created_at, status::text) from public.work_queue
+        where part_id = '00000000-0000-4000-8000-000000979ca3' and task_type = 'extract_part'),
+  array['worker-pdf-v3', '1', 'true', 'completed', 'failed'],
+  'RF0 the source''s attach task failed after it stored its drawing extraction: a drawing-derived row, one preview, an earlier completed task and a failed latest one'
+);
+
+-- G1 to G4: the same package, uploaded together with its drawing.
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cb1', '00000000-0000-4000-8000-000000979cb0', 'cad', '5');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cb2', '00000000-0000-4000-8000-000000979cb0', 'drawing', '1');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cc1', '00000000-0000-4000-8000-000000979cc0', 'cad', '5');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cc2', '00000000-0000-4000-8000-000000979cc0', 'drawing', '1');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cd1', '00000000-0000-4000-8000-000000979cd0', 'cad', '5');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cd2', '00000000-0000-4000-8000-000000979cd0', 'drawing', '1');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ce1', '00000000-0000-4000-8000-000000979ce0', 'cad', '5');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979ce2', '00000000-0000-4000-8000-000000979ce0', 'drawing', '1');
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-000000979cb3', '00000000-0000-4000-8000-000000979cb0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979cb1', '00000000-0000-4000-8000-000000979cb2'),
+  ('00000000-0000-4000-8000-000000979cc3', '00000000-0000-4000-8000-000000979cc0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979cc1', '00000000-0000-4000-8000-000000979cc2'),
+  ('00000000-0000-4000-8000-000000979cd3', '00000000-0000-4000-8000-000000979cd0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979cd1', '00000000-0000-4000-8000-000000979cd2'),
+  ('00000000-0000-4000-8000-000000979ce3', '00000000-0000-4000-8000-000000979ce0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979ce1', '00000000-0000-4000-8000-000000979ce2');
+
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('G1', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979cb3'));
+select is(
+  (select array[body ->> 'result', body ->> 'source', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}',
+      (select count(*)::text from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979cb3'),
+      (select count(*)::text from public.drawing_preview_assets where part_id = '00000000-0000-4000-8000-000000979cb3')]
+   from ovd979_steps where name = 'G1'),
+  array['existing_version', '00000000-0000-4000-8000-000000979ca3', 'false', 'true', '0', '0'],
+  'RF1 (Codex) a source whose attach task failed after it stored its extraction is not reused: nothing is copied and the worker extracts the target itself'
+);
+
+-- The same, when the source's task was cancelled (by hand) instead of failed.
+update public.work_queue set status = 'cancelled'
+where part_id = '00000000-0000-4000-8000-000000979ca3' and task_type = 'extract_part' and status = 'failed';
+insert into ovd979_steps values ('G2', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979cc3'));
+select is(
+  (select array[body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}',
+      (select count(*)::text from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979cc3')]
+   from ovd979_steps where name = 'G2'),
+  array['false', 'true', '0'],
+  'RF2 a source whose task was cancelled after it stored its extraction is not reused either'
+);
+
+-- F's attach is retried through api_request_extraction (the revision 4 path):
+-- while the retry is queued the target waits for it.
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-000000979ca3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-000000979ca0'), 1,
+  'RF3 the cancelled attach task of the source is queued again'
+);
+reset role;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('G3', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979cd3'));
+select is(
+  (select array[body #>> '{reuse,result}', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}']
+   from ovd979_steps where name = 'G3'),
+  array['existing_version_pending', 'false', 'false'],
+  'RF3b while the source''s retry is queued the target waits for it'
+);
+
+-- The retry completes (in the worker's order): the failure it replaced is
+-- history, and the same package is reused from the source again.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979ca0', '00000000-0000-4000-8000-000000979ca3', 'worker-pdf-v3', 'src', 8,
+  '{"marker": "f-retried"}'::jsonb
+);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('G4', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979ce3'));
+select is(
+  (select array[body #>> '{reuse,artifactsReady}',
+      (select extractor_version || '/' || (extraction ->> 'marker') from public.drawing_extractions
+       where part_id = '00000000-0000-4000-8000-000000979ce3')]
+   from ovd979_steps where name = 'G4'),
+  array['true', 'worker-pdf-v3/f-retried'],
+  'RF4 once the source''s retry completed, the same package reuses its extraction again'
+);
+
+-- H: a source row that no extract_part task on record produced. I: its target.
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cf1', '00000000-0000-4000-8000-000000979cf0', 'cad', 'e');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979cf2', '00000000-0000-4000-8000-000000979cf0', 'drawing', 'd');
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values ('00000000-0000-4000-8000-000000979cf3', '00000000-0000-4000-8000-000000979cf0', '00000000-0000-4000-8000-000000979001',
+  'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979cf1', '00000000-0000-4000-8000-000000979cf2');
+insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status)
+values ('00000000-0000-4000-8000-000000979cf3', '00000000-0000-4000-8000-000000979001', 'worker-pdf-v3',
+  '{"marker": "no-task-source"}'::jsonb, 'approved');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979c91', '00000000-0000-4000-8000-000000979c90', 'cad', 'e');
+select pg_temp.ovd979_add_trusted_file('00000000-0000-4000-8000-000000979c92', '00000000-0000-4000-8000-000000979c90', 'drawing', 'd');
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values ('00000000-0000-4000-8000-000000979c93', '00000000-0000-4000-8000-000000979c90', '00000000-0000-4000-8000-000000979001',
+  'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979c91', '00000000-0000-4000-8000-000000979c92');
+
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into ovd979_steps values ('I1', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979c93'));
+select is(
+  (select array[body ->> 'result', body ->> 'source', body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}',
+      (select count(*)::text from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979c93')]
+   from ovd979_steps where name = 'I1'),
+  array['existing_version', '00000000-0000-4000-8000-000000979cf3', 'false', 'true', '0'],
+  'RF5 a source extraction that no extract_part task on record produced is not trusted'
+);
+
+insert into public.work_queue (organization_id, job_id, part_id, task_type, status, payload)
+values ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979cf0', '00000000-0000-4000-8000-000000979cf3',
+  'extract_part', 'completed', '{}'::jsonb);
+insert into ovd979_steps values ('I2', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979c93'));
+select is(
+  (select array[body #>> '{reuse,artifactsReady}',
+      (select extractor_version || '/' || (extraction ->> 'marker') from public.drawing_extractions
+       where part_id = '00000000-0000-4000-8000-000000979c93')]
+   from ovd979_steps where name = 'I2'),
+  array['true', 'worker-pdf-v3/no-task-source'],
+  'RF6 the same source is reused once a completed extract_part task is on record'
+);
+
+-- A failure recorded at the same instant as the completion (one test
+-- transaction has one clock) is not ordered before it, so it counts against the
+-- source, the same way a tie keeps a failed task in the roll-up of part a.
+insert into public.work_queue (organization_id, job_id, part_id, task_type, status, payload)
+values ('00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979cf0', '00000000-0000-4000-8000-000000979cf3',
+  'extract_part', 'failed', '{}'::jsonb);
+insert into ovd979_steps values ('I3', pg_temp.ovd979_reuse_step('00000000-0000-4000-8000-000000979c93'));
+select is(
+  (select array[body #>> '{reuse,artifactsReady}', body #>> '{reuse,extractTargetIndependently}']
+   from ovd979_steps where name = 'I3'),
+  array['false', 'true'],
+  'RF7 a failed task created at the same instant as the completed one counts against the source'
 );
 
 -- ---------------------------------------------------------------- attributes and grants

@@ -53,8 +53,8 @@
 --      rule 3) was never extracted again. The reuse now replaces the row of a
 --      part that has a drawing when that row is CAD-only (worker-sim-%) with
 --      the source version's extraction. Every other row stays as it was. Apart
---      from rule 8, the rest of that function is verbatim from 20260812042000,
---      ACL restated.
+--      from rules 8 and 9, the rest of that function is verbatim from
+--      20260812042000, ACL restated.
 --   7. Review r6 (Codex): the worker stores the drawing_extractions row
 --      (extractor_version 'worker-pdf-v3', so no longer worker-sim-%) before it
 --      persists the previews and auto-approves (handleExtractTask in
@@ -78,6 +78,23 @@
 --      then extracts the target from its own drawing (the path it already takes
 --      when the source has no extraction). A package with no drawing is still
 --      reused, and so is a source that holds a drawing extraction.
+--   9. Review r11 (Codex): the worker stores the drawing_extractions row first
+--      and persists the previews, auto-approves and marks the task completed
+--      afterwards (handleExtractTask in worker/src/index.ts), so a source task
+--      that failed or was cancelled in between leaves a drawing-derived row
+--      (not CAD-only, so rule 8 does not apply) with possibly missing previews.
+--      The reuse copied it, reported artifactsReady true and completed the
+--      target's task, and rule 3 then kept the target from ever being repaired.
+--      The reuse now trusts a source extraction only when the task that produced
+--      it completed: the source needs an extract_part task with status
+--      completed that no extract_part task of the same part that failed or was
+--      cancelled and was created at or after it (a tie counts against the
+--      source) follows. Otherwise (including a source with no extract_part task
+--      at all) it returns artifactsReady false with extractTargetIndependently
+--      true and copies nothing, and the worker extracts the target itself. The
+--      check follows the pending checks, so a source whose retry is queued or
+--      running is still waited for, and a source whose failed task was retried
+--      to completion is reused again.
 -- ORDERING (blocks apply): apply this file only after OVD-976 (unit-aware
 -- drawing tolerance parsing in the worker) is deployed, and only after
 -- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
@@ -218,8 +235,8 @@ revoke execute on function public.api_request_extraction(uuid) from public, anon
 grant execute on function public.api_request_extraction(uuid) to authenticated, service_role;
 
 -- OVD-979 (review r2): verbatim from 20260812042000_add_canonical_part_identity.sql
--- except the conflict clause of the drawing_extractions insert and, since review
--- r10, the early return before that insert (both marked below).
+-- except the conflict clause of the drawing_extractions insert and, since reviews
+-- r10 and r11, the two early returns before that insert (all marked below).
 create or replace function public.api_reuse_trusted_part_version_artifacts(
   p_target_part_id uuid,
   p_source_part_id uuid,
@@ -328,6 +345,41 @@ begin
     ) then
     return pg_catalog.jsonb_build_object(
       'result', 'source_cad_only',
+      'partId', v_target.id,
+      'partVersionId', v_version.id,
+      'sourcePartId', v_source.id,
+      'artifactsReady', false,
+      'extractTargetIndependently', true
+    );
+  end if;
+
+  -- OVD-979 (review r11, Codex): the source's extraction is trusted only when the
+  -- task that produced it completed. The worker stores the extraction row before
+  -- it persists the previews and auto-approves, so a task that failed or was
+  -- cancelled after that point leaves a drawing-derived row with possibly
+  -- missing previews and nothing queued or running. The source therefore needs
+  -- an extract_part task that completed and that no task of the same part that
+  -- failed or was cancelled follows (created at or after it, so a tie counts
+  -- against the source); a source with no such task is not trusted either.
+  -- Nothing is copied and the worker extracts the target from its own files, as
+  -- it does when the source has no extraction.
+  if not exists (
+      select 1 from public.work_queue finished
+      where finished.job_id = v_source.job_id
+        and finished.part_id = v_source.id
+        and finished.task_type = 'extract_part'
+        and finished.status = 'completed'
+        and not exists (
+          select 1 from public.work_queue unsuccessful
+          where unsuccessful.job_id = v_source.job_id
+            and unsuccessful.part_id = v_source.id
+            and unsuccessful.task_type = 'extract_part'
+            and unsuccessful.status in ('failed', 'cancelled')
+            and unsuccessful.created_at >= finished.created_at
+        )
+    ) then
+    return pg_catalog.jsonb_build_object(
+      'result', 'source_extraction_unfinished',
       'partId', v_target.id,
       'partVersionId', v_version.id,
       'sourcePartId', v_source.id,

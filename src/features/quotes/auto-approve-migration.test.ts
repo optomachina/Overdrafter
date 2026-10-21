@@ -277,7 +277,7 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     // A part that holds the CAD-only extraction the worker wrote before its drawing existed completed
     // its reuse task with that row kept (ON CONFLICT DO NOTHING) and, with the completed-task
     // dedupe above, was never extracted from its drawing. Every other row is still kept. The
-    // early return of review r10 (next test) is the only other change to the function body.
+    // early returns of reviews r10 and r11 (next tests) are the only other changes to the function body.
     const original = extractFunction(
       readFileSync(path.join(migrationsDir, "20260812042000_add_canonical_part_identity.sql"), "utf8"),
       "api_reuse_trusted_part_version_artifacts",
@@ -287,9 +287,13 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
       /on conflict \(part_id\) do update\s+set extractor_version = excluded\.extractor_version,[\s\S]*?where v_target\.drawing_file_id is not null\s+and public\.drawing_extractions\.extractor_version like 'worker-sim-%';/,
     );
     const earlyReturn = / {2}-- OVD-979 \(review r10, Codex\)[\s\S]*?\n {2}end if;\n\n/;
+    const unfinishedReturn = / {2}-- OVD-979 \(review r11, Codex\)[\s\S]*?\n {2}end if;\n\n/;
     const conflictClause = / {2}-- OVD-979 \(review r2\): a part that has a drawing[\s\S]*?like 'worker-sim-%';\n/;
     expect(
-      current.replace(earlyReturn, "").replace(conflictClause, "  on conflict (part_id) do nothing;\n"),
+      current
+        .replace(earlyReturn, "")
+        .replace(unfinishedReturn, "")
+        .replace(conflictClause, "  on conflict (part_id) do nothing;\n"),
     ).toBe(original);
   });
 
@@ -309,6 +313,50 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     expect(pending).toBeGreaterThan(0);
     expect(earlyReturn).toBeGreaterThan(pending);
     expect(copy).toBeGreaterThan(earlyReturn);
+  });
+
+  it("copies a source extraction only when the extract_part task that produced it completed (review r11)", () => {
+    // The worker stores the extraction row before the previews and the approval, so a source whose task
+    // failed or was cancelled after that point holds a drawing-derived row (not CAD-only) with possibly
+    // missing previews and nothing queued or running. Copying it completed the target's task and the
+    // completed-task guard of api_request_extraction then kept the target from ever being repaired. The
+    // source needs a completed extract_part task that no failed or cancelled task created at or after it
+    // follows; no task on record is not trusted either. Same fallback as review r10: the worker extracts
+    // the target itself.
+    const reuse = extractFunction(requestSql, "api_reuse_trusted_part_version_artifacts");
+    expect(reuse).toMatch(
+      /if not exists \(\s+select 1 from public\.work_queue finished\s+where finished\.job_id = v_source\.job_id\s+and finished\.part_id = v_source\.id\s+and finished\.task_type = 'extract_part'\s+and finished\.status = 'completed'\s+and not exists \(\s+select 1 from public\.work_queue unsuccessful\s+where unsuccessful\.job_id = v_source\.job_id\s+and unsuccessful\.part_id = v_source\.id\s+and unsuccessful\.task_type = 'extract_part'\s+and unsuccessful\.status in \('failed', 'cancelled'\)\s+and unsuccessful\.created_at >= finished\.created_at\s+\)\s+\) then\s+return pg_catalog\.jsonb_build_object\(\s+'result', 'source_extraction_unfinished',\s+'partId', v_target\.id,\s+'partVersionId', v_version\.id,\s+'sourcePartId', v_source\.id,\s+'artifactsReady', false,\s+'extractTargetIndependently', true\s+\);\s+end if;/,
+    );
+    // Order: after the pending checks (a source whose retry is queued or running is waited for) and the
+    // CAD-only return, and before anything is copied.
+    const pending = reuse.lastIndexOf("'result', 'existing_version_pending'");
+    const cadOnly = reuse.indexOf("'result', 'source_cad_only'");
+    const unfinished = reuse.indexOf("'result', 'source_extraction_unfinished'");
+    const copy = reuse.indexOf("insert into public.drawing_extractions (");
+    const previews = reuse.indexOf("insert into public.drawing_preview_assets (");
+    expect(cadOnly).toBeGreaterThan(pending);
+    expect(unfinished).toBeGreaterThan(cadOnly);
+    expect(copy).toBeGreaterThan(unfinished);
+    expect(previews).toBeGreaterThan(copy);
+  });
+
+  it("rests on a preview or approval failure ending the extract_part task as failed, after the row is stored (review r11)", () => {
+    // If persistDrawingPreviewAssets were wrapped so that its errors were swallowed, or the extraction were
+    // stored after the previews, a failed task would no longer be the signal that the artifacts are
+    // incomplete and the check above would need another one.
+    const worker = readFileSync(path.join(process.cwd(), "worker/src/index.ts"), "utf8");
+    const start = worker.indexOf("async function handleExtractTask(");
+    const handler = worker.slice(start, worker.indexOf("async function handleGenerateCadPreviewTask("));
+    const stored = handler.indexOf('from("drawing_extractions").upsert(');
+    const previews = handler.indexOf("await persistDrawingPreviewAssets(");
+    expect(stored).toBeGreaterThan(0);
+    expect(previews).toBeGreaterThan(stored);
+    expect(handler.slice(stored, previews)).not.toContain("try {");
+    // The handler rethrows to processClaimedTask, whose non-retryable path is markTaskFailed.
+    expect(handler).toMatch(/\} catch \(error\) \{[\s\S]*?\n {4}throw error;\n {2}\} finally \{/);
+    expect(worker).toMatch(
+      /\} else \{\s+await markTaskFailed\(\s+supabase,\s+task,\s+failureEvidence\.failureMessage,/,
+    );
   });
 
   it("rests on the worker extracting the target itself when the reuse asks for it (review r10)", () => {
