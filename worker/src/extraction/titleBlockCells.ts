@@ -161,6 +161,10 @@ export type CellRead = {
   valueLines: number[];
   /** Positive evidence that the whole cell was consumed, not just a plausible candidate. */
   complete: boolean;
+  revisionRole?: "current" | "history" | "ambiguous";
+  /** Independent evidence survives a rejected suggestion; it can veto but never grant approval. */
+  observations?: Array<{ value: string; binding: "label_owned" | "unresolved" }>;
+
 };
 
 type LabelSpec = {
@@ -355,6 +359,7 @@ const MAX_LABELS_PER_PAGE = 400;
 const MAX_RUNS_PER_PAGE = 2_000;
 
 type Label = {
+  revisionRole?: CellRead["revisionRole"];
   field: CellField | null;
   text: string;
   line: number;
@@ -445,6 +450,23 @@ export function isLabelLikeToken(value: string): boolean {
   }
   const rest = text.replace(LABEL_ONLY_PATTERN, " ").replace(/[^A-Za-z0-9]+/g, "");
   return rest.length === 0;
+}
+
+/** Values that supply no field evidence, shared by deterministic and model readers. */
+export function isPlaceholderOrLabelValue(value: string): boolean {
+  const text = normalizeWhitespace(foldForLabelTest(value)).toUpperCase();
+  return /^(?:TBD|TBA|N\/?A|NONE|SEE NOTE(?:S|\(S\))?|SEE DWG|PER NOTE|--?)$/.test(text) || isLabelLikeToken(text);
+}
+
+/** Explicit current cells outrank history; ambiguous table headers can only supply suggestions. */
+export function currentRevisionReads(reads: readonly CellRead[]): CellRead[] {
+  return reads.filter((read) => {
+    if (read.field !== "revision") return true;
+    const peers = reads.filter((other) => other.page === read.page && other.field === "revision");
+    if (peers.some((other) => other.revisionRole === "current")) return read.revisionRole === "current";
+    if (peers.some((other) => other.revisionRole === "ambiguous")) return read.revisionRole === "ambiguous";
+    return true;
+  });
 }
 
 const SPACE = 32;
@@ -947,7 +969,7 @@ function descriptionRejection(field: "material" | "finish", value: string): stri
 
 /** The reason a value read from a cell cannot be that field, or null when it can. */
 function rejectionFor(field: CellField, value: string): string | null {
-  if (isLabelLikeToken(value)) {
+  if (isPlaceholderOrLabelValue(value)) {
     return "label_token";
   }
   // A single character is a zone marker or a stray letter, never a drawing number, material or finish.
@@ -1923,14 +1945,15 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
     }
   }
   const labelsByLine = groupByLine(labels);
-  // A REV / DESCRIPTION / DATE (or ENGINEER) header owns revision-history rows, not the drawing's
-  // current revision. The other named columns establish its table role on the full page.
+  // Header words alone cannot establish that a DESCRIPTION/DATE row is historical.
+  // Keep its value as ambiguous evidence; an explicit current cell wins on the same page.
   for (const row of labelsByLine.values()) {
-    if (row.some((label) => /^DESCRIPTION$/i.test(label.text)) &&
-      row.some((label) => /^(?:DATE|ENGINEER)$/i.test(label.text))) {
-      for (const label of row) {
-        if (label.field === "revision") label.field = null;
-      }
+    const headers = row.map((label) => label.text.replace(/:$/, ""));
+    const history = headers.some((text) => /^EC[ONR]$/i.test(text));
+    const table = headers.some((text) => /^DESCRIPTION$/i.test(text)) &&
+      headers.some((text) => /^(?:DATE|ENGINEER)$/i.test(text));
+    for (const label of row) {
+      if (label.field === "revision") label.revisionRole = history ? "history" : table ? "ambiguous" : "current";
     }
   }
   const runs: Run[] = [];
@@ -2050,6 +2073,19 @@ function accountsForCellGeometry(
   const valueBottom = Math.max(...lines.flatMap((line) => read.valueLines.includes(line.lineNumber)
     ? (line.words ?? []).filter((word) => owned.some((run) => run.line === line.lineNumber &&
       word.x1 > run.start && word.x0 < run.end)).map((word) => word.y1 ?? Infinity) : []));
+  const labelWords = lines.find((line) => line.lineNumber === label.line)?.words?.filter((word) =>
+    word.from < label.charEnd && word.to > label.charStart) ?? [];
+  const labelTop = Math.min(...labelWords.map((word) => word.y0 ?? -Infinity));
+  const labelBottom = Math.max(...labelWords.map((word) => word.y1 ?? Infinity));
+  // A rule above OR below a proposed value separates it from its label. A rule below
+  // the value can close the cell, but cannot repair an already broken binding.
+  if (column !== undefined && lines.some((line) => read.valueLines.includes(line.lineNumber) &&
+    (line.words ?? []).some((word) => owned.some((run) => run.line === line.lineNumber &&
+      word.x1 > run.start && word.x0 < run.end) && (lines[0]?.borders ?? []).some((border) =>
+      border.x0 / column <= Math.min(label.start, word.x0) &&
+      border.x1 / column >= Math.max(label.end, word.x1) &&
+      ((border.y >= labelBottom && border.y <= (word.y0 ?? -Infinity)) ||
+       (border.y <= labelTop && border.y >= (word.y1 ?? Infinity))))))) return false;
   const ruledBorders = column === undefined ? [] : (lines[0]?.borders ?? [])
     .filter((border) => Number.isFinite(valueBottom) && border.y >= valueBottom && border.x0 / column <= label.start && border.x1 / column >= valueRight);
   // Only a known label in this cell's own column closes it. An adjacent label cannot close the
@@ -2139,6 +2175,22 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     const fenced = hasOwnCellOnItsLine(label, ownedRuns, ownership.inlineRuns, runsByLine, caps);
     const doubt = crossesUnreadLine(label, caps, unreadLines) ? "unread_line" : doubtOf(label, ownership, runsByLine, finePitch);
     const read = readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt);
+    if (read.status === "ambiguous" || read.status === "rejected") {
+      const describes = label.field === "material" || label.field === "finish";
+      const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null);
+      const considered = ownedRuns.filter((run) => run.line < choice.stoppedAt);
+      // Keep every owned identifier, including later rows that made the suggestion ambiguous.
+      // A material/finish is one phrase: its wrapped qualifier is not a competing value.
+      const observedLines = [...groupByLine(considered)].sort(([left], [right]) => left - right)
+        .map(([, runs]) => lineTextOf(runs));
+      const values = describes ? [observedLines.join(" ")] : observedLines;
+      const unresolved = fenced || choice.stackedLabel || choice.far || ownership.straddled.has(label) ||
+        ownership.contested.has(label) || crossesUnreadLine(label, caps, unreadLines);
+      read.observations = values.filter(Boolean).map((value) => ({
+        value, binding: unresolved ? "unresolved" : "label_owned",
+      }));
+    }
+    if (label.field === "revision") read.revisionRole = label.revisionRole;
     read.complete = accountsForCellGeometry(label, read, candidateLines, labelsByLine, ownership, caps);
     reads.push(read);
   }

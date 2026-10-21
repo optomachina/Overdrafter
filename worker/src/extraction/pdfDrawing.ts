@@ -3,16 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { SupportedReviewField } from "../types.js";
+import { DRAWING_FIELD_NAMES, type SupportedReviewField } from "../types.js";
 import { buildWordLines, MAX_WORDS_TOTAL, parseBboxWords, type PdfWord } from "./pdfWords.js";
 import {
   isLabelLikeToken,
+  currentRevisionReads,
   readTitleBlockPages,
   type CellField,
   type CellRead,
   type TitleBlockTextLine,
   type TitleBlockBorder,
 } from "./titleBlockCells.js";
+
+import { finalizeExtractionApproval } from "./extractionApproval.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,7 +83,7 @@ export type PdfTextPage = {
    * OVD-989: the text layer's words with their boxes in points, from `pdftotext -bbox`. Geometry only: the
    * title block reader uses it when present, because `-layout` columns are squeezed where a word is set
    * larger than its neighbours. Absent when the page has no text layer, when poppler could not print the
-   * boxes, or when the page has too many words; nothing else reads it.
+   * boxes, or when the page has too many words. Complete boxes also gate numeric tolerance approval.
    */
   words?: PdfWord[];
   borders?: TitleBlockBorder[];
@@ -876,17 +879,19 @@ function selectApplicableToleranceRows(
   candidates: ToleranceCandidate[],
   dimensionsReadable: boolean,
   rasterText: string,
+  dimensionText = text,
 ): { candidates: ToleranceCandidate[]; unresolvedRows: Set<ToleranceCandidate> } {
   const rows = candidates.filter((candidate) => candidate.rowPlaces !== null);
   if (rows.length === 0) {
     return { candidates, unresolvedRows: new Set() };
   }
 
-  const tableValueStarts = new Set(rows.map((row) => row.numberStart));
-  const readable = dimensionsReadable ? countReadableDimensions(text, tableValueStarts) : null;
+  const dimensionRows = dimensionText === text ? rows : collectToleranceCandidates(dimensionText).filter((candidate) => candidate.rowPlaces !== null);
+  const tableValueStarts = new Set(dimensionRows.map((row) => row.numberStart));
+  const readable = dimensionsReadable ? countReadableDimensions(dimensionText, tableValueStarts) : null;
   if (readable !== null && readable.complete && readable.dimensions >= MIN_READABLE_DIMENSIONS) {
-    const most = mostPlacesPrinted(text, tableValueStarts);
-    if (mostPlacesOnlyInRaster(text, rasterText) <= most) {
+    const most = mostPlacesPrinted(dimensionText, tableValueStarts);
+    if (mostPlacesOnlyInRaster(dimensionText, rasterText) <= most) {
       return {
         candidates: candidates.filter((candidate) => candidate.rowPlaces === null || candidate.rowPlaces <= most),
         unresolvedRows: new Set(),
@@ -1028,7 +1033,7 @@ function readUnresolvedRow(candidate: ToleranceCandidate, declared: { inch: bool
   return reading.unit === null ? reading : unresolvedReading(candidate, reading.inches);
 }
 
-function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean; rasterText?: string } = {}) {
+function estimateTightestTolerance(sourceText: string, options: { dimensionsReadable?: boolean; rasterText?: string; dimensionText?: string } = {}) {
   const text = normalizeUnitText(sourceText);
   const declared = detectDeclaredUnits(text);
   const drawingUnits: DrawingUnits =
@@ -1038,6 +1043,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
     collectToleranceCandidates(text),
     options.dimensionsReadable !== false,
     normalizeUnitText(options.rasterText ?? ""),
+    options.dimensionText === undefined ? text : normalizeUnitText(options.dimensionText),
   );
   if (candidates.length === 0) {
     return null;
@@ -1372,31 +1378,6 @@ function buildCellCandidates(reads: readonly CellRead[], field: CellField): Cand
           : ["label_match", "spatial_match"],
       snippet: read.value as string,
     }));
-}
-
-const CELL_FIELDS: readonly CellField[] = ["partNumber", "revision", "material", "finish"];
-
-/**
- * The single approval gate. Ranking and rescue choose suggestions; they cannot confer approval.
- * A winner needs a complete label-owned cell, agreement of every nonempty cell, and a full read.
- * Comparing all cells (not just the top two scores) prevents a stronger candidate hiding a conflict.
- */
-function approveCellField(
-  field: ExtractedFieldSignal,
-  reads: readonly CellRead[],
-  cellField: CellField,
-  pagesComplete: boolean,
-): ExtractedFieldSignal {
-  const cells = reads.filter((read) => read.field === cellField);
-  const agrees = (read: CellRead) => read.status === "value" && read.value?.toUpperCase() === field.value?.toUpperCase() && read.complete;
-  const approved = pagesComplete && !field.reviewNeeded && cells.some(agrees) &&
-    cells.every((read) => (read.status === "empty" && read.complete) || agrees(read));
-  return {
-    ...field,
-    reviewNeeded: !approved,
-    reasons: [...new Set([...field.reasons, approved ? "title_block_cell_proven" :
-      pagesComplete ? "title_block_cell_unread" : "title_block_page_unread"])],
-  };
 }
 
 function addCandidate(candidates: CandidateSignal[], candidate: CandidateSignal) {
@@ -1966,7 +1947,13 @@ async function readPageBorders(localPath: string, page: number, deadline: number
         xs.push(a * numbers[i]! + c * numbers[i + 1]! + e);
         ys.push(b * numbers[i]! + d * numbers[i + 1]! + f);
       }
-      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+      const stroke = attribute(tag, "stroke");
+      const width = stroke && stroke !== "none" ? Number(attribute(tag, "stroke-width") ?? 1) : 0;
+      const miter = attribute(tag, "stroke-linejoin") === "round" || attribute(tag, "stroke-linejoin") === "bevel"
+        ? 1 : Number(attribute(tag, "stroke-miterlimit") ?? 4);
+      if (!Number.isFinite(width) || width < 0 || !Number.isFinite(miter) || miter < 1) return null;
+      const dx = width / 2 * miter * Math.hypot(a, c), dy = width / 2 * miter * Math.hypot(b, d);
+      return { x0: Math.min(...xs) - dx, y0: Math.min(...ys) - dy, x1: Math.max(...xs) + dx, y1: Math.max(...ys) + dy };
     };
     const occlude = (bounds: PaintBounds | null) => {
       borders = bounds === null ? [] : borders.filter((border) =>
@@ -2460,7 +2447,7 @@ export function inferDrawingSignalsFromPdf(input: {
   const fallbackTitle = titleCaseFromStem(input.baseName);
 
   if (!input.pdfText || input.pdfText.pages.length === 0) {
-    return {
+    const fallback: ExtractedDrawingSignals = {
       description: {
         value: fallbackTitle,
         confidence: 0.2,
@@ -2528,6 +2515,10 @@ export function inferDrawingSignalsFromPdf(input: {
       warnings: ["Unable to extract text from the drawing PDF. Review extracted fields manually."],
       debugCandidates: {},
     };
+    const fields = Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, fallback[name]]));
+    finalizeExtractionApproval({ fields });
+    Object.assign(fallback, fields);
+    return fallback;
   }
 
   const lines = collectStructuredLines(input.pdfText.pages);
@@ -2552,7 +2543,9 @@ export function inferDrawingSignalsFromPdf(input: {
   // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
   // A part number shaped like a drawing number is still offered as a flagged suggestion.
   const fullCellLines = selectTitleBlockLines(input.pdfText.pages, lines);
-  const { reads: cellReads, unreadPages } = readTitleBlockPages(fullCellLines);
+  const fullRead = readTitleBlockPages(fullCellLines);
+  const { unreadPages } = fullRead;
+  const cellReads = currentRevisionReads(fullRead.reads);
   // A crop may recover a useful partial suggestion, but only the full-page reads below can approve it.
   const structuredCellLines = fullCellLines.map((line) => ({
     ...line, normalized: normalizeWhitespace(line.raw), firstColumn: line.raw.search(/\S/), lastColumn: line.raw.length - 1,
@@ -2572,12 +2565,12 @@ export function inferDrawingSignalsFromPdf(input: {
   // If boxes contain no title-block labels, layout text can still supply a suggestion. The gate
   // below requires the full-page evidence, so this fallback cannot approve missing geometry.
   const pagesWithCells = new Set(cellReads.map((read) => read.page));
-  const candidateReads = [
+  const candidateReads = currentRevisionReads([
     ...cellReads,
     ...croppedReads.filter((read) => unresolvedCells.some((full) => full.page === read.page && full.labelLine === read.labelLine &&
       full.labelStart === read.labelStart && full.field === read.field)),
     ...readTitleBlockPages(lines.filter((line) => !pagesWithCells.has(line.page))).reads,
-  ];
+  ]);
   const hasCellLabel = (field: CellField) => candidateReads.some((read) => read.field === field);
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
@@ -2642,11 +2635,29 @@ export function inferDrawingSignalsFromPdf(input: {
     ((page.words?.length ?? 0) > 0 && page.wordGeometryComplete === true) ||
     (page.text.trim() === "" && page.ocrText?.trim() === "" && page.ocrStatus === "ok"));
   const drawingProven = pagesComplete && wordGeometryComplete;
-  for (const field of CELL_FIELDS) {
-    fieldResults[field] = approveCellField(fieldResults[field], cellReads, field, drawingProven);
-  }
-  // A tolerance is a document-wide minimum: an unread page may hold a tighter callout.
-  const tightestTolerance = inferredTightestTolerance && !drawingProven
+  const ocrText = input.pdfText.pages.map((page) => page.ocrText).join("\n");
+  const independentRead = readTitleBlockPages(collectStructuredLines(input.pdfText.pages.map((page) =>
+    ({ ...page, text: page.ocrText ?? "" }))));
+  const independentComplete = independentRead.unreadPages.length === 0;
+  // Read all tolerances together so OCR inherits units; only vector dimensions prove row applicability.
+  // OCR may veto a looser value; it cannot supply an actionable numeric value itself.
+  const independentTolerance = ocrText.trim() ? estimateTightestTolerance(`${joinedText}\n${ocrText}`, {
+    dimensionsReadable: input.pdfText.ocr !== true && input.pdfText.drawingFullyRead === true,
+    rasterText: ocrText,
+    dimensionText: joinedText,
+  }) : null;
+  const approval = finalizeExtractionApproval({
+    fields: fieldResults,
+    cellProof: { reads: cellReads, independentReads: independentRead.reads, independentComplete, drawingProven },
+    tolerance: {
+      valueInch: inferredTightestTolerance?.valueInch ?? null,
+      independentValueInch: independentTolerance?.valueInch ?? null,
+      independentUnresolved: !independentComplete || (independentTolerance !== null && independentTolerance.valueInch === null),
+      drawingProven,
+    },
+  });
+  // A tolerance is a document-wide minimum: unread or contradictory evidence blocks action.
+  const tightestTolerance = inferredTightestTolerance && !approval.toleranceApproved
     ? { ...inferredTightestTolerance, valueInch: null, unit: "unknown" as const }
     : inferredTightestTolerance;
 

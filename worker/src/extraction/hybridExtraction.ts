@@ -1,4 +1,5 @@
 import path from "node:path";
+import { finalizeExtractionApproval } from "./extractionApproval.js";
 import type { SpendContext, SpendGuard } from "../spendGuard.js";
 import { DRAWING_FIELD_NAMES, SUPPORTED_REVIEW_FIELDS } from "../types.js";
 import type {
@@ -158,9 +159,6 @@ function mergeFieldSignals(input: {
     selection.field = {
       ...selection.field,
       confidence: Math.max(selection.field.confidence, modelField.confidence),
-      reviewNeeded:
-        selection.field.reviewNeeded &&
-        (modelField.confidence < MODEL_ACCEPT_CONFIDENCE || modelField.fieldSource === "unknown"),
     };
     return selection;
   }
@@ -307,6 +305,11 @@ export async function runHybridExtraction(
       modelCandidates[fieldName] = merged.modelCandidate;
     }
   }
+
+  finalizeExtractionApproval({
+    fields: mergedFields,
+    deterministicFields: Object.fromEntries(DRAWING_FIELD_NAMES.map((name) => [name, drawingSignals[name]])),
+  });
 
   const description = mergedFields.description.value ?? normalizedTitle;
   const partNumber = mergedFields.partNumber.value ?? inferredBase.toUpperCase();

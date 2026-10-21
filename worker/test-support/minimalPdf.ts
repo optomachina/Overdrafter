@@ -9,7 +9,7 @@ export type MinimalPdfOptions = {
   /** Real vector rules, for testing the cell-boundary proof through Poppler. */
   rules?: Array<{ x0: number; y0: number; x1: number; y1: number; gray?: number }>;
   /** Opaque white paint after rules, to exercise erased-border evidence. */
-  erase?: Array<{ x: number; y: number; width: number; height: number }>;
+  erase?: Array<{ x: number; y: number; width: number; height: number; strokeWidth?: number }>;
   /** The size of the page as it is shown, in points. */
   width?: number;
   height?: number;
@@ -39,7 +39,7 @@ export function minimalPdf(items: readonly PdfTextItem[], options: MinimalPdfOpt
   const rules = (options.rules ?? []).map(({ x0, y0, x1, y1, gray = 0 }) =>
     `${gray} G 0.5 w ${x0} ${height - y0} m ${x1} ${height - y1} l S`);
   const erase = (options.erase ?? []).map((rect) =>
-    `q 1 g ${rect.x} ${height - rect.y - rect.height} ${rect.width} ${rect.height} re f Q`);
+    `q 1 g 1 G ${rect.strokeWidth ?? 0} w ${rect.x} ${height - rect.y - rect.height} ${rect.width} ${rect.height} re ${rect.strokeWidth ? "B" : "f"} Q`);
   const stream = Buffer.from([...rules, ...erase, ...operators].join("\n"), "latin1");
   const rotate = rotated ? " /Rotate 90" : "";
   const mediaBox = rotated ? `[0 0 ${height} ${width}]` : `[0 0 ${width} ${height}]`;

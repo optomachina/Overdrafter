@@ -387,7 +387,7 @@ describe("runHybridExtraction", () => {
     expect(result.status).toBe("approved");
   });
 
-  it("uses the model to rescue a weak revision extraction", async () => {
+  it("uses the model to suggest a weak revision while preserving review", async () => {
     vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockReturnValue({
       description: {
         value: "Widget Clamp",
@@ -598,7 +598,7 @@ describe("runHybridExtraction", () => {
     expect(result.modelName).toBe("gpt-5.4");
     expect(result.fieldSelections?.revision).toBe("model");
     expect(result.extractedRevisionRaw.reasons).toContain("model_fallback");
-    expect(result.reviewFields).not.toContain("revision");
+    expect(result.reviewFields).toContain("revision");
 
     const incompatibleResult = await runHybridExtraction(
       {

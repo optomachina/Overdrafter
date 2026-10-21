@@ -7,7 +7,7 @@ import {
   type ExtractedDrawingSignals,
   type ExtractedFieldSignal,
 } from "./pdfDrawing.js";
-import { isLabelLikeToken } from "./titleBlockCells.js";
+import { isPlaceholderOrLabelValue } from "./titleBlockCells.js";
 import {
   CRITICAL_MODEL_FIELDS,
   COMPETING_CANDIDATE_DELTA,
@@ -154,13 +154,10 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
   }
 
   const normalized = normalizeWhitespace(value);
-  const rejectionReasons: string[] = [];
+  const rejectionReasons: string[] = isPlaceholderOrLabelValue(normalized) ? ["rejected_label_token"] : [];
 
   switch (field) {
     case "partNumber":
-      if (isLabelLikeToken(normalized)) {
-        rejectionReasons.push("rejected_label_token");
-      }
       if (SPEC_PATTERN.test(normalized)) {
         rejectionReasons.push("rejected_spec_string");
       }
@@ -175,9 +172,6 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
       }
       break;
     case "revision":
-      if (isLabelLikeToken(normalized)) {
-        rejectionReasons.push("rejected_label_token");
-      }
       if (!/^[A-Z0-9]{1,4}$/i.test(normalized)) {
         rejectionReasons.push("regex_fit");
       }
