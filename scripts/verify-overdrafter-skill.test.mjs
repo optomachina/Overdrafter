@@ -12,7 +12,9 @@ import {
   CONFIG_TEST_DIRS,
   DEFAULT_CONFIG,
   FEATURE_SPECS,
+  PENDING_SPECS,
   parseFeatures,
+  pendingFor,
   selectFeatures,
   specsFor,
 } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
@@ -227,6 +229,47 @@ describe("verify-overdrafter lane mapping", () => {
         expect(src, `${name} local ${p}`).not.toMatch(/describe\([^)]*@fixture/);
       }
     }
+  });
+
+  // A test.fail() journey in a mapped spec is a judge FAIL, so such a spec must
+  // wait in PENDING_SPECS, and each pending entry must still be blocked by the
+  // issue it names. Neither list can hide a broken or a fixed journey.
+  it("maps no spec whose journeys are test.fail() or fixme", () => {
+    for (const { spec: p } of Object.values(FEATURE_SPECS).flatMap((e) => [...e.fixture, ...e.local])) {
+      expect(spec(p), p).not.toMatch(/\btest(\.describe)?\.(fail|fixme)\(/);
+    }
+  });
+
+  it("holds pending specs out of the run only while their issue still blocks them", () => {
+    const pending = Object.entries(PENDING_SPECS).flatMap(([feature, modes]) =>
+      Object.entries(modes).flatMap(([mode, list]) => list.map((p) => ({ feature, mode, ...p }))));
+    expect(pending.map((p) => `${p.feature}/${p.mode}: ${p.spec} ${p.issue}`)).toEqual([
+      "provider/fixture: e2e/journeys/jarvis-front-door.spec.ts OVD-805",
+    ]);
+    const mapped = new Set(Object.values(FEATURE_SPECS).flatMap((e) => [...e.fixture, ...e.local]).map((s) => s.spec));
+    for (const p of pending) {
+      expect(FEATURE_SPECS[p.feature], p.feature).toBeDefined();
+      expect(["fixture", "local"]).toContain(p.mode);
+      expect(mapped.has(p.spec), `${p.spec} is both mapped and pending`).toBe(false);
+      expect(existsSync(path.join(root, p.spec)), p.spec).toBe(true);
+      expect(CONFIG_PORTS[p.config], `${p.config} port`).toBeTypeOf("number");
+      expect(p.issue).toMatch(/^OVD-\d+$/);
+      expect(p.reason).toContain(p.issue);
+      const src = spec(p.spec);
+      expect(src, `${p.spec} no longer test.fail(); move it back into FEATURE_SPECS`).toMatch(/^\s*test\.fail\(/m);
+      expect(src, `${p.spec} test.fail() no longer names ${p.issue}`).toMatch(new RegExp(`^\\s*test\\.fail\\([^\\n]*${p.issue}`, "m"));
+    }
+  });
+
+  it("keeps pending specs out of the selected specs and logs them on stderr only", () => {
+    expect(specsFor(["provider"], "fixture").map((s) => s.spec)).toEqual(["e2e/admin-operations.spec.ts", "e2e/engineering-admin-route.spec.ts"]);
+    expect(specsFor(["provider"], "fixture")[0].config).toBe("e2e/admin-operations.config.ts");
+    expect(pendingFor(["auth", "provider"], "fixture").map((p) => p.spec)).toEqual(["e2e/journeys/jarvis-front-door.spec.ts"]);
+    expect(pendingFor(["provider"], "local")).toEqual([]);
+    const r = spawnSync(process.execPath, [path.join(skillDir, "scripts/feature-specs.mjs"), "provider", "fixture"], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("jarvis-front-door");
+    expect(r.stderr).toContain("PENDING: provider e2e/journeys/jarvis-front-door.spec.ts (journey is test.fail() until OVD-805");
   });
 
   it("does not list a spec in both lanes", () => {

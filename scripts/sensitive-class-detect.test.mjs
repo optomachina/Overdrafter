@@ -438,6 +438,16 @@ describe("classifySql", () => {
     expect(sql(text)).toEqual(expected);
   });
 
+  // A body of more than about 100k words used to overflow the call stack in
+  // words.push(...), so detect() reported a read error instead of a class.
+  it.each([
+    ["a single-quoted string", (filler) => `select '${filler}'; create policy p on t using (true);`],
+    ["a dollar-quoted body", (filler) => `do $$ ${filler} $$; create policy p on t using (true);`],
+    ["a statement inside the body", (filler) => `do $$ ${filler} create policy p on t using (true); $$;`],
+  ])("reads a body of 150k words (%s)", (_name, build) => {
+    expect(sql(build("a ".repeat(150_000)))).toEqual(["rls"]);
+  });
+
   it("still sees tokens below the recursion limit", () => {
     const nested = Array.from({ length: 12 }, (_, level) => `$t${level}$`);
     const text = `do ${nested.join(" ")} create policy p on t ${nested.toReversed().join(" ")};`;
@@ -1583,6 +1593,23 @@ describe("workflow", () => {
     expect(workflow.on.pull_request.types).toContain("edited");
   });
 
+  // QA @ b5f2340c: nothing pinned the base checkout, so switching it to the PR head left every test green.
+  it("checks out the base sha without saved credentials, and runs the detector from that checkout", () => {
+    const checkout = job.steps.find((entry) => String(entry.uses ?? "").startsWith("actions/checkout@"));
+    expect(checkout).toBeDefined();
+    expect(checkout.with.ref).toBe("${{ github.event.pull_request.base.sha }}");
+    expect(checkout.with["persist-credentials"]).toBe(false);
+    // Codex review @ d85756f7: the detector must check the PR's base against the commit it runs from.
+    expect(step.env.BASE_SHA).toBe(checkout.with.ref);
+    expect(step.env.HEAD_SHA).toBe("${{ github.event.pull_request.head.sha }}");
+    expect(step.run).toContain('--head-sha "$HEAD_SHA" --base-sha "$BASE_SHA"');
+    expect(job.steps.filter((entry) => String(entry.uses ?? "").startsWith("actions/checkout@"))).toHaveLength(1);
+    expect(job.steps.indexOf(checkout)).toBeLessThan(job.steps.indexOf(step));
+    expect(step.run).toContain("node scripts/sensitive-class-detect.mjs ");
+    expect(workflow.on.pull_request_target).toBeUndefined();
+    expect(workflow.permissions).toEqual({ contents: "read", "pull-requests": "read" });
+  });
+
   it("runs the detect step with GitHub's default shell (bash -e) and no inline expressions", () => {
     expect(step).toBeDefined();
     expect(step.shell).toBeUndefined();
@@ -1610,7 +1637,7 @@ describe("workflow", () => {
     const child = spawnSync(shell[0], args, {
       cwd: work,
       encoding: "utf8",
-      env: { PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary, PR_NUMBER: "7", HEAD_SHA: "headsha", REPOSITORY: "o/r", GITHUB_TOKEN: "test-token" },
+      env: { PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary, PR_NUMBER: "7", HEAD_SHA: "headsha", BASE_SHA: "basesha", REPOSITORY: "o/r", GITHUB_TOKEN: "test-token" },
     });
     const argvFile = path.join(dir, "argv.json");
     return {
@@ -1638,7 +1665,7 @@ describe("workflow", () => {
       expect(run.summary).toContain(`sensitive-class-detect exited ${code}, so there is no result.`);
       // A result written before the failure is removed, so no artifact is uploaded.
       expect(run.outExists).toBe(false);
-      expect(run.argv).toEqual(["--repo", "o/r", "--pr", "7", "--head-sha", "headsha", "--json", run.out]);
+      expect(run.argv).toEqual(["--repo", "o/r", "--pr", "7", "--head-sha", "headsha", "--base-sha", "basesha", "--json", run.out]);
     }
   });
 
@@ -1694,6 +1721,17 @@ function fakeFetch(routes) {
 }
 
 const PULL = { head: { sha: "headsha" }, base: { sha: "basesha" }, changed_files: 2 };
+
+// Routes for a PR that the API returns as pulls[0], then pulls[1], and so on
+// (the last one repeats), with one page of files.
+function racingPull(pulls, files) {
+  let reads = 0;
+  return (key) => {
+    if (key === "/repos/o/r/pulls/7") return pulls[Math.min(reads++, pulls.length - 1)];
+    if (key.startsWith("/repos/o/r/pulls/7/files")) return key.endsWith("page=1") ? files : [];
+    return undefined;
+  };
+}
 const FILES = [
   { filename: "src/features/auth/x.tsx", status: "modified" },
   { filename: "supabase/migrations/1_x.sql", status: "added" },
@@ -1735,6 +1773,37 @@ describe("fetchPullRequest", () => {
     const lost = await fetchPullRequest(githubClient({ fetchImpl: fakeFetch((key) => (key === "/repos/o/r/pulls/7" ? { ...PULL, changed_files: undefined } : [])) }), "o/r", 7);
     expect(lost.changedFiles).toBeNull();
     expect((await detect({ ...lost, config, allowEmpty: lost.changedFiles === 0 })).status).toBe("error");
+  });
+
+  // Codex review @ d85756f7: a push between the PR read and the file pages
+  // swapped sensitive files for safe ones with the same count, and the result
+  // was status ok, keyed to the earlier head.
+  it("reads the PR again after the last file page", async () => {
+    const keys = [];
+    const routes = racingPull([PULL], FILES);
+    const client = githubClient({ fetchImpl: fakeFetch((key) => (keys.push(key), routes(key))) });
+    const pull = await fetchPullRequest(client, "o/r", 7, { expectedHeadSha: "headsha", expectedBaseSha: "basesha" });
+    expect(pull.errors).toEqual([]);
+    expect(keys).toEqual(["/repos/o/r/pulls/7", "/repos/o/r/pulls/7/files?per_page=100&page=1", "/repos/o/r/pulls/7"]);
+  });
+
+  it.each([
+    ["head", { head: { sha: "pushedsha" } }, "PR head moved while its files were listed: headsha before, pushedsha after"],
+    ["base", { base: { sha: "newbasesha" } }, "PR base moved while its files were listed: basesha before, newbasesha after"],
+  ])("errors when the %s moves while the files are listed, with the same count", async (_label, moved, message) => {
+    // The safe file stands in for the files after the push; the count still matches.
+    const readme = [modified("README.md")];
+    const client = githubClient({ fetchImpl: fakeFetch(racingPull([{ ...PULL, changed_files: 1 }, { ...PULL, changed_files: 1, ...moved }], readme)) });
+    const pull = await fetchPullRequest(client, "o/r", 7, { expectedHeadSha: "headsha", expectedBaseSha: "basesha" });
+    expect(pull).toMatchObject({ sha: "headsha", baseSha: "basesha", changedFiles: 1, errors: [message] });
+    expect(await detect({ ...pull, config })).toMatchObject({ status: "error", sha: "headsha", errors: [message] });
+  });
+
+  it("errors when the PR's base is not the commit whose rules judge it", async () => {
+    const client = githubClient({ fetchImpl: fakeFetch(racingPull([PULL], FILES)) });
+    const pull = await fetchPullRequest(client, "o/r", 7, { expectedHeadSha: "headsha", expectedBaseSha: "oldbasesha" });
+    expect(pull.errors).toEqual(["PR base moved: the rules come from oldbasesha, API has basesha"]);
+    expect((await detect({ ...pull, config })).status).toBe("error");
   });
 });
 
@@ -1808,6 +1877,23 @@ describe("main", () => {
   it("accepts a PR with zero changed files", async () => {
     const { result } = await run([], filesRoute([]));
     expect(result).toMatchObject({ status: "ok", files: [], classes: [] });
+  });
+
+  it("accepts --base-sha when it is the PR's base", async () => {
+    const { result } = await run(["--head-sha", "headsha", "--base-sha", "basesha"], filesRoute(FILES, (key) => (key.includes("/contents/") ? "" : undefined)));
+    expect(result).toMatchObject({ status: "ok", sha: "headsha", base_sha: "basesha", errors: [] });
+  });
+
+  it("reports status error, end to end, when the base moved past the checkout or the head moved during the listing", async () => {
+    const stale = await run(["--head-sha", "headsha", "--base-sha", "oldbasesha"], filesRoute(FILES, (key) => (key.includes("/contents/") ? "" : undefined)));
+    expect(stale.result).toMatchObject({ status: "error", errors: ["PR base moved: the rules come from oldbasesha, API has basesha"] });
+    expect(stale.result.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "not_checked" })]);
+    expect(stale.summary).toContain("### Sensitive classes: ERROR");
+
+    const pushed = await run(["--head-sha", "headsha", "--base-sha", "basesha"], racingPull([{ ...PULL, changed_files: 1 }, { ...PULL, changed_files: 1, head: { sha: "pushedsha" } }], [modified("README.md")]));
+    expect(pushed.result).toMatchObject({ status: "error", sha: "headsha", errors: ["PR head moved while its files were listed: headsha before, pushedsha after"] });
+    expect(pushed.result.files).toEqual([expect.objectContaining({ path: "README.md", category: "docs", classes: [] })]);
+    expect(pushed.result.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "not_checked" })]);
   });
 
   it("returns 2 on bad arguments", async () => {
@@ -2086,7 +2172,7 @@ describe("gate_loosening: the base copy judges", () => {
   it("a PR that edits the differ, the matcher, the config and the list is still judged by the base copies", async () => {
     const dir = tempDir("sensitive-class-base-");
     const base = path.join(dir, "base");
-    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH, SENSITIVE_PATHS_FILE]) {
+    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH, SENSITIVE_PATHS_FILE, "scripts/lib/entry-point.mjs"]) {
       mkdirSync(path.dirname(path.join(base, file)), { recursive: true });
       copyFileSync(path.join(repoRoot, file), path.join(base, file));
     }

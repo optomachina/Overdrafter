@@ -96,6 +96,70 @@ describe("sensitive-paths config", () => {
   });
 });
 
+describe("OVD-939 C2 gate coverage", () => {
+  it.each([
+    ["scripts/lib/jev-screen-marker.mjs", ["infra_ci"]],
+    // jev-run-rate is named by no narrower glob; only scripts/lib/jev-* classifies it.
+    ["scripts/lib/jev-run-rate.mjs", ["infra_ci"]],
+    ["scripts/lib/jevx.mjs", []],
+    ["scripts/validate-pr-body.mjs", ["infra_ci"]],
+    ["scripts/ephemeral-db-apply.mjs", ["infra_ci"]],
+    ["scripts/run-supabase-policy-tests.mjs", ["auth", "infra_ci"]],
+    ["scripts/provider-kill.mjs", ["provider_dispatch", "infra_ci"]],
+    ["scripts/staging-reset-guard.mjs", ["infra_ci"]],
+    ["scripts/run-ovd418-production-release.sh", ["infra_ci"]],
+    ["scripts/run-ovd418-staging-check.sh", []],
+  ])("classifies %s with exactly its expected classes", (file, classes) => {
+    expect(classifyPaths([file], config).files[0].classes).toEqual(classes);
+    expect(picomatchClasses(file)).toEqual(classes);
+  });
+
+  it("uses distinct globs for second classes and detects removal of either one", () => {
+    const secondClass = [
+      ["scripts/run-supabase-policy-tests*", "auth", "scripts/run-supabase-policy-tests.mjs", "infra_ci"],
+      ["scripts/provider-kill*", "provider_dispatch", "scripts/provider-kill.mjs", "infra_ci"],
+    ];
+    const globs = config.globs.map((entry) => entry.glob);
+    expect(new Set(globs).size).toBe(globs.length);
+    for (const [extraGlob, extraClass, exactGlob, exactClass] of secondClass) {
+      expect(config.globs).toEqual(expect.arrayContaining([
+        { glob: extraGlob, class: extraClass },
+        { glob: exactGlob, class: exactClass },
+      ]));
+      for (const [glob, cls] of [[extraGlob, extraClass], [exactGlob, exactClass]]) {
+        const without = withGlobs((list) => list.splice(0, list.length, ...list.filter((entry) => entry.glob !== glob)));
+        expect(findGateLoosening({ baseText: without, headText: configText }).detected).toBe(false);
+        expect(findGateLoosening({ baseText: configText, headText: without }).reasons)
+          .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: cls })]);
+      }
+    }
+  });
+
+  it("depends on scripts/lib/jev-* for jev lib files no narrower glob names, and reports its removal", () => {
+    const glob = "scripts/lib/jev-*";
+    const path = "scripts/lib/jev-run-rate.mjs";
+    expect(config.globs).toContainEqual({ glob, class: "infra_ci" });
+    const without = withGlobs((list) => list.splice(0, list.length, ...list.filter((entry) => entry.glob !== glob)));
+    expect(classifyPaths([path], parseSensitivePaths(without)).files[0].classes).toEqual([]);
+    expect(findGateLoosening({ baseText: without, headText: configText }).detected).toBe(false);
+    expect(findGateLoosening({ baseText: configText, headText: without }).reasons)
+      .toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob, class: "infra_ci" })]);
+  });
+
+  it("still rejects a duplicate glob even when the class differs", () => {
+    expect(() => parseSensitivePaths(withGlobs((list) => list.push({ glob: "scripts/provider-kill.mjs", class: "provider_dispatch" }))))
+      .toThrow(/duplicate glob scripts\/provider-kill\.mjs/);
+  });
+
+  it("includes the new exact gate-code paths", () => {
+    expect(GATE_CODE_FILES).toEqual(expect.arrayContaining([
+      "scripts/validate-pr-body.mjs",
+      "scripts/ephemeral-db-apply.mjs",
+      "scripts/run-supabase-policy-tests.mjs",
+    ]));
+  });
+});
+
 describe("shared fixture", () => {
   it("covers about 40 paths and every class", () => {
     expect(fixture.length).toBeGreaterThanOrEqual(40);
@@ -174,6 +238,14 @@ describe("matcher semantics", () => {
     expect(compileGlob("**/.env").test("a/b/.env")).toBe(true);
     expect(compileGlob("**/.env").test(".env")).toBe(true);
     expect(compileGlob("**/.env").test("a/.envx")).toBe(false);
+  });
+
+  it("classifies the shared CLI entry-point guard and its test as infra_ci (OVD-950)", () => {
+    const matcher = createMatcher(config);
+    for (const file of ["scripts/lib/entry-point.mjs", "scripts/lib/entry-point.test.mjs"]) {
+      expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+      expect(classifyPaths([file], config).files[0], file).toMatchObject({ path: file, classes: ["infra_ci"] });
+    }
   });
 
   it("ignores case so renamed or upper-case paths still match", () => {
@@ -344,6 +416,137 @@ describe("AGENTS.md parity", () => {
   });
 });
 
+describe("import-boundary gate files", () => {
+  const gateFiles = [
+    "scripts/eslint-adapter-import-boundary.test.mjs",
+    "server/design-graph/import-boundary.test.ts",
+    "server/design-graph/import-boundary.ts",
+    "src/features/jarvis/import-boundary.test.ts",
+  ];
+  const nearMisses = ["docs/important-boundaries.md", "src/boundary-notes.ts", "src/features/import-export.ts"];
+  const withoutGlob = () =>
+    withGlobs((globs) => {
+      const index = globs.findIndex((entry) => entry.glob === "**/*import-boundary*");
+      expect(index, "**/*import-boundary* must be in the config").toBeGreaterThanOrEqual(0);
+      globs.splice(index, 1);
+    });
+
+  it("classifies the import-boundary gate files as infra_ci", () => {
+    const matcher = createMatcher(config);
+    // A path with "adapter" in its name is also provider_dispatch (the shared list fails closed on any adapter path).
+    const alsoProviderDispatch = new Set(["scripts/eslint-adapter-import-boundary.test.mjs"]);
+    for (const file of gateFiles) expect(matcher.classify(file), file).toEqual(alsoProviderDispatch.has(file) ? ["provider_dispatch", "infra_ci"] : ["infra_ci"]);
+  });
+
+  it("does not match near-miss paths", () => {
+    const matcher = createMatcher(config);
+    for (const file of nearMisses) expect(matcher.classify(file), file).toEqual([]);
+  });
+
+  it("treats adding the glob as a tightening, not gate loosening", () => {
+    expect(findGateLoosening({ baseText: withoutGlob(), headText: configText })).toMatchObject({ detected: false, reasons: [] });
+  });
+});
+
+describe("import-boundary gate coverage globs", () => {
+  // Each added glob: paths it must classify as infra_ci, near misses it must not,
+  // and that adding it alone is a tightening (never gate_loosening).
+  const coverage = [
+    {
+      glob: "**/*import-boundary*/**",
+      positives: ["src/import-boundary/rules.ts", "server/design-graph/import-boundary/index.ts", "import-boundary/a/b/c.ts", "src/Adapter-Import-Boundary/check.mjs"],
+      negatives: ["src/import-boundaries-notes/rules.ts", "src/boundary/import/rules.ts", "src/import/boundary/rules.ts"],
+    },
+    {
+      glob: "**/*import-boundaries*{,/**}",
+      positives: ["scripts/import-boundaries.mjs", "src/import-boundaries/rules.ts", "src/Import-Boundaries.test.ts", "import-boundaries/a/b.ts"],
+      negatives: ["docs/important-boundaries.md", "src/import-boundar.ts", "src/boundaries.ts"],
+    },
+    {
+      glob: "**/*importboundary*{,/**}",
+      positives: ["scripts/importBoundary.mjs", "src/importboundary.ts", "src/importBoundary/rules.ts", "src/ImportBoundaryCheck.test.ts"],
+      negatives: ["src/importBoundar.ts", "src/import-boundary.ts", "src/importer/boundary.ts"],
+    },
+    {
+      glob: "**/*importboundaries*{,/**}",
+      positives: ["scripts/importBoundaries.mjs", "src/importboundaries.ts", "src/importBoundaries/rules.ts", "src/ImportBoundariesCheck.test.ts"],
+      negatives: ["src/importBoundar.ts", "src/importer/boundaries.ts", "src/boundaries.ts"],
+    },
+    {
+      glob: "**/*import_boundary*{,/**}",
+      positives: ["scripts/import_boundary.py", "src/import_boundary.ts", "src/import_boundary/rules.ts", "src/IMPORT_BOUNDARY.test.ts"],
+      negatives: ["src/import_bound.ts", "src/import_export.ts", "src/import/boundary.ts"],
+    },
+    {
+      glob: "**/*import_boundaries*{,/**}",
+      positives: ["scripts/import_boundaries.py", "src/import_boundaries.ts", "src/import_boundaries/rules.ts", "src/IMPORT_BOUNDARIES.test.ts"],
+      negatives: ["src/import_bound.ts", "src/import_export.ts", "src/boundaries.ts"],
+    },
+    {
+      glob: "server/design-graph/index.ts",
+      positives: ["server/design-graph/index.ts", "./server/design-graph/index.ts", "Server/Design-Graph/Index.ts"],
+      negatives: ["server/design-graph/types.ts", "server/design-graph/index.test.ts", "server/design-graph/sub/index.ts", "src/server/design-graph/index.ts"],
+    },
+    {
+      glob: "server/jarvis/design-graph-port.ts",
+      positives: ["server/jarvis/design-graph-port.ts", "./server/jarvis/design-graph-port.ts", "Server/Jarvis/Design-Graph-Port.ts"],
+      negatives: ["server/jarvis/design-graph-port.test.ts", "server/jarvis/index.ts", "server/design-graph-port.ts", "src/server/jarvis/design-graph-port.ts"],
+    },
+  ];
+  const withoutOnly = (glob) => withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === glob), 1));
+
+  it("lists every coverage glob in the config as infra_ci", () => {
+    for (const { glob } of coverage) expect(config.globs, glob).toContainEqual({ glob, class: "infra_ci" });
+  });
+
+  for (const { glob, positives, negatives } of coverage) {
+    describe(glob, () => {
+      const only = () => createMatcher({ ...config, globs: config.globs.filter((entry) => entry.glob === glob) });
+
+      it("classifies its positive paths as infra_ci", () => {
+        const matcher = createMatcher(config);
+        for (const file of positives) {
+          expect(only().classify(file), `${glob} should match ${file}`).toEqual(["infra_ci"]);
+          // Other globs may add a class (an "adapter" name is also provider_dispatch); infra_ci must still be there.
+          expect(matcher.classify(file), file).toContain("infra_ci");
+        }
+      });
+
+      it("does not match its near-miss paths", () => {
+        for (const file of negatives) expect(only().classify(file), `${glob} should not match ${file}`).toEqual([]);
+      });
+
+      it("agrees with picomatch on the positive and near-miss paths", () => {
+        for (const file of [...positives, ...negatives].map(normalizePath)) {
+          expect(only().isSensitive(file), file).toBe(picomatch(glob, PICOMATCH_OPTIONS)(file));
+        }
+      });
+
+      it("is a tightening: adding it is not gate loosening", () => {
+        const baseText = withoutOnly(glob);
+        expect(JSON.parse(baseText).globs.some((entry) => entry.glob === glob)).toBe(false);
+        expect(findGateLoosening({ baseText, headText: configText })).toMatchObject({ detected: false, reasons: [] });
+      });
+
+      it("is needed: without it no other glob classifies its positive paths", () => {
+        const withoutIt = createMatcher(parseSensitivePaths(withoutOnly(glob)));
+        for (const file of positives) expect(withoutIt.classify(file), `${glob} adds no infra_ci coverage for ${file}`).not.toContain("infra_ci");
+      });
+    });
+  }
+
+  it("classifies the DesignGraph entry files by exact path", () => {
+    const matcher = createMatcher(config);
+    for (const file of ["server/design-graph/index.ts", "server/jarvis/design-graph-port.ts"]) {
+      expect(matcher.classify(file), file).toEqual(["infra_ci"]);
+    }
+  });
+
+  it("keeps the original import-boundary glob and its class unchanged", () => {
+    expect(config.globs).toContainEqual({ glob: "**/*import-boundary*", class: "infra_ci" });
+  });
+});
+
 describe("gate loosening", () => {
   const migrationsGlob = `${MIGRATIONS_DIR}/**`;
   const codes = (result) => result.reasons.map((reason) => reason.code);
@@ -399,14 +602,14 @@ describe("gate loosening", () => {
 
   it("puts the files that control the list on the list, so editing any of them is sensitive", () => {
     const matcher = createMatcher(config);
-    for (const file of [...GATE_CODE_FILES, SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths.test.mjs", "scripts/jev-client.mjs", "scripts/validate-agent-contract.node-test.mjs"]) {
+    for (const file of [...GATE_CODE_FILES, SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths.test.mjs", "scripts/jev-client.mjs", "scripts/lib/jev-screen-marker.mjs", "scripts/validate-agent-contract.node-test.mjs"]) {
       expect(matcher.classify(file), file).toContain("infra_ci");
     }
     // A PR that edits only the matcher (or only the list and AGENTS.md) is sensitive.
     expect(classifyPaths([MATCHER_PATH], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
     expect(classifyPaths([SENSITIVE_PATHS_FILE, "AGENTS.md"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
     // Adding these globs (OVD-873 round 3) did not loosen anything.
-    const controlGlobs = [SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths*", "scripts/sensitive-paths*", "scripts/fixtures/sensitive-paths/**", "scripts/jev-pr-screen*", "scripts/jev-client*", "scripts/validate-agent-contract*"];
+    const controlGlobs = [SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths*", "scripts/sensitive-paths*", "scripts/fixtures/sensitive-paths/**", "scripts/jev-pr-screen*", "scripts/jev-client*", "scripts/lib/jev-screen-marker*", "scripts/validate-agent-contract*"];
     expect(config.globs.filter((entry) => controlGlobs.includes(entry.glob))).toEqual(controlGlobs.map((glob) => ({ glob, class: "infra_ci" })));
     const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !controlGlobs.includes(entry.glob))));
     expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });

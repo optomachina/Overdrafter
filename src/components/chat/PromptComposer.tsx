@@ -10,6 +10,7 @@ import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { ArrowUp, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { FileChip } from "@/components/FileChip";
+import { UploadPairingNotice } from "@/components/chat/UploadPairingNotice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -304,6 +305,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             ))}
           </div>
         ) : null}
+
+        <UploadPairingNotice files={files} />
 
         <div className="rounded-[28px] border border-border bg-ws-raised shadow-[0_8px_40px_rgba(0,0,0,0.22)]">
           <div className="flex items-end gap-2 p-2">

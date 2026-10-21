@@ -23,6 +23,7 @@ import type {
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { normalizeImportedPartNumber } from "@/features/quotes/part-reference";
+import { readWorkerNotes } from "@/features/quotes/provider-notes";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import {
   formatRequestedQuoteQuantitiesInput,
@@ -414,14 +415,43 @@ export function listStaleAutoRequirementFields(part: PartAggregate) {
   );
 }
 
-function parseToleranceValue(raw: string | null | undefined): number | null {
-  if (!raw) {
-    return null;
+const TOLERANCE_UNITS_UNKNOWN_HINT =
+  "Check the drawing: the units could not be determined.";
+const TOLERANCE_VALUE_UNREAD_HINT =
+  "Check the drawing: the tolerance value could not be read.";
+
+/**
+ * Resolves the stored tolerance without ever deriving a number from the raw
+ * drawing text (OVD-984). The worker stores `valueInch = null` with
+ * `unit = "unknown"` when it cannot resolve a tolerance, and the beta gate
+ * denies a null value until the user enters one. Re-parsing the raw text here
+ * would turn "±0.1 mm" into 0.1 or "±1/64" into 1 and defeat that gate, so the
+ * raw text is exposed only as a hint. A numeric `valueInch` is used as stored,
+ * including legacy payloads that carry no `unit`.
+ */
+function resolveStoredTolerance(
+  tolerances: Record<string, unknown>,
+): Omit<DrawingExtractionData["tightestTolerance"], "confidence"> {
+  const raw = asStringOrNull(tolerances.tightest);
+  const unit = asStringOrNull(tolerances.unit);
+  const storedValue =
+    typeof tolerances.valueInch === "number" && Number.isFinite(tolerances.valueInch)
+      ? tolerances.valueInch
+      : null;
+  const hasRaw = raw !== null && raw.trim().length > 0;
+
+  let hint: string | null = null;
+  if (storedValue === null && hasRaw) {
+    const base = unit === "in" ? TOLERANCE_VALUE_UNREAD_HINT : TOLERANCE_UNITS_UNKNOWN_HINT;
+    hint = `${base} Extracted text: ${raw.trim()}`;
   }
 
-  const cleaned = raw.replace(/[^0-9.-]/g, "");
-  const parsed = Number.parseFloat(cleaned);
-  return Number.isFinite(parsed) ? Math.abs(parsed) : null;
+  return {
+    raw,
+    valueInch: storedValue,
+    unit,
+    hint,
+  };
 }
 
 export function normalizeDrawingExtraction(
@@ -596,10 +626,7 @@ export function normalizeDrawingExtraction(
       reasons: asStringArray(finish.reasons),
     },
     tightestTolerance: {
-      raw: (tolerances.tightest ?? null) as string | null,
-      valueInch:
-        (typeof tolerances.valueInch === "number" ? tolerances.valueInch : null) ??
-        parseToleranceValue((tolerances.tightest ?? null) as string | null),
+      ...resolveStoredTolerance(tolerances),
       confidence: Number(tolerances.confidence ?? extraction?.confidence ?? 0),
     },
     evidence: normalizeEvidence(extraction),
@@ -880,6 +907,11 @@ export function buildRequirementDraft(
     quantity,
   );
 
+  const tightestToleranceInch =
+    clientRequirement?.tightestToleranceInch ??
+    approved?.tightest_tolerance_inch ??
+    normalizedExtraction.tightestTolerance.valueInch;
+
   return {
     partId: part.id,
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
@@ -902,10 +934,7 @@ export function buildRequirementDraft(
         ? normalizedExtraction.threads.join(", ")
         : null) ??
       null,
-    tightestToleranceInch:
-      clientRequirement?.tightestToleranceInch ??
-      approved?.tightest_tolerance_inch ??
-      normalizedExtraction.tightestTolerance.valueInch,
+    tightestToleranceInch,
     process: clientRequirement?.process ?? process ?? processDefault,
     notes: clientRequirement?.notes ?? notes,
     quantity,
@@ -924,7 +953,9 @@ export function buildRequirementDraft(
         ? approved.applicable_vendors
         : DEFAULT_APPLICABLE_VENDORS.filter((vendor) =>
             vendor === "sendcutsend"
-              ? (normalizedExtraction.tightestTolerance.valueInch ?? 0.005) >= 0.005
+              ? // A part with no resolved tolerance is not eligible (null is denied,
+                // matching the beta gate); never default it to 0.005 (OVD-984).
+                tightestToleranceInch !== null && tightestToleranceInch >= 0.005
               : true,
           ),
   };
@@ -998,6 +1029,8 @@ export type ImportedVendorOffer = {
   threadCallouts: string | null;
   threadMatchNotes: string | null;
   notes: string | null;
+  /** Worker automation status from raw_payload.workerNotes. Internal views only, never customer-visible. */
+  workerNotes?: string[];
 };
 
 function parseLooseCurrencyValue(value: unknown): number {
@@ -1085,6 +1118,7 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
     threadCallouts: offer.thread_callouts,
     threadMatchNotes: offer.thread_match_notes,
     notes: offer.notes,
+    workerNotes: readWorkerNotes(offer.raw_payload),
   };
 }
 

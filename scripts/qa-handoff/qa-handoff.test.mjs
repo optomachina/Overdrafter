@@ -7,6 +7,8 @@ import {
   dedupeKey,
   duplicateMarkers,
   evaluateGate,
+  excludeHandoffChecks,
+  HANDOFF_EXCLUDED_CHECKS,
   hasMarker,
   markerFor,
   parseRequiredChecks,
@@ -501,5 +503,37 @@ describe("run", () => {
     expect(() => parseArgs(["--repo", "o/r", "--mode", "enforce"])).toThrow("--mode");
     expect(() => parseArgs(["--mode", "report"])).toThrow("--repo");
     expect(() => parseArgs(["--repo", "o/r", "--sha", "main"])).toThrow("--sha");
+  });
+});
+
+describe("merge gate exclusion (OVD-921)", () => {
+  it("deduplicates excluded names and preserves kept specifications", () => {
+    const pinned = { name: "ci", appId: 15368 };
+    expect(Object.isFrozen(HANDOFF_EXCLUDED_CHECKS)).toBe(true);
+    expect(excludeHandoffChecks([pinned, "ovd-merge-gate", { name: "ovd-merge-gate", appId: 15368 }]))
+      .toEqual({ kept: [pinned], excluded: ["ovd-merge-gate"] });
+  });
+  for (const pinned of [false, true]) {
+    for (const pending of [false, true]) {
+      it(`hands off with merge gate ${pending ? "pending" : "missing"}, pinned=${pinned}`, () => {
+        const requiredChecks = [...REQUIRED, "ovd-merge-gate"].map((name) => pinned ? { name, appId: 15368 } : name);
+        const checkRuns = green().map((item) => ({ ...item, app: { id: 15368, slug: "github-actions" } }));
+        if (pending) checkRuns.push({ name: "ovd-merge-gate", status: "in_progress", app: { id: 15368 } });
+        expect(evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns, requiredChecks }).handoff).toBe(true);
+        checkRuns[0].conclusion = "failure";
+        expect(evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns, requiredChecks }).reason).toBe("check-fail");
+      });
+    }
+  }
+  it("retains no-required-checks for an excluded-only list", () => {
+    expect(evaluateGate({ event: { headSha: SHA_A }, pr: pr(), requiredChecks: ["ovd-merge-gate"] }).reason).toBe("no-required-checks");
+  });
+  it.each([true, false])("logs exclusions from protection or REQUIRED_CHECKS, protection=%s", async (protection) => {
+    const lines = [];
+    const api = fakeApi({ branch: [], protection: protection ? ["ci", "ovd-merge-gate"] : [] });
+    const results = await run({ args: { mode: "report", repo: "optomachina/Overdrafter", pr: 7 }, api,
+      env: { REQUIRED_CHECKS: "ci,ovd-merge-gate" }, log: (line) => lines.push(line) });
+    expect(results[0].handoff).toBe(true);
+    expect(lines).toContain("required checks excluded from handoff: ovd-merge-gate");
   });
 });

@@ -105,6 +105,7 @@
     { "path": "scripts/symphony/run.sh", "classes": ["infra_ci"] },
     { "path": "scripts/symphony_agent.sh", "classes": ["infra_ci"] },
     { "path": "scripts/symphonyHook.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/verify-result-judge/lib.mjs", "classes": ["infra_ci"] },
     { "path": "README.md", "classes": [] },
     { "path": "src/components/QuoteTable.tsx", "classes": [] },
     { "path": "src/lib/urls.ts", "classes": [] },
