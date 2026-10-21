@@ -73,7 +73,8 @@ import { safeInline } from "./proof-check.mjs";
  * still lists those files' paths. A file with a safe category and no
  * sensitive class (classes [], category set) is the only non-sensitive file.
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
- * "<class>:sql:<id>: <reason>", "<category>:path:<glob>" or
+ * "<class>:sql:<id>: <reason>", "sql:oversized:><MAX_SQL_TOKENS>" (SQL_OVERSIZED_REASON),
+ * "<category>:path:<glob>" or
  * "unclassified:no-safe-category"; a rename's old name is prefixed
  * "previous:". gate_loosening.reasons hold this detector's reasons
  * ({kind, path, message, ...}) and the shared list's findGateLoosening
@@ -331,6 +332,45 @@ export function classifyPath(path, config) {
 
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 const MAX_SQL_DEPTH = 8;
+/** SQL bodies that tokenize to more than this many tokens are not scanned; they fail closed. */
+export const MAX_SQL_TOKENS = 200_000;
+// Bound scanning work even for comments or literals with very few tokens.
+const MAX_SQL_CHARS = MAX_SQL_TOKENS * 256;
+
+/** Thrown by sqlWords when a body exceeds the token budget. */
+export class SqlTooLargeError extends Error {}
+/** The reason a SQL file too large to scan gets (it fails closed). */
+export const SQL_OVERSIZED_REASON = `sql:oversized:>${MAX_SQL_TOKENS}`;
+
+/** A fresh token budget, shared by one sqlWords call and its nested bodies. Every token is charged once, where it is pushed. */
+const newSqlBudget = () => ({ left: MAX_SQL_TOKENS });
+
+/** Fail closed before scanning a body longer than MAX_SQL_CHARS. */
+function checkSqlChars(sql) {
+  if (sql.length > MAX_SQL_CHARS) throw new SqlTooLargeError(`more than ${MAX_SQL_CHARS} characters`);
+}
+
+/** Append tokens one at a time (no spread, so no stack overflow), spending the budget. */
+function addSqlTokens(words, budget, tokens) {
+  for (const token of tokens) {
+    budget.left -= 1;
+    if (budget.left < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
+    words.push(token);
+  }
+}
+
+/**
+ * Tokenize `text` into `words`, charging each token against `budget` exactly
+ * once, where it is pushed. A nested body is scanned straight into the
+ * enclosing `words` (never into a list the enclosing level appends again), so
+ * a token costs one budget unit however deeply it is quoted.
+ */
+function scanSqlInto(text, words, depth, budget) {
+  const sql = String(text);
+  checkSqlChars(sql);
+  let index = 0;
+  while (index < sql.length) index = scanSqlToken(sql, index, words, depth, budget);
+}
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
@@ -349,136 +389,140 @@ const MAX_SQL_DEPTH = 8;
  * and set_config with the setting name nested deeper than `(('role'))` or
  * passed as a variable does not match the role rules.
  */
-export function sqlWords(text, depth = 0) {
-  const sql = String(text);
+export function sqlWords(text, depth = 0, budget = newSqlBudget()) {
   const words = [];
-  let index = 0;
-  while (index < sql.length) index = scanToken(sql, index, depth, words);
+  scanSqlInto(text, words, depth, budget);
   return words;
 }
 
-// Appends one token (or skips a comment) at sql[index] and returns where the
-// scan continues.
-function scanToken(sql, index, depth, words) {
+/** Scan the token (or comment, or quoted run) at `index`, pushing its words; returns the next index. */
+function scanSqlToken(sql, index, words, depth, budget) {
   const char = sql[index];
   const next = sql[index + 1];
   if (char === "-" && next === "-") return skipLineComment(sql, index);
   if (char === "/" && next === "*") return skipBlockComment(sql, index);
-  if (char === "'" || char === '"') return scanQuoted(sql, index, depth, words);
-  const dollar = readDollarQuoted(sql, index);
-  if (dollar) {
-    appendAll(words, sqlBodyWords(dollar.body, depth));
-    return dollar.end;
-  }
+  if (char === "'" || char === '"') return scanQuoted(sql, index, words, depth, budget);
+  const tag = dollarTagAt(sql, index);
+  if (tag) return scanDollarQuoted(sql, index, tag, words, depth, budget);
   if (/[A-Za-z_]/.test(char)) {
-    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256))[0];
-    words.push(word.toLowerCase());
+    const word = /^[A-Za-z_][\w$]*/.exec(sql.slice(index, index + 256))[0];
+    addSqlTokens(words, budget, [word.toLowerCase()]);
     return index + word.length;
   }
-  if (!/\s/.test(char)) words.push(char);
+  if (!/\s/.test(char)) addSqlTokens(words, budget, [char]);
   return index + 1;
 }
 
-// Not target.push(...items): spreading a body of more than about 100k words
-// overflows the call stack, which made detect() report a read error.
-function appendAll(target, items) {
-  for (const item of items) target.push(item);
-}
-
-// Postgres ends a line comment at CR as well as LF.
+/** The index after a `--` comment and its line ending (Postgres ends a line comment at CR as well as LF). */
 function skipLineComment(sql, index) {
-  let at = index;
-  while (at < sql.length && sql[at] !== "\n" && sql[at] !== "\r") at += 1;
-  return at + 1;
+  let end = index;
+  while (end < sql.length && sql[end] !== "\n" && sql[end] !== "\r") end += 1;
+  return end + 1;
 }
 
-// Block comments nest.
+/** The index after the (possibly nested) block comment that starts at `index`. */
 function skipBlockComment(sql, index) {
   let level = 1;
-  let at = index + 2;
-  while (at < sql.length && level > 0) {
-    const pair = sql.slice(at, at + 2);
-    if (pair === "/*") {
-      level += 1;
-      at += 2;
-    } else if (pair === "*/") {
-      level -= 1;
-      at += 2;
-    } else at += 1;
+  let end = index + 2;
+  while (end < sql.length && level > 0) {
+    const pair = sql.slice(end, end + 2);
+    if (pair === "/*") level += 1;
+    if (pair === "*/") level -= 1;
+    end += pair === "/*" || pair === "*/" ? 2 : 1;
   }
-  return at;
-}
-
-// E'...' (a letter E directly before the quote, not the tail of a longer word)
-// reads backslash escapes.
-function isEscapeString(sql, index) {
-  return /e/i.test(sql[index - 1] ?? "") && !/\w/.test(sql[index - 2] ?? "");
-}
-
-// A letter escape (\n, \t, \x41) separates words; any other escape is the character.
-function backslashEscape(escaped) {
-  return /[A-Za-z]/.test(escaped) ? " " : escaped;
-}
-
-// Reads the quoted string or identifier opened at sql[index]; a doubled quote
-// is a literal quote. An unterminated quote runs to the end of the text.
-function readQuoted(sql, index, quote, escapes) {
-  let body = "";
-  let at = index + 1;
-  while (at < sql.length) {
-    const current = sql[at];
-    const following = sql.slice(at + 1, at + 2);
-    if (escapes && current === "\\") {
-      body += backslashEscape(following);
-      at += 2;
-    } else if (current === quote && following === quote) {
-      body += quote;
-      at += 2;
-    } else if (current === quote) {
-      return { body, end: at + 1 };
-    } else {
-      body += current;
-      at += 1;
-    }
-  }
-  return { body, end: at };
-}
-
-// A single-quoted string is SQL again; a double-quoted name is one word.
-function scanQuoted(sql, index, depth, words) {
-  const quote = sql[index];
-  const escapes = quote === "'" && isEscapeString(sql, index);
-  // The E of E'...' was read as a word before the quote.
-  if (escapes && words.at(-1) === "e") words.pop();
-  const { body, end } = readQuoted(sql, index, quote, escapes);
-  if (quote === "'") appendAll(words, sqlBodyWords(body, depth));
-  else if (body !== "") words.push(body.toLowerCase());
   return end;
 }
 
-// A dollar-quoted body ($$...$$, $tag$...$tag$) starting at sql[index], or
-// null. An unterminated body runs to the end of the text.
-function readDollarQuoted(sql, index) {
+/** The `$tag$` (or `$$`) that opens a dollar-quoted string at `index`, or null. */
+function dollarTagAt(sql, index) {
   if (sql[index] !== "$" || /\w/.test(sql[index - 1] ?? "")) return null;
-  const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))?.[0];
-  if (!tag) return null;
-  const bodyStart = index + tag.length;
-  const close = sql.indexOf(tag, bodyStart);
-  if (close === -1) return { body: sql.slice(bodyStart), end: sql.length };
-  return { body: sql.slice(bodyStart, close), end: close + tag.length };
+  return DOLLAR_TAG.exec(sql.slice(index, index + 64))?.[0] ?? null;
 }
 
-function sqlBodyWords(body, depth) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1);
-  return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
+/** A single-quoted, E'' or double-quoted run at `index`: its SQL words or one identifier token and the index after it. */
+function scanQuoted(sql, index, words, depth, budget) {
+  const quote = sql[index];
+  const backslash = quote === "'" && /e/i.test(sql[index - 1] ?? "") && !/\w/.test(sql[index - 2] ?? "");
+  if (backslash && words.at(-1) === "e") {
+    words.pop();
+    budget.left += 1;
+  }
+  const { body, end } = readQuoted(sql, index + 1, quote, backslash);
+  if (quote === "'") scanBodyInto(body, words, depth, budget);
+  else if (body !== "") addSqlTokens(words, budget, [body.toLowerCase()]);
+  return end;
+}
+
+/** What an E'' backslash escape at `index` stands for: a separator for a letter escape (\n, \t, \x41), else the escaped character. */
+function escapedText(sql, index) {
+  return /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2);
+}
+
+/** Read a quoted body from `start`: a doubled quote is the quote itself, and in an E'' string a backslash starts an escape. */
+function readQuoted(sql, start, quote, backslash) {
+  let index = start;
+  let body = "";
+  while (index < sql.length) {
+    if (backslash && sql[index] === "\\") {
+      body += escapedText(sql, index);
+      index += 2;
+    } else if (sql[index] === quote && sql[index + 1] === quote) {
+      body += quote;
+      index += 2;
+    } else if (sql[index] === quote) {
+      return { body, end: index + 1 };
+    } else {
+      body += sql[index];
+      index += 1;
+    }
+  }
+  return { body, end: index };
+}
+
+/** A dollar-quoted body opened by `tag` at `index`: its words and the index after the closing tag. */
+function scanDollarQuoted(sql, index, tag, words, depth, budget) {
+  const bodyStart = index + tag.length;
+  const close = sql.indexOf(tag, bodyStart);
+  const bodyEnd = close === -1 ? sql.length : close;
+  scanBodyInto(sql.slice(bodyStart, bodyEnd), words, depth, budget);
+  return close === -1 ? sql.length : close + tag.length;
+}
+
+/**
+ * Add the words of a quoted body to `words`. Above MAX_SQL_DEPTH the body is
+ * split into plain words; below it the body is scanned as SQL, and its tokens
+ * are charged as they are pushed (see scanSqlInto), not again here.
+ */
+function scanBodyInto(body, words, depth, budget) {
+  if (depth < MAX_SQL_DEPTH) {
+    scanSqlInto(body, words, depth + 1, budget);
+    return;
+  }
+  addSqlTokens(words, budget, body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? []);
+}
+
+/**
+ * The fail-closed result for SQL too large to scan: every class a SQL rule
+ * could give, with SQL_OVERSIZED_REASON.
+ */
+function oversizedSql(config) {
+  return { classes: [...new Set(config.sqlContent.rules.map((rule) => rule.class))], reasons: [SQL_OVERSIZED_REASON] };
 }
 
 /**
  * Classes whose token sequences occur in the SQL text. Each matching rule adds
- * the reason `<class>:sql:<id>: <reason>`.
+ * the reason `<class>:sql:<id>: <reason>`. A body
+ * over MAX_SQL_CHARS characters or MAX_SQL_TOKENS tokens is not scanned and
+ * fails closed (oversizedSql); detect() lists it under manual_review.
  */
 export function classifySql(text, config) {
-  const words = sqlWords(text);
+  let words;
+  try {
+    words = sqlWords(text);
+  } catch (error) {
+    if (!(error instanceof SqlTooLargeError)) throw error;
+    return oversizedSql(config);
+  }
   const classes = [];
   const reasons = [];
   for (const rule of config.sqlContent.rules) {
@@ -578,7 +622,16 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     files: results,
     unclassified: results.filter((file) => file.classes.includes(UNCLASSIFIED)).map((file) => file.path),
     errors: allErrors,
+    ...manualReview(results),
   };
+}
+
+/** A manual_review list for files whose SQL was too large to scan, or nothing. */
+function manualReview(results) {
+  const notices = results
+    .filter((file) => file.reasons.includes(SQL_OVERSIZED_REASON))
+    .map((file) => `SQL body ${file.path} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`);
+  return notices.length ? { manual_review: notices } : {};
 }
 
 /** The result for a run that could not classify anything. */
@@ -904,6 +957,8 @@ export function formatSummary(result) {
   lines.push(`Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  for (const notice of result.manual_review ?? []) lines.push(`- manual review: ${safeInline(notice)}`);
+  if (result.manual_review?.length) lines.push("");
   if (result.gate_loosening?.detected) {
     lines.push(GATE_LOOSENING_LINE);
     for (const reason of result.gate_loosening.reasons) lines.push(`- ${safeInline(reason.message)}`);

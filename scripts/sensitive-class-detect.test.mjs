@@ -18,6 +18,7 @@ import {
   DETECTOR_REPO_PATH,
   GATE_LOOSENING_LINE,
   MAX_FILES,
+  MAX_SQL_TOKENS,
   OUTPUT_CLASSES,
   OUTPUT_VERSION,
   SQL_CONTENT_CLASSES,
@@ -36,6 +37,7 @@ import {
   loadConfig,
   main,
   pathWords,
+  sqlWords,
 } from "./sensitive-class-detect.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -664,6 +666,101 @@ describe("detect", () => {
     const result = await detect({ files: [modified("supabase/fixtures/missing.sql")], readHeadFile, config });
     expect(result.status).toBe("error");
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
+  });
+
+  describe("oversized SQL bodies", () => {
+    const file = "supabase/fixtures/big.sql";
+    const expectedClasses = new Set(["schema", ...config.sqlContent.rules.map((rule) => rule.class)]);
+    const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });
+
+    it("scans a body just under the limit normally", async () => {
+      const result = await run(MAX_SQL_TOKENS);
+      expect(result).toMatchObject({ version: OUTPUT_VERSION, status: "ok", errors: [], sensitive_count: 1, unclassified: [], classes: ["schema"] });
+      expect(result.manual_review).toBeUndefined();
+    });
+
+    it("fails closed with a size message when the body is over the limit", async () => {
+      const result = await run(MAX_SQL_TOKENS + 1);
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.version).toBe(OUTPUT_VERSION);
+      expect(new Set(result.files[0].classes)).toEqual(expectedClasses);
+      expect(result.files[0].reasons).toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+      expect(formatSummary(result)).toContain("manual review: `SQL body " + file + " rejected for size");
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it.each([
+      ["a quoted string", `select '${";".repeat(500_000)}'`],
+      ["a dollar-quoted body", `do $$${";".repeat(500_000)}$$`],
+      ["a comment exceeding the character cap", `--${"x".repeat(MAX_SQL_TOKENS * 256)}`],
+    ])("fails closed on a dense space-free body in %s", async (_name, body) => {
+      const result = await detect({ files: [modified(file)], readHeadFile: async () => body, config });
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it("is deterministic across runs", async () => {
+      const first = await run(MAX_SQL_TOKENS + 1);
+      expect(await run(MAX_SQL_TOKENS + 1)).toEqual(first);
+    });
+
+    // A token in a quoted body is charged once, where it is tokenized, however
+    // deeply it is quoted. Each builder returns SQL whose flattened token count
+    // is exactly `tokens` (the quote and dollar-tag delimiters are not tokens).
+    describe("a token in a nested body is charged once", () => {
+      const select = (tokens) => Array(tokens).fill("select").join(" ");
+      const dollars = (body, levels) => Array.from({ length: levels }).reduce((inner, _, level) => `$q${level}$ ${inner} $q${level}$`, body);
+      const quotes = (body, levels) => Array.from({ length: levels }).reduce((inner) => `'${inner.replaceAll("'", "''")}'`, body);
+      const nested = [
+        ["a dollar-quoted body", (tokens) => dollars(select(tokens), 1)],
+        ["dollar-quoted bodies nested three deep", (tokens) => dollars(select(tokens), 3)],
+        ["a single-quoted body", (tokens) => quotes(select(tokens), 1)],
+        ["single-quoted bodies nested three deep", (tokens) => quotes(select(tokens), 3)],
+        ["single-quoted bodies nested past the depth limit", (tokens) => quotes(select(tokens), 10)],
+        ["a quoted string inside a dollar-quoted body", (tokens) => dollars(quotes(select(tokens), 2), 2)],
+        ["an E'' string after a word", (tokens) => `select e'${select(tokens - 1)}'`],
+      ];
+      const scan = (sql) => detect({ files: [modified(file)], readHeadFile: async () => sql, config });
+
+      it.each(nested)("scans %s of exactly the limit normally", async (_name, build) => {
+        const sql = build(MAX_SQL_TOKENS);
+        expect(sqlWords(sql)).toHaveLength(MAX_SQL_TOKENS);
+        const result = await scan(sql);
+        expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 1, classes: ["schema"] });
+        expect(result.files[0].reasons).not.toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+        expect(result.manual_review).toBeUndefined();
+      });
+
+      it.each(nested)("fails closed on %s one token over the limit", async (_name, build) => {
+        const result = await scan(build(MAX_SQL_TOKENS + 1));
+        expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 1 });
+        expect(new Set(result.files[0].classes)).toEqual(expectedClasses);
+        expect(result.files[0].reasons).toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+        expect(result.manual_review).toEqual([
+          `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+        ]);
+      });
+
+      it("scans a DO block of 50k tokens (over half the limit) normally", () => {
+        const statements = 24_999;
+        const sql = `DO $$ BEGIN ${"NULL; ".repeat(statements)}END; $$;`;
+        expect(sqlWords(sql)).toHaveLength(2 * statements + 5);
+        expect(classifySql(sql, config)).toEqual({ classes: [], reasons: [] });
+      });
+
+      it("still finds a sensitive statement inside a large nested body", () => {
+        const sql = dollars(`${select(MAX_SQL_TOKENS / 2)} execute 'create policy p on t'`, 2);
+        expect(classifySql(sql, config).classes).toEqual(["rls"]);
+      });
+    });
   });
 });
 
