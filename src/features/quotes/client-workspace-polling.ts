@@ -17,7 +17,6 @@ type ClientWorkspacePollingItem = {
 const ACTIVE_EXTRACTION_LIFECYCLES = new Set([
   "queued",
   "extracting",
-  "uploaded",
 ]);
 const ACTIVE_QUOTE_REQUEST_STATUSES = new Set(["queued", "requesting"]);
 const RECEIVED_WITHOUT_OFFER_GRACE_MS = 60_000;
