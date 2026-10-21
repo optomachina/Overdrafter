@@ -161,7 +161,8 @@ Then revoke any issued permits and withdraw the envelope review row
 
 The matrix row stays `draft_outreach_prepared` with `tos_stance: silent`. Its
 notes record the `owner_approved` admission basis (OVD-641, 2026-10-15) and
-the earlier shared-egress proposal, superseded by the default-off decision above. Owner approval is not a matrix clearance, so the derived
+the earlier shared-egress proposal, superseded by the default-off decision above.
+That historical admission approval is not a recorded matrix `owner_override`, so the derived
 `enabled_for_paid_automation` stays false. See
 [`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#oshcut)
 and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
