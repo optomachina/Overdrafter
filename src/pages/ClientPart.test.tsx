@@ -1565,14 +1565,14 @@ describe("ClientPart", () => {
       });
     });
 
-    it("rejects decimal Quote quantities without a save or success toast", async () => {
+    it.each(["12.5", "250,500", "100,250,500", "1,000"])("rejects Quote quantities %j without a save or success toast", async (text) => {
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
-      act(() => result.current.setQuoteQuantityInput("12.5"));
-      act(() => result.current.handleSaveRequest());
+      act(() => result.current.setQuoteQuantityInput(text));
+      await act(async () => result.current.handleSaveRequest());
       expect(api.updateClientPartRequest).not.toHaveBeenCalled();
       expect(toastMock.error).toHaveBeenCalled();
-      expect(toastMock.success).not.toHaveBeenCalledWith("Request details updated.");
+      expect(toastMock.success).not.toHaveBeenCalled();
     });
 
     it("saves [5] when only Quantity changed from a saved [1], for a participant the server scoped", async () => {

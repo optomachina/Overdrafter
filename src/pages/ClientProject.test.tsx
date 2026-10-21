@@ -878,11 +878,12 @@ describe("ClientProject", () => {
     });
   });
 
-  // OVD-992: a need-by date typed in the Add part prompt is a display filter only. The draft must not
-  // carry it, because the approved requirement copies it and every controlled dispatch denies it.
   it.each([
     ["1,000/2,000", [1000, 2000]],
     ["10/12.5", null],
+    ["250,500", null],
+    ["10,25,50", [10, 25, 50]],
+    ["100, 250, 500", [100, 250, 500]],
   ])("validates project request quantities %j before saving", async (text, expected) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     function Wrapper({ children }: { children: ReactNode }) {
@@ -895,16 +896,19 @@ describe("ClientProject", () => {
     const { result } = renderHook(() => useClientProjectController(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.requestDraftsByJobId["job-1"]).toBeDefined());
     act(() => result.current.handleQuoteQuantityInputChange("job-1", text as string));
-    act(() => result.current.handleSaveRequest("job-1"));
+    await act(async () => result.current.handleSaveRequest("job-1"));
     if (expected) {
       await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
       expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({ requestedQuoteQuantities: expected });
     } else {
       expect(toastMock.error).toHaveBeenCalled();
       expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(toastMock.success).not.toHaveBeenCalled();
     }
   });
 
+  // OVD-992: a need-by date typed in the Add part prompt is a display filter only. The draft must not
+  // carry it, because the approved requirement copies it and every controlled dispatch denies it.
   const ADD_PART_PROMPTS: Array<[label: string, prompt: string, quantities: number[]]> = [
     ["relative weekday", "Please quote 25 of these, need by next Friday", [25]],
     ["slash date", "Need 50 of these, needed by 11/20", [50]],

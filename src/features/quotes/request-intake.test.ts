@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  QUOTE_QUANTITIES_AMBIGUOUS_ERROR,
   formatRequestedByDateLabel,
   formatRequestedQuoteQuantitiesInput,
   normalizeRequestedQuoteQuantities,
@@ -105,6 +106,12 @@ describe("request intake parsing", () => {
 describe("validateRequestedQuoteQuantitiesInput", () => {
   it.each([
     ["1,000/2,000", [1000, 2000]],
+    ["1,000;2,000", [1000, 2000]],
+    ["250,500/1,000", [250500, 1000]],
+    ["10,25/50", [10, 25, 50]],
+    ["10,25,50", [10, 25, 50]],
+    ["500,1000", [500, 1000]],
+    ["100, 250, 500", [100, 250, 500]],
     ["25, 50 100;200", [25, 50, 100, 200]],
     ["25/25/50", [25, 50]],
     ["", [12]],
@@ -112,7 +119,7 @@ describe("validateRequestedQuoteQuantitiesInput", () => {
     expect(validateRequestedQuoteQuantitiesInput(text as string, 12)).toEqual({ quantities, invalidTokens: [] });
   });
 
-  it.each(["12.5", "-5", "abc", "25,50", "0", "2147483648", "1e3", "/"])(
+  it.each(["12.5", "-5", "abc", "0", "2147483648", "1e3", "/"])(
     "reports invalid token %j instead of silently dropping it",
     (token) => {
       expect(validateRequestedQuoteQuantitiesInput(token, 12).invalidTokens).toEqual([token]);
@@ -125,3 +132,34 @@ describe("validateRequestedQuoteQuantitiesInput", () => {
     });
   });
 });
+
+  it.each(["250,500", "100,250,500", "1,000"])("rejects ambiguous %j with guidance", (text) => {
+    expect(validateRequestedQuoteQuantitiesInput(text)).toEqual({
+      quantities: [], invalidTokens: [text], error: QUOTE_QUANTITIES_AMBIGUOUS_ERROR,
+    });
+  });
+
+  it.each([
+    ["Please quote 1,000 of these", []],
+    ["quote 1,000/2,000", [1000, 2000]],
+    ["quote 1,000;2,000", [1000, 2000]],
+    ["qty 12.5", []],
+    ["Please quote 2,500 pieces", []],
+    ["need 1,000 pcs", []],
+    ["qty 1000", [1000]],
+    ["quote 10/25/50", [10, 25, 50]],
+    ["quote 250,500", []],
+    ["quote 100,250,500", []],
+    ["quote 10,25,50", [10, 25, 50]],
+    ["quote 100, 250, 500", [100, 250, 500]],
+    ["qty -5", []],
+    ["qty 0", []],
+    ["qty 12pcs", []],
+    ["qty 12-15", []],
+    ["qty 12+5", []],
+    ["quote 10/12.5/25", []],
+    ["quote 10/abc/25", []],
+    ["quantity pricing for qty 12.5", []],
+  ])("prefills only unambiguous whole quantities from %j", (prompt, quantities) => {
+    expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
+  });

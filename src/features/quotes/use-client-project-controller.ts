@@ -1514,12 +1514,12 @@ export function useClientProjectController() {
       return;
     }
 
-    const { quantities: requestedQuoteQuantities, invalidTokens } = validateRequestedQuoteQuantitiesInput(
+    const { quantities: requestedQuoteQuantities, invalidTokens, error } = validateRequestedQuoteQuantitiesInput(
       quoteQuantityInputsByJobId[jobId] ?? "",
       draft.quantity,
     );
     if (invalidTokens.length > 0 || requestedQuoteQuantities.length === 0) {
-      toast.error(QUOTE_QUANTITIES_FORMAT_ERROR);
+      toast.error(error ?? QUOTE_QUANTITIES_FORMAT_ERROR);
       return;
     }
     const nextDraft = {

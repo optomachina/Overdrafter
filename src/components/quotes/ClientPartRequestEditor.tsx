@@ -26,7 +26,7 @@ type ClientPartRequestEditorProps = {
   fieldDefaults?: FieldDefaults;
   /**
    * OVD-997: set to replace Qty and Quote quantities with one Quantity field. Left unset (flag off),
-   * the editor keeps both fields as they were.
+   * the editor shows both fields and validates each before allowing Save.
    */
   singleQuantity?: SingleQuantityState;
 };
@@ -278,12 +278,13 @@ export function ClientPartRequestEditor({
                 id="client-request-qty"
                 value={quantityInput.value}
                 onChange={(event) => quantityInput.onTextChange(event.target.value)}
+                onBlur={quantityInput.onBlur}
                 aria-invalid={quantityInput.blocked || undefined}
-                aria-describedby={quantityInput.blocked ? "client-request-qty-error" : undefined}
+                aria-describedby={[quantityInput.showError && "client-request-qty-error", !quoteQuantitiesBlocked && "client-request-quote-quantities-help"].filter(Boolean).join(" ") || undefined}
                 className="border-border bg-muted text-foreground"
                 inputMode="numeric"
               />
-              {quantityInput.blocked ? (
+              {quantityInput.showError ? (
                 <p id="client-request-qty-error" role="alert" className="text-xs text-destructive">
                   {QUANTITY_FORMAT_ERROR}
                 </p>
@@ -302,7 +303,7 @@ export function ClientPartRequestEditor({
               />
               {quoteQuantitiesBlocked ? (
                 <p id="client-request-quote-quantities-error" role="alert" className="text-xs text-destructive">
-                  {QUOTE_QUANTITIES_FORMAT_ERROR}
+                  {quoteQuantities.error ?? QUOTE_QUANTITIES_FORMAT_ERROR}
                 </p>
               ) : (
                 <p id="client-request-quote-quantities-help" className="text-xs text-muted-foreground">

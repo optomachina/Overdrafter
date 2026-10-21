@@ -573,6 +573,8 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     fireEvent.change(host.qty, { target: { value: text } });
     expect(host.qty).toHaveValue(text);
     expect(host.onChange).not.toHaveBeenCalled();
+    if (!text) expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(host.qty);
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number");
     expect(host.save).toBeDisabled();
   });
@@ -580,7 +582,9 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
   it("allows clearing and typing 50 without retaining the initial 1", () => {
     const host = renderHost();
     fireEvent.change(host.qty, { target: { value: "" } });
-    for (const value of ["5", "50"]) fireEvent.change(host.qty, { target: { value } });
+    for (const character of "50") {
+      fireEvent.change(host.qty, { target: { value: (host.qty as HTMLInputElement).value + character } });
+    }
     expect(host.qty).toHaveValue("50");
     expect(host.onChange).toHaveBeenLastCalledWith({ quantity: 50 });
     expect(host.save).toBeEnabled();
@@ -605,6 +609,15 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     fireEvent.change(host.quotes, { target: { value: "1,000/2,000" } });
     expect(host.save).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByText(/Saving sets Qty to 1000, the first quote quantity/)).toBeInTheDocument();
+    expect(host.qty).toHaveAccessibleDescription(/Saving sets Qty to 1000, the first quote quantity/);
   });
 });
+
+  it.each(["250,500", "100,250,500", "1,000"])("shows ambiguity inline for %j", (text) => {
+    render(<ClientPartRequestEditor draft={makeDraft({ material: "Aluminum" })}
+      quoteQuantityInput={text} onQuoteQuantityInputChange={noop} onChange={noop}
+      onSave={noop} onUploadRevision={noop} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Commas are ambiguous here");
+    expect(screen.getByLabelText("Quote quantities")).toHaveAccessibleDescription(/Commas are ambiguous here/);
+    expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();
+  });

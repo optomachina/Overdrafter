@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { parseRequestQuantityText, QUANTITY_FORMAT_ERROR } from "@/features/quotes/single-quantity";
+import { validateRequestedQuoteQuantitiesInput, QUOTE_QUANTITIES_FORMAT_ERROR } from "@/features/quotes/request-intake";
 import { AlertTriangle, CheckCircle2, FileUp } from "lucide-react";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
@@ -29,12 +32,13 @@ type InternalJobPartRequirementCardProps = {
   disabled: boolean;
   draft: ApprovedPartRequirement;
   onDraftChange: (updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement) => void;
-  onDraftQuantityChange: (quantity: number) => void;
+  onDraftQuantityChange: (quantity: string) => void;
   onQuoteQuantityInputChange: (value: string) => void;
   onQuoteQuantityInputCommit: () => void;
   part: PartAggregate;
   partQueueTasks: WorkQueueRecord[];
   quoteQuantityInput: string;
+  quantityInput?: string;
   showInternalDiagnostics: boolean;
 };
 
@@ -95,8 +99,14 @@ export function InternalJobPartRequirementCard({
   part,
   partQueueTasks,
   quoteQuantityInput,
+  quantityInput = String(draft.quantity),
   showInternalDiagnostics,
 }: InternalJobPartRequirementCardProps) {
+  const [quantityTouched, setQuantityTouched] = useState(false);
+  const invalidQuantity = parseRequestQuantityText(quantityInput) === null;
+  const showQuantityError = invalidQuantity && (quantityTouched || quantityInput.trim().length > 0);
+  const quotes = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, draft.quantity);
+  const quoteError = quotes.invalidTokens.length > 0 ? quotes.error ?? QUOTE_QUANTITIES_FORMAT_ERROR : null;
   const extraction = normalizeDrawingExtraction(part.extraction, part.id);
   const currentDraft = draft;
   const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
@@ -351,15 +361,23 @@ export function InternalJobPartRequirementCard({
           <div className="space-y-2">
             <Label htmlFor={quantityInputId}>Quantity</Label>
             {showQuoteFields ? (
-              <Input
-                id={quantityInputId}
-                type="number"
-                min={1}
-                className="border-border bg-muted"
-                value={currentDraft.quantity}
-                disabled={disabled}
-                onChange={(event) => onDraftQuantityChange(Number(event.target.value || 1))}
-              />
+              <>
+                <Input
+                  id={quantityInputId}
+                  inputMode="numeric"
+                  className="border-border bg-muted"
+                  value={quantityInput}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    setQuantityTouched(false);
+                    onDraftQuantityChange(event.target.value);
+                  }}
+                  onBlur={() => setQuantityTouched(true)}
+                  aria-invalid={invalidQuantity || undefined}
+                  aria-describedby={showQuantityError ? `${quantityInputId}-error` : undefined}
+                />
+                {showQuantityError ? <p id={`${quantityInputId}-error`} role="alert" className="text-xs text-destructive">{QUANTITY_FORMAT_ERROR}</p> : null}
+              </>
             ) : (
               <p className="rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-muted-foreground">
                 Hidden for non-quote services.
@@ -378,7 +396,10 @@ export function InternalJobPartRequirementCard({
                   placeholder="1/10/100"
                   onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
                   onBlur={onQuoteQuantityInputCommit}
+                  aria-invalid={Boolean(quoteError) || undefined}
+                  aria-describedby={quoteError ? `${quoteQuantitiesInputId}-error` : undefined}
                 />
+                {quoteError ? <p id={`${quoteQuantitiesInputId}-error`} role="alert" className="text-xs text-destructive">{quoteError}</p> : null}
                 <p className="text-xs text-muted-foreground">Use slash-delimited quantities like 1/10/100.</p>
               </>
             ) : (

@@ -1619,7 +1619,7 @@ export function useClientPartController(
 
     const validated = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, effectiveRequestDraft.quantity);
     if (!singleQuantity && (validated.invalidTokens.length > 0 || validated.quantities.length === 0)) {
-      toast.error(QUOTE_QUANTITIES_FORMAT_ERROR);
+      toast.error(validated.error ?? QUOTE_QUANTITIES_FORMAT_ERROR);
       return;
     }
 
