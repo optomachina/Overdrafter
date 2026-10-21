@@ -26,7 +26,7 @@ import { safeInline } from "./proof-check.mjs";
  * docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs, both
  * read from this checkout's working tree (the base, in CI), never from a ref.
  * This detector never copies those globs. scripts/sensitive-classes.json
- * holds only what this detector adds: SQL content rules (rls, definer) over
+ * holds only what this detector adds: SQL content rules (rls, definer, auth) over
  * changed SQL read at the PR head, and the auto-merge safe categories.
  *
  * The CLI runs from the base checkout. It reads the changed files and their
@@ -54,6 +54,9 @@ import { safeInline } from "./proof-check.mjs";
  *   provider   -> provider_dispatch
  *   ci, infra  -> infra_ci
  *   auth, secrets, deps -> unchanged
+ *   rls covers policies, ROW LEVEL SECURITY, BYPASSRLS/NOBYPASSRLS,
+ *                 rolbypassrls and row_security; definer covers SECURITY DEFINER.
+ *   auth also covers SQL role and session authorization switches.
  *   rls, definer -> unchanged, from SQL content only (a path naming rls at
  *                 the start of a name or after -, _, . or , is auth on the
  *                 shared list; rls after any other character, or at a
@@ -70,7 +73,7 @@ import { safeInline } from "./proof-check.mjs";
  * still lists those files' paths. A file with a safe category and no
  * sensitive class (classes [], category set) is the only non-sensitive file.
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
- * "<class>:sql:<tokens>", "<category>:path:<glob>" or
+ * "<class>:sql:<id>: <reason>", "<category>:path:<glob>" or
  * "unclassified:no-safe-category"; a rename's old name is prefixed
  * "previous:". gate_loosening.reasons hold this detector's reasons
  * ({kind, path, message, ...}) and the shared list's findGateLoosening
@@ -103,6 +106,8 @@ export const CONFIG_VERSION = 1;
 export const OUTPUT_VERSION = 2;
 /** Classes that only SQL content rules give. */
 export const SQL_CONTENT_CLASSES = Object.freeze(["rls", "definer"]);
+/** Classes SQL rules may name, including shared-list auth. */
+export const SQL_RULE_CLASSES = Object.freeze([...SQL_CONTENT_CLASSES, "auth"]);
 /** The pseudo-class of a file with no sensitive class and no safe category (fail closed). */
 export const UNCLASSIFIED = "unclassified";
 /** Every output class, in output order. */
@@ -113,7 +118,9 @@ const PER_PAGE = 100;
 const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules"]);
-const SQL_RULE_KEYS = new Set(["class", "tokens"]);
+const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason"]);
+// A whole lower-cased word as sqlWords emits it, or one punctuation character.
+const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sA-Za-z0-9_$])$/;
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -208,7 +215,7 @@ function compileCategory(name, entry, errors) {
  * Validate and compile the parsed detector config (SQL content rules and safe
  * categories). Unknown keys (a "classes" section included: path classes live
  * in docs/sensitive-paths.json), bad globs and SQL rules for a class outside
- * SQL_CONTENT_CLASSES are errors, never silently ignored.
+ * SQL_RULE_CLASSES are errors, never silently ignored.
  * @returns {{config: object|null, errors: string[]}}
  */
 export function compileConfig(raw) {
@@ -231,16 +238,21 @@ export function compileConfig(raw) {
   } else {
     for (const key of Object.keys(sql)) if (!SQL_KEYS.has(key)) errors.push(`sql_content: unknown rule key "${key}"`);
     const rules = Array.isArray(sql.rules) ? sql.rules : (errors.push("sql_content.rules must be an array"), []);
+    const ids = new Set();
     sqlContent = {
       paths: compileGlobs(stringList(sql.paths, "sql_content.paths", errors), "sql_content.paths", errors),
       rules: rules.flatMap((rule, index) => {
         const where = `sql_content.rules[${index}]`;
         if (!rule || typeof rule !== "object") return errors.push(`${where} must be an object`), [];
         for (const key of Object.keys(rule)) if (!SQL_RULE_KEYS.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
-        if (!SQL_CONTENT_CLASSES.includes(rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
-        const tokens = stringList(rule.tokens, `${where}.tokens`, errors, /^[a-z_]+$/);
+        if (typeof rule.id !== "string" || !NAME_PATTERN.test(rule.id)) errors.push(`${where}: invalid id`);
+        else if (ids.has(rule.id)) errors.push(`${where}: duplicate id "${rule.id}"`);
+        ids.add(rule.id);
+        if (typeof rule.reason !== "string" || rule.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
+        if (!SQL_RULE_CLASSES.includes(rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
+        const tokens = stringList(rule.tokens, `${where}.tokens`, errors, SQL_TOKEN_PATTERN);
         if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
-        return [{ class: rule.class, tokens }];
+        return [{ id: rule.id, class: rule.class, tokens, reason: rule.reason }];
       }),
     };
   }
@@ -322,63 +334,138 @@ const MAX_SQL_DEPTH = 8;
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
- * comments and quoted identifiers. Every single-quoted, E'' and dollar-quoted
- * string is tokenized recursively as SQL, because a string can be code: a DO
- * block (`DO LANGUAGE plpgsql $$…$$`), an old-style function body
- * (`AS '…'`) or dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails
- * closed: a string literal that merely mentions CREATE POLICY also matches.
+ * comments. A double-quoted identifier becomes one lower-cased word, because
+ * Postgres accepts quoted names (`SET "row_security"`, `"set_config"(…)`).
+ * Every single-quoted, E'' and dollar-quoted string is tokenized recursively
+ * as SQL, because a string can be code: a DO block
+ * (`DO LANGUAGE plpgsql $$…$$`), an old-style function body (`AS '…'`) or
+ * dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails closed: a string
+ * literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
+ *
+ * Known limits: names spelled with escapes (`E'row\x5fsecurity'`,
+ * `U&'row\005fsecurity'`, `U&"row\005fsecurity"`) or built at run time
+ * (`'row_' || 'security'`, format(), EXECUTE of a variable) are not decoded,
+ * and set_config with the setting name nested deeper than `(('role'))` or
+ * passed as a variable does not match the role rules.
  */
 export function sqlWords(text, depth = 0) {
   const sql = String(text);
   const words = [];
   let index = 0;
-  while (index < sql.length) {
-    const char = sql[index];
-    const next = sql[index + 1];
-    if (char === "-" && next === "-") {
-      // Postgres ends a line comment at CR as well as LF.
-      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
-      index += 1;
-    } else if (char === "/" && next === "*") {
-      let level = 1;
-      index += 2;
-      while (index < sql.length && level > 0) {
-        if (sql[index] === "/" && sql[index + 1] === "*") (level += 1), (index += 2);
-        else if (sql[index] === "*" && sql[index + 1] === "/") (level -= 1), (index += 2);
-        else index += 1;
-      }
-    } else if (char === "'" || char === '"') {
-      const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop();
-      index += 1;
-      let body = "";
-      while (index < sql.length) {
-        // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
-        if (backslash && sql[index] === "\\") (body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2)), (index += 2);
-        else if (sql[index] === char && sql[index + 1] === char) (body += char), (index += 2);
-        else if (sql[index] === char) {
-          index += 1;
-          break;
-        } else (body += sql[index]), (index += 1);
-      }
-      if (char === "'") words.push(...sqlBodyWords(body, depth));
-    } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
-      const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
-      const bodyStart = index + tag.length;
-      const close = sql.indexOf(tag, bodyStart);
-      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
-      index = close === -1 ? sql.length : close + tag.length;
-    } else if (/[A-Za-z_]/.test(char)) {
-      const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      words.push(match[0].toLowerCase());
-      index += match[0].length;
+  while (index < sql.length) index = scanToken(sql, index, depth, words);
+  return words;
+}
+
+// Appends one token (or skips a comment) at sql[index] and returns where the
+// scan continues.
+function scanToken(sql, index, depth, words) {
+  const char = sql[index];
+  const next = sql[index + 1];
+  if (char === "-" && next === "-") return skipLineComment(sql, index);
+  if (char === "/" && next === "*") return skipBlockComment(sql, index);
+  if (char === "'" || char === '"') return scanQuoted(sql, index, depth, words);
+  const dollar = readDollarQuoted(sql, index);
+  if (dollar) {
+    appendAll(words, sqlBodyWords(dollar.body, depth));
+    return dollar.end;
+  }
+  if (/[A-Za-z_]/.test(char)) {
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256))[0];
+    words.push(word.toLowerCase());
+    return index + word.length;
+  }
+  if (!/\s/.test(char)) words.push(char);
+  return index + 1;
+}
+
+// Not target.push(...items): spreading a body of more than about 100k words
+// overflows the call stack, which made detect() report a read error.
+function appendAll(target, items) {
+  for (const item of items) target.push(item);
+}
+
+// Postgres ends a line comment at CR as well as LF.
+function skipLineComment(sql, index) {
+  let at = index;
+  while (at < sql.length && sql[at] !== "\n" && sql[at] !== "\r") at += 1;
+  return at + 1;
+}
+
+// Block comments nest.
+function skipBlockComment(sql, index) {
+  let level = 1;
+  let at = index + 2;
+  while (at < sql.length && level > 0) {
+    const pair = sql.slice(at, at + 2);
+    if (pair === "/*") {
+      level += 1;
+      at += 2;
+    } else if (pair === "*/") {
+      level -= 1;
+      at += 2;
+    } else at += 1;
+  }
+  return at;
+}
+
+// E'...' (a letter E directly before the quote, not the tail of a longer word)
+// reads backslash escapes.
+function isEscapeString(sql, index) {
+  return /e/i.test(sql[index - 1] ?? "") && !/\w/.test(sql[index - 2] ?? "");
+}
+
+// A letter escape (\n, \t, \x41) separates words; any other escape is the character.
+function backslashEscape(escaped) {
+  return /[A-Za-z]/.test(escaped) ? " " : escaped;
+}
+
+// Reads the quoted string or identifier opened at sql[index]; a doubled quote
+// is a literal quote. An unterminated quote runs to the end of the text.
+function readQuoted(sql, index, quote, escapes) {
+  let body = "";
+  let at = index + 1;
+  while (at < sql.length) {
+    const current = sql[at];
+    const following = sql.slice(at + 1, at + 2);
+    if (escapes && current === "\\") {
+      body += backslashEscape(following);
+      at += 2;
+    } else if (current === quote && following === quote) {
+      body += quote;
+      at += 2;
+    } else if (current === quote) {
+      return { body, end: at + 1 };
     } else {
-      if (!/\s/.test(char)) words.push(char);
-      index += 1;
+      body += current;
+      at += 1;
     }
   }
-  return words;
+  return { body, end: at };
+}
+
+// A single-quoted string is SQL again; a double-quoted name is one word.
+function scanQuoted(sql, index, depth, words) {
+  const quote = sql[index];
+  const escapes = quote === "'" && isEscapeString(sql, index);
+  // The E of E'...' was read as a word before the quote.
+  if (escapes && words.at(-1) === "e") words.pop();
+  const { body, end } = readQuoted(sql, index, quote, escapes);
+  if (quote === "'") appendAll(words, sqlBodyWords(body, depth));
+  else if (body !== "") words.push(body.toLowerCase());
+  return end;
+}
+
+// A dollar-quoted body ($$...$$, $tag$...$tag$) starting at sql[index], or
+// null. An unterminated body runs to the end of the text.
+function readDollarQuoted(sql, index) {
+  if (sql[index] !== "$" || /\w/.test(sql[index - 1] ?? "")) return null;
+  const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))?.[0];
+  if (!tag) return null;
+  const bodyStart = index + tag.length;
+  const close = sql.indexOf(tag, bodyStart);
+  if (close === -1) return { body: sql.slice(bodyStart), end: sql.length };
+  return { body: sql.slice(bodyStart, close), end: close + tag.length };
 }
 
 function sqlBodyWords(body, depth) {
@@ -386,7 +473,10 @@ function sqlBodyWords(body, depth) {
   return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
-/** Classes whose token sequences occur in the SQL text, with reasons. */
+/**
+ * Classes whose token sequences occur in the SQL text. Each matching rule adds
+ * the reason `<class>:sql:<id>: <reason>`.
+ */
 export function classifySql(text, config) {
   const words = sqlWords(text);
   const classes = [];
@@ -395,7 +485,7 @@ export function classifySql(text, config) {
     const found = words.some((_, start) => rule.tokens.every((token, offset) => words[start + offset] === token));
     if (!found) continue;
     if (!classes.includes(rule.class)) classes.push(rule.class);
-    reasons.push(`${rule.class}:sql:${rule.tokens.join(" ")}`);
+    reasons.push(`${rule.class}:sql:${rule.id}: ${rule.reason}`);
   }
   return { classes, reasons };
 }
@@ -522,7 +612,7 @@ const UNKNOWN_FIELD_EFFECT = { added: "category_changed", removed: "category_cha
 
 const listOf = (entry, field) => (Array.isArray(entry?.[field]) ? entry[field] : []);
 const objectOf = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
-const sqlRuleKey = (rule) => `${rule?.class}:${Array.isArray(rule?.tokens) ? rule.tokens.join(" ") : ""}`;
+const sqlRuleKey = (rule) => JSON.stringify([rule?.id, rule?.class, rule?.tokens, rule?.reason]);
 
 /**
  * Report-only gate_loosening classification of this detector's own config
