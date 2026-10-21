@@ -577,6 +577,7 @@ Minimum CI target:
 - pgTAP database tests when `supabase/tests/` contains database-policy coverage
 - RLS deny-case coverage for changed policies (`rls-deny-coverage`, report mode; see `docs/rls-deny-coverage.md`)
 - append-only migrations (report mode via `test:portable-node`; the dedicated `migration-immutability` ci.yml job is a card draft; see `docs/migration-immutability.md`)
+- migration function collisions (`npm run verify:migration-function-collisions`, a step of the `lint` job; see `docs/migration-function-collisions.md`)
 - build
 - worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`
