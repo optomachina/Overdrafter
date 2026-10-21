@@ -28,7 +28,8 @@
  *     --verifier-id astra-verifier --model-family opus --github-login my-bot \
  *     --evidence verify-run=https://github.com/o/r/actions/runs/1 \
  *     --checks green --conflicts 0 --open-threads 0 [--note "low: ..."] \
- *     [--findings findings.json] [--pr 123 --post]
+ *     [--findings findings.json] [--base-sha <40-hex>] \
+ *     [--supersedes <comment id> --reason infra] [--pr 123 --post]
  *
  * See docs/verdict-format.md.
  */
@@ -258,6 +259,33 @@ const parseCount = (name, value) => {
   return Number(value);
 };
 
+/** GitHub comment id. Omitted flag stays omitted so the verdict bytes do not gain a key. */
+const parseSupersedes = (value) => {
+  if (value === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(value)) throw new Error(`--supersedes must be a positive integer comment id (got ${JSON.stringify(value)})`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`--supersedes must be a positive integer comment id (got ${JSON.stringify(value)})`);
+  return parsed;
+};
+
+function isGateFinding(finding) {
+  return Boolean(finding) && typeof finding === "object" && !Array.isArray(finding) && Object.hasOwn(finding, "summary");
+}
+
+/**
+ * Legacy findings (no `summary`) are tagged `corroborated`, as before, even
+ * when gate findings sit next to them: corroboration is decided per legacy
+ * finding, against the other legacy findings, and any caller-supplied
+ * `corroborated` value is overwritten. Gate findings are emitted unchanged
+ * (`corroborated` is not part of that shape), and the original order is kept.
+ */
+function prepareFindings(findings) {
+  if (!Array.isArray(findings)) throw new Error("findings must be a JSON array of finding objects");
+  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)));
+  let next = 0;
+  return findings.map((finding) => (isGateFinding(finding) ? finding : tagged[next++]));
+}
+
 const parseEvidence = (entry) => {
   const at = entry.indexOf("=");
   if (at <= 0) throw new Error(`--evidence must be kind=https://url (got ${JSON.stringify(entry)})`);
@@ -273,18 +301,23 @@ export function buildVerdict(input, { cwd, now = new Date() } = {}) {
   if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
   // Diff the exact head commit, so sha, patch_id and diff_id always describe the same tree.
   const sha = input.sha ?? assertSha(input.head, "--head");
+  // Optional keys are spread only when the caller set them, so a verdict that
+  // uses none of the OVD-845 fields stays byte-identical to the previous emitter.
   const verdict = {
     schema: SCHEMA_ID,
     role: input.role,
     verdict: input.verdict,
     sha,
+    ...(input.baseSha !== undefined ? { base_sha: input.baseSha } : {}),
     patch_id: input.patchId ?? computePatchId({ base: input.base, head: sha, cwd }),
     diff_id: input.diffId ?? computeDiffId({ base: input.base, head: sha, cwd }),
     verifier: { id: input.verifierId, model_family: input.modelFamily, github_login: input.githubLogin },
     evidence: input.evidence ?? [],
     notes: input.notes ?? [],
     readiness: input.readiness,
-    ...(input.findings !== undefined ? { findings: tagCorroborated(input.findings) } : {}),
+    ...(input.findings !== undefined ? { findings: prepareFindings(input.findings) } : {}),
+    ...(input.supersedes !== undefined ? { supersedes: input.supersedes } : {}),
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
     timestamp: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
   };
   const { ok, errors } = validateVerdict(verdict, { now });
@@ -411,6 +444,9 @@ const OPTIONS = {
   conflicts: { type: "string" },
   "open-threads": { type: "string" },
   findings: { type: "string" },
+  "base-sha": { type: "string" },
+  supersedes: { type: "string" },
+  reason: { type: "string" },
   pr: { type: "string" },
   post: { type: "boolean", default: false },
 };
@@ -438,6 +474,9 @@ export function main(argv = process.argv.slice(2), { cwd, now, run, env } = {}) 
         checks: values.checks,
       },
       findings: values.findings === undefined ? undefined : readFindings(values.findings, { cwd, env }),
+      baseSha: values["base-sha"] === undefined ? undefined : assertSha(values["base-sha"], "--base-sha"),
+      supersedes: parseSupersedes(values.supersedes),
+      reason: values.reason,
     },
     { cwd, now },
   );
