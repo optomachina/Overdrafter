@@ -76,7 +76,9 @@ test.describe("friends release golden journey (OVD-1011)", () => {
     await test.step("2. Edit extracted material and finish and persist after reload", async () => {
       const material = page.getByLabel("Material", { exact: true });
       const finish = page.getByLabel("Finish", { exact: true });
-      await expect(material).toHaveValue("6061-T6 aluminum");
+      // The copied approved requirement is 7075; 6061 is its raw extraction/reset target.
+      // Check the seeded value before editing, then prove the new override survives reload.
+      await expect(material).toHaveValue("7075 aluminum");
       await material.fill("7075-T6 aluminum");
       await finish.fill("As machined");
       await expect(page.getByRole("button", { name: "Reset to extracted: 6061-T6 aluminum", exact: true })).toBeVisible();
