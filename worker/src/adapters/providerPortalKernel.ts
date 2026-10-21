@@ -195,8 +195,8 @@ export type ProviderPortalDefinition = {
     cleanupRow?: string;
     /** Field whose entire unnormalized text is the full filename. */
     cleanupRowFileName?: string;
-    /** Click/count-only rules reachable from `hooks.cleanup`. */
-    cleanup?: Readonly<Record<string, { selector: string; scope?: string; uploadedRows?: boolean }>>;
+    /** Cleanup rules; reportOnly forbids clicks and reports new uploadedRows candidates. */
+    cleanup?: Readonly<Record<string, { selector: string; scope?: string; uploadedRows?: boolean; reportOnly?: boolean }>>;
   };
   supportedFileExtensions: readonly string[];
   terminalSignals: {
@@ -1463,7 +1463,7 @@ function buildCleanupCapability(
     if (rule.uploadedRows) {
       if (!uploadedRows) throw new Error("CleanupRowSnapshotMissing");
       assertPortalBoundary(definition, page, boundary);
-      return uploadedRows.targets(rule.scope ? rule.selector : undefined);
+      return uploadedRows.targets(rule.scope ? rule.selector : undefined, rule.reportOnly);
     }
     if (!rule.scope) {
       const locator = guardedLocator(definition, page, boundary, rule.selector);
@@ -1481,6 +1481,7 @@ function buildCleanupCapability(
       return count;
     },
     click: async (field: string, scopeText?: string) => {
+      if (definition.selectors.cleanup?.[field]?.reportOnly) throw new Error("CleanupReportOnly");
       const targets = await locate(field, scopeText);
       let locator = Array.isArray(targets) ? targets[0] : await targets.count() > 0 ? targets.first() : undefined;
       if (!locator) {
@@ -1550,7 +1551,11 @@ async function cleanUpProviderPortal(
     return report;
   }
   try {
-    session.page.on("dialog", acceptDialog);
+    // A report-only hook must never accept an unrelated native confirmation.
+    const cleanupRules = Object.values(definition.selectors.cleanup ?? {});
+    if (cleanupRules.length === 0 || cleanupRules.some((rule) => !rule.reportOnly)) {
+      session.page.on("dialog", acceptDialog);
+    }
     const outcome = await Promise.race([
       hook(buildCleanupCapability(definition, session.page, session.boundary, beforeMutation, session.cleanupRows), input),
       dialogFailure,

@@ -41,7 +41,7 @@ export class UploadedPortalRows {
     return fields[0].evaluate((element) => element.textContent);
   }
 
-  async targets(selector?: string): Promise<ElementHandle<Node>[]> {
+  async targets(selector?: string, reportOnly = false): Promise<ElementHandle<Node>[]> {
     // A rerender/navigation destroys the baseline. Never treat replacement
     // customer rows as uploads; leave the cart for manual cleanup instead.
     for (const row of [this.documentRoot, ...this.before]) {
@@ -54,6 +54,11 @@ export class UploadedPortalRows {
       if (!await row.evaluate((element, before) => before.includes(element), this.before)) candidates.push(row);
     }
     const rows = await Promise.all(candidates.map(async (row) => ({ fileName: await this.fileName(row) })));
+    // Report-only callers never adopt a row, even when its filename matches.
+    if (reportOnly) {
+      if (rows.length > 0) throw new CleanupRowsUnproven(rows);
+      return [];
+    }
     if (!this.owned) {
       // No upload-correlated provider identity is available. The only fallback
       // is ONE new row whose entire filename equals the bytes' staged name.

@@ -339,7 +339,7 @@ function finiteOutput(
 
 /**
  * Live-harness evaluation definition: the generic workflow definition plus the
- * cart cleanup, so a capture or certification upload never stays in the cart.
+ * report-only cart cleanup, so candidates are flagged for manual inspection.
  */
 export function buildOshcutEvaluationDefinition(workflow: PortalQuoteWorkflow): ProviderPortalDefinition {
   const base = buildPortalWorkflowDefinition(workflow);

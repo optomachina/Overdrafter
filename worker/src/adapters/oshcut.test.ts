@@ -711,10 +711,11 @@ describe("OshcutAdapter", () => {
 });
 
 describe("OSH Cut live-harness evaluation definition (standing cleanup rule)", () => {
-  it("removes the uploaded test part from the cart after capture", () => {
+  it("reports cart candidates after capture without removal controls", () => {
     const definition = buildOshcutEvaluationDefinition(getExtendedVendorWorkflow("oshcut")!);
     expect(definition.hooks.cleanup).toBe(cleanupOshcutCart);
-    expect(Object.keys(definition.selectors.cleanup ?? {})).toEqual(["partRow", "removePart", "confirmRemove"]);
+    expect(Object.keys(definition.selectors.cleanup ?? {})).toEqual(["partRow"]);
+    expect(definition.selectors.cleanup?.partRow.reportOnly).toBe(true);
     expect(definition.routes.uploadUrl).toBe("https://app.oshcut.com/cart");
   });
 });

@@ -202,21 +202,20 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     expect(observed.uploads).toEqual([]);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
-  // Standing rule (2026-10-15): the uploaded test part leaves the cart once
-  // the price is read, and after a failure that followed upload.
+  // Report-only cleanup preserves every candidate after success or failure.
   const removedFromCart = (requests: string[]) =>
     requests.filter((request) => request === "DELETE https://app.oshcut.com/api/cart-part").length;
 
   it.each(["immediate", "native_confirm", "modal_confirm"] as const)(
-    "removes the uploaded part from the cart after reading the price (%s remove)",
+    "reports the uploaded candidate without invoking %s removal",
     async (remove) => {
       const { output, error, observed } = await session.quoteAgainst(cartPage({ remove, exactFileNameField: true }));
       expect(error).toBeNull();
       expect(output).toMatchObject({
         totalPriceUsd: 1234.5,
-        rawPayload: { cartCleanup: { status: "removed", removed: 1, remaining: 0 } },
+        rawPayload: { cartCleanup: { status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required", manualCleanupRows: [{ fileName: "part.step" }] } },
       });
-      expect(removedFromCart(observed.requests)).toBe(1);
+      expect(removedFromCart(observed.requests)).toBe(0);
     },
     PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
   );
@@ -228,8 +227,8 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     ).join("");
     const { output, error, observed } = await session.quoteAgainst(cartPage({ before, exactFileNameField: true }));
     expect(error).toBeNull();
-    expect(output).toMatchObject({ rawPayload: { cartCleanup: { status: "removed", removed: 1, remaining: 0 } } });
-    expect(removedFromCart(observed.requests)).toBe(1);
+    expect(output).toMatchObject({ rawPayload: { cartCleanup: { status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required", manualCleanupRows: [{ fileName: "part.step" }] } } });
+    expect(removedFromCart(observed.requests)).toBe(0);
     expect(observed.requests).not.toContain("DELETE https://app.oshcut.com/api/customer-part");
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
@@ -250,17 +249,17 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
   );
 
-  it("still removes the uploaded part when the attempt fails after upload, keeping the failure", async () => {
+  it("reports candidates when the attempt fails after upload, keeping the failure", async () => {
     const { output, error, observed } = await session.quoteAgainst(cartPage({ neverPriced: true, exactFileNameField: true }));
     expect(output).toBeNull();
     expect(error).toMatchObject({
       payload: {
         terminalState: "selector_drift",
         reason: "oshcut_price_pending",
-        cartCleanup: { status: "removed", removed: 1, remaining: 0 },
+        cartCleanup: { status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required", manualCleanupRows: [{ fileName: "part.step" }] },
       },
     });
-    expect(removedFromCart(observed.requests)).toBe(1);
+    expect(removedFromCart(observed.requests)).toBe(0);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("leaves mixed filename/control markup for manual cleanup", async () => {
@@ -272,7 +271,7 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     expect(removedFromCart(observed.requests)).toBe(0);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
-  it("logs a cleanup that cannot find the remove control without changing the quote", async () => {
+  it("reports candidates even without remove controls and preserves the quote", async () => {
     const { output, error, observed } = await session.quoteAgainst(cartPage({ remove: "none", exactFileNameField: true }));
     expect(error).toBeNull();
     expect(output).toMatchObject({

@@ -320,8 +320,18 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
 });
 
 describe("OSH Cut cart cleanup (standing rule, OVD-677)", () => {
-  it("is declared on the production definition with cart-scoped click rules", () => {
+  it("never requests a remove or confirm action, even when a count is returned", async () => {
+    const click = vi.fn();
+    const count = vi.fn(async () => 3);
+    expect(await cleanupOshcutCart({ count, click })).toEqual({ removed: 0, remaining: 3 });
+    expect(count).toHaveBeenCalledWith("partRow");
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it("declares only read-only candidate reporting on the production definition", () => {
     const definition = buildOshcutProductionPortalDefinition();
+    expect(Object.keys(definition.selectors.cleanup ?? {})).toEqual(["partRow"]);
+    expect(definition.selectors.cleanup?.partRow.reportOnly).toBe(true);
     expect(definition.hooks.cleanup).toBe(cleanupOshcutCart);
     expect(definition.selectors.cleanup).toEqual({ ...OSHCUT_CART_CLEANUP_SELECTORS });
     expect(definition.selectors.cleanupRow).toBe(OSHCUT_CART_CLEANUP_SELECTORS.partRow.selector);

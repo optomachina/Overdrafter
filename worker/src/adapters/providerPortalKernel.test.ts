@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Browser, BrowserContext, ElementHandle, Locator, Page } from "playwright";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { supplierCartCleanupFromPayload } from "../tools/liveHarnessSupplierCleanup";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
 import { createProviderMutationPhase, runInProviderMutationPhase } from "../providerMutationPhase";
 import { exportControlHoldReason, withExportControlDispatchRecheck } from "../dispatchRouting";
@@ -1809,12 +1810,12 @@ describe("provider portal post-capture cleanup", () => {
   }
 
   it.each([
-    ["filename collisions", ["part.step", "customer-part.step"], true, false, false, "removed", 1, 0],
-    ["unrelated rows", ["customer-bracket.dxf"], true, false, false, "removed", 1, 0],
+    ["filename collisions", ["part.step", "customer-part.step"], true, false, false, "incomplete", 0, 1],
+    ["unrelated rows", ["customer-bracket.dxf"], true, false, false, "incomplete", 0, 1],
     ["missing remove control", ["customer-bracket.dxf"], false, false, false, "incomplete", 0, 1],
-    ["no uploaded row", ["customer-bracket.dxf"], true, false, true, "incomplete", 0, 0],
+    ["no uploaded row", ["customer-bracket.dxf"], true, false, true, "not_found", 0, 0],
     ["replaced pre-existing rows", ["part.step", "customer-part.step"], true, true, false, "failed", 0, null],
-  ] as const)("cleans only this run's exact rows: %s", async (_name, names, removable, rerender, noUpload, status, removed, remaining) => {
+  ] as const)("reports candidates without deleting any row: %s", async (_name, names, removable, rerender, noUpload, status, removed, remaining) => {
     const fake = fakeBrowser();
     const cart = cartFixture([...names]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
@@ -1830,8 +1831,11 @@ describe("provider portal post-capture cleanup", () => {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
     });
     expect(result.cartCleanup).toMatchObject({ status, removed, remaining });
+    expect(cart.removeClicks).not.toHaveBeenCalled();
+    expect(fake.click).not.toHaveBeenCalled();
+    expect(vi.mocked(fake.page.on).mock.calls.some(([event]) => event === "dialog")).toBe(false);
     expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
-      .toEqual([...names, ...(!noUpload && (rerender || !removable) ? ["part.step"] : [])]);
+      .toEqual([...names, ...(!noUpload ? ["part.step"] : [])]);
   });
 
   it.each([
@@ -1843,8 +1847,8 @@ describe("provider portal post-capture cleanup", () => {
     ["case mismatch", ["PART.step"]],
     ["leading whitespace mismatch", [" part.step"]],
     ["trailing whitespace mismatch", ["part.step "]],
-    ["zero candidates", []],
-  ])("leaves ambiguous rows for manual cleanup: %s", async (_case, names) => {
+    ["single exact name", ["part.step"]],
+  ])("reports all new rows for manual cleanup: %s", async (_case, names) => {
     const fake = fakeBrowser();
     const cart = cartFixture(["existing-customer.step"]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
@@ -1866,6 +1870,10 @@ describe("provider portal post-capture cleanup", () => {
       reason: "manual_cleanup_required", manualCleanupRows: names.map((fileName) => ({ fileName })),
     };
     expect(result.cartCleanup).toEqual(report);
+    expect(supplierCartCleanupFromPayload({ cartCleanup: result.cartCleanup })).toMatchObject({
+      manualRemovalRequired: true, remaining: names.length,
+    });
+    expect(fake.click).not.toHaveBeenCalled();
     expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject(report);
     expect(cart.removeClicks).not.toHaveBeenCalled();
     expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
@@ -1894,106 +1902,52 @@ describe("provider portal post-capture cleanup", () => {
     expect(cart.removeClicks).not.toHaveBeenCalled();
   });
 
-  it.each(["late arrival", "filename changed", "kill switch"])("rechecks before deleting after %s during the mutation checkpoint", async (change) => {
+  it("reports a late customer filename match after upload fails without creating a row", async () => {
     const fake = fakeBrowser();
     const cart = cartFixture([]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
     vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
       ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
-    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
-    let cleanupStarted = false;
-    const def = cleanupDefinition(async (cleanup) => {
-      cleanupStarted = true;
-      return cleanupOshcutCart(cleanup);
-    });
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
-    const approved = await input();
-    approved.providerKillSwitchCheckpoint = async () => {
-      if (!cleanupStarted) return;
-      if (change === "kill switch") throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", "before_configure");
-      if (change === "late arrival") cart.append("later-customer.step");
-      else cart.cart.querySelector(".cartInformationArea")!.textContent = "customer-part.step";
-    };
-    const result = await runProviderPortalKernel(def, config(), approved, {
-      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
-    });
-    expect(result.cartCleanup).toMatchObject({ status: change === "kill switch" ? "skipped_kill_switch" : "incomplete", removed: 0 });
-    expect(cart.removeClicks).not.toHaveBeenCalled();
-  });
-
-  it("refuses in-page confirmation if another row arrives during its kill-switch checkpoint", async () => {
-    const fake = fakeBrowser();
-    const cart = cartFixture([]);
-    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
-    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
-      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
-    let removalPending = false;
     fake.setInputFiles.mockImplementation(async () => {
-      const row = cart.append("part.step");
-      const button = row.querySelector("button")!;
-      button.replaceWith(button.cloneNode(true));
-      row.querySelector("button")!.addEventListener("click", () => { removalPending = true; });
+      cart.append("part.step"); // A delayed customer row, not this failed upload.
+      throw new Error("Upload failed");
     });
     const def = cleanupDefinition(cleanupOshcutCart);
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
-    const approved = await input();
-    approved.providerKillSwitchCheckpoint = async () => { if (removalPending) cart.append("later-customer.step"); };
-    const result = await runProviderPortalKernel(def, config(), approved, {
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW,
+      cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    await expect(runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
-    });
-    expect(removalPending).toBe(true);
-    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, remaining: 2, reason: "manual_cleanup_required" });
+    })).rejects.toMatchObject({ payload: { cartCleanup: {
+      status: "incomplete", removed: 0, remaining: 1, reason: "manual_cleanup_required",
+      manualCleanupRows: [{ fileName: "part.step" }],
+    } } });
+    expect(cart.cart.children).toHaveLength(1);
+    expect(cart.removeClicks).not.toHaveBeenCalled();
     expect(fake.click).not.toHaveBeenCalled();
-    expect(cart.cart.children).toHaveLength(2);
+    expect(vi.mocked(fake.page.on).mock.calls.some(([event]) => event === "dialog")).toBe(false);
   });
 
-  it("does not confirm after the owned row disappears during the checkpoint", async () => {
+  it.each(["partRow", "removePart", "confirmRemove"])("blocks an accidental OSH Cut cleanup click on %s", async (field) => {
     const fake = fakeBrowser();
     const cart = cartFixture([]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
     vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
       ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
-    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
-    let confirming = false;
     const def = cleanupDefinition(async (cleanup) => {
-      expect(await cleanup.count("partRow")).toBe(1);
-      confirming = true;
-      expect(await cleanup.click("confirmRemove")).toBe(false);
-      return { removed: 0, remaining: 0 };
+      await cleanup.click(field);
+      return { removed: 1, remaining: 0 };
     });
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
-    const approved = await input();
-    approved.providerKillSwitchCheckpoint = async () => { if (confirming) cart.cart.replaceChildren(); };
-    const result = await runProviderPortalKernel(def, config(), approved, {
-      launchBrowser: async () => fake.browser, captureEvidence: async () => [],
-    });
-    expect(result.cartCleanup).toMatchObject({ removed: 0, remaining: 0 });
-    expect(fake.click).not.toHaveBeenCalled();
-  });
-
-  it("stops if unknown rows appear after the owned set is frozen", async () => {
-    const fake = fakeBrowser();
-    const cart = cartFixture(["part.step", "customer-part.step"]);
-    const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
-    vi.mocked(fake.page.locator).mockImplementation((selector) => selector === OSHCUT_CART_ROW
-      ? cart.locator : selector === "html" ? cart.root : originalLocator(selector));
-    fake.setInputFiles.mockImplementation(async () => { cart.append("part.step"); });
-    const def = cleanupDefinition(async (cleanup) => {
-      expect(await cleanup.count("partRow")).toBe(1);
-      cart.append("later-customer.step");
-      return cleanupOshcutCart(cleanup);
-    });
-    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
+    def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW,
+      cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
     const result = await runProviderPortalKernel(def, config(), await input(), {
       launchBrowser: async () => fake.browser, captureEvidence: async () => [],
     });
-    expect(result.cartCleanup).toMatchObject({ status: "incomplete", removed: 0, remaining: 2, reason: "manual_cleanup_required" });
-    expect(cart.removeClicks).not.toHaveBeenCalled();
-    expect([...cart.cart.children].map((row) => row.querySelector(".cartInformationArea")!.textContent))
-      .toEqual(["part.step", "customer-part.step", "part.step", "later-customer.step"]);
+    expect(result.cartCleanup).toMatchObject({ status: "failed", removed: 0 });
+    expect(fake.click).not.toHaveBeenCalled();
+    expect(vi.mocked(fake.page.on).mock.calls.some(([event]) => event === "dialog")).toBe(false);
   });
 
-  it.each(["document replacement", "owned row replacement"])("fails closed after an empty snapshot and %s", async (change) => {
+  it.each(["document replacement", "candidate row replacement"])("fails closed after an empty snapshot and %s", async (change) => {
     const fake = fakeBrowser();
     const cart = cartFixture([]);
     const originalLocator = vi.mocked(fake.page.locator).getMockImplementation()!;
@@ -2003,8 +1957,7 @@ describe("provider portal post-capture cleanup", () => {
       if (change === "document replacement") cart.cart.ownerDocument.documentElement.remove();
       const row = cart.append("part.step");
       // Simulate a framework rerender without any provider-side deletion.
-      row.querySelector("button")!.replaceWith(row.querySelector("button")!.cloneNode(true));
-      row.querySelector("button")!.addEventListener("click", () => { row.replaceWith(row.cloneNode(true)); });
+      if (change === "candidate row replacement") row.replaceWith(row.cloneNode(true));
     });
     const def = cleanupDefinition(cleanupOshcutCart);
     def.selectors = { ...def.selectors, cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: OSHCUT_CART_CLEANUP_SELECTORS };
