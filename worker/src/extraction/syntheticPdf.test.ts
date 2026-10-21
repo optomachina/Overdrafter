@@ -613,10 +613,10 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     });
   });
 
-  // #884 review, round 11, and Codex review, round 7: the sheets the reviews built, through the whole extraction
+  // #884 review, rounds 11 and 12, and Codex review, round 7: the sheets the reviews built, through the whole extraction
   // (runHybridExtraction, no model), from poppler's word boxes and from its layout text alone. The field is empty and
   // flagged, and the drawing needs review; nothing is approved from text that is not the cell's value.
-  describe("the sheets of the round 11 reviews, through the whole extraction", () => {
+  describe("the sheets of the round 11 and 12 reviews, through the whole extraction", () => {
     async function extractBoth(items: PdfTextItem[], edit: (pdfText: PdfTextExtraction) => PdfTextExtraction = (pdfText) => pdfText) {
       const pdfText = edit(await pdfTextOf(items));
       expect(pdfText.pages[0]?.words?.length ?? 0).toBeGreaterThan(0);
@@ -723,6 +723,62 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       const [[, words]] = await extractBoth(centredMaterial(380, 400));
       expect(words.material.raw).toBe("AL 6061-T6");
       expect(words.reviewFields).toEqual([]);
+    });
+
+    // #884 review, round 12 (MEDIUM 1): the same failure in the part number and the revision, at the sheet's own sizes (6 pt
+    // labels, 24 pt values, a 6 pt stacked label with its 9 pt value centred). The drawing number or revision is past its
+    // label's reach, so the stacked label was the only text the cell owned and was approved as the identifier.
+    const centredDrawingNumber = (x: number, stacked: string): PdfTextItem[] => [
+      ...syntheticSheet().filter((item) => item.text !== "ABC-1001"),
+      { x, y: 735, size: 24, text: "ABC-1001" },
+      { x: 727, y: 754, size: 6, text: stacked },
+      { x: 800, y: 760, size: 9, text: "12" },
+    ];
+
+    it.each([
+      ["QTY", 780],
+      ["ITEM", 780],
+      ["STOCK", 780],
+      ["CUSTOMER", 780],
+      ["QTY", 820],
+      ["ITEM", 820],
+      ["STOCK", 820],
+      ["CUSTOMER", 820],
+    ] as const)("leaves the part number flagged, not a stacked %s, when the drawing number starts at %i pt", async (stacked, x) => {
+      for (const [source, result] of await extractBoth(centredDrawingNumber(x, stacked))) {
+        expect(result.partNumber, source).not.toBe(stacked);
+        expect(result.reviewFields, source).toContain("partNumber");
+        expect(result.status, source).toBe("needs_review");
+        expect(result.material.raw, source).toBe("AL 6061-T6");
+        if (source === "word boxes") {
+          expect(result.reviewFields, source).toEqual(["partNumber"]);
+          expect(result.revision, source).toBe("B");
+        }
+      }
+    });
+
+    it.each([925, 935])("leaves the revision flagged, not a stacked 'QTY', when it is set at %i pt", async (x) => {
+      const items: PdfTextItem[] = [
+        ...syntheticSheet().filter((item) => !(item.text === "B" && item.x === 900)),
+        { x, y: 735, size: 24, text: "B" },
+        { x: 902, y: 754, size: 6, text: "QTY" },
+        { x: x + 2, y: 760, size: 9, text: "12" },
+      ];
+      for (const [source, result] of await extractBoth(items)) {
+        expect(result.revision, source).toBeNull();
+        expect(result.reviewFields, source).toEqual(["revision"]);
+        expect(result.status, source).toBe("needs_review");
+        expect(result.partNumber, source).toBe("ABC-1001");
+      }
+    });
+
+    it("still reads a revision or a drawing number of letters only when nothing else is in its cell", async () => {
+      for (const [source, result] of await extractBoth(syntheticSheet({ revision: "AB", drawingNumber: "ABC-DEF" }))) {
+        expect(result.revision, source).toBe("AB");
+        expect(result.partNumber, source).toBe("ABC-DEF");
+        expect(result.reviewFields, source).toEqual([]);
+        expect(result.status, source).toBe("approved");
+      }
     });
   });
 });

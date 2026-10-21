@@ -70,6 +70,10 @@
  *    no value, unless it is the value's own wrapped line: the value is beside its label on the label's own line, the
  *    line starts where the value starts and goes on past its lead ("CLASS 2" under "FINISH  ANODIZE, ... TYPE II"). A
  *    later line set taller than the one above makes that one a label. See stackedLineVerdict.
+ * A part number or revision centred past its label's reach belongs to no cell either, and the label of a cell stacked
+ * under it (QTY, ITEM, CUSTOMER) would be the only text its cell owns. Read from a line under its label, an identifier
+ * that could be a label (label words only, or a part number with no digit) gives no value when the cell holds other
+ * text: see identifierIsStackedLabel.
  * Known limits: a material or finish cell left empty, with a stacked cell under it whose label and value fit one line
  * one word space apart at one size ("LOT CODE A123"), or whose label is alone ("LOT CODE"), reads that line as the value:
  * it has the shape of a value such as "AL 6061-T6" or "AS MACHINED", and nothing else on the sheet tells them apart. A
@@ -1253,28 +1257,61 @@ function firstLineIsStackedLabel(label: Label, chosen: readonly ValueLine[], own
 }
 
 /**
+ * Whether the part number or revision read from a line under its label is the label of a cell stacked where the value
+ * would be (#884 review, round 12): the stacked-label test of a material or finish (firstLineIsStackedLabel), for the
+ * identifiers. A drawing number or revision centred in a wide cell starts past its label's reach, so no cell owns it, and
+ * the label of a cell stacked under it at the cell's left edge (QTY, ITEM, CUSTOMER) is then the only text the cell owns.
+ * The line could be a label when it is only label words (shapeOfLine), or, for a part number, when it holds no digit. It
+ * is one, and there is no value, when the cell holds other text: text the cell owns besides it (ownsOtherText), text that
+ * no cell owns after it on its line on layout text (hasTrailingLeftover), text that no cell owns in the cell's rows, its
+ * own row and the label's included (unownedTextInCell: the value centred past the reach, or set along the label's row
+ * past the inline window in a row-form table), or, with word boxes, taller text that no cell owns after it on its line
+ * (tallerUnownedTextFollows). An identifier on the label's own line is its inline value and is not asked. A lone
+ * revision letter is not label words, and "AB" over an otherwise empty cell is still read; the price is an identifier of
+ * letters only with other text in its cell, which is flagged.
+ */
+function identifierIsStackedLabel(label: Label, chosen: readonly ValueLine[], owned: readonly Run[], page: PageLines): boolean {
+  const first = chosen[0];
+  if (first === undefined || first.line === label.line) {
+    return false;
+  }
+  const shape = shapeOfLine(first.runs);
+  const couldBeLabel = (shape.labelLead && !shape.rest) || (label.field === "partNumber" && !/\d/.test(lineTextOf(first.runs)));
+  return (
+    couldBeLabel &&
+    (ownsOtherText(first, owned) ||
+      hasTrailingLeftover(first, page.leftoverByLine, 1) ||
+      unownedTextInCell(label, first, owned, page, true) ||
+      tallerUnownedTextFollows(first, page))
+  );
+}
+
+/**
  * Whether text that no cell owns lies in the rows of a cell whose value's first line is `first`: on a line between the
  * label's line and `first`, or within MAX_LINE_GAP lines under `first`, starting right of where `first` starts, no more
- * than CENTRED_VALUE_REACH columns past the label's right edge, and before the next cell on its line (the first label,
- * or the first text another cell owns, after that point). Text starts past its label's reach when it is centred in a wide
- * cell, and then no cell owns it (ownerOf), so the cell may own only the label of a cell stacked under it at its left
- * edge. One character counts (a centred "4"). Text on the label's own line or on `first`'s own line is not looked at:
- * there text far along the line is another cell's (tallerUnownedTextFollows reads the row where sizes tell).
+ * than CENTRED_VALUE_REACH columns past the label's right edge, and before the next cell on its line (the first label
+ * other than this one, or the first text another cell owns, after that point). Text starts past its label's reach when
+ * it is centred in a wide cell, and then no cell owns it (ownerOf), so the cell may own only the label of a cell stacked
+ * under it at its left edge. One character counts (a centred "4"). Unless `withOwnRows`, text on the label's own line or
+ * on `first`'s own line is not looked at: for a material or finish, text far along those lines is another cell's
+ * (tallerUnownedTextFollows reads the row where sizes tell). An identifier of letters only looks at them too
+ * (identifierIsStackedLabel): a row-form table prints a value along its label's row, past the inline window.
  */
-function unownedTextInCell(label: Label, first: ValueLine, owned: readonly Run[], page: PageLines): boolean {
+function unownedTextInCell(label: Label, first: ValueLine, owned: readonly Run[], page: PageLines, withOwnRows = false): boolean {
   const own = new Set(owned);
   const firstStart = Math.min(...first.runs.map((run) => run.start));
   const farthest = label.end + CENTRED_VALUE_REACH;
   // `first` is at most MAX_DY lines under the label (ownerOf); the bound keeps the loop that short whatever the lines are.
   const last = Math.min(first.line, label.line + MAX_DY) + MAX_LINE_GAP;
-  for (let line = label.line + 1; line <= last; line += 1) {
+  for (let line = withOwnRows ? label.line : label.line + 1; line <= last; line += 1) {
     const leftovers = page.leftoverByLine.get(line);
-    if (line === first.line || leftovers === undefined) {
+    if ((!withOwnRows && line === first.line) || leftovers === undefined) {
       continue;
     }
     let nextCell = Number.POSITIVE_INFINITY;
     for (const other of page.labelsByLine.get(line) ?? []) {
-      if (other.start > firstStart) {
+      const isThisLabel = other.line === label.line && other.charStart === label.charStart;
+      if (other.start > firstStart && !isThisLabel) {
         nextCell = Math.min(nextCell, other.start);
       }
     }
@@ -1427,7 +1464,10 @@ function readOne(
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
   // A first line that is the label of a cell stacked where the value would be, with its own value next to it.
-  if (describes && firstLineIsStackedLabel(label, chosen, considered, pageLines)) {
+  const stackedLabel = describes
+    ? firstLineIsStackedLabel(label, chosen, considered, pageLines)
+    : identifierIsStackedLabel(label, chosen, considered, pageLines);
+  if (stackedLabel) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
 

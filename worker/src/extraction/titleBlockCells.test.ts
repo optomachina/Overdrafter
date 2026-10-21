@@ -1521,6 +1521,110 @@ describe("title block cells", () => {
       // Past 40 columns it is another cell's, a note's or the border's (see "does not call a short run of letters a label").
       expect(cell(layoutSheet([[0, "MATERIAL"]], [[2, "ALUMINUM"]], [[60, "4"]]), "material")).toMatchObject({ status: "value", value: "ALUMINUM" });
     });
+
+    // #884 review, round 12 (MEDIUM 1): the same failure in the part number and the revision. A drawing number or revision
+    // centred past its label's reach belongs to no cell, so the label of an unlisted cell stacked under it at the cell's
+    // left edge (QTY, ITEM, STOCK, CUSTOMER) was read as the identifier and the drawing approved. An identifier read from a
+    // line under its label that could be a label (label words only, or a part number with no digit) is flagged when the
+    // cell holds other text.
+    describe("the part number and the revision", () => {
+      // DWG. NO. (6 pt, from 330 pt) ends at 356.1 pt, column 89.9: its reach ends at 387.8 pt, and text no cell owns
+      // counts up to 514.5 pt. REV ends at 339.9 pt, column 85.8: its reach (4 columns) ends at 355.7 pt.
+      const identifierSheet = (labelText: string, valueText: string | null, valueX: number, stacked: string, stackedValueX: number | null) => [
+        ...page,
+        ...label(labelText, 330, 720),
+        ...(valueText === null ? [] : value(valueText, valueX, 728)),
+        ...label(stacked, 332, 742),
+        ...(stackedValueX === null ? [] : value("12", stackedValueX, 748)),
+        ...label("SCALE", 330, 765),
+      ];
+
+      it.each(["QTY", "ITEM", "STOCK", "CUSTOMER"])("flags the part number, not a stacked %s, when the drawing number is centred past DWG. NO.", (stacked) => {
+        for (const x of [400, 460, 500]) {
+          expect(wordRead(identifierSheet("DWG. NO.", "ABC-1001", x, stacked, x + 20), "partNumber"), `${x} pt`).toMatchObject(FLAGGED);
+          // The stacked cell alone, its own value not printed: the drawing number between them is still in the cell.
+          expect(wordRead(identifierSheet("DWG. NO.", "ABC-1001", x, stacked, null), "partNumber"), `${x} pt, alone`).toMatchObject(FLAGGED);
+        }
+      });
+
+      it("flags the revision, not a stacked QTY, when the revision is set past REV's reach", () => {
+        for (const x of [365, 380, 420]) {
+          expect(wordRead(identifierSheet("REV", "B", x, "QTY", x + 2), "revision"), `${x} pt`).toMatchObject(FLAGGED);
+          expect(wordRead(identifierSheet("REV", "B", x, "QTY", null), "revision"), `${x} pt, alone`).toMatchObject(FLAGGED);
+        }
+      });
+
+      it("still reads an identifier inside its label's reach over the stacked cell", () => {
+        // A stacked line in the identifier's own columns joins it as a second line and flags it (multiple_values): a stacked
+        // value of two characters under the drawing number, or QTY right under the revision. These are clear of it.
+        expect(wordRead(identifierSheet("DWG. NO.", "ABC-1001", 380, "QTY", null), "partNumber")).toMatchObject({ status: "value", value: "ABC-1001" });
+        expect(wordRead(identifierSheet("REV", "B", 345, "QTY", 400), "revision")).toMatchObject({ status: "value", value: "B" });
+      });
+
+      it("reads an identifier of letters only when nothing else is in its cell", () => {
+        const alone = (labelText: string, valueText: string) => [...page, ...label(labelText, 330, 720), ...value(valueText, 332, 728), ...label("SCALE", 330, 742)];
+        expect(wordRead(alone("REV", "AB"), "revision")).toMatchObject({ status: "value", value: "AB" });
+        expect(wordRead(alone("REV", "NC"), "revision")).toMatchObject({ status: "value", value: "NC" });
+        expect(wordRead(alone("DWG. NO.", "ABC-DEF"), "partNumber")).toMatchObject({ status: "value", value: "ABC-DEF" });
+        // A part number with a digit is never asked, whatever lies in its cell.
+        expect(wordRead([...page, ...label("DWG. NO.", 330, 720), ...value("ABC-1001", 332, 728), ...value("XYZ", 420, 742)], "partNumber")).toMatchObject({
+          status: "value",
+          value: "ABC-1001",
+        });
+      });
+
+      it("flags an identifier of letters only with text that no cell owns in its cell (the price)", () => {
+        expect(wordRead([...page, ...label("DWG. NO.", 330, 720), ...value("ABC-DEF", 332, 728), ...value("XYZ", 420, 742)], "partNumber")).toMatchObject(FLAGGED);
+        expect(wordRead([...page, ...label("REV", 330, 720), ...value("AB", 332, 728), ...value("4", 340, 742)], "revision")).toMatchObject(FLAGGED);
+      });
+
+      // A row-form table: each label with its value along its row, past the inline window (six heights of a 6 pt label,
+      // 39.6 pt; 12 columns of 9 pt text, 47.5 pt), so no cell owns the values and DWG. NO. owns only the QTY row's label.
+      describe("a row-form table", () => {
+        const table = (width: number, labelSize: number, valueSize: number, rows: Array<[string, string]>) =>
+          rows.flatMap(([labelText, valueText], index) => [
+            ...phrase(labelText, 330, 700 + index * 14, labelSize),
+            ...(valueText === "" ? [] : phrase(valueText, 330 + width, 700 + index * 14 + (labelSize - valueSize), valueSize)),
+          ]);
+        const rows: Array<[string, string]> = [["DWG. NO.", "ABC-1001"], ["QTY", "4"], ["REV", "B"], ["MATERIAL", "AL 6061-T6"], ["FINISH", "AS MACHINED"]];
+
+        it.each([
+          [80, 6, 9],
+          [120, 6, 9],
+          [120, 9, 9],
+        ])("flags the part number, not QTY, with the values %i pt along rows of %i pt labels and %i pt values", (width, labelSize, valueSize) => {
+          const words = [...page, ...table(width, labelSize, valueSize, rows)];
+          expect(wordRead(words, "partNumber")).toMatchObject(FLAGGED);
+          // Through the whole inference, as the review ran it: no part number from the cell, so the field is flagged.
+          const text = buildWordLines(words, 1).map((line) => line.raw).join("\n");
+          const pdfText = pdfTextOf(text);
+          const signals = inferDrawingSignalsFromPdf({ baseName: "upload", pdfText: { ...pdfText, pages: pdfText.pages.map((sheet) => ({ ...sheet, words })) } });
+          expect(signals.partNumber.value).not.toBe("QTY");
+          expect(signals.partNumber.reviewNeeded).toBe(true);
+          expect(signals.reviewFields).toContain("partNumber");
+        });
+
+        it("flags it by the value on its own row or the label's when the rows under it hold their values inline", () => {
+          // REV's value is its own (inline), so the only text no cell owns in the cell's rows is on the QTY row and on the
+          // DWG. NO. row itself.
+          const words = [...page, ...table(120, 9, 9, [["DWG. NO.", "ABC-1001"], ["QTY", "4"]]), ...phrase("REV", 330, 728, 9), ...phrase("B", 355, 728, 9)];
+          expect(wordRead(words, "partNumber")).toMatchObject(FLAGGED);
+          expect(wordRead(words, "revision")).toMatchObject({ status: "value", value: "B" });
+          const labelRowOnly = [...page, ...table(120, 9, 9, [["DWG. NO.", "ABC-1001"], ["QTY", ""]]), ...phrase("REV", 330, 728, 9), ...phrase("B", 355, 728, 9)];
+          expect(wordRead(labelRowOnly, "partNumber")).toMatchObject(FLAGGED);
+        });
+      });
+
+      it("flags the same sheets on layout text", () => {
+        expect(cell(layoutSheet([[0, "DWG. NO."]], [[28, "ABC-1001"]], [[2, "QTY"], [30, "12"]]), "partNumber")).toMatchObject(FLAGGED);
+        expect(cell(layoutSheet([[0, "DWG. NO."]], [[28, "ABC-1001"]], [[2, "CUSTOMER"]]), "partNumber")).toMatchObject(FLAGGED);
+        expect(cell(layoutSheet([[0, "REV"]], [[10, "B"]], [[1, "QTY"]]), "revision")).toMatchObject(FLAGGED);
+        expect(cell(layoutSheet([[0, "DWG. NO."], [20, "REV"]], [[0, "ABC-DEF"], [20, "AB"]], [[0, "SCALE"]]), "partNumber")).toMatchObject({
+          status: "value",
+          value: "ABC-DEF",
+        });
+      });
+    });
   });
 
   // A label and its value printed as one word, with a colon and no blank between ("MATERIAL:ALUMINUM", "REV:A") (Codex
