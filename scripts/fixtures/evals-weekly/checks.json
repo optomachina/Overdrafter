@@ -1,0 +1,36 @@
+{
+  "fixture1": {
+    "total_count": 1,
+    "check_runs": [
+      {
+        "name": "ci",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "fixture2": {
+    "total_count": 1,
+    "check_runs": [
+      {
+        "name": "ci",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "fixture3": {
+    "total_count": 1,
+    "check_runs": [
+      {
+        "name": "ci",
+        "status": "completed",
+        "conclusion": "failure"
+      }
+    ]
+  },
+  "fixture4": {
+    "total_count": 0,
+    "check_runs": []
+  }
+}
