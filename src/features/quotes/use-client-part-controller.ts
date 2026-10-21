@@ -91,6 +91,8 @@ import {
 import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestedQuoteQuantitiesInput,
+  validateRequestedQuoteQuantitiesInput,
+  QUOTE_QUANTITIES_FORMAT_ERROR,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { buildSingleQuantityRequest } from "@/features/quotes/single-quantity";
@@ -1615,15 +1617,18 @@ export function useClientPartController(
       return;
     }
 
+    const validated = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, effectiveRequestDraft.quantity);
+    if (!singleQuantity && (validated.invalidTokens.length > 0 || validated.quantities.length === 0)) {
+      toast.error(validated.error ?? QUOTE_QUANTITIES_FORMAT_ERROR);
+      return;
+    }
+
     // OVD-997: single Quantity mode saves exactly [quantity]; the hidden Quote quantities text is ignored.
     const payload = singleQuantity
       ? buildSingleQuantityRequest(effectiveRequestDraft, singleQuantity)
       : ({
           ...effectiveRequestDraft,
-          requestedQuoteQuantities: parseRequestedQuoteQuantitiesInput(
-            quoteQuantityInput,
-            effectiveRequestDraft.quantity,
-          ),
+          requestedQuoteQuantities: validated.quantities,
         } satisfies ClientPartRequestUpdateInput);
     if (!payload) {
       return;

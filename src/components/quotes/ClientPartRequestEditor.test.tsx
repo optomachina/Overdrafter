@@ -547,3 +547,111 @@ describe("ClientPartRequestEditor — single Quantity mode (OVD-997)", () => {
     expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("9");
   });
 });
+
+
+describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () => {
+  function renderHost() {
+    const onChange = vi.fn();
+    const onSave = vi.fn();
+    function Host() {
+      const [draft, setDraft] = useState(makeDraft({ material: "Aluminum" }));
+      const [quoteText, setQuoteText] = useState("");
+      return <ClientPartRequestEditor draft={draft} quoteQuantityInput={quoteText}
+        onQuoteQuantityInputChange={setQuoteText} onChange={(next) => {
+          onChange(next);
+          setDraft((current) => ({ ...current, ...next }));
+        }} onSave={onSave} onUploadRevision={noop} />;
+    }
+    render(<Host />);
+    return { onChange, onSave, qty: screen.getByLabelText("Qty"),
+      quotes: screen.getByLabelText("Quote quantities"),
+      save: screen.getByRole("button", { name: /save request details/i }) };
+  }
+
+  it.each(["1,000", "", "12.5"])("preserves invalid Qty %j and blocks Save", (text) => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: text } });
+    expect(host.qty).toHaveValue(text);
+    expect(host.onChange).not.toHaveBeenCalled();
+    if (!text) expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(host.qty);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number");
+    expect(host.save).toBeDisabled();
+  });
+
+  it("allows clearing and typing 50 without retaining the initial 1", () => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: "" } });
+    for (const character of "50") {
+      fireEvent.change(host.qty, { target: { value: (host.qty as HTMLInputElement).value + character } });
+    }
+    expect(host.qty).toHaveValue("50");
+    expect(host.onChange).toHaveBeenLastCalledWith({ quantity: 50 });
+    expect(host.save).toBeEnabled();
+  });
+
+  it("never turns typed 12.5 into 125 or 12 after the decimal", () => {
+    const host = renderHost();
+    fireEvent.change(host.qty, { target: { value: "" } });
+    for (const value of ["1", "12"]) fireEvent.change(host.qty, { target: { value } });
+    host.onChange.mockClear();
+    for (const value of ["12.", "12.5"]) fireEvent.change(host.qty, { target: { value } });
+    expect(host.qty).toHaveValue("12.5");
+    expect(host.onChange).not.toHaveBeenCalled();
+    expect(host.save).toBeDisabled();
+  });
+
+  it.each(["1,000/2,000", "2,500/5,000/10,000"])("does not alert while typing valid %j", (text) => {
+    const host = renderHost();
+    // An earlier blurred error must also disappear when editing resumes.
+    fireEvent.change(host.quotes, { target: { value: "1,000" } });
+    fireEvent.blur(host.quotes);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    for (let length = 1; length <= text.length; length += 1) {
+      fireEvent.change(host.quotes, { target: { value: text.slice(0, length) } });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }
+    fireEvent.blur(host.quotes);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
+  });
+
+  it.each(["12.5/25", "1,500,25/50", "1,0", "x 40", "10,25,500"])(
+    "gives neutral help for invalid unblurred quote text %j", (text) => {
+      const host = renderHost();
+      fireEvent.change(host.quotes, { target: { value: text } });
+      expect(host.save).toBeDisabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      for (const field of [host.qty, host.quotes]) {
+        expect(field).toHaveAccessibleDescription("Enter whole quantities separated by /, for example 10 / 25 / 50.");
+        expect(field).not.toHaveAccessibleDescription(/Saving sets Qty/);
+      }
+      fireEvent.change(host.quotes, { target: { value: "25/50" } });
+      expect(host.save).toBeEnabled();
+      expect(host.qty).toHaveAccessibleDescription(/Saving sets Qty to 25/);
+    },
+  );
+
+  it("blocks invalid quote quantities and recovers for grouped thousands", () => {
+    const host = renderHost();
+    fireEvent.change(host.quotes, { target: { value: "10/12.5" } });
+    expect(host.save).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(host.quotes);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter whole numbers separated by /");
+    fireEvent.change(host.quotes, { target: { value: "1,000/2,000" } });
+    expect(host.save).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.qty).toHaveAccessibleDescription(/Saving sets Qty to 1000, the first quote quantity/);
+  });
+});
+
+  it.each(["250,500", "100,250,500", "1,000"])("shows ambiguity inline for %j", (text) => {
+    render(<ClientPartRequestEditor draft={makeDraft({ material: "Aluminum" })}
+      quoteQuantityInput={text} onQuoteQuantityInputChange={noop} onChange={noop}
+      onSave={noop} onUploadRevision={noop} />);
+    fireEvent.blur(screen.getByLabelText("Quote quantities"));
+    expect(screen.getByRole("alert")).toHaveTextContent("Commas are ambiguous here");
+    expect(screen.getByLabelText("Quote quantities")).toHaveAccessibleDescription(/Commas are ambiguous here/);
+    expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();
+  });
