@@ -13,6 +13,7 @@
  * AGENTS.md protected actions are identified by ordinary reasoning against
  * AGENTS.md before and after any Jev call, and Jev never decides one.
  */
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -315,7 +316,7 @@ export async function runEvaluation({ ask = askJev } = {}) {
   return { summary, evidence, duplicates, routing, failures: failureResults, calls };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isEntryPoint(import.meta.url)) {
   const report = await runEvaluation();
   writeFileSync(RESULTS_PATH, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report.summary, null, 2));

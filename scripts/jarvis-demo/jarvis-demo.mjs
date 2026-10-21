@@ -14,12 +14,13 @@
 // JARVIS_DEMO_WORKER_TIMEOUT_MS (default 300000) bounds one Python run.
 // Plate jobs also need JARVIS_CAD_AGENT_ENABLED=1 (OVD-802).
 
+import { isEntryPoint } from "../lib/entry-point.mjs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const PIN_MIN_MM = 4;
 const PIN_MAX_MM = 20;
@@ -302,6 +303,6 @@ async function main(argv) {
   return result.state === "checks_failed" ? 2 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));
 }
