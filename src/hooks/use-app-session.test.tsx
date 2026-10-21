@@ -47,6 +47,8 @@ function SessionProbe() {
       <span data-testid="has-cached-session">{session.hasCachedSession ? "yes" : "no"}</span>
       <span data-testid="membership-count">{session.memberships.length}</span>
       <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
+      <span data-testid="query-error">{session.isError ? "yes" : "no"}</span>
+      <button type="button" onClick={() => void session.refetch()}>Retry session</button>
       {session.user ? (
         <button type="button" onClick={() => void session.signOut()}>
           Log out
@@ -200,6 +202,193 @@ describe("useAppSession", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
+    renderProbeWithQueryClient(queryClient);
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    const before = fetchAppSessionDataMock.mock.calls.length;
+    if (failure === "throw") {
+      fetchAppSessionDataMock.mockRejectedValue(new Error("Session RPC timed out"));
+    } else {
+      fetchAppSessionDataMock.mockResolvedValue({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" });
+    }
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["app-session"] }); });
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock.mock.calls.length - before).toBe(failure === "throw" ? 4 : 2);
+      expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("idle");
+    });
+    expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("query-error")).toHaveTextContent(failure === "throw" ? "yes" : "no");
+  });
+
+  it.each([
+    ["membership_error", "throw"],
+    ["membership_error", "session_error"],
+    ["anonymous", "throw"],
+  ])("keeps the last completed session through background %s then %s", async (degraded, failure) => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    fetchAppSessionDataMock.mockResolvedValueOnce(makeRestoredSession(localSession));
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    fetchAppSessionDataMock.mockResolvedValueOnce(degraded === "membership_error"
+      ? { ...makeRestoredSession(localSession), memberships: [], membershipError: "Membership request timed out" }
+      : { user: null, memberships: [], isVerifiedAuth: false, authState: "anonymous" });
+    if (failure === "throw") fetchAppSessionDataMock.mockRejectedValue(new Error("Session RPC timed out"));
+    else fetchAppSessionDataMock.mockResolvedValue({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" });
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["app-session"] }); });
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(failure === "throw" ? 3 : 4);
+      expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("idle");
+    });
+    expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.restoreComplete).toBe(true);
+  });
+
+  it("does not reseed the startup account on remount after sign-out when storage cleanup lags", async () => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+    const { queryClient, unmount } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_OUT", null)));
+    unmount();
+    renderProbeWithQueryClient(queryClient);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user).toBeNull();
+  });
+
+  it.each(["refetch", "TOKEN_REFRESHED"])("SIGNED_OUT wins during %s, including for every observer", async (trigger) => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter><SessionProbe /><SessionProbe /></MemoryRouter></QueryClientProvider>);
+    await waitFor(() => screen.getAllByTestId("membership-count").forEach((count) => expect(count).toHaveTextContent("1")));
+    const pending = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValue(pending.promise);
+    act(() => {
+      if (trigger === "refetch") void queryClient.invalidateQueries({ queryKey: ["app-session"] });
+      else authStateChangeCallbacks.forEach((callback) => callback("TOKEN_REFRESHED", localSession));
+    });
+    await waitFor(() => expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("fetching"));
+    queryClient.setQueryData(["private-job"], { owner: localSession.user.id });
+    act(() => {
+      storageMock.removeItem(getSupabaseAuthStorageKey());
+      getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+      authStateChangeCallbacks.forEach((callback) => callback("SIGNED_OUT", null));
+    });
+    expect(queryClient.getQueryData(["private-job"])).toBeUndefined();
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user).toBeNull();
+    const callsAtSignOut = fetchAppSessionDataMock.mock.calls.length;
+    await act(async () => {
+      pending.resolve(makeRestoredSession(localSession));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(callsAtSignOut);
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])).toMatchObject({ user: null, memberships: [], restoreComplete: true });
+    screen.getAllByTestId("email").forEach((email) => expect(email).toHaveTextContent("anonymous"));
+    screen.getAllByTestId("auth-initializing").forEach((gate) => expect(gate).toHaveTextContent("no"));
+  });
+
+  it("discards an old account refetch after switching users", async () => {
+    const first = makeLocalSession();
+    const second = { ...first, access_token: "token-2", user: { ...first.user, id: "user-2", email: "second@example.com" } };
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: first.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: first }, error: null });
+    fetchAppSessionDataMock.mockResolvedValueOnce(makeRestoredSession(first));
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    const oldFetch = deferredPromise<AppSessionData>();
+    const newFetch = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(oldFetch.promise).mockReturnValue(newFetch.promise);
+    act(() => { void queryClient.invalidateQueries({ queryKey: ["app-session"] }); });
+    await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2));
+    act(() => {
+      storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: second.access_token }));
+      authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", second));
+    });
+    await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3));
+    await act(async () => oldFetch.resolve(makeRestoredSession(first)));
+    expect(screen.getByTestId("email")).toHaveTextContent(second.user.email);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    await act(async () => newFetch.resolve(makeRestoredSession(second)));
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    expect(screen.getByTestId("email")).toHaveTextContent(second.user.email);
+  });
+
+  it("discards a late startup bootstrap and fetch after SIGNED_OUT", async () => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    const bootstrap = deferredPromise<{ data: { session: Session }; error: null }>();
+    const pending = deferredPromise<AppSessionData>();
+    getSessionMock.mockReturnValue(bootstrap.promise);
+    fetchAppSessionDataMock.mockReturnValue(pending.promise);
+    const { queryClient } = renderProbe();
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_OUT", null)));
+    await act(async () => {
+      bootstrap.resolve({ data: { session: localSession }, error: null });
+      pending.resolve(makeRestoredSession(localSession));
+    });
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user).toBeNull();
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+  });
+
+  it("restores sessions when AbortSignal has no throwIfAborted method", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "throwIfAborted");
+    Object.defineProperty(AbortSignal.prototype, "throwIfAborted", { configurable: true, value: undefined });
+    try {
+      const localSession = makeLocalSession();
+      storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+      getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+      fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+      renderProbe();
+      await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+      expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    } finally {
+      if (descriptor) Object.defineProperty(AbortSignal.prototype, "throwIfAborted", descriptor);
+      else Reflect.deleteProperty(AbortSignal.prototype, "throwIfAborted");
+    }
+  });
+
+  it("resolves exhausted session_error retries to sign-in and recovers through refetch", async () => {
+    const localSession = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    fetchAppSessionDataMock.mockResolvedValue({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" });
+    const { queryClient } = renderProbe();
+    await waitFor(() => {
+      expect(queryClient.getQueryData<AppSessionData>(["app-session"])).toMatchObject({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error", restoreComplete: true });
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
+    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
+    expect(storageMock.getItem(getSupabaseAuthStorageKey())).not.toBeNull();
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
   });
 
   it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
