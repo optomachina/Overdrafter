@@ -64,7 +64,7 @@ import type {
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
-import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, isSourcingAddressComplete, missingSourcingAddressFields, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
 import { ACCOUNT_SETTINGS_REQUEST_EVENT } from "@/components/chat/account-settings-request";
 import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
@@ -560,6 +560,7 @@ export function WorkspaceAccountMenu({
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
   const [sourcingDestination, setSourcingDestination] = useState<SourcingDestination | null>(null);
+  const sourcingAddressComplete = sourcingDestination !== null && isSourcingAddressComplete(sourcingDestination.address);
   const [sourcingError, setSourcingError] = useState<string | null>(null);
   const [isConfirmingDestination, setIsConfirmingDestination] = useState(false);
   const companyNameInputRef = useRef<HTMLInputElement>(null);
@@ -688,20 +689,23 @@ export function WorkspaceAccountMenu({
         await updateOrganizationDetails(activeMembership.organizationId, patch);
         setOrgDetails(orgDetailsDraft);
       } else {
-        const {
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        } = orgDetailsDraft;
-        await updateOrganizationAddresses(activeMembership.organizationId, {
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        });
+        const normalize = (value: string | null) => value?.trim() || null;
+        const addressPatch = {
+          billingStreet: normalize(orgDetailsDraft.billingStreet),
+          billingCity: normalize(orgDetailsDraft.billingCity),
+          billingState: normalize(orgDetailsDraft.billingState),
+          billingZip: normalize(orgDetailsDraft.billingZip),
+          billingCountry: normalize(orgDetailsDraft.billingCountry),
+          shippingSameAsBilling: orgDetailsDraft.shippingSameAsBilling,
+          shippingStreet: normalize(orgDetailsDraft.shippingStreet),
+          shippingCity: normalize(orgDetailsDraft.shippingCity),
+          shippingState: normalize(orgDetailsDraft.shippingState),
+          shippingZip: normalize(orgDetailsDraft.shippingZip),
+          shippingCountry: normalize(orgDetailsDraft.shippingCountry),
+        };
+        await updateOrganizationAddresses(activeMembership.organizationId, addressPatch);
         // Only address fields were persisted; keep unsaved company edits out of saved state.
-        setOrgDetails((prev) => ({
-          ...prev,
-          billingStreet, billingCity, billingState, billingZip, billingCountry,
-          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
-        }));
+        setOrgDetails((prev) => ({ ...prev, ...addressPatch }));
       }
       setEditingSection(null);
       try {
@@ -718,7 +722,7 @@ export function WorkspaceAccountMenu({
   }
 
   async function handleConfirmSourcingDestination() {
-    if (!activeMembership?.organizationId || !sourcingDestination) return;
+    if (!activeMembership?.organizationId || !sourcingDestination || !sourcingAddressComplete) return;
     setIsConfirmingDestination(true);
     setSourcingError(null);
     try {
@@ -1256,11 +1260,22 @@ export function WorkspaceAccountMenu({
                     <div className="mt-4 border-t border-white/[0.08] pt-4 text-xs">
                       <p className="font-medium text-foreground">Quote shipping destination: {sourcingDestination.state === "confirmed" ? "Confirmed" : "Needs confirmation"}</p>
                       <p className="mt-2 text-muted-foreground">
-                        {[sourcingDestination.address.street, sourcingDestination.address.city,
+                        {sourcingAddressComplete ? [sourcingDestination.address.street, sourcingDestination.address.city,
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
-                          sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
+                          sourcingDestination.address.country].filter(Boolean).join(", ") : "Shipping address is incomplete and cannot be confirmed yet."}
                       </p>
-                      {canManageAddresses && sourcingDestination.state !== "confirmed" && (
+                      {!sourcingAddressComplete && (
+                        <p className="mt-2 text-foreground">
+                          Add {missingSourcingAddressFields(sourcingDestination.address).join(", ")} before confirming.
+                        </p>
+                      )}
+                      {canManageAddresses && !sourcingAddressComplete && (
+                        <button type="button" onClick={() => openEdit(orgDetails.shippingSameAsBilling ? "billing" : "shipping")}
+                          className="mt-3 text-xs text-foreground underline">
+                          Edit shipping address
+                        </button>
+                      )}
+                      {canManageAddresses && sourcingAddressComplete && sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
@@ -1268,7 +1283,7 @@ export function WorkspaceAccountMenu({
                       )}
                     </div>
                   )}
-                  {sourcingError && <p role="alert" className="mt-2 text-xs text-red-400">{sourcingError}</p>}
+                  {sourcingError && <p role="alert" className="mt-2 text-xs text-destructive dark:text-foreground">{sourcingError}</p>}
                 </div>
 
               </>
@@ -1873,7 +1888,7 @@ export function WorkspaceAccountMenu({
                       <label htmlFor="billing-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                       <Input
                         id="billing-country"
-                        value={orgDetailsDraft.billingCountry}
+                        value={orgDetailsDraft.billingCountry ?? ""}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
                         className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
@@ -1969,7 +1984,7 @@ export function WorkspaceAccountMenu({
                           <label htmlFor="shipping-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                           <Input
                             id="shipping-country"
-                            value={orgDetailsDraft.shippingCountry}
+                            value={orgDetailsDraft.shippingCountry ?? ""}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
                             className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"

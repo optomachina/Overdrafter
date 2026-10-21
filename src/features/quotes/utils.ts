@@ -745,9 +745,11 @@ export function normalizeClientPartMetadata(
     return null;
   }
 
+  // Accept both the live nested projection and the OVD-978 flat projection.
+  const extraction = asObject(payload.clientExtraction ?? payload);
   const quantityCandidate = Number(payload.quantity ?? 1);
-  const warningCountCandidate = Number(payload.warningCount ?? 0);
-  const pageCountCandidate = Number(payload.pageCount ?? 0);
+  const warningCountCandidate = Number(extraction.warningCount ?? 0);
+  const pageCountCandidate = Number(extraction.pageCount ?? 0);
 
   return {
     partId,
@@ -778,25 +780,25 @@ export function normalizeClientPartMetadata(
     },
     extraction: {
       lifecycle:
-        payload.lifecycle === "queued" ||
-        payload.lifecycle === "extracting" ||
-        payload.lifecycle === "succeeded" ||
-        payload.lifecycle === "partial" ||
-        payload.lifecycle === "failed"
-          ? payload.lifecycle
+        extraction.lifecycle === "queued" ||
+        extraction.lifecycle === "extracting" ||
+        extraction.lifecycle === "succeeded" ||
+        extraction.lifecycle === "partial" ||
+        extraction.lifecycle === "failed"
+          ? extraction.lifecycle
           : "uploaded",
       warningCount:
         Number.isFinite(warningCountCandidate) && warningCountCandidate >= 0
           ? warningCountCandidate
           : 0,
-      warnings: asStringArray(payload.warnings),
-      missingFields: asStringArray(payload.missingFields),
-      reviewFields: asStringArray(payload.reviewFields),
-      lastFailureCode: typeof payload.lastFailureCode === "string" ? payload.lastFailureCode : null,
-      lastFailureMessage: typeof payload.lastFailureMessage === "string" ? payload.lastFailureMessage : null,
-      extractedAt: typeof payload.extractedAt === "string" ? payload.extractedAt : null,
-      failedAt: typeof payload.failedAt === "string" ? payload.failedAt : null,
-      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
+      warnings: asStringArray(extraction.warnings),
+      missingFields: asStringArray(extraction.missingFields),
+      reviewFields: asStringArray(extraction.reviewFields),
+      lastFailureCode: typeof extraction.lastFailureCode === "string" ? extraction.lastFailureCode : null,
+      lastFailureMessage: typeof extraction.lastFailureMessage === "string" ? extraction.lastFailureMessage : null,
+      extractedAt: typeof extraction.extractedAt === "string" ? extraction.extractedAt : null,
+      failedAt: typeof extraction.failedAt === "string" ? extraction.failedAt : null,
+      updatedAt: typeof extraction.updatedAt === "string" ? extraction.updatedAt : null,
       pageCount:
         Number.isFinite(pageCountCandidate) && pageCountCandidate >= 0 ? Math.trunc(pageCountCandidate) : 0,
       hasCadFile: Boolean(payload.hasCadFile),
