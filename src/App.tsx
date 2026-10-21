@@ -43,8 +43,8 @@ import LegalPolicies from "./pages/LegalPolicies";
 import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
 
-// The dynamic import is eliminated from production builds, including its native handoff tooling.
 const JarvisArPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisArPreview")) : null;
+// The dynamic import is eliminated from production builds, including its native handoff tooling.
 const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
   ? lazy(() => import("./pages/EngineeringWorkbench"))
   : null;
