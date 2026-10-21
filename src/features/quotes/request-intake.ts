@@ -25,10 +25,15 @@ const RELATIVE_DATE_PATTERN = new RegExp(
   "i",
 );
 
-// Capture complete numeric expressions, including invalid decimal/sign/suffix text, so a
-// shorter integer prefix can never be mistaken for the user's requested quantity.
-const QUANTITY_EXPRESSION = /(?<![\w.,+-])[+-]?\d[\w.+-]*(?:,\d[\w.+-]*)*(?:\s*[/;]\s*[\w.,+-]+|\s*,\s*[+-]?\d[\w.+-]*(?:,\d[\w.+-]*)*)*/g;
-const QUANTITY_INTENT = /\b(?:need|qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants)\b[^0-9+-]{0,20}$/i;
+const SINGLE_QUANTITY_PATTERNS = [
+  /\bneed\s+(\d{1,6})(?=\s+(?:of|these|pcs|pieces|parts|units|ea\b))/gi,
+  /\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants)\b[^0-9]{0,20}(\d{1,6})\b/gi,
+];
+
+const LIST_QUANTITY_PATTERNS = [
+  /\b(\d{1,6}(?:\s*\/\s*\d{1,6})+)\b/g,
+  /\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering)\b[^0-9]{0,20}((?:\d{1,6}\s*,\s*)+\d{1,6})\b/gi,
+];
 
 const WEEKDAY_BY_NAME: Record<string, number> = {
   sunday: 0,
@@ -295,23 +300,35 @@ function parseDateMatch(prompt: string, now: Date): DateMatch | null {
   return null;
 }
 
-function collectQuantityCandidates(value: string): { quantities: number[]; hasCandidates: boolean } {
-  const quantities: number[] = [];
-  let hasCandidates = false;
-  for (const match of value.matchAll(QUANTITY_EXPRESSION)) {
-    if (!QUANTITY_INTENT.test(value.slice(0, match.index)) && !/[/;]/.test(match[0])) {
-      continue;
+function collectQuantityCandidates(value: string): number[] {
+  const matches: number[] = [];
+
+  LIST_QUANTITY_PATTERNS.forEach((pattern) => {
+    pattern.lastIndex = 0;
+    let match = pattern.exec(value);
+    while (match) {
+      const items = match[1]
+        ?.split(/[/,]/)
+        .map((item) => Number.parseInt(item.trim(), 10))
+        .filter((item) => Number.isFinite(item) && item > 0) ?? [];
+      matches.push(...items);
+      match = pattern.exec(value);
     }
-    hasCandidates = true;
-    // A prose comma after a slash list is punctuation, not another quantity.
-    const text = match[0].replace(/,$/, "");
-    const validated = validateRequestedQuoteQuantitiesInput(text);
-    if (validated.invalidTokens.length > 0) {
-      return { quantities: [], hasCandidates: true };
+  });
+
+  SINGLE_QUANTITY_PATTERNS.forEach((pattern) => {
+    pattern.lastIndex = 0;
+    let match = pattern.exec(value);
+    while (match) {
+      const quantity = Number.parseInt(match[1] ?? "", 10);
+      if (Number.isFinite(quantity) && quantity > 0) {
+        matches.push(quantity);
+      }
+      match = pattern.exec(value);
     }
-    quantities.push(...validated.quantities);
-  }
-  return { quantities, hasCandidates };
+  });
+
+  return matches;
 }
 
 function parseServiceIntent(prompt: string): RequestedServiceIntent {
@@ -413,14 +430,16 @@ export function validateRequestedQuoteQuantitiesInput(value: string, fallbackQua
     return { quantities: fallback === null ? [] : [fallback], invalidTokens: [] };
   }
   const hasExplicitSeparator = /[/;]/.test(text);
-  if (!hasExplicitSeparator && /^\d+(,\d{3})+$/.test(text)) {
+  const commaGroup = /^\d{1,3}(,\d{3})+$/;
+  const chunks = text.split(/\s+/).map((chunk) => chunk.replace(/,+$/, ""));
+  if (!hasExplicitSeparator && chunks.some((chunk) => commaGroup.test(chunk))) {
     return { quantities: [], invalidTokens: [text], error: QUOTE_QUANTITIES_AMBIGUOUS_ERROR };
   }
   const tokens = hasExplicitSeparator
-    ? text.split(/[/;\s]+/).flatMap((token) => /^\d+(,\d{3})+$/.test(token) ? [token] : token.split(",")).filter(Boolean)
-    : text.split(/[,\s]+/).filter(Boolean);
+    ? text.split(/[/;\s]+/).filter(Boolean)
+    : chunks.flatMap((chunk) => chunk.split(",")).filter(Boolean);
   for (const token of tokens) {
-    const ungrouped = hasExplicitSeparator && /^\d+(,\d{3})+$/.test(token) ? token.replace(/,/g, "") : token;
+    const ungrouped = hasExplicitSeparator && commaGroup.test(token) ? token.replace(/,/g, "") : token;
     const quantity = parseRequestQuantityText(ungrouped);
     if (quantity === null) {
       invalidTokens.push(token);
@@ -469,12 +488,11 @@ export function parseRequestIntake(prompt: string, now = new Date()): ParsedRequ
     ? replaceRangeWithSpaces(trimmedPrompt, dateMatch.start, dateMatch.end)
     : trimmedPrompt;
   const serviceIntent = parseServiceIntent(trimmedPrompt);
-  const candidates = collectQuantityCandidates(quantitySource);
-  const requestedQuoteQuantities = normalizeRequestedQuoteQuantities(candidates.quantities);
+  const requestedQuoteQuantities = normalizeRequestedQuoteQuantities(collectQuantityCandidates(quantitySource));
   const wantsQuantityPricing = QUANTITY_PRICING_PATTERNS.some((pattern) => pattern.test(trimmedPrompt));
   let resolvedQuoteQuantities = requestedQuoteQuantities;
 
-  if (!candidates.hasCandidates && wantsQuantityPricing) {
+  if (requestedQuoteQuantities.length === 0 && wantsQuantityPricing) {
     resolvedQuoteQuantities = [...DEFAULT_QUANTITY_PRICING_LADDER];
   }
 

@@ -146,8 +146,10 @@ export function ClientPartRequestEditor({
     singleQuantity ?? { allowAboveOne: true, loading: false, unavailable: false },
     onChange,
   );
+  const [quoteQuantitiesTouched, setQuoteQuantitiesTouched] = useState(false);
   const quoteQuantities = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, draft.quantity);
   const quoteQuantitiesBlocked = !singleQuantity && quoteQuantities.invalidTokens.length > 0;
+  const showQuoteQuantitiesError = quoteQuantitiesBlocked && quoteQuantitiesTouched;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -280,7 +282,7 @@ export function ClientPartRequestEditor({
                 onChange={(event) => quantityInput.onTextChange(event.target.value)}
                 onBlur={quantityInput.onBlur}
                 aria-invalid={quantityInput.blocked || undefined}
-                aria-describedby={[quantityInput.showError && "client-request-qty-error", !quoteQuantitiesBlocked && "client-request-quote-quantities-help"].filter(Boolean).join(" ") || undefined}
+                aria-describedby={[quantityInput.showError && "client-request-qty-error", !showQuoteQuantitiesError && "client-request-quote-quantities-help"].filter(Boolean).join(" ") || undefined}
                 className="border-border bg-muted text-foreground"
                 inputMode="numeric"
               />
@@ -295,13 +297,17 @@ export function ClientPartRequestEditor({
               <Input
                 id="client-request-quote-quantities"
                 value={quoteQuantityInput}
-                onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
+                onChange={(event) => {
+                  setQuoteQuantitiesTouched(false);
+                  onQuoteQuantityInputChange(event.target.value);
+                }}
+                onBlur={() => setQuoteQuantitiesTouched(true)}
                 className="border-border bg-muted text-foreground"
                 placeholder="10 / 25 / 50"
                 aria-invalid={quoteQuantitiesBlocked || undefined}
-                aria-describedby={quoteQuantitiesBlocked ? "client-request-quote-quantities-error" : "client-request-quote-quantities-help"}
+                aria-describedby={showQuoteQuantitiesError ? "client-request-quote-quantities-error" : "client-request-quote-quantities-help"}
               />
-              {quoteQuantitiesBlocked ? (
+              {showQuoteQuantitiesError ? (
                 <p id="client-request-quote-quantities-error" role="alert" className="text-xs text-destructive">
                   {quoteQuantities.error ?? QUOTE_QUANTITIES_FORMAT_ERROR}
                 </p>

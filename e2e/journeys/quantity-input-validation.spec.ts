@@ -51,16 +51,33 @@ test.describe("part request quantity input validation", { tag: "@fixture" }, () 
     await expect(qtyError).toHaveCount(0);
     await expect(save).toBeEnabled();
 
-    await quoteQuantities.fill("1,000/2,000");
+    await quoteQuantities.fill("");
+    for (const character of "1,000/2,000") {
+      await quoteQuantities.pressSequentially(character);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+    }
+    await quoteQuantities.press("Tab");
     await expect(quoteQuantities).toHaveValue("1,000/2,000");
     await expect(quoteQuantitiesError).toHaveCount(0);
     await expect(qtyError).toHaveCount(0);
     await expect(save).toBeEnabled();
 
     await expect(qty).toHaveAccessibleDescription(/the first quote quantity/);
-    await quoteQuantities.fill("250,500");
-    await expect(page.getByRole("alert")).toHaveText(/Commas are ambiguous here/);
-    await expect(save).toBeDisabled();
+    for (const text of ["250,500", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500"]) {
+      await quoteQuantities.fill(text);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await expect(save).toBeDisabled();
+      await quoteQuantities.press("Tab");
+      await expect(page.getByRole("alert")).toHaveText(/Commas are ambiguous here/);
+    }
+
+    for (const text of ["1,500,25/50", "1,500, 2,500 / 5,000", "10,25/50"]) {
+      await quoteQuantities.fill(text);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await expect(save).toBeDisabled();
+      await quoteQuantities.press("Tab");
+      await expect(quoteQuantitiesError).toBeVisible();
+    }
 
     for (const text of ["10,25,50", "100, 250, 500"]) {
       await quoteQuantities.fill(text);
@@ -70,6 +87,8 @@ test.describe("part request quantity input validation", { tag: "@fixture" }, () 
 
     await quoteQuantities.fill("12.5");
     await expect(quoteQuantities).toHaveValue("12.5");
+    await expect(quoteQuantitiesError).toHaveCount(0);
+    await quoteQuantities.press("Tab");
     await expect(quoteQuantitiesError).toBeVisible();
     await expect(save).toBeDisabled();
     await expect(qty).toHaveValue("50");

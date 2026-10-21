@@ -1565,7 +1565,7 @@ describe("ClientPart", () => {
       });
     });
 
-    it.each(["12.5", "250,500", "100,250,500", "1,000"])("rejects Quote quantities %j without a save or success toast", async (text) => {
+    it.each(["12.5", "250,500", "100,250,500", "1,000", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500", "1,500,25/50", "1,500, 2,500 / 5,000"])("rejects Quote quantities %j without a save or success toast", async (text) => {
       const { result } = renderPartControllerHook();
       await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
       act(() => result.current.setQuoteQuantityInput(text));

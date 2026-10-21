@@ -601,10 +601,27 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     expect(host.save).toBeDisabled();
   });
 
+  it.each(["1,000/2,000", "2,500/5,000/10,000"])("does not alert while typing valid %j", (text) => {
+    const host = renderHost();
+    // An earlier blurred error must also disappear when editing resumes.
+    fireEvent.change(host.quotes, { target: { value: "1,000" } });
+    fireEvent.blur(host.quotes);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    for (let length = 1; length <= text.length; length += 1) {
+      fireEvent.change(host.quotes, { target: { value: text.slice(0, length) } });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }
+    fireEvent.blur(host.quotes);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
+  });
+
   it("blocks invalid quote quantities and recovers for grouped thousands", () => {
     const host = renderHost();
     fireEvent.change(host.quotes, { target: { value: "10/12.5" } });
     expect(host.save).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(host.quotes);
     expect(screen.getByRole("alert")).toHaveTextContent("Enter whole numbers separated by /");
     fireEvent.change(host.quotes, { target: { value: "1,000/2,000" } });
     expect(host.save).toBeEnabled();
@@ -617,6 +634,7 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     render(<ClientPartRequestEditor draft={makeDraft({ material: "Aluminum" })}
       quoteQuantityInput={text} onQuoteQuantityInputChange={noop} onChange={noop}
       onSave={noop} onUploadRevision={noop} />);
+    fireEvent.blur(screen.getByLabelText("Quote quantities"));
     expect(screen.getByRole("alert")).toHaveTextContent("Commas are ambiguous here");
     expect(screen.getByLabelText("Quote quantities")).toHaveAccessibleDescription(/Commas are ambiguous here/);
     expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();

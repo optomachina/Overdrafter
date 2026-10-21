@@ -103,16 +103,48 @@ describe("request intake parsing", () => {
 });
 
 
+describe("prompt intake main compatibility", () => {
+  it.each([
+    ["Please quote 25.", [25]],
+    ["Please quote 10/25/50.", [10, 25, 50]],
+    ["Quantity: 25.", [25]],
+    ["Please quote 25 of these in 6061-T6/T651.", [25]],
+    ["Please quote 25 pcs per drawing 12-345/A", [25]],
+    ["qty 25; deburr all edges", [25]],
+    ["Need 25 pcs.", [25]],
+    ["Please quote 25 pieces in 6061-T6.", [25]],
+    ["Please quote 25, thanks", [25]],
+    ["Please quote 10 / 25 / 50 pcs", [10, 25, 50]],
+    ["Need these in 2 weeks", []],
+    ["Need it within 3 days please", []],
+    ["Need 2 day turnaround", []],
+    ["Need these in 2 weeks, quote 50", [50]],
+    ["need 50 of these", [50]],
+    ["Need 25 pcs", [25]],
+    ["Please quote 50.", [50]],
+    ["Quote 10/25/50.", [10, 25, 50]],
+    ["Please quote 50. Need by tomorrow", [50]],
+    ["qty 50.", [50]],
+    ["Please quote 50", [50]],
+    ["Quote 10/25/50", [10, 25, 50]],
+  ])("preserves main's quantities for %j", (prompt, quantities) => {
+    expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
+  });
+});
+
 describe("validateRequestedQuoteQuantitiesInput", () => {
   it.each([
     ["1,000/2,000", [1000, 2000]],
     ["1,000;2,000", [1000, 2000]],
     ["250,500/1,000", [250500, 1000]],
-    ["10,25/50", [10, 25, 50]],
+    ["12,500 / 25,000", [12500, 25000]],
+    ["2,500/5,000/10,000", [2500, 5000, 10000]],
+    ["1000 12,500;25", [1000, 12500, 25]],
     ["10,25,50", [10, 25, 50]],
     ["500,1000", [500, 1000]],
     ["100, 250, 500", [100, 250, 500]],
-    ["25, 50 100;200", [25, 50, 100, 200]],
+    ["100, 25, 50", [100, 25, 50]],
+    ["25 50 100;200", [25, 50, 100, 200]],
     ["25/25/50", [25, 50]],
     ["", [12]],
   ])("parses %j without truncation", (text, quantities) => {
@@ -126,40 +158,27 @@ describe("validateRequestedQuoteQuantitiesInput", () => {
     },
   );
 
-  it("reports invalid tokens in a mixed list", () => {
-    expect(validateRequestedQuoteQuantitiesInput("10/12.5/25", 12)).toEqual({
-      quantities: [10, 25], invalidTokens: ["12.5"],
-    });
+  it.each([
+    ["10/12.5/25", ["12.5"]],
+    ["10,25/50", ["10,25"]],
+    ["1,25;50", ["1,25"]],
+    ["25, 50 100;200", ["25,"]],
+    ["1,500,25/50", ["1,500,25"]],
+    ["1,500, 2,500 / 5,000", ["1,500,"]],
+    ["1,500, 25 / 50", ["1,500,"]],
+    ["1,000,25/50", ["1,000,25"]],
+    ["1234,567/50", ["1234,567"]],
+  ])("reports malformed tokens in mixed input %j", (text, invalidTokens) => {
+    expect(validateRequestedQuoteQuantitiesInput(text as string, 12).invalidTokens).toEqual(invalidTokens);
   });
-});
 
-  it.each(["250,500", "100,250,500", "1,000"])("rejects ambiguous %j with guidance", (text) => {
+  it.each([
+    "250,500", "100,250,500", "1,000", "1,250",
+    "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500",
+    "1,500, 2,500", "1,000, 2,000", "10 1,250,", "1,250,",
+  ])("rejects ambiguous %j with guidance", (text) => {
     expect(validateRequestedQuoteQuantitiesInput(text)).toEqual({
       quantities: [], invalidTokens: [text], error: QUOTE_QUANTITIES_AMBIGUOUS_ERROR,
     });
   });
-
-  it.each([
-    ["Please quote 1,000 of these", []],
-    ["quote 1,000/2,000", [1000, 2000]],
-    ["quote 1,000;2,000", [1000, 2000]],
-    ["qty 12.5", []],
-    ["Please quote 2,500 pieces", []],
-    ["need 1,000 pcs", []],
-    ["qty 1000", [1000]],
-    ["quote 10/25/50", [10, 25, 50]],
-    ["quote 250,500", []],
-    ["quote 100,250,500", []],
-    ["quote 10,25,50", [10, 25, 50]],
-    ["quote 100, 250, 500", [100, 250, 500]],
-    ["qty -5", []],
-    ["qty 0", []],
-    ["qty 12pcs", []],
-    ["qty 12-15", []],
-    ["qty 12+5", []],
-    ["quote 10/12.5/25", []],
-    ["quote 10/abc/25", []],
-    ["quantity pricing for qty 12.5", []],
-  ])("prefills only unambiguous whole quantities from %j", (prompt, quantities) => {
-    expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
-  });
+});

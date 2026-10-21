@@ -882,6 +882,12 @@ describe("ClientProject", () => {
     ["1,000/2,000", [1000, 2000]],
     ["10/12.5", null],
     ["250,500", null],
+    ["1,250 2,500", null],
+    ["1,250, 2,500", null],
+    ["2,500 7,500", null],
+    ["100,250 500", null],
+    ["1,500,25/50", null],
+    ["1,500, 2,500 / 5,000", null],
     ["10,25,50", [10, 25, 50]],
     ["100, 250, 500", [100, 250, 500]],
   ])("validates project request quantities %j before saving", async (text, expected) => {

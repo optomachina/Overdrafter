@@ -26,9 +26,6 @@ vi.mock("@/components/quotes/RfqLineItemMetadataFields", () => ({
   RfqLineItemMetadataFields: () => <div>RFQ metadata</div>,
 }));
 
-vi.mock("@/components/quotes/RequestServiceIntentFields", () => ({
-  RequestServiceIntentFields: () => <div>Request service intent</div>,
-}));
 
 vi.mock("@/components/quotes/RequestSummaryBadges", () => ({
   RequestSummaryBadges: () => <div>Request summary badges</div>,
@@ -389,6 +386,12 @@ describe("internal requirement quantity save integration", () => {
     ["quotes", "10/12.5/25", "Enter whole numbers"],
     ["quotes", "25/50/abc", "Enter whole numbers"],
     ["quotes", "250,500", "Commas are ambiguous"],
+    ["quotes", "1,250 2,500", "Commas are ambiguous"],
+    ["quotes", "1,250, 2,500", "Commas are ambiguous"],
+    ["quotes", "2,500 7,500", "Commas are ambiguous"],
+    ["quotes", "100,250 500", "Commas are ambiguous"],
+    ["quotes", "1,500,25/50", "Enter whole numbers"],
+    ["quotes", "1,500, 2,500 / 5,000", "Enter whole numbers"],
     ["quotes", "0", "Enter whole numbers"],
     ["quotes", "-5", "Enter whole numbers"],
     ["quantity", "12.5", "Enter a whole number"],
@@ -421,6 +424,46 @@ describe("internal requirement quantity save integration", () => {
     expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject(
       field === "quotes" ? { quoteQuantities: [10, 1000, 2000] } : { quantity: 50 },
     );
+  });
+
+  it.each(["quotes", "quantity"] as const)("allows saving after a service change hides invalid %s text", async (field) => {
+    const host = renderRequirements();
+    fireEvent.change(host[field], { target: { value: "12.5" } });
+    fireEvent.blur(host[field]);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(host.save).toBeDisabled();
+
+    const cadModeling = screen.getAllByRole("checkbox", { name: /CAD modeling/i })[1];
+    fireEvent.click(cadModeling);
+    expect(screen.getAllByLabelText("Quote quantities")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Quantity")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
+    await act(async () => fireEvent.click(host.save));
+    await waitFor(() => expect(approveJobRequirements).toHaveBeenCalledOnce());
+    expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject({
+      requestedServiceKinds: ["manufacturing_quote", "cad_modeling"],
+      quantity: 10,
+    });
+
+    // Returning to quote services exposes the retained text and blocks Save again.
+    fireEvent.click(cadModeling);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(host.save).toBeDisabled();
+  });
+
+  it.each(["1,000/2,000", "2,500/5,000/10,000"])("does not alert while typing valid %j", (text) => {
+    const host = renderRequirements();
+    fireEvent.change(host.quotes, { target: { value: "1,000" } });
+    fireEvent.blur(host.quotes);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    for (let length = 1; length <= text.length; length += 1) {
+      fireEvent.change(host.quotes, { target: { value: text.slice(0, length) } });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }
+    fireEvent.blur(host.quotes);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(host.save).toBeEnabled();
   });
 
   it("allows clearing and typing 50, and keeps a separate quote error until corrected", () => {

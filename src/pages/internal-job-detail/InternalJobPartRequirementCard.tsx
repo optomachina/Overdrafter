@@ -105,8 +105,10 @@ export function InternalJobPartRequirementCard({
   const [quantityTouched, setQuantityTouched] = useState(false);
   const invalidQuantity = parseRequestQuantityText(quantityInput) === null;
   const showQuantityError = invalidQuantity && (quantityTouched || quantityInput.trim().length > 0);
+  const [quoteQuantitiesTouched, setQuoteQuantitiesTouched] = useState(false);
   const quotes = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, draft.quantity);
   const quoteError = quotes.invalidTokens.length > 0 ? quotes.error ?? QUOTE_QUANTITIES_FORMAT_ERROR : null;
+  const showQuoteError = Boolean(quoteError) && quoteQuantitiesTouched;
   const extraction = normalizeDrawingExtraction(part.extraction, part.id);
   const currentDraft = draft;
   const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
@@ -394,12 +396,18 @@ export function InternalJobPartRequirementCard({
                   value={quoteQuantityInput}
                   disabled={disabled}
                   placeholder="1/10/100"
-                  onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
-                  onBlur={onQuoteQuantityInputCommit}
+                  onChange={(event) => {
+                    setQuoteQuantitiesTouched(false);
+                    onQuoteQuantityInputChange(event.target.value);
+                  }}
+                  onBlur={() => {
+                    setQuoteQuantitiesTouched(true);
+                    onQuoteQuantityInputCommit();
+                  }}
                   aria-invalid={Boolean(quoteError) || undefined}
-                  aria-describedby={quoteError ? `${quoteQuantitiesInputId}-error` : undefined}
+                  aria-describedby={showQuoteError ? `${quoteQuantitiesInputId}-error` : undefined}
                 />
-                {quoteError ? <p id={`${quoteQuantitiesInputId}-error`} role="alert" className="text-xs text-destructive">{quoteError}</p> : null}
+                {showQuoteError ? <p id={`${quoteQuantitiesInputId}-error`} role="alert" className="text-xs text-destructive">{quoteError}</p> : null}
                 <p className="text-xs text-muted-foreground">Use slash-delimited quantities like 1/10/100.</p>
               </>
             ) : (

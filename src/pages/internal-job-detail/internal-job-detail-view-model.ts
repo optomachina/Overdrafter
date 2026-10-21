@@ -1,3 +1,4 @@
+import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createCadPreviewSourceFromJobFile } from "@/lib/cad-preview";
 import type {
@@ -260,6 +261,7 @@ export function useInternalJobDetailViewModel({
 
   const requirementsBlocked = (job?.parts ?? []).some((part) => {
     const draft = getDraftForPart(part);
+    if (!requestedServicesSupportQuoteFields(draft.requestedServiceKinds)) return false;
     const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(part.id, draft), draft.quantity);
     return parseRequestQuantityText(getQuantityInput(part.id, draft)) === null
       || quotes.invalidTokens.length > 0 || quotes.quantities.length === 0;
@@ -268,6 +270,10 @@ export function useInternalJobDetailViewModel({
   // Revalidate the visible text at the mutation boundary, even for programmatic saves.
   const getRequirementsForSave = () => (job?.parts ?? []).map((part) => {
     const draft = getDraftForPart(part);
+    // Hidden quote fields retain the last valid draft; their unsaved text cannot block Save.
+    if (!requestedServicesSupportQuoteFields(draft.requestedServiceKinds)) {
+      return normalizeApprovedRequirementDraft(draft);
+    }
     const quantity = parseRequestQuantityText(getQuantityInput(part.id, draft));
     if (quantity === null) throw new Error(QUANTITY_FORMAT_ERROR);
     const quotes = validateRequestedQuoteQuantitiesInput(getQuoteQuantityInput(part.id, draft), quantity);
