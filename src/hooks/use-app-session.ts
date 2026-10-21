@@ -28,6 +28,7 @@ const EMPTY_APP_SESSION: AppSessionData = {
   isVerifiedAuth: false,
   isPlatformAdmin: false,
   authState: "anonymous",
+  restoreComplete: true,
 };
 
 function isAppSessionQuery(queryKey: readonly unknown[]): boolean {
@@ -143,6 +144,7 @@ export function useAppSession() {
         isPlatformAdmin: current?.user?.id === session.user.id ? current.isPlatformAdmin ?? false : false,
         authState: "authenticated",
         membershipError: current?.user?.id === session.user.id ? current.membershipError : undefined,
+        restoreComplete: current?.user?.id === session.user.id ? current.restoreComplete : false,
       }));
       recordWorkspaceSessionDiagnostic(
         "info",
@@ -228,7 +230,8 @@ export function useAppSession() {
             WORKSPACE_SHARED_STALE_TIME_MS;
         const hasResolvedCachedProjection =
           hasFreshIdleCachedQuery &&
-          cachedSession?.authState === "authenticated" &&
+          cachedSession?.restoreComplete === true &&
+          cachedSession.authState === "authenticated" &&
           cachedSession.user?.id === bootstrap.session.user.id &&
           !cachedSession.membershipError;
 
@@ -380,25 +383,17 @@ export function useAppSession() {
           if (!membershipErrorRetriedRef.current) {
             membershipErrorRetriedRef.current = true;
             scheduleSessionRefresh();
-          } else {
-            // Retry also returned membershipError — unblock the UI rather than hanging forever.
-            markInitialRestoreResolved("use-app-session.query.membership-error-exhausted", {
-              userId: result.user?.id ?? null,
-              membershipError: result.membershipError,
-            });
+            return result;
           }
-          return result;
+          // Retry also failed; publish a completed projection so every observer can proceed.
+          return { ...result, restoreComplete: true };
         }
 
         membershipErrorRetriedRef.current = false;
         sessionErrorRetriedRef.current = false;
         terminalAuthStateRef.current = null;
         pendingAuthTransitionRef.current = false;
-        markInitialRestoreResolved("use-app-session.query.authenticated", {
-          userId: result.user?.id ?? null,
-          membershipCount: result.memberships.length,
-        });
-        return result;
+        return { ...result, restoreComplete: true };
       }
 
       if (result.authState === "invalid_session") {
@@ -413,19 +408,17 @@ export function useAppSession() {
         membershipErrorRetriedRef.current = false;
         pendingAuthTransitionRef.current = false;
         updateInitialAuthCheck("none");
-        markInitialRestoreResolved("use-app-session.query.invalid-session");
-        return result;
+        return { ...result, restoreComplete: true };
       }
 
       if (result.authState === "session_error") {
         if (!sessionErrorRetriedRef.current) {
           sessionErrorRetriedRef.current = true;
           scheduleSessionRefresh();
-        } else {
-          // Retry also returned session_error — unblock the UI rather than hanging forever.
-          markInitialRestoreResolved("use-app-session.query.session-error-exhausted");
+          return currentSession ?? result;
         }
-        return currentSession ?? result;
+        // Keep the local session visible when the retry also fails.
+        return { ...(currentSession ?? result), restoreComplete: true };
       }
 
       if (
@@ -474,12 +467,19 @@ export function useAppSession() {
         { force: true },
       );
       updateInitialAuthCheck("none");
-      markInitialRestoreResolved("use-app-session.query.anonymous");
-      return result;
+      return { ...result, restoreComplete: true };
     },
     initialData: fixtureSession ?? undefined,
     staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });
+
+  useEffect(() => {
+    // Only an accepted shared result can finish restoration. Cancelled query functions
+    // may still finish executing, and other observers may never run their own queryFn.
+    if (!isFixtureSession && sessionQuery.fetchStatus === "idle" && sessionQuery.data?.restoreComplete === true) {
+      markInitialRestoreResolved("use-app-session.shared-projection");
+    }
+  }, [isFixtureSession, markInitialRestoreResolved, sessionQuery.data?.restoreComplete, sessionQuery.fetchStatus]);
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;

@@ -616,6 +616,8 @@ export type AppSessionData = {
   isPlatformAdmin?: boolean;
   authState?: AppSessionAuthState;
   membershipError?: string;
+  /** True once the shared session projection has finished initial restoration. */
+  restoreComplete?: boolean;
 };
 
 export type PartAggregate = PartRecord & {
