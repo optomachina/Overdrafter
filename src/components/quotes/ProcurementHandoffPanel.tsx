@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -46,9 +47,7 @@ export function ProcurementHandoffPanel({
         <div
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium",
-            summary.ready
-              ? "border-emerald-500/25 bg-emerald-500/12 text-emerald-100"
-              : "border-amber-500/25 bg-amber-500/12 text-amber-100",
+            STATUS_TONE.badge,
           )}
         >
           {summary.ready ? "Ready for follow-up" : `${summary.missingFields.length} details still needed`}
@@ -72,12 +71,12 @@ export function ProcurementHandoffPanel({
                       "rounded-2xl border px-4 py-4 text-left transition-colors",
                       isSelected
                         ? "border-border bg-accent text-foreground"
-                        : "border-border bg-muted text-foreground/80 hover:bg-accent",
+                        : "border-border bg-muted text-foreground hover:bg-accent",
                     )}
                     onClick={() => updateField("shippingPlan", option.value as ProcurementShippingOption)}
                   >
                     <p className="text-sm font-semibold">{option.label}</p>
-                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground/80" : "text-muted-foreground")}>
+                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground" : "text-muted-foreground")}>
                       {option.description}
                     </p>
                   </button>
@@ -101,12 +100,12 @@ export function ProcurementHandoffPanel({
                       "rounded-2xl border px-4 py-4 text-left transition-colors",
                       isSelected
                         ? "border-border bg-accent text-foreground"
-                        : "border-border bg-muted text-foreground/80 hover:bg-accent",
+                        : "border-border bg-muted text-foreground hover:bg-accent",
                     )}
                     onClick={() => updateField("billingPlan", option.value as ProcurementBillingOption)}
                   >
                     <p className="text-sm font-semibold">{option.label}</p>
-                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground/80" : "text-muted-foreground")}>
+                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground" : "text-muted-foreground")}>
                       {option.description}
                     </p>
                   </button>
@@ -117,7 +116,7 @@ export function ProcurementHandoffPanel({
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">Ship-to contact</span>
+              <span className="text-sm text-foreground">Ship-to contact</span>
               <Input
                 value={value.shipToContact}
                 onChange={(event) => updateField("shipToContact", event.target.value)}
@@ -126,7 +125,7 @@ export function ProcurementHandoffPanel({
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">Ship-to location</span>
+              <span className="text-sm text-foreground">Ship-to location</span>
               <Input
                 value={value.shipToLocation}
                 onChange={(event) => updateField("shipToLocation", event.target.value)}
@@ -135,7 +134,7 @@ export function ProcurementHandoffPanel({
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">Billing contact name</span>
+              <span className="text-sm text-foreground">Billing contact name</span>
               <Input
                 value={value.billingContactName}
                 onChange={(event) => updateField("billingContactName", event.target.value)}
@@ -144,7 +143,7 @@ export function ProcurementHandoffPanel({
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">Billing contact email</span>
+              <span className="text-sm text-foreground">Billing contact email</span>
               <Input
                 type="email"
                 value={value.billingContactEmail}
@@ -157,7 +156,7 @@ export function ProcurementHandoffPanel({
 
           <div className="grid gap-4 md:grid-cols-[0.9fr_1.1fr]">
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">PO reference</span>
+              <span className="text-sm text-foreground">PO reference</span>
               <Input
                 value={value.poReference}
                 onChange={(event) => updateField("poReference", event.target.value)}
@@ -166,7 +165,7 @@ export function ProcurementHandoffPanel({
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-foreground/80">Special instructions</span>
+              <span className="text-sm text-foreground">Special instructions</span>
               <Textarea
                 value={value.specialInstructions}
                 onChange={(event) => updateField("specialInstructions", event.target.value)}
@@ -187,7 +186,7 @@ export function ProcurementHandoffPanel({
             </div>
           </div>
 
-          <div className="mt-5 space-y-3 text-sm text-foreground/80">
+          <div className="mt-5 space-y-3 text-sm text-foreground">
             <SummaryRow label="Shipping" value={summary.shippingLabel} />
             <SummaryRow label="Ship to" value={summary.shipToSummary} />
             <SummaryRow label="Billing" value={summary.billingLabel} />
@@ -197,16 +196,16 @@ export function ProcurementHandoffPanel({
           </div>
 
           {summary.missingFields.length > 0 ? (
-            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-amber-100/80">Still needed</p>
-              <ul className="mt-3 space-y-2 text-sm text-amber-50">
+            <div className={`mt-5 rounded-2xl border px-4 py-4 ${STATUS_TONE.surface}`}>
+              <p className={`text-[10px] uppercase tracking-[0.18em] ${STATUS_TONE.text}`}>Still needed</p>
+              <ul className={`mt-3 space-y-2 text-sm ${STATUS_TONE.text}`}>
                 {summary.missingFields.map((field) => (
                   <li key={field}>{field}</li>
                 ))}
               </ul>
             </div>
           ) : (
-            <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-50">
+            <div className={`mt-5 px-4 py-4 text-sm ${STATUS_TONE.callout}`}>
               OverDrafter can use this handoff to coordinate shipping, billing, and PO follow-up outside the app.
             </div>
           )}
@@ -220,7 +219,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-border bg-accent px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm text-foreground/80">{value}</p>
+      <p className="mt-2 text-sm text-foreground">{value}</p>
     </div>
   );
 }

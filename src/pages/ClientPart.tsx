@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -104,7 +105,7 @@ function CommentCard({ comment }: { comment: LocalComment }) {
           {new Date(comment.createdAt).toLocaleString()}
         </p>
       </div>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground/80">{comment.body}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">{comment.body}</p>
     </article>
   );
 }
@@ -732,7 +733,7 @@ const ClientPart = () => {
                         <>
                           <Link
                             to={appAwareHref(`/projects/${breadcrumbProject.id}`)}
-                            className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                            className="rounded-full border border-border bg-muted px-3 py-1 text-foreground transition hover:bg-accent hover:text-foreground"
                           >
                             {breadcrumbProject.name}
                           </Link>
@@ -905,7 +906,7 @@ const ClientPart = () => {
                             void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
                           }}
                           disabled={isPartArchiveBusy}
-                          className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
+                          className={STATUS_TONE.action}
                         >
                           <Archive className="mr-2 h-4 w-4" />
                           Archive part
@@ -1077,7 +1078,7 @@ const ClientPart = () => {
                     </div>
 
                     <div className="mt-5 rounded-surface-lg border border-border bg-muted p-4">
-                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground/80">
+                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground">
                         Leave a comment
                       </label>
                       <Textarea

@@ -76,9 +76,9 @@ export function StripePaymentPanel({
 
   if (paid) {
     return (
-      <section className="rounded-[26px] border border-emerald-500/30 bg-emerald-500/10 p-6">
+      <section className="rounded-[26px] border border-border bg-accent p-6">
         <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
+          <CheckCircle2 className="h-6 w-6 shrink-0 text-foreground" />
           <div>
             <p className="text-lg font-semibold text-foreground">Payment confirmed</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -109,7 +109,7 @@ export function StripePaymentPanel({
       ) : (
         <div className="mt-6">
           {setupError ? (
-            <div className="mb-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            <div className="mb-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive">
               {setupError}
             </div>
           ) : null}
@@ -206,7 +206,7 @@ function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
       </div>
 
       {cardError ? (
-        <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive">
           {cardError}
         </div>
       ) : null}

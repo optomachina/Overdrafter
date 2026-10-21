@@ -20,12 +20,12 @@ type ActivityLogProps = {
 function toneClasses(tone: ActivityLogEntry["tone"]): string {
   switch (tone) {
     case "active":
-      return "border-emerald-400/20 bg-emerald-500/8 text-emerald-100";
+      return "border-border bg-accent text-foreground";
     case "attention":
-      return "border-amber-400/20 bg-amber-500/8 text-amber-100";
+      return "border-border bg-accent text-foreground";
     case "default":
     default:
-      return "border-border bg-muted text-foreground/80";
+      return "border-border bg-muted text-foreground";
   }
 }
 
@@ -81,7 +81,7 @@ export function ActivityLog({
                 <div className={cn("rounded-2xl border px-4 py-3", toneClasses(entry.tone))}>
                   <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
                     <div className="flex items-center gap-3">
-                      <div className="rounded-full border border-border bg-accent p-2 text-foreground/80">
+                      <div className="rounded-full border border-border bg-accent p-2 text-foreground">
                         <Icon className="h-3.5 w-3.5" />
                       </div>
                       <div>

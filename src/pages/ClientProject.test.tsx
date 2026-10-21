@@ -1698,12 +1698,12 @@ describe("ClientProject", () => {
     {
       status: "queued" as const,
       label: "Queued",
-      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
+      classes: ["border-border", "bg-accent", "text-amber-950"],
     },
     {
       status: "requesting" as const,
       label: "Requesting",
-      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
+      classes: ["border-border", "bg-accent", "text-amber-950"],
     },
     {
       status: "received" as const,

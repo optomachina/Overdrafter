@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -107,7 +108,7 @@ function getSourcingResultBadge(result: ClientSourcingResult | null) {
 
   if (result.outcome === "live_offers_available") {
     return {
-      className: "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300",
+      className: STATUS_TONE.state,
       label: `${result.liveOfferCount} live`,
     };
   }
@@ -115,13 +116,13 @@ function getSourcingResultBadge(result: ClientSourcingResult | null) {
   if (result.outcome === "provider_recommendations_available") {
     const providerNoun = result.recommendations.length === 1 ? "provider" : "providers";
     return {
-      className: "border border-sky-400/30 bg-sky-500/20 text-sky-200",
+      className: STATUS_TONE.state,
       label: `${result.recommendations.length} ${providerNoun}`,
     };
   }
 
   return {
-    className: "border border-amber-400/30 bg-amber-500/15 text-amber-200",
+    className: STATUS_TONE.state,
     label: "Action needed",
   };
 }
@@ -246,21 +247,21 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: 
     quoteCoverage:
       summary.unquotedCount > 0
         ? {
-            className: "border border-amber-400/25 bg-amber-500/10 text-amber-100",
+            className: STATUS_TONE.state,
             label: `${formatPartCountLabel(summary.unquotedCount)} unquoted`,
           }
         : {
-            className: "border border-emerald-400/25 bg-emerald-500/10 text-emerald-100",
+            className: STATUS_TONE.state,
             label: "All parts quoted",
           },
     selectionCoverage:
       summary.pendingSelectionCount > 0
         ? {
-            className: "border border-border bg-accent text-foreground/80",
+            className: "border border-border bg-accent text-foreground",
             label: `${formatPartCountLabel(summary.pendingSelectionCount, "pending selection")}`,
           }
         : {
-            className: "border border-emerald-400/25 bg-emerald-500/10 text-emerald-100",
+            className: STATUS_TONE.state,
             label: "All selections made",
           },
   };
@@ -342,7 +343,7 @@ function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: Projec
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-accent">
                 <div
-                  className={cn("h-full rounded-full", row.isCriticalPath ? "bg-amber-300" : "bg-foreground/80")}
+                  className="h-full rounded-full bg-foreground"
                   style={{ width: `${Math.max(row.sharePercent, 4)}%` }}
                 />
               </div>
@@ -362,7 +363,7 @@ function ProjectSummaryCallouts({ callouts }: Readonly<{ callouts: string[] }>) 
   return (
     <div className="rounded-xl border border-border bg-muted p-4">
       <p className="text-sm font-medium text-foreground">Summary callouts</p>
-      <div className="mt-4 space-y-3 text-sm text-foreground/80">
+      <div className="mt-4 space-y-3 text-sm text-foreground">
         {callouts.map((callout) => (
           <p key={callout}>{callout}</p>
         ))}
@@ -500,11 +501,11 @@ function getPreferenceButtonClassName(isActive: boolean, tone: VendorPreferenceT
   }
 
   if (tone === "pinned") {
-    return "h-7 rounded-full border-emerald-400/40 bg-emerald-500/20 px-2.5 text-[11px] text-emerald-200 hover:bg-emerald-500/25";
+    return `h-7 px-2.5 text-[11px] ${STATUS_TONE.badge}`;
   }
 
   if (tone === "excluded") {
-    return "h-7 rounded-full border-rose-400/40 bg-rose-500/20 px-2.5 text-[11px] text-rose-200 hover:bg-rose-500/25";
+    return `h-7 px-2.5 text-[11px] ${STATUS_TONE.badge}`;
   }
 
   return "h-7 rounded-full border-border bg-accent px-2.5 text-[11px] text-foreground hover:bg-accent";
@@ -602,7 +603,7 @@ function VendorPreferencePanel({
   }
 
   if (errorMessage) {
-    return <p className="text-xs text-rose-300/90">{errorMessage}</p>;
+    return <p className={`text-xs ${STATUS_TONE.error}`}>{errorMessage}</p>;
   }
 
   if (availableVendors.length === 0) {
@@ -736,7 +737,7 @@ function ProjectInspectorContent({
           <Button
             type="button"
             variant="ghost"
-            className="h-8 rounded-full px-3 text-foreground/80 hover:bg-accent hover:text-foreground"
+            className="h-8 rounded-full px-3 text-foreground hover:bg-accent hover:text-foreground"
             onClick={onClear}
           >
             Clear
@@ -1373,7 +1374,7 @@ const ClientProject = () => {
                   })}
                 </span>
               ) : null}
-              <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>
+              <Badge className="border border-border bg-accent text-foreground">Parts: {projectPartCount}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (
                 <Badge className={getQuoteRequestStatusBadgeClassName("received")}>
                   Quoted: {projectQuoteRequestSummary.received}
@@ -1479,7 +1480,7 @@ const ClientProject = () => {
                     </Button>
                   ))
                 ) : activeFilter !== "all" ? (
-                  <Badge className="border border-border bg-accent text-foreground/80">
+                  <Badge className="border border-border bg-accent text-foreground">
                     {activeFilterOption.label}
                   </Badge>
                 ) : null}
@@ -1584,13 +1585,13 @@ const ClientProject = () => {
                             <p className="truncate text-[13px] font-medium text-foreground">{partNumber}</p>
                           </TableCell>
                           <TableCell className="max-w-[420px] px-4 py-2.5">
-                            <p className="truncate text-[13px] text-foreground/80">{description}</p>
+                            <p className="truncate text-[13px] text-foreground">{description}</p>
                           </TableCell>
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                             <Badge
                               className={
                                 workspaceItem?.part?.cadFile
-                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  ? STATUS_TONE.badge
                                   : "border border-border bg-accent text-muted-foreground"
                               }
                             >
@@ -1601,7 +1602,7 @@ const ClientProject = () => {
                             <Badge
                               className={
                                 workspaceItem?.part?.drawingFile
-                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  ? STATUS_TONE.badge
                                   : "border border-border bg-accent text-muted-foreground"
                               }
                             >

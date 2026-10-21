@@ -87,10 +87,10 @@ export function ClientQuoteRequestStatusCard({
       className={cn(
         "rounded-surface-lg border p-4",
         tone === "ready"
-          ? "border-emerald-400/20 bg-emerald-500/8"
+          ? "border-border bg-accent"
           : tone === "warning"
-            ? "border-amber-400/20 bg-amber-500/8"
-            : "border-rose-400/20 bg-rose-500/8",
+            ? "border-border bg-accent"
+            : "border-border bg-accent",
         className,
       )}
     >
@@ -108,9 +108,9 @@ export function ClientQuoteRequestStatusCard({
               <div className="h-3 w-1/2 animate-pulse rounded-full bg-accent" />
             </div>
           ) : status === "failed" ? (
-            <p role="alert" className="text-sm text-foreground/80">{detail}</p>
+            <p role="alert" className="text-sm text-foreground">{detail}</p>
           ) : (
-            <p className="text-sm text-foreground/80">{detail}</p>
+            <p className="text-sm text-foreground">{detail}</p>
           )}
         </div>
         {onAction && actionLabel ? (
@@ -130,7 +130,7 @@ export function ClientQuoteRequestStatusCard({
       {blockerReasons.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {blockerReasons.map((reason) => (
-            <Badge key={reason} className="border border-border bg-muted text-foreground/80">
+            <Badge key={reason} className="border border-border bg-muted text-foreground">
               {reason}
             </Badge>
           ))}
@@ -255,10 +255,10 @@ export function ClientDfmPanel({
           {dfmNotes.map(({ option, note }, index) => (
             <section key={`${option.key}:${index}`} className="rounded-[22px] border border-border bg-muted p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border border-border bg-accent text-foreground/80">{option.vendorLabel}</Badge>
-                <Badge className="border border-border bg-accent text-foreground/80">Qty {option.requestedQuantity}</Badge>
+                <Badge className="border border-border bg-accent text-foreground">{option.vendorLabel}</Badge>
+                <Badge className="border border-border bg-accent text-foreground">Qty {option.requestedQuantity}</Badge>
               </div>
-              <p className="mt-3 text-sm text-foreground/80">{note}</p>
+              <p className="mt-3 text-sm text-foreground">{note}</p>
             </section>
           ))}
         </div>
@@ -307,7 +307,7 @@ export function ClientReadOnlyChatPanel({
         <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Suggested prompts</p>
         <div className="mt-3 space-y-2">
           {prompts.map((prompt) => (
-            <div key={prompt} className="rounded-2xl border border-border bg-ws-base px-4 py-3 text-sm text-foreground/80">
+            <div key={prompt} className="rounded-2xl border border-border bg-ws-base px-4 py-3 text-sm text-foreground">
               {prompt}
             </div>
           ))}

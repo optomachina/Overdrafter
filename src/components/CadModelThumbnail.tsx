@@ -226,7 +226,7 @@ export function CadModelThumbnail({
       {status !== "ready" ? (
         <div
           className={cn(
-            "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted text-center text-foreground/80",
+            "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted text-center text-foreground",
             status === "error" ? "pointer-events-auto" : "pointer-events-none",
           )}
         >
@@ -242,7 +242,7 @@ export function CadModelThumbnail({
             </>
           ) : (
             <>
-              <div className="rounded-full border border-amber-400/20 bg-amber-500/10 p-3 text-amber-200">
+              <div className="rounded-full border border-border bg-accent p-3 text-foreground">
                 <AlertCircle className="h-6 w-6" />
               </div>
               <div className="max-w-[12rem] px-3">

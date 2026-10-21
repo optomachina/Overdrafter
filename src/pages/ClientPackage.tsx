@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useEffect, useMemo, useState } from "react";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
@@ -290,13 +291,13 @@ const ClientPackage = () => {
         </div>
         <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Options</p>
-          <p className="mt-1 text-xl font-bold tracking-tight text-blue-400">
+          <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {data.options.length}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Best Price</p>
-          <p className="mt-1 text-xl font-bold tracking-tight text-emerald-400">
+          <p className={`mt-1 text-xl font-bold tracking-tight ${STATUS_TONE.text}`}>
             {data.options.length > 0
               ? formatCurrency(Math.min(...data.options.map((o) => o.published_price_usd)))
               : "—"}
@@ -306,12 +307,12 @@ const ClientPackage = () => {
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</p>
           <div className="mt-1">
             {latestSelection ? (
-              <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
+              <div className={`inline-flex items-center gap-1.5 text-sm font-semibold ${STATUS_TONE.text}`}>
                 <CheckCircle2 className="h-4 w-4" />
                 Selected
               </div>
             ) : (
-              <p className="text-sm font-semibold text-amber-400">Awaiting selection</p>
+              <p className={`text-sm font-semibold ${STATUS_TONE.text}`}>Awaiting selection</p>
             )}
           </div>
         </div>
@@ -357,10 +358,10 @@ const ClientPackage = () => {
                         <div>
                           <div className="flex flex-wrap gap-2">
                             {isSelected ? <span className="font-mono text-xs uppercase text-primary">Selected</span> : null}
-                            <Badge className="border border-border bg-accent text-foreground/80">
+                            <Badge className="border border-border bg-accent text-foreground">
                               {optionLabelForKind(option.option_kind)}
                             </Badge>
-                            <Badge className="border border-border bg-accent text-foreground/80">
+                            <Badge className="border border-border bg-accent text-foreground">
                               Qty {option.requested_quantity}
                             </Badge>
                           </div>
@@ -424,9 +425,9 @@ const ClientPackage = () => {
           {latestSelection ? (
             <Card className="border-border bg-muted">
               <CardHeader>
-                <CardTitle className="text-foreground">Selection received</CardTitle>
+                <CardTitle className={STATUS_TONE.text}>Selection received</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm text-foreground">
+              <CardContent className={`space-y-2 text-sm ${STATUS_TONE.text}`}>
                 {selectedOption ? (
                   <p className="font-mono">
                     {selectedOption.label} · {formatCurrency(selectedOption.published_price_usd)} · Qty {selectedOption.requested_quantity}

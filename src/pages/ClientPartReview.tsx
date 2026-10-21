@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -154,10 +155,10 @@ const ClientPartReview = () => {
                     <div className="mt-4 rounded-2xl border border-border bg-muted px-4 py-4">
                       <p className="text-sm font-semibold text-foreground">{selectedOption.vendorLabel}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge className="border border-border bg-accent text-foreground/80">
+                        <Badge className="border border-border bg-accent text-foreground">
                           Qty {selectedOption.requestedQuantity}
                         </Badge>
-                        <Badge className="border border-border bg-accent text-foreground/80">
+                        <Badge className="border border-border bg-accent text-foreground">
                           {selectedOption.domesticStatus === "domestic"
                             ? "USA"
                             : selectedOption.domesticStatus === "foreign"
@@ -191,7 +192,7 @@ const ClientPartReview = () => {
 
                   <div className="rounded-2xl border border-border bg-muted px-4 py-4">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Request context</p>
-                    <p className="mt-2 text-sm text-foreground/80">
+                    <p className="mt-2 text-sm text-foreground">
                       {workspaceQuery.data.job.description ?? "No freeform request text provided."}
                     </p>
                   </div>
@@ -211,15 +212,15 @@ const ClientPartReview = () => {
                 <h2 className="mt-2 text-xl font-semibold text-foreground">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
                 </h2>
-                <p className="mt-3 text-sm text-foreground/80">
+                <p className="mt-3 text-sm text-foreground">
                   This route packages the selected quote with procurement handoff details. No payment is collected and no order is placed here.
                 </p>
                 {handoffSummary.missingFields.length > 0 ? (
-                  <p className="mt-4 text-sm text-amber-100">
+                  <p className={`mt-4 text-sm ${STATUS_TONE.text}`}>
                     Missing: {handoffSummary.missingFields.join(", ")}.
                   </p>
                 ) : (
-                  <p className="mt-4 text-sm text-emerald-100">
+                  <p className={`mt-4 text-sm ${STATUS_TONE.text}`}>
                     Shipping, billing, and contact details are ready for manual release coordination.
                   </p>
                 )}
