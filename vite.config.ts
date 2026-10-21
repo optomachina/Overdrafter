@@ -92,6 +92,11 @@ export default defineConfig(({ mode }) => ({
     __APP_VERSION__: JSON.stringify(appVersion),
   },
   build: {
+    // Vite inlines every file under 4 KiB as a data: URL, and Vite 5 has no per-import opt-out (`?no-inline`
+    // is a no-op here). The Jarvis thread accepts only https: and blob: artifact URLs, and every preview
+    // fixture is smaller than 4 KiB, so these must be emitted as files. Returning undefined keeps the
+    // default threshold for everything else.
+    assetsInlineLimit: (file: string) => (file.includes("/src/features/jarvis/thread/preview-assets/") ? false : undefined),
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
