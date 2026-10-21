@@ -221,3 +221,19 @@ If docs, code, and behavior disagree:
 - prefer the source-of-truth hierarchy
 - correct the stale doc or flag the drift clearly
 - do not paper over the inconsistency
+
+## Required pre-push check and CI rerun cap
+
+Before every push, run `bash scripts/pre-push.sh --body <file>` with the actual
+PR body. This runs all preflight stages and the base-copy PR-body gate; no skip
+flag is allowed. Full body validation warns only. Add `--verdict <file>` when
+checking a verdict comment before posting; every verdict must match HEAD.
+
+Use `node scripts/ci-rerun-once.mjs --pr <n> --sha <full-head-sha>` for the
+one-rerun-per-SHA cap. It accepts only current-head infrastructure failures and
+uses GitHub attempt counters shared across hosts. A capped rerun leaves the
+check failing; fix code failures with a new commit. See
+[the runbook](docs/runbooks/ci-reruns.md) for options and exit codes.
+
+Part B (the optional ci.yml run_attempt summary step, card C1) is not built yet.
+It must not use job-level `if:` or `continue-on-error`.

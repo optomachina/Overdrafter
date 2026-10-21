@@ -59,6 +59,7 @@ import {
   fetchJobVendorPreferenceContext,
   resolveEffectiveJobVendorSelection,
 } from "@/features/quotes/api/vendor-preferences-api";
+import { useQuantityScope } from "@/features/quotes/quantity-scope";
 import { useQuoteAccess } from "@/features/quotes/quote-access";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { uploadFilesToJob } from "@/features/quotes/api/uploads-api";
@@ -92,6 +93,7 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
+import { buildSingleQuantityRequest } from "@/features/quotes/single-quantity";
 import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
@@ -133,6 +135,7 @@ import {
   loadStoredPdfObjectUrl,
 } from "@/lib/stored-file";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
+import { isControlledBetaSingleQuantityEnabled } from "@/lib/single-quantity-flag";
 import {
   buildRequirementDraft,
   normalizeDrawingExtraction,
@@ -431,12 +434,22 @@ export function useClientPartController(
   });
   const partDetail = partDetailQuery.data;
   const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
-  const quoteCollectionMode = useQuoteAccess(
+  const quoteAccessIdentity =
     user?.id && partDetail?.job?.organization_id && partDetail.job.id === canonicalJobId
       ? { actorUserId: user.id, organizationId: partDetail.job.organization_id, jobId: canonicalJobId }
-      : null,
-    isVerifiedAuth === true,
-  );
+      : null;
+  const quoteCollectionMode = useQuoteAccess(quoteAccessIdentity, isVerifiedAuth === true);
+  // OVD-997: with the client flag on, one Quantity field replaces Qty and Quote quantities, and the
+  // server decides whether it may exceed 1. Off (default): the editor is unchanged and nothing is read.
+  const [singleQuantityFlagOn] = useState(isControlledBetaSingleQuantityEnabled);
+  const quantityScope = useQuantityScope(quoteAccessIdentity, isVerifiedAuth === true && singleQuantityFlagOn);
+  const singleQuantity = singleQuantityFlagOn
+    ? {
+        allowAboveOne: quantityScope.status === "multiple_allowed",
+        loading: quantityScope.status === "loading",
+        unavailable: quantityScope.status === "unavailable",
+      }
+    : undefined;
   const quoteConfirmationIdentity = `${user?.id ?? ""}:${partDetail?.job.organization_id ?? ""}:${canonicalJobId}`;
   useEffect(() => {
     attemptedQuoteRef.current = null;
@@ -1602,19 +1615,23 @@ export function useClientPartController(
       return;
     }
 
-    const nextQuantities = parseRequestedQuoteQuantitiesInput(
-      quoteQuantityInput,
-      effectiveRequestDraft.quantity,
-    );
-
-    const payload = {
-      ...effectiveRequestDraft,
-      requestedQuoteQuantities: nextQuantities,
-    } satisfies ClientPartRequestUpdateInput;
+    // OVD-997: single Quantity mode saves exactly [quantity]; the hidden Quote quantities text is ignored.
+    const payload = singleQuantity
+      ? buildSingleQuantityRequest(effectiveRequestDraft, singleQuantity)
+      : ({
+          ...effectiveRequestDraft,
+          requestedQuoteQuantities: parseRequestedQuoteQuantitiesInput(
+            quoteQuantityInput,
+            effectiveRequestDraft.quantity,
+          ),
+        } satisfies ClientPartRequestUpdateInput);
+    if (!payload) {
+      return;
+    }
 
     patchDraftPreservationRef.current = null;
     setRequestDraft(payload);
-    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
+    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(payload.requestedQuoteQuantities));
     saveRequestMutation.mutate(payload);
   };
 
@@ -1973,6 +1990,7 @@ export function useClientPartController(
     navigationModel,
     revisionOptions,
     saveRequestMutation,
+    singleQuantity,
     selectedQuoteOption,
     previousQuoteSelectionUnavailable,
     selectedRevisionIndex,

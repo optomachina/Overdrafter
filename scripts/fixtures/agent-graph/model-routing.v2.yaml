@@ -1,0 +1,23 @@
+{
+  "pools": {
+    "codex": { "family": "openai" },
+    "codex-xhigh": { "family": "openai" },
+    "claude-sonnet": { "family": "claude" },
+    "claude-opus": { "family": "claude" },
+    "grok-overflow": { "family": "grok" },
+    "jev": { "family": "jev" }
+  },
+  "bots": [
+    { "id": "engineer", "display": "Engineer", "may_build": true },
+    { "id": "designer", "display": "Designer", "may_build": true },
+    { "id": "release", "display": "Release", "may_build": true },
+    { "id": "qa", "display": "QA", "may_build": false },
+    { "id": "lead", "display": "Lead", "may_build": true },
+    { "id": "architect", "display": "Architect", "may_build": true },
+    { "id": "cursor-cloud", "display": "Cursor Cloud", "may_build": true },
+    { "id": "mac-mini-claude-jobs", "display": "Mac Mini Claude Jobs", "may_build": true }
+  ],
+  "review_routing": { "claude": "openai", "grok": "openai", "openai": "claude-sonnet" },
+  "unknown_builder": ["codex-xhigh", "claude-sonnet"],
+  "mixed_builder": ["codex-xhigh", "claude-sonnet"]
+}

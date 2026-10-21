@@ -1,0 +1,853 @@
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { headerText, isRetiredDraft } from "./ephemeral-db-apply.mjs";
+
+/**
+ * Migration function collision guard (OVD-762 motivation).
+ *
+ * A SQL function is replaced wholesale by the last `create or replace function`
+ * that runs. supabase/migrations is applied in filename order, so a migration
+ * that restates an earlier function is ordinary history. A draft under
+ * docs/migration-drafts has no place in that order: it is promoted later, and
+ * whatever body it carries replaces the deployed one, including a newer body
+ * written after the draft was copied. This check finds those draft restatements
+ * and fails unless the draft names the body it was written against.
+ *
+ * Scope: pairs that involve a draft (draft against the deployed migration body,
+ * draft against draft). Two migrations that restate one function from the same
+ * base are not compared: the later one silently drops the earlier one's change on
+ * apply. This file does not guard that case; see "Not covered" in
+ * docs/migration-function-collisions.md.
+ *
+ * Offline and read only: it reads SQL text, never connects to a database and
+ * never runs SQL. See docs/migration-function-collisions.md.
+ */
+
+export const MIGRATIONS_DIR = "supabase/migrations";
+export const DRAFTS_DIR = "docs/migration-drafts";
+export const SUPERSESSIONS_FILE = "docs/migration-drafts/function-supersessions.json";
+
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const MD5_PATTERN = /^[0-9a-f]{32}$/;
+const WORD_START = /[A-Za-z_\u{80}-\u{10FFFF}]/u;
+const WORD_PART = /[A-Za-z_0-9$\u{80}-\u{10FFFF}]/u;
+const DIGIT = /\d/;
+const DOLLAR_TAG = /^\$(?:[A-Za-z_\u{80}-\u{10FFFF}][A-Za-z_0-9\u{80}-\u{10FFFF}]*)?\$/u;
+
+const ARGUMENT_MODES = ["in", "out", "inout", "variadic"];
+const INTERVAL_FIELDS = ["year", "month", "day", "hour", "minute", "second"];
+const MULTIWORD_TYPES = [
+  ["double", "precision"],
+  ["character", "varying"],
+  ["char", "varying"],
+  ["nchar", "varying"],
+  ["bit", "varying"],
+  ["timestamp", "with"],
+  ["timestamp", "without"],
+  ["time", "with"],
+  ["time", "without"],
+  ["national", "character"],
+  ["national", "char"],
+  ...INTERVAL_FIELDS.map((field) => ["interval", field]),
+];
+
+// PostgreSQL reaches one built-in type through several names, and function
+// identity is the type, so every name of a type is reduced to one canonical text.
+// There are two kinds of name, and a quoted or schema qualified name is only ever
+// the second kind.
+//
+// SQL spellings: words the grammar rewrites to a built-in type. They apply to an
+// unquoted, unqualified name only, which is why `char` (blank padded character)
+// and `"char"` (the internal one byte type) are different types.
+const SQL_TYPE_SPELLINGS = new Map([
+  ["int", "integer"],
+  ["dec", "numeric"],
+  ["decimal", "numeric"],
+  ["char", "character"],
+  ["nchar", "character"],
+  ["national char", "character"],
+  ["national character", "character"],
+  ["char varying", "character varying"],
+  ["nchar varying", "character varying"],
+  ["national char varying", "character varying"],
+  ["national character varying", "character varying"],
+  ["timestamp with time zone", "timestamptz"],
+  ["timestamp without time zone", "timestamp"],
+  ["time with time zone", "timetz"],
+  ["time without time zone", "time"],
+]);
+// Catalog names (pg_type.typname) that differ from the canonical text, valid
+// quoted, qualified or bare. `"char"` keeps its quotes so it never equals `character`.
+const CATALOG_TYPE_NAMES = new Map([
+  ["int2", "smallint"],
+  ["int4", "integer"],
+  ["int8", "bigint"],
+  ["float4", "real"],
+  ["float8", "double precision"],
+  ["bool", "boolean"],
+  ["varchar", "character varying"],
+  ["bpchar", "character"],
+  ["varbit", "bit varying"],
+  ["char", '"char"'],
+]);
+const SINGLE_PRECISION_MAX_BITS = 24;
+
+/**
+ * sha256 of a function body's UTF-8 bytes: how this check tells bodies apart and
+ * the value an allowlist entry names by default. The database equivalent is
+ * `encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex')`.
+ */
+export function bodySha256(body) {
+  return createHash("sha256").update(body, "utf8").digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Postgres md5, for allowlist entries only. Migration notes and the md5
+// preconditions inside migrations quote `md5(pg_proc.prosrc)`, so an entry may
+// name a body by that value. This is the RFC 1321 digest computed here, without a
+// crypto API, and only to match such an entry against a body already identified
+// by its sha256. It is a fingerprint the database prints, not a security control.
+// ---------------------------------------------------------------------------
+
+// RFC 1321 section 3.4: T[i] = floor(2^32 * abs(sin(i))), i = 1..64.
+const MD5_SINES = [
+  0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+  0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+  0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+  0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+  0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+  0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+  0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+  0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+];
+const MD5_ROUNDS = [
+  { mix: (b, c, d) => (b & c) | (~b & d), word: (step) => step, shifts: [7, 12, 17, 22] },
+  { mix: (b, c, d) => (b & d) | (c & ~d), word: (step) => (5 * step + 1) % 16, shifts: [5, 9, 14, 20] },
+  { mix: (b, c, d) => b ^ c ^ d, word: (step) => (3 * step + 5) % 16, shifts: [4, 11, 16, 23] },
+  { mix: (b, c, d) => c ^ (b | ~d), word: (step) => (7 * step) % 16, shifts: [6, 10, 15, 21] },
+];
+
+function md5Block(state, bytes, offset) {
+  let [a, b, c, d] = state;
+  for (let step = 0; step < 64; step += 1) {
+    const round = MD5_ROUNDS[step >> 4];
+    const sum = (a + round.mix(b, c, d) + MD5_SINES[step] + bytes.readInt32LE(offset + 4 * round.word(step))) | 0;
+    const shift = round.shifts[step % 4];
+    [a, d, c] = [d, c, b];
+    b = (b + ((sum << shift) | (sum >>> (32 - shift)))) | 0;
+  }
+  return [state[0] + a, state[1] + b, state[2] + c, state[3] + d].map((word) => word | 0);
+}
+
+/** The value `md5(pg_proc.prosrc)` returns for this body (lowercase hex). */
+export function prosrcMd5(body) {
+  const message = Buffer.from(body, "utf8");
+  const length = Math.ceil((message.length + 9) / 64) * 64;
+  const padded = Buffer.alloc(length);
+  message.copy(padded);
+  padded[message.length] = 0x80;
+  const bits = message.length * 8;
+  padded.writeUInt32LE(bits % 2 ** 32, length - 8);
+  padded.writeUInt32LE(Math.floor(bits / 2 ** 32), length - 4);
+  let state = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476].map((word) => word | 0);
+  for (let offset = 0; offset < length; offset += 64) {
+    state = md5Block(state, padded, offset);
+  }
+  const digest = Buffer.alloc(16);
+  state.forEach((word, index) => digest.writeInt32LE(word, 4 * index));
+  return digest.toString("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Lexing. Comments are dropped; strings, quoted identifiers and dollar quoted
+// bodies are single tokens, so a `create function` inside a DO block, a body or
+// a string is never read as a definition.
+// ---------------------------------------------------------------------------
+
+function skipLineComment(sql, index) {
+  const eol = sql.indexOf("\n", index);
+  return eol === -1 ? sql.length : eol;
+}
+
+function skipBlockComment(sql, index) {
+  let depth = 1;
+  let cursor = index + 2;
+  while (cursor < sql.length && depth > 0) {
+    const pair = sql.slice(cursor, cursor + 2);
+    if (pair === "/*") {
+      depth += 1;
+      cursor += 2;
+    } else if (pair === "*/") {
+      depth -= 1;
+      cursor += 2;
+    } else {
+      cursor += 1;
+    }
+  }
+  return cursor;
+}
+
+/**
+ * The text between an opening quote (just before `start`) and its closing quote,
+ * escapes left as written, and the index after the close. A doubled quote, and in
+ * an escape string a backslash and the character after it, never close the run.
+ */
+function readQuotedRun(sql, start, quote, backslashEscapes) {
+  let cursor = start;
+  while (cursor < sql.length) {
+    const char = sql[cursor];
+    if (backslashEscapes && char === "\\") {
+      cursor += 2;
+    } else if (char === quote && sql[cursor + 1] === quote) {
+      cursor += 2;
+    } else if (char === quote) {
+      return { raw: sql.slice(start, cursor), end: cursor + 1 };
+    } else {
+      cursor += 1;
+    }
+  }
+  return { raw: sql.slice(start), end: sql.length };
+}
+
+// Escape strings (E'...'), decoded the way the PostgreSQL scanner does with a
+// UTF-8 server encoding. Anything this check cannot decode with certainty makes
+// the string null, so a body written that way is reported as unreadable instead
+// of being hashed from a guess.
+const SIMPLE_ESCAPES = new Map([["b", 0x08], ["f", 0x0c], ["n", 0x0a], ["r", 0x0d], ["t", 0x09]]);
+const OCTAL_ESCAPE = /^[0-7]{1,3}/;
+const HEX_ESCAPE = /^x[0-9A-Fa-f]{1,2}/;
+const UNICODE_ESCAPE = /^(?:u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/;
+const LETTER_OR_DIGIT = /^[A-Za-z0-9]/;
+
+function escapeBytes(bytes, end) {
+  return { bytes: Buffer.from(bytes), end };
+}
+
+/** A Unicode escape's character; surrogates, zero and values past U+10FFFF are refused. */
+function unicodeEscape(match, end) {
+  const codePoint = Number.parseInt(match.slice(1), 16);
+  const isSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
+  if (codePoint === 0 || codePoint > 0x10ffff || isSurrogate) return null;
+  return { bytes: Buffer.from(String.fromCodePoint(codePoint), "utf8"), end };
+}
+
+/**
+ * The bytes one backslash escape stands for, with `at` just after the backslash.
+ * \b \f \n \r \t, octal (\o to \ooo), hex (\xh, \xhh), \uXXXX and \UXXXXXXXX are
+ * decoded. A backslash before punctuation, white space or a non-ASCII character
+ * keeps that character. A backslash before any other letter or digit is refused:
+ * PostgreSQL reads it in ways this check does not reproduce (`\u12` is an error,
+ * `\8` is the digit), and no function body here needs one.
+ */
+function backslashEscape(raw, at) {
+  const rest = raw.slice(at, at + 9);
+  if (rest === "") return null;
+  if (SIMPLE_ESCAPES.has(rest[0])) return escapeBytes([SIMPLE_ESCAPES.get(rest[0])], at + 1);
+  const octal = OCTAL_ESCAPE.exec(rest)?.[0];
+  if (octal) return escapeBytes([Number.parseInt(octal, 8) % 256], at + octal.length);
+  const hex = HEX_ESCAPE.exec(rest)?.[0];
+  if (hex) return escapeBytes([Number.parseInt(hex.slice(1), 16)], at + hex.length);
+  const unicode = UNICODE_ESCAPE.exec(rest)?.[0];
+  if (unicode) return unicodeEscape(unicode, at + unicode.length);
+  if (LETTER_OR_DIGIT.test(rest)) return null;
+  const kept = String.fromCodePoint(raw.codePointAt(at));
+  return { bytes: Buffer.from(kept, "utf8"), end: at + kept.length };
+}
+
+function literalRunEnd(raw, start) {
+  let end = start;
+  while (end < raw.length && raw[end] !== "'" && raw[end] !== "\\") end += 1;
+  return end;
+}
+
+/**
+ * The text an escape string stores, or null when it holds an escape refused above,
+ * a zero byte, or bytes that are not valid UTF-8 (PostgreSQL rejects the last two).
+ */
+function decodeEscapeString(raw) {
+  const chunks = [];
+  let cursor = 0;
+  while (cursor < raw.length) {
+    let step;
+    if (raw[cursor] === "'") {
+      step = escapeBytes([0x27], cursor + 2);
+    } else if (raw[cursor] === "\\") {
+      step = backslashEscape(raw, cursor + 1);
+    } else {
+      const end = literalRunEnd(raw, cursor);
+      step = { bytes: Buffer.from(raw.slice(cursor, end), "utf8"), end };
+    }
+    if (step === null) return null;
+    chunks.push(step.bytes);
+    cursor = step.end;
+  }
+  const bytes = Buffer.concat(chunks);
+  const text = bytes.toString("utf8");
+  return bytes.includes(0) || !Buffer.from(text, "utf8").equals(bytes) ? null : text;
+}
+
+function readDollarQuoted(sql, index) {
+  const tag = DOLLAR_TAG.exec(sql.slice(index, index + 80));
+  if (!tag) return null;
+  const bodyStart = index + tag[0].length;
+  const close = sql.indexOf(tag[0], bodyStart);
+  if (close === -1) return { value: sql.slice(bodyStart), end: sql.length };
+  return { value: sql.slice(bodyStart, close), end: close + tag[0].length };
+}
+
+function readRunEnd(sql, index, pattern) {
+  let cursor = index + 1;
+  while (cursor < sql.length && pattern.test(sql[cursor])) cursor += 1;
+  return cursor;
+}
+
+function readLiteral(sql, index) {
+  const char = sql[index];
+  const next = sql[index + 1];
+  if (char === "'") {
+    const { raw, end } = readQuotedRun(sql, index + 1, "'", false);
+    return { token: { type: "string", value: raw.replaceAll("''", "'") }, end };
+  }
+  if ((char === "e" || char === "E") && next === "'") {
+    const { raw, end } = readQuotedRun(sql, index + 2, "'", true);
+    return { token: { type: "string", value: decodeEscapeString(raw) }, end };
+  }
+  if (char === '"') {
+    const { raw, end } = readQuotedRun(sql, index + 1, '"', false);
+    return { token: { type: "ident", value: raw.replaceAll('""', '"') }, end };
+  }
+  if (char === "$") {
+    const dollar = readDollarQuoted(sql, index);
+    if (dollar) return { token: { type: "dollar", value: dollar.value }, end: dollar.end };
+  }
+  return null;
+}
+
+function nextLexeme(sql, index) {
+  const char = sql[index];
+  if (/\s/.test(char)) return { end: index + 1 };
+  if (char === "-" && sql[index + 1] === "-") return { end: skipLineComment(sql, index) };
+  if (char === "/" && sql[index + 1] === "*") return { end: skipBlockComment(sql, index) };
+  const literal = readLiteral(sql, index);
+  if (literal) return literal;
+  if (WORD_START.test(char)) {
+    const end = readRunEnd(sql, index, WORD_PART);
+    return { token: { type: "word", value: sql.slice(index, end) }, end };
+  }
+  if (DIGIT.test(char)) {
+    const end = readRunEnd(sql, index, DIGIT);
+    return { token: { type: "number", value: sql.slice(index, end) }, end };
+  }
+  return { token: { type: "punct", value: char }, end: index + 1 };
+}
+
+function countNewlines(sql, from, to) {
+  let count = 0;
+  for (let cursor = from; cursor < to; cursor += 1) {
+    if (sql[cursor] === "\n") count += 1;
+  }
+  return count;
+}
+
+export function tokenizeSql(sql) {
+  const tokens = [];
+  let index = 0;
+  let line = 1;
+  while (index < sql.length) {
+    const { token, end } = nextLexeme(sql, index);
+    if (token) tokens.push({ ...token, line });
+    line += countNewlines(sql, index, end);
+    index = end;
+  }
+  return tokens;
+}
+
+// ---------------------------------------------------------------------------
+// Function identity: schema, name and input argument types.
+// ---------------------------------------------------------------------------
+
+function isWord(token, ...values) {
+  return token?.type === "word" && values.includes(token.value.toLowerCase());
+}
+
+function isPunct(token, value) {
+  return token?.type === "punct" && token.value === value;
+}
+
+function identifierValue(token) {
+  return token.type === "ident" ? token.value : token.value.toLowerCase();
+}
+
+/**
+ * The canonical text of a type name. A float with a precision is the one place a
+ * parenthesized number picks the type: `float(1)` to `float(24)` is `real`,
+ * `float` and `float(25)` to `float(53)` are `double precision`. Every other
+ * length, precision or scale never changes which function is meant, and so is
+ * dropped by the caller; so are the fields of an `interval`.
+ */
+function canonicalTypeName(text, { isSqlSpelling, firstModifier }) {
+  if (isSqlSpelling) {
+    if (text === "float") return firstModifier !== null && firstModifier <= SINGLE_PRECISION_MAX_BITS ? "real" : "double precision";
+    if (text === "interval" || text.startsWith("interval ")) return "interval";
+    const spelling = SQL_TYPE_SPELLINGS.get(text);
+    if (spelling) return spelling;
+  }
+  return CATALOG_TYPE_NAMES.get(text) ?? text;
+}
+
+/**
+ * Canonical type text from the type's tokens: unquoted names in lower case and
+ * quoted names as written, `public.` and `pg_catalog.` dropped, any array
+ * dimensions (`[]`, `[3]`, `ARRAY`, `ARRAY[3]`) as one `[]`, a length, precision
+ * or scale dropped because it never changes which function is meant, and every
+ * name PostgreSQL resolves to one built-in type as one text (see
+ * SQL_TYPE_SPELLINGS and CATALOG_TYPE_NAMES), including an array type's catalog
+ * name (`_text`).
+ */
+function canonicalType(tokens) {
+  let text = "";
+  let depth = 0;
+  let isArray = false;
+  let isSqlSpelling = true;
+  let firstModifier = null;
+  for (const token of tokens) {
+    if (isPunct(token, "(")) {
+      depth += 1;
+    } else if (isPunct(token, ")")) {
+      depth -= 1;
+    } else if (depth > 0 || token.type === "number" || isPunct(token, "]")) {
+      if (depth > 0 && token.type === "number") firstModifier ??= Number(token.value);
+    } else if (isPunct(token, "[") || isWord(token, "array")) {
+      isArray = true;
+    } else if (isPunct(token, ".")) {
+      text += ".";
+      isSqlSpelling = false;
+    } else {
+      if (token.type === "ident") isSqlSpelling = false;
+      text += `${text === "" || text.endsWith(".") ? "" : " "}${identifierValue(token)}`;
+    }
+  }
+  for (const schema of ["public.", "pg_catalog."]) {
+    if (text.startsWith(schema)) text = text.slice(schema.length);
+  }
+  if (text.length > 1 && text.startsWith("_")) {
+    // `_int4` is the catalog name of the array type `integer[]`, so what follows
+    // the underscore is a catalog name: `_char` is an array of `"char"`, not of `char`.
+    text = text.slice(1);
+    isArray = true;
+    isSqlSpelling = false;
+  }
+  return `${canonicalTypeName(text, { isSqlSpelling, firstModifier })}${isArray ? "[]" : ""}`;
+}
+
+function startsMultiwordType(first, second) {
+  return first.type === "word" && MULTIWORD_TYPES.some(
+    ([head, tail]) => first.value.toLowerCase() === head && isWord(second, tail),
+  );
+}
+
+/** `[mode] [name] type [default expr]` to the canonical type text. */
+function argumentType(argumentTokens) {
+  let tokens = argumentTokens;
+  const cut = tokens.findIndex((token, position) => position > 0 && (isWord(token, "default") || isPunct(token, "=")));
+  if (cut !== -1) tokens = tokens.slice(0, cut);
+  if (isWord(tokens[0], ...ARGUMENT_MODES)) tokens = tokens.slice(1);
+  if (tokens.length > 1 && ["word", "ident"].includes(tokens[0].type)) {
+    const [first, second] = tokens;
+    const typeStartsHere = isPunct(second, ".") || isPunct(second, "(") || isPunct(second, "[")
+      || isWord(second, "array") || startsMultiwordType(first, second);
+    if (!typeStartsHere) tokens = tokens.slice(1);
+  }
+  return canonicalType(tokens);
+}
+
+function splitTopLevel(tokens) {
+  const groups = [];
+  let depth = 0;
+  let current = [];
+  for (const token of tokens) {
+    if (isPunct(token, "(") || isPunct(token, "[")) depth += 1;
+    if (isPunct(token, ")") || isPunct(token, "]")) depth -= 1;
+    if (isPunct(token, ",") && depth === 0) {
+      groups.push(current);
+      current = [];
+    } else {
+      current.push(token);
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+/** Tokens inside the parentheses that open at `open`, and the index after the matching close. */
+function readParenthesized(tokens, open) {
+  let depth = 0;
+  const inner = [];
+  for (let cursor = open + 1; cursor < tokens.length; cursor += 1) {
+    if (isPunct(tokens[cursor], "(")) depth += 1;
+    if (isPunct(tokens[cursor], ")")) {
+      if (depth === 0) return { inner, end: cursor + 1 };
+      depth -= 1;
+    }
+    inner.push(tokens[cursor]);
+  }
+  return { inner, end: tokens.length };
+}
+
+/** Reads `[schema.]name(args)` starting at `start`; null when it is not that shape. */
+function readSignature(tokens, start) {
+  let cursor = start;
+  const nameTokens = [];
+  while (cursor < tokens.length && !isPunct(tokens[cursor], "(") && !isPunct(tokens[cursor], ";")) {
+    if (!isPunct(tokens[cursor], ".")) nameTokens.push(tokens[cursor]);
+    cursor += 1;
+  }
+  const namesOk = nameTokens.length >= 1 && nameTokens.length <= 2
+    && nameTokens.every((token) => ["word", "ident"].includes(token.type));
+  if (!isPunct(tokens[cursor], "(") || !namesOk) return null;
+  const { inner, end } = readParenthesized(tokens, cursor);
+  const argumentTypes = splitTopLevel(inner)
+    .filter((group) => !isWord(group[0], "out"))
+    .map(argumentType);
+  const schema = nameTokens.length === 2 ? identifierValue(nameTokens[0]) : "public";
+  const name = identifierValue(nameTokens.at(-1));
+  return { signature: `${schema}.${name}(${argumentTypes.join(",")})`, end };
+}
+
+/**
+ * The AS body, or null when there is none this check can read: no AS string, an
+ * escape string it cannot decode, or a string followed directly by another string
+ * (PostgreSQL joins string constants split across lines into one; this check does
+ * not, so it refuses rather than hash only the first part).
+ */
+function readBody(tokens, start) {
+  for (let cursor = start; cursor < tokens.length && !isPunct(tokens[cursor], ";"); cursor += 1) {
+    const body = tokens[cursor + 1];
+    if (isWord(tokens[cursor], "as") && ["dollar", "string"].includes(body?.type)) {
+      return tokens[cursor + 2]?.type === "string" ? null : body.value;
+    }
+  }
+  return null;
+}
+
+function readCreate(tokens, position) {
+  let cursor = position + 1;
+  if (isWord(tokens[cursor], "or") && isWord(tokens[cursor + 1], "replace")) cursor += 2;
+  if (!isWord(tokens[cursor], "function", "procedure")) return null;
+  const identity = readSignature(tokens, cursor + 1);
+  if (!identity) return null;
+  const body = readBody(tokens, identity.end);
+  return {
+    action: "define",
+    signature: identity.signature,
+    body,
+    bodySha256: body === null ? null : bodySha256(body),
+    bodyBytes: body === null ? null : Buffer.byteLength(body, "utf8"),
+    line: tokens[position].line,
+  };
+}
+
+function readDrops(tokens, position) {
+  let cursor = position + 1;
+  if (!isWord(tokens[cursor], "function", "procedure")) return [];
+  cursor += 1;
+  if (isWord(tokens[cursor], "if") && isWord(tokens[cursor + 1], "exists")) cursor += 2;
+  const drops = [];
+  for (;;) {
+    const identity = readSignature(tokens, cursor);
+    if (!identity) break;
+    drops.push({ action: "drop", signature: identity.signature, line: tokens[position].line });
+    if (!isPunct(tokens[identity.end], ",")) break;
+    cursor = identity.end + 1;
+  }
+  return drops;
+}
+
+/**
+ * Every top level `create [or replace] function|procedure` (identity, the body as
+ * stored in `pg_proc.prosrc` and its sha256) and every `drop function|procedure`,
+ * in source order.
+ */
+export function scanFunctionEvents(sql) {
+  const tokens = tokenizeSql(sql);
+  const events = [];
+  tokens.forEach((token, position) => {
+    if (isWord(token, "create")) {
+      const created = readCreate(tokens, position);
+      if (created) events.push(created);
+    } else if (isWord(token, "drop")) {
+      events.push(...readDrops(tokens, position));
+    }
+  });
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Reading the tree.
+// ---------------------------------------------------------------------------
+
+function listSqlFiles(root, relativeDir) {
+  let entries;
+  try {
+    entries = readdirSync(path.join(root, relativeDir), { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => `${relativeDir}/${entry.name}`)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function withSource(events, file, kind) {
+  return events.map((event) => ({ ...event, file, kind }));
+}
+
+/**
+ * Events from every migration (in filename order) and every forward draft.
+ *
+ * Skipped drafts: `.rollback.sql` files restore the body they replaced by design
+ * and run only as the inverse of their own forward file; a draft whose header says
+ * SUPERSEDED or "Do not apply this draft" is kept as history only (the same rule
+ * scripts/ephemeral-db-apply.mjs uses to retire a draft).
+ */
+export function collectFunctionEvents(root) {
+  const events = [];
+  for (const file of listSqlFiles(root, MIGRATIONS_DIR)) {
+    const sql = readFileSync(path.join(root, file), "utf8");
+    events.push(...withSource(scanFunctionEvents(sql), file, "migration"));
+  }
+  for (const file of listSqlFiles(root, DRAFTS_DIR)) {
+    if (file.endsWith(".rollback.sql")) continue;
+    const sql = readFileSync(path.join(root, file), "utf8");
+    if (isRetiredDraft(headerText(sql))) continue;
+    events.push(...withSource(scanFunctionEvents(sql), file, "draft"));
+  }
+  return events;
+}
+
+const SUPERSEDED_BODY_FIELDS = [
+  { field: "supersedesSha256", pattern: SHA256_PATTERN, shape: "64 lowercase hex characters" },
+  { field: "supersedesMd5", pattern: MD5_PATTERN, shape: "32 lowercase hex characters" },
+];
+
+/**
+ * Entries name the superseded body by `supersedesSha256` (what a failure prints)
+ * or by `supersedesMd5`, the `md5(pg_proc.prosrc)` value a migration's notes and
+ * md5 precondition quote. Exactly one of the two.
+ */
+export function parseSupersessions(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${SUPERSESSIONS_FILE} is not valid JSON: ${error.message}`);
+  }
+  if (parsed?.version !== 1 || !Array.isArray(parsed.supersessions)) {
+    throw new Error(`${SUPERSESSIONS_FILE} must be {"version": 1, "supersessions": [...]}`);
+  }
+  return parsed.supersessions.map((entry, index) => {
+    const where = `${SUPERSESSIONS_FILE} supersessions[${index}]`;
+    for (const field of ["signature", "file", "reason"]) {
+      if (typeof entry?.[field] !== "string" || entry[field].trim() === "") {
+        throw new Error(`${where}: "${field}" must be a non-empty string`);
+      }
+    }
+    const named = SUPERSEDED_BODY_FIELDS.filter(({ field }) => entry[field] !== undefined);
+    if (named.length !== 1) {
+      throw new Error(`${where}: name the superseded body with exactly one of "supersedesSha256" or "supersedesMd5"`);
+    }
+    const [{ field, pattern, shape }] = named;
+    if (typeof entry[field] !== "string" || !pattern.test(entry[field])) {
+      throw new Error(`${where}: "${field}" must be ${shape}`);
+    }
+    const { signature, file, reason } = entry;
+    return { signature, file, [field]: entry[field], reason };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Decision.
+// ---------------------------------------------------------------------------
+
+function byFileThenLine(left, right) {
+  return left.file.localeCompare(right.file) || left.line - right.line;
+}
+
+/**
+ * Migrations apply in filename order, so the deployed body is the last migration
+ * event (a trailing drop leaves none). A draft whose body equals the deployed body
+ * is an archived copy: promoting it changes nothing. A body that only an older
+ * migration carried is not an archived copy, it is a stale one: promoting it would
+ * put the older body back over the deployed one. So only equality with the body
+ * deployed right now excuses a draft. Because the deployed body moves whenever a
+ * migration lands, a copy that was harmless yesterday starts failing the day a
+ * newer migration changes the function, until its author retires the draft (a
+ * `SUPERSEDED` or "Do not apply this draft" header, which collectFunctionEvents
+ * honours) or deletes it. What is left, one definition per draft file, is the set
+ * of bodies that can still be promoted.
+ */
+function classifySignature(group) {
+  let deployed = null;
+  for (const event of group.filter((item) => item.kind === "migration").sort(byFileThenLine)) {
+    deployed = event.action === "define" ? event : null;
+  }
+  const lastPerDraft = new Map();
+  for (const event of group.filter((item) => item.kind === "draft" && item.action === "define").sort(byFileThenLine)) {
+    lastPerDraft.set(event.file, event);
+  }
+  const pending = [...lastPerDraft.values()]
+    .filter((event) => event.bodySha256 !== deployed?.bodySha256)
+    .sort(byFileThenLine);
+  return { deployed, pending };
+}
+
+function describe(event) {
+  return `${event.file} (sha256 ${event.bodySha256})`;
+}
+
+function entrySnippet(signature, file, supersedesSha256) {
+  return JSON.stringify({ signature, file, supersedesSha256, reason: "<why the draft may replace that body>" });
+}
+
+function namedBody(entry) {
+  return entry.supersedesSha256 === undefined ? `md5 ${entry.supersedesMd5}` : `sha256 ${entry.supersedesSha256}`;
+}
+
+function createAllowlist(supersessions) {
+  const used = new Set();
+  const md5BySha256 = new Map();
+  const md5Of = (event) => {
+    if (!md5BySha256.has(event.bodySha256)) md5BySha256.set(event.bodySha256, prosrcMd5(event.body));
+    return md5BySha256.get(event.bodySha256);
+  };
+  // An md5 is computed only when an entry for this file and signature names one.
+  const namesBody = (entry, replaced) => (entry.supersedesSha256 === undefined
+    ? entry.supersedesMd5 === md5Of(replaced)
+    : entry.supersedesSha256 === replaced.bodySha256);
+  const indexesFor = ([file, signature, replaced]) => supersessions.flatMap((entry, index) => (
+    entry.file === file && entry.signature === signature && namesBody(entry, replaced) ? [index] : []
+  ));
+  return {
+    /** True when an entry matches any of the [file, signature, replaced event] lookups; matching entries count as used. */
+    accepts(...lookups) {
+      const matches = lookups.flatMap(indexesFor);
+      matches.forEach((index) => used.add(index));
+      return matches.length > 0;
+    },
+    unused: () => supersessions.filter((_, index) => !used.has(index)),
+  };
+}
+
+function groupBySignature(events) {
+  const groups = new Map();
+  for (const event of events) {
+    const group = groups.get(event.signature) ?? [];
+    group.push(event);
+    groups.set(event.signature, group);
+  }
+  return [...groups].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function deployedViolation(signature, draft, deployed) {
+  return `${signature}: ${describe(draft)} would replace the deployed body from ${describe(deployed)} and does not name it as superseded. `
+    + `Rebase the draft onto that body, then add ${entrySnippet(signature, draft.file, deployed.bodySha256)} to ${SUPERSESSIONS_FILE}.`;
+}
+
+function pairViolation(signature, first, second) {
+  return `${signature}: ${describe(first)} and ${describe(second)} define it differently, and whichever is promoted second replaces the other. `
+    + `Add ${entrySnippet(signature, second.file, first.bodySha256)} to ${SUPERSESSIONS_FILE} (an entry on either draft clears the pair).`;
+}
+
+function signatureViolations(signature, group, allowlist) {
+  const { deployed, pending } = classifySignature(group);
+  const violations = [];
+  pending.forEach((draft, position) => {
+    if (deployed && !allowlist.accepts([draft.file, signature, deployed])) {
+      violations.push(deployedViolation(signature, draft, deployed));
+    }
+    for (const other of pending.slice(position + 1)) {
+      const accepted = other.bodySha256 === draft.bodySha256
+        || allowlist.accepts([draft.file, signature, other], [other.file, signature, draft]);
+      if (!accepted) violations.push(pairViolation(signature, draft, other));
+    }
+  });
+  return violations;
+}
+
+/**
+ * Pure decision over the events from collectFunctionEvents and the entries from
+ * parseSupersessions. Returns violation lines, sorted; empty means clean.
+ *
+ * For each signature, every promotable draft body must be accounted for:
+ *   - against the deployed body, an entry on the draft's file names that body;
+ *   - against another promotable draft body, an entry on either draft's file names the other's body.
+ * Bodies are compared by sha256; an entry names a body by sha256 or by its Postgres md5.
+ * An entry that no longer accounts for anything is a violation too, so the list
+ * cannot rot into a standing waiver and a rebase that changes a body is noticed.
+ */
+export function findFunctionCollisions(events, supersessions = []) {
+  const allowlist = createAllowlist(supersessions);
+  const unreadable = events.filter((event) => event.action === "define" && event.bodySha256 === null);
+  const violations = unreadable.map((event) => (
+    `${event.file}:${event.line}: ${event.signature} has no body this check can read; use one dollar quoted or plain single quoted AS string.`
+  ));
+  const readable = events.filter((event) => event.action === "drop" || event.bodySha256 !== null);
+  for (const [signature, group] of groupBySignature(readable)) {
+    violations.push(...signatureViolations(signature, group, allowlist));
+  }
+  for (const entry of allowlist.unused()) {
+    violations.push(
+      `${SUPERSESSIONS_FILE}: unused entry for ${entry.signature} in ${entry.file} naming ${namedBody(entry)}: `
+      + "that draft no longer defines the function, or nothing it would replace has that body. Remove or update the entry.",
+    );
+  }
+  return violations.sort((left, right) => left.localeCompare(right));
+}
+
+export function inspectFunctionCollisions(root) {
+  const events = collectFunctionEvents(root);
+  let supersessions = [];
+  try {
+    supersessions = parseSupersessions(readFileSync(path.join(root, SUPERSESSIONS_FILE), "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return findFunctionCollisions(events, supersessions);
+}
+
+function parseRoot(argv) {
+  const flag = argv.indexOf("--root");
+  return flag === -1 ? process.cwd() : path.resolve(argv[flag + 1] ?? "");
+}
+
+function main() {
+  let violations;
+  try {
+    violations = inspectFunctionCollisions(parseRoot(process.argv.slice(2)));
+  } catch (error) {
+    console.error(`Migration function collision check could not run: ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (violations.length > 0) {
+    console.error("Migration function collision check failed:");
+    for (const violation of violations) {
+      console.error(`- ${violation}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  console.log("Migration function collision check passed.");
+}
+
+const isDirectExecution = process.argv[1]
+  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+  : false;
+
+if (isDirectExecution) {
+  main();
+}
