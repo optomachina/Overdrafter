@@ -1,0 +1,86 @@
+{
+  "1": {
+    "number": 1,
+    "commits": [
+      {
+        "oid": "fixture1"
+      }
+    ],
+    "comments": [
+      {
+        "body": "QA: PASS on fixture"
+      }
+    ],
+    "reviews": [],
+    "closingIssuesReferences": [],
+    "statusCheckRollup": [
+      {
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  },
+  "2": {
+    "number": 2,
+    "commits": [
+      {
+        "oid": "fixture2"
+      }
+    ],
+    "comments": [
+      {
+        "body": "QA: PASS on fixture"
+      }
+    ],
+    "reviews": [],
+    "closingIssuesReferences": [],
+    "statusCheckRollup": [
+      {
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  },
+  "3": {
+    "number": 3,
+    "commits": [
+      {
+        "oid": "fixture3"
+      }
+    ],
+    "comments": [
+      {
+        "body": "QA: FAIL on fixture\nrepair budget now used: 2/2"
+      }
+    ],
+    "reviews": [],
+    "closingIssuesReferences": [],
+    "statusCheckRollup": [
+      {
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE"
+      }
+    ]
+  },
+  "4": {
+    "number": 4,
+    "commits": [
+      {
+        "oid": "fixture4"
+      }
+    ],
+    "comments": [],
+    "reviews": [],
+    "closingIssuesReferences": [],
+    "statusCheckRollup": [
+      {
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  }
+}

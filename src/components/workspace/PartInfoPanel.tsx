@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
+import type { SingleQuantityState } from "@/features/quotes/single-quantity";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 
 type PartInfoPanelProps = {
@@ -14,6 +15,7 @@ type PartInfoPanelProps = {
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
   onResetAllFields?: () => void;
   fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+  singleQuantity?: SingleQuantityState;
 };
 
 export function PartInfoPanel({
@@ -28,6 +30,7 @@ export function PartInfoPanel({
   onResetField,
   onResetAllFields,
   fieldDefaults,
+  singleQuantity,
 }: PartInfoPanelProps) {
   return (
     <div className="min-w-0">
@@ -48,6 +51,7 @@ export function PartInfoPanel({
               onResetField={onResetField}
               onResetAllFields={onResetAllFields}
               fieldDefaults={fieldDefaults}
+              singleQuantity={singleQuantity}
             />
           ) : (
             <p className="text-sm text-muted-foreground">Part details are still loading.</p>

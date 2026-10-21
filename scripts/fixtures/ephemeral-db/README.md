@@ -15,6 +15,11 @@ which reads only `supabase/migrations`, never sees them.
   a draft family whose draft fails; the report must name the draft.
 - `drafts/ovd-9903-fixture-superseded.sql`: a retired (SUPERSEDED) draft that is
   never applied.
+- `drafts/ovd-9904-idempotent.sql` through `ovd-9909-*.sql`: OVD-924 rollback-stage
+  fixtures (clean idempotent apply, re-apply failure, second-pass failure,
+  DM-1R extra column, missing rollback failure, newest-first order).
+  The fake-exec dump sequence also models pass 1 leaving an object behind and
+  pass 2 cleaning it up; restoration must fail despite the clean second pass.
 - `replay-792/`: header-only snapshot of `docs/migration-drafts` and
   `supabase/tests/pending` at d2b7981b (#792, OVD-829). The replay tests run real
   historical diffs through draft-family selection against it. Bodies are omitted;

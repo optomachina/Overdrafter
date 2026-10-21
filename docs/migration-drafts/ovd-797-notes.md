@@ -2,6 +2,8 @@
 
 Draft only. Nothing here is applied to any Supabase project, and nothing is in `supabase/migrations/`. The prod apply is a separate Blaine approval card (OVD-795 decision 3).
 
+The rollback check is also covered by the ephemeral-db rollback stage (OVD-924), pending PR-2.
+
 Files:
 
 - `docs/migration-drafts/ovd-797-jarvis-channels.sql`: ten `public.jarvis_*` tables, one `public.jarvis_tier` domain (`owner|beta|paid`, shared by `tier` and `min_tier`), RLS on each, seven SELECT policies, explicit grants, seed rows for four channels (all disabled), and one read only guard function.

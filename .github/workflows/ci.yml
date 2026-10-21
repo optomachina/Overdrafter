@@ -37,6 +37,9 @@ jobs:
           git fetch origin main --depth=1
           npm run verify:migration-lineage -- --against-base
 
+      - name: Verify migration function collisions
+        run: npm run verify:migration-function-collisions
+
       - name: Lint
         run: bash scripts/preflight.sh lint
 
