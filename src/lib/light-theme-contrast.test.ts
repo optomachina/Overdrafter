@@ -143,6 +143,25 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
     if (rule.selector !== ":root" && rule.selector !== ".dark") return;
     rule.walkDecls(/^--/, (decl) => { themes[rule.selector === ":root" ? "light" : "dark"][decl.prop] = decl.value; });
   });
+  // Every theme token muted text can sit on (OVD-1040). A new surface token must be added here.
+  const mutedTextSurfaces = [
+    "bg", "surface", "surface-2",
+    "background", "card", "popover", "secondary", "muted", "accent", "input-background", "surface-elevated",
+    "sidebar", "sidebar-accent",
+    "ws-surface-base", "ws-surface-card", "ws-surface-inset", "ws-surface-raised",
+    "ws-surface-shell", "ws-surface-deep", "ws-surface-overlay", "ws-accent-surface",
+  ];
+  const surfaceToken = /^--(?:bg|surface(?:-2|-elevated)?|background|card|popover|secondary|muted|accent|input-background|sidebar|sidebar-accent|ws-surface-[\w-]+|ws-accent-surface)$/;
+  for (const [theme, variables] of Object.entries(themes)) {
+    for (const token of Object.keys(variables).filter((name) => surfaceToken.test(name))) {
+      expect(mutedTextSurfaces, `${theme} ${token}: add surface to muted text contrast coverage`).toContain(token.slice(2));
+    }
+  }
+  for (const surface of mutedTextSurfaces) {
+    expect(themes.light, `--${surface}: covered surface must exist in :root`).toHaveProperty(`--${surface}`);
+  }
+  expect(themes.light["--muted-ink"]).toBe("#686359");
+  expect(themes.dark["--muted-foreground"]).toBe("oklch(0.708 0 0)");
   const pairs: Record<string, string> = { ...STATUS_TONE, "stat-label": "bg-ws-inset text-foreground" };
   for (const status of ["not_requested", "queued", "requesting", "received", "failed", "canceled"] as const) {
     pairs[`request-${status}`] = getQuoteRequestStatusBadgeClassName(status);
@@ -260,9 +279,9 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
       const placeholder = compiled(classes.split(" ").filter((c) => c.startsWith("placeholder:")).join(" "));
       expect(resolve(placeholder.color)).not.toBe(resolve(value.color));
       const contrast = ratio(placeholder.color, value["background-color"]);
-      reports.push(`${theme} org-placeholder (OVD-1040): ${contrast.toFixed(3)}:1`);
-      // Explicit user-approved global muted-token exception, never value ink.
-      expect(contrast).toBeGreaterThanOrEqual(theme === "light" ? 4.35 : 4.5);
+      reports.push(`${theme} org-placeholder: ${contrast.toFixed(3)}:1`);
+      // Placeholders use the muted token, which clears AA on every surface since OVD-1040; never value ink.
+      expect(contrast).toBeGreaterThanOrEqual(4.5);
     }
     for (const classes of skeletonClasses) {
       const fill = channels(resolve(compiled(classes)["background-color"]));
@@ -289,8 +308,11 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
         }
       }
     }
-    for (const surface of ["background", "card", "accent"]) {
-      reports.push(`${theme} muted-foreground on ${surface}: ${ratio("var(--muted-foreground)", `var(--${surface})`).toFixed(3)}:1`);
+    for (const surface of mutedTextSurfaces) {
+      const contrast = ratio("var(--muted-foreground)", `var(--${surface})`);
+      const reportLine = `${theme} muted-foreground on ${surface}: ${contrast.toFixed(3)}:1`;
+      reports.push(reportLine);
+      expect.soft(contrast, reportLine).toBeGreaterThanOrEqual(4.5);
     }
   }
   console.info(reports.join("\n"));

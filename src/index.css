@@ -18,7 +18,7 @@ All colors MUST be HSL.
     --surface:    #FBF9F4;  /* half-shade lighter — primary card / inset */
     --surface-2:  #E7E0D4;  /* deeper inset, selected row, secondary fill, hover */
     --text:       #1C1B19;  /* warm black, never pure black */
-    --muted-ink:  #6B665C;  /* graphite pencil — secondary text, labels */
+    --muted-ink:  #686359;  /* graphite pencil — secondary text, labels */
     --hairline:   #D8D2C4;  /* 1px borders, dividers */
     --accent-red: #C2410C;  /* oxidized red — engineer's pencil mark */
     --ink-data:   #1F2E3A;  /* dark teal-black for the densest tables */
