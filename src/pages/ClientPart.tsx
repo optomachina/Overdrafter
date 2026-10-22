@@ -75,6 +75,7 @@ import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   buildScopedPreset,
+  filterQuoteOptionsForScope,
   getPresetMode,
   getPresetScope,
   type ClientQuoteSelectionOption,
@@ -413,9 +414,15 @@ const ClientPart = () => {
     handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
   const reviewOrderDisabledForSelection = (hasPublishedPackage || rankedQuoteOptions.length > 0) && !reviewQuoteOption;
-  const reviewOrderPrompt = getQuoteSelectionPrompt(hasPublishedPackage);
+
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
+  const scopedOptions = filterQuoteOptionsForScope(rankedQuoteOptions, partPresetScope);
+  const reviewOrderDisabledForScope = Boolean(reviewQuoteOption) &&
+    (scopedOptions.length === 0 || !scopedOptions.some((option) => option.key === reviewQuoteOption?.key));
+  const reviewOrderDisabledReason = reviewOrderDisabledForScope
+    ? "Switch to All sourcing to see your selected quote"
+    : reviewOrderDisabledForSelection ? getQuoteSelectionPrompt(hasPublishedPackage) : undefined;
 
   const applyPartPreset = (mode: "balanced" | "cheapest" | "fastest", scope: "domestic" | "global") => {
     handlePresetSelection(buildScopedPreset(mode, scope));
@@ -969,6 +976,7 @@ const ClientPart = () => {
                     quoteDataMessage={quoteDataMessage}
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
+                    onScopeChange={(scope) => applyPartPreset(partPresetMode, scope)}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
                     deadline={toPanelDeadline(partDeadline)}
                     requestCompletion={{
@@ -995,21 +1003,21 @@ const ClientPart = () => {
                           type="button"
                           className="rounded-full shadow-sm"
                           onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                          disabled={rankedQuoteOptions.length === 0 || !reviewQuoteOption}
-                          title={reviewOrderDisabledForSelection ? reviewOrderPrompt : undefined}
-                          aria-describedby={reviewOrderDisabledForSelection ? "review-order-disabled-reason" : undefined}
+                          disabled={scopedOptions.length === 0 || !reviewQuoteOption || reviewOrderDisabledForScope}
+                          title={reviewOrderDisabledReason}
+                          aria-describedby={reviewOrderDisabledReason ? "review-order-disabled-reason" : undefined}
                         >
                           Review order
                           <MoveRight className="ml-2 h-4 w-4" />
                         </Button>
-                        {reviewOrderDisabledForSelection ? (
+                        {reviewOrderDisabledReason ? (
                           <span id="review-order-disabled-reason" className="text-sm text-muted-foreground">
-                            {reviewOrderPrompt}
+                            {reviewOrderDisabledReason}
                           </span>
                         ) : null}
                       </div>
                     }
-                    controls={
+                    controls={(deadlineCounts, viewDeadline) => (
                       <>
                         {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
                           <SavedNeedByNotice
@@ -1022,12 +1030,8 @@ const ClientPart = () => {
                         <QuoteSelectionFunctionBar
                           scope={partPresetScope}
                           requestedByDate={quoteViewRequestedByDate}
-                          matchingOptionCount={
-                            quoteViewRequestedByDate
-                              ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
-                              : null
-                          }
-                          totalOptionCount={rankedQuoteOptions.length}
+                          viewDeadline={viewDeadline}
+                          deadlineCounts={viewDeadline ? deadlineCounts : null}
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
                           disabled={saveRequestMutation.isPending}
@@ -1038,7 +1042,7 @@ const ClientPart = () => {
                           }
                         />
                       </>
-                    }
+                    )}
                 />
                 {sourcingResult && sourcingResult.outcome !== "unsupported_package" ? (
                   <ClientSourcingResultPanel
