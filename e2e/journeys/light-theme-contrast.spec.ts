@@ -108,7 +108,16 @@ test.describe("OVD-1032 light theme rendered contrast", () => {
 
     await page.goto(PACKAGE_ROUTE);
     await expect(page.locator("html")).toHaveClass(/\blight\b/);
-    const receipt = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Selection received", exact: true }) }).last();
+    const receiptHeading = page.getByRole("heading", { name: "Selection received", exact: true });
+    const lowest = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Lowest cost", exact: true }) }).last();
+    await expect(lowest).toBeVisible({ timeout: 30_000 });
+    if (await receiptHeading.count() === 0) {
+      // The receipt exists only after a selection. Make the same seeded selection that
+      // package-selection-state.spec.ts makes (no provider or order action), so this
+      // surface is measured whatever order the journeys run in.
+      await lowest.getByRole("button", { name: /Select (this|another) option/ }).click();
+    }
+    const receipt = page.locator(".border").filter({ has: receiptHeading }).last();
     await expect(receipt).toBeVisible({ timeout: 30_000 });
     await measureSurface(page, receipt, "package-selection-received", testInfo);
     const stats = page.locator("section").filter({ has: page.getByText("Best Price", { exact: true }) });
