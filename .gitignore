@@ -64,3 +64,8 @@ evals/spend-ledger/*.jsonl
 
 # Jev decisions log (now written outside the repo)
 /docs/agent-log/jev-decisions.jsonl
+
+# Private real-template drawing corpus (PDFs and manifest.json) for
+# worker/src/extraction/templateVariants.test.ts. The repository is public, so these are
+# never committed; OVERDRAFTER_TEMPLATE_VARIANTS_DIR can point at another folder.
+/test-fixtures/private/
