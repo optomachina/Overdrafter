@@ -29,13 +29,14 @@ async function main(args: string[]) {
   if (!logsPath || rest.length > 0 || (flag !== undefined && (flag !== "--baseline" || !baselinePath))) {
     throw new Error(USAGE);
   }
-  const { trigger, fingerprint } = readFingerprintLogEntries(JSON.parse(await readInput(logsPath)));
+  const reference = XOMETRY_AUTH_PROBE_DRIFT_REFERENCE;
+  const { trigger, fingerprint } = readFingerprintLogEntries(JSON.parse(await readInput(logsPath)), reference.vocabulary);
   let baseline = null;
   if (baselinePath) {
-    baseline = parsePageFingerprint(JSON.parse(await fs.readFile(baselinePath, "utf8")));
+    baseline = parsePageFingerprint(JSON.parse(await fs.readFile(baselinePath, "utf8")), reference.vocabulary);
     if (!baseline) throw new Error("drift_baseline_invalid");
   }
-  return buildDriftResult({ trigger, fingerprint, baseline, reference: XOMETRY_AUTH_PROBE_DRIFT_REFERENCE });
+  return buildDriftResult({ trigger, fingerprint, baseline, reference });
 }
 
 try {

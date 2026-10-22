@@ -15,6 +15,7 @@ import {
   type FingerprintDiffClass,
   type FingerprintPage,
   type FingerprintRouteClass,
+  type FingerprintVocabulary,
   type PageFingerprint,
 } from "./fingerprint.js";
 
@@ -36,6 +37,8 @@ export type DriftReference = {
   entrySelectors: readonly string[];
   /** Where the groups live, so the repair brief names the file. */
   locatorSource: string;
+  /** The reviewed strings the probe's fingerprint may contain; log lines are re-validated against it. */
+  vocabulary: FingerprintVocabulary;
 };
 
 export type DriftFinding =
@@ -82,9 +85,12 @@ function payloadOf(entry: unknown): unknown {
 /**
  * Read the one fingerprint line from `gcloud logging read --format=json`
  * output. Throws a fixed message when there is no line, more than one, or the
- * line fails validation.
+ * line fails validation against the vocabulary.
  */
-export function readFingerprintLogEntries(entries: unknown): { trigger: DriftTrigger; fingerprint: PageFingerprint | null } {
+export function readFingerprintLogEntries(
+  entries: unknown,
+  vocabulary: FingerprintVocabulary,
+): { trigger: DriftTrigger; fingerprint: PageFingerprint | null } {
   if (!Array.isArray(entries)) throw new Error("drift_log_invalid");
   const lines = entries
     .map(payloadOf)
@@ -97,7 +103,7 @@ export function readFingerprintLogEntries(entries: unknown): { trigger: DriftTri
     throw new Error("drift_fingerprint_invalid");
   }
   if (line.fingerprint === null) return { trigger: line.trigger as DriftTrigger, fingerprint: null };
-  const fingerprint = parsePageFingerprint(line.fingerprint);
+  const fingerprint = parsePageFingerprint(line.fingerprint, vocabulary);
   if (!fingerprint) throw new Error("drift_fingerprint_invalid");
   return { trigger: line.trigger as DriftTrigger, fingerprint };
 }

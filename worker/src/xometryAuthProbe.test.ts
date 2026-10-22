@@ -38,6 +38,7 @@ function fakeProbeContext(input: {
   domStructureError?: Error;
   domStructureHangs?: boolean;
   selectorCounts?: Record<string, number>;
+  urlAfterStructureWalk?: string;
   requests?: Array<{
     method: string;
     url: string;
@@ -72,7 +73,7 @@ function fakeProbeContext(input: {
     | null = null;
   let webSocketHandler: ((route: { close: () => void }) => void) | null = null;
   let openRestoredPages = 1;
-  const pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
+  let pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
   const context = {
     pages: () => [
       {
@@ -131,6 +132,7 @@ function fakeProbeContext(input: {
         evaluate: async (script: unknown) => {
           if (typeof script === "string") {
             events.setupOrder.push("collect-page-structure");
+            if (input.urlAfterStructureWalk) pageUrl = input.urlAfterStructureWalk;
             if (input.domStructureError) throw input.domStructureError;
             if (input.domStructureHangs) await new Promise<void>(() => undefined);
             return input.domStructure ?? null;
@@ -975,7 +977,7 @@ describe("drift fingerprint on authenticated_dashboard_not_confirmed", () => {
     bodyText: "Your quotes · Jordan Okafor · jordan@example.com · Q24-1234-5678 · $252.97",
     domStructure: {
       landmarks: { banner: 1, navigation: 1, main: 1, dialog: 0 },
-      headings: [{ level: 1, label: "Your quotes" }, { level: 2, label: "Welcome, Jordan Okafor" }],
+      headings: ["Your quotes", "Welcome, Jordan Okafor"],
       buttons: ["New quote", "Q24-1234-5678", "jordan@example.com"],
       links: ["Orders", "Account settings for Jordan"],
       testIds: ["QuoteListView-new-quote", "quote-row-Q24-1234-5678"],
@@ -1000,10 +1002,19 @@ describe("drift fingerprint on authenticated_dashboard_not_confirmed", () => {
       page: "upload",
       source: "session_probe",
       routeClass: "quote_home",
-      headings: { count: 2, labels: ["1:your quotes", "2:welcome *"] },
-      testIds: { values: ["QuoteListView-new-quote"], withheld: 1 },
+      headings: { count: 2, labels: ["your quotes"] },
+      buttons: { count: 3, labels: ["new quote"] },
+      links: { count: 2, labels: ["orders"] },
+      testIds: { values: [], withheld: 2 },
       signalGroups: { dashboardSignals: { matched: 0, total: 3 } },
-      selectorGroups: { startNewQuoteButtons: { matched: 1, total: 4 }, dashboardUploadButtons: { matched: 0, total: 1 } },
+      selectorGroups: {
+        startNewQuoteButtons: {
+          matched: 1,
+          total: 4,
+          selectors: [{ count: 0, visible: false }, { count: 0, visible: false }, { count: 0, visible: false }, { count: 1, visible: false }],
+        },
+        dashboardUploadButtons: { matched: 0, total: 1, selectors: [{ count: 0, visible: false }] },
+      },
     });
     expect(JSON.stringify(seen[0])).not.toMatch(/jordan|okafor|example\.com|q24|252/i);
     expect(withCallback.events.setupOrder.filter((step) => step === "collect-page-structure")).toHaveLength(1);
@@ -1018,6 +1029,16 @@ describe("drift fingerprint on authenticated_dashboard_not_confirmed", () => {
     await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: callback });
     expect(callback).not.toHaveBeenCalled();
     expect(events.setupOrder).not.toContain("collect-page-structure");
+  });
+
+  it("reports the classified URL even when the page redirects during the capture", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const plain = await runBoundedXometryAuthProbe(fakeProbeContext(privatePage).context);
+    const { context } = fakeProbeContext({ ...privatePage, urlAfterStructureWalk: "https://www.xometry.com/login/" });
+    const evidence = await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) });
+    expect(evidence).toEqual(plain);
+    expect(evidence.url).toBe("https://www.xometry.com/quoting/home/");
+    expect(seen[0]?.routeClass).toBe("quote_home");
   });
 
   it("reports an unavailable capture without changing the classification", async () => {

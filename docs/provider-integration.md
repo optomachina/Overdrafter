@@ -194,14 +194,14 @@ When the hosted Xometry authentication probe (the OVD-419 in-job guard reports `
 
 On this result only, the probe writes one extra JSON line to stderr in the same job log. The line is keyed `fixtureHealFingerprint` and holds a scrubbed page fingerprint (`worker/src/fixtureHeal/fingerprint.ts`, OVD-796 slice 5). It contains:
 
-- the final URL as a route class, never the URL;
-- landmark counts;
-- heading, button and link labels in which every word outside a fixed UI vocabulary is masked as `*`;
-- test IDs made only of vocabulary words;
-- how many patterns or selectors in each relevant `XOMETRY_LOCATORS` group matched;
-- a hash of those scrubbed labels.
+- the classified URL as a route class, never the URL;
+- landmark counts and heading, button, link and test ID counts;
+- the heading, button and link labels that are, in full, reviewed UI phrases (generic chrome plus the literal text in `XOMETRY_LOCATORS`);
+- the exact test IDs that `XOMETRY_LOCATORS` relies on;
+- per text-signal group, how many patterns matched, and per selector, its element count (capped at 20) and whether the first match is visible;
+- a hash of the listed labels and test IDs.
 
-It never contains other page text, input values, URLs, emails, names, quote numbers or other identifiers. The stdout evidence line and the guard's pass/fail rule are unchanged. If capture failed or exceeded its 3-second bound, the line carries `"fingerprint": null`.
+A label or test ID that is not, in full, on the reviewed list is only counted. Filtering word by word would not be safe, because ordinary words such as "An", "Go" or "More" can also be names. The line never contains other page text, input values, URLs, emails, names, quote numbers or other identifiers. The stdout evidence line, its `domCaptured: false` attestation (no raw DOM, HTML or page text) and the guard's pass/fail rule are unchanged. If capture failed or exceeded its 3-second bound, the line carries `"fingerprint": null`.
 
 To turn that line into the finite drift result, run these read-only steps. The first reads the job log and keeps the file outside the repository. The second runs offline.
 
@@ -210,7 +210,7 @@ gcloud logging read 'resource.type="cloud_run_job" AND labels."run.googleapis.co
 cd worker && npx tsx src/tools/xometryDriftResult.ts "${TMPDIR:-/tmp}/xometry-probe-log.json" [--baseline <reviewed-fingerprint.json>]
 ```
 
-The tool re-validates the line and recomputes the hash, so an edited line cannot carry page text into the result. It prints `fixture-drift-result.v1`, which contains:
+The tool re-validates the line against the same reviewed vocabulary. Any other label, test ID or group name, a malformed tally, or a stale hash rejects the line, so an edited line cannot carry text into the result. It prints `fixture-drift-result.v1`, which contains:
 
 - `nextStep: "selector_repair"`;
 - a `driftClass` (`route`, `selector`, `label`, `cosmetic`, `none`, or `unknown` when capture failed);
