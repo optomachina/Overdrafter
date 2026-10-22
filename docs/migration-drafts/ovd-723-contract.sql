@@ -48,6 +48,23 @@ begin
 end;
 $guard$;
 
+-- Require the OVD-987 quantity checks before wrapping or replacing this body.
+do $xometry_quantity_precondition$
+declare
+  v_md5 text;
+begin
+  select pg_catalog.md5(p.prosrc) into v_md5
+  from pg_catalog.pg_proc p
+  where p.oid = pg_catalog.to_regprocedure(
+    'public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)'
+  );
+  if v_md5 is distinct from '0fef772880a4122f72475a9905b7ed19' then
+    raise exception 'OVD-723 contract refused: Xometry preflight is not the OVD-987 body (md5 %)',
+      coalesce(v_md5, 'missing') using errcode = 'P0001';
+  end if;
+end;
+$xometry_quantity_precondition$;
+
 -- C.1 The legacy bodies move unchanged to private cores (no grants).
 alter function public.api_prepare_job_file_upload(
   uuid, text, public.job_file_kind, text, bigint, text
