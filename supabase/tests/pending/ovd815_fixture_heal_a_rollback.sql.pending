@@ -1,0 +1,108 @@
+-- ovd: post-rollback
+-- OVD-815 state invariant for docs/migration-drafts/ovd-815-fixture-heal-a.sql.
+-- PENDING: NEEDS BLAINE MIGRATION WINDOW, draft NOT applied.
+-- Runs with all draft objects present, and again after EACH rollback pass.
+-- DM-1R (empty schema-only dump diff) is the byte-level proof; these are the
+-- named rollback_restores_clean_state checks. No assertion assumes absence.
+-- At promotion rename to supabase/tests/ovd815_fixture_heal_a_rollback.sql.
+begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+select plan(12);
+
+create temp table ovd815_object_count as
+select (
+  (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+   where n.nspname='private' and c.relkind='r' and c.relname in
+     ('fixture_heal_fingerprints','fixture_heal_certifications','fixture_heal_cleanup_items','fixture_heal_events','fixture_heal_standing_approvals'))
+  + (select count(*) from pg_catalog.unnest(array[
+    'public.api_worker_fixture_heal_record_fingerprint(jsonb)',
+    'public.api_worker_fixture_heal_record_certification(jsonb)',
+    'public.api_worker_fixture_heal_record_cleanup_item(jsonb)',
+    'public.api_worker_fixture_heal_record_event(jsonb)',
+    'public.api_worker_fixture_heal_active_standing_approval()',
+    'public.api_admin_grant_fixture_heal_standing_approval(text)',
+    'public.api_admin_revoke_fixture_heal_standing_approval(uuid,text)',
+    'private.fixture_heal_events_immutable()',
+    'private.fixture_heal_standing_approvals_guard()',
+    'private.fixture_heal_guard_quote_commitment()'
+  ]) sig where pg_catalog.to_regprocedure(sig) is not null)
+  + (select count(*) from pg_catalog.pg_trigger t where not t.tgisinternal and
+    ((t.tgrelid='public.jobs'::regclass and t.tgname='guard_fixture_heal_job_offer_selection')
+     or (t.tgrelid='public.client_selections'::regclass and t.tgname='guard_fixture_heal_client_selection')
+     or (t.tgrelid='public.published_quote_options'::regclass and t.tgname='guard_fixture_heal_published_option')))
+)::integer as n;
+select ok((select n in (0,18) from ovd815_object_count), 'rollback_restores_clean_state: all 18 draft objects or none');
+select ok(exists (select 1 from pg_catalog.pg_trigger where tgrelid='public.jobs'::regclass and tgname='guard_direct_job_offer_selection'),
+  'rollback_restores_clean_state: existing direct-selection guard remains');
+select ok(pg_catalog.to_regprocedure('public.api_publish_quote_package(uuid,uuid,text,boolean)') is not null, 'rollback_restores_clean_state: public.api_publish_quote_package(uuid,uuid,text,boolean) exists');
+select ok(pg_catalog.to_regprocedure('public.api_select_quote_option(uuid,uuid,text)') is not null, 'rollback_restores_clean_state: public.api_select_quote_option(uuid,uuid,text) exists');
+select ok(pg_catalog.to_regprocedure('public.api_set_job_selected_vendor_quote_offer(uuid,uuid)') is not null, 'rollback_restores_clean_state: public.api_set_job_selected_vendor_quote_offer(uuid,uuid) exists');
+select ok(pg_catalog.to_regprocedure('public.insert_published_quote_option(uuid,public.client_option_kind,uuid,integer,numeric,numeric,text,uuid)') is not null, 'rollback_restores_clean_state: public.insert_published_quote_option(uuid,public.client_option_kind,uuid,integer,numeric,numeric,text,uuid) exists');
+select ok(pg_catalog.to_regprocedure('public.current_user_has_aal2()') is not null, 'rollback_restores_clean_state: public.current_user_has_aal2() exists');
+select ok(pg_catalog.to_regprocedure('public.is_platform_admin()') is not null, 'rollback_restores_clean_state: public.is_platform_admin() exists');
+select ok(pg_catalog.has_function_privilege('authenticated','public.api_publish_quote_package(uuid,uuid,text,boolean)','EXECUTE') and not pg_catalog.has_function_privilege('anon','public.api_publish_quote_package(uuid,uuid,text,boolean)','EXECUTE'), 'rollback_restores_clean_state: existing ACL public.api_publish_quote_package(uuid,uuid,text,boolean)');
+select ok(pg_catalog.has_function_privilege('authenticated','public.api_select_quote_option(uuid,uuid,text)','EXECUTE') and not pg_catalog.has_function_privilege('anon','public.api_select_quote_option(uuid,uuid,text)','EXECUTE'), 'rollback_restores_clean_state: existing ACL public.api_select_quote_option(uuid,uuid,text)');
+select ok(pg_catalog.has_function_privilege('authenticated','public.api_set_job_selected_vendor_quote_offer(uuid,uuid)','EXECUTE') and not pg_catalog.has_function_privilege('anon','public.api_set_job_selected_vendor_quote_offer(uuid,uuid)','EXECUTE'), 'rollback_restores_clean_state: existing ACL public.api_set_job_selected_vendor_quote_offer(uuid,uuid)');
+
+insert into auth.users (id,aud,role,email,email_confirmed_at)
+values ('00000000-0815-4000-8000-000000000002','authenticated','authenticated','ovd815-rollback@example.test',pg_catalog.now());
+-- Synthetic publication fixtures: each scenario has a separate job/run/part/result/offer.
+-- Prices below are arbitrary synthetic values, never provider quotes.
+insert into public.organizations (id,name,slug)
+values ('00000000-0815-4000-8000-000000000003','OVD815 synthetic organization','ovd815-synthetic');
+insert into public.organization_memberships (organization_id,user_id,role)
+values ('00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','internal_estimator');
+insert into public.pricing_policies (id,organization_id,version,markup_percent,currency_minor_unit)
+values ('00000000-0815-4000-8000-000000000004','00000000-0815-4000-8000-000000000003','ovd815-synthetic',20,0.01);
+
+-- Types: 1 job, 2 part, 3 run, 4 result, 5 offer, 6 direct package, 7 direct option.
+create function pg_temp.ovd815_id(p_scenario integer, p_kind integer)
+returns uuid language sql immutable set search_path = pg_catalog as $$
+  select ('00000000-0815-4000-8000-' || pg_catalog.lpad((1000 + p_scenario * 10 + p_kind)::text,12,'0'))::uuid;
+$$;
+grant execute on function pg_temp.ovd815_id(integer,integer) to authenticated, service_role;
+create function pg_temp.ovd815_seed(p_scenario integer, p_payload jsonb)
+returns void language plpgsql set search_path = '' as $$
+begin
+  insert into public.jobs (id,organization_id,created_by,title,status,active_pricing_policy_id)
+  values (pg_temp.ovd815_id(p_scenario,1),'00000000-0815-4000-8000-000000000003',
+    '00000000-0815-4000-8000-000000000002','Synthetic fixture-heal job','internal_review','00000000-0815-4000-8000-000000000004');
+  insert into public.parts (id,job_id,organization_id,name,normalized_key)
+  values (pg_temp.ovd815_id(p_scenario,2),pg_temp.ovd815_id(p_scenario,1),
+    '00000000-0815-4000-8000-000000000003','Synthetic fixture-heal part','ovd815-synthetic-part');
+  insert into public.quote_runs (id,job_id,organization_id,initiated_by,status)
+  values (pg_temp.ovd815_id(p_scenario,3),pg_temp.ovd815_id(p_scenario,1),
+    '00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','completed');
+  insert into public.vendor_quote_results
+    (id,quote_run_id,part_id,organization_id,vendor,requested_quantity,status,total_price_usd,lead_time_business_days,raw_payload)
+  values (pg_temp.ovd815_id(p_scenario,4),pg_temp.ovd815_id(p_scenario,3),pg_temp.ovd815_id(p_scenario,2),
+    '00000000-0815-4000-8000-000000000003','xometry',1,'instant_quote_received',100,7,p_payload);
+  insert into public.vendor_quote_offers
+    (id,vendor_quote_result_id,organization_id,offer_key,supplier,lane_label,total_price_usd,lead_time_business_days,sort_rank,provenance_status)
+  values (pg_temp.ovd815_id(p_scenario,5),pg_temp.ovd815_id(p_scenario,4),
+    '00000000-0815-4000-8000-000000000003','synthetic-exact','Synthetic','Synthetic exact offer',100,7,0,'trusted_adapter');
+end;
+$$;
+
+select pg_temp.ovd815_seed(1,'{"fixtureHeal":{"v":1,"internal":true}}');
+insert into public.published_quote_packages (id,job_id,quote_run_id,organization_id,published_by,pricing_policy_id)
+values (pg_temp.ovd815_id(1,6),pg_temp.ovd815_id(1,1),pg_temp.ovd815_id(1,3),
+  '00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','00000000-0815-4000-8000-000000000004');
+create function pg_temp.ovd815_try_insert()
+returns text language plpgsql set search_path = '' as $$
+begin
+  insert into public.published_quote_options
+    (id,package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version)
+  values (pg_temp.ovd815_id(1,7),pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',
+    1,'lowest_cost','Synthetic rollback option',120,pg_temp.ovd815_id(1,4),pg_temp.ovd815_id(1,5),'ovd815-synthetic');
+  return 'ok';
+exception when others then
+  return 'error:' || sqlerrm;
+end;
+$$;
+select is(pg_temp.ovd815_try_insert(),
+  (select case when n=0 then 'ok' else 'error:fixture_heal_result_not_publishable' end from ovd815_object_count),
+  'rollback_restores_clean_state: internal source refused only while draft exists');
+select * from finish();
+rollback;

@@ -1,0 +1,395 @@
+-- OVD-815: fixture-heal ledger and commitment guards.
+-- Targets docs/migration-drafts/ovd-815-fixture-heal-a.sql.
+-- PENDING: draft NOT applied; NEEDS BLAINE MIGRATION WINDOW.
+-- The .pending suffix keeps the policy runner from executing this file.
+-- The ephemeral-db job runs it with the draft applied (family 815).
+-- At promotion rename to supabase/tests/ovd815_fixture_heal_a.sql.
+-- Covers forced RLS, direct denials, constraints, exact ACL inventories,
+-- worker lifecycles, admin AAL2, append-only evidence and publish/select guards.
+begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+select plan(172);
+
+-- Role helpers change JWT claims separately from the SQL role.
+create function pg_temp.ovd815_as(p_user_id uuid, p_role text, p_aal text)
+returns void language plpgsql set search_path = pg_catalog as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role, 'aal', p_aal))::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+grant execute on function pg_temp.ovd815_as(uuid, text, text) to anon, authenticated, service_role;
+create temp table ovd815_ids (label text primary key, id uuid, event_id bigint);
+grant all on table ovd815_ids to anon, authenticated, service_role;
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0815-4000-8000-000000000001', 'authenticated', 'authenticated', 'ovd815-admin@example.test', pg_catalog.now()),
+  ('00000000-0815-4000-8000-000000000002', 'authenticated', 'authenticated', 'ovd815-member@example.test', pg_catalog.now());
+insert into private.platform_admin_emails (email) values ('ovd815-admin@example.test') on conflict do nothing;
+
+-- Shape and forced default deny.
+select ok(pg_catalog.to_regclass('private.fixture_heal_fingerprints') is not null, 'shape: private.fixture_heal_fingerprints exists');
+select ok((select c.relrowsecurity and c.relforcerowsecurity from pg_catalog.pg_class c where c.oid = 'private.fixture_heal_fingerprints'::regclass), 'rls_enabled_no_direct_select: fingerprints RLS enabled and forced');
+select is((select count(*)::integer from pg_catalog.pg_policy where polrelid = 'private.fixture_heal_fingerprints'::regclass), 0, 'rls_enabled_no_direct_select: fingerprints has no policies');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'private.fixture_heal_fingerprints', p)) from pg_catalog.unnest(array['anon','authenticated','service_role']) r cross join pg_catalog.unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p), 'rls_enabled_no_direct_select: no API table privilege on fingerprints');
+select ok(pg_catalog.to_regclass('private.fixture_heal_certifications') is not null, 'shape: private.fixture_heal_certifications exists');
+select ok((select c.relrowsecurity and c.relforcerowsecurity from pg_catalog.pg_class c where c.oid = 'private.fixture_heal_certifications'::regclass), 'rls_enabled_no_direct_select: certifications RLS enabled and forced');
+select is((select count(*)::integer from pg_catalog.pg_policy where polrelid = 'private.fixture_heal_certifications'::regclass), 0, 'rls_enabled_no_direct_select: certifications has no policies');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'private.fixture_heal_certifications', p)) from pg_catalog.unnest(array['anon','authenticated','service_role']) r cross join pg_catalog.unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p), 'rls_enabled_no_direct_select: no API table privilege on certifications');
+select ok(pg_catalog.to_regclass('private.fixture_heal_cleanup_items') is not null, 'shape: private.fixture_heal_cleanup_items exists');
+select ok((select c.relrowsecurity and c.relforcerowsecurity from pg_catalog.pg_class c where c.oid = 'private.fixture_heal_cleanup_items'::regclass), 'rls_enabled_no_direct_select: cleanup_items RLS enabled and forced');
+select is((select count(*)::integer from pg_catalog.pg_policy where polrelid = 'private.fixture_heal_cleanup_items'::regclass), 0, 'rls_enabled_no_direct_select: cleanup_items has no policies');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'private.fixture_heal_cleanup_items', p)) from pg_catalog.unnest(array['anon','authenticated','service_role']) r cross join pg_catalog.unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p), 'rls_enabled_no_direct_select: no API table privilege on cleanup_items');
+select ok(pg_catalog.to_regclass('private.fixture_heal_events') is not null, 'shape: private.fixture_heal_events exists');
+select ok((select c.relrowsecurity and c.relforcerowsecurity from pg_catalog.pg_class c where c.oid = 'private.fixture_heal_events'::regclass), 'rls_enabled_no_direct_select: events RLS enabled and forced');
+select is((select count(*)::integer from pg_catalog.pg_policy where polrelid = 'private.fixture_heal_events'::regclass), 0, 'rls_enabled_no_direct_select: events has no policies');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'private.fixture_heal_events', p)) from pg_catalog.unnest(array['anon','authenticated','service_role']) r cross join pg_catalog.unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p), 'rls_enabled_no_direct_select: no API table privilege on events');
+select ok(pg_catalog.to_regclass('private.fixture_heal_standing_approvals') is not null, 'shape: private.fixture_heal_standing_approvals exists');
+select ok((select c.relrowsecurity and c.relforcerowsecurity from pg_catalog.pg_class c where c.oid = 'private.fixture_heal_standing_approvals'::regclass), 'rls_enabled_no_direct_select: standing_approvals RLS enabled and forced');
+select is((select count(*)::integer from pg_catalog.pg_policy where polrelid = 'private.fixture_heal_standing_approvals'::regclass), 0, 'rls_enabled_no_direct_select: standing_approvals has no policies');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_table_privilege(r, 'private.fixture_heal_standing_approvals', p)) from pg_catalog.unnest(array['anon','authenticated','service_role']) r cross join pg_catalog.unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p), 'rls_enabled_no_direct_select: no API table privilege on standing_approvals');
+-- deny: anon private.fixture_heal_fingerprints
+-- deny: anon private.fixture_heal_certifications
+-- deny: anon private.fixture_heal_cleanup_items
+-- deny: anon private.fixture_heal_events
+-- deny: anon private.fixture_heal_standing_approvals
+reset role;
+select pg_temp.ovd815_as(null, 'anon', 'aal1');
+set local role anon;
+select throws_ok($$select * from private.fixture_heal_fingerprints$$, '42501', null, 'rls_enabled_no_direct_select: anon cannot read fingerprints');
+select throws_ok($$select * from private.fixture_heal_certifications$$, '42501', null, 'rls_enabled_no_direct_select: anon cannot read certifications');
+select throws_ok($$select * from private.fixture_heal_cleanup_items$$, '42501', null, 'rls_enabled_no_direct_select: anon cannot read cleanup_items');
+select throws_ok($$select * from private.fixture_heal_events$$, '42501', null, 'rls_enabled_no_direct_select: anon cannot read events');
+select throws_ok($$select * from private.fixture_heal_standing_approvals$$, '42501', null, 'rls_enabled_no_direct_select: anon cannot read standing_approvals');
+reset role;
+-- end deny
+
+-- deny: other_user private.fixture_heal_fingerprints
+-- deny: other_user private.fixture_heal_certifications
+-- deny: other_user private.fixture_heal_cleanup_items
+-- deny: other_user private.fixture_heal_events
+-- deny: other_user private.fixture_heal_standing_approvals
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000002', 'authenticated', 'aal1');
+set local role authenticated;
+select throws_ok($$select * from private.fixture_heal_fingerprints$$, '42501', null, 'rls_enabled_no_direct_select: non-admin cannot read fingerprints');
+select throws_ok($$select * from private.fixture_heal_certifications$$, '42501', null, 'rls_enabled_no_direct_select: non-admin cannot read certifications');
+select throws_ok($$select * from private.fixture_heal_cleanup_items$$, '42501', null, 'rls_enabled_no_direct_select: non-admin cannot read cleanup_items');
+select throws_ok($$select * from private.fixture_heal_events$$, '42501', null, 'rls_enabled_no_direct_select: non-admin cannot read events');
+select throws_ok($$select * from private.fixture_heal_standing_approvals$$, '42501', null, 'rls_enabled_no_direct_select: non-admin cannot read standing_approvals');
+reset role;
+-- end deny
+
+-- deny: role_boundary private.fixture_heal_fingerprints
+-- deny: role_boundary private.fixture_heal_certifications
+-- deny: role_boundary private.fixture_heal_cleanup_items
+-- deny: role_boundary private.fixture_heal_events
+-- deny: role_boundary private.fixture_heal_standing_approvals
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select throws_ok($$select * from private.fixture_heal_fingerprints$$, '42501', null, 'rls_enabled_no_direct_select: service_role cannot read fingerprints');
+select throws_ok($$select * from private.fixture_heal_certifications$$, '42501', null, 'rls_enabled_no_direct_select: service_role cannot read certifications');
+select throws_ok($$select * from private.fixture_heal_cleanup_items$$, '42501', null, 'rls_enabled_no_direct_select: service_role cannot read cleanup_items');
+select throws_ok($$select * from private.fixture_heal_events$$, '42501', null, 'rls_enabled_no_direct_select: service_role cannot read events');
+select throws_ok($$select * from private.fixture_heal_standing_approvals$$, '42501', null, 'rls_enabled_no_direct_select: service_role cannot read standing_approvals');
+reset role;
+-- end deny
+
+-- deny: role_boundary private.fixture_heal_fingerprints
+-- deny: role_boundary private.fixture_heal_certifications
+-- deny: role_boundary private.fixture_heal_cleanup_items
+-- deny: role_boundary private.fixture_heal_events
+-- deny: role_boundary private.fixture_heal_standing_approvals
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok($$select * from private.fixture_heal_fingerprints$$, '42501', null, 'rls_enabled_no_direct_select: AAL2 admin cannot read fingerprints');
+select throws_ok($$select * from private.fixture_heal_certifications$$, '42501', null, 'rls_enabled_no_direct_select: AAL2 admin cannot read certifications');
+select throws_ok($$select * from private.fixture_heal_cleanup_items$$, '42501', null, 'rls_enabled_no_direct_select: AAL2 admin cannot read cleanup_items');
+select throws_ok($$select * from private.fixture_heal_events$$, '42501', null, 'rls_enabled_no_direct_select: AAL2 admin cannot read events');
+select throws_ok($$select * from private.fixture_heal_standing_approvals$$, '42501', null, 'rls_enabled_no_direct_select: AAL2 admin cannot read standing_approvals');
+reset role;
+-- end deny
+
+-- Exact function inventory. pg_catalog-only path keeps regprocedure output qualified.
+create function pg_temp.ovd815_definers()
+returns table (sig text, pub boolean, anon boolean, authn boolean, service boolean)
+language sql stable set search_path = pg_catalog as $$
+  select p.oid::regprocedure::text,
+    exists (select 1 from pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+      where a.grantee = 0 and a.privilege_type = 'EXECUTE'),
+    pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE'),
+    pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+    pg_catalog.has_function_privilege('service_role', p.oid, 'EXECUTE')
+  from pg_catalog.pg_proc p join pg_catalog.pg_namespace ns on ns.oid = p.pronamespace
+  where p.prosecdef and ns.nspname in ('public','private') and p.proname like '%fixture_heal%';
+$$;
+
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_worker_fixture_heal_record_fingerprint(jsonb)'::regprocedure), 'function inventory: public.api_worker_fixture_heal_record_fingerprint(jsonb) definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_worker_fixture_heal_record_certification(jsonb)'::regprocedure), 'function inventory: public.api_worker_fixture_heal_record_certification(jsonb) definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_worker_fixture_heal_record_cleanup_item(jsonb)'::regprocedure), 'function inventory: public.api_worker_fixture_heal_record_cleanup_item(jsonb) definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_worker_fixture_heal_record_event(jsonb)'::regprocedure), 'function inventory: public.api_worker_fixture_heal_record_event(jsonb) definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_worker_fixture_heal_active_standing_approval()'::regprocedure), 'function inventory: public.api_worker_fixture_heal_active_standing_approval() definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_admin_grant_fixture_heal_standing_approval(text)'::regprocedure), 'function inventory: public.api_admin_grant_fixture_heal_standing_approval(text) definer and empty search_path');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'public.api_admin_revoke_fixture_heal_standing_approval(uuid,text)'::regprocedure), 'function inventory: public.api_admin_revoke_fixture_heal_standing_approval(uuid,text) definer and empty search_path');
+select ok((select not p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'private.fixture_heal_events_immutable()'::regprocedure), 'function inventory: private.fixture_heal_events_immutable() invoker and empty search_path');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_function_privilege(r, 'private.fixture_heal_events_immutable()', 'EXECUTE')) from pg_catalog.unnest(array['anon','authenticated','service_role']) r), 'function inventory: private.fixture_heal_events_immutable() has no API execute');
+select ok((select not p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'private.fixture_heal_standing_approvals_guard()'::regprocedure), 'function inventory: private.fixture_heal_standing_approvals_guard() invoker and empty search_path');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_function_privilege(r, 'private.fixture_heal_standing_approvals_guard()', 'EXECUTE')) from pg_catalog.unnest(array['anon','authenticated','service_role']) r), 'function inventory: private.fixture_heal_standing_approvals_guard() has no API execute');
+select ok((select not p.prosecdef and p.proconfig = array['search_path=""'] from pg_catalog.pg_proc p where p.oid = 'private.fixture_heal_guard_quote_commitment()'::regprocedure), 'function inventory: private.fixture_heal_guard_quote_commitment() invoker and empty search_path');
+select ok((select pg_catalog.bool_and(not pg_catalog.has_function_privilege(r, 'private.fixture_heal_guard_quote_commitment()', 'EXECUTE')) from pg_catalog.unnest(array['anon','authenticated','service_role']) r), 'function inventory: private.fixture_heal_guard_quote_commitment() has no API execute');
+select set_eq($$select sig from pg_temp.ovd815_definers() where authn$$, $$values ('public.api_admin_grant_fixture_heal_standing_approval(text)'),('public.api_admin_revoke_fixture_heal_standing_approval(uuid,text)')$$, 'OVD-602 pins: exact authn definer inventory');
+select set_eq($$select sig from pg_temp.ovd815_definers() where anon$$, $$select null::text where false$$, 'OVD-602 pins: exact anon definer inventory');
+select set_eq($$select sig from pg_temp.ovd815_definers() where pub$$, $$select null::text where false$$, 'OVD-602 pins: exact pub definer inventory');
+select set_eq($$select sig from pg_temp.ovd815_definers() where service$$, $$values ('public.api_worker_fixture_heal_record_fingerprint(jsonb)'),('public.api_worker_fixture_heal_record_certification(jsonb)'),('public.api_worker_fixture_heal_record_cleanup_item(jsonb)'),('public.api_worker_fixture_heal_record_event(jsonb)'),('public.api_worker_fixture_heal_active_standing_approval()')$$, 'OVD-602 pins: exact service definer inventory');
+select ok(pg_catalog.to_regprocedure('public.current_user_has_aal2()') is not null, 'OVD-602 pins: real helper public.current_user_has_aal2() resolves');
+select ok(pg_catalog.to_regprocedure('public.is_platform_admin()') is not null, 'OVD-602 pins: real helper public.is_platform_admin() resolves');
+select ok(pg_catalog.to_regprocedure('private.require_verified_auth()') is null, 'OVD-602 pins: nonexistent helper private.require_verified_auth() stays absent');
+select ok(pg_catalog.to_regprocedure('private.is_platform_admin()') is null, 'OVD-602 pins: nonexistent helper private.is_platform_admin() stays absent');
+select ok(pg_catalog.has_function_privilege('authenticated', 'public.api_publish_quote_package(uuid,uuid,text,boolean)', 'EXECUTE') and not pg_catalog.has_function_privilege('anon', 'public.api_publish_quote_package(uuid,uuid,text,boolean)', 'EXECUTE'), 'OVD-602 pins: existing ACL public.api_publish_quote_package(uuid,uuid,text,boolean)');
+select ok(pg_catalog.has_function_privilege('authenticated', 'public.api_select_quote_option(uuid,uuid,text)', 'EXECUTE') and not pg_catalog.has_function_privilege('anon', 'public.api_select_quote_option(uuid,uuid,text)', 'EXECUTE'), 'OVD-602 pins: existing ACL public.api_select_quote_option(uuid,uuid,text)');
+select ok(pg_catalog.has_function_privilege('authenticated', 'public.api_set_job_selected_vendor_quote_offer(uuid,uuid)', 'EXECUTE') and not pg_catalog.has_function_privilege('anon', 'public.api_set_job_selected_vendor_quote_offer(uuid,uuid)', 'EXECUTE'), 'OVD-602 pins: existing ACL public.api_set_job_selected_vendor_quote_offer(uuid,uuid)');
+select ok(not pg_catalog.has_function_privilege('anon', 'public.api_worker_fixture_heal_record_fingerprint(jsonb)', 'EXECUTE') and not pg_catalog.has_function_privilege('authenticated', 'public.api_worker_fixture_heal_record_fingerprint(jsonb)', 'EXECUTE'), 'anon_authenticated_no_execute_worker_rpcs: public.api_worker_fixture_heal_record_fingerprint(jsonb)');
+select ok(not pg_catalog.has_function_privilege('anon', 'public.api_worker_fixture_heal_record_certification(jsonb)', 'EXECUTE') and not pg_catalog.has_function_privilege('authenticated', 'public.api_worker_fixture_heal_record_certification(jsonb)', 'EXECUTE'), 'anon_authenticated_no_execute_worker_rpcs: public.api_worker_fixture_heal_record_certification(jsonb)');
+select ok(not pg_catalog.has_function_privilege('anon', 'public.api_worker_fixture_heal_record_cleanup_item(jsonb)', 'EXECUTE') and not pg_catalog.has_function_privilege('authenticated', 'public.api_worker_fixture_heal_record_cleanup_item(jsonb)', 'EXECUTE'), 'anon_authenticated_no_execute_worker_rpcs: public.api_worker_fixture_heal_record_cleanup_item(jsonb)');
+select ok(not pg_catalog.has_function_privilege('anon', 'public.api_worker_fixture_heal_record_event(jsonb)', 'EXECUTE') and not pg_catalog.has_function_privilege('authenticated', 'public.api_worker_fixture_heal_record_event(jsonb)', 'EXECUTE'), 'anon_authenticated_no_execute_worker_rpcs: public.api_worker_fixture_heal_record_event(jsonb)');
+select ok(not pg_catalog.has_function_privilege('anon', 'public.api_worker_fixture_heal_active_standing_approval()', 'EXECUTE') and not pg_catalog.has_function_privilege('authenticated', 'public.api_worker_fixture_heal_active_standing_approval()', 'EXECUTE'), 'anon_authenticated_no_execute_worker_rpcs: public.api_worker_fixture_heal_active_standing_approval()');
+reset role;
+select pg_temp.ovd815_as(null, 'anon', 'aal1');
+set local role anon;
+select throws_ok($$select public.api_worker_fixture_heal_active_standing_approval()$$, '42501', null, 'anon_authenticated_no_execute_worker_rpcs: anon aal1 call refused');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal1');
+set local role authenticated;
+select throws_ok($$select public.api_worker_fixture_heal_active_standing_approval()$$, '42501', null, 'anon_authenticated_no_execute_worker_rpcs: authenticated aal1 call refused');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok($$select public.api_worker_fixture_heal_active_standing_approval()$$, '42501', null, 'anon_authenticated_no_execute_worker_rpcs: authenticated aal2 call refused');
+reset role;
+-- Table constraints, with independent failing owner inserts.
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('bad_key','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),'{}'::jsonb,null)$$, '23514', null, 'constraints: underscore provider');
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('Uppercase','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),'{}'::jsonb,null)$$, '23514', null, 'constraints: uppercase provider');
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('synthetic','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),pg_catalog.jsonb_build_object('padding', pg_catalog.repeat('x',65536)),null)$$, '23514', null, 'constraints: payload over 64 KiB');
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('synthetic','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),'[]'::jsonb,null)$$, '23514', null, 'constraints: non-object payload');
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('synthetic','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),'{}'::jsonb,'https://example.test/image')$$, '23514', null, 'constraints: URL screenshot');
+select throws_ok($$insert into private.fixture_heal_fingerprints (provider,page,source,pack_revision,classification,diff_class,skeleton_sha256,payload,screenshot_path) values ('synthetic','login','daily_job','v1','ok','none',pg_catalog.repeat('a',64),'{}'::jsonb,'run/../image')$$, '23514', null, 'constraints: parent path screenshot');
+insert into private.fixture_heal_certifications (id,provider,trigger,pack_revision,golden_part) values ('00000000-0815-4000-8000-000000000100','synthetic','rotation','v1','synthetic-part');
+select throws_ok($$insert into private.fixture_heal_cleanup_items (certification_id,provider,item_ref) values ('00000000-0815-4000-8000-000000000100','synthetic','run//item')$$, '23514', null, 'constraints: doubled slash item_ref');
+-- Worker lifecycle, ledger first; ids retained only in transaction-local tables.
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select lives_ok($$insert into ovd815_ids(label,id) select 'fingerprint', public.api_worker_fixture_heal_record_fingerprint('{"provider":"synthetic","page":"login","source":"daily_job","packRevision":"v1","classification":"ok","diffClass":"none","skeletonSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","payload":{}}'::jsonb)$$, 'worker fingerprint: returns UUID');
+select lives_ok($$insert into ovd815_ids(label,id) select 'certification', public.api_worker_fixture_heal_record_certification('{"provider":"synthetic","trigger":"rotation","packRevision":"v1","goldenPart":"synthetic-part"}')$$, 'worker certification: starts unfinished');
+select lives_ok($$select public.api_worker_fixture_heal_record_certification(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='certification')) || '{"outcome": "pass", "observed": {}, "deviation": {}}'::jsonb)$$, 'worker certification: finishes once');
+select throws_ok($$select public.api_worker_fixture_heal_record_certification(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='certification')) || '{"outcome": "pass"}'::jsonb)$$, 'P0001', 'certification_already_finished', 'worker certification: second finish refused');
+select lives_ok($$select public.api_worker_fixture_heal_record_certification(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='certification')) || '{"cleanupState": "verified"}'::jsonb)$$, 'worker certification: pending to verified');
+select throws_ok($$select public.api_worker_fixture_heal_record_certification(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='certification')) || '{"cleanupState": "orphan"}'::jsonb)$$, '22023', 'invalid_cleanup_state_transition', 'worker certification: verified is terminal');
+select throws_ok($$select public.api_worker_fixture_heal_record_certification(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='certification')) || '{"observed": {}}'::jsonb)$$, '22023', 'invalid_payload', 'worker certification: observations require outcome');
+select throws_ok($$select public.api_worker_fixture_heal_record_certification('{"id":"00000000-0815-4000-8000-000000999999","cleanupState":"verified"}')$$, 'P0002', 'certification_not_found', 'worker certification: unknown id');
+select lives_ok($$insert into ovd815_ids(label,id) select 'cleanup', public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('certificationId',(select id from ovd815_ids where label='certification'),'provider','synthetic','itemRef','run-placeholder'))$$, 'worker cleanup: starts intended before supplier mutation');
+reset role;
+select ok(exists (select 1 from private.fixture_heal_fingerprints where id=(select id from ovd815_ids where label='fingerprint')), 'worker fingerprint: row persisted');
+select ok(exists (select 1 from private.fixture_heal_certifications where id=(select id from ovd815_ids where label='certification') and outcome='pass' and finished_at >= started_at and cleanup_state='verified'), 'worker certification: finish and cleanup persisted');
+select is((select state from private.fixture_heal_cleanup_items where id=(select id from ovd815_ids where label='cleanup')), 'intended'::text, 'worker cleanup: insert persisted intended');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "created", "itemRef": "run-item"}'::jsonb)$$, 'worker cleanup: intended to created changes itemRef');
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "removed"}'::jsonb)$$, 'worker cleanup: first removal');
+reset role;
+select is((select attempts from private.fixture_heal_cleanup_items where id=(select id from ovd815_ids where label='cleanup')), 1, 'worker cleanup: first removal increments attempts');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "removed"}'::jsonb)$$, 'worker cleanup: same state is no-op');
+reset role;
+select is((select attempts from private.fixture_heal_cleanup_items where id=(select id from ovd815_ids where label='cleanup')), 1, 'worker cleanup: no-op preserves attempts');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "orphan"}'::jsonb)$$, 'worker cleanup: removal can become orphan');
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "removed"}'::jsonb)$$, 'worker cleanup: orphan retry removal');
+reset role;
+select is((select attempts from private.fixture_heal_cleanup_items where id=(select id from ovd815_ids where label='cleanup')), 2, 'worker cleanup: second removal increments attempts');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select lives_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "verified"}'::jsonb)$$, 'worker cleanup: verified after removal');
+select throws_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "created"}'::jsonb)$$, '22023', 'invalid_cleanup_transition', 'worker cleanup: verified is terminal');
+select throws_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('id',(select id from ovd815_ids where label='cleanup')) || '{"state": "verified", "itemRef": "rewrite"}'::jsonb)$$, '22023', 'invalid_payload', 'worker cleanup: reference cannot change after creation');
+select throws_ok($$select public.api_worker_fixture_heal_record_cleanup_item(pg_catalog.jsonb_build_object('certificationId',(select id from ovd815_ids where label='certification'),'provider','another','itemRef','mismatch'))$$, '23503', null, 'worker cleanup: composite FK rejects provider mismatch');
+select throws_ok($$select public.api_worker_fixture_heal_record_cleanup_item('{"id":"00000000-0815-4000-8000-000000999999","state":"verified"}')$$, 'P0002', 'cleanup_item_not_found', 'worker cleanup: unknown id');
+select lives_ok($$insert into ovd815_ids(label,event_id) select 'event', public.api_worker_fixture_heal_record_event('{"provider":"synthetic","kind":"cert_planned","reason":"Synthetic certification planned"}')$$, 'worker event: insert succeeds');
+select throws_ok($$select public.api_worker_fixture_heal_record_event('{"provider":"synthetic","kind":"standing_granted","reason":"Synthetic reserved event"}')$$, '42501', 'kind_reserved_for_admin', 'worker event: standing_granted reserved for admin');
+select throws_ok($$select public.api_worker_fixture_heal_record_event('{"provider":"synthetic","kind":"standing_revoked","reason":"Synthetic reserved event"}')$$, '42501', 'kind_reserved_for_admin', 'worker event: standing_revoked reserved for admin');
+select throws_ok($$select public.api_worker_fixture_heal_record_event('{"provider":"synthetic","kind":"orphan","reason":"Synthetic event reason","unknown":true}')$$, '22023', 'invalid_payload', 'worker payload: unknown key refused');
+select throws_ok($$select public.api_worker_fixture_heal_record_event('{"provider":"synthetic","kind":"orphan","reason":"short"}')$$, '23514', null, 'worker event: short reason violates table check');
+select throws_ok($$select public.api_worker_fixture_heal_record_fingerprint('[]')$$, '22023', 'invalid_payload', 'worker payload: fingerprint requires object');
+select throws_ok($$select public.api_worker_fixture_heal_record_certification('[]')$$, '22023', 'invalid_payload', 'worker payload: certification requires object');
+select throws_ok($$select public.api_worker_fixture_heal_record_cleanup_item('[]')$$, '22023', 'invalid_payload', 'worker payload: cleanup_item requires object');
+select throws_ok($$select public.api_worker_fixture_heal_record_event('[]')$$, '22023', 'invalid_payload', 'worker payload: event requires object');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001','authenticated','aal2');
+select throws_ok($$select public.api_worker_fixture_heal_active_standing_approval()$$, '42501', 'service_role_required', 'worker defense in depth: owner with authenticated claim refused');
+-- Admin guards, active uniqueness, audit attribution and one-time revoke.
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal1');
+set local role authenticated;
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, '42501', 'aal2_required', 'admin_grant_requires_aal2: verified platform admin AAL1 refused');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000002', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, '42501', 'platform_admin_required', 'admin_grant_requires_platform_admin: verified non-admin AAL2 refused');
+reset role;
+select pg_temp.ovd815_as(null, 'anon', 'aal1');
+set local role anon;
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, '42501', null, 'admin ACL: anon cannot grant');
+select throws_ok($$select public.api_admin_revoke_fixture_heal_standing_approval('00000000-0815-4000-8000-000000000100','Synthetic revoke reason')$$, '42501', null, 'admin ACL: anon cannot revoke');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, '42501', null, 'admin ACL: service_role cannot grant');
+select throws_ok($$select public.api_admin_revoke_fixture_heal_standing_approval('00000000-0815-4000-8000-000000000100','Synthetic revoke reason')$$, '42501', null, 'admin ACL: service_role cannot revoke');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('')$$, '22023', 'reason_required_min_10_chars', 'admin reason: 0 chars refused');
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('123456789')$$, '22023', 'reason_required_min_10_chars', 'admin reason: 9 chars refused');
+select lives_ok($$insert into ovd815_ids(label,id) select 'approval', public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, 'admin grant: verified AAL2 platform admin succeeds');
+select throws_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, '23505', 'standing_approval_already_active', 'admin grant: second active grant refused');
+reset role;
+select ok(exists (select 1 from private.fixture_heal_standing_approvals where id=(select id from ovd815_ids where label='approval') and revoked_at is null), 'admin grant: active row exists');
+select ok(exists (select 1 from private.fixture_heal_events where ref_id=(select id from ovd815_ids where label='approval') and kind='standing_granted' and provider is null and actor='00000000-0815-4000-8000-000000000001' and actor_kind='admin'), 'admin grant: standing_granted audit attributed to admin');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select is((public.api_worker_fixture_heal_active_standing_approval()->>'id')::uuid, (select id from ovd815_ids where label='approval'), 'worker approval: active grant id returned');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal1');
+set local role authenticated;
+select throws_ok($$select public.api_admin_revoke_fixture_heal_standing_approval((select id from ovd815_ids where label='approval'),'Synthetic standing approval revoked')$$, '42501', 'aal2_required', 'admin_revoke_requires_aal2: verified platform admin AAL1 refused');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000002', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok($$select public.api_admin_revoke_fixture_heal_standing_approval((select id from ovd815_ids where label='approval'),'Synthetic standing approval revoked')$$, '42501', 'platform_admin_required', 'admin revoke: verified non-admin AAL2 refused');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal2');
+set local role authenticated;
+select lives_ok($$select public.api_admin_revoke_fixture_heal_standing_approval((select id from ovd815_ids where label='approval'),'Synthetic standing approval revoked')$$, 'admin revoke: verified AAL2 platform admin succeeds');
+select throws_ok($$select public.api_admin_revoke_fixture_heal_standing_approval((select id from ovd815_ids where label='approval'),'Synthetic standing approval revoked')$$, 'P0002', 'standing_approval_not_active', 'admin revoke: second revoke refused');
+reset role;
+select ok(exists (select 1 from private.fixture_heal_events where ref_id=(select id from ovd815_ids where label='approval') and kind='standing_revoked' and provider is null and actor='00000000-0815-4000-8000-000000000001' and actor_kind='admin'), 'admin revoke: standing_revoked audit attributed to admin');
+reset role;
+select pg_temp.ovd815_as(null, 'service_role', 'aal1');
+set local role service_role;
+select is(public.api_worker_fixture_heal_active_standing_approval(), null::jsonb, 'worker approval: revoked grant is absent');
+reset role;
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000001', 'authenticated', 'aal2');
+set local role authenticated;
+select lives_ok($$select public.api_admin_grant_fixture_heal_standing_approval('Synthetic selector standing approval')$$, 'admin grant: new grant allowed after revoke');
+reset role;
+-- Owner cannot mutate immutable evidence even with RLS bypass.
+select throws_ok($$update private.fixture_heal_events set reason='Synthetic edited reason'$$, '42501', 'fixture_heal_events is append-only', 'events_update_delete_truncate_rejected: update refused as owner');
+select throws_ok($$delete from private.fixture_heal_events$$, '42501', 'fixture_heal_events is append-only', 'events_update_delete_truncate_rejected: delete refused as owner');
+select throws_ok($$truncate private.fixture_heal_events$$, '42501', 'fixture_heal_events is append-only', 'events_update_delete_truncate_rejected: truncate refused as owner');
+select throws_ok($$delete from private.fixture_heal_standing_approvals$$, '42501', 'fixture_heal_standing_approvals is append-only', 'standing evidence: delete refused as owner');
+select throws_ok($$truncate private.fixture_heal_standing_approvals$$, '42501', 'fixture_heal_standing_approvals is append-only', 'standing evidence: truncate refused as owner');
+select throws_ok($$update private.fixture_heal_standing_approvals set revoked_at=null where id=(select id from ovd815_ids where label='approval')$$, '42501', 'fixture_heal_standing_approvals is append-only', 'standing evidence: un-revoke refused as owner');
+select throws_ok($$update private.fixture_heal_standing_approvals set reason='Synthetic edited reason'$$, '42501', 'fixture_heal_standing_approvals is append-only', 'standing evidence: edit reason refused as owner');
+-- Synthetic publication fixtures: each scenario has a separate job/run/part/result/offer.
+-- Prices below are arbitrary synthetic values, never provider quotes.
+insert into public.organizations (id,name,slug)
+values ('00000000-0815-4000-8000-000000000003','OVD815 synthetic organization','ovd815-synthetic');
+insert into public.organization_memberships (organization_id,user_id,role)
+values ('00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','internal_estimator');
+insert into public.pricing_policies (id,organization_id,version,markup_percent,currency_minor_unit)
+values ('00000000-0815-4000-8000-000000000004','00000000-0815-4000-8000-000000000003','ovd815-synthetic',20,0.01);
+
+-- Types: 1 job, 2 part, 3 run, 4 result, 5 offer, 6 direct package, 7 direct option.
+create function pg_temp.ovd815_id(p_scenario integer, p_kind integer)
+returns uuid language sql immutable set search_path = pg_catalog as $$
+  select ('00000000-0815-4000-8000-' || pg_catalog.lpad((1000 + p_scenario * 10 + p_kind)::text,12,'0'))::uuid;
+$$;
+grant execute on function pg_temp.ovd815_id(integer,integer) to authenticated, service_role;
+create function pg_temp.ovd815_seed(p_scenario integer, p_payload jsonb)
+returns void language plpgsql set search_path = '' as $$
+begin
+  insert into public.jobs (id,organization_id,created_by,title,status,active_pricing_policy_id)
+  values (pg_temp.ovd815_id(p_scenario,1),'00000000-0815-4000-8000-000000000003',
+    '00000000-0815-4000-8000-000000000002','Synthetic fixture-heal job','internal_review','00000000-0815-4000-8000-000000000004');
+  insert into public.parts (id,job_id,organization_id,name,normalized_key)
+  values (pg_temp.ovd815_id(p_scenario,2),pg_temp.ovd815_id(p_scenario,1),
+    '00000000-0815-4000-8000-000000000003','Synthetic fixture-heal part','ovd815-synthetic-part');
+  insert into public.quote_runs (id,job_id,organization_id,initiated_by,status)
+  values (pg_temp.ovd815_id(p_scenario,3),pg_temp.ovd815_id(p_scenario,1),
+    '00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','completed');
+  insert into public.vendor_quote_results
+    (id,quote_run_id,part_id,organization_id,vendor,requested_quantity,status,total_price_usd,lead_time_business_days,raw_payload)
+  values (pg_temp.ovd815_id(p_scenario,4),pg_temp.ovd815_id(p_scenario,3),pg_temp.ovd815_id(p_scenario,2),
+    '00000000-0815-4000-8000-000000000003','xometry',1,'instant_quote_received',100,7,p_payload);
+  insert into public.vendor_quote_offers
+    (id,vendor_quote_result_id,organization_id,offer_key,supplier,lane_label,total_price_usd,lead_time_business_days,sort_rank,provenance_status)
+  values (pg_temp.ovd815_id(p_scenario,5),pg_temp.ovd815_id(p_scenario,4),
+    '00000000-0815-4000-8000-000000000003','synthetic-exact','Synthetic','Synthetic exact offer',100,7,0,'trusted_adapter');
+end;
+$$;
+
+select pg_temp.ovd815_seed(1,'{"fixtureHeal":{"v":1,"internal":true}}'::jsonb);
+select pg_temp.ovd815_seed(2,'{"fixtureSanity":{"held":true}}'::jsonb);
+select pg_temp.ovd815_seed(3,'{"fixtureHeal":{"v":9}}'::jsonb);
+select pg_temp.ovd815_seed(4,'{}'::jsonb);
+select pg_temp.ovd815_seed(5,'{"fixtureSanity":{"held":false},"fixtureHeal":{"v":1,"internal":false}}'::jsonb);
+select pg_temp.ovd815_seed(6,'{}'::jsonb);
+select pg_temp.ovd815_seed(7,'{}'::jsonb);
+select pg_temp.ovd815_seed(8,'{}'::jsonb);
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000002','authenticated','aal1');
+set local role authenticated;
+select throws_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(1,1),pg_temp.ovd815_id(1,3),null,true)$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: internal marker');
+select throws_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(2,1),pg_temp.ovd815_id(2,3),null,true)$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: held marker despite instant status');
+select throws_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(3,1),pg_temp.ovd815_id(3,3),null,true)$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: malformed marker fails closed');
+select lives_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(4,1),pg_temp.ovd815_id(4,3),null,true)$$, 'publish_rejects_internal_or_held_result: unmarked publishes');
+select lives_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(5,1),pg_temp.ovd815_id(5,3),null,true)$$, 'publish_rejects_internal_or_held_result: explicit false markers publishes');
+select lives_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(6,1),pg_temp.ovd815_id(6,3),null,true)$$, 'publish_rejects_internal_or_held_result: clean before internal marking publishes');
+select lives_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(7,1),pg_temp.ovd815_id(7,3),null,true)$$, 'publish_rejects_internal_or_held_result: clean before hold marking publishes');
+select lives_ok($$select public.api_publish_quote_package(pg_temp.ovd815_id(8,1),pg_temp.ovd815_id(8,3),null,true)$$, 'publish_rejects_internal_or_held_result: clean selection control publishes');
+reset role;
+select is((select count(*)::integer from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(1,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 1 leaves no package');
+select is((select count(*)::integer from public.published_quote_options o join public.published_quote_packages p on p.id=o.package_id where p.quote_run_id=pg_temp.ovd815_id(1,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 1 leaves no options');
+select is((select count(*)::integer from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(2,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 2 leaves no package');
+select is((select count(*)::integer from public.published_quote_options o join public.published_quote_packages p on p.id=o.package_id where p.quote_run_id=pg_temp.ovd815_id(2,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 2 leaves no options');
+select is((select count(*)::integer from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(3,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 3 leaves no package');
+select is((select count(*)::integer from public.published_quote_options o join public.published_quote_packages p on p.id=o.package_id where p.quote_run_id=pg_temp.ovd815_id(3,3)), 0, 'publish_rejects_internal_or_held_result: failed scenario 3 leaves no options');
+select is((select count(*)::integer from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(4,3))), 1, 'publish_rejects_internal_or_held_result: clean scenario 4 has one option');
+select is((select count(*)::integer from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(5,3))), 1, 'publish_rejects_internal_or_held_result: clean scenario 5 has one option');
+insert into public.published_quote_packages (id,job_id,quote_run_id,organization_id,published_by,pricing_policy_id)
+values (pg_temp.ovd815_id(1,6),pg_temp.ovd815_id(1,1),pg_temp.ovd815_id(1,3),
+  '00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002','00000000-0815-4000-8000-000000000004');
+select throws_ok($$insert into public.published_quote_options (package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version) values (pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',1,'lowest_cost','Synthetic direct option',120,pg_temp.ovd815_id(1,4),null,'ovd815-synthetic')$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: direct owner result-only insert');
+select throws_ok($$insert into public.published_quote_options (package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version) values (pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',1,'lowest_cost','Synthetic direct option',120,null,pg_temp.ovd815_id(1,5),'ovd815-synthetic')$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: direct owner offer-only insert');
+select throws_ok($$insert into public.published_quote_options (package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version) values (pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',1,'lowest_cost','Synthetic direct option',120,pg_temp.ovd815_id(4,4),pg_temp.ovd815_id(1,5),'ovd815-synthetic')$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: direct owner clean result plus internal offer insert');
+select throws_ok($$insert into public.published_quote_options (package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version) values (pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',1,'lowest_cost','Synthetic direct option',120,'00000000-0815-4000-8000-000000999999',null,'ovd815-synthetic')$$, 'P0001', 'fixture_heal_source_unreadable', 'commitment guard: missing result fails closed before FK');
+select throws_ok($$insert into public.published_quote_options (package_id,organization_id,requested_quantity,option_kind,label,published_price_usd,source_vendor_quote_id,source_vendor_quote_offer_id,markup_policy_version) values (pg_temp.ovd815_id(1,6),'00000000-0815-4000-8000-000000000003',1,'lowest_cost','Synthetic direct option',120,null,'00000000-0815-4000-8000-000000999999','ovd815-synthetic')$$, 'P0001', 'fixture_heal_source_unreadable', 'commitment guard: missing offer fails closed before FK');
+-- Mark only after publication, to exercise selection defense in depth.
+update public.vendor_quote_results set raw_payload='{"fixtureHeal":{"v":1,"internal":true}}'
+where id=pg_temp.ovd815_id(6,4);
+update public.vendor_quote_results set raw_payload='{"fixtureSanity":{"held":true}}'
+where id=pg_temp.ovd815_id(7,4);
+select throws_ok($$update public.published_quote_options set source_vendor_quote_id=source_vendor_quote_id where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3))$$, 'P0001', 'fixture_heal_result_not_publishable', 'publish_rejects_internal_or_held_result: unchanged source recheck refuses marked-later result');
+select pg_temp.ovd815_as('00000000-0815-4000-8000-000000000002','authenticated','aal1');
+set local role authenticated;
+select throws_ok($$select public.api_select_quote_option((select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3)),(select id from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3))),null)$$, 'P0001', 'fixture_heal_offer_not_selectable', 'select_quote_option_rejects_internal_offer: internal added after publish');
+select throws_ok($$select public.api_select_quote_option((select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(7,3)),(select id from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(7,3))),null)$$, 'P0001', 'fixture_heal_offer_not_selectable', 'select_quote_option_rejects_internal_offer: hold added after publish');
+select lives_ok($$select public.api_select_quote_option((select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(8,3)),(select id from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(8,3))),null)$$, 'select_quote_option_rejects_internal_offer: clean option selectable');
+select throws_ok($$select public.api_set_job_selected_vendor_quote_offer(pg_temp.ovd815_id(6,1),pg_temp.ovd815_id(6,5))$$, 'P0001', 'fixture_heal_offer_not_selectable', 'select_quote_option_rejects_internal_offer: direct-offer RPC refuses internal source');
+select lives_ok($$select public.api_set_job_selected_vendor_quote_offer(pg_temp.ovd815_id(4,1),pg_temp.ovd815_id(4,5))$$, 'select_quote_option_rejects_internal_offer: direct-offer RPC allows clean source');
+reset role;
+select is((select count(*)::integer from public.client_selections where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3))), 0, 'select_quote_option_rejects_internal_offer: scenario 6 has 0 selection rows');
+select is((select count(*)::integer from public.client_selections where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(7,3))), 0, 'select_quote_option_rejects_internal_offer: scenario 7 has 0 selection rows');
+select is((select count(*)::integer from public.client_selections where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(8,3))), 1, 'select_quote_option_rejects_internal_offer: scenario 8 has 1 selection rows');
+select throws_ok($$insert into public.client_selections (package_id,option_id,organization_id,selected_by) values ((select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3)),(select id from public.published_quote_options where package_id=(select id from public.published_quote_packages where quote_run_id=pg_temp.ovd815_id(6,3))),'00000000-0815-4000-8000-000000000003','00000000-0815-4000-8000-000000000002')$$, 'P0001', 'fixture_heal_offer_not_selectable', 'select_quote_option_rejects_internal_offer: direct owner selection refused');
+select * from finish();
+rollback;
