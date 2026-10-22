@@ -188,6 +188,37 @@ Repair starts from a finite drift result. Compare the smallest scrubbed current-
 
 Selector and terminal-signal changes are proposals until human-reviewed. Confidence never permits automatic application. After review, run the kernel tests, reusable adapter contract, affected provider tests, `provider:check`, and the required worker/full verification lane. Until revalidation passes, changed selectors and observed prices remain untrusted. A provider-interacting retest requires a fresh exact-file live approval.
 
+### Auth probe result `authenticated_dashboard_not_confirmed`
+
+When the hosted Xometry authentication probe (the OVD-419 in-job guard reports `stage=probe_result`, `probeReason=authenticated_dashboard_not_confirmed`) ends this way, treat it as possible site drift and start selector repair. The probe saw none of its login, CAPTCHA, anonymous-page or provider-error signals, and it also missed its dashboard markers. Its signals no longer describe the page, so this is not an expired session. Do not route it to OVD-763 session refresh. The session results the probe does classify (`login_required`, `captcha`, `anonymous_quote_home`) stay on the session path.
+
+On this result only, the probe writes one extra JSON line to stderr in the same job log. The line is keyed `fixtureHealFingerprint` and holds a scrubbed page fingerprint (`worker/src/fixtureHeal/fingerprint.ts`, OVD-796 slice 5). It contains:
+
+- the final URL as a route class, never the URL;
+- landmark counts;
+- heading, button and link labels in which every word outside a fixed UI vocabulary is masked as `*`;
+- test IDs made only of vocabulary words;
+- how many patterns or selectors in each relevant `XOMETRY_LOCATORS` group matched;
+- a hash of those scrubbed labels.
+
+It never contains other page text, input values, URLs, emails, names, quote numbers or other identifiers. The stdout evidence line and the guard's pass/fail rule are unchanged. If capture failed or exceeded its 3-second bound, the line carries `"fingerprint": null`.
+
+To turn that line into the finite drift result, run these read-only steps. The first reads the job log and keeps the file outside the repository. The second runs offline.
+
+```bash
+gcloud logging read 'resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="<execution>"' --project <project> --limit=100 --format=json > "${TMPDIR:-/tmp}/xometry-probe-log.json"
+cd worker && npx tsx src/tools/xometryDriftResult.ts "${TMPDIR:-/tmp}/xometry-probe-log.json" [--baseline <reviewed-fingerprint.json>]
+```
+
+The tool re-validates the line and recomputes the hash, so an edited line cannot carry page text into the result. It prints `fixture-drift-result.v1`, which contains:
+
+- `nextStep: "selector_repair"`;
+- a `driftClass` (`route`, `selector`, `label`, `cosmetic`, `none`, or `unknown` when capture failed);
+- `findings` from a closed list: `route_unexpected`, `confirming_group_unmatched`, `confirming_group_partial`, `terminal_group_partial`, `entry_selectors_unmatched`, `dialog_present`, `page_sparse` and `fingerprint_unavailable`;
+- the `repairTargets`, which are the locator groups to review first.
+
+With a reviewed baseline fingerprint, `driftClass` comes from `diff()`. Without one, it comes from what `classifyXometryAuthProbe` needs to see (`XOMETRY_AUTH_PROBE_DRIFT_REFERENCE`). The repair proposal then follows the rules above. A `terminal_group_partial` finding on the anonymous-page groups suggests the session is logged out and the anonymous page's wording drifted. The fix is still a signal update. Once the probe classifies that page as `anonymous_quote_home`, the normal session path applies. The drift result may go on the repair issue. The log file may not. A scrubbed fingerprint becomes a committed baseline only through OVD-796 slice 5.
+
 ## Three-stage provider lifecycle
 
 ### 1. Define `<provider>`’s evidence-backed quote envelope
