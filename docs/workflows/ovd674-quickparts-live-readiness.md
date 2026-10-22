@@ -128,7 +128,10 @@ session mount.
 
 ## Permissions matrix (OVD-724)
 
-Quickparts paid automated quoting is not matrix-cleared. See
+Quickparts paid automated quoting is matrix-cleared by Blaine Wilson's
+2026-10-21 owner override: quote-only on owner accounts, ToS risk accepted until
+a cease-and-desist, no orders. The `silent` stance is unchanged. No vendor was
+contacted; agents never contact vendors. Runtime gates remain separate. See
 [`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#quickparts)
 and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
 A cease-and-desist uses the OVD-722 kill switch as step one

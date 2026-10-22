@@ -34,13 +34,13 @@ export function buildQuoteStats(quotes: ClientQuoteSelectionOption[]): QuoteStat
       label: "Best price",
       value: bestPrice !== null ? formatCurrency(bestPrice) : "—",
       detail: bestPriceQuote ? [bestPriceQuote.vendorLabel, bestPriceQuote.tier].filter(Boolean).join(" · ") : "",
-      valueClassName: "text-emerald-400",
+      valueClassName: "text-foreground",
     },
     {
       label: "Fastest",
       value: fastestLead !== null ? `${fastestLead} bd` : "—",
       detail: fastestQuote ? [fastestQuote.vendorLabel, fastestQuote.tier].filter(Boolean).join(" · ") : "",
-      valueClassName: "text-blue-400",
+      valueClassName: "text-foreground",
     },
     {
       label: "Options",

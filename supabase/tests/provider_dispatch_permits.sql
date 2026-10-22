@@ -913,6 +913,17 @@ values ('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000
 insert into private.founding_beta_notice_acceptances (organization_id, user_id, policy_revision, terms_path, privacy_path)
 values ('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000045a2',
   'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy');
+-- OVD-766 E: org membership alone is read-only; the colleague edits the job
+-- as an explicit editor on a project that contains it.
+insert into public.projects (id, organization_id, owner_user_id, name)
+values ('00000000-0000-4000-8000-0000000045a3', '00000000-0000-4000-8000-000000004582',
+  '00000000-0000-4000-8000-000000004581', 'OVD-458 colleague project');
+insert into public.project_memberships (project_id, user_id, role) values
+  ('00000000-0000-4000-8000-0000000045a3', '00000000-0000-4000-8000-000000004581', 'owner'),
+  ('00000000-0000-4000-8000-0000000045a3', '00000000-0000-4000-8000-0000000045a2', 'editor');
+insert into public.project_jobs (project_id, job_id, created_by)
+values ('00000000-0000-4000-8000-0000000045a3', '00000000-0000-4000-8000-000000004583',
+  '00000000-0000-4000-8000-000000004581');
 select is(private.resolve_founding_beta_access_state('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000045a2') ->> 'state', 'eligible',
   'fixture: the colleague is an eligible Founding Beta member');
 set local role authenticated;

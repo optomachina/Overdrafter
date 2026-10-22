@@ -86,6 +86,9 @@ export const GATE_CODE_FILES = Object.freeze([
   PLANNED_WORKFLOW_PATH,
   "scripts/jev-pr-screen.mjs",
   "scripts/validate-agent-contract.mjs",
+  "scripts/validate-pr-body.mjs",
+  "scripts/ephemeral-db-apply.mjs",
+  "scripts/run-supabase-policy-tests.mjs",
   "scripts/fixtures/sensitive-paths/paths.json",
 ]);
 /** Error code on a BaseRefError: an explicitly requested base ref cannot be read. */

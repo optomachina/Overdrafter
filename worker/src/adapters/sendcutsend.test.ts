@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
+import { reportSupplierCartCleanup } from "../tools/liveHarnessSupplierCleanup";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import {
   isApprovedSendCutSendOrigin,
@@ -507,7 +508,7 @@ describe("SendCutSend bounded pure error evidence", () => {
 describe("SendCutSend finite manifest-bound evaluation", () => {
   const liveConfig = { workerMode: "live" } as WorkerConfig;
 
-  it("terminates an eligible authorized envelope without provider interaction or an offer", async () => {
+  it("terminates an eligible authorized envelope without provider interaction, an offer, or a cleanup warning", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const { authorizedInput } = await authorizedAdapterInput();
@@ -537,6 +538,18 @@ describe("SendCutSend finite manifest-bound evaluation", () => {
       },
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.rawPayload).not.toHaveProperty("providerMutationPossible");
+    const log = vi.fn();
+    const cleanup = reportSupplierCartCleanup({
+      vendor: "sendcutsend",
+      quantity: authorizedInput.requestedQuantity,
+      payload: result.rawPayload,
+    }, log);
+    expect(cleanup).toMatchObject({ status: "not_needed", manualRemovalRequired: false });
+    const [line, warn] = log.mock.calls[0]!;
+    expect(warn).toBe(false);
+    expect(JSON.parse(line)).toMatchObject({ level: "info" });
+    expect(JSON.parse(line)).not.toHaveProperty("action");
   });
 
   it("returns finite manual follow-up when the local envelope denies geometry", async () => {

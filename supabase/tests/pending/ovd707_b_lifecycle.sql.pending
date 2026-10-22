@@ -100,7 +100,7 @@ create temporary table ovd707b_seeded on commit drop as
 select set_eq(
   $$ select slug from ovd707b_seeded $$,
   array['fictiv', 'quickparts', 'weerg', 'xometry'],
-  'the seed holds exactly the four liveAdapter: true registry providers');
+  'the seed holds exactly the four liveAdapter: true registry providers; default-off OSH Cut is absent');
 select is_empty(
   $$ select slug from ovd707b_seeded where admission -> 'liveAdapter' is distinct from 'true'::jsonb $$,
   'no non-live registry entry is seeded');

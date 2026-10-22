@@ -6,6 +6,12 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 
 describe("loadConfig", () => {
+  it("has no OSH Cut daily quote cap setting (caps come only from the OVD-829 admin gate)", () => {
+    const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
+    expect(loadConfig(base)).not.toHaveProperty("oshcutDailyQuoteCap");
+    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "5" })).not.toHaveProperty("oshcutDailyQuoteCap");
+  });
+
   it("applies defaults for optional worker settings", () => {
     const config = loadConfig({
       SUPABASE_URL: "https://example.supabase.co",
@@ -45,6 +51,7 @@ describe("loadConfig", () => {
       openRouterApiKey: null,
       workerBuildVersion: "dev-local",
       drawingExtractionModel: "gpt-5.4",
+      titleBlockApprovalEnabled: false,
       drawingExtractionEnableModelFallback: false,
       drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     });
@@ -178,6 +185,7 @@ describe("loadConfig", () => {
       openRouterApiKey: "test-openrouter-key",
       workerBuildVersion: "sha-123",
       drawingExtractionModel: "gpt-5.4",
+      titleBlockApprovalEnabled: false,
       drawingExtractionEnableModelFallback: true,
       drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
     });

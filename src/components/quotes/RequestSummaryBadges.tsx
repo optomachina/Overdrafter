@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { Badge } from "@/components/ui/badge";
 import {
   formatRequestedByDateLabel,
@@ -42,23 +43,23 @@ export function RequestSummaryBadges({
       {normalizedServiceKinds.map((serviceKind) => (
         <Badge
           key={serviceKind}
-          className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+          className={STATUS_TONE.badge}
         >
           {formatRequestedServiceKindLabel(serviceKind)}
         </Badge>
       ))}
       {showQuoteFields && quantity ? (
-        <Badge className="border border-border bg-accent text-foreground/80">
+        <Badge className={STATUS_TONE.badge}>
           Qty {quantity}
         </Badge>
       ) : null}
       {quoteQuantityLabel ? (
-        <Badge className="border border-sky-400/25 bg-sky-500/10 text-sky-200">
+        <Badge className={STATUS_TONE.badge}>
           Quote qty {quoteQuantityLabel}
         </Badge>
       ) : null}
       {needByLabel ? (
-        <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-200">
+        <Badge className={STATUS_TONE.badge}>
           Need by {needByLabel}
         </Badge>
       ) : null}

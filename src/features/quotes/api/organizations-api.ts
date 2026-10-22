@@ -8,6 +8,19 @@ export type SourcingDestination = {
   state: "inferred" | "confirmed";
 };
 
+/** Matches private.sourcing_address_complete; partial addresses may still be saved. */
+export function missingSourcingAddressFields(address: SourcingDestination["address"]): string[] {
+  const required: [keyof SourcingDestination["address"], string][] = [
+    ["street", "street"], ["city", "city"], ["postalCode", "ZIP"], ["country", "country"],
+  ];
+  if (address.country === "US") required.push(["region", "state"]);
+  return required.filter(([field]) => !address[field]?.trim()).map(([, label]) => label);
+}
+
+export function isSourcingAddressComplete(address: SourcingDestination["address"]): boolean {
+  return missingSourcingAddressFields(address).length === 0;
+}
+
 export async function fetchSourcingDestination(organizationId: string): Promise<SourcingDestination> {
   const { data, error } = await callUntypedRpc("api_get_sourcing_destination", { p_organization_id: organizationId });
   return ensureData(data, error) as SourcingDestination;
@@ -18,7 +31,13 @@ export async function confirmSourcingDestination(organizationId: string, address
     p_organization_id: organizationId,
     p_expected_address: address,
   });
-  if (error) throw new Error("The shipping address changed or is incomplete. Reload and confirm the current address.");
+  if (error?.message === "sourcing_destination_incomplete") {
+    throw new Error("The shipping address is incomplete. Add street, city, ZIP or postal code, country and state for US addresses before confirming.");
+  }
+  if (error?.message === "sourcing_destination_changed") {
+    throw new Error("The shipping address changed. Reload and confirm the current address.");
+  }
+  if (error) throw new Error("Could not confirm the shipping address. Please try again.");
 }
 
 export type OrganizationAddressPatch = Partial<

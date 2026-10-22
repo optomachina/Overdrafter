@@ -627,7 +627,7 @@ export async function main(): Promise<void> {
     }
 
     // Step 6: inferDrawingSignalsFromPdf
-    const drawingSignals = inferDrawingSignalsFromPdf({ baseName, pdfText });
+    const drawingSignals = inferDrawingSignalsFromPdf({ baseName, pdfText, titleBlockApprovalEnabled: process.env.DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL === "1" });
 
     // Step 7: Print parser output
     if (!args.json) {

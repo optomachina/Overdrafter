@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useEffect, useMemo, useState } from "react";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
@@ -28,6 +29,11 @@ import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagno
 import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/quotes/utils";
 
 const refreshedQuoteMessage = "This option needs a refreshed quote before it can be selected. Please contact the estimating team.";
+
+function getSelectionButtonLabel(isSelected: boolean, hasSourceOffer: boolean, hasSelection: boolean) {
+  if (isSelected) return hasSourceOffer ? "Save note" : "Selected";
+  return hasSelection ? "Select another option" : "Select this option";
+}
 
 const ClientPackage = () => {
   const navigate = useNavigate();
@@ -167,7 +173,7 @@ const ClientPackage = () => {
   };
 
   const selectMutation = useMutation({
-    mutationFn: (optionId: string) => {
+    mutationFn: ({ optionId }: { optionId: string; noteOnly: boolean }) => {
       const option = packageQuery.data?.options.find((candidate) => candidate.id === optionId);
       if (!option?.source_vendor_quote_offer_id) {
         throw new Error(refreshedQuoteMessage);
@@ -176,13 +182,16 @@ const ClientPackage = () => {
       return selectQuoteOption({
         packageId,
         optionId,
-        note: selectionNote,
+        note: selectionNote.trim(),
       });
     },
-    onSuccess: async () => {
-      toast.success("Quote option selected.");
+    onSuccess: async (_data, variables) => {
+      toast.success(variables.noteOnly ? "Decision note saved." : "Quote option selected.");
       await queryClient.invalidateQueries({ queryKey: ["client-package", packageId] });
-      await queryClient.invalidateQueries({ queryKey: ["packages"] });
+      await Promise.all([
+        "packages", "client-part-summaries", "part-review", "project-review-workspace",
+        "part-detail", "client-quote-workspace",
+      ].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to select quote option.");
@@ -275,35 +284,35 @@ const ClientPackage = () => {
 
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-accent md:grid-cols-4">
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Published</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Published</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {new Date(data.package.published_at).toLocaleDateString()}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Options</p>
-          <p className="mt-1 text-xl font-bold tracking-tight text-blue-400">
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Options</p>
+          <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {data.options.length}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Best Price</p>
-          <p className="mt-1 text-xl font-bold tracking-tight text-emerald-400">
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Best Price</p>
+          <p className={`mt-1 text-xl font-bold tracking-tight ${STATUS_TONE.text}`}>
             {data.options.length > 0
               ? formatCurrency(Math.min(...data.options.map((o) => o.published_price_usd)))
               : "—"}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Status</p>
           <div className="mt-1">
             {latestSelection ? (
-              <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
+              <div className={`inline-flex items-center gap-1.5 text-sm font-semibold ${STATUS_TONE.text}`}>
                 <CheckCircle2 className="h-4 w-4" />
                 Selected
               </div>
             ) : (
-              <p className="text-sm font-semibold text-amber-400">Awaiting selection</p>
+              <p className={`text-sm font-semibold ${STATUS_TONE.text}`}>Awaiting selection</p>
             )}
           </div>
         </div>
@@ -341,50 +350,56 @@ const ClientPackage = () => {
                     </p>
                   </div>
                 ) : null}
-                {group.items.map((option) => (
-                  <Card key={option.id} className="border-border bg-muted">
-                    <CardHeader className="flex flex-row items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap gap-2">
-                          <Badge className="border border-primary/20 bg-primary/10 text-primary">
-                            {optionLabelForKind(option.option_kind)}
-                          </Badge>
-                          <Badge className="border border-border bg-accent text-foreground/80">
-                            Qty {option.requested_quantity}
-                          </Badge>
+                {group.items.map((option) => {
+                  const isSelected = option.id === latestSelection?.option_id;
+                  return (
+                    <Card key={option.id} className={isSelected ? "border-primary bg-muted" : "border-border bg-muted"}>
+                      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+                        <div>
+                          <div className="flex flex-wrap gap-2">
+                            {isSelected ? <span className="font-mono text-xs uppercase text-primary">Selected</span> : null}
+                            <Badge className="border border-border bg-accent text-foreground">
+                              {optionLabelForKind(option.option_kind)}
+                            </Badge>
+                            <Badge className="border border-border bg-accent text-foreground">
+                              Qty {option.requested_quantity}
+                            </Badge>
+                          </div>
+                          <CardTitle className="mt-4 break-words text-2xl">{option.label}</CardTitle>
                         </div>
-                        <CardTitle className="mt-4 text-2xl">{option.label}</CardTitle>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-3xl font-semibold">{formatCurrency(option.published_price_usd)}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{formatLeadTime(option.lead_time_business_days)}</p>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        {option.comparison_summary || "Curated from the internal vendor comparison."}
-                      </p>
-                      {!option.source_vendor_quote_offer_id ? (
-                        <p id={`quote-refresh-${option.id}`} className="text-sm text-muted-foreground">
-                          {refreshedQuoteMessage}
+                        <div className="sm:text-right">
+                          <p className="text-3xl font-semibold">{formatCurrency(option.published_price_usd)}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{formatLeadTime(option.lead_time_business_days)}</p>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          {option.comparison_summary || "Curated from the internal vendor comparison."}
                         </p>
-                      ) : null}
-                      <Button
-                        className="w-full rounded-full"
-                        onClick={() => selectMutation.mutate(option.id)}
-                        disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending}
-                        aria-describedby={!option.source_vendor_quote_offer_id ? `quote-refresh-${option.id}` : undefined}
-                      >
-                        {selectMutation.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                        )}
-                        Select this option
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
+                        {!option.source_vendor_quote_offer_id ? (
+                          <p id={`quote-refresh-${option.id}`} className="text-sm text-muted-foreground">
+                            {refreshedQuoteMessage}
+                          </p>
+                        ) : null}
+                        <Button
+                          className="w-full rounded-full"
+                          onClick={() => selectMutation.mutate({ optionId: option.id, noteOnly: isSelected })}
+                          disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending ||
+                            (isSelected && (!selectionNote.trim() || selectionNote.trim() === (latestSelection?.note ?? "").trim()))}
+                          aria-pressed={isSelected}
+                          aria-describedby={!option.source_vendor_quote_offer_id ? `quote-refresh-${option.id}` : undefined}
+                        >
+                          {selectMutation.isPending ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                          )}
+                          {getSelectionButtonLabel(isSelected, Boolean(option.source_vendor_quote_offer_id), Boolean(latestSelection))}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             ))
           )}
@@ -397,6 +412,7 @@ const ClientPackage = () => {
             </CardHeader>
             <CardContent>
               <Textarea
+                aria-label="Decision notes"
                 value={selectionNote}
                 onChange={(event) => setSelectionNote(event.target.value)}
                 disabled={!isVerifiedAuth}
@@ -407,11 +423,16 @@ const ClientPackage = () => {
           </Card>
 
           {latestSelection ? (
-            <Card className="border-emerald-500/20 bg-emerald-500/10">
+            <Card className="border-border bg-muted">
               <CardHeader>
-                <CardTitle className="text-emerald-200">Selection received</CardTitle>
+                <CardTitle className={STATUS_TONE.text}>Selection received</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm text-emerald-100">
+              <CardContent className={`space-y-2 text-sm ${STATUS_TONE.text}`}>
+                {selectedOption ? (
+                  <p className="font-mono">
+                    {selectedOption.label} · {formatCurrency(selectedOption.published_price_usd)} · Qty {selectedOption.requested_quantity}
+                  </p>
+                ) : null}
                 <p>Submitted on {new Date(latestSelection.created_at).toLocaleString()}</p>
                 <p>{latestSelection.note || "No note was provided with the selection."}</p>
               </CardContent>

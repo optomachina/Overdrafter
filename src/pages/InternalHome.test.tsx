@@ -293,6 +293,26 @@ describe("InternalHome", () => {
     expect(screen.queryByText("Team Access")).not.toBeInTheDocument();
   });
 
+  it("links estimators to their jobs from the dashboard", async () => {
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: makeMembership("internal_estimator"),
+      isVerifiedAuth: true,
+      signOut: signOutMock,
+    });
+    fetchJobsByOrganizationMock.mockResolvedValue([
+      { id: "job-1", title: "FX-101 bracket", status: "needs_review" },
+    ]);
+
+    renderInternalHome();
+
+    expect(await screen.findByRole("link", { name: "FX-101 bracket" })).toHaveAttribute(
+      "href",
+      "/internal/jobs/job-1",
+    );
+    expect(fetchJobsByOrganizationMock).toHaveBeenCalledWith("org-1");
+  });
+
   it("shows the God Mode nav button for platform admins", async () => {
     useAppSessionMock.mockReturnValue({
       user: makeUser(),

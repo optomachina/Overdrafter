@@ -64,13 +64,15 @@ switches, revoke it with `private.revoke_provider_dispatch_permit`.
 
 - **No written consent recorded.** Fictiv's terms require prior written
   consent for applications that interact with its services. The provider
-  permissions matrix keeps `enabled_for_paid_automation` false for Fictiv
-  until that consent is recorded. Outreach is a draft only.
+  permissions matrix records Blaine Wilson's 2026-10-21 owner override for
+  quote-only automated quoting on his own accounts: ToS risk accepted until a
+  cease-and-desist, no orders. The `prior-consent` stance is unchanged. No vendor
+  was contacted; agents never contact vendors. Outreach is a draft only.
 - **Admission is not recorded.** The admission policy for `fictiv` stays
   `disabled`. The revision template below is not applied, and the inputs in
   the next section do not exist yet.
-- **No session captured.** No Fictiv account is approved for automated
-  quote-only use and no storage state exists, so no live attempt has run.
+- **No session captured.** The owner cleared quote-only use on his own
+  accounts on 2026-10-21, but no storage state exists and no live attempt has run.
 - **Egress is undecided.** Shared Xometry egress or a separate Fictiv service
   is Blaine's choice. A separate service needs new infrastructure outside the
   governed tuple.
@@ -146,7 +148,10 @@ Then revoke any issued permits.
 
 ## Permissions matrix (OVD-724)
 
-Fictiv paid automated quoting is not cleared until written consent is recorded.
+Fictiv paid automated quoting is matrix-cleared by Blaine Wilson's 2026-10-21
+owner override: quote-only on owner accounts, ToS risk accepted until a
+cease-and-desist, no orders. The `prior-consent` stance remains truthful; this
+is not vendor consent or runtime enablement.
 See the provider permissions matrix
 ([`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#fictiv))
 and the Fictiv acceptance row in
