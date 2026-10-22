@@ -17,12 +17,12 @@ test.describe("quote comparison sourcing scope", () => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(PART_ROUTE);
       const comparison = page.getByRole("region", { name: "Quote comparison", exact: true });
-      const emptyHeading = comparison.getByRole("heading", { name: "No US-sourced options", exact: true });
+      const emptyHeading = comparison.getByText("No US-sourced options", { exact: true });
       const review = page.getByRole("button", { name: "Review order", exact: true });
       const reason = page.locator("#review-order-disabled-reason");
       const rows = comparison.locator("tr[data-quote-key]");
       await expect(emptyHeading).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("heading", { name: "No quote options yet", exact: true })).toHaveCount(0);
+      await expect(page.getByText("No quote options yet", { exact: true })).toHaveCount(0);
       await expect(comparison.getByRole("button", { name: "US-only sourcing", exact: true })).toHaveAttribute("aria-pressed", "true");
       await expect(rows).toHaveCount(0);
       await expect(review).toBeDisabled();
