@@ -151,10 +151,36 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
     "ws-surface-base", "ws-surface-card", "ws-surface-inset", "ws-surface-raised",
     "ws-surface-shell", "ws-surface-deep", "ws-surface-overlay", "ws-accent-surface",
   ];
-  const surfaceToken = /^--(?:bg|surface(?:-2|-elevated)?|background|card|popover|secondary|muted|accent|input-background|sidebar|sidebar-accent|ws-surface-[\w-]+|ws-accent-surface)$/;
+  // Match whole families, including future suffixes and workspace aliases.
+  // Never exempt foreground/border/etc. by suffix: each exception needs review.
+  const surfaceToken = /^--(?:ws-)?(?:bg|surface|background|card|popover|secondary|muted|accent|input-background|sidebar|base|inset|raised|shell|deep|overlay)(?:-[\w-]+)?$/;
+  const nonSurfaceTokens: Record<string, string> = {
+    "card-foreground": "Card text ink.",
+    "popover-foreground": "Popover text ink.",
+    "secondary-foreground": "Secondary text ink.",
+    "muted-foreground": "Muted text ink being measured.",
+    "muted-ink": "Primitive graphite text ink.",
+    "accent-foreground": "Accent text ink.",
+    "accent-red": "Emphasis ink and destructive color, not a muted-text surface.",
+    "ws-accent-border": "Workspace accent border color.",
+    "sidebar-foreground": "Sidebar text ink.",
+    "sidebar-primary": "Sidebar primary emphasis color, paired with its own foreground rather than muted text.",
+    "sidebar-primary-foreground": "Sidebar primary text ink.",
+    "sidebar-accent-foreground": "Sidebar accent text ink.",
+    "sidebar-border": "Sidebar border color.",
+    "sidebar-ring": "Sidebar focus ring color.",
+  };
+  const definedTokens = new Set(Object.values(themes).flatMap((variables) => Object.keys(variables)));
+  for (const [token, reason] of Object.entries(nonSurfaceTokens)) {
+    expect(definedTokens, `--${token}: stale non-surface exception; remove it from nonSurfaceTokens`).toContain(`--${token}`);
+    expect(surfaceToken.test(`--${token}`), `--${token}: exception must belong to a guarded family`).toBe(true);
+    expect(mutedTextSurfaces, `--${token}: covered surface cannot also be a non-surface exception`).not.toContain(token);
+    expect(reason.trim().length).toBeGreaterThan(10);
+  }
   for (const [theme, variables] of Object.entries(themes)) {
     for (const token of Object.keys(variables).filter((name) => surfaceToken.test(name))) {
-      expect(mutedTextSurfaces, `${theme} ${token}: add surface to muted text contrast coverage`).toContain(token.slice(2));
+      if (Object.prototype.hasOwnProperty.call(nonSurfaceTokens, token.slice(2))) continue;
+      expect(mutedTextSurfaces, `${theme} ${token}: add surface to muted text contrast coverage (mutedTextSurfaces), or document a reviewed non-surface exception in nonSurfaceTokens`).toContain(token.slice(2));
     }
   }
   for (const surface of mutedTextSurfaces) {
