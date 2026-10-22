@@ -98,6 +98,8 @@ test.describe("OVD-1032 both-theme rendered contrast", () => {
   test.use({ storageState: "playwright/.auth/client.json", viewport: { width: 1280, height: 900 } });
 
   test("keeps review, handoff, package and notification text readable in both themes", async ({ page }, testInfo) => {
+    // Two themes × five pages, each waiting up to 30 s for data; the 30 s default timed out on CI.
+    test.setTimeout(120_000);
     for (const theme of ["light", "dark"] as const) {
       await page.goto(PART_ROUTE);
       await page.evaluate((value) => localStorage.setItem("theme", value), theme);
