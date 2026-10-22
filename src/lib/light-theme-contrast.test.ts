@@ -88,15 +88,23 @@ describe("source-wide light-theme contrast", () => {
     expect(unsafe('className="bg-card text-destructive"')).toBe(true);
     expect(unsafe('className="text-destructive dark:text-foreground"')).toBe(true);
     expect(unsafe('className="text-destructive dark:text-red-300"')).toBe(false);
+    // The shared error tone itself must keep an error colour in dark, not fall back to body text.
+    expect(unsafe(`className="${STATUS_TONE.error}"`), "STATUS_TONE.error needs a dark error colour").toBe(false);
+    const legacy = legacyDestructive as Record<string, string[]>;
+    for (const file of Object.keys(legacy)) {
+      expect(files, `legacy fixture names a file that is not scanned: ${file}`).toContain(file);
+    }
     for (const file of files.filter((file) => file !== "components/quotes/status-tone.ts")) {
       // Exact pre-PR lines are grandfathered; new copies or changed lines fail.
       // Do not repair unrelated main failures in this contrast PR.
-      const remaining = [...((legacyDestructive as Record<string, string[]>)[file] ?? [])];
+      const remaining = [...(legacy[file] ?? [])];
       for (const line of readFileSync(path.join(srcRoot, file), "utf8").split("\n").filter(unsafe)) {
         const index = remaining.indexOf(line.trim());
         expect(index, `${file}: route error through STATUS_TONE.error: ${line.trim()}`).toBeGreaterThanOrEqual(0);
         if (index >= 0) remaining.splice(index, 1);
       }
+      // A fixed legacy line must also leave the fixture, so the list can only shrink.
+      expect(remaining, `${file}: stale legacy entries; delete them from legacy-destructive-classes.json`).toEqual([]);
     }
     for (const file of ["components/chat/WorkspaceAccountMenu.tsx", "pages/ClientProject.tsx", "components/quotes/StripePaymentPanel.tsx"]) {
       expect(readFileSync(path.join(srcRoot, file), "utf8")).not.toMatch(/\btext-destructive\b/);

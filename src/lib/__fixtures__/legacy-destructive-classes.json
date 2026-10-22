@@ -31,9 +31,6 @@
   "components/auth/StepUpNoticeBanner.tsx": [
     "<p className=\"text-sm text-destructive\">{notice.message}</p>"
   ],
-  "components/chat/WorkspaceAccountMenu.tsx": [
-    "{sourcingError && <p role=\"alert\" className=\"mt-2 text-xs text-destructive dark:text-foreground\">{sourcingError}</p>}"
-  ],
   "components/chat/WorkspaceSidebar.tsx": [
     "className=\"text-destructive focus:text-destructive\""
   ],
