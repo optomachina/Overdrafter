@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types.js";
+import { FIXTURE_HEAL_OPERATOR, type FixtureHealBrakePort, type FixtureHealEngageOutcome } from "./brake.js";
 import type { SupplierPauseSwitch } from "./pause.js";
 import {
   checkQuote,
@@ -55,6 +56,7 @@ export type FixtureSanityGateResult = {
   verdict: SanityVerdict;
   /** True when this check paused the supplier. */
   paused: boolean;
+  brake: FixtureHealEngageOutcome | null;
 };
 
 export type FixtureSanityGate = (
@@ -252,14 +254,15 @@ export function failClosedSanityOutput(
     pause: false,
   };
   const applied = applySanityVerdict(output, verdict, context, checkedAt);
-  if (!applied.held || verdict.verdict !== "hold") return { ...applied, verdict, paused: false };
+  if (!applied.held || verdict.verdict !== "hold") return { ...applied, verdict, paused: false, brake: null };
   const fixtureSanity = { ...record(applied.output.rawPayload.fixtureSanity), holdReason: "fixture_sanity_failed" };
-  return { output: { ...applied.output, rawPayload: { ...applied.output.rawPayload, fixtureSanity } }, held: true, verdict, paused: false };
+  return { output: { ...applied.output, rawPayload: { ...applied.output.rawPayload, fixtureSanity } }, held: true, verdict, paused: false, brake: null };
 }
 
 export function createFixtureSanityGate(deps: {
   history: SanityHistoryReader;
   pause: SupplierPauseSwitch;
+  brake?: FixtureHealBrakePort;
   now?: () => number;
 }): FixtureSanityGate {
   const now = deps.now ?? (() => Date.now());
@@ -279,20 +282,29 @@ export function createFixtureSanityGate(deps: {
           .catch(() => ({ available: false as const, reason: "history_read_failed" }))
       : { available: true as const, history: [], peers: [] };
     const verdict = checkQuote(input, history);
+    let brake: FixtureHealEngageOutcome | null = null;
     if (verdict.pause) {
-      deps.pause.pause({
+      const outcome = await deps.pause.pause({
+        brake: deps.brake,
         provider: context.provider,
         codes: verdict.findings.filter((entry) => entry.class === "hard" || entry.class === "outlier").map((entry) => entry.code),
         runId: context.quoteRunId,
         vendorQuoteResultId: context.vendorQuoteResultId,
         nowMs,
       });
+      brake = outcome.durable;
     }
     // A supplier paused after this lane was admitted (another lane found the
     // drift while this one was quoting) shows nothing either: only internal
     // test quotes run on a paused supplier.
     const supplierPaused = input.priced && !context.internalTestQuote && deps.pause.isPaused(context.provider);
     const applied = applySanityVerdict(output, verdict, context, new Date(nowMs).toISOString(), supplierPaused);
-    return { ...applied, verdict, paused: verdict.pause };
+    if (brake) {
+      applied.output.rawPayload.fixtureSanity = {
+        ...record(applied.output.rawPayload.fixtureSanity),
+        brake: { operator: FIXTURE_HEAL_OPERATOR, ...brake },
+      };
+    }
+    return { ...applied, verdict, paused: verdict.pause, brake };
   };
 }

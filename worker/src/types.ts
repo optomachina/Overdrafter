@@ -578,6 +578,13 @@ export type WorkerConfig = {
    * process (see ProviderDispatchCapMode).
    */
   providerDurableDispatchCap?: "off" | "on";
+  /**
+   * OVD-817: the fixture-heal certification-permit exception (OVD-796 §9).
+   * "on" lets a verified internal test quote pass the worker's kill-switch
+   * reads only while fixture-heal itself holds the provider switch. Off by
+   * default; the server-side gates still refuse until reviewed SQL honours it.
+   */
+  fixtureHealCertPermit?: "off" | "on";
   titleBlockApprovalEnabled: boolean;
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;

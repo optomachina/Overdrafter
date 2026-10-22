@@ -88,6 +88,9 @@ const schema = z.object({
   WORKER_PROVIDER_SESSION_NAMESPACE_KEY: optionalSetting(),
   // OVD-829: on only after docs/migration-drafts/ovd-828-s1.sql is applied.
   WORKER_PROVIDER_DURABLE_DISPATCH_CAP: z.enum(["off", "on"]).default("off"),
+  // OVD-817: the fixture-heal certification-permit exception (OVD-796 §9).
+  // Off unless Blaine explicitly turns it on; see fixtureHeal/certificationPermit.ts.
+  WORKER_FIXTURE_HEAL_CERT_PERMIT: z.enum(["off", "on"]).default("off"),
   DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL: z.string().optional(),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
   DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: optionalSetting(),
@@ -278,6 +281,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     providerSessionLease: parsed.WORKER_PROVIDER_SESSION_LEASE,
     providerSessionNamespaceKey,
     providerDurableDispatchCap: parsed.WORKER_PROVIDER_DURABLE_DISPATCH_CAP,
+    fixtureHealCertPermit: parsed.WORKER_FIXTURE_HEAL_CERT_PERMIT,
     titleBlockApprovalEnabled: parsed.DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL === "1",
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(

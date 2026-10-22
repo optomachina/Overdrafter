@@ -65,6 +65,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "true" })).toThrow();
   });
 
+  it("keeps the OVD-817 certification-permit exception off unless explicitly set, and rejects unknown values", () => {
+    const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
+    expect(loadConfig(base).fixtureHealCertPermit).toBe("off");
+    expect(loadConfig({ ...base, WORKER_FIXTURE_HEAL_CERT_PERMIT: "on" }).fixtureHealCertPermit).toBe("on");
+    expect(() => loadConfig({ ...base, WORKER_FIXTURE_HEAL_CERT_PERMIT: "true" })).toThrow();
+  });
+
   it("configures a local profile directory for mutually exclusive snapshot mode", () => {
     const config = loadConfig({
       SUPABASE_URL: "https://example.supabase.co",

@@ -131,6 +131,7 @@ import {
   providerKillSwitchSweepWarnings,
   providerDispatchCapMode,
   supabaseProviderSettingsPort,
+  supabaseProviderKillSwitchReader,
   sweepProviderDisabledTasks,
 } from "./providerSettings.js";
 import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
@@ -147,6 +148,8 @@ import {
   type FixtureSanityGate,
   type FixtureSanityGateResult,
 } from "./fixtureHeal/gate.js";
+import { supabaseFixtureHealBrakePort } from "./fixtureHeal/brake.js";
+import { createCertificationPermitKillSwitchReader } from "./fixtureHeal/certificationPermit.js";
 import { createSupplierPauseSwitch, internalTestQuotePolicyFromEnv, isInternalTestQuote } from "./fixtureHeal/pause.js";
 import { createSupabaseSanityHistoryReader } from "./fixtureHeal/sanityHistory.js";
 import {
@@ -164,14 +167,14 @@ import { createSupabaseProviderTaskLeasePort } from "./providerTaskLeasePort.js"
 const providerAuthorizationConsumer = createProviderAuthorizationConsumer();
 const providerDaySwitch = createProviderDaySwitch();
 /**
- * OVD-813: process-local drift pause (no timer release; durable engage is
- * OVD-771 / slice 2). Exported so tests and the later re-verify/heal flow can
+ * OVD-817: durable engage through OVD-771, with a process-local fallback
+ * and no timer release. Exported so tests and the later re-verify/heal flow can
  * read and release it.
  */
 export const fixtureHealSupplierPause = createSupplierPauseSwitch();
 
 function fixtureSanityGateFor(supabase: SupabaseClient): FixtureSanityGate {
-  return createFixtureSanityGate({ history: createSupabaseSanityHistoryReader(supabase), pause: fixtureHealSupplierPause });
+  return createFixtureSanityGate({ history: createSupabaseSanityHistoryReader(supabase), pause: fixtureHealSupplierPause, brake: supabaseFixtureHealBrakePort(supabase) });
 }
 
 /** Package identity of the staged files, matching `providerPackageId` on the generic route; null without a CAD digest. */
@@ -1240,12 +1243,25 @@ export async function handleVendorQuoteTask(
 
   const retryCount = retryCountForAttempts(task.attempts);
 
+  const internalTestQuote = isInternalTestQuote(
+    { marker: task.payload.fixtureHeal, organizationId: task.organization_id, partId: task.part_id },
+    internalTestQuotePolicyFromEnv(process.env),
+  );
+  const killSwitchReader = createCertificationPermitKillSwitchReader({
+    base: supabaseProviderKillSwitchReader(supabase),
+    port: supabaseFixtureHealBrakePort(supabase),
+    provider: vendor,
+    mode: config.fixtureHealCertPermit ?? "off",
+    internalTestQuote,
+  });
+
   // OVD-722: a switched-off provider's queued task ends truthfully at claim,
   // before the lane is marked running or anything is staged.
   if (config.workerMode === "live") {
     let claimCheck: "proceed" | "cancelled";
     try {
       claimCheck = await checkProviderKillSwitchAtClaim({
+        reader: killSwitchReader,
         supabase,
         task,
         vendor,
@@ -1290,10 +1306,6 @@ export async function handleVendorQuoteTask(
   // OVD-813: a supplier the sanity gate paused runs only verified internal
   // test quotes. Checked after the kill switch, which always wins, and before
   // anything is staged or sent.
-  const internalTestQuote = isInternalTestQuote(
-    { marker: task.payload.fixtureHeal, organizationId: task.organization_id, partId: task.part_id },
-    internalTestQuotePolicyFromEnv(process.env),
-  );
   if (config.workerMode === "live" && !fixtureHealSupplierPause.admits(vendor, { internalTestQuote })) {
     // Compare and set like every other terminal lane write: a lane already
     // settled elsewhere is left as is and the task fails with a stable code.
@@ -1800,7 +1812,7 @@ export async function handleVendorQuoteTask(
           provider: vendor,
           quote: guardProviderDispatch({
             provider: vendor,
-            port: supabaseProviderSettingsPort(supabase),
+            port: supabaseProviderSettingsPort(supabase, { readKillSwitch: killSwitchReader }),
             capMode: providerDispatchCapMode(config.providerDurableDispatchCap),
             quote: async (input) => {
               try {
@@ -1897,6 +1909,7 @@ export async function handleVendorQuoteTask(
     }
 
     const result = await quoteWithRoutedDispatchPreflight({
+      killSwitchReader,
       supabase,
       config,
       task,

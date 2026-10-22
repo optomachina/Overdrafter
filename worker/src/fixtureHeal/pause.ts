@@ -8,16 +8,22 @@
  * midnight; a drift pause lifts only through `release` with a re-verify
  * (passing certification) or heal outcome. There is no timer anywhere here.
  *
- * Not durable: another worker instance does not see this pause, and a restart
- * clears it. That gap is accepted for slice 1 only because the gate always
- * holds the drifting quote itself (no wrong price is shown even if another
- * instance keeps quoting). The durable engage through the service_role brake
- * RPC, with release only for operator `fixture-heal` on a matching CAS
- * version, is OVD-771 / slice 2 (OVD-796 S2).
+ * Slice 2 engages durably through the service_role brake. This process-local
+ * map is the fallback when the RPC is unavailable. The gate always holds the
+ * drifting quote itself, so even a failed durable engage shows no wrong price.
+ * Durable release requires our own uncontested engage receipt and matching CAS.
  *
  * The provider kill switch is independent and always wins: admitting an
  * internal test quote here never skips a kill switch checkpoint.
  */
+
+import type { VendorName } from "../types.js";
+import {
+  engageFixtureHealBrake, releaseFixtureHealBrake,
+  type FixtureHealBrakePort, type FixtureHealEngageOutcome, type FixtureHealReleaseOutcome,
+} from "./brake.js";
+
+export type SupplierPauseOutcome = { record: SupplierPauseRecord; durable: FixtureHealEngageOutcome };
 
 export type SupplierPauseRelease = { via: "reverify" | "heal"; evidenceRef: string };
 
@@ -35,19 +41,23 @@ export type FixtureHealPage = {
   codes: string[];
   runId: string;
   vendorQuoteResultId: string;
-  /** The operator command that makes the pause durable until slice 2 does it automatically. */
+  /** Manual fallback remains available even after a durable attempt. */
   brakeCommand: string;
+  durableBrake?: FixtureHealEngageOutcome;
 };
 
 export type SupplierPauseSwitch = {
   /** Pauses the supplier and pages. Repeated findings while paused page again but keep the first record. */
-  pause(input: { provider: string; codes: string[]; runId: string; vendorQuoteResultId: string; nowMs: number }): SupplierPauseRecord;
+  pause(input: { provider: string; codes: string[]; runId: string; vendorQuoteResultId: string; nowMs: number; brake?: FixtureHealBrakePort; brakeTimeoutMs?: number }): Promise<SupplierPauseOutcome>;
   isPaused(provider: string): boolean;
   current(provider: string): SupplierPauseRecord | null;
   /** A paused supplier admits only a verified internal test quote. */
   admits(provider: string, quote: { internalTestQuote: boolean }): boolean;
   /** Only a re-verify or heal outcome with evidence releases; anything else is refused. */
   release(provider: string, release: SupplierPauseRelease): boolean;
+  /** expectedVersion must come from our own engaged/owned:true receipt. */
+  releaseDurable(provider: string, release: SupplierPauseRelease & { expectedVersion: number },
+    brake: FixtureHealBrakePort, options?: { timeoutMs?: number }): Promise<FixtureHealReleaseOutcome>;
 };
 
 export function fixtureHealBrakeCommand(provider: string, code: string, runId: string): string {
@@ -57,6 +67,13 @@ export function fixtureHealBrakeCommand(provider: string, code: string, runId: s
 
 /** Default page sink: one structured error line the log alerting pages on. */
 export function logFixtureHealPage(page: FixtureHealPage): void {
+  const durable = page.durableBrake;
+  const message = durable?.kind === "engaged"
+    ? `The provider kill switch is now engaged durably by operator fixture-heal at version ${durable.version}.` +
+      (durable.owned ? "" : " Fixture-heal will not auto-release it.")
+    : durable?.kind === "already_engaged"
+      ? `The provider kill switch is already engaged; held by ${durable.changedBy ?? "fail-closed default"} (operator ${durable.operator ?? "none"}).`
+      : "The pause is process-local: a restart clears it. Run brakeCommand to persist it.";
   console.error(
     JSON.stringify({
       service: "overdrafter-cad-worker",
@@ -65,7 +82,7 @@ export function logFixtureHealPage(page: FixtureHealPage): void {
       source: page.source,
       message:
         `Supplier ${page.provider} paused by the fixture sanity gate (${page.codes.join(", ")}); its quote is held. ` +
-        "The pause is process-local: a restart clears it. Run brakeCommand to persist it.",
+        message,
       context: page,
     }),
   );
@@ -75,11 +92,15 @@ export function createSupplierPauseSwitch(options: { page?: (page: FixtureHealPa
   const paused = new Map<string, SupplierPauseRecord>();
   const page = options.page ?? logFixtureHealPage;
   return {
-    pause({ provider, codes, runId, vendorQuoteResultId, nowMs }) {
+    async pause({ provider, codes, runId, vendorQuoteResultId, nowMs, brake, brakeTimeoutMs }) {
       const record = paused.get(provider) ?? { provider, pausedAt: new Date(nowMs).toISOString(), codes, runId };
       paused.set(provider, record);
+      const durable: FixtureHealEngageOutcome = brake
+        ? await engageFixtureHealBrake(brake, { provider: provider as VendorName, codes, runId, timeoutMs: brakeTimeoutMs })
+        : { kind: "unavailable", reason: "brake_not_configured" };
       try {
-        page({
+        await page({
+          durableBrake: durable,
           severity: "page",
           source: "fixture_heal.pause",
           provider,
@@ -91,7 +112,12 @@ export function createSupplierPauseSwitch(options: { page?: (page: FixtureHealPa
       } catch {
         // A failed page never lifts the pause.
       }
-      return record;
+      return { record, durable };
+    },
+    async releaseDurable(provider, release, brake, options) {
+      const outcome = await releaseFixtureHealBrake(brake, { provider: provider as VendorName, ...release, timeoutMs: options?.timeoutMs });
+      if (outcome.kind === "released") paused.delete(provider);
+      return outcome;
     },
     isPaused: (provider) => paused.has(provider),
     current: (provider) => paused.get(provider) ?? null,
