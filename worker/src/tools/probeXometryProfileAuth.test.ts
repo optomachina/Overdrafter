@@ -153,6 +153,7 @@ describe("hosted probe drift fingerprint line", () => {
     expect(errors).toHaveBeenCalledOnce();
     expect(JSON.parse(errors.mock.calls[0][0])).toEqual({
       fixtureHealFingerprint: "fixture-page-fingerprint.v1",
+      vocabularyDigest: expect.stringMatching(/^[0-9a-f]{16}$/),
       trigger: "authenticated_dashboard_not_confirmed",
       fingerprint: fingerprintLine,
     });

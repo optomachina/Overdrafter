@@ -9,6 +9,7 @@
  */
 import {
   diff,
+  matchesFingerprintVocabulary,
   parsePageFingerprint,
   PAGE_FINGERPRINT_SCHEMA,
   type FingerprintDiff,
@@ -67,8 +68,8 @@ export type DriftResult = {
 };
 
 /** One JSON line for the job log. A null fingerprint records that capture failed. */
-export function formatFingerprintLogLine(trigger: DriftTrigger, fingerprint: PageFingerprint | null): string {
-  return JSON.stringify({ [FINGERPRINT_LOG_KEY]: PAGE_FINGERPRINT_SCHEMA, trigger, fingerprint });
+export function formatFingerprintLogLine(trigger: DriftTrigger, fingerprint: PageFingerprint | null, vocabulary: FingerprintVocabulary): string {
+  return JSON.stringify({ [FINGERPRINT_LOG_KEY]: PAGE_FINGERPRINT_SCHEMA, vocabularyDigest: vocabulary.digest, trigger, fingerprint });
 }
 
 function payloadOf(entry: unknown): unknown {
@@ -84,8 +85,8 @@ function payloadOf(entry: unknown): unknown {
 
 /**
  * Read the one fingerprint line from `gcloud logging read --format=json`
- * output. Throws a fixed message when there is no line, more than one, or the
- * line fails validation against the vocabulary.
+ * output. Checks vocabulary identity before strict validation, including null captures.
+ * Errors contain fixed text and, for vocabulary skew only, bounded hex digests.
  */
 export function readFingerprintLogEntries(
   entries: unknown,
@@ -99,6 +100,7 @@ export function readFingerprintLogEntries(
   if (lines.length === 0) throw new Error("drift_fingerprint_missing");
   if (lines.length > 1) throw new Error("drift_fingerprint_ambiguous");
   const [line] = lines;
+  if (!matchesFingerprintVocabulary(line.vocabularyDigest, vocabulary)) throw new Error("drift_fingerprint_invalid");
   if (line[FINGERPRINT_LOG_KEY] !== PAGE_FINGERPRINT_SCHEMA || !DRIFT_TRIGGERS.includes(line.trigger as DriftTrigger)) {
     throw new Error("drift_fingerprint_invalid");
   }

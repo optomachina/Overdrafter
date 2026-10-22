@@ -26,6 +26,7 @@ import {
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
   XOMETRY_AUTH_PROBE_PRE_NETWORK_GUARD,
+  XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY,
 } from "../xometryAuthProbe.js";
 import { formatFingerprintLogLine } from "../fixtureHeal/driftResult.js";
 import type { PageFingerprint } from "../fixtureHeal/fingerprint.js";
@@ -169,7 +170,7 @@ try {
   // Selector-repair input (OVD-796 slice 5). It goes to stderr so the stdout
   // evidence line, which the OVD-419 guard parses, stays unchanged.
   if (driftFingerprint !== undefined) {
-    console.error(formatFingerprintLogLine("authenticated_dashboard_not_confirmed", driftFingerprint));
+    console.error(formatFingerprintLogLine("authenticated_dashboard_not_confirmed", driftFingerprint, XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY));
   }
   console.log(JSON.stringify(evidence));
   if (!evidence.authenticated) process.exitCode = 1;

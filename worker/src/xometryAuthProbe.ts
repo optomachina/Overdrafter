@@ -11,6 +11,7 @@ import {
 import type { WorkerConfig } from "./types.js";
 import {
   coerceDomStructure,
+  defineFingerprintVocabulary,
   fingerprint,
   normalizeLabel,
   UI_LABEL_PHRASES,
@@ -398,12 +399,12 @@ function xometryLocatorTestIds() {
 }
 
 /** Every string the drift fingerprint may carry, all taken from reviewed code constants. */
-export const XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY: FingerprintVocabulary = {
+export const XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY: FingerprintVocabulary = defineFingerprintVocabulary({
   signalGroups: pickLocatorGroups(DRIFT_SIGNAL_GROUPS),
   selectorGroups: pickLocatorGroups(DRIFT_SELECTOR_GROUPS),
   labels: new Set([...UI_LABEL_PHRASES, ...xometryLocatorLabels()]),
   testIds: new Set(xometryLocatorTestIds()),
-};
+});
 
 /** What `classifyXometryAuthProbe` needs to see on the quote home page. Keep in step with it. */
 export const XOMETRY_AUTH_PROBE_DRIFT_REFERENCE: DriftReference = {

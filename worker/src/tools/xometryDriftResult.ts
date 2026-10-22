@@ -12,7 +12,7 @@
 import fs from "node:fs/promises";
 import process from "node:process";
 import { buildDriftResult, readFingerprintLogEntries } from "../fixtureHeal/driftResult.js";
-import { parsePageFingerprint } from "../fixtureHeal/fingerprint.js";
+import { FingerprintVocabularyMismatchError, parsePageFingerprint } from "../fixtureHeal/fingerprint.js";
 import { XOMETRY_AUTH_PROBE_DRIFT_REFERENCE } from "../xometryAuthProbe.js";
 
 const USAGE = "usage: xometryDriftResult <logs.json|-> [--baseline <fingerprint.json>]";
@@ -42,8 +42,8 @@ async function main(args: string[]) {
 try {
   console.log(JSON.stringify(await main(process.argv.slice(2)), null, 2));
 } catch (error) {
-  // Fixed messages only: a JSON parse error can quote the input file.
+  // Only fixed messages or the typed, hex-only vocabulary diagnostic: JSON errors can quote input.
   const message = error instanceof Error ? error.message : "";
-  console.error(/^drift_[a-z_]+$/.test(message) || message === USAGE ? message : "drift_input_invalid");
+  console.error(error instanceof FingerprintVocabularyMismatchError || /^drift_[a-z_]+$/.test(message) || message === USAGE ? message : "drift_input_invalid");
   process.exit(1);
 }

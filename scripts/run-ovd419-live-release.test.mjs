@@ -2286,7 +2286,7 @@ describe("OVD-419 generated regional pre-network guard", () => {
 
   it("keeps the bounded not-confirmed diagnostic when the worker also writes a drift fingerprint line", async () => {
     const fixture = await generatedGuardFixture();
-    const fingerprintLine = JSON.stringify({ fixtureHealFingerprint: "fixture-page-fingerprint.v1", trigger: "authenticated_dashboard_not_confirmed", fingerprint: null });
+    const fingerprintLine = JSON.stringify({ fixtureHealFingerprint: "fixture-page-fingerprint.v1", vocabularyDigest: "0123456789abcdef", trigger: "authenticated_dashboard_not_confirmed", fingerprint: null });
     // Mirrors the worker: fingerprint on stderr, evidence on stdout, exitCode 1 without process.exit.
     const workerResult = `guardState.started = true; guardState.executed = true; console.error(${JSON.stringify(fingerprintLine)}); console.log(JSON.stringify({ authenticated: false, reason: "authenticated_dashboard_not_confirmed", url: "private-url" })); process.exitCode = 1;`;
     const source = 'globalThis.fetch = async () => { throw new Error("network_forbidden"); };\n' + fixture.emitted.replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', workerResult);

@@ -199,18 +199,19 @@ On this result only, the probe writes one extra JSON line to stderr in the same 
 - the heading, button and link labels that are, in full, reviewed UI phrases (generic chrome plus the literal text in `XOMETRY_LOCATORS`);
 - the exact test IDs that `XOMETRY_LOCATORS` relies on;
 - per text-signal group, how many patterns matched, and per selector, its element count (capped at 20) and whether the first match is visible;
-- a hash of the listed labels and test IDs.
+- a hash of the listed labels and test IDs;
+- `vocabularyDigest`, the first 16 hex characters of SHA-256 over the canonical reviewed vocabulary (signal patterns and flags, ordered selectors, labels and test IDs), computed at module load with no page-derived data. The log envelope also carries this digest when capture is unavailable.
 
 A label or test ID that is not, in full, on the reviewed list is only counted. Filtering word by word would not be safe, because ordinary words such as "An", "Go" or "More" can also be names. The line never contains other page text, input values, URLs, emails, names, quote numbers or other identifiers. The stdout evidence line, its `domCaptured: false` attestation (no raw DOM, HTML or page text) and the guard's pass/fail rule are unchanged. If capture failed or exceeded its 3-second bound, the line carries `"fingerprint": null`.
 
-To turn that line into the finite drift result, run these read-only steps. The first reads the job log and keeps the file outside the repository. The second runs offline.
+To turn that line into the finite drift result, run these read-only steps. The first reads the job log and keeps the file outside the repository. Run the second, offline step from a checkout of the deployed worker image's commit, as pinned by the OVD-419 digest record. Merging a PR does not redeploy that image; the operator's current branch may have a different vocabulary.
 
 ```bash
 gcloud logging read 'resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="<execution>"' --project <project> --limit=100 --format=json > "${TMPDIR:-/tmp}/xometry-probe-log.json"
 cd worker && npx tsx src/tools/xometryDriftResult.ts "${TMPDIR:-/tmp}/xometry-probe-log.json" [--baseline <reviewed-fingerprint.json>]
 ```
 
-The tool re-validates the line against the same reviewed vocabulary. Any other label, test ID or group name, a malformed tally, or a stale hash rejects the line, so an edited line cannot carry text into the result. It prints `fixture-drift-result.v1`, which contains:
+The tool first checks the vocabulary digest on both the log line and any baseline. `drift_fingerprint_vocabulary_mismatch` names the fingerprint and checkout digests and means their reviewed vocabularies differ: run the drift tool from the deployed image's commit and use a reviewed baseline from that vocabulary. Missing or malformed digests are invalid, including older artifacts with no digest. Only matching digests proceed to strict validation. Any other label, test ID or group name, a malformed tally, or a stale hash rejects the line as `drift_fingerprint_invalid` (or `drift_baseline_invalid` for a baseline), so an edited line cannot carry text into the result. The digest identifies the vocabulary; it does not authenticate the log. The tool prints `fixture-drift-result.v1`, which contains:
 
 - `nextStep: "selector_repair"`;
 - a `driftClass` (`route`, `selector`, `label`, `cosmetic`, `none`, or `unknown` when capture failed);

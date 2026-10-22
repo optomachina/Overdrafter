@@ -55,6 +55,8 @@ export const UI_LABEL_PHRASES: readonly string[] = [
 
 /** The reviewed strings a fingerprint may contain. Built by the caller from its locator constants. */
 export type FingerprintVocabulary = {
+  /** Short hash of reviewed constants, computed when the vocabulary is defined. */
+  readonly digest: string;
   /** Text-signal groups tallied against the body text. */
   signalGroups: Readonly<Record<string, readonly RegExp[]>>;
   /** Selector groups the caller measures on the page, in this order. */
@@ -89,6 +91,7 @@ export type DomSnapshot = {
 
 export type PageFingerprint = {
   schema: typeof PAGE_FINGERPRINT_SCHEMA;
+  vocabularyDigest: string;
   provider: string;
   page: FingerprintPage;
   source: FingerprintSource;
@@ -109,6 +112,32 @@ export type PageFingerprint = {
 };
 
 const compareCodeUnits = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+
+/** Canonical keys/sets; array order is retained because selector indices have meaning. No page data. */
+export function defineFingerprintVocabulary(vocabulary: Omit<FingerprintVocabulary, "digest">): FingerprintVocabulary {
+  const canonical = {
+    signalGroups: Object.keys(vocabulary.signalGroups).sort(compareCodeUnits).map((name) =>
+      [name, vocabulary.signalGroups[name].map((pattern) => [pattern.source, pattern.flags])]),
+    selectorGroups: Object.keys(vocabulary.selectorGroups).sort(compareCodeUnits).map((name) =>
+      [name, vocabulary.selectorGroups[name]]),
+    labels: [...vocabulary.labels].sort(compareCodeUnits),
+    testIds: [...vocabulary.testIds].sort(compareCodeUnits),
+  };
+  return { ...vocabulary, digest: createHash("sha256").update(JSON.stringify(canonical)).digest("hex").slice(0, 16) };
+}
+
+export class FingerprintVocabularyMismatchError extends Error {
+  constructor(observed: string, expected: string) {
+    super(`drift_fingerprint_vocabulary_mismatch: fingerprint=${observed}, checkout=${expected}; run the drift tool from the deployed image's commit`);
+  }
+}
+
+/** Malformed/missing digests are invalid; only bounded hex digests may appear in diagnostics. */
+export function matchesFingerprintVocabulary(observed: unknown, vocabulary: FingerprintVocabulary): boolean {
+  if (typeof observed !== "string" || !/^[a-f0-9]{16}$/.test(observed)) return false;
+  if (observed !== vocabulary.digest) throw new FingerprintVocabularyMismatchError(observed, vocabulary.digest);
+  return true;
+}
 
 function clampCount(value: unknown, max = MAX_COUNT) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(0, Math.trunc(value))) : 0;
@@ -184,6 +213,7 @@ export function fingerprint(snapshot: DomSnapshot, vocabulary: FingerprintVocabu
   };
   return {
     schema: PAGE_FINGERPRINT_SCHEMA,
+    vocabularyDigest: vocabulary.digest,
     provider: snapshot.provider,
     page: oneOf(FINGERPRINT_PAGES, snapshot.page, "upload"),
     source: oneOf(FINGERPRINT_SOURCES, snapshot.source, "session_probe"),
@@ -239,10 +269,11 @@ function parseGroups<T>(value: unknown, names: readonly string[], parse: (tally:
  * vocabulary that produced it. Any label, test ID or group name outside the
  * vocabulary, any malformed tally, or a hash that no longer matches makes the
  * line invalid, so an edited line cannot carry text into a drift result.
- * Returns null when anything fails.
+ * Throws on vocabulary skew before validating page fields; otherwise returns null when anything fails.
  */
 export function parsePageFingerprint(value: unknown, vocabulary: FingerprintVocabulary): PageFingerprint | null {
   if (!isRecord(value) || value.schema !== PAGE_FINGERPRINT_SCHEMA) return null;
+  if (!matchesFingerprintVocabulary(value.vocabularyDigest, vocabulary)) return null;
   if (typeof value.provider !== "string" || !PROVIDER_KEY.test(value.provider)) return null;
   const headings = parseLabelSet(value.headings, vocabulary.labels);
   const buttons = parseLabelSet(value.buttons, vocabulary.labels);
@@ -277,6 +308,7 @@ export function parsePageFingerprint(value: unknown, vocabulary: FingerprintVoca
   const listed = { headings, buttons, links, testIds };
   const parsed: PageFingerprint = {
     schema: PAGE_FINGERPRINT_SCHEMA,
+    vocabularyDigest: vocabulary.digest,
     provider: value.provider,
     page: value.page as FingerprintPage,
     source: value.source as FingerprintSource,

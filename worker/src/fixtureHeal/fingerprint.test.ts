@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY as VOCABULARY } from "../xometryAuthProbe.js";
 import {
   coerceDomStructure,
+  defineFingerprintVocabulary,
   diff,
   FINGERPRINT_LANDMARKS,
   FINGERPRINT_PAGES,
@@ -94,7 +95,7 @@ const ENUM_VALUES = new Set<string>([
   ...FINGERPRINT_ROUTE_CLASSES, ...FINGERPRINT_TEXT_LENGTHS,
 ]);
 const ALLOWED_KEYS = new Set<string>([
-  "schema", "provider", "page", "source", "routeClass", "textLength", "landmarks", "headings", "buttons",
+  "schema", "vocabularyDigest", "provider", "page", "source", "routeClass", "textLength", "landmarks", "headings", "buttons",
   "links", "testIds", "labelsSha256", "signalGroups", "selectorGroups", "count", "labels", "values",
   "withheld", "matched", "total", "selectors", "visible", ...FINGERPRINT_LANDMARKS,
   ...Object.keys(VOCABULARY.signalGroups), ...Object.keys(VOCABULARY.selectorGroups),
@@ -105,7 +106,7 @@ function expectScrubbed(fp: PageFingerprint) {
   const leaves = stringLeaves(fp, keys);
   expect(keys.filter((key) => !ALLOWED_KEYS.has(key))).toEqual([]);
   for (const leaf of leaves) {
-    if (ENUM_VALUES.has(leaf) || leaf === fp.labelsSha256) continue;
+    if (ENUM_VALUES.has(leaf) || leaf === fp.labelsSha256 || leaf === VOCABULARY.digest) continue;
     expect(VOCABULARY.labels.has(leaf) || VOCABULARY.testIds.has(leaf), leaf).toBe(true);
   }
   const serialized = JSON.stringify(fp).toLowerCase();
@@ -114,6 +115,25 @@ function expectScrubbed(fp: PageFingerprint) {
 }
 
 describe("fixture page fingerprint", () => {
+  it("hashes reviewed vocabulary canonically, retaining selector order and regex semantics", () => {
+    const reversed = <T,>(groups: Record<string, T>) => Object.fromEntries(Object.entries(groups).reverse());
+    const reordered = defineFingerprintVocabulary({
+      ...VOCABULARY,
+      signalGroups: reversed(VOCABULARY.signalGroups),
+      selectorGroups: reversed(VOCABULARY.selectorGroups),
+      labels: new Set([...VOCABULARY.labels].reverse()),
+      testIds: new Set([...VOCABULARY.testIds].reverse()),
+    });
+    expect(VOCABULARY.digest).toMatch(/^[a-f0-9]{16}$/);
+    expect(reordered.digest).toBe(VOCABULARY.digest);
+    for (const change of [
+      { selectorGroups: { ...VOCABULARY.selectorGroups, startNewQuoteButtons: [...VOCABULARY.selectorGroups.startNewQuoteButtons].reverse() } },
+      { signalGroups: { ...VOCABULARY.signalGroups, dashboardSignals: [/changed/i] } },
+      { signalGroups: { ...VOCABULARY.signalGroups, dashboardSignals: VOCABULARY.signalGroups.dashboardSignals.map((pattern) => new RegExp(pattern.source)) } },
+      { testIds: new Set([...VOCABULARY.testIds, "new-reviewed-id"]) },
+    ]) expect(defineFingerprintVocabulary({ ...VOCABULARY, ...change }).digest).not.toBe(VOCABULARY.digest);
+  });
+
   it("keeps a label or test ID only when the whole value is reviewed", () => {
     const fp = fingerprint(
       {

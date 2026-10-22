@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { XOMETRY_AUTH_PROBE_DRIFT_REFERENCE } from "../xometryAuthProbe.js";
 import { buildDriftResult, formatFingerprintLogLine, readFingerprintLogEntries } from "./driftResult.js";
-import { fingerprint, type DomSnapshot } from "./fingerprint.js";
+import { defineFingerprintVocabulary, fingerprint, parsePageFingerprint, type DomSnapshot } from "./fingerprint.js";
 
 const VOCABULARY = XOMETRY_AUTH_PROBE_DRIFT_REFERENCE.vocabulary;
 
@@ -28,7 +32,7 @@ describe("fixture drift result", () => {
   const fp = fingerprint(page(), VOCABULARY);
 
   it("reads the one fingerprint line from text or structured job log entries", () => {
-    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp);
+    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY);
     expect(readFingerprintLogEntries(logEntries(line), VOCABULARY)).toEqual({ trigger: "authenticated_dashboard_not_confirmed", fingerprint: fp });
     const structured = [{ jsonPayload: JSON.parse(line) }];
     expect(readFingerprintLogEntries(structured, VOCABULARY).fingerprint).toEqual(fp);
@@ -36,12 +40,12 @@ describe("fixture drift result", () => {
   });
 
   it("fails with a fixed message on a missing, duplicated or edited line", () => {
-    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp);
+    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY);
     expect(() => readFingerprintLogEntries({}, VOCABULARY)).toThrow("drift_log_invalid");
     expect(() => readFingerprintLogEntries(logEntries("{}").slice(0, 2), VOCABULARY)).toThrow("drift_fingerprint_missing");
     expect(() => readFingerprintLogEntries(logEntries(line, [{ textPayload: line }]), VOCABULARY)).toThrow("drift_fingerprint_ambiguous");
     const edited = JSON.parse(line);
-    edited.fingerprint.links.labels.push("jordan okafor");
+    edited.fingerprint.buttons.labels.push("jordan okafor");
     expect(() => readFingerprintLogEntries([{ jsonPayload: edited }], VOCABULARY)).toThrow("drift_fingerprint_invalid");
     const groupKey = JSON.parse(line);
     groupKey.fingerprint.signalGroups.JordanOkaforQ24x1234x5678 = { matched: 1, total: 1 };
@@ -49,6 +53,58 @@ describe("fixture drift result", () => {
     expect(() => readFingerprintLogEntries([{ jsonPayload: { ...JSON.parse(line), trigger: "login_required" } }], VOCABULARY)).toThrow(
       "drift_fingerprint_invalid",
     );
+  });
+
+  it.each([
+    { signalGroups: { ...VOCABULARY.signalGroups, dashboardSignals: [...VOCABULARY.signalGroups.dashboardSignals, /dashboard/] } },
+    { selectorGroups: { ...VOCABULARY.selectorGroups, startNewQuoteButtons: [...VOCABULARY.selectorGroups.startNewQuoteButtons, "button.new-quote"] } },
+    { labels: new Set([...VOCABULARY.labels, "quote dashboard"]) },
+    { labels: new Set([...VOCABULARY.labels].filter((label) => label !== "new quote")) },
+  ])("reports vocabulary skew before validating a genuine line or baseline (%j)", (change) => {
+    const skewed = defineFingerprintVocabulary({ ...VOCABULARY, ...change });
+    const message = `drift_fingerprint_vocabulary_mismatch: fingerprint=${VOCABULARY.digest}, checkout=${skewed.digest}; run the drift tool from the deployed image's commit`;
+    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY);
+    expect(() => readFingerprintLogEntries(logEntries(line), skewed)).toThrow(message);
+    // This is the same parser used by --baseline, before any comparison.
+    expect(() => parsePageFingerprint(JSON.parse(JSON.stringify(fp)), skewed)).toThrow(message);
+    const unavailable = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", null, VOCABULARY);
+    expect(() => readFingerprintLogEntries(logEntries(unavailable), skewed)).toThrow(message);
+  });
+
+  it("rejects missing or malformed digests without echoing input", () => {
+    const line = JSON.parse(formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY));
+    for (const vocabularyDigest of [undefined, "Jordan Okafor", "a".repeat(17)]) {
+      expect(() => readFingerprintLogEntries([{ jsonPayload: { ...line, vocabularyDigest } }], VOCABULARY)).toThrow(/^drift_fingerprint_invalid$/);
+      expect(parsePageFingerprint({ ...fp, vocabularyDigest }, VOCABULARY)).toBeNull();
+    }
+  });
+
+  it("reports a baseline vocabulary mismatch through the operator CLI", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ovd1041-baseline-"));
+    try {
+      const logsPath = join(directory, "logs.json"), baselinePath = join(directory, "baseline.json");
+      const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY);
+      writeFileSync(logsPath, JSON.stringify(logEntries(line)));
+      const skewed = defineFingerprintVocabulary({ ...VOCABULARY, labels: new Set([...VOCABULARY.labels, "quote dashboard"]) });
+      const run = (baseline: unknown) => {
+        writeFileSync(baselinePath, JSON.stringify(baseline));
+        return spawnSync(process.execPath, ["--import", "tsx", resolve("worker/src/tools/xometryDriftResult.ts"), logsPath, "--baseline", baselinePath], {
+          encoding: "utf8", timeout: 10_000,
+        });
+      };
+      const matching = run(fp);
+      expect(matching.status, matching.stderr).toBe(0);
+      expect(JSON.parse(matching.stdout).driftClass).toBe("none");
+      const mismatch = run(fingerprint(page(), skewed));
+      expect(mismatch.status).toBe(1);
+      expect(mismatch.stdout).toBe("");
+      expect(mismatch.stderr.trim()).toBe(`drift_fingerprint_vocabulary_mismatch: fingerprint=${skewed.digest}, checkout=${VOCABULARY.digest}; run the drift tool from the deployed image's commit`);
+      const invalid = run({ ...fp, vocabularyDigest: "Jordan Okafor" });
+      expect(invalid.status).toBe(1);
+      expect(invalid.stderr.trim()).toBe("drift_baseline_invalid");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("names the unmatched dashboard markers and routes to selector repair", () => {
@@ -103,7 +159,7 @@ describe("fixture drift result", () => {
   });
 
   it("records an unavailable capture without guessing a class", () => {
-    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", null);
+    const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", null, VOCABULARY);
     const { trigger, fingerprint: missing } = readFingerprintLogEntries([{ textPayload: line }], VOCABULARY);
     const result = buildDriftResult({ trigger, fingerprint: missing, reference: XOMETRY_AUTH_PROBE_DRIFT_REFERENCE });
     expect(result).toMatchObject({ driftClass: "unknown", findings: [{ code: "fingerprint_unavailable" }], nextStep: "selector_repair" });
