@@ -4,6 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { QuoteDiagnostics } from "@/features/quotes/types";
+import { QuoteSelectionFunctionBar } from "./QuoteSelectionFunctionBar";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 import { makeClientQuoteOption } from "./test-option-factory";
 
@@ -21,10 +22,12 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
     selectedKey,
     hoveredKey,
     onSelect,
+    onDeadlineChange,
   }: {
     options: readonly ClientQuoteSelectionOption[];
     selectedKey: string | null;
     hoveredKey: string | null;
+    onDeadlineChange: (date: string) => void;
     onSelect: (option: ClientQuoteSelectionOption) => void;
   }) => (
     <div>
@@ -39,6 +42,7 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
       >
         Quote Chart Select
       </button>
+      <button onClick={() => onDeadlineChange("2026-04-30")}>Move deadline</button>
       <div data-testid="quote-chart-selected-key">{selectedKey ?? "none"}</div>
       <div data-testid="quote-chart-hovered-key">{hoveredKey ?? "none"}</div>
       <div>Quote Chart</div>
@@ -539,9 +543,10 @@ describe("ClientQuoteDecisionPanel", () => {
       sourcing: "Domestic",
     });
 
+    const foreign = makeClientQuoteOption({ key: "foreign", laneLabel: "International", geographicOrigin: "foreign", domesticStatus: "foreign" });
     const { rerender } = render(
       <ClientQuoteDecisionPanel
-        options={[domestic, unknown]}
+        options={[domestic, unknown, foreign]}
         selectedOption={unknown}
         onSelect={vi.fn()}
         requestedByDate={null}
@@ -557,7 +562,7 @@ describe("ClientQuoteDecisionPanel", () => {
 
     rerender(
       <ClientQuoteDecisionPanel
-        options={[domestic, unknown]}
+        options={[domestic, unknown, foreign]}
         selectedOption={unknown}
         onSelect={vi.fn()}
         requestedByDate={null}
@@ -565,7 +570,8 @@ describe("ClientQuoteDecisionPanel", () => {
       />,
     );
 
-    expect(getVendorRowNames()).toHaveLength(2);
+    expect(getVendorRowNames()).toHaveLength(3);
+    expect(screen.getByRole("row", { name: /International/ })).toBeInTheDocument();
     expect(screen.getAllByText("Unknown")).not.toHaveLength(0);
     const unknownRow = screen.getByRole("row", { name: /Economy Unknown/ });
     expect(within(unknownRow).getByText("Economy")).toBeInTheDocument();
@@ -573,7 +579,7 @@ describe("ClientQuoteDecisionPanel", () => {
 
     rerender(
       <ClientQuoteDecisionPanel
-        options={[domestic, unknown]}
+        options={[domestic, unknown, foreign]}
         selectedOption={unknown}
         onSelect={vi.fn()}
         requestedByDate={null}
@@ -581,7 +587,8 @@ describe("ClientQuoteDecisionPanel", () => {
       />,
     );
 
-    expect(getVendorRowNames()).toHaveLength(2);
+    expect(getVendorRowNames()).toHaveLength(3);
+    expect(screen.getByRole("row", { name: /International/ })).toBeInTheDocument();
     expect(within(screen.getByTestId("selected-option-summary")).getByText("Unknown")).toBeInTheDocument();
   });
 
@@ -723,4 +730,82 @@ it("renders Follow-up as a neutral plain-word vendor state", () => {
   />);
   expect(screen.getByText("Follow-up")).toHaveClass("bg-accent", "text-foreground");
   expect(screen.getByText("Follow-up")).not.toHaveClass("bg-orange-500/10");
+});
+
+describe("scope-filtered comparison", () => {
+  it("distinguishes hidden unknown-origin options and offers all sourcing", () => {
+    const onScopeChange = vi.fn();
+    render(<ClientQuoteDecisionPanel
+      options={[makeClientQuoteOption({ geographicOrigin: "unknown", domesticStatus: "unknown" })]}
+      selectedOption={null} onSelect={vi.fn()} requestedByDate={null}
+      activePreset="cheapest_domestic" onScopeChange={onScopeChange}
+    />);
+    expect(screen.queryByText("No quote options yet")).not.toBeInTheDocument();
+    expect(screen.getByText("No US-sourced options")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show all sourcing" })).toHaveClass("mt-3");
+    fireEvent.click(screen.getByRole("button", { name: "Show all sourcing" }));
+    expect(onScopeChange).toHaveBeenCalledWith("global");
+  });
+
+  it("keeps keyboard focus on the mounted comparison after showing all sourcing", () => {
+    function Harness() {
+      const [scope, setScope] = useState<"domestic" | "global">("domestic");
+      return <ClientQuoteDecisionPanel options={[makeClientQuoteOption({ geographicOrigin: "unknown", domesticStatus: "unknown" })]}
+        selectedOption={null} onSelect={vi.fn()} requestedByDate={null}
+        activePreset={scope === "domestic" ? "cheapest_domestic" : "cheapest_global"} onScopeChange={setScope} />;
+    }
+    render(<Harness />);
+    const button = screen.getByRole("button", { name: "Show all sourcing" });
+    button.focus();
+    expect(button).toHaveFocus();
+    fireEvent.click(button);
+    expect(button).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Quote intelligence" })).toHaveFocus();
+    expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+  });
+
+  it("keeps the dated counts aligned with rows across clearing Need by and moving the chart deadline", () => {
+    function Harness() {
+      const [needBy, setNeedBy] = useState<string | null>("2026-04-15");
+      return <ClientQuoteDecisionPanel options={[makeClientQuoteOption({ shipReceiveBy: "2026-04-10", resolvedDeliveryDate: "2026-04-10" })]}
+        selectedOption={null} onSelect={vi.fn()} requestedByDate={needBy}
+        deadline={{ date: "2026-04-02", state: "confirmed" }} activePreset="cheapest_global"
+        now={new Date("2026-03-20T12:00:00Z")} timeZone="UTC"
+        controls={(counts, date) => <QuoteSelectionFunctionBar scope="global" requestedByDate={needBy}
+          viewDeadline={date} deadlineCounts={counts} onScopeChange={vi.fn()} onRequestedByDateChange={setNeedBy} />} />;
+    }
+    render(<Harness />);
+    expect(screen.getByText("By Thu, Apr 2, 2026: 0 on time · 0 may miss · 1 late")).toBeInTheDocument();
+    expect(screen.getByText("Misses deadline")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.getByText("By Thu, Apr 2, 2026: 0 on time · 0 may miss · 1 late")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Move deadline" }));
+    expect(screen.getByText("By Thu, Apr 30, 2026: 1 on time · 0 may miss · 0 late")).toBeInTheDocument();
+    expect(screen.queryByText("Misses deadline")).not.toBeInTheDocument();
+  });
+
+  it("reserves the no-options title for an actually empty list", () => {
+    render(<ClientQuoteDecisionPanel options={[]} selectedOption={null} onSelect={vi.fn()}
+      requestedByDate={null} activePreset="cheapest_domestic" />);
+    expect(screen.getByText("No quote options yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show all sourcing" })).not.toBeInTheDocument();
+  });
+
+  it("supplies controls with counts from visible rows at the same projection instant", () => {
+    const options = [
+      makeClientQuoteOption({ key: "us", quoteDateIso: "2026-03-16", leadTimeBusinessDays: 5 }),
+      makeClientQuoteOption({ key: "unknown", geographicOrigin: "unknown" }),
+    ];
+    const controls = vi.fn(() => null);
+    const { rerender } = render(<ClientQuoteDecisionPanel options={options} selectedOption={null}
+      onSelect={vi.fn()} requestedByDate="2026-04-02" activePreset="cheapest_domestic"
+      now={new Date("2026-10-21T12:00:00Z")} timeZone="UTC" controls={controls} />);
+    expect(controls).toHaveBeenLastCalledWith({ on_time: 0, unconfirmed: 0, late: 1 }, "2026-04-02");
+    expect(screen.getAllByText("Misses deadline")).toHaveLength(1);
+    rerender(<ClientQuoteDecisionPanel options={options} selectedOption={null}
+      onSelect={vi.fn()} requestedByDate="2026-04-02" activePreset="cheapest_global"
+      now={new Date("2026-10-21T12:00:00Z")} timeZone="UTC" controls={controls} />);
+    expect(controls).toHaveBeenLastCalledWith({ on_time: 0, unconfirmed: 0, late: 2 }, "2026-04-02");
+    expect(screen.getAllByText("Misses deadline")).toHaveLength(2);
+  });
 });

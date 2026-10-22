@@ -37,6 +37,8 @@ import {
 } from "@/features/quotes/client-workspace-state";
 import {
   buildDeliveredComparisonModel,
+  countDeadlineStatuses,
+  type DeadlineStatusCounts,
   formatCivilDate,
   formatUnknownCostComponents,
   getDeadlineStatus,
@@ -52,6 +54,7 @@ import type { PartDeadlineState } from "@/features/quotes/api/part-deadline-api"
 import type {
   ClientQuoteSelectionOption,
   QuotePreset,
+  QuotePresetScope,
 } from "@/features/quotes/selection";
 import {
   formatQuotePlotExclusionReason,
@@ -82,7 +85,8 @@ type ClientQuoteDecisionPanelProps = {
   activePreset?: QuotePreset | null;
   onPresetSelect?: (preset: QuotePreset) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
-  controls?: ReactNode;
+  controls?: ReactNode | ((counts: DeadlineStatusCounts, deadline: string | null) => ReactNode);
+  onScopeChange?: (scope: QuotePresetScope) => void;
   layout?: "full" | "compact";
   headerActions?: ReactNode;
   emptyState?: string;
@@ -890,6 +894,8 @@ type DecisionPanelContentProps = Readonly<{
   quoteDataMessage: string | null;
   quoteDiagnostics: QuoteDiagnostics | null;
   emptyState: string;
+  scopeHidesOptions: boolean;
+  onScopeChange?: (scope: QuotePresetScope) => void;
   hoveredKey: string | null;
   setHoveredKey: (key: string | null) => void;
   partId: string | null;
@@ -918,6 +924,8 @@ function renderDecisionPanelContent({
   quoteDataMessage,
   quoteDiagnostics,
   emptyState,
+  scopeHidesOptions,
+  onScopeChange,
   hoveredKey,
   setHoveredKey,
   partId,
@@ -972,7 +980,16 @@ function renderDecisionPanelContent({
   }
 
   if (options.length === 0) {
-    return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
+    return (
+      <div>
+        <QuoteDataStatusCard icon={CircleOff} title={scopeHidesOptions ? "No US-sourced options" : "No quote options yet"} body={emptyState} />
+        {scopeHidesOptions && onScopeChange ? (
+          <Button type="button" variant="outline" className="mt-3" onClick={() => onScopeChange("global")}>
+            Show all sourcing
+          </Button>
+        ) : null}
+      </div>
+    );
   }
 
   const model = buildDeliveredComparisonModel(options, { now, timeZone });
@@ -1093,6 +1110,7 @@ export function ClientQuoteDecisionPanel({
   onPresetSelect,
   onToggleVendorExclusion,
   controls = null,
+  onScopeChange,
   layout = "full",
   headerActions = null,
   emptyState = "No quote options are available yet.",
@@ -1102,6 +1120,7 @@ export function ClientQuoteDecisionPanel({
   now,
   timeZone,
 }: Readonly<ClientQuoteDecisionPanelProps>) {
+  const comparisonRef = useRef<HTMLElement>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   // One projection instant per mount keeps arrivals from shifting existing points.
   const [mountedAt] = useState(() => new Date());
@@ -1149,6 +1168,9 @@ export function ClientQuoteDecisionPanel({
 
   return (
     <section
+      ref={comparisonRef}
+      tabIndex={-1}
+      aria-label={title}
       className={cn("border border-ws-border bg-ws-card p-4 sm:p-5 [overflow-anchor:none]", className)}
       data-layout={layout}
     >
@@ -1156,7 +1178,12 @@ export function ClientQuoteDecisionPanel({
         title={title}
         description={description}
         headerActions={headerActions}
-        controls={controls}
+        controls={typeof controls === "function"
+          ? controls(countDeadlineStatuses(
+              buildDeliveredComparisonModel(visibleOptions, { now: projectionNow, timeZone: projectionTimeZone }).rows,
+              viewDeadline,
+            ), viewDeadline)
+          : controls}
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
       />
@@ -1181,6 +1208,11 @@ export function ClientQuoteDecisionPanel({
         quoteDataMessage,
         quoteDiagnostics,
         emptyState: scopedEmptyState,
+        scopeHidesOptions: sourcingScope === "domestic" && options.length > 0,
+        onScopeChange: onScopeChange ? (scope) => {
+          comparisonRef.current?.focus();
+          onScopeChange(scope);
+        } : undefined,
         hoveredKey,
         setHoveredKey,
         partId,

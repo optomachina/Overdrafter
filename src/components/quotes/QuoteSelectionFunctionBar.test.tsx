@@ -11,8 +11,8 @@ describe("QuoteSelectionFunctionBar", () => {
       <QuoteSelectionFunctionBar
         scope="domestic"
         requestedByDate="2026-04-15"
-        matchingOptionCount={2}
-        totalOptionCount={4}
+        viewDeadline="2026-04-02"
+        deadlineCounts={{ on_time: 1, unconfirmed: 2, late: 0 }}
         onScopeChange={onScopeChange}
         onRequestedByDateChange={vi.fn()}
       />,
@@ -31,6 +31,7 @@ describe("QuoteSelectionFunctionBar", () => {
       <QuoteSelectionFunctionBar
         scope="global"
         requestedByDate="2026-04-15"
+        viewDeadline="2026-04-02"
         onScopeChange={vi.fn()}
         onRequestedByDateChange={vi.fn()}
         disabled
@@ -45,6 +46,7 @@ describe("QuoteSelectionFunctionBar", () => {
       <QuoteSelectionFunctionBar
         scope="global"
         requestedByDate="2026-04-15"
+        viewDeadline="2026-04-02"
         onScopeChange={vi.fn()}
         onRequestedByDateChange={vi.fn()}
       />,
@@ -76,14 +78,18 @@ describe("QuoteSelectionFunctionBar", () => {
       <QuoteSelectionFunctionBar
         scope="global"
         requestedByDate="2026-04-15"
-        matchingOptionCount={2}
-        totalOptionCount={4}
+        viewDeadline="2026-04-02"
+        deadlineCounts={{ on_time: 1, unconfirmed: 2, late: 0 }}
         onScopeChange={vi.fn()}
         onRequestedByDateChange={onRequestedByDateChange}
       />,
     );
 
-    expect(screen.getByText("Showing 2 of 4 options that meet your deadline.")).toBeInTheDocument();
+    const pill = screen.getByText("By Thu, Apr 2, 2026: 1 on time · 2 may miss · 0 late");
+    expect(pill).toHaveClass("rounded-surface-sm", "border-border", "bg-muted", "text-foreground");
+    expect(pill).not.toHaveClass("rounded-full");
+    expect(pill.className).not.toContain("amber-50");
+    expect(screen.queryByText(/meet your deadline/)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
@@ -91,4 +97,14 @@ describe("QuoteSelectionFunctionBar", () => {
     expect(onRequestedByDateChange).toHaveBeenNthCalledWith(1, "2026-04-22");
     expect(onRequestedByDateChange).toHaveBeenNthCalledWith(2, null);
   });
+  it("shows the effective deadline with no Need by filter and hides it without a view deadline", () => {
+    const props = { scope: "global" as const, requestedByDate: null,
+      deadlineCounts: { on_time: 1, unconfirmed: 2, late: 0 },
+      onScopeChange: vi.fn(), onRequestedByDateChange: vi.fn() };
+    const { rerender } = render(<QuoteSelectionFunctionBar {...props} viewDeadline="2026-04-02" />);
+    expect(screen.getByText("By Thu, Apr 2, 2026: 1 on time · 2 may miss · 0 late")).toBeInTheDocument();
+    rerender(<QuoteSelectionFunctionBar {...props} requestedByDate="2026-04-15" viewDeadline={null} />);
+    expect(screen.queryByText(/on time ·/)).not.toBeInTheDocument();
+  });
+
 });

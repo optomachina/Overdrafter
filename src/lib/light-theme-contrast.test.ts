@@ -19,7 +19,6 @@ const deferredFiles: Record<string, string> = {
   "components/quotes/XometryDebugCard.tsx": "Internal provider debug view deferred.",
   "components/quotes/ExtractionLabCard.tsx": "Internal extraction lab deferred.",
   "components/debug/ExtractionLauncher.tsx": "Debug-only extraction launcher deferred.",
-  "components/quotes/QuoteSelectionFunctionBar.tsx": "Owned by OVD-1027; do not edit.",
   "concepts/ConceptsGallery.tsx": "Design concept preview deferred; not a customer workflow.",
   "concepts/set-1/HomePage.tsx": "Design concept preview deferred; not a customer workflow.",
   "concepts/set-1/PartPage.tsx": "Design concept preview deferred; not a customer workflow.",
