@@ -109,7 +109,7 @@ export function StripePaymentPanel({
       ) : (
         <div className="mt-6">
           {setupError ? (
-            <div className="mb-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive">
+            <div className="mb-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive dark:text-foreground">
               {setupError}
             </div>
           ) : null}
@@ -206,7 +206,7 @@ function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
       </div>
 
       {cardError ? (
-        <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive">
+        <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-destructive dark:text-foreground">
           {cardError}
         </div>
       ) : null}

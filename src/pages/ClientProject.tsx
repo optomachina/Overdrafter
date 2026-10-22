@@ -257,7 +257,7 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: 
     selectionCoverage:
       summary.pendingSelectionCount > 0
         ? {
-            className: "border border-border bg-accent text-foreground",
+            className: STATUS_TONE.state,
             label: `${formatPartCountLabel(summary.pendingSelectionCount, "pending selection")}`,
           }
         : {

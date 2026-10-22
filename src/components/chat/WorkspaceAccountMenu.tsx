@@ -143,7 +143,7 @@ const COMPACT_PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
-  `shrink-0 px-2.5 py-1 text-[11px] font-medium ${STATUS_TONE.badge}`;
+  `shrink-0 px-2.5 py-1 text-[11px] font-medium ${STATUS_TONE.state}`;
 function readBillingReturnState(): BillingReturnState {
   if (typeof window === "undefined") {
     return null;
@@ -457,7 +457,7 @@ function renderNotificationRecords(notifications: WorkspaceNotificationsControll
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", STATUS_TONE.badge)}>
+              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", STATUS_TONE.state)}>
                 {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
               </span>
               {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
@@ -1118,7 +1118,7 @@ export function WorkspaceAccountMenu({
                 </p>
               ) : null}
               {billingError ? (
-                <p className="mt-3 text-sm leading-5 bg-card text-destructive" role="alert">
+                <p className="mt-3 text-sm leading-5 bg-card text-destructive dark:text-foreground" role="alert">
                   {billingError}
                 </p>
               ) : null}
@@ -1488,7 +1488,7 @@ export function WorkspaceAccountMenu({
                     <h3 className="text-[17px] font-medium text-foreground">Web app</h3>
                     <p className="mt-1 text-sm text-foreground">Use the current browser workspace today.</p>
                   </div>
-                  <span className={`px-3 py-1 text-xs font-medium ${STATUS_TONE.badge}`}>
+                  <span className={`px-3 py-1 text-xs font-medium ${STATUS_TONE.state}`}>
                     Available
                   </span>
                 </div>
@@ -1598,7 +1598,7 @@ export function WorkspaceAccountMenu({
             {(notifications?.unseenCount ?? 0) > 0 ? (
               <span
                 className={cn(
-                  `hidden h-5 w-5 shrink-0 items-center justify-center text-[11px] font-medium ${STATUS_TONE.badge}`,
+                  `hidden h-5 w-5 shrink-0 items-center justify-center text-[11px] font-medium ${STATUS_TONE.state}`,
                   compact
                     ? "rounded-[2px] border-paper-hairline bg-paper-inset text-paper-muted lg:inline-flex"
                     : "md:inline-flex",
@@ -1959,7 +1959,7 @@ export function WorkspaceAccountMenu({
                   </div>
                 )}
 
-                {orgSaveError && <p className="mt-3 text-xs bg-card text-destructive">{orgSaveError}</p>}
+                {orgSaveError && <p className="mt-3 text-xs bg-card text-destructive dark:text-foreground">{orgSaveError}</p>}
 
                 <div className="mt-4 flex gap-2">
                   <Button

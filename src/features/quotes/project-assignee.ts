@@ -8,12 +8,12 @@ export type ProjectAssigneeBadgeModel = {
 };
 
 const ASSIGNEE_BUBBLE_COLORS = [
-  "border-border bg-card text-sky-800",
-  "border-border bg-card text-emerald-800",
-  "border-border bg-card text-amber-800",
-  "border-border bg-card text-rose-800",
-  "border-border bg-card text-cyan-800",
-  "border-border bg-card text-fuchsia-800",
+  "border-border bg-card text-sky-800 dark:text-foreground",
+  "border-border bg-card text-emerald-800 dark:text-foreground",
+  "border-border bg-card text-amber-800 dark:text-foreground",
+  "border-border bg-card text-rose-800 dark:text-foreground",
+  "border-border bg-card text-cyan-800 dark:text-foreground",
+  "border-border bg-card text-fuchsia-800 dark:text-foreground",
 ];
 
 function asNonEmptyString(value: string | null | undefined): string | null {

@@ -2,7 +2,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test";
 import { test, expect } from "../test";
 
 // Real seeded stack, same client/part/package as package-selection-state.
-// Requires an existing selection and request metadata; never creates either.
+// Creates the seeded package selection when absent; request metadata comes from the seed.
 const PART_ROUTE = "/parts/00000000-0000-4000-8000-000000000103/review";
 const PACKAGE_ROUTE = "/client/packages/00000000-0000-4000-8000-000000000900";
 
@@ -17,9 +17,20 @@ async function measureSurface(page: Page, targets: Locator, name: string, testIn
     try {
       measurements.push(...await page.evaluate((root) => {
         type Color = [number, number, number, number];
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
         const parse = (value: string): Color => {
           const match = value.match(/^rgba?\(([^)]+)\)$/);
-          if (!match) throw new Error(`Unsupported computed color: ${value}`);
+          if (!match) {
+            // Dark theme tokens use OKLCH; convert through the browser's sRGB canvas.
+            if (!CSS.supports("color", value)) throw new Error(`Unsupported computed color: ${value}`);
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = value;
+            context.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+            return [r, g, b, a / 255];
+          }
           const channels = match[1].split(/[,\s/]+/).map(Number);
           return [channels[0], channels[1], channels[2], channels[3] ?? 1];
         };
@@ -43,7 +54,7 @@ async function measureSurface(page: Page, targets: Locator, name: string, testIn
           const node = walker.currentNode;
           const element = node.parentElement;
           const text = node.textContent?.trim();
-          if (!element || !text || element.closest("svg")) continue;
+          if (!element || !text || element.closest('svg, [aria-hidden="true"], [role="img"]')) continue;
           const style = getComputedStyle(element);
           const range = document.createRange();
           range.selectNodeContents(node);
@@ -83,54 +94,57 @@ async function measureSurface(page: Page, targets: Locator, name: string, testIn
   expect.soft(measurements.every((m) => m.ratio >= 4.5), `${name}: WCAG AA requires >= 4.5:1\n${report}`).toBe(true);
 }
 
-test.describe("OVD-1032 light theme rendered contrast", () => {
+test.describe("OVD-1032 both-theme rendered contrast", () => {
   test.use({ storageState: "playwright/.auth/client.json", viewport: { width: 1280, height: 900 } });
 
-  test("keeps review, handoff, package and notification text readable without edits", async ({ page }, testInfo) => {
-    await page.addInitScript(() => localStorage.setItem("theme", "light"));
-    await page.goto(PART_ROUTE);
-    await expect(page.locator("html")).toHaveClass(/\blight\b/);
-    const manufacturing = page.getByText("Manufacturing quote", { exact: true });
-    await expect(manufacturing).toBeVisible({ timeout: 30_000 });
-    const quantity = page.getByText(/^Quote qty /);
-    const needBy = page.getByText(/^Need by /);
-    await expect(quantity).toBeVisible();
-    await expect(needBy).toBeVisible();
-    await measureSurface(page, manufacturing.or(quantity).or(needBy), "part-review-header-chips", testInfo);
+  test("keeps review, handoff, package and notification text readable in both themes", async ({ page }, testInfo) => {
+    for (const theme of ["light", "dark"] as const) {
+      await page.goto(PART_ROUTE);
+      await page.evaluate((value) => localStorage.setItem("theme", value), theme);
+      await page.reload();
+      await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
+      const manufacturing = page.getByText("Manufacturing quote", { exact: true });
+      await expect(manufacturing).toBeVisible({ timeout: 30_000 });
+      const quantity = page.getByText(/^Quote qty /);
+      const needBy = page.getByText(/^Need by /);
+      await expect(quantity).toBeVisible();
+      await expect(needBy).toBeVisible();
+      await measureSurface(page, manufacturing.or(quantity).or(needBy), `${theme}-part-review-header-chips`, testInfo);
 
-    const handoff = page.locator("section").filter({ has: page.getByRole("heading", { name: "Capture the details needed for manual follow-up" }) });
-    const pill = handoff.getByText(/^(\d+ details still needed|Ready for follow-up)$/);
-    const stillNeeded = handoff.locator("div").filter({ has: page.getByText("Still needed", { exact: true }) }).last();
-    await expect(pill).toBeVisible();
-    // Default handoff state has missing details; absence must not silently skip coverage.
-    await expect(stillNeeded.getByRole("listitem").first()).toBeVisible();
-    await measureSurface(page, pill.or(stillNeeded), "handoff-pill-and-still-needed", testInfo);
+      const handoff = page.locator("section").filter({ has: page.getByRole("heading", { name: "Capture the details needed for manual follow-up" }) });
+      const pill = handoff.getByText(/^(\d+ details still needed|Ready for follow-up)$/);
+      const stillNeeded = handoff.locator("div").filter({ has: page.getByText("Still needed", { exact: true }) }).last();
+      await expect(pill).toBeVisible();
+      // Default handoff state has missing details; absence must not silently skip coverage.
+      await expect(stillNeeded.getByRole("listitem").first()).toBeVisible();
+      await measureSurface(page, pill.or(stillNeeded), `${theme}-handoff-pill-and-still-needed`, testInfo);
 
-    await page.goto(PACKAGE_ROUTE);
-    await expect(page.locator("html")).toHaveClass(/\blight\b/);
-    const receiptHeading = page.getByRole("heading", { name: "Selection received", exact: true });
-    const lowest = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Lowest cost", exact: true }) }).last();
-    await expect(lowest).toBeVisible({ timeout: 30_000 });
-    if (await receiptHeading.count() === 0) {
-      // The receipt exists only after a selection. Make the same seeded selection that
-      // package-selection-state.spec.ts makes (no provider or order action), so this
-      // surface is measured whatever order the journeys run in.
-      await lowest.getByRole("button", { name: /Select (this|another) option/ }).click();
+      await page.goto(PACKAGE_ROUTE);
+      await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
+      const receiptHeading = page.getByRole("heading", { name: "Selection received", exact: true });
+      const lowest = page.locator(".border").filter({ has: page.getByRole("heading", { name: "Lowest cost", exact: true }) }).last();
+      await expect(lowest).toBeVisible({ timeout: 30_000 });
+      if (await receiptHeading.count() === 0) {
+        // The receipt exists only after a selection. Make the same seeded selection that
+        // package-selection-state.spec.ts makes (no provider or order action), so this
+        // surface is measured whatever order the journeys run in.
+        await lowest.getByRole("button", { name: /Select (this|another) option/ }).click();
+      }
+      const receipt = page.locator(".border").filter({ has: receiptHeading }).last();
+      await expect(receipt).toBeVisible({ timeout: 30_000 });
+      await measureSurface(page, receipt, `${theme}-package-selection-received`, testInfo);
+      const stats = page.locator("section").filter({ has: page.getByText("Best Price", { exact: true }) });
+      await expect(stats.getByText("Selected", { exact: true })).toBeVisible();
+      await measureSurface(page, stats, `${theme}-package-stat-strip`, testInfo);
+
+      await page.goto("/quotes");
+      await page.getByRole("button", { name: /open account menu/i }).click();
+      await page.getByRole("menuitem", { name: /^Notifications/ }).click();
+      const notifications = page.getByRole("dialog", { name: "Notifications", exact: true });
+      await expect(notifications).toBeVisible();
+      const badges = notifications.locator('span[class*="text-[11px]"]');
+      await expect(notifications.getByText(/^\d+ in center$/)).toBeVisible();
+      await measureSurface(page, badges, `${theme}-account-notification-badges`, testInfo);
     }
-    const receipt = page.locator(".border").filter({ has: receiptHeading }).last();
-    await expect(receipt).toBeVisible({ timeout: 30_000 });
-    await measureSurface(page, receipt, "package-selection-received", testInfo);
-    const stats = page.locator("section").filter({ has: page.getByText("Best Price", { exact: true }) });
-    await expect(stats.getByText("Selected", { exact: true })).toBeVisible();
-    await measureSurface(page, stats, "package-stat-strip", testInfo);
-
-    await page.goto("/quotes");
-    await page.getByRole("button", { name: /open account menu/i }).click();
-    await page.getByRole("menuitem", { name: /^Notifications/ }).click();
-    const notifications = page.getByRole("dialog", { name: "Notifications", exact: true });
-    await expect(notifications).toBeVisible();
-    const badges = notifications.locator('span[class*="text-[11px]"]');
-    await expect(notifications.getByText(/^\d+ in center$/)).toBeVisible();
-    await measureSurface(page, badges, "account-notification-badges", testInfo);
   });
 });

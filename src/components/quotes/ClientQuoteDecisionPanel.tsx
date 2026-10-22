@@ -118,7 +118,7 @@ function getVendorStatusDisplay(status: string | undefined) {
     case "manual_review_pending":
       return { icon: AlertCircle, label: "Review", color: "text-foreground", bg: "bg-accent" };
     case "manual_vendor_followup":
-      return { icon: AlertCircle, label: "Follow-up", color: "text-foreground", bg: "bg-orange-500/10" };
+      return { icon: AlertCircle, label: "Follow-up", color: "text-foreground", bg: "bg-accent" };
     case "stale":
       return { icon: Clock, label: "Stale", color: "text-muted-foreground", bg: "bg-accent" };
     default:

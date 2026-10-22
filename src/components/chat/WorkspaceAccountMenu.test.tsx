@@ -912,6 +912,8 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /notifications/i }));
 
     expect(await screen.findByText("Browser permission")).toBeInTheDocument();
+    expect(screen.getByText("1 in center")).toHaveClass("font-mono");
+    expect(screen.getByText("Unseen")).toHaveClass("font-mono");
     expect(screen.getAllByText("Quote package ready").length).toBeGreaterThan(0);
     expect(notificationCenter.markAllSeen).toHaveBeenCalledTimes(1);
   });

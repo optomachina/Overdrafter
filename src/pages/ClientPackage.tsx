@@ -284,19 +284,19 @@ const ClientPackage = () => {
 
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-accent md:grid-cols-4">
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Published</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Published</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {new Date(data.package.published_at).toLocaleDateString()}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Options</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Options</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {data.options.length}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Best Price</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Best Price</p>
           <p className={`mt-1 text-xl font-bold tracking-tight ${STATUS_TONE.text}`}>
             {data.options.length > 0
               ? formatCurrency(Math.min(...data.options.map((o) => o.published_price_usd)))
@@ -304,7 +304,7 @@ const ClientPackage = () => {
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</p>
+          <p className="text-[10px] uppercase tracking-widest text-foreground">Status</p>
           <div className="mt-1">
             {latestSelection ? (
               <div className={`inline-flex items-center gap-1.5 text-sm font-semibold ${STATUS_TONE.text}`}>
