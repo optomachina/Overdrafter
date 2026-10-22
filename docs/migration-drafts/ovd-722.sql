@@ -1,3 +1,4 @@
+-- SUPERSEDED by supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql; historical copy of 20261013043100_ovd722_provider_kill_switch.sql.
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================

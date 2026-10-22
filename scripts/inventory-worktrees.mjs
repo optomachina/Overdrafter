@@ -1,3 +1,4 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import process from "node:process";
@@ -74,7 +75,7 @@ export function inventoryWorktrees(cwd = process.cwd(), { baseRef = "origin/main
   };
 }
 
-if (process.argv[1]?.endsWith("inventory-worktrees.mjs")) {
+if (isEntryPoint(import.meta.url)) {
   const args = process.argv.slice(2);
   const valueAfter = (flag, fallback = "") => {
     const index = args.indexOf(flag);

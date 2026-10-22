@@ -10,9 +10,9 @@ Canonical matrix: [permissions-matrix.md](permissions-matrix.md) and
 
 | key | Issue / table | in_1_0 | Matrix clearance | Existing live-readiness |
 | --- | --- | --- | --- | --- |
-| xometry | OVD-206 / controlled beta | true | not cleared (`prohibited`) | `docs/1-0-beta-runbook.md` |
-| fictiv | OVD-395 | true | not cleared (`prior-consent`) | [ovd673-fictiv-live-readiness.md](../workflows/ovd673-fictiv-live-readiness.md) |
-| quickparts | OVD-396 | true | not cleared (`silent`) | [ovd674-quickparts-live-readiness.md](../workflows/ovd674-quickparts-live-readiness.md) |
+| xometry | OVD-206 / controlled beta | true | owner override 2026-10-21; quote-only on owner accounts (`prohibited`) | `docs/1-0-beta-runbook.md` |
+| fictiv | OVD-395 | true | owner override 2026-10-21; quote-only on owner accounts (`prior-consent`) | [ovd673-fictiv-live-readiness.md](../workflows/ovd673-fictiv-live-readiness.md) |
+| quickparts | OVD-396 | true | owner override 2026-10-21; quote-only on owner accounts (`silent`) | [ovd674-quickparts-live-readiness.md](../workflows/ovd674-quickparts-live-readiness.md) |
 | weerg | OVD-397 | true | not cleared (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
 | geomiq | OVD-398 | true | not cleared (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
 | rmfg | OVD-678 / OVD-580 | true | cleared on published agent/API only | [rmfg-public-capability-recon.md](../rmfg-public-capability-recon.md) |
@@ -58,20 +58,30 @@ walk after the window 1 migration is applied, then fill in the result column.
 
 ### xometry
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#xometry). Paid
-automated quoting is not matrix-cleared. Legacy controlled-beta admission is a
-separate ToS-risk path. C&D step one is the OVD-722 switch.
+Permissions: [permissions-matrix.md](permissions-matrix.md#xometry). Cleared by
+Blaine Wilson's owner override on 2026-10-21 after reviewing the terms clause:
+quote-only automated quoting on his own provider accounts, ToS risk accepted
+until a cease-and-desist, no orders. ToS stance remains `prohibited`.
+No vendor was contacted; agents never contact vendors. Runtime gates are unchanged.
+Legacy controlled-beta admission remains separate. C&D step one is the OVD-722 switch.
 
 ### fictiv
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#fictiv). Written
-consent is required before the matrix can clear Fictiv. See also
-[Fictiv live readiness](../workflows/ovd673-fictiv-live-readiness.md).
+Permissions: [permissions-matrix.md](permissions-matrix.md#fictiv). Cleared by
+Blaine Wilson's owner override on 2026-10-21 after reviewing the terms clause:
+quote-only automated quoting on his own provider accounts, ToS risk accepted
+until a cease-and-desist, no orders. ToS stance remains `prior-consent`.
+No vendor was contacted; agents never contact vendors. Runtime gates are unchanged.
+No written vendor consent is recorded. See also [Fictiv live readiness](../workflows/ovd673-fictiv-live-readiness.md). C&D step one is the OVD-722 switch.
 
 ### quickparts
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#quickparts). See also
-[Quickparts live readiness](../workflows/ovd674-quickparts-live-readiness.md).
+Permissions: [permissions-matrix.md](permissions-matrix.md#quickparts). Cleared by
+Blaine Wilson's owner override on 2026-10-21 after reviewing the terms clause:
+quote-only automated quoting on his own provider accounts, ToS risk accepted
+until a cease-and-desist, no orders. ToS stance remains `silent`.
+No vendor was contacted; agents never contact vendors. Runtime gates are unchanged.
+See also [Quickparts live readiness](../workflows/ovd674-quickparts-live-readiness.md). C&D step one is the OVD-722 switch.
 
 ### weerg
 
@@ -92,7 +102,8 @@ OVD-678 live wiring are not duplicated here.
 ### oshcut
 
 Permissions: [permissions-matrix.md](permissions-matrix.md#oshcut). Process-
-specific 1.0 route. Not cleared for paid automated quoting.
+specific 1.0 route. Not matrix-cleared for paid automated quoting; the OVD-677
+admission basis is `owner_approved` (OVD-641).
 
 ### sendcutsend
 

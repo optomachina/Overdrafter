@@ -102,6 +102,7 @@ describe("client-comparison fixture scenario", () => {
       "client-published",
       "client-comparison",
       "client-comparison-lapsed-selection",
+      "client-uploaded-step",
     ]);
     const scenario = CLIENT_WORKSPACE_FIXTURE_SCENARIOS.find(
       (candidate) => candidate.id === "client-comparison",

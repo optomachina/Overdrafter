@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Box, FileText, FolderKanban, PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { useClientWorkspaceNotifications } from "@/features/notifications/use-client-workspace-notifications";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -37,6 +38,7 @@ export default function ClientSearch() {
   const parsedQuery = useMemo(() => parseEngineeringQuery(query), [query]);
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const jobIds = useMemo(() => controller.accessibleJobs.map((job) => job.id), [controller.accessibleJobs]);
+  const notificationCenter = useClientWorkspaceNotifications(controller, jobIds);
   const referencesByJobId = useQuoteReferences(jobIds);
   const quoteWorkspace = useQuoteIntelligenceWorkspace(
     jobIds,
@@ -285,6 +287,7 @@ export default function ClientSearch() {
       }
       accountSlot={
         <WorkspaceAccountMenu
+          notificationCenter={notificationCenter}
           user={controller.user}
           compact
           activeMembership={controller.activeMembership}

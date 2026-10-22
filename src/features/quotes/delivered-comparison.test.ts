@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeClientQuoteOption } from "@/components/quotes/test-option-factory";
 import {
   buildDeliveredComparisonModel,
+  countDeadlineStatuses,
   getDeadlineStatus,
   resolveQuoteRequestCompletion,
   sortDeliveredComparisonRows,
@@ -186,5 +187,27 @@ describe("resolveQuoteRequestCompletion", () => {
     expect(notice?.optionCount).toBe(1);
     const none = resolveQuoteRequestCompletion(base, []);
     expect(none).toMatchObject({ optionCount: 0, providerWithOptionsCount: 0 });
+  });
+});
+
+
+describe("countDeadlineStatuses", () => {
+  it("counts the row as late using the current order instant, not its old quote date", () => {
+    const { rows } = buildDeliveredComparisonModel([
+      makeClientQuoteOption({ quoteDateIso: "2026-03-16", leadTimeBusinessDays: 5 }),
+    ], { now: new Date("2026-10-21T12:00:00Z"), timeZone: "UTC" });
+    expect(getDeadlineStatus(rows[0], "2026-04-02")).toBe("late");
+    expect(countDeadlineStatuses(rows, "2026-04-02")).toEqual({ on_time: 0, unconfirmed: 0, late: 1 });
+  });
+
+  it("counts each status and handles empty rows and no deadline", () => {
+    const rows = rowsFor([
+      makeClientQuoteOption({ shipReceiveBy: "2026-10-20" }),
+      makeClientQuoteOption({ shipReceiveBy: "2026-10-30" }),
+      makeClientQuoteOption({ leadTimeBusinessDays: null }),
+    ]);
+    expect(countDeadlineStatuses(rows, "2026-10-22")).toEqual({ on_time: 1, unconfirmed: 1, late: 1 });
+    expect(countDeadlineStatuses([], "2026-10-22")).toEqual({ on_time: 0, unconfirmed: 0, late: 0 });
+    expect(countDeadlineStatuses(rows, null)).toEqual({ on_time: 0, unconfirmed: 0, late: 0 });
   });
 });

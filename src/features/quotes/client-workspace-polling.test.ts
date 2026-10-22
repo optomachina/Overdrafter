@@ -5,7 +5,7 @@ import {
 } from "@/features/quotes/client-workspace-polling";
 
 describe("client workspace polling", () => {
-  it.each(["queued", "extracting", "uploaded"])(
+  it.each(["queued", "extracting"])(
     "polls while extraction is %s",
     (extractionLifecycle) => {
       expect(
@@ -16,6 +16,15 @@ describe("client workspace polling", () => {
       ).toBe(true);
     },
   );
+
+  it("does not poll for the uploaded fallback lifecycle", () => {
+    expect(
+      shouldPollClientWorkspaceState({
+        extractionLifecycle: "uploaded",
+        quoteRequestStatus: null,
+      }),
+    ).toBe(false);
+  });
 
   it.each(["queued", "requesting"])(
     "polls while a quote request is %s",

@@ -17,11 +17,11 @@
 --   * a signed-out authenticated request is denied
 --   * a verified user outside the job's org and projects is denied
 --   * an unverified org member is denied
---   * read-only member: TODO, not constructible today. public.project_role is
---     ('owner', 'editor') and user_can_edit_job grants every org member via
---     user_can_access_org, so every caller user_can_access_job admits is also an
---     editor. Two premise assertions pin this, so a viewer role or a narrower
---     user_can_edit_job makes this file fail until real denial cases replace them.
+--   * a verified read-only org member is denied. Since OVD-766 E
+--     (20261016013832_ovd766e_job_editor_scope.sql) user_can_edit_job admits
+--     only the job owner and explicit project owners/editors, so a plain
+--     org client can read the job but not edit it. A premise assertion pins
+--     that access-without-edit state for the read-only member.
 --   * an org-member editor is allowed and the write lands
 --   * AAL1 admin: not applicable; neither function requires AAL2.
 -- Every denial is followed by a full-row snapshot comparison (job, client
@@ -30,7 +30,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(34);
+select plan(38);
 
 create function pg_temp.set_ovd766d_identity(p_user_id uuid)
 returns void
@@ -88,19 +88,22 @@ select ok(
 select ok(has_function_privilege('authenticated', 'public.api_select_quote_option(uuid,uuid,text)', 'EXECUTE'),
   'api_select_quote_option: authenticated may execute');
 
--- Users: 01 editor (org client, verified), 02 outsider (verified, other org),
--- 03 unverified org client.
+-- Users: 01 editor (org client who owns the job, verified), 02 outsider
+-- (verified, other org), 03 unverified org client, 04 read-only org client
+-- (verified, not the job owner, no project grant).
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data) values
   ('e766d000-0766-4000-8000-000000000001', 'authenticated', 'authenticated', 'ovd766d-editor@example.test', now(), '{"provider":"email"}'::jsonb),
   ('e766d000-0766-4000-8000-000000000002', 'authenticated', 'authenticated', 'ovd766d-outsider@example.test', now(), '{"provider":"email"}'::jsonb),
-  ('e766d000-0766-4000-8000-000000000003', 'authenticated', 'authenticated', 'ovd766d-unverified@example.test', null, '{"provider":"email"}'::jsonb);
+  ('e766d000-0766-4000-8000-000000000003', 'authenticated', 'authenticated', 'ovd766d-unverified@example.test', null, '{"provider":"email"}'::jsonb),
+  ('e766d000-0766-4000-8000-000000000004', 'authenticated', 'authenticated', 'ovd766d-readonly@example.test', now(), '{"provider":"email"}'::jsonb);
 insert into public.organizations (id, name, slug) values
   ('e766d000-0766-4000-8000-000000000010', 'OVD-766 d fixture', 'ovd766d-fixture-e766d000'),
   ('e766d000-0766-4000-8000-000000000011', 'OVD-766 d other org', 'ovd766d-other-e766d000');
 insert into public.organization_memberships (organization_id, user_id, role) values
   ('e766d000-0766-4000-8000-000000000010', 'e766d000-0766-4000-8000-000000000001', 'client'),
   ('e766d000-0766-4000-8000-000000000011', 'e766d000-0766-4000-8000-000000000002', 'client'),
-  ('e766d000-0766-4000-8000-000000000010', 'e766d000-0766-4000-8000-000000000003', 'client');
+  ('e766d000-0766-4000-8000-000000000010', 'e766d000-0766-4000-8000-000000000003', 'client'),
+  ('e766d000-0766-4000-8000-000000000010', 'e766d000-0766-4000-8000-000000000004', 'client');
 insert into public.pricing_policies (id, organization_id, version, markup_percent, currency_minor_unit)
 values ('e766d000-0766-4000-8000-000000000020', 'e766d000-0766-4000-8000-000000000010', 'ovd766d-fixture', 20, 0.01);
 insert into public.jobs (id, organization_id, created_by, title, status, active_pricing_policy_id)
@@ -140,16 +143,14 @@ $$;
 create temporary table ovd766d_before (state jsonb) on commit drop;
 insert into ovd766d_before select pg_temp.ovd766d_state();
 
--- TODO(read-only member): not constructible today (see header). A pgTAP skip()
--- is not used because run-supabase-policy-tests rejects SKIP/TODO output. These
--- premises fail when an access-without-edit state becomes possible; replace
--- them then with denial cases for both functions.
+-- Read-only access is now constructible (OVD-766 E): project_role still has
+-- no viewer value, but plain org membership no longer grants edit.
 select is(enum_range(null::public.project_role)::text[], array['owner', 'editor']::text[],
   'premise: project_role has no read-only value, so every project member can edit');
-select pg_temp.set_ovd766d_identity('e766d000-0766-4000-8000-000000000003');
+select pg_temp.set_ovd766d_identity('e766d000-0766-4000-8000-000000000004');
 select ok(public.user_can_access_job('e766d000-0766-4000-8000-000000000030')
-    and public.user_can_edit_job('e766d000-0766-4000-8000-000000000030'),
-  'premise: a client org member with job access can also edit it');
+    and not public.user_can_edit_job('e766d000-0766-4000-8000-000000000030'),
+  'premise: a client org member who is not the owner or an explicit editor can read but not edit the job');
 
 -- anon.
 set local role anon;
@@ -200,6 +201,21 @@ select throws_ok($$select public.api_select_quote_option('e766d000-0766-4000-800
 reset role;
 select is(pg_temp.ovd766d_state(), (select state from ovd766d_before),
   'non-member published selection: no job, selection, or audit writes');
+
+-- Verified read-only org member.
+select pg_temp.set_ovd766d_identity('e766d000-0766-4000-8000-000000000004');
+set local role authenticated;
+select throws_ok($$select public.api_set_job_selected_vendor_quote_offer('e766d000-0766-4000-8000-000000000030', 'e766d000-0766-4000-8000-000000000035')$$,
+  'P0001', 'You do not have access to job e766d000-0766-4000-8000-000000000030.', 'read-only member direct selection is denied');
+reset role;
+select is(pg_temp.ovd766d_state(), (select state from ovd766d_before),
+  'read-only member direct selection: no job, selection, or audit writes');
+set local role authenticated;
+select throws_ok($$select public.api_select_quote_option('e766d000-0766-4000-8000-000000000040', 'e766d000-0766-4000-8000-000000000041', 'ovd766d')$$,
+  'P0001', 'You do not have access to package e766d000-0766-4000-8000-000000000040', 'read-only member published selection is denied');
+reset role;
+select is(pg_temp.ovd766d_state(), (select state from ovd766d_before),
+  'read-only member published selection: no job, selection, or audit writes');
 
 -- Unverified org member.
 select pg_temp.set_ovd766d_identity('e766d000-0766-4000-8000-000000000003');
