@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useState } from "react";
 import { parseRequestQuantityText, QUANTITY_FORMAT_ERROR } from "@/features/quotes/single-quantity";
 import { validateRequestedQuoteQuantitiesInput, QUOTE_QUANTITIES_FORMAT_ERROR } from "@/features/quotes/request-intake";
@@ -188,10 +189,10 @@ export function InternalJobPartRequirementCard({
         <div>
           <p className="text-lg font-medium">{part.name}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground">
               CAD: {part.cadFile?.original_name ?? "Missing"}
             </Badge>
-            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground">
               Drawing: {part.drawingFile?.original_name ?? "Missing"}
             </Badge>
             <Badge variant="secondary" className="border border-primary/20 bg-primary/10 text-primary">
@@ -207,12 +208,12 @@ export function InternalJobPartRequirementCard({
           />
         </div>
         {extraction.warnings.length > 0 ? (
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-accent px-3 py-1 text-xs text-foreground">
             <AlertTriangle className="h-3.5 w-3.5" />
             {extraction.warnings.length} warning(s)
           </div>
         ) : (
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-accent px-3 py-1 text-xs text-foreground">
             <CheckCircle2 className="h-3.5 w-3.5" />
             No blocking warnings
           </div>
@@ -239,7 +240,7 @@ export function InternalJobPartRequirementCard({
           ) : (
             <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-dashed border-border bg-muted px-4 text-center">
               <div className="rounded-full border border-border bg-accent p-3">
-                <AlertTriangle className="h-6 w-6 text-amber-300" />
+                <AlertTriangle className="h-6 w-6 text-foreground" />
               </div>
               <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
               <p className="mt-2 text-xs text-muted-foreground">Upload a STEP file to generate a reusable thumbnail.</p>
@@ -296,7 +297,7 @@ export function InternalJobPartRequirementCard({
               {renderExtractionSource(descriptionSelectedBy)}
             </p>
             {descriptionResolution.staleAuto && descriptionResolution.approvedValue ? (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs text-foreground">
                 Showing {draftSourceLabel(descriptionResolution.source)} instead of stale auto-approved value:{" "}
                 {descriptionResolution.approvedValue}
               </p>
@@ -325,7 +326,7 @@ export function InternalJobPartRequirementCard({
               {renderExtractionSource(partNumberSelectedBy)}
             </p>
             {partNumberResolution.staleAuto && partNumberResolution.approvedValue ? (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs text-foreground">
                 Showing {draftSourceLabel(partNumberResolution.source)} instead of stale auto-approved value:{" "}
                 {partNumberResolution.approvedValue}
               </p>
@@ -354,7 +355,7 @@ export function InternalJobPartRequirementCard({
               {renderExtractionSource(revisionSelectedBy)}
             </p>
             {revisionResolution.staleAuto && revisionResolution.approvedValue ? (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs text-foreground">
                 Showing {draftSourceLabel(revisionResolution.source)} instead of stale auto-approved value:{" "}
                 {revisionResolution.approvedValue}
               </p>
@@ -476,7 +477,7 @@ export function InternalJobPartRequirementCard({
               {renderExtractionSource(finishSelectedBy)}
             </p>
             {finishResolution.staleAuto && finishResolution.approvedValue ? (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs text-foreground">
                 Showing {draftSourceLabel(finishResolution.source)} instead of stale auto-approved value:{" "}
                 {finishResolution.approvedValue}
               </p>
@@ -571,7 +572,7 @@ export function InternalJobPartRequirementCard({
           <div className="mt-3 space-y-2 text-sm text-muted-foreground">
             {extraction.evidence.slice(0, 3).map((item, index) => (
               <div key={`${item.field}-${index}`}>
-                <span className="font-medium text-foreground/80">{item.field}</span>
+                <span className="font-medium text-foreground">{item.field}</span>
                 {`: page ${item.page}, confidence ${(item.confidence * 100).toFixed(0)}%, "${item.snippet}"`}
               </div>
             ))}
@@ -580,7 +581,7 @@ export function InternalJobPartRequirementCard({
       ) : null}
 
       {extraction.warnings.length > 0 ? (
-        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+        <div className="mt-5 rounded-2xl border border-border bg-accent p-4 text-sm text-foreground">
           {extraction.warnings.map((warning) => (
             <p key={warning}>{warning}</p>
           ))}
@@ -588,10 +589,10 @@ export function InternalJobPartRequirementCard({
       ) : null}
 
       {showInternalDiagnostics ? (
-        <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+        <div className="mt-5 rounded-2xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium text-foreground">Internal extraction diagnostics</p>
-            <Badge variant="secondary" className="border border-cyan-400/20 bg-cyan-500/10 text-cyan-200">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground">
               Internal only
             </Badge>
           </div>
@@ -605,7 +606,7 @@ export function InternalJobPartRequirementCard({
           </div>
           <div className="mt-4 overflow-hidden rounded-xl border border-border">
             <table className="w-full border-collapse text-left text-xs">
-              <thead className="bg-accent text-foreground/80">
+              <thead className="bg-accent text-foreground">
                 <tr>
                   <th className="px-3 py-2 font-medium">Field</th>
                   <th className="px-3 py-2 font-medium">Source</th>
@@ -615,7 +616,7 @@ export function InternalJobPartRequirementCard({
               </thead>
               <tbody>
                 {extractionProvenanceRows.map((row) => (
-                  <tr key={row.field} className="border-t border-border text-foreground/80">
+                  <tr key={row.field} className="border-t border-border text-foreground">
                     <td className="px-3 py-2">{row.field}</td>
                     <td className="px-3 py-2">{renderExtractionSource(row.selectedBy)}</td>
                     <td className="px-3 py-2">
@@ -628,9 +629,9 @@ export function InternalJobPartRequirementCard({
             </table>
           </div>
           <div className="mt-4">
-            <p className="text-xs font-medium text-foreground/80">Approved spec snapshot</p>
+            <p className="text-xs font-medium text-foreground">Approved spec snapshot</p>
             {approvedSnapshot ? (
-              <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-border bg-muted p-3 text-[11px] text-foreground/80">
+              <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-border bg-muted p-3 text-[11px] text-foreground">
                 {formatJson(approvedSnapshot)}
               </pre>
             ) : (
@@ -638,14 +639,14 @@ export function InternalJobPartRequirementCard({
             )}
           </div>
           <div className="mt-4">
-            <p className="text-xs font-medium text-foreground/80">Part queue activity</p>
+            <p className="text-xs font-medium text-foreground">Part queue activity</p>
             {queueTasksToRender.length > 0 ? (
               <div className="mt-2 space-y-2">
                 {queueTasksToRender.map((task) => (
                   <div key={task.id} className="rounded-xl border border-border bg-muted p-3 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-medium text-foreground">{formatStatusLabel(task.task_type)}</p>
-                      <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+                      <Badge variant="secondary" className="border border-border bg-accent text-foreground">
                         {formatStatusLabel(task.status)}
                       </Badge>
                     </div>
@@ -658,12 +659,12 @@ export function InternalJobPartRequirementCard({
                       <p>Locked at: {formatQueueDate(task.locked_at)}</p>
                     </div>
                     {task.last_error ? (
-                      <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-200">
+                      <p className={`mt-2 rounded-lg border border-border px-2 py-1 ${STATUS_TONE.error}`}>
                         Last error: {task.last_error}
                       </p>
                     ) : null}
-                    <details className="mt-2 text-foreground/80">
-                      <summary className="cursor-pointer text-xs text-foreground/80">Queue payload</summary>
+                    <details className="mt-2 text-foreground">
+                      <summary className="cursor-pointer text-xs text-foreground">Queue payload</summary>
                       <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-border bg-muted p-2 text-[11px] text-muted-foreground">
                         {formatJson(task.payload)}
                       </pre>

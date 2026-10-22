@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useTheme } from "next-themes";
@@ -55,7 +56,6 @@ import { Switch } from "@/components/ui/switch";
 import type {
   BrowserNotificationPermissionState,
   WorkspaceNotificationChannel,
-  WorkspaceNotificationItem,
   WorkspaceNotificationsController,
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -138,12 +138,12 @@ const MENU_ITEM_CLASS =
   "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-foreground focus:bg-accent focus:text-foreground";
 const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-foreground";
 const PANEL_SHEET_CLASS =
-  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
+  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const COMPACT_PANEL_SHEET_CLASS =
-  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
+  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
-  "shrink-0 rounded-[2px] border border-border bg-accent px-2.5 py-1 font-mono text-[11px] font-medium text-foreground";
+  `shrink-0 px-2.5 py-1 text-[11px] font-medium ${STATUS_TONE.state}`;
 function readBillingReturnState(): BillingReturnState {
   if (typeof window === "undefined") {
     return null;
@@ -306,7 +306,7 @@ function getRoleLabel(role: AppMembership["role"] | null | undefined): string {
 }
 
 function PanelSectionTitle({ children }: { children: string }) {
-  return <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/80">{children}</p>;
+  return <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground">{children}</p>;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -338,7 +338,7 @@ function HelpCenterButton({
       <Icon className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.85} />
       <div className="min-w-0 flex-1">
         <p className="text-[16px] leading-6 text-foreground">{label}</p>
-        <p className="mt-1 text-sm leading-5 text-foreground/80">{description}</p>
+        <p className="mt-1 text-sm leading-5 text-foreground">{description}</p>
       </div>
       <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
     </button>
@@ -351,7 +351,7 @@ function ShortcutKeys({ keys }: { keys: string[] }) {
       {keys.map((key) => (
         <kbd
           key={key}
-          className="rounded border border-border bg-accent px-2.5 py-1 text-xs font-medium text-foreground/80"
+          className="rounded border border-border bg-accent px-2.5 py-1 text-xs font-medium text-foreground"
         >
           {key}
         </kbd>
@@ -388,18 +388,6 @@ function formatNotificationTimestamp(value: string) {
   }).format(date);
 }
 
-function getNotificationToneClasses(tone: WorkspaceNotificationItem["tone"]) {
-  switch (tone) {
-    case "attention":
-      return "border-amber-400/25 bg-amber-500/10 text-amber-100";
-    case "active":
-      return "border-emerald-500/30 bg-emerald-500/12 text-emerald-200";
-    case "default":
-    default:
-      return "border-border bg-accent text-foreground/80";
-  }
-}
-
 function getBrowserPermissionLabel(permission: BrowserNotificationPermissionState) {
   switch (permission) {
     case "granted":
@@ -430,12 +418,12 @@ function getBrowserPermissionDescription(permission: BrowserNotificationPermissi
 
 function renderNotificationRecords(notifications: WorkspaceNotificationsController) {
   if (notifications.isLoading) {
-    return <p className="text-sm leading-6 text-foreground/80">Loading notifications...</p>;
+    return <p className="text-sm leading-6 text-foreground">Loading notifications...</p>;
   }
 
   if (notifications.errorMessage) {
     return (
-      <p role="alert" className="text-sm leading-6 text-amber-200">
+      <p role="alert" className={`text-sm leading-6 ${STATUS_TONE.error}`}>
         {notifications.errorMessage}
       </p>
     );
@@ -443,7 +431,7 @@ function renderNotificationRecords(notifications: WorkspaceNotificationsControll
 
   if (notifications.supportedTypes.length === 0) {
     return (
-      <p className="text-sm leading-6 text-foreground/80">
+      <p className="text-sm leading-6 text-foreground">
         Notification preferences will appear here after a workspace role is resolved.
       </p>
     );
@@ -451,7 +439,7 @@ function renderNotificationRecords(notifications: WorkspaceNotificationsControll
 
   if (notifications.items.length === 0) {
     return (
-      <p className="text-sm leading-6 text-foreground/80">
+      <p className="text-sm leading-6 text-foreground">
         No matching notification records are visible yet for this workspace.
       </p>
     );
@@ -463,27 +451,25 @@ function renderNotificationRecords(notifications: WorkspaceNotificationsControll
         key={item.id}
         className={cn(
           "rounded border p-4",
-          item.isSeen
-            ? "border-border bg-accent"
-            : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
+          STATUS_TONE.surface,
         )}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", getNotificationToneClasses(item.tone))}>
+              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", STATUS_TONE.state)}>
                 {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
               </span>
               {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
-              <span className="text-xs text-foreground/80">{formatNotificationTimestamp(item.occurredAt)}</span>
+              <span className="text-xs text-foreground">{formatNotificationTimestamp(item.occurredAt)}</span>
             </div>
             <h3 className="mt-3 text-[16px] font-medium text-foreground">{item.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-foreground/80">{item.detail}</p>
+            <p className="mt-2 text-sm leading-6 text-foreground">{item.detail}</p>
           </div>
           <Button
             type="button"
             variant="ghost"
-            className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
+            className="h-8 rounded-full border border-border px-3 text-xs text-foreground hover:bg-accent hover:text-foreground"
             onClick={() => notifications.setItemSeen(item.id, !item.isSeen)}
           >
             {item.isSeen ? "Mark unseen" : "Mark seen"}
@@ -922,7 +908,7 @@ export function WorkspaceAccountMenu({
                       ? `${notifications.unseenCount} unseen ${notifications.unseenCount === 1 ? "notification" : "notifications"}`
                       : "All caught up"}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-foreground/80">
+                  <p className="mt-2 text-sm leading-6 text-foreground">
                     The first browser slice tracks durable quote-workflow transitions from this workspace and keeps
                     seen state on this browser until server-backed notification records exist.
                   </p>
@@ -938,7 +924,7 @@ export function WorkspaceAccountMenu({
                   <p className="mt-3 text-[18px] font-medium text-foreground">
                     {getBrowserPermissionLabel(notifications.browserPermission)}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-foreground/80">
+                  <p className="mt-2 text-sm leading-6 text-foreground">
                     {getBrowserPermissionDescription(notifications.browserPermission)}
                   </p>
                 </div>
@@ -986,7 +972,7 @@ export function WorkspaceAccountMenu({
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
                           <h3 className="text-[16px] font-medium text-foreground">{definition.label}</h3>
-                          <p className="mt-1 text-sm leading-6 text-foreground/80">{definition.description}</p>
+                          <p className="mt-1 text-sm leading-6 text-foreground">{definition.description}</p>
                         </div>
                       </div>
                       <div className="mt-4 flex flex-col gap-2">
@@ -1010,7 +996,7 @@ export function WorkspaceAccountMenu({
                             >
                               <span className="min-w-0">
                                 <span className="block text-sm font-medium text-foreground">{channelLabel}</span>
-                                <span className="mt-1 block text-xs leading-5 text-foreground/80">{channelDescription}</span>
+                                <span className="mt-1 block text-xs leading-5 text-foreground">{channelDescription}</span>
                               </span>
                               <Switch
                                 aria-label={`${definition.label} ${channelLabel}`}
@@ -1038,7 +1024,7 @@ export function WorkspaceAccountMenu({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
+                    className="h-8 rounded-full border border-border px-3 text-xs text-foreground hover:bg-accent hover:text-foreground"
                     onClick={() => notifications.markAllSeen()}
                   >
                     Mark all seen
@@ -1065,7 +1051,7 @@ export function WorkspaceAccountMenu({
                 </Avatar>
                 <div className="min-w-0">
                   <p className="truncate text-[20px] font-medium tracking-[-0.01em] text-foreground">{profile.displayName}</p>
-                  <p className="truncate text-sm text-foreground/80">{user.email ?? "No email available"}</p>
+                  <p className="truncate text-sm text-foreground">{user.email ?? "No email available"}</p>
                 </div>
               </div>
             </div>
@@ -1084,19 +1070,19 @@ export function WorkspaceAccountMenu({
             <div className={PANEL_CARD_CLASS}>
               <div className="flex items-center gap-2">
                 <PanelSectionTitle>Automatic quote access</PanelSectionTitle>
-                <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/80">
+                <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
                   {foundingBetaPresentation.badge}
                 </span>
               </div>
               <p className="mt-3 text-[17px] font-medium text-foreground">
                 {foundingBetaPresentation.title}
               </p>
-              <p className="mt-1 text-sm leading-6 text-foreground/80">
+              <p className="mt-1 text-sm leading-6 text-foreground">
                 {foundingBetaPresentation.description}
               </p>
               {billingReturnState === "portal_return" ? (
                 <output
-                  className="mt-3 block rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-5 text-emerald-200"
+                  className={`mt-3 block px-3 py-2 text-sm leading-5 ${STATUS_TONE.callout}`}
                   aria-live="polite"
                 >
                   Returned from billing. Any subscription changes will appear after Stripe confirms them.
@@ -1127,12 +1113,12 @@ export function WorkspaceAccountMenu({
               {!quoteCollectionMode.isLoading
                 && quoteCollectionMode.hasStripeSubscription
                 && !quoteCollectionMode.canManageBilling ? (
-                <p className="mt-3 text-xs leading-5 text-foreground/80">
+                <p className="mt-3 text-xs leading-5 text-foreground">
                   Ask your organization billing owner to manage or cancel the existing subscription.
                 </p>
               ) : null}
               {billingError ? (
-                <p className="mt-3 text-sm leading-5 text-red-300" role="alert">
+                <p className={`mt-3 text-sm leading-5 ${STATUS_TONE.error}`} role="alert">
                   {billingError}
                 </p>
               ) : null}
@@ -1153,7 +1139,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("company")}
-                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
+                        className="text-xs text-foreground hover:text-foreground transition-colors"
                       >
                         Edit
                       </button>
@@ -1178,7 +1164,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
-                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
+                        className="text-xs text-foreground hover:text-foreground transition-colors"
                       >
                         Edit
                       </button>
@@ -1206,7 +1192,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
-                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
+                        className="text-xs text-foreground hover:text-foreground transition-colors"
                       >
                         Edit
                       </button>
@@ -1257,7 +1243,7 @@ export function WorkspaceAccountMenu({
                       )}
                     </div>
                   )}
-                  {sourcingError && <p role="alert" className="mt-2 text-xs text-destructive dark:text-foreground">{sourcingError}</p>}
+                  {sourcingError && <p role="alert" className={`mt-2 text-xs ${STATUS_TONE.error}`}>{sourcingError}</p>}
                 </div>
 
               </>
@@ -1294,7 +1280,7 @@ export function WorkspaceAccountMenu({
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
-              <p className="text-sm leading-6 text-foreground/80">
+              <p className="text-sm leading-6 text-foreground">
                 Use these support surfaces to check recent changes, review current policies, capture diagnostics, or
                 contact the monitored Founding Beta support route.
               </p>
@@ -1315,11 +1301,11 @@ export function WorkspaceAccountMenu({
           <div className="space-y-3">
             {isArchiveLoading ? (
               <div className={PANEL_CARD_CLASS}>
-                <p className="text-sm leading-6 text-foreground/80">Loading archived items...</p>
+                <p className="text-sm leading-6 text-foreground">Loading archived items...</p>
               </div>
             ) : archiveItems.length === 0 ? (
               <div className={PANEL_CARD_CLASS}>
-                <p className="text-sm leading-6 text-foreground/80">No archived items yet.</p>
+                <p className="text-sm leading-6 text-foreground">No archived items yet.</p>
               </div>
             ) : (
               <>
@@ -1328,7 +1314,7 @@ export function WorkspaceAccountMenu({
                     <h3 className="text-[17px] font-medium text-foreground">
                       {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
                     </h3>
-                    <p className="mt-1 text-sm text-foreground/80">
+                    <p className="mt-1 text-sm text-foreground">
                       Permanently remove archived parts and their related files from this workspace.
                     </p>
                   </div>
@@ -1341,14 +1327,14 @@ export function WorkspaceAccountMenu({
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex min-w-0 items-start gap-3">
                             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-accent">
-                              <Folder className="h-[18px] w-[18px] text-foreground/80" strokeWidth={1.9} />
+                              <Folder className="h-[18px] w-[18px] text-foreground" strokeWidth={1.9} />
                             </span>
                             <div className="min-w-0">
                               <h3 className="truncate text-[17px] font-medium text-foreground">{item.project.project.name}</h3>
-                              <p className="mt-1 text-sm text-foreground/80">{formatArchivedAt(item.project.project.archived_at)}</p>
+                              <p className="mt-1 text-sm text-foreground">{formatArchivedAt(item.project.project.archived_at)}</p>
                             </div>
                           </div>
-                          <span className="rounded-full border border-border bg-accent px-3 py-1 text-xs font-medium text-foreground/80">
+                          <span className="rounded-full border border-border bg-accent px-3 py-1 text-xs font-medium text-foreground">
                             {item.project.partCount} {item.project.partCount === 1 ? "part" : "parts"}
                           </span>
                         </div>
@@ -1370,13 +1356,13 @@ export function WorkspaceAccountMenu({
                       <div className="relative flex min-w-0 items-start gap-4">
                         <div className="flex min-w-0 items-start gap-3 pr-0 sm:pr-[13.5rem]">
                           <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-accent">
-                            <Box className="h-[18px] w-[18px] text-foreground/80" strokeWidth={1.9} />
+                            <Box className="h-[18px] w-[18px] text-foreground" strokeWidth={1.9} />
                           </span>
                           <div className="min-w-0">
                             <h3 className="truncate text-[17px] font-medium text-foreground">{presentation.title}</h3>
-                            <p className="mt-1 text-sm text-foreground/80">{formatArchivedAt(item.job.job.archived_at)}</p>
+                            <p className="mt-1 text-sm text-foreground">{formatArchivedAt(item.job.job.archived_at)}</p>
                             {item.job.projectNames.length > 0 ? (
-                              <p className="mt-3 truncate text-sm text-foreground/80">{item.job.projectNames.join(" · ")}</p>
+                              <p className="mt-3 truncate text-sm text-foreground">{item.job.projectNames.join(" · ")}</p>
                             ) : null}
                           </div>
                         </div>
@@ -1391,7 +1377,7 @@ export function WorkspaceAccountMenu({
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}
-                              className="h-9 rounded-full border border-border bg-accent px-3 text-foreground/80 hover:bg-accent hover:text-foreground"
+                              className="h-9 rounded-full border border-border bg-accent px-3 text-foreground hover:bg-accent hover:text-foreground"
                               onClick={() => void handleUnarchivePart(item.job.job.id)}
                             >
                               {isUnarchivePending ? (
@@ -1411,7 +1397,7 @@ export function WorkspaceAccountMenu({
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}
-                              className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-foreground"
+                              className="h-9 rounded-full border border-border bg-accent px-3 text-foreground hover:bg-accent hover:text-foreground"
                               onClick={() => setDeleteConfirmation({ kind: "single", job: item.job })}
                             >
                               {isDeletePending ? (
@@ -1440,7 +1426,7 @@ export function WorkspaceAccountMenu({
               <article key={note.title} className={PANEL_CARD_CLASS}>
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{note.dateLabel}</p>
                 <h3 className="mt-3 text-[18px] font-medium tracking-[-0.01em] text-foreground">{note.title}</h3>
-                <ul className="mt-4 space-y-2 text-sm leading-6 text-foreground/80">
+                <ul className="mt-4 space-y-2 text-sm leading-6 text-foreground">
                   {note.bullets.map((bullet) => (
                     <li key={bullet}>{bullet}</li>
                   ))}
@@ -1454,14 +1440,14 @@ export function WorkspaceAccountMenu({
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Current Founding Beta policies</PanelSectionTitle>
-              <p className="mt-4 text-sm leading-6 text-foreground/80">
+              <p className="mt-4 text-sm leading-6 text-foreground">
                 Revision {FOUNDING_BETA_POLICY_REVISION}, effective {FOUNDING_BETA_POLICY_EFFECTIVE_DATE}. The beta is
                 free and invitation-only. An account does not by itself grant beta enrollment.
               </p>
             </div>
             <div className={PANEL_CARD_CLASS}>
               <h3 className="text-[17px] font-medium text-foreground">Founding Beta Terms</h3>
-              <p className="mt-2 text-sm leading-6 text-foreground/80">
+              <p className="mt-2 text-sm leading-6 text-foreground">
                 Review eligibility, authority-to-share, regulated-work exclusions, provider disclosure, and the
                 no-order beta boundary.
               </p>
@@ -1469,7 +1455,7 @@ export function WorkspaceAccountMenu({
             </div>
             <div className={PANEL_CARD_CLASS}>
               <h3 className="text-[17px] font-medium text-foreground">Privacy & data handling</h3>
-              <p className="mt-2 text-sm leading-6 text-foreground/80">
+              <p className="mt-2 text-sm leading-6 text-foreground">
                 Review file handling, diagnostic access, named-provider disclosure, retention, deletion, and backup
                 removal commitments.
               </p>
@@ -1477,7 +1463,7 @@ export function WorkspaceAccountMenu({
             </div>
             <div className={PANEL_CARD_CLASS}>
               <h3 className="text-[17px] font-medium text-foreground">Support, withdrawal, or incident</h3>
-              <p className="mt-2 text-sm leading-6 text-foreground/80">
+              <p className="mt-2 text-sm leading-6 text-foreground">
                 Deletion and withdrawal requests are completed within 30 days; isolated backups age out within 90
                 days. Security incident reports are acknowledged within one Arizona business day.
               </p>
@@ -1500,20 +1486,20 @@ export function WorkspaceAccountMenu({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-[17px] font-medium text-foreground">Web app</h3>
-                    <p className="mt-1 text-sm text-foreground/80">Use the current browser workspace today.</p>
+                    <p className="mt-1 text-sm text-foreground">Use the current browser workspace today.</p>
                   </div>
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                  <span className={`px-3 py-1 text-xs font-medium ${STATUS_TONE.state}`}>
                     Available
                   </span>
                 </div>
               </div>
               <div className={PANEL_CARD_CLASS}>
                 <h3 className="text-[17px] font-medium text-foreground">Desktop app</h3>
-                <p className="mt-1 text-sm text-foreground/80">Placeholder for macOS and Windows installers.</p>
+                <p className="mt-1 text-sm text-foreground">Placeholder for macOS and Windows installers.</p>
               </div>
               <div className={PANEL_CARD_CLASS}>
                 <h3 className="text-[17px] font-medium text-foreground">Mobile apps</h3>
-                <p className="mt-1 text-sm text-foreground/80">Placeholder for iPhone, iPad, and Android builds.</p>
+                <p className="mt-1 text-sm text-foreground">Placeholder for iPhone, iPad, and Android builds.</p>
               </div>
             </div>
           </div>
@@ -1524,7 +1510,7 @@ export function WorkspaceAccountMenu({
             {SHORTCUT_ROWS.map((shortcut) => (
               <div key={`${shortcut.keys.join("+")}-${shortcut.description}`} className={PANEL_CARD_CLASS}>
                 <ShortcutKeys keys={shortcut.keys} />
-                <p className="mt-4 text-sm leading-6 text-foreground/80">{shortcut.description}</p>
+                <p className="mt-4 text-sm leading-6 text-foreground">{shortcut.description}</p>
               </div>
             ))}
           </div>
@@ -1605,14 +1591,14 @@ export function WorkspaceAccountMenu({
               <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-foreground">
                 {profile.displayName}
               </p>
-              <p className="truncate text-[13px] leading-5 text-foreground/80">
+              <p className="truncate text-[13px] leading-5 text-foreground">
                 {roleLabel}
               </p>
             </div>
             {(notifications?.unseenCount ?? 0) > 0 ? (
               <span
                 className={cn(
-                  "hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300",
+                  `hidden h-5 w-5 shrink-0 items-center justify-center text-[11px] font-medium ${STATUS_TONE.state}`,
                   compact
                     ? "rounded-[2px] border-paper-hairline bg-paper-inset text-paper-muted lg:inline-flex"
                     : "md:inline-flex",
@@ -1624,7 +1610,7 @@ export function WorkspaceAccountMenu({
             ) : null}
             <div
               className={cn(
-                "pointer-events-none hidden h-8 w-8 items-center justify-center bg-accent text-foreground/80 transition",
+                "pointer-events-none hidden h-8 w-8 items-center justify-center bg-accent text-foreground transition",
                 compact
                   ? "rounded-[2px] lg:flex lg:group-hover/account:flex lg:group-focus-visible/account:flex"
                   : "rounded-full group-hover/account:flex group-focus-visible/account:flex md:flex",
@@ -1770,7 +1756,7 @@ export function WorkspaceAccountMenu({
               <SheetTitle className="pr-12 text-[28px] font-medium tracking-[-0.02em] text-foreground">
                 {panelTitle}
               </SheetTitle>
-              <SheetDescription className="max-w-[28rem] pr-12 text-sm leading-6 text-foreground/80">
+              <SheetDescription className="max-w-[28rem] pr-12 text-sm leading-6 text-foreground">
                 {panelDescription}
               </SheetDescription>
             </SheetHeader>
@@ -1802,7 +1788,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.companyName ?? ""}
                         onChange={(e) => patchDraft({ companyName: e.target.value })}
                         placeholder="ACME Mfg Co."
-                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                     <div>
@@ -1812,7 +1798,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.phone ?? ""}
                         onChange={(e) => patchDraft({ phone: e.target.value })}
                         placeholder="+1 (520) 555-0100"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1827,7 +1813,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.billingStreet ?? ""}
                         onChange={(e) => patchDraft({ billingStreet: e.target.value })}
                         placeholder="2348 E. Broadway Blvd"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                     <div className="grid grid-cols-5 gap-2">
@@ -1838,7 +1824,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingCity ?? ""}
                           onChange={(e) => patchDraft({ billingCity: e.target.value })}
                           placeholder="Tucson"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-1">
@@ -1848,7 +1834,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingState ?? ""}
                           onChange={(e) => patchDraft({ billingState: e.target.value })}
                           placeholder="AZ"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-2">
@@ -1858,7 +1844,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingZip ?? ""}
                           onChange={(e) => patchDraft({ billingZip: e.target.value })}
                           placeholder="85716"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                     </div>
@@ -1869,7 +1855,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.billingCountry ?? ""}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1886,7 +1872,7 @@ export function WorkspaceAccountMenu({
                           "flex-1 px-3 py-2 text-sm transition-colors",
                           orgDetailsDraft.shippingSameAsBilling
                             ? "bg-accent font-medium text-foreground"
-                            : "text-foreground/80 hover:bg-accent hover:text-foreground/80",
+                            : "text-foreground hover:bg-accent hover:text-foreground",
                         )}
                       >
                         Same as billing
@@ -1907,7 +1893,7 @@ export function WorkspaceAccountMenu({
                           "flex-1 border-l border-border px-3 py-2 text-sm transition-colors",
                           !orgDetailsDraft.shippingSameAsBilling
                             ? "bg-accent font-medium text-foreground"
-                            : "text-foreground/80 hover:bg-accent hover:text-foreground/80",
+                            : "text-foreground hover:bg-accent hover:text-foreground",
                         )}
                       >
                         Different address
@@ -1923,7 +1909,7 @@ export function WorkspaceAccountMenu({
                             value={orgDetailsDraft.shippingStreet ?? ""}
                             onChange={(e) => patchDraft({ shippingStreet: e.target.value })}
                             placeholder="2348 E. Broadway Blvd"
-                            className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                           />
                         </div>
                         <div className="grid grid-cols-5 gap-2">
@@ -1934,7 +1920,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingCity ?? ""}
                               onChange={(e) => patchDraft({ shippingCity: e.target.value })}
                               placeholder="Tucson"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-1">
@@ -1944,7 +1930,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingState ?? ""}
                               onChange={(e) => patchDraft({ shippingState: e.target.value })}
                               placeholder="AZ"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-2">
@@ -1954,7 +1940,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingZip ?? ""}
                               onChange={(e) => patchDraft({ shippingZip: e.target.value })}
                               placeholder="85716"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                         </div>
@@ -1965,7 +1951,7 @@ export function WorkspaceAccountMenu({
                             value={orgDetailsDraft.shippingCountry ?? ""}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
-                            className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                           />
                         </div>
                       </>
@@ -1973,7 +1959,7 @@ export function WorkspaceAccountMenu({
                   </div>
                 )}
 
-                {orgSaveError && <p className="mt-3 text-xs text-red-400">{orgSaveError}</p>}
+                {orgSaveError && <p className={`mt-3 text-xs ${STATUS_TONE.error}`}>{orgSaveError}</p>}
 
                 <div className="mt-4 flex gap-2">
                   <Button
@@ -1981,7 +1967,7 @@ export function WorkspaceAccountMenu({
                     variant="ghost"
                     onClick={cancelEdit}
                     disabled={isSavingOrg}
-                    className="flex-1 border border-border text-foreground/80 hover:bg-accent hover:text-foreground"
+                    className="flex-1 border border-border text-foreground hover:bg-accent hover:text-foreground"
                   >
                     Cancel
                   </Button>
@@ -2015,7 +2001,7 @@ export function WorkspaceAccountMenu({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-10 rounded-full border border-border bg-transparent px-4 text-foreground/80 hover:bg-accent hover:text-foreground"
+                  className="h-10 rounded-full border border-border bg-transparent px-4 text-foreground hover:bg-accent hover:text-foreground"
                   onClick={() => setActivePanel("help-center")}
                 >
                   <ArrowUpRight className="mr-2 h-4 w-4" />
@@ -2027,7 +2013,7 @@ export function WorkspaceAccountMenu({
                     type="button"
                     variant="ghost"
                     disabled={deleteAllDisabled}
-                    className="h-10 rounded-full border border-red-500/20 bg-red-500/10 px-4 text-red-100 hover:bg-red-500/18 hover:text-foreground disabled:opacity-60"
+                    className="h-10 rounded-full border border-border bg-accent px-4 text-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
                     onClick={() => setDeleteConfirmation({ kind: "bulk", jobs: archivedJobs })}
                   >
                     {deleteConfirmation?.kind === "bulk" && hasPendingDelete ? (

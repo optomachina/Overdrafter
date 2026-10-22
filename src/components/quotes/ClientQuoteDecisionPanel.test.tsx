@@ -721,6 +721,16 @@ describe("ClientQuoteDecisionPanel", () => {
   });
 });
 
+it("renders Follow-up as a neutral plain-word vendor state", () => {
+  render(<ClientQuoteDecisionPanel
+    options={[makeClientQuoteOption({ vendorStatus: "manual_vendor_followup" })]}
+    requestedByDate="2026-04-15"
+    selectedOption={null}
+    onSelect={() => undefined}
+  />);
+  expect(screen.getByText("Follow-up")).toHaveClass("bg-accent", "text-foreground");
+  expect(screen.getByText("Follow-up")).not.toHaveClass("bg-orange-500/10");
+});
 
 describe("scope-filtered comparison", () => {
   it("distinguishes hidden unknown-origin options and offers all sourcing", () => {

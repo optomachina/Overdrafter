@@ -596,7 +596,7 @@ describe("WorkspaceSidebar", () => {
 
     const projectRow = screen.getAllByRole("button", { name: /project one/i })[0]!;
     expect(projectRow).toHaveClass("bg-accent");
-    expect(projectRow.querySelector(String.raw`.bg-sky-300\/85`)).not.toBeNull();
+    expect(projectRow.querySelector(".bg-foreground")).not.toBeNull();
   });
 
   it("auto-expands the active part's project on load", () => {

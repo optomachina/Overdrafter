@@ -1344,7 +1344,7 @@ describe("ClientProject", () => {
 
     renderWithClient("/projects/project-1");
 
-    expect(await screen.findByText("All parts quoted")).toBeInTheDocument();
+    expect(await screen.findByText("All parts quoted")).toHaveClass("font-mono");
     expect(screen.getByText("Every part in this project has at least one quote.")).toBeInTheDocument();
   });
 
@@ -1698,12 +1698,12 @@ describe("ClientProject", () => {
     {
       status: "queued" as const,
       label: "Queued",
-      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
+      classes: ["border-border", "bg-accent", "text-foreground"],
     },
     {
       status: "requesting" as const,
       label: "Requesting",
-      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
+      classes: ["border-border", "bg-accent", "text-foreground"],
     },
     {
       status: "received" as const,

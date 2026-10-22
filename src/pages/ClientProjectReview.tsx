@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -205,15 +206,15 @@ const ClientProjectReview = () => {
             </section>
 
             <section className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-[22px] border border-emerald-400/20 bg-emerald-500/8 px-4 py-4">
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Ready</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.ready}</p>
               </div>
-              <div className="rounded-[22px] border border-amber-400/20 bg-amber-500/8 px-4 py-4">
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Warning</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.warning}</p>
               </div>
-              <div className="rounded-[22px] border border-rose-400/20 bg-rose-500/8 px-4 py-4">
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Blocked</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.blocked}</p>
               </div>
@@ -253,7 +254,7 @@ const ClientProjectReview = () => {
                               {selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2 lg:justify-end">
-                              <Badge className="border border-border bg-accent text-foreground/80">
+                              <Badge className="border border-border bg-accent text-foreground">
                                 {selectedOption.domesticStatus === "domestic"
                                   ? "USA"
                                   : selectedOption.domesticStatus === "foreign"
@@ -289,15 +290,15 @@ const ClientProjectReview = () => {
                 <h2 className="mt-2 text-xl font-semibold text-foreground">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
                 </h2>
-                <p className="mt-3 text-sm text-foreground/80">
+                <p className="mt-3 text-sm text-foreground">
                   Complete shipping, billing, and contact details so OverDrafter can coordinate manual release.
                 </p>
                 {handoffSummary.missingFields.length > 0 ? (
-                  <p className="mt-4 text-sm text-amber-100">
+                  <p className={`mt-4 text-sm ${STATUS_TONE.text}`}>
                     Missing: {handoffSummary.missingFields.join(", ")}.
                   </p>
                 ) : (
-                  <p className="mt-4 text-sm text-emerald-100">
+                  <p className={`mt-4 text-sm ${STATUS_TONE.text}`}>
                     Shipping, billing, and contact details are ready for manual release coordination. OverDrafter will
                     follow up outside this screen; no manufacturing payment is collected here.
                   </p>

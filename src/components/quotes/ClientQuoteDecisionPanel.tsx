@@ -113,16 +113,16 @@ function getVendorStatusDisplay(status: string | undefined) {
     case "queued":
       return { icon: Clock, label: "Pending", color: "text-muted-foreground", bg: "bg-accent" };
     case "running":
-      return { icon: Loader2, label: "Fetching...", color: "text-amber-400", bg: "bg-amber-500/10", animate: true };
+      return { icon: Loader2, label: "Fetching...", color: "text-foreground", bg: "bg-accent", animate: true };
     case "instant_quote_received":
     case "official_quote_received":
       return null; // Normal state, no indicator needed
     case "failed":
-      return { icon: XCircle, label: "Failed", color: "text-red-400", bg: "bg-red-500/10" };
+      return { icon: XCircle, label: "Failed", color: "text-foreground", bg: "bg-accent" };
     case "manual_review_pending":
-      return { icon: AlertCircle, label: "Review", color: "text-amber-400", bg: "bg-amber-500/10" };
+      return { icon: AlertCircle, label: "Review", color: "text-foreground", bg: "bg-accent" };
     case "manual_vendor_followup":
-      return { icon: AlertCircle, label: "Follow-up", color: "text-orange-400", bg: "bg-orange-500/10" };
+      return { icon: AlertCircle, label: "Follow-up", color: "text-foreground", bg: "bg-accent" };
     case "stale":
       return { icon: Clock, label: "Stale", color: "text-muted-foreground", bg: "bg-accent" };
     default:
@@ -170,7 +170,7 @@ function QuoteDataStatusCard({
   return (
     <div className="mt-4 rounded-surface-lg border border-dashed border-border bg-muted px-4 py-8 text-center">
       <Icon className="mx-auto h-5 w-5 text-muted-foreground" />
-      <p className="mt-3 text-sm font-medium text-foreground/80">{title}</p>
+      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
       <p className="mt-2 text-sm text-muted-foreground">{body}</p>
       {diagnostics && diagnostics.excludedReasonCounts.length > 0 ? (
         <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -530,7 +530,7 @@ function QuoteComparisonRow({
     >
       <QuoteProviderCell option={option} deadlineStatus={deadlineStatus} reasons={reasons} />
       <QuoteScopeCell option={option} />
-      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground">
         {formatCurrency(option.unitPriceUsd)}
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
@@ -549,7 +549,7 @@ function QuoteComparisonRow({
           </Button>
         ) : null}
       </TableCell>
-      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground">
         <DeliveredArrivalCell row={row} />
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right">
@@ -730,7 +730,7 @@ function QuoteComparisonTable({
               <TableCell className="px-3 py-2.5">
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" />
-                  <span className="text-sm font-medium text-foreground/80">
+                  <span className="text-sm font-medium text-foreground">
                     {offer.supplier ?? offer.vendorKey}
                   </span>
                 </div>
