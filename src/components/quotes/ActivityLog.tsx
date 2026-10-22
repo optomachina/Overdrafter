@@ -20,9 +20,9 @@ type ActivityLogProps = {
 function toneClasses(tone: ActivityLogEntry["tone"]): string {
   switch (tone) {
     case "active":
-      return "border-border bg-accent text-foreground";
+      return "border-border bg-card text-foreground";
     case "attention":
-      return "border-border bg-accent text-foreground";
+      return "border-border bg-card text-foreground";
     case "default":
     default:
       return "border-border bg-muted text-foreground";

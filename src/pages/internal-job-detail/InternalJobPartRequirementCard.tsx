@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useState } from "react";
 import { parseRequestQuantityText, QUANTITY_FORMAT_ERROR } from "@/features/quotes/single-quantity";
 import { validateRequestedQuoteQuantitiesInput, QUOTE_QUANTITIES_FORMAT_ERROR } from "@/features/quotes/request-intake";
@@ -588,7 +589,7 @@ export function InternalJobPartRequirementCard({
       ) : null}
 
       {showInternalDiagnostics ? (
-        <div className="mt-5 rounded-2xl border border-border bg-accent p-4">
+        <div className="mt-5 rounded-2xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium text-foreground">Internal extraction diagnostics</p>
             <Badge variant="secondary" className="border border-border bg-accent text-foreground">
@@ -658,7 +659,7 @@ export function InternalJobPartRequirementCard({
                       <p>Locked at: {formatQueueDate(task.locked_at)}</p>
                     </div>
                     {task.last_error ? (
-                      <p className="mt-2 rounded-lg border border-border bg-accent px-2 py-1 text-foreground">
+                      <p className={`mt-2 rounded-lg border border-border px-2 py-1 ${STATUS_TONE.error}`}>
                         Last error: {task.last_error}
                       </p>
                     ) : null}

@@ -1118,7 +1118,7 @@ export function WorkspaceAccountMenu({
                 </p>
               ) : null}
               {billingError ? (
-                <p className="mt-3 text-sm leading-5 bg-card text-destructive dark:text-foreground" role="alert">
+                <p className={`mt-3 text-sm leading-5 ${STATUS_TONE.error}`} role="alert">
                   {billingError}
                 </p>
               ) : null}
@@ -1243,7 +1243,7 @@ export function WorkspaceAccountMenu({
                       )}
                     </div>
                   )}
-                  {sourcingError && <p role="alert" className="mt-2 text-xs text-destructive dark:text-foreground">{sourcingError}</p>}
+                  {sourcingError && <p role="alert" className={`mt-2 text-xs ${STATUS_TONE.error}`}>{sourcingError}</p>}
                 </div>
 
               </>
@@ -1788,7 +1788,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.companyName ?? ""}
                         onChange={(e) => patchDraft({ companyName: e.target.value })}
                         placeholder="ACME Mfg Co."
-                        className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                     <div>
@@ -1798,7 +1798,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.phone ?? ""}
                         onChange={(e) => patchDraft({ phone: e.target.value })}
                         placeholder="+1 (520) 555-0100"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1813,7 +1813,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.billingStreet ?? ""}
                         onChange={(e) => patchDraft({ billingStreet: e.target.value })}
                         placeholder="2348 E. Broadway Blvd"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                     <div className="grid grid-cols-5 gap-2">
@@ -1824,7 +1824,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingCity ?? ""}
                           onChange={(e) => patchDraft({ billingCity: e.target.value })}
                           placeholder="Tucson"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-1">
@@ -1834,7 +1834,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingState ?? ""}
                           onChange={(e) => patchDraft({ billingState: e.target.value })}
                           placeholder="AZ"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-2">
@@ -1844,7 +1844,7 @@ export function WorkspaceAccountMenu({
                           value={orgDetailsDraft.billingZip ?? ""}
                           onChange={(e) => patchDraft({ billingZip: e.target.value })}
                           placeholder="85716"
-                          className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                         />
                       </div>
                     </div>
@@ -1855,7 +1855,7 @@ export function WorkspaceAccountMenu({
                         value={orgDetailsDraft.billingCountry ?? ""}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
-                        className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1909,7 +1909,7 @@ export function WorkspaceAccountMenu({
                             value={orgDetailsDraft.shippingStreet ?? ""}
                             onChange={(e) => patchDraft({ shippingStreet: e.target.value })}
                             placeholder="2348 E. Broadway Blvd"
-                            className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                           />
                         </div>
                         <div className="grid grid-cols-5 gap-2">
@@ -1920,7 +1920,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingCity ?? ""}
                               onChange={(e) => patchDraft({ shippingCity: e.target.value })}
                               placeholder="Tucson"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-1">
@@ -1930,7 +1930,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingState ?? ""}
                               onChange={(e) => patchDraft({ shippingState: e.target.value })}
                               placeholder="AZ"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-2">
@@ -1940,7 +1940,7 @@ export function WorkspaceAccountMenu({
                               value={orgDetailsDraft.shippingZip ?? ""}
                               onChange={(e) => patchDraft({ shippingZip: e.target.value })}
                               placeholder="85716"
-                              className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                             />
                           </div>
                         </div>
@@ -1951,7 +1951,7 @@ export function WorkspaceAccountMenu({
                             value={orgDetailsDraft.shippingCountry ?? ""}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
-                            className="border-border bg-accent text-foreground placeholder:text-foreground focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground focus-visible:ring-white/20"
                           />
                         </div>
                       </>
@@ -1959,7 +1959,7 @@ export function WorkspaceAccountMenu({
                   </div>
                 )}
 
-                {orgSaveError && <p className="mt-3 text-xs bg-card text-destructive dark:text-foreground">{orgSaveError}</p>}
+                {orgSaveError && <p className={`mt-3 text-xs ${STATUS_TONE.error}`}>{orgSaveError}</p>}
 
                 <div className="mt-4 flex gap-2">
                   <Button

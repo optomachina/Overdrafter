@@ -22,7 +22,7 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
 
       <p className="mb-4 text-xs text-muted-foreground">{summary.comparisonText}</p>
 
-      <div className={`rounded-lg border p-3 ${STATUS_TONE.surface}`}>
+      <div className="rounded-lg border border-border bg-card p-3 text-foreground">
         <div className="mb-1 flex items-center gap-2">
           <Badge
             variant="default"

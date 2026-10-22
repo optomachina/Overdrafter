@@ -104,8 +104,8 @@ export function ClientQuoteRequestStatusCard({
           </div>
           {isBusy ? (
             <div aria-label="Submitting…" className="flex flex-col gap-2">
-              <div className="h-3 w-3/4 animate-pulse rounded-full bg-accent" />
-              <div className="h-3 w-1/2 animate-pulse rounded-full bg-accent" />
+              <div className="h-3 w-3/4 animate-pulse rounded-full bg-muted-foreground" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-muted-foreground" />
             </div>
           ) : status === "failed" ? (
             <p role="alert" className="text-sm text-foreground">{detail}</p>

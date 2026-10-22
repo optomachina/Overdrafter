@@ -206,15 +206,15 @@ const ClientProjectReview = () => {
             </section>
 
             <section className="grid gap-3 md:grid-cols-3">
-              <div className={`rounded-[22px] border px-4 py-4 ${STATUS_TONE.surface}`}>
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Ready</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.ready}</p>
               </div>
-              <div className={`rounded-[22px] border px-4 py-4 ${STATUS_TONE.surface}`}>
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Warning</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.warning}</p>
               </div>
-              <div className={`rounded-[22px] border px-4 py-4 ${STATUS_TONE.surface}`}>
+              <div className="rounded-[22px] border border-border bg-card px-4 py-4 text-foreground">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Blocked</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{workspaceStateSummary.blocked}</p>
               </div>

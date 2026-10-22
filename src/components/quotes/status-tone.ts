@@ -5,6 +5,6 @@ export const STATUS_TONE = {
   badge: "rounded-[2px] border border-border bg-accent font-sans text-foreground hover:bg-accent",
   state: "rounded-[2px] border border-border bg-accent font-mono text-foreground hover:bg-accent",
   callout: "rounded-[2px] border border-border bg-accent font-sans text-foreground",
-  error: "bg-card font-sans text-destructive dark:text-foreground",
+  error: "bg-card font-sans text-destructive dark:text-red-300",
   action: "text-foreground focus:bg-accent focus:text-foreground",
 } as const;

@@ -176,7 +176,7 @@ export function QuoteList({
                   </span>
                 ) : null}
                 {isFastest && quote.leadTimeBusinessDays !== null ? (
-                  <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-foreground">
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
                     Fastest {quote.leadTimeBusinessDays} bd
                   </span>
                 ) : null}
