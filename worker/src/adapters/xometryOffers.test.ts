@@ -555,6 +555,34 @@ describe("Xometry multi-offer normalization", () => {
       }
     });
 
+    it("takes only an exact tier name from the header line, never a badge rendered beside it", () => {
+      const [cheapest, standard, fastest] = currentPanel();
+      for (const [card, header] of [
+        [standard, "StandardPopular"],
+        [standard, "Standard Recommended"],
+        [fastest, "Fastest Recommended"],
+        [cheapest, "Best Value Least Expensive"],
+      ] as const) {
+        const name = /^\u00a0([^\n]+)/.exec(card.text)?.[1] ?? "";
+        const failure = failureOf(() => parseXometryOfferSnapshots({
+          requestedQuantity: 1,
+          quoteUrl,
+          snapshots: [{ ...card, text: card.text.replace(name, header) }],
+        }));
+
+        expect(failure).toMatchObject({
+          code: "selector_failure",
+          payload: { reason: "xometry_offer_tier_missing", terminalState: "selector_drift" },
+        });
+      }
+      // The exact names, in any case, still name their tiers.
+      expect(parseXometryOfferSnapshots({
+        requestedQuantity: 1,
+        quoteUrl,
+        snapshots: [{ ...standard, text: standard.text.replace("Standard", "STANDARD") }],
+      }).map((offer) => offer.providerLabel)).toEqual(["STANDARD"]);
+    });
+
     it("ends every price-capture refusal in a finite terminal state", () => {
       const [cheapest] = currentPanel();
       const refusals: Array<[XometryOfferSnapshot, number, string]> = [

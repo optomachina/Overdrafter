@@ -207,7 +207,9 @@ describe("actual Xometry source observations", () => {
 
   it.each([null, "false"])("keeps actual parent data-disabled=%s separate from descendant-derived parser flags", async (parent) => {
     const records: XometryProviderObservation[] = [];
-    const page = () => quotePage([text], "Standard", { parent, descendant: true });
+    // OVD-1052: a disabled descendant withdraws only a card that shows no
+    // price and timing; one that shows both is refused instead.
+    const page = () => quotePage([text.replace("\n5 business days", "")], "Standard", { parent, descendant: true });
     const baseline = await collectXometryOffers(page(), 2);
     expect(baseline).toEqual([]);
     expect(await collectXometryOffers(page(), 2, (record) => { records.push(record); })).toEqual(baseline);
