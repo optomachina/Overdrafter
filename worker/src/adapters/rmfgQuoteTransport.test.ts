@@ -18,9 +18,12 @@ const design = {
 };
 const readyQuote = {
   id: "quote-synthetic", status: "ready", status_url: "/v1/quotes/quote-synthetic",
-  currency: "usd", requirements: [],
+  currency: "usd", requirements: [], expires_at: "2099-11-21T00:00:00Z",
+  amount_subtotal_cents: 12500, amount_shipping_cents: null, amount_tax_cents: null, amount_total_cents: 12500,
   items: [{ design_id: "design-synthetic", quantity: 10, status: "ready",
     unit_amount_cents: 1250, amount_cents: 12500, requirements: [],
+    line_items: [{ part_id: "part-a", process: "sheet_metal", quantity: 20, material_id: "catalog-stock-a",
+      unit_amount_cents: 625, amount_cents: 12500 }],
     dfm: { design_id: "design-synthetic", status: "ready", requirements: [],
       configuration: { parts: [{ part_id: "part-a", material_id: "catalog-stock-a" }] },
       parts: [{ part_id: "part-a", status: "ready", issues: [] }] } }],
@@ -59,11 +62,11 @@ describe("RMFG offline quote transport", () => {
       "/v1/quotes", "/v1/quotes/quote-synthetic",
     ]);
     expect(requests[3]).toEqual({ endpoint: "quote", method: "POST", path: "/v1/quotes",
-      idempotencyKey: "quote-synthetic-1", body: { items: [{ design_id: "design-synthetic",
+      idempotencyKey: expect.stringMatching(/^quote-synthetic-1-[0-9a-f]{16}$/), body: { items: [{ design_id: "design-synthetic",
         quantity: 10, configuration: { parts: [{ part_id: "part-a", material_id: "catalog-stock-a" }] } }] } });
-    expect(outcome).toMatchObject({ state: "ready", requirementCodes: [], dfmIssueCodes: [],
+    expect(outcome).toMatchObject({ state: "ready", requirementCodes: [], dfmIssueCodes: [], stock: null,
       offer: { quantity: 10, currency: "USD", unitPriceUsd: 12.5,
-        totalPriceUsd: 125, leadTimeBusinessDays: null,
+        totalPriceUsd: 125, leadTimeBusinessDays: null, validUntil: "2099-11-21T00:00:00.000Z",
         provenance: { leadTimeBusinessDays: "unknown" } } });
     // OVD-678 lists rmfg for live automation; its dispatch envelope stays unreviewed.
     expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
@@ -193,5 +196,251 @@ describe("RMFG offline quote transport", () => {
     expect(await runRmfgQuoteOnly({ ...input, requestTimeoutMs: 1 }, stalled)).toMatchObject({
       state: "error", reason: "transport_error", offer: null,
     });
+  });
+});
+
+// OVD-1057: a stated stock instead of per-part catalog IDs. Every catalog row,
+// ID and price below is synthetic; the field names follow the published V1Material.
+const plate = {
+  id: "design-plate", status: "ready", status_url: "/v1/designs/design-plate",
+  parts: [{ id: "part-plate", analysis_status: "ready", instance_count: 1, suggested_process: "sheet_metal",
+    detected_thickness_mm: 3.175, bend_count: 0, bends: [] }],
+};
+const catalog = { has_more: false, data: [
+  { id: "stock-5052-125", material: "Aluminum", type: "5052-H32", thickness_in: 0.125, thickness_mm: 3.175, bendable: true },
+  { id: "stock-6061-090", material: "Aluminum", type: "6061 T6", thickness_in: 0.09, thickness_mm: 2.286, bendable: false },
+  { id: "stock-6061-125", material: "Aluminum", type: "6061 T6", thickness_in: 0.125, thickness_mm: 3.175, bendable: false },
+  { id: "stock-6061-t651-125", material: "Aluminum", type: "6061-T651", thickness_in: 0.125, thickness_mm: 3.175 },
+] };
+const plateQuote = {
+  id: "quote-plate", status: "ready", currency: "usd", requirements: [],
+  amount_subtotal_cents: 4321, amount_shipping_cents: null, amount_tax_cents: null, amount_total_cents: 4321,
+  items: [{ design_id: "design-plate", quantity: 1, status: "ready", unit_amount_cents: 4321, amount_cents: 4321,
+    requirements: [], assembly_operations_amount_cents: 0,
+    line_items: [{ part_id: "part-plate", process: "sheet_metal", quantity: 1, material_id: "stock-6061-125",
+      unit_amount_cents: 4321, amount_cents: 4321 }],
+    dfm: { design_id: "design-plate", status: "ready", requirements: [],
+      configuration: { parts: [{ part_id: "part-plate", material_id: "stock-6061-125", finish_id: null,
+        taps: [], studs: [], nuts: [], standoffs: [], countersinks: [] }], assembly_operations: [], accepted_risks: [] },
+      parts: [{ part_id: "part-plate", status: "ready", issues: [] }] } }],
+};
+const stockInput: RmfgQuoteInput = {
+  file: { name: "plate.step", bytes: new Uint8Array([4, 5, 6]) }, quantity: 1, selections: {},
+  stock: { grade: "6061-T6", thicknessIn: 0.125 },
+  analyzeKey: "analysis-plate-1", quoteKey: "quote-plate-1",
+};
+
+function plateFixture(overrides: { design?: unknown; catalog?: unknown; quote?: unknown } = {}) {
+  return fixture({ analyze: overrides.design ?? plate, designPoll: overrides.design ?? plate,
+    catalog: overrides.catalog ?? catalog, quote: overrides.quote ?? plateQuote });
+}
+
+describe("RMFG quote transport with a stated stock (OVD-1057)", () => {
+  it("quotes the one current catalog entry of the stated grade and thickness", async () => {
+    const { requests, transport } = plateFixture();
+    const outcome = await runRmfgQuoteOnly(stockInput, transport);
+    expect(requests.map((request) => request.endpoint)).toEqual(["analyze", "materials", "quote"]);
+    expect(requests[2]).toMatchObject({ idempotencyKey: expect.stringMatching(/^quote-plate-1-[0-9a-f]{16}$/),
+      body: { items: [{ design_id: "design-plate",
+      quantity: 1, configuration: { parts: [{ part_id: "part-plate", material_id: "stock-6061-125" }] } }] } });
+    expect(outcome).toMatchObject({ state: "ready", stock: { materialId: "stock-6061-125", thicknessIn: 0.125 },
+      offer: { quantity: 1, unitPriceUsd: 43.21, totalPriceUsd: 43.21, validUntil: null } });
+  });
+
+  it.each([
+    ["only other thicknesses or a T651 temper", stockInput,
+      { has_more: false, data: catalog.data.filter((entry) => entry.id !== "stock-6061-125") }],
+    ["a temper that only shares a prefix", { ...stockInput, stock: { grade: "6061-T65", thicknessIn: 0.125 } }, catalog],
+  ])("never substitutes: %s stops before the quote", async (_label, request, offered) => {
+    const { requests, transport } = plateFixture({ catalog: offered });
+    expect(await runRmfgQuoteOnly(request, transport)).toMatchObject({
+      state: "requires_input", reason: "stock_not_offered", offer: null });
+    expect(requests.map((entry) => entry.endpoint)).toEqual(["analyze", "materials"]);
+  });
+
+  it("stops when two catalog entries both match", async () => {
+    const { transport } = plateFixture({ catalog: { has_more: false, data: [...catalog.data,
+      { id: "stock-6061-125-film", material: "Aluminum 6061-T6", type: "Sheet", thickness_in: 0.125 }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "requires_input", reason: "stock_ambiguous" });
+  });
+
+  it.each([
+    ["two parts", { ...plate, parts: [...plate.parts, { ...plate.parts[0], id: "part-other" }] }, "stock_scope_multiple_parts"],
+    ["two instances", { ...plate, parts: [{ ...plate.parts[0], instance_count: 2 }] }, "stock_scope_instance_count"],
+    ["a tube", { ...plate, parts: [{ ...plate.parts[0], suggested_process: "tube_laser" }] }, "stock_scope_process_mismatch"],
+    ["another thickness", { ...plate, parts: [{ ...plate.parts[0], detected_thickness_mm: 2.286 }] }, "stock_scope_thickness_mismatch"],
+    ["no detected thickness", { ...plate, parts: [{ ...plate.parts[0], detected_thickness_mm: null }] }, "stock_scope_thickness_unverified"],
+  ])("stops on %s before reading the catalog", async (_label, analyzed, reason) => {
+    const { requests, transport } = plateFixture({ design: analyzed });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "requires_input", reason, offer: null });
+    expect(requests.map((entry) => entry.endpoint)).toEqual(["analyze"]);
+  });
+
+  it("stops when a bent part would need stock RMFG cannot bend", async () => {
+    const bent = { ...plate, parts: [{ ...plate.parts[0], bend_count: 2 }] };
+    const { requests, transport } = plateFixture({ design: bent });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "requires_input", reason: "stock_not_bendable" });
+    expect(requests.map((entry) => entry.endpoint)).toEqual(["analyze", "materials"]);
+  });
+
+  it("reads omitted part defaults as documented and still checks the priced quantity", async () => {
+    const sparse = { ...plate, parts: [{ id: "part-plate", suggested_process: "sheet_metal", detected_thickness_mm: 3.18 }] };
+    const { transport } = plateFixture({ design: sparse });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "ready" });
+  });
+
+  it.each([
+    ["a substituted line material", { line_items: [{ ...plateQuote.items[0].line_items[0], material_id: "stock-5052-125" }] }],
+    ["a line quantity that is not the request", { line_items: [{ ...plateQuote.items[0].line_items[0], quantity: 2 }] }],
+    ["lines that do not add up", { line_items: [{ ...plateQuote.items[0].line_items[0], amount_cents: 4000 }] }],
+    ["no line items", { line_items: undefined }],
+    ["an assembly charge", { assembly_operations_amount_cents: 500 }],
+  ])("keeps a ready quote with %s unknown", async (_label, itemOverride) => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, items: [{ ...plateQuote.items[0], ...itemOverride }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "unknown", reason: "line_items_unverified", offer: null });
+  });
+
+  it.each([
+    ["a shipping charge", { amount_shipping_cents: 1500, amount_total_cents: 5821 }],
+    ["a tax amount", { amount_tax_cents: 300 }],
+    ["a total that is not the item", { amount_total_cents: 9999 }],
+  ])("keeps a ready quote with %s unknown", async (_label, quoteOverride) => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, ...quoteOverride } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "unknown", reason: "quote_totals_unverified", offer: null });
+  });
+
+  it("refuses a stated stock alongside per-part selections or out of range", async () => {
+    const { requests, transport } = plateFixture();
+    for (const bad of [{ ...stockInput, selections: { "part-plate": { materialId: "stock-6061-125" } } },
+      { ...stockInput, stock: { grade: " - ", thicknessIn: 0.125 } },
+      // An alloy or family alone would let the catalog pick the temper.
+      { ...stockInput, stock: { grade: "6061", thicknessIn: 0.125 } },
+      { ...stockInput, stock: { grade: "Aluminum", thicknessIn: 0.125 } },
+      { ...stockInput, stock: { grade: "304", thicknessIn: 0.125 } },
+      { ...stockInput, stock: { grade: "6061-T6", thicknessIn: 3.175 } },
+      { ...stockInput, pollIntervalMs: 60_000 }, { ...stockInput, maxPolls: 0 }]) {
+      expect(await runRmfgQuoteOnly(bad, transport)).toMatchObject({ state: "error", reason: "invalid_quote_input" });
+    }
+    expect(requests).toEqual([]);
+  });
+
+  it("never treats 0.124 in stock as the stated 0.125 in", async () => {
+    const { transport } = plateFixture({ catalog: { has_more: false, data: [
+      { id: "stock-6061-124", material: "Aluminum", type: "6061 T6", thickness_in: 0.124 }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "requires_input", reason: "stock_not_offered" });
+    const nearPart = plateFixture({ design: { ...plate, parts: [{ ...plate.parts[0], detected_thickness_mm: 3.1496 }] } });
+    expect(await runRmfgQuoteOnly(stockInput, nearPart.transport)).toMatchObject({
+      state: "requires_input", reason: "stock_scope_thickness_mismatch" });
+  });
+
+  it.each([
+    ["an item unit price that is not the total", { unit_amount_cents: 1 }, "offer_provenance_incomplete"],
+    ["a zero price", { unit_amount_cents: 0, amount_cents: 0,
+      line_items: [{ ...plateQuote.items[0].line_items[0], unit_amount_cents: 0, amount_cents: 0 }] }, "offer_provenance_incomplete"],
+    ["a line unit price that is not its total", { line_items: [{ ...plateQuote.items[0].line_items[0], unit_amount_cents: 1 }] },
+      "line_items_unverified"],
+  ])("keeps a ready quote with %s unknown", async (_label, itemOverride, reason) => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, items: [{ ...plateQuote.items[0], ...itemOverride }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason, offer: null });
+  });
+
+  it("accepts a unit price RMFG rounded from a total that does not divide evenly", async () => {
+    const twoUp = { ...plateQuote, amount_subtotal_cents: 4321, amount_total_cents: 4321, items: [{ ...plateQuote.items[0],
+      quantity: 2, unit_amount_cents: 2161, amount_cents: 4321,
+      line_items: [{ ...plateQuote.items[0].line_items[0], quantity: 2, unit_amount_cents: 2161, amount_cents: 4321 }] }] };
+    const { transport } = plateFixture({ quote: twoUp });
+    expect(await runRmfgQuoteOnly({ ...stockInput, quantity: 2 }, transport)).toMatchObject({
+      state: "ready", offer: { unitPriceUsd: 21.61, totalPriceUsd: 43.21 } });
+  });
+
+  it("stops on a blocked or input finding even while the quote is still processing", async () => {
+    for (const [dfmStatus, state] of [["blocked", "blocked"], ["requires_input", "requires_input"]] as const) {
+      const processing = { ...plateQuote, status: "processing",
+        items: [{ ...plateQuote.items[0], dfm: { ...plateQuote.items[0].dfm, status: dfmStatus } }] };
+      const { requests, transport } = plateFixture({ quote: processing });
+      expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state, offer: null });
+      expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
+    }
+    const required = { ...plateQuote, status: "processing", requirements: [{ code: "terms_review", message: "Synthetic" }] };
+    const { requests, transport } = plateFixture({ quote: required });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "requires_input", reason: "unresolved_requirements", requirementCodes: ["terms_review"] });
+    expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
+  });
+
+  it("never publishes a quote whose stated expiry has passed or cannot be read", async () => {
+    const now = () => Date.parse("2026-10-22T12:00:00Z");
+    const cases = [["2026-10-22T11:59:59Z", "error", "quote_expired"], ["next week", "unknown", "quote_expiry_unverified"],
+      [1_790_000_000, "unknown", "quote_expiry_unverified"]] as const;
+    for (const [expiresAt, state, reason] of cases) {
+      const { transport } = plateFixture({ quote: { ...plateQuote, expires_at: expiresAt } });
+      expect(await runRmfgQuoteOnly({ ...stockInput, now }, transport)).toMatchObject({ state, reason, offer: null });
+    }
+    const { transport } = plateFixture({ quote: { ...plateQuote, expires_at: "2026-11-21T00:00:00Z" } });
+    expect(await runRmfgQuoteOnly({ ...stockInput, now }, transport)).toMatchObject({
+      state: "ready", offer: { validUntil: "2026-11-21T00:00:00.000Z" } });
+  });
+
+  it("binds the quote idempotency key to the exact request body", async () => {
+    const first = plateFixture();
+    await runRmfgQuoteOnly(stockInput, first.transport);
+    const again = plateFixture();
+    await runRmfgQuoteOnly(stockInput, again.transport);
+    const other = plateFixture({ catalog: { has_more: false, data: [{ ...catalog.data[2], id: "stock-6061-125-new" }] },
+      quote: { ...plateQuote, items: [{ ...plateQuote.items[0],
+        line_items: [{ ...plateQuote.items[0].line_items[0], material_id: "stock-6061-125-new" }],
+        dfm: { ...plateQuote.items[0].dfm, configuration: { parts: [{ part_id: "part-plate", material_id: "stock-6061-125-new" }] } } }] } });
+    expect(await runRmfgQuoteOnly(stockInput, other.transport)).toMatchObject({ state: "ready" });
+    const keyOf = (requests: RmfgQuoteRequest[]) =>
+      (requests.find((request) => request.endpoint === "quote") as { idempotencyKey: string }).idempotencyKey;
+    expect(keyOf(again.requests)).toBe(keyOf(first.requests));
+    expect(keyOf(other.requests)).not.toBe(keyOf(first.requests));
+    expect(keyOf(other.requests).startsWith("quote-plate-1-")).toBe(true);
+  });
+
+  it.each([
+    ["a finish applied to the part", { finish_id: "finish-synthetic-deburr" }],
+    ["a recommended finish", { finish_id: "finish-synthetic-tumble", finish_recommended: true }],
+  ])("does not quote a part RMFG priced with %s", async (_label, partOverride) => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, items: [{ ...plateQuote.items[0],
+      dfm: { ...plateQuote.items[0].dfm, parts: [{ ...plateQuote.items[0].dfm.parts[0], ...partOverride }] } }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "unknown", reason: "dfm_configuration_unverified", offer: null });
+  });
+
+  it("accepts cutting and forming price components but not a priced operation", async () => {
+    const withBreakdown = (types: string[]) => ({ ...plateQuote, items: [{ ...plateQuote.items[0],
+      line_items: [{ ...plateQuote.items[0].line_items[0],
+        breakdown: types.map((type) => ({ type, unit_amount_cents: 1, amount_cents: 1 })) }] }] });
+    expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: withBreakdown(["base"]) }).transport))
+      .toMatchObject({ state: "ready" });
+    for (const extra of ["finish", "powder_coat", "taps", "countersinks"]) {
+      expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: withBreakdown(["base", extra]) }).transport))
+        .toMatchObject({ state: "unknown", reason: "line_items_unverified", offer: null });
+    }
+  });
+
+  it("does not quote a configuration RMFG echoes back with its recommended finish", async () => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, items: [{ ...plateQuote.items[0],
+      dfm: { ...plateQuote.items[0].dfm, configuration: { ...plateQuote.items[0].dfm.configuration, recommended_finish: true } } }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "unknown", reason: "dfm_configuration_unverified", offer: null });
+  });
+
+  it("waits between status polls and honors the poll budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const { requests, transport } = plateFixture({ design: { ...plate, status: "processing" } });
+      const pending = runRmfgQuoteOnly({ ...stockInput, pollIntervalMs: 3_000, maxPolls: 5 }, transport);
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(requests.map((entry) => entry.endpoint)).toEqual(["analyze"]);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(await pending).toMatchObject({ state: "pending", reason: "design_poll_budget_exhausted" });
+      expect(requests.filter((entry) => entry.endpoint === "design")).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
