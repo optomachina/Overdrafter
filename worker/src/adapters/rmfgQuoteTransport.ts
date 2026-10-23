@@ -251,6 +251,9 @@ function visibleDfmIssueCodes(dfm: Json | null): string[] {
  */
 function hasBlockingIssue(dfm: Json | null): boolean {
   const parts = Array.isArray(dfm?.parts) ? dfm.parts : [];
+  // An issue list that is present but not a list cannot be read, so it blocks.
+  if (filledList(dfm?.assembly_issues) && !Array.isArray(dfm?.assembly_issues)) return true;
+  if (parts.some((part) => filledList(record(part)?.issues) && !Array.isArray(record(part)?.issues))) return true;
   const issues = [
     ...(Array.isArray(dfm?.assembly_issues) ? dfm.assembly_issues : []),
     ...parts.flatMap((part) => {
@@ -394,25 +397,57 @@ function lineItemsMatch(item: Json, selection: PreparedSelection, requestedQuant
   return total === item.amount_cents;
 }
 
+/** A value the answer states (present and not null) that differs from the requested one. */
+function statedOtherThan(value: unknown, expected: unknown): boolean {
+  return value !== undefined && value !== null && value !== expected;
+}
+
+/** Part IDs a list names, or null when an entry names none or one appears twice. */
+function namedPartIds(entries: unknown[]): string[] | null {
+  const ids = entries.map((entry) => string(record(entry)?.part_id));
+  return ids.every((id) => id !== null) && new Set(ids).size === ids.length ? ids as string[] : null;
+}
+
 /**
  * Evidence in any answer, processing or ready, that RMFG is quoting something
- * other than the request: a charge, another design or quantity, another
- * configuration, or a line for another part, stock or quantity. Fields not yet
- * present are left for the ready answer; a field that is present is checked now.
+ * other than the request: a charge, another design or quantity, an unselected
+ * or repeated part, another stock or process, or another line quantity. Only
+ * stated fields are compared, so a partial processing answer is not rejected
+ * for what it has not filled in yet; the ready answer is then checked in full.
  */
 function contradictsRequest(quote: Json, item: Json | null, dfm: Json | null, designId: string,
   requestedQuantity: number, selection: PreparedSelection): string | null {
+  const selected = new Map(selection.selectedParts.map((part) => [part.part_id, part]));
+  const unselected = (ids: string[] | null) => ids === null || ids.some((id) => !selected.has(id));
   if ((quote.amount_shipping_cents ?? null) !== null || (quote.amount_tax_cents ?? null) !== null)
     return "quote_totals_unverified";
-  if (item && ((item.design_id !== undefined && item.design_id !== designId) ||
-      (item.quantity !== undefined && item.quantity !== requestedQuantity)))
+  if (statedOtherThan(item?.design_id, designId) || statedOtherThan(item?.quantity, requestedQuantity))
     return "offer_provenance_incomplete";
-  if (dfm && ((dfm.design_id !== undefined && dfm.design_id !== designId) ||
-      (dfm.configuration !== undefined && !configurationMatches(record(dfm.configuration), selection.selectedParts))))
+  const configuration = record(dfm?.configuration);
+  const configured = configuration?.parts;
+  const reported = dfm?.parts;
+  if (statedOtherThan(dfm?.design_id, designId) ||
+      (configured !== undefined && (!Array.isArray(configured) || unselected(namedPartIds(configured)) ||
+        configured.some((entry) => {
+          const part = record(entry)!;
+          const want = selected.get(string(part.part_id)!)!;
+          return statedOtherThan(part.material_id, want.material_id ?? null) ||
+            statedOtherThan(part.tube_profile_id, want.tube_profile_id ?? null);
+        }))) ||
+      (reported !== undefined && (!Array.isArray(reported) || unselected(namedPartIds(reported)))))
     return "dfm_configuration_unverified";
   const lines = item?.line_items;
-  if (lines !== undefined && (!Array.isArray(lines) ||
-      lines.some((line) => !lineMatches(record(line), selection, requestedQuantity))))
+  if (lines !== undefined && (!Array.isArray(lines) || unselected(namedPartIds(lines)) ||
+      lines.some((entry) => {
+        const line = record(entry)!;
+        const partId = string(line.part_id)!;
+        const want = selected.get(partId)!;
+        return statedOtherThan(line.process, want.material_id ? "sheet_metal" : "tube_laser") ||
+          statedOtherThan(line.material_id, want.material_id ?? null) ||
+          statedOtherThan(line.tube_profile_id, want.tube_profile_id ?? null) ||
+          statedOtherThan(line.quantity, requestedQuantity * selection.instanceCounts.get(partId)!) ||
+          hasUnrequestedCharge(line) || (!selection.bentParts.has(partId) && pricesBends(line));
+      })))
     return "line_items_unverified";
   return null;
 }

@@ -470,6 +470,37 @@ describe("RMFG quote transport with a stated stock (OVD-1057)", () => {
     expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
   });
 
+  it.each([
+    ["a reported part that was not selected", (quote: typeof plateQuote) => ({ ...quote.items[0], dfm: { ...quote.items[0].dfm,
+      parts: [{ part_id: "part-other", status: "ready", issues: [] }] } }), "dfm_configuration_unverified"],
+    ["the same line twice", (quote: typeof plateQuote) => ({ ...quote.items[0],
+      line_items: [quote.items[0].line_items[0], quote.items[0].line_items[0]] }), "line_items_unverified"],
+  ])("stops on %s while the quote is processing", async (_label, item, reason) => {
+    const { requests, transport } = plateFixture({ quote: { ...plateQuote, status: "processing", items: [item(plateQuote)] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason, offer: null });
+    expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
+  });
+
+  it("waits through a partial processing answer and quotes the complete ready one", async () => {
+    const partial = { id: "quote-plate", status: "processing", currency: "usd", requirements: [],
+      items: [{ design_id: "design-plate", quantity: 1, line_items: [{ part_id: "part-plate" }],
+        dfm: { design_id: "design-plate", configuration: {}, parts: [{ part_id: "part-plate" }] } }] };
+    const { requests, transport } = fixture({ analyze: plate, designPoll: plate, catalog, quote: partial, quotePoll: plateQuote });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "ready", offer: { totalPriceUsd: 43.21 } });
+    expect(requests.filter((request) => request.endpoint === "quote_status")).toHaveLength(1);
+  });
+
+  it("blocks when an issue list cannot be read", async () => {
+    const unreadable = { ...plateQuote, items: [{ ...plateQuote.items[0], dfm: { ...plateQuote.items[0].dfm,
+      parts: [{ ...plateQuote.items[0].dfm.parts[0], issues: { code: "synthetic", severity: "blocking" } }] } }] };
+    expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: unreadable }).transport)).toMatchObject({
+      state: "blocked", offer: null });
+    const assembly = { ...plateQuote, items: [{ ...plateQuote.items[0], dfm: { ...plateQuote.items[0].dfm,
+      assembly_issues: { code: "synthetic" } } }] };
+    expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: assembly }).transport)).toMatchObject({
+      state: "blocked", offer: null });
+  });
+
   it("stops on a shipping charge while the quote is processing", async () => {
     const { requests, transport } = plateFixture({ quote: { ...plateQuote, status: "processing", amount_shipping_cents: 900 } });
     expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason: "quote_totals_unverified" });
