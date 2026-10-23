@@ -18,7 +18,7 @@ function page(texts: string[], tier = "Least Expensive - Lead Time: 5 business d
   return { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
     locator: (selector: string) => ({ count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0,
       nth: (index: number) => ({ innerText: async () => texts[index], getAttribute: async () => null,
-        locator: (selector: string) => /* A markerless price panel that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => texts.join("\n"), locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
+        locator: (selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${texts.join("\n")}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
           : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tier }) } }) }) } as unknown as Page;
 }
 const total = "Firm total USD 40.00 quantity: 2 revision: B";

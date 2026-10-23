@@ -583,6 +583,55 @@ describe("Xometry multi-offer normalization", () => {
       }).map((offer) => offer.providerLabel)).toEqual(["STANDARD"]);
     });
 
+    it("names a current-layout card only from its one header line, never from another line or a lone-card fallback", () => {
+      const [cheapest, standard, fastest] = currentPanel();
+      for (const [card, text] of [
+        // A block badge or a second line in the header slot.
+        [fastest, fastest.text.replace(" Fastest", "Rush\n Fastest")],
+        [fastest, fastest.text.replace(" Fastest", " Fastest\nPriority")],
+        [cheapest, cheapest.text.replace(" Least Expensive", "Best Value\n Least Expensive\nEconomy production")],
+        [standard, standard.text.replace(" Standard", "Recommended\n Standard")],
+      ] as const) {
+        for (const snapshots of [[{ ...card, text }], [{ ...card, text }, card === fastest ? cheapest : fastest]]) {
+          const failure = failureOf(() => parseXometryOfferSnapshots({ requestedQuantity: 1, quoteUrl, snapshots }));
+
+          expect(failure).toMatchObject({
+            code: "selector_failure",
+            payload: { reason: "xometry_offer_tier_missing", terminalState: "selector_drift", optionIndex: 0 },
+          });
+        }
+      }
+    });
+
+    it("refuses a current-layout card line that is not its tier, its timing or a price line", () => {
+      const [cheapest, standard] = currentPanel();
+      for (const [card, line] of [
+        [cheapest, "Ground shipping - Arrives by Nov 3"],
+        [standard, "Expedited shipping included"],
+        [standard, "Fetching new price..."],
+        [cheapest, "Arrives by Nov 3"],
+      ] as const) {
+        const failure = failureOf(() => parseXometryOfferSnapshots({
+          requestedQuantity: 1,
+          quoteUrl,
+          snapshots: [{ ...card, text: `${card.text}\n${line}` }],
+        }));
+
+        expect(failure).toMatchObject({
+          code: "selector_failure",
+          payload: { reason: "xometry_offer_line_unrecognized", terminalState: "selector_drift", unrecognizedCardLines: 1 },
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "selector_drift" });
+      }
+      // The captured price lines, USD-marked amounts and a "Lead Time" label all still parse.
+      const usd = { ...standard, text: standard.text.replaceAll("$", "USD ") };
+      const leadTime = { ...standard, text: standard.text.replace("Arrives by Nov 6", "Lead Time: 5 Days"), tierText: "Lead Time: 5 Days" };
+      for (const snapshot of [standard, usd, leadTime]) {
+        expect(parseXometryOfferSnapshots({ requestedQuantity: 1, quoteUrl, snapshots: [snapshot] }).map((offer) => offer.providerOptionId))
+          .toEqual(["standard"]);
+      }
+    });
+
     it("ends every price-capture refusal in a finite terminal state", () => {
       const [cheapest] = currentPanel();
       const refusals: Array<[XometryOfferSnapshot, number, string]> = [

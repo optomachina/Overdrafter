@@ -620,7 +620,7 @@ describe("actual worker operational advisory seam", () => {
     const page = { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC", locator: (selector: string) => ({
       count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? 1 : 0,
       nth: () => ({ innerText: async () => source, getAttribute: async () => null,
-        locator: (selector: string) => /* A markerless price panel that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => source, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? 1 : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
+        locator: (selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${source}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? 1 : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
           : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0,
             first: () => ({ innerText: async () => "Fastest - Lead Time: 5 business days" }) } }),
     }) } as unknown as Page;
