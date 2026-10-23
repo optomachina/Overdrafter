@@ -126,22 +126,38 @@ export function defineFingerprintVocabulary(vocabulary: Omit<FingerprintVocabula
   return { ...vocabulary, digest: createHash("sha256").update(JSON.stringify(canonical)).digest("hex").slice(0, 16) };
 }
 
+/** Which artifact carried the digest: the job's log line, or a reviewed baseline passed with `--baseline`. */
+export type FingerprintArtifact = "fingerprint" | "baseline";
+
 export class FingerprintVocabularyMismatchError extends Error {
-  constructor(observed: string, expected: string) {
-    super(`drift_fingerprint_vocabulary_mismatch: fingerprint=${observed}, checkout=${expected}; run the drift tool from the deployed image's commit`);
+  constructor(observed: string, expected: string, artifact: FingerprintArtifact = "fingerprint") {
+    // The log line carries the deployed vocabulary, so a checkout that differs is the wrong commit. The drift tool checks a
+    // baseline only after the log line matched this checkout, so a baseline that differs is stale; switching commits
+    // would only make the log line mismatch instead.
+    super(artifact === "baseline"
+      ? `drift_baseline_vocabulary_mismatch: baseline=${observed}, checkout=${expected}; the baseline's vocabulary digest differs from this checkout, so use a reviewed baseline captured with the deployed vocabulary, or drop --baseline`
+      : `drift_fingerprint_vocabulary_mismatch: fingerprint=${observed}, checkout=${expected}; run the drift tool from the deployed image's commit`);
   }
 }
 
 /** Malformed/missing digests are invalid; only bounded hex digests may appear in diagnostics. */
-export function matchesFingerprintVocabulary(observed: unknown, vocabulary: FingerprintVocabulary): boolean {
+export function matchesFingerprintVocabulary(
+  observed: unknown,
+  vocabulary: FingerprintVocabulary,
+  artifact: FingerprintArtifact = "fingerprint",
+): boolean {
   if (typeof observed !== "string" || !/^[a-f0-9]{16}$/.test(observed)) return false;
-  if (observed !== vocabulary.digest) throw new FingerprintVocabularyMismatchError(observed, vocabulary.digest);
+  if (observed !== vocabulary.digest) throw new FingerprintVocabularyMismatchError(observed, vocabulary.digest, artifact);
   return true;
 }
 
 function clampCount(value: unknown, max = MAX_COUNT) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(0, Math.trunc(value))) : 0;
 }
+
+/** A read-back count is valid only as the producer writes it: an integer in 0..max. Never normalized. */
+const isCount = (value: unknown, max: number): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= max;
 
 /** Lowercase words joined by single spaces: the form reviewed phrases are written in. */
 export function normalizeLabel(raw: string): string {
@@ -265,15 +281,26 @@ function parseGroups<T>(value: unknown, names: readonly string[], parse: (tally:
 }
 
 /**
- * Re-validate a fingerprint read back from a log line against the same
- * vocabulary that produced it. Any label, test ID or group name outside the
- * vocabulary, any malformed tally, or a hash that no longer matches makes the
- * line invalid, so an edited line cannot carry text into a drift result.
- * Throws on vocabulary skew before validating page fields; otherwise returns null when anything fails.
+ * Re-validate a fingerprint read back from a log line (or a reviewed baseline)
+ * against the same vocabulary that produced it. Any label, test ID or group
+ * name outside the vocabulary, any malformed tally, or a hash that no longer
+ * matches makes the line invalid, so an edited line cannot carry text into a
+ * drift result. A tally is malformed unless `total` is the vocabulary group's
+ * size and `matched` is an integer in 0..total; a selector tally also needs
+ * one measure per selector, each an integer count in 0..20 with a boolean
+ * `visible` (never visible without a match), and `matched` must equal the
+ * number of selectors with a match. Tallies are never clamped or recomputed
+ * into validity; landmark, heading/button/link and test-ID counts are still
+ * clamped to their bounds (numbers only, no page text). Throws on vocabulary skew before validating page fields (naming
+ * `artifact`); otherwise returns null when anything fails.
  */
-export function parsePageFingerprint(value: unknown, vocabulary: FingerprintVocabulary): PageFingerprint | null {
+export function parsePageFingerprint(
+  value: unknown,
+  vocabulary: FingerprintVocabulary,
+  artifact: FingerprintArtifact = "fingerprint",
+): PageFingerprint | null {
   if (!isRecord(value) || value.schema !== PAGE_FINGERPRINT_SCHEMA) return null;
-  if (!matchesFingerprintVocabulary(value.vocabularyDigest, vocabulary)) return null;
+  if (!matchesFingerprintVocabulary(value.vocabularyDigest, vocabulary, artifact)) return null;
   if (typeof value.provider !== "string" || !PROVIDER_KEY.test(value.provider)) return null;
   const headings = parseLabelSet(value.headings, vocabulary.labels);
   const buttons = parseLabelSet(value.buttons, vocabulary.labels);
@@ -286,15 +313,21 @@ export function parsePageFingerprint(value: unknown, vocabulary: FingerprintVoca
     values: [...new Set(rawTestIds as string[])].sort(compareCodeUnits),
     withheld: clampCount(value.testIds.withheld),
   };
-  const signalGroups = parseGroups(value.signalGroups, Object.keys(vocabulary.signalGroups), (tally, name) => {
+  const signalGroups = parseGroups(value.signalGroups, Object.keys(vocabulary.signalGroups), (tally, name): GroupTally | null => {
     const total = vocabulary.signalGroups[name].length;
-    return tally.total === total ? { matched: Math.min(total, clampCount(tally.matched)), total } : null;
+    return tally.total === total && isCount(tally.matched, total) ? { matched: tally.matched, total } : null;
   });
-  const selectorGroups = parseGroups(value.selectorGroups, Object.keys(vocabulary.selectorGroups), (tally, name) => {
+  const selectorGroups = parseGroups(value.selectorGroups, Object.keys(vocabulary.selectorGroups), (tally, name): SelectorGroupTally | null => {
     const total = vocabulary.selectorGroups[name].length;
-    const selectors = tally.selectors;
-    if (!Array.isArray(selectors) || selectors.length !== total || !selectors.every(isRecord)) return null;
-    return selectorTally(selectors, total);
+    if (tally.total !== total || !Array.isArray(tally.selectors) || tally.selectors.length !== total) return null;
+    const selectors: SelectorMeasure[] = [];
+    for (const measure of tally.selectors as unknown[]) {
+      if (!isRecord(measure) || !isCount(measure.count, MAX_SELECTOR_COUNT) || typeof measure.visible !== "boolean") return null;
+      if (measure.visible && measure.count === 0) return null;
+      selectors.push({ count: measure.count, visible: measure.visible });
+    }
+    const matched = selectors.filter(({ count }) => count > 0).length;
+    return tally.matched === matched ? { matched, total, selectors } : null;
   });
   if (
     !signalGroups || !selectorGroups || !isRecord(value.landmarks) ||

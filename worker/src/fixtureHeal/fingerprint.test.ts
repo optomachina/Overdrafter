@@ -209,6 +209,29 @@ describe("fixture page fingerprint", () => {
     }
   });
 
+  it("accepts a consistent tally as written, at its bounds, without clamping or recomputing", () => {
+    const valid = structuredClone(fingerprint(syntheticPage(11), VOCABULARY));
+    const [signal] = Object.keys(valid.signalGroups);
+    const [group] = Object.keys(valid.selectorGroups);
+    valid.signalGroups[signal].matched = valid.signalGroups[signal].total;
+    valid.selectorGroups[group].selectors = valid.selectorGroups[group].selectors.map((_, index) =>
+      (index === 0 ? { count: 20, visible: true } : { count: 0, visible: false }));
+    valid.selectorGroups[group].matched = 1;
+    expect(parsePageFingerprint(valid, VOCABULARY)).toEqual(valid);
+    expect(parsePageFingerprint(valid, VOCABULARY, "baseline")).toEqual(valid);
+    // One step past each bound is malformed (the full repro list is in driftResult.test.ts).
+    const pastBounds: Array<(copy: PageFingerprint) => void> = [
+      (copy) => { copy.signalGroups[signal].matched = copy.signalGroups[signal].total + 1; },
+      (copy) => { copy.selectorGroups[group].selectors[0].count = 21; },
+      (copy) => { copy.selectorGroups[group].selectors[0].count = -1; },
+    ];
+    for (const edit of pastBounds) {
+      const copy = structuredClone(valid);
+      edit(copy);
+      expect(parsePageFingerprint(copy, VOCABULARY)).toBeNull();
+    }
+  });
+
   it("tallies signal groups and records each selector's count and visibility", () => {
     const fp = fingerprint(
       {

@@ -33,7 +33,8 @@ async function main(args: string[]) {
   const { trigger, fingerprint } = readFingerprintLogEntries(JSON.parse(await readInput(logsPath)), reference.vocabulary);
   let baseline = null;
   if (baselinePath) {
-    baseline = parsePageFingerprint(JSON.parse(await fs.readFile(baselinePath, "utf8")), reference.vocabulary);
+    // Checked after the log line, so a digest mismatch here means a stale baseline, not the wrong checkout.
+    baseline = parsePageFingerprint(JSON.parse(await fs.readFile(baselinePath, "utf8")), reference.vocabulary, "baseline");
     if (!baseline) throw new Error("drift_baseline_invalid");
   }
   return buildDriftResult({ trigger, fingerprint, baseline, reference });

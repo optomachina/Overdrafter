@@ -5,9 +5,33 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { XOMETRY_AUTH_PROBE_DRIFT_REFERENCE } from "../xometryAuthProbe.js";
 import { buildDriftResult, formatFingerprintLogLine, readFingerprintLogEntries } from "./driftResult.js";
-import { defineFingerprintVocabulary, fingerprint, parsePageFingerprint, type DomSnapshot } from "./fingerprint.js";
+import { defineFingerprintVocabulary, fingerprint, parsePageFingerprint, type DomSnapshot, type PageFingerprint } from "./fingerprint.js";
 
 const VOCABULARY = XOMETRY_AUTH_PROBE_DRIFT_REFERENCE.vocabulary;
+/** tsx is a worker dependency only, so the CLI runs from worker/ (as documented), wherever vitest was started. */
+const WORKER_DIR = resolve(import.meta.dirname, "../..");
+const logMismatch = (observed: string, expected: string) =>
+  `drift_fingerprint_vocabulary_mismatch: fingerprint=${observed}, checkout=${expected}; run the drift tool from the deployed image's commit`;
+const baselineMismatch = (observed: string, expected: string) =>
+  `drift_baseline_vocabulary_mismatch: baseline=${observed}, checkout=${expected}; the baseline's vocabulary digest differs from this checkout, so use a reviewed baseline captured with the deployed vocabulary, or drop --baseline`;
+
+type Tallies = Pick<PageFingerprint, "signalGroups" | "selectorGroups">;
+/** Each malformed tally a log line or baseline might carry; every one must be rejected, never normalized. */
+const MALFORMED_TALLIES: Array<[string, (fp: Tallies) => void]> = [
+  ["signal matched -1", (fp) => { fp.signalGroups.dashboardSignals.matched = -1; }],
+  ["signal matched \"broken\"", (fp) => { (fp.signalGroups.dashboardSignals as { matched: unknown }).matched = "broken"; }],
+  ["signal matched 999", (fp) => { fp.signalGroups.dashboardSignals.matched = 999; }],
+  ["signal matched 1.5", (fp) => { fp.signalGroups.dashboardSignals.matched = 1.5; }],
+  ["selector count -5", (fp) => { fp.selectorGroups.dashboardUploadButtons.selectors[0].count = -5; }],
+  ["selector count \"x\"", (fp) => { (fp.selectorGroups.dashboardUploadButtons.selectors[0] as { count: unknown }).count = "x"; }],
+  ["selector count over the cap", (fp) => {
+    fp.selectorGroups.dashboardUploadButtons.selectors[0] = { count: 21, visible: true };
+    fp.selectorGroups.dashboardUploadButtons.matched = 1;
+  }],
+  ["selector matched 77, total 42", (fp) => { Object.assign(fp.selectorGroups.dashboardUploadButtons, { matched: 77, total: 42 }); }],
+  ["selector matched disagrees with its counts", (fp) => { fp.selectorGroups.dashboardUploadButtons.matched = 1; }],
+  ["selector visible without a match", (fp) => { fp.selectorGroups.dashboardUploadButtons.selectors[0].visible = true; }],
+];
 
 function page(overrides: Partial<DomSnapshot> = {}): DomSnapshot {
   return {
@@ -62,13 +86,22 @@ describe("fixture drift result", () => {
     { labels: new Set([...VOCABULARY.labels].filter((label) => label !== "new quote")) },
   ])("reports vocabulary skew before validating a genuine line or baseline (%j)", (change) => {
     const skewed = defineFingerprintVocabulary({ ...VOCABULARY, ...change });
-    const message = `drift_fingerprint_vocabulary_mismatch: fingerprint=${VOCABULARY.digest}, checkout=${skewed.digest}; run the drift tool from the deployed image's commit`;
+    const message = logMismatch(VOCABULARY.digest, skewed.digest);
     const line = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY);
     expect(() => readFingerprintLogEntries(logEntries(line), skewed)).toThrow(message);
-    // This is the same parser used by --baseline, before any comparison.
     expect(() => parsePageFingerprint(JSON.parse(JSON.stringify(fp)), skewed)).toThrow(message);
+    // --baseline uses the same parser, before any comparison, but a stale baseline is not a wrong checkout.
+    expect(() => parsePageFingerprint(JSON.parse(JSON.stringify(fp)), skewed, "baseline")).toThrow(baselineMismatch(VOCABULARY.digest, skewed.digest));
     const unavailable = formatFingerprintLogLine("authenticated_dashboard_not_confirmed", null, VOCABULARY);
     expect(() => readFingerprintLogEntries(logEntries(unavailable), skewed)).toThrow(message);
+  });
+
+  it.each(MALFORMED_TALLIES)("rejects a log line or baseline whose tally is malformed (%s)", (_, edit) => {
+    const line = JSON.parse(formatFingerprintLogLine("authenticated_dashboard_not_confirmed", fp, VOCABULARY));
+    edit(line.fingerprint);
+    expect(() => readFingerprintLogEntries(logEntries(JSON.stringify(line)), VOCABULARY)).toThrow(/^drift_fingerprint_invalid$/);
+    // The CLI turns a null baseline into drift_baseline_invalid (end to end below).
+    expect(parsePageFingerprint(line.fingerprint, VOCABULARY, "baseline")).toBeNull();
   });
 
   it("rejects missing or malformed digests without echoing input", () => {
@@ -88,8 +121,9 @@ describe("fixture drift result", () => {
       const skewed = defineFingerprintVocabulary({ ...VOCABULARY, labels: new Set([...VOCABULARY.labels, "quote dashboard"]) });
       const run = (baseline: unknown) => {
         writeFileSync(baselinePath, JSON.stringify(baseline));
-        return spawnSync(process.execPath, ["--import", "tsx", resolve("worker/src/tools/xometryDriftResult.ts"), logsPath, "--baseline", baselinePath], {
-          encoding: "utf8", timeout: 10_000,
+        // `--import tsx` resolves from cwd: worker/node_modules, never a tsx installed above the repository.
+        return spawnSync(process.execPath, ["--import", "tsx", "src/tools/xometryDriftResult.ts", logsPath, "--baseline", baselinePath], {
+          cwd: WORKER_DIR, encoding: "utf8", timeout: 10_000,
         });
       };
       const matching = run(fp);
@@ -98,10 +132,16 @@ describe("fixture drift result", () => {
       const mismatch = run(fingerprint(page(), skewed));
       expect(mismatch.status).toBe(1);
       expect(mismatch.stdout).toBe("");
-      expect(mismatch.stderr.trim()).toBe(`drift_fingerprint_vocabulary_mismatch: fingerprint=${skewed.digest}, checkout=${VOCABULARY.digest}; run the drift tool from the deployed image's commit`);
+      expect(mismatch.stderr.trim()).toBe(baselineMismatch(skewed.digest, VOCABULARY.digest));
       const invalid = run({ ...fp, vocabularyDigest: "Jordan Okafor" });
       expect(invalid.status).toBe(1);
       expect(invalid.stderr.trim()).toBe("drift_baseline_invalid");
+      const broken = structuredClone(fp);
+      (broken.signalGroups.dashboardSignals as { matched: unknown }).matched = "broken";
+      const malformed = run(broken);
+      expect(malformed.status).toBe(1);
+      expect(malformed.stdout).toBe("");
+      expect(malformed.stderr.trim()).toBe("drift_baseline_invalid");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
