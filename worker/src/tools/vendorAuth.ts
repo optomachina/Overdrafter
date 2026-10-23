@@ -10,6 +10,7 @@ import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapter
 import type { LiveAutomationVendorName } from "../types.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 import { enabledPortalVendors } from "./enabledPortalVendors.js";
+import { bootstrapSendCutSendSession } from "./sendcutsendAuth.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
@@ -20,7 +21,7 @@ function usage() {
   return [
     "Usage: npm --prefix worker run auth:vendor -- <vendor|all|vendor1,vendor2> [output-path]",
     "",
-    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork",
+    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork, sendcutsend",
     "",
     "The script opens the vendor login/signup page and saves Playwright storage state after you finish manually.",
   ].join("\n");
@@ -42,6 +43,11 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
 
   const supportedVendors: LiveAutomationVendorName[] = [];
   for (const vendor of requestedVendors) {
+    // OVD-1056: SendCutSend is not a generic portal workflow; it has its own session bootstrap.
+    if (vendor === "sendcutsend") {
+      supportedVendors.push("sendcutsend");
+      continue;
+    }
     const workflow = getExtendedVendorWorkflow(vendor);
     if (!workflow) {
       return null;
@@ -89,6 +95,7 @@ async function ensureParentDir(filePath: string) {
 
 export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
   if (vendor === "oshcut") refuseOshcutPortalAutomation();
+  if (vendor === "sendcutsend") return bootstrapSendCutSendSession(resolveOutputPath(vendor, explicitOutputPath));
   const workflow = getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);
