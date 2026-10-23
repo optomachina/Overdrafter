@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideProviderUploadCapability } from "../providerUploadCapability.js";
@@ -92,7 +93,10 @@ import { OperationalJevSession, OperationalJevObservations } from "../jev/operat
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
-import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
+import {
+  evaluateProviderAdapterContract,
+  evaluateProviderAdapterFailureContract,
+} from "./providerAdapterContract";
 import anonymousQuoteHome from "./fixtures/xometry-anonymous-quote-home.json";
 import {
   XometryAdapter,
@@ -115,6 +119,7 @@ import {
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
 } from "./xometryConstraints";
+import { collectXometryOffers, parseXometryOfferSnapshots } from "./xometryOffers";
 
 const tempDirs: string[] = [];
 
@@ -295,6 +300,10 @@ type LocatorBehavior = {
   dataTestId?: string | null;
   isChecked?: () => Promise<boolean> | boolean;
   isEnabled?: () => Promise<boolean> | boolean;
+  /** Distinct matches returned by nth(index); count follows their length. */
+  items?: LocatorBehavior[];
+  /** Behaviors for selectors scoped under this locator. */
+  children?: Record<string, LocatorBehavior> | ((selector: string) => LocatorBehavior);
 };
 
 type FakePageOptions = {
@@ -330,7 +339,17 @@ type FakePageOptions = {
   }>;
 };
 
-function makeLocator(behavior: LocatorBehavior = {}) {
+function makeLocator(behavior: LocatorBehavior = {}): ReturnType<typeof makeSingleLocator> {
+  const items = behavior.items;
+  if (!items) return makeSingleLocator(behavior);
+  return {
+    ...makeSingleLocator({ ...items[0], count: items.length }),
+    first: () => makeLocator(items[0] ?? { count: 0 }),
+    nth: (index: number) => makeLocator(items[index] ?? { count: 0 }),
+  };
+}
+
+function makeSingleLocator(behavior: LocatorBehavior = {}) {
   const currentCount = () =>
     typeof behavior.count === "function" ? behavior.count() : (behavior.count ?? 0);
   const currentText = () =>
@@ -340,7 +359,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     first() {
       return this;
     },
-    nth() {
+    nth(_index?: number) {
       return this;
     },
     async count() {
@@ -398,8 +417,11 @@ function makeLocator(behavior: LocatorBehavior = {}) {
         ? makeLocator(behavior)
         : makeLocator({ count: 0, text: "" });
     },
-    locator() {
-      return makeLocator({ count: 0 });
+    locator(selector: string) {
+      const scoped = typeof behavior.children === "function"
+        ? behavior.children(selector)
+        : behavior.children?.[selector];
+      return makeLocator(scoped ?? { count: 0 });
     },
   };
 }
@@ -4335,6 +4357,10 @@ describe("XometryAdapter", () => {
       expect(failure).toMatchObject({
         payload: { reason: "quantity_mismatch", observedLineItemQuantities: [10] },
       });
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "configuration_required",
+      });
       expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
         .toContain("quantity-unverified-dom");
     });
@@ -4347,6 +4373,272 @@ describe("XometryAdapter", () => {
       expect(failure).toMatchObject({
         payload: { reason: "quantity_unverified", observedLineItemQuantities: [] },
       });
+      // OVD-1052: the refusal is a finite selector-drift stop, not an
+      // unclassified failure (finite_terminal_state_missing).
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+      });
+    });
+  });
+
+  describe("OVD-1052 current quote-page price panel", () => {
+    // Hand-built structural fixture of the 2026-10-23 quote page; every value
+    // in it is synthetic. Never replace it with a captured page.
+    const fixturePath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "fixtures",
+      "xometry-quote-page-price-panel-2026-10.html",
+    );
+    const lineBreakingTags = new Set(["BODY", "DIV", "P", "LABEL", "SECTION", "MAIN", "DIALOG", "UL", "LI"]);
+
+    /**
+     * Approximates Playwright's innerText for the fixture: hidden subtrees are
+     * skipped, block boxes break lines, source indentation collapses, and the
+     * no-break space Xometry renders after a tier icon is kept.
+     */
+    function renderedText(root: Element) {
+      const parts: string[] = [];
+      const visit = (node: Node) => {
+        if (node.nodeType === node.TEXT_NODE) {
+          parts.push((node.textContent ?? "").replaceAll(/[ \t\r\n]+/g, " "));
+          return;
+        }
+        if (node.nodeType !== node.ELEMENT_NODE) return;
+        const element = node as Element;
+        if (/display:\s*none/i.test(element.getAttribute("style") ?? "")) return;
+        const breaksLine = lineBreakingTags.has(element.tagName);
+        if (breaksLine) parts.push("\n");
+        element.childNodes.forEach(visit);
+        if (breaksLine) parts.push("\n");
+      };
+      visit(root);
+      return parts
+        .join("")
+        .split("\n")
+        .map((line) => line.replaceAll(/^ +| +$/g, ""))
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    /**
+     * Locator behavior backed by fixture elements: every scoped selector the
+     * collector asks for (tier label, list price, nested containers, disabled
+     * descendants) resolves against the element's own DOM subtree.
+     */
+    function domBehavior(elements: Iterable<Element>): LocatorBehavior {
+      return {
+        items: [...elements].map((element) => ({
+          count: 1,
+          text: renderedText(element),
+          getAttribute: (name: string) => element.getAttribute(name),
+          children: (selector: string) => domBehavior(element.querySelectorAll(selector)),
+        })),
+      };
+    }
+
+    async function loadCurrentQuotePage(mutate?: (document: Document) => void) {
+      const { document } = new JSDOM(await fs.readFile(fixturePath, "utf8")).window;
+      mutate?.(document);
+      const cards = [...document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0])].map((card) => {
+        const timing = card.querySelector('[data-testid="tierAndLeadTime"]');
+        if (!timing) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+        return { text: renderedText(card), tierText: renderedText(timing) };
+      });
+      // Mirrors div:has(> span:text-is("Quantity")) > div > input[type="number"].
+      const quantityInputs = [...document.querySelectorAll('div > div > input[type="number"]')].filter((input) =>
+        [...(input.parentElement?.parentElement?.children ?? [])].some((sibling) =>
+          sibling.tagName === "SPAN" && sibling.textContent?.trim() === "Quantity"));
+      return {
+        document,
+        bodyText: renderedText(document.body),
+        hiddenTemplates: [...document.querySelectorAll("dialog span")]
+          .map((span) => span.textContent?.trim() ?? "")
+          .filter(Boolean),
+        cards,
+        quantityInputs,
+        offerContainerBehaviors: Object.fromEntries(XOMETRY_LOCATORS.offerContainers.map((selector) =>
+          [selector, domBehavior(document.querySelectorAll(selector))])),
+      };
+    }
+
+    /** A page whose offer-container selectors resolve against the fixture DOM. */
+    function fixturePage(fixture: Awaited<ReturnType<typeof loadCurrentQuotePage>>) {
+      return {
+        url: () => "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        locator: (selector: string) => makeLocator(fixture.offerContainerBehaviors[selector] ?? { count: 0 }),
+      } as unknown as Parameters<typeof collectXometryOffers>[0];
+    }
+
+    async function quoteCurrentPage() {
+      const fixture = await loadCurrentQuotePage();
+      const labelledQuantitySelector = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
+        selector.includes('span:text-is("Quantity")'));
+      expect(labelledQuantitySelector).toBeDefined();
+      const workerTempDir = await makeTempDir();
+      const page = createFakePage({
+        bodyText: fixture.bodyText,
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          [labelledQuantitySelector ?? "missing"]: {
+            count: fixture.quantityInputs.length,
+            inputValue: () => fixture.quantityInputs[0]?.getAttribute("value") ?? "",
+          },
+          // Every offer-container selector resolves against the fixture DOM,
+          // including the role=button drag handle around the part card.
+          ...fixture.offerContainerBehaviors,
+        },
+      });
+      const requestedSelectors: string[] = [];
+      const locate = page.locator.bind(page);
+      page.locator = (selector: string) => {
+        requestedSelectors.push(selector);
+        return locate(selector);
+      };
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const baseInput = makeInput();
+      const input = makeInput({
+        requestedQuantity: 1,
+        requirement: { ...baseInput.requirement, finish: "as machined", quantity: 1, quote_quantities: [1] },
+      });
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      );
+      return { fixture, input, requestedSelectors, result: await adapter.quote(input) };
+    }
+
+    it("pins the drift: the tier name left the timing label and the quantity input lost its aria-label", async () => {
+      const fixture = await loadCurrentQuotePage();
+
+      expect(fixture.cards.map((card) => card.tierText)).toEqual([
+        "Arrives by Nov 3",
+        "Arrives by Nov 6",
+        "Arrives by Oct 30",
+      ]);
+      expect(fixture.cards.map((card) => card.text.split("\n")[0])).toEqual([
+        "\u00a0Least Expensive",
+        "\u00a0Standard",
+        "\u00a0Fastest",
+      ]);
+      expect(fixture.quantityInputs).toHaveLength(1);
+      expect(fixture.quantityInputs[0]?.hasAttribute("aria-label")).toBe(false);
+      // Hidden dialog templates are not visible text, so none of them reaches
+      // the body text the adapter classifies. This pins only that exclusion,
+      // not how a visible dialog with the same copy would be classified.
+      expect(fixture.hiddenTemplates).toEqual(expect.arrayContaining([
+        "Quote limit exceeded",
+        "Your Quote Was Not Automatically Saved",
+        "Delete Drawing",
+      ]));
+      for (const template of fixture.hiddenTemplates) {
+        expect(fixture.bodyText).not.toContain(template);
+      }
+    });
+
+    it("never takes the part card's role=button drag handle as a fourth tier container", async () => {
+      const tierIds = ["least-expensive", "standard", "fastest"];
+      // As captured (decrement disabled at quantity 1) and with the stepper
+      // enabled, so the handle is not merely dropped as an unavailable option.
+      for (const enableStepper of [false, true]) {
+        const fixture = await loadCurrentQuotePage((document) => {
+          if (enableStepper) {
+            for (const button of document.querySelectorAll("button[disabled]")) button.removeAttribute("disabled");
+          }
+        });
+        const handles = [...fixture.document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[3])];
+        expect(handles).toHaveLength(1);
+        expect(handles[0]?.matches('#draggable-parts > div[role="button"][tabindex="0"]')).toBe(true);
+        expect(handles[0]?.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0])).toHaveLength(3);
+        expect(fixture.document.querySelectorAll("button[disabled]")).toHaveLength(enableStepper ? 0 : 1);
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offers.map((offer) => offer.providerOptionId)).toEqual(tierIds);
+        expect(offers.map((offer) => offer.provenance.containerSelector))
+          .toEqual(Array(3).fill(XOMETRY_LOCATORS.offerContainers[0]));
+        expect(offers.map((offer) => offer.totalPriceUsd)).toEqual([101.25, 106.4, 117.1]);
+      }
+    });
+
+    it("takes the list total from the card's part-discount slot when the amounts alone are ambiguous", async () => {
+      const captured = await loadCurrentQuotePage();
+      // Captured structure: <span>$list</span> (Save $x) inside part-discount.
+      expect([...captured.document.querySelectorAll('[data-testid="part-discount"]')].map((slot) => ({
+        list: [...slot.children].filter((child) => child.tagName === "SPAN").map((span) => span.textContent),
+        text: slot.textContent,
+      }))).toEqual([
+        { list: ["$146.80"], text: "$146.80 (Save $45.55)" },
+        { list: ["$139.95"], text: "$139.95 (Save $33.55)" },
+        { list: ["$171.85"], text: "$171.85 (Save $54.75)" },
+      ]);
+
+      // $150.00 - $50.00 = $100.00 and $100.00 - $50.00 = $50.00, so only the
+      // DOM slot can say that $150.00 is the struck-through list total.
+      const fixture = await loadCurrentQuotePage((document) => {
+        const [card, ...others] = document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0]);
+        for (const other of others) other.remove();
+        const amounts = card?.querySelector('[kind="discount"]');
+        if (!amounts) throw new Error("fixture tier card lost its price block");
+        amounts.innerHTML = '<span kind="body-sm">$50.00 ea.</span><div>$100.00</div>'
+          + '<div data-testid="part-discount"><span>$150.00</span> (Save $50.00)</div>';
+      });
+      const offers = await collectXometryOffers(fixturePage(fixture), 2);
+
+      expect(offers).toEqual([expect.objectContaining({
+        providerOptionId: "least-expensive",
+        unitPriceUsd: 50,
+        totalPriceUsd: 100,
+      })]);
+      // The same card text without the DOM slot fails closed.
+      expect(() => parseXometryOfferSnapshots({
+        requestedQuantity: 2,
+        quoteUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        snapshots: fixture.cards.map((card) => ({ selector: ".price-tier", ...card, attributes: {} })),
+      })).toThrow(expect.objectContaining({
+        payload: expect.objectContaining({
+          reason: "xometry_offer_discount_unreconciled",
+          discountFailure: "list_price_ambiguous",
+          terminalState: "selector_drift",
+        }),
+      }));
+    });
+
+    it("captures all three tier cards as offers and ends offers_extracted", async () => {
+      const { input, requestedSelectors, result } = await quoteCurrentPage();
+
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.offers?.map((offer) => ({
+        id: offer.providerOptionId,
+        label: offer.providerLabel,
+        unit: offer.unitPriceUsd,
+        total: offer.totalPriceUsd,
+        arrives: offer.shipReceiveBy,
+      }))).toEqual([
+        { id: "least-expensive", label: "Least Expensive", unit: 101.25, total: 101.25, arrives: "Nov 3" },
+        { id: "standard", label: "Standard", unit: 106.4, total: 106.4, arrives: "Nov 6" },
+        { id: "fastest", label: "Fastest", unit: 117.1, total: 117.1, arrives: "Oct 30" },
+      ]);
+      // The customer pays the discounted total; the struck-through list totals
+      // ($146.80 / $139.95 / $171.85) are never anchored.
+      expect(result.totalPriceUsd).toBe(101.25);
+      expect(result.unitPriceUsd).toBe(101.25);
+      const now = new Date("2026-10-23T00:00:00Z");
+      expect(result.offers?.map((offer) => resolveXometryCompatibilityLeadTime(offer, now))).toEqual([7, 10, 5]);
+      expect(evaluateProviderAdapterContract({
+        definition: {
+          provider: "xometry",
+          allowedHosts: ["www.xometry.com"],
+          selectors: { cadUpload: "input[type='file']" },
+          requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
+        },
+        adapterInput: input,
+        output: result,
+      })).toMatchObject({ ok: true, terminalState: "offers_extracted", violations: [] });
+      // Quote only: no checkout, purchaser hand-off or configuration save is targeted.
+      expect(requestedSelectors.filter((selector) =>
+        /continue to checkout|forward to purchaser|save configuration/i.test(selector))).toEqual([]);
     });
   });
 
