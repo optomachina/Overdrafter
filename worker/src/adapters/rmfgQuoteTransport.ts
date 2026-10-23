@@ -272,12 +272,19 @@ function hasUnrequestedConfiguration(configuration: Json | null): boolean {
     Boolean(defaults && Object.values(defaults).some((value) => value !== null && value !== undefined));
 }
 
+/** A configured part with a finish, a coating or any hole operation; none was requested. */
+function configuresUnrequestedWork(part: Json | null): boolean {
+  if (["finish_id", "powder_coat_color_id"].some((key) => part?.[key] !== null && part?.[key] !== undefined)) return true;
+  return ["taps", "studs", "nuts", "standoffs", "countersinks"].some((key) => {
+    const value = part?.[key];
+    return value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0);
+  });
+}
+
 function selectedPartMatches(part: Json | undefined, selection: SelectedPart): boolean {
   if (!part || (part.material_id ?? null) !== (selection.material_id ?? null) ||
       (part.tube_profile_id ?? null) !== (selection.tube_profile_id ?? null)) return false;
-  if (["finish_id", "powder_coat_color_id"].some((key) => part[key] !== null && part[key] !== undefined)) return false;
-  return !["taps", "studs", "nuts", "standoffs", "countersinks"].some((key) =>
-    Array.isArray(part[key]) && (part[key] as unknown[]).length > 0);
+  return !configuresUnrequestedWork(part);
 }
 
 /** V1PartDFM.finish_id is the finish the part is priced with; absent means As Cut, the only finish requested. */
@@ -307,7 +314,10 @@ function hasUnrequestedCharge(line: Json | null): boolean {
 function showsUnrequestedWork(item: Json | null, dfm: Json | null): boolean {
   const parts = Array.isArray(dfm?.parts) ? dfm.parts : [];
   const lines = Array.isArray(item?.line_items) ? item.line_items : [];
-  return hasUnrequestedConfiguration(record(dfm?.configuration)) ||
+  const configuration = record(dfm?.configuration);
+  const configuredParts = Array.isArray(configuration?.parts) ? configuration.parts : [];
+  return hasUnrequestedConfiguration(configuration) ||
+    configuredParts.some((part) => configuresUnrequestedWork(record(part))) ||
     parts.some((part) => pricedWithFinish(record(part))) ||
     lines.some((line) => hasUnrequestedCharge(record(line))) ||
     (item?.assembly_operations_amount_cents !== undefined && item?.assembly_operations_amount_cents !== 0);

@@ -444,7 +444,12 @@ describe("RMFG quote transport with a stated stock (OVD-1057)", () => {
     const twoItems = { ...plateQuote, status: "processing", items: [plateQuote.items[0], { ...plateQuote.items[0], status: "blocked" }] };
     const finished = { ...plateQuote, status: "processing", items: [{ ...plateQuote.items[0],
       dfm: { ...plateQuote.items[0].dfm, parts: [{ ...plateQuote.items[0].dfm.parts[0], finish_id: "finish-synthetic" }] } }] };
-    for (const [quote, reason] of [[twoItems, "quote_items_unverified"], [finished, "unrequested_work_priced"]] as const) {
+    const configured = (part: Record<string, unknown>) => ({ ...plateQuote, status: "processing", items: [{ ...plateQuote.items[0],
+      dfm: { ...plateQuote.items[0].dfm, configuration: { parts: [{ part_id: "part-plate", material_id: "stock-6061-125", ...part }] } } }] });
+    for (const [quote, reason] of [[twoItems, "quote_items_unverified"], [finished, "unrequested_work_priced"],
+      [configured({ finish_id: "finish-synthetic" }), "unrequested_work_priced"],
+      [configured({ taps: [{ hole_id: 1 }] }), "unrequested_work_priced"],
+      [configured({ countersinks: "malformed" }), "unrequested_work_priced"]] as const) {
       const { requests, transport } = plateFixture({ quote });
       expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason, offer: null });
       expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
