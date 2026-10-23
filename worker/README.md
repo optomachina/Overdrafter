@@ -201,14 +201,15 @@ the Bitwarden unlock tradeoffs and the LaunchAgent.
 - `npm run login:vendors` signs in from Bitwarden and saves each session scoped
   to the reviewed hosts. **Only Blaine's terminal or his LaunchAgent runs it.
   Agents never invoke `login:vendors`**, never read its Bitwarden items, and
-  never type a password or solve a CAPTCHA. It stops a vendor, with a macOS
+  never type a password or solve a CAPTCHA; running it retrieves real
+  credentials, a protected action. It stops a vendor, with a macOS
   notification and a scrubbed log line, at a visible CAPTCHA, a second-factor
   prompt, an unknown page or a failed login.
 - `npm run session:check -- quickparts,geomiq,weerg` prints `valid`,
   `login_required`, `missing`, `unopenable_by_kernel` or `check_failed` per
   vendor. `npm run session:refresh` re-saves a still-valid session after a
-  GET-only visit. Neither reads credentials, fills a form or uploads, so agents
-  may run both.
+  visit that sends only GET and HEAD requests to the vendor. Neither reads
+  credentials, fills a form or uploads, so agents may run both.
 - Agents run `session:check` before a live run. If any vendor is not `valid`,
   they batch the re-login request: one message to Blaine naming every vendor
   that needs a login.

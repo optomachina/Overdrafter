@@ -174,12 +174,17 @@ export function parseLoginItem(stdout: string, hosts: readonly string[]): LoginC
 export class BitwardenVault {
   #session: SecretString | null = null;
   #unlockedHere = false;
+  /** Captured at construction so the caller can drop BW_SESSION from its own environment. */
+  readonly #exportedSession: SecretString | null;
 
   constructor(
     private readonly config: BitwardenConfig,
     private readonly env: NodeJS.ProcessEnv = process.env,
     private readonly run: ExecFileRunner = defaultExecFile,
-  ) {}
+  ) {
+    const exported = env.BW_SESSION?.trim();
+    this.#exportedSession = exported ? new SecretString(exported) : null;
+  }
 
   #bw(args: readonly string[], extra: Record<string, string> = {}): Promise<string> {
     const session: Record<string, string> = this.#session ? { BW_SESSION: this.#session.reveal() } : {};
@@ -201,9 +206,8 @@ export class BitwardenVault {
 
   async open(): Promise<void> {
     if (this.config.unlock === "session-env") {
-      const session = this.env.BW_SESSION?.trim();
-      if (!session) throw new BitwardenError("session_env_missing");
-      this.#session = new SecretString(session);
+      if (!this.#exportedSession) throw new BitwardenError("session_env_missing");
+      this.#session = this.#exportedSession;
       if ((await this.#status()) !== "unlocked") throw new BitwardenError("vault_locked");
     } else {
       this.#session = null;

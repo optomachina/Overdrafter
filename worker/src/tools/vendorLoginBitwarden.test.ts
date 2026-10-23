@@ -124,6 +124,15 @@ describe("Bitwarden vault, session-env unlock", () => {
       .rejects.toMatchObject({ code: "vault_locked" });
   });
 
+  it("keeps the session it was constructed with after the caller drops BW_SESSION", async () => {
+    const env: NodeJS.ProcessEnv = { ...baseEnv, BW_SESSION: SESSION_KEY };
+    const fake = fakeRunner({ status: JSON.stringify({ status: "unlocked" }), sync: "" });
+    const vault = new BitwardenVault(config, env, fake.run);
+    delete env.BW_SESSION;
+    await vault.open();
+    expect(fake.calls[0].env.BW_SESSION).toBe(SESSION_KEY);
+  });
+
   it("reads the item with the session in the environment only, and never locks a vault it did not unlock", async () => {
     const fake = fakeRunner({ status: JSON.stringify({ status: "unlocked" }), sync: "", get: loginItemJson(), lock: "" });
     const vault = new BitwardenVault(config, { ...baseEnv, BW_SESSION: SESSION_KEY }, fake.run);

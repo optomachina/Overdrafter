@@ -16,6 +16,7 @@ import { checkVendorSession, refreshVendorSession, sessionStatePath, type Vendor
  */
 
 const TIMEOUT_MS = 60_000;
+const CONTENT = "Upload a part to get an instant quote. Recent quotes: bracket rev B, enclosure lid, mounting plate.";
 const hits: string[] = [];
 let server: http.Server;
 let origin = "";
@@ -35,13 +36,15 @@ beforeAll(async () => {
     };
     if (req.method !== "GET" && req.method !== "HEAD") return send(405, "");
     if (url === "/login") return send(200, '<!doctype html><title>Sign in</title><form><input type="password" name="password"></form>');
+    // A public page: it renders the same for everyone, signed in or not.
+    if (url === "/public") return send(200, `<!doctype html><title>Fixture</title><body><h1>${CONTENT}</h1></body>`);
     if (!signedIn(req)) return send(302, "", { location: "/login" });
     if (url === "/app") {
       // A page that would POST and open a socket, and rotates a cookie on the way.
       return send(200, `<!doctype html><title>Fixture app</title><body><h1>Upload a part</h1><a href="/logout">Log out</a>
         <script>fetch("/api/beacon", { method: "POST", body: "x" }).catch(() => {});</script></body>`, { "set-cookie": "rot=2; Path=/; HttpOnly" });
     }
-    if (url === "/plain") return send(200, "<!doctype html><title>Fixture app</title><body><h1>Upload a part</h1></body>");
+    if (url === "/plain") return send(200, `<!doctype html><title>Fixture app</title><body><h1>${CONTENT}</h1></body>`);
     return send(404, "");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -115,6 +118,12 @@ describe("session tools through the GET-only probe", () => {
     await writeSession([sessionCookie]);
     await expect(checkVendorSession(loopbackProfile("/plain"), stateDir, deps))
       .resolves.toMatchObject({ state: "valid", reason: "terminal_signals_ready" });
+  }, TIMEOUT_MS);
+
+  it("reports a landing page that looks the same without a session as unconfirmable", async () => {
+    await writeSession([sessionCookie]);
+    await expect(checkVendorSession(loopbackProfile("/public"), stateDir, deps))
+      .resolves.toMatchObject({ state: "check_failed", reason: "unconfirmable_public_landing" });
   }, TIMEOUT_MS);
 
   it("reports login_required for an expired session and leaves the file alone", async () => {

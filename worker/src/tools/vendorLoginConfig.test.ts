@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertOutsideRepository,
+  checkoutRoots,
   readVendorLoginConfig,
   REPOSITORY_ROOT,
   resolveLogPath,
@@ -91,6 +92,26 @@ describe("vendor login config", () => {
     expect(resolveStateDir({ flag: null, env: {}, config })).toBe("/from/config");
     expect(resolveStateDir({ flag: null, env: {}, config: { stateDir: "~/state" } })).toBe(path.join(os.homedir(), "state"));
     expect(() => resolveStateDir({ flag: null, env: {}, config: null })).toThrow(/No session directory/);
+  });
+
+  it("resolves a symlinked parent before deciding a path is outside the checkout", async () => {
+    const linkedDir = path.join(dir, "looks-outside");
+    await fs.symlink(fakeRepo, linkedDir);
+    const inside = path.join(linkedDir, "vendor-login.json");
+    await fs.writeFile(inside, JSON.stringify(validConfig), { mode: 0o600 });
+    await expect(readVendorLoginConfig({ path: inside, repositoryRoot: fakeRepo })).rejects.toThrow(/outside the repository/);
+    expect(() => resolveLogPath({ logFile: path.join(linkedDir, "logs", "new.log") }, fakeRepo)).toThrow(/outside the repository/);
+  });
+
+  it("treats the main checkout of a linked worktree as part of the repository", async () => {
+    const main = path.join(dir, "main");
+    const worktree = path.join(main, ".claude", "worktrees", "wt");
+    await fs.mkdir(path.join(main, ".git", "worktrees", "wt"), { recursive: true });
+    await fs.mkdir(worktree, { recursive: true });
+    await fs.writeFile(path.join(worktree, ".git"), `gitdir: ${path.join(main, ".git", "worktrees", "wt")}\n`);
+    expect(checkoutRoots(worktree)).toEqual([worktree, main]);
+    expect(() => assertOutsideRepository(path.join(main, "worker", "x.json"), "thing", worktree)).toThrow();
+    expect(() => assertOutsideRepository(path.join(dir, "elsewhere", "x.json"), "thing", worktree)).not.toThrow();
   });
 
   it("keeps the status log outside the checkout", () => {

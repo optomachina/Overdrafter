@@ -7,13 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserProbeOptions, SessionProbeEvidence } from "../providerSessionProbe";
 import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerSettings";
 import {
+  acquireSessionLock,
   checkVendorSession,
   parseSessionCliArgs,
   parseVendorList,
   refreshVendorSession,
   resolveVendorSessionProfile,
+  saveScopedSession,
   sessionStatePath,
+  signedInEvidence,
   vendorKillSwitchDecision,
+  workerSessionOverride,
   type SessionProbe,
 } from "./vendorSession";
 
@@ -48,15 +52,25 @@ function evidence(outcome: SessionProbeEvidence["outcome"], reason: SessionProbe
   };
 }
 
-function fakeProbe(result: SessionProbeEvidence, rotated?: unknown): { probe: SessionProbe; calls: BrowserProbeOptions[] } {
+const isAnonymous = (options: BrowserProbeOptions) => options.storageState.cookies.length === 0 && options.storageState.origins.length === 0;
+
+/** A probe that signs in only with a session; an anonymous visit gets `anonymous` (logged out unless given). */
+function fakeProbe(
+  result: SessionProbeEvidence,
+  rotated?: unknown,
+  anonymous: SessionProbeEvidence = evidence("logged_out", "login_form"),
+): { probe: SessionProbe; calls: BrowserProbeOptions[] } {
   const calls: BrowserProbeOptions[] = [];
   const probe: SessionProbe = async (options) => {
     calls.push(options);
-    if (result.outcome === "authenticated") await options.onAuthenticated?.((rotated ?? options.storageState) as never);
-    return result;
+    const outcome = isAnonymous(options) ? anonymous : result;
+    if (outcome.outcome === "authenticated") await options.onAuthenticated?.((rotated ?? options.storageState) as never);
+    return outcome;
   };
   return { probe, calls };
 }
+
+const SIGNED_IN_TEXT = "Upload a part to get an instant quote. Recent quotes: bracket rev B, enclosure lid, mounting plate.";
 
 const killSwitchState = (engaged: boolean) => async () => ({
   schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider: "quickparts", engaged, globalEngaged: false,
@@ -143,10 +157,104 @@ describe("session:check", () => {
     expect(options.storageState).toEqual(quickpartsState);
     expect(options.allowLoopbackHttp).toBeUndefined();
     const accepts = options.settledPageAccepts!;
-    await expect(accepts({ url: "https://quickquote.quickparts.com/#/quotes", bodyText: "Upload a part", passwordInputCount: 0 })).resolves.toBe(true);
+    await expect(accepts({ url: "https://quickquote.quickparts.com/#/quotes", bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 })).resolves.toBe(true);
     await expect(accepts({ url: "https://quickquote.quickparts.com/#/login", bodyText: "Sign in", passwordInputCount: 1 })).resolves.toBe(false);
     await expect(accepts({ url: "https://quickquote.quickparts.com/", bodyText: "Please verify you are human", passwordInputCount: 0 })).resolves.toBe(false);
     await expect(accepts({ url: "https://evil.example.test/", bodyText: "Upload", passwordInputCount: 0 })).resolves.toBe(false);
+  });
+});
+
+describe("signed-in evidence without a log out control", () => {
+  const { definition } = resolveVendorSessionProfile("weerg");
+  const url = "https://www.weerg.com/en/global/quotation-tool/upload";
+
+  it("accepts a settled content page and refuses shells, spinners, errors, sign-in links and second-factor text", async () => {
+    await expect(signedInEvidence({ url, bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 }, definition)).resolves.toBe(true);
+    for (const bodyText of [
+      "",
+      "Loading…",
+      "Something went wrong. Please try again later, our team has been notified of the problem.",
+      `${SIGNED_IN_TEXT} Login | Register`,
+      `${SIGNED_IN_TEXT} Approve the request in your authenticator app.`,
+      "Upload a part",
+    ]) {
+      await expect(signedInEvidence({ url, bodyText, passwordInputCount: 0 }, definition)).resolves.toBe(false);
+    }
+    await expect(signedInEvidence({ url, bodyText: SIGNED_IN_TEXT, passwordInputCount: 1 }, definition)).resolves.toBe(false);
+    await expect(signedInEvidence({ url: "https://evil.example.test/", bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 }, definition)).resolves.toBe(false);
+  });
+
+  it("reports a landing page an anonymous visit also passes as unconfirmable, not valid", async () => {
+    await writeState("quickparts", quickpartsState);
+    const profile = resolveVendorSessionProfile("quickparts");
+    const publicLanding = evidence("authenticated", "terminal_signals_ready");
+    const fake = fakeProbe(publicLanding, undefined, publicLanding);
+    await expect(checkVendorSession(profile, stateDir, { probe: fake.probe, env: {} }))
+      .resolves.toMatchObject({ state: "check_failed", reason: "unconfirmable_public_landing", refreshedState: null });
+    expect(fake.calls.map(isAnonymous)).toEqual([false, true]);
+
+    const marker = fakeProbe(evidence("authenticated", "authenticated_marker_found"), undefined, publicLanding);
+    await expect(checkVendorSession(profile, stateDir, { probe: marker.probe, env: {} })).resolves.toMatchObject({ state: "valid" });
+    expect(marker.calls).toHaveLength(1);
+  });
+});
+
+describe("worker session overrides", () => {
+  it("notices when the worker would read a vendor's session from the environment instead", async () => {
+    expect(workerSessionOverride("quickparts", {})).toBeNull();
+    expect(workerSessionOverride("quickparts", { QUOTE_VENDOR_STORAGE_STATE_PATHS: JSON.stringify({ weerg: "/x" }) })).toBeNull();
+    expect(workerSessionOverride("quickparts", { QUOTE_VENDOR_STORAGE_STATE_PATHS: JSON.stringify({ Quickparts: "/x" }) }))
+      .toBe("QUOTE_VENDOR_STORAGE_STATE_PATHS");
+    expect(workerSessionOverride("quickparts", { QUOTE_VENDOR_STORAGE_STATE_JSON: "not json" })).toBe("QUOTE_VENDOR_STORAGE_STATE_JSON");
+    await writeState("quickparts", quickpartsState);
+    const fake = fakeProbe(evidence("authenticated", "authenticated_marker_found"));
+    await expect(checkVendorSession(resolveVendorSessionProfile("quickparts"), stateDir, {
+      probe: fake.probe, env: { QUOTE_VENDOR_STORAGE_STATE_JSON: JSON.stringify({ quickparts: "{}" }) },
+    })).resolves.toMatchObject({ state: "check_failed", reason: "worker_reads_session_from_env" });
+    expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe("scoped session save", () => {
+  const profile = resolveVendorSessionProfile("quickparts");
+  const PASSWORD = "fixture-password-SENTINEL";
+
+  it("refuses an empty session, a session holding the typed password, and a symlinked directory", async () => {
+    await expect(saveScopedSession(profile, stateDir, { cookies: [cookie("NID", ".google.com")], origins: [] }))
+      .resolves.toEqual({ saved: false, reason: "scoped_session_empty" });
+    const leaky = (value: string) => ({
+      ...quickpartsState,
+      origins: [{ origin: "https://quickquote.quickparts.com", localStorage: [{ name: "remember", value }] }],
+    });
+    for (const value of [PASSWORD, encodeURIComponent(`${PASSWORD}&`), Buffer.from(PASSWORD).toString("base64")]) {
+      await expect(saveScopedSession(profile, stateDir, leaky(value), [PASSWORD])).resolves.toMatchObject({ saved: false });
+    }
+    const link = path.join(path.dirname(stateDir), `${path.basename(stateDir)}-link`);
+    await fs.symlink(stateDir, link);
+    try {
+      await expect(saveScopedSession(profile, link, quickpartsState)).resolves.toEqual({ saved: false, reason: "state_dir_has_symlink" });
+    } finally {
+      await fs.rm(link, { force: true });
+    }
+    await expect(fs.readdir(stateDir)).resolves.toEqual([]);
+  });
+
+  it("writes a scoped session the kernel reads back from disk", async () => {
+    await expect(saveScopedSession(profile, stateDir, quickpartsState, [PASSWORD])).resolves.toEqual({ saved: true });
+    expect((await fs.stat(sessionStatePath(stateDir, "quickparts"))).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("session writer lock", () => {
+  it("admits one writer per directory and takes over a lock whose holder is gone", async () => {
+    const release = await acquireSessionLock(stateDir);
+    await expect(acquireSessionLock(stateDir)).rejects.toThrow(/Another login:vendors or session:refresh/);
+    await release();
+    await expect(fs.stat(path.join(stateDir, ".vendor-session.lock"))).rejects.toThrow();
+
+    await fs.writeFile(path.join(stateDir, ".vendor-session.lock"), "999999999\n");
+    const takeover = await acquireSessionLock(stateDir);
+    await takeover();
   });
 });
 
@@ -162,6 +270,7 @@ describe("session:refresh", () => {
     const fake = fakeProbe(evidence("authenticated", "authenticated_marker_found"), rotated);
     const result = await refreshVendorSession(profile, stateDir, { probe: fake.probe, env: {} });
     expect(result).toMatchObject({ state: "valid", refreshed: true, killSwitch: "not_checked" });
+    expect(fake.calls).toHaveLength(1);
     const filePath = sessionStatePath(stateDir, "quickparts");
     const saved = JSON.parse(await fs.readFile(filePath, "utf8"));
     expect(saved.cookies.map((entry: { name: string }) => entry.name)).toEqual(["qp_session", "qp_rotated"]);

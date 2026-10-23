@@ -1,20 +1,27 @@
-import type { BrowserContext, Frame, Locator, Page, Route } from "playwright";
+import type { BrowserContext, Frame, Locator, Page, Request, Route } from "playwright";
 import { isAllowedProviderUrl } from "../adapters/providerPortalKernel.js";
 import type { LoginCredential } from "./vendorLoginBitwarden.js";
-import { sessionStateAccepted, type VendorSessionProfile } from "./vendorSession.js";
+import { sessionStateAccepted, signedInEvidence, type VendorSessionProfile } from "./vendorSession.js";
 
 /**
  * OVD-1060: fills one vendor's login form with generic heuristics and stops,
  * without retrying, at anything it does not recognize.
  *
- * - The password is typed only into a visible field of the main frame while
- *   the page is on one of the vendor's reviewed hosts. Main-frame navigation
- *   to any other host is aborted and ends the attempt.
- * - A visible CAPTCHA, a second-factor prompt, an unknown page, or a
- *   rejected login is a stop. Nothing is solved, bypassed or resubmitted, and
- *   no stealth or anti-detection measure is used.
- * - Success is judged on the vendor's landing page by the vendor definition's
- *   own terminal-signal classifier, exactly as the kernel would judge it.
+ * - The password is typed only into a visible sign-in field of the main frame
+ *   while the page is on one of the vendor's reviewed hosts, re-checked
+ *   immediately before typing and again before the single submit.
+ * - Script navigation of the main frame to another host is aborted, popups
+ *   never load, and a state-changing request (POST and the like) from the
+ *   main frame, or a state-changing navigation of any frame, to a host
+ *   outside the vendor's reviewed hosts is aborted. Playwright cannot hold a
+ *   server redirect, so a reviewed host that redirects a submission to another
+ *   host is detected afterwards and stops the attempt; nothing is saved.
+ * - A visible CAPTCHA (in any frame), a second-factor prompt, an unknown page,
+ *   a sign-up form, or a rejected login is a stop. Nothing is solved,
+ *   bypassed or resubmitted, and no stealth or anti-detection measure is used.
+ * - Success needs positive evidence on the vendor's landing page: a log out
+ *   control, or content that `signedInEvidence` accepts. The vendor
+ *   definition's own classifier must also accept the page.
  */
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
@@ -52,15 +59,18 @@ type PageSignals = {
   passwordVisible: boolean;
   otpField: boolean;
   twoFactorText: boolean;
+  approvalPrompt: boolean;
   loginError: boolean;
   locked: boolean;
+  logoutControl: boolean;
 };
 
 /**
  * Read-only DOM inspection, kept as a plain string for the reason given on
  * PAGE_SIGNALS_SCRIPT in providerSessionProbe.ts (tsx helper names do not
- * exist in the page). An invisible reCAPTCHA badge or a hidden challenge
- * frame is not a challenge; a visible checkbox widget or challenge is.
+ * exist in the page). It runs in every frame; only the CAPTCHA flag is taken
+ * from child frames. An invisible reCAPTCHA badge or a hidden challenge frame
+ * is not a challenge; a visible widget, challenge frame or interstitial is.
  */
 const LOGIN_SIGNALS_SCRIPT = `(() => {
   const visible = (el) => {
@@ -73,11 +83,11 @@ const LOGIN_SIGNALS_SCRIPT = `(() => {
   const src = (frame) => (frame.getAttribute("src") || "").toLowerCase();
   const recaptchaWidget = frames.some((f) => /\\/recaptcha\\/(api2|enterprise)\\/anchor/.test(src(f)) && !/[?&]size=invisible/.test(src(f)) && visible(f));
   const recaptchaChallenge = frames.some((f) => /\\/recaptcha\\/(api2|enterprise)\\/bframe/.test(src(f)) && visible(f) && f.getBoundingClientRect().height > 100);
-  const hcaptcha = frames.some((f) => /hcaptcha\\.com/.test(src(f)) && visible(f));
-  const turnstile = frames.some((f) => /challenges\\.cloudflare\\.com/.test(src(f)) && visible(f));
+  const otherWidget = frames.some((f) => /hcaptcha\\.com|challenges\\.cloudflare\\.com|captcha-delivery\\.com|arkoselabs\\.com|funcaptcha|geetest|awswaf|perimeterx|px-cloud\\.net|px-cdn\\.net/.test(src(f)) && visible(f));
+  const widgetElement = Array.from(document.querySelectorAll('#px-captcha, .geetest_panel, .geetest_holder, #captcha-container, awswaf-captcha, [id^="ddv1-captcha"], #arkose, [data-callback="onCaptcha"]')).some(visible);
   const cloudflare = typeof window._cf_chl_opt !== "undefined" || document.querySelector('#challenge-form, form[action*="__cf_chl"], [id^="cf-chl-"]') !== null;
   const title = (document.title || "").toLowerCase();
-  const challengeTitle = /^\\s*(just a moment|attention required|checking your browser|verifying you are human|verify you are human|one more step|ddos-guard)/.test(title);
+  const challengeTitle = /^\\s*(just a moment|attention required|checking your browser|verifying you are human|verify you are human|one more step|ddos-guard|access to this page has been denied|human verification)/.test(title);
   const passwordVisible = Array.from(document.querySelectorAll('input[type="password"]')).some(visible);
   const otpField = Array.from(document.querySelectorAll("input")).some((el) => visible(el) && (
     (el.getAttribute("autocomplete") || "").toLowerCase() === "one-time-code" ||
@@ -85,18 +95,24 @@ const LOGIN_SIGNALS_SCRIPT = `(() => {
   ));
   const text = ((document.body && document.body.innerText) || "").slice(0, 20000);
   const twoFactorText = /\\b(two[- ]factor|two[- ]step|2[- ]step|multi[- ]factor|verification code|authenticator app|enter the code|security code|one[- ]time (pass)?code)\\b/i.test(text);
+  const approvalPrompt = /\\b(approve (the |this )?(sign[- ]?in|log[- ]?in|request)|open (your|the) authenticator|enter the (\\d-digit )?code (we|that we) (sent|texted|emailed)|check your (phone|email) (for|to) (a|the) code)\\b/i.test(text);
   const alerts = Array.from(document.querySelectorAll('[role="alert"], [aria-live="assertive"], [aria-live="polite"], .error, .alert, .invalid-feedback, .mat-error, .help-block'))
     .filter(visible).map((el) => el.innerText || "").join("\\n");
   const credentialError = /\\b(invalid|incorrect|wrong|not recogni[sz]ed|does not match|failed|unable to (log|sign) ?in)\\b/i.test(alerts) ||
     /\\b(invalid (email|username|user name|password|credentials|login)|incorrect (email|username|password)|wrong (email|username|password)|(email|username|password) (is )?(incorrect|invalid))\\b/i.test(text);
   const locked = /\\b(account (is |has been )?(locked|disabled|suspended)|too many (failed |login )?attempts|temporarily (locked|blocked))\\b/i.test(text);
+  const logoutControl =
+    document.querySelector('a[href*="logout" i], a[href*="log-out" i], a[href*="signout" i], a[href*="sign-out" i], [data-testid*="logout" i], [data-testid*="sign-out" i]') !== null ||
+    Array.from(document.querySelectorAll('a, button, [role="menuitem"]')).some((el) => /^\\s*(log\\s?out|sign\\s?out)\\s*$/i.test(el.textContent || ""));
   return {
-    captcha: recaptchaWidget || recaptchaChallenge || hcaptcha || turnstile || cloudflare || challengeTitle,
+    captcha: recaptchaWidget || recaptchaChallenge || otherWidget || widgetElement || cloudflare || challengeTitle,
     passwordVisible,
     otpField,
     twoFactorText,
+    approvalPrompt,
     loginError: credentialError,
     locked,
+    logoutControl,
   };
 })()`;
 
@@ -120,11 +136,15 @@ const USERNAME_SELECTORS = [
   "input:not([type])",
 ].map((selector) => `${selector}${INPUT_EXCLUSIONS}`);
 
-const SUBMIT_IN_FORM = ["button[type='submit']", "input[type='submit']", "button:not([type])"];
+/** A sign-in password field; a field the page marks as a new password belongs to sign-up or reset. */
+const SIGN_IN_PASSWORD = "input[type='password']:not([autocomplete~='new-password' i])";
+const SUBMIT_IN_FORM = "button[type='submit'], input[type='submit'], button:not([type])";
 const SUBMIT_TEXT = /^\s*(log ?in|sign ?in|continue|next|submit)\s*$/i;
 const NEXT_TEXT = /^\s*(next|continue|log ?in|sign ?in)\s*$/i;
+const REGISTRATION_TEXT = /\b(sign ?up|register|create (an |your )?account|join|subscribe|reset|send (a )?(reset )?link)\b/i;
 const OPEN_LOGIN_TEXT = /^\s*(log ?in|sign ?in)(\s*(\/|\||or|&)\s*(register|sign ?up))?\s*$/i;
 const LOGIN_ROUTE = /(^|\/)(log-?in|sign-?in|signin|auth|authenticate|session\/new|users\/sign_in)(\/|$|\?)/i;
+const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function hostOf(rawUrl: string): string | null {
   try {
@@ -157,16 +177,19 @@ async function firstVisible(scope: Page | Frame | Locator, selectors: readonly s
   return null;
 }
 
+async function labelOf(candidate: Locator): Promise<string> {
+  return (await candidate.innerText({ timeout: 1_000 }).catch(() => ""))
+    || (await candidate.getAttribute("value").catch(() => null))
+    || (await candidate.getAttribute("aria-label").catch(() => null))
+    || "";
+}
+
 async function firstVisibleByText(scope: Page | Frame | Locator, selector: string, text: RegExp): Promise<Locator | null> {
   const candidates = scope.locator(selector).filter({ visible: true });
   const count = Math.min(await candidates.count().catch(() => 0), 40);
   for (let index = 0; index < count; index += 1) {
     const candidate = candidates.nth(index);
-    const label = (await candidate.innerText({ timeout: 1_000 }).catch(() => ""))
-      || (await candidate.getAttribute("value").catch(() => null))
-      || (await candidate.getAttribute("aria-label").catch(() => null))
-      || "";
-    if (text.test(label)) return candidate;
+    if (text.test(await labelOf(candidate))) return candidate;
   }
   return null;
 }
@@ -176,16 +199,41 @@ type GuardedPage = {
   timings: LoginFlowTimings;
   allowed: (rawUrl: string) => boolean;
   refusedHost: () => string | null;
+  redirectedSubmissionHost: () => string | null;
+  blockedSubmissionHost: () => string | null;
+  markSubmitted: () => void;
   signals: () => Promise<PageSignals | null>;
   settle: () => Promise<void>;
   open: (url: string, reason: string) => Promise<void>;
   assertSafePage: () => Promise<void>;
 };
 
+/** Host names a state-changing request may reach: the reviewed hosts, their subdomains, and the reviewed off-host allowlist. */
+function submissionHostAllowed(rawUrl: string, profile: VendorSessionProfile): boolean {
+  const host = hostOf(rawUrl);
+  if (!host) return false;
+  return [...profile.sessionHosts, ...profile.probeHosts].some((raw) => {
+    const allowed = raw.toLowerCase();
+    return host === allowed || host.endsWith(`.${allowed}`);
+  });
+}
+
+type FrameKind = "main" | "sub" | "other";
+
+function frameKindOf(request: Request, page: Page): FrameKind {
+  // request.frame() throws for a navigation that opens a popup.
+  try {
+    const frame = request.frame();
+    if (frame === page.mainFrame()) return "main";
+    return frame.page() === page ? "sub" : "other";
+  } catch {
+    return "other";
+  }
+}
+
 /**
- * Opens the one page an attempt uses. Main-frame navigation off the
- * vendor's reviewed hosts is aborted and remembered; popups are closed.
- * Subresources (the vendor's own CAPTCHA script included) load normally.
+ * Opens the one page an attempt uses and installs the request guard
+ * described at the top of this file.
  */
 async function guardedPage(
   context: BrowserContext,
@@ -195,20 +243,35 @@ async function guardedPage(
   const page = await context.newPage();
   const allowed = (rawUrl: string) => isAllowedProviderUrl(rawUrl, profile.sessionHosts);
   let refusedNavigationHost: string | null = null;
+  let redirectedSubmissionHost: string | null = null;
+  let blockedSubmissionHost: string | null = null;
+  let submitted = false;
 
   context.on("page", (popup) => {
     if (popup !== page) void popup.close().catch(() => undefined);
   });
+  // Server redirects bypass routing; a redirected submission is detected here instead.
+  context.on("request", (request) => {
+    if (!request.redirectedFrom() || READ_ONLY_METHODS.has(request.method().toUpperCase())) return;
+    if (!submissionHostAllowed(request.url(), profile)) redirectedSubmissionHost ??= hostOf(request.url());
+  });
   await context.route("**/*", async (route: Route) => {
     const request = route.request();
-    let mainFrameNavigation = false;
-    try {
-      mainFrameNavigation = request.isNavigationRequest() && request.frame() === page.mainFrame();
-    } catch {
-      mainFrameNavigation = false;
+    const url = request.url();
+    const navigation = request.isNavigationRequest();
+    const frameKind = frameKindOf(request, page);
+    if (navigation && frameKind === "other") {
+      await route.abort("blockedbyclient");
+      return;
     }
-    if (mainFrameNavigation && !allowed(request.url())) {
-      refusedNavigationHost ??= hostOf(request.url());
+    if (navigation && frameKind === "main" && !allowed(url)) {
+      refusedNavigationHost ??= hostOf(url);
+      await route.abort("blockedbyclient");
+      return;
+    }
+    const stateChanging = !READ_ONLY_METHODS.has(request.method().toUpperCase());
+    if (stateChanging && (frameKind === "main" || navigation) && !submissionHostAllowed(url, profile)) {
+      if (submitted) blockedSubmissionHost ??= hostOf(url);
       await route.abort("blockedbyclient");
       return;
     }
@@ -216,46 +279,81 @@ async function guardedPage(
   });
 
   const signals = async (): Promise<PageSignals | null> => {
+    let main: PageSignals;
     try {
-      return (await page.mainFrame().evaluate(LOGIN_SIGNALS_SCRIPT)) as PageSignals;
+      main = (await page.mainFrame().evaluate(LOGIN_SIGNALS_SCRIPT)) as PageSignals;
     } catch {
       return null;
     }
+    const children = page.frames().filter((frame) => frame !== page.mainFrame());
+    const childCaptcha = await Promise.all(children.map((frame) => frame.evaluate(LOGIN_SIGNALS_SCRIPT)
+      .then((result) => (result as PageSignals).captcha, () => false)));
+    return { ...main, captcha: main.captcha || childCaptcha.some(Boolean) };
   };
   const settle = async () => {
     await page.waitForLoadState("domcontentloaded", { timeout: timings.settleMs }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: timings.settleMs }).catch(() => undefined);
   };
+  /** Every stop a page can show before anything is typed or clicked; an unreadable page is a stop too. */
   const assertSafePage = async () => {
     if (refusedNavigationHost) throw new LoginStop("unknown_page", "off_host_navigation", refusedNavigationHost);
+    if (redirectedSubmissionHost) throw new LoginStop("unknown_page", "submission_redirected_off_host", redirectedSubmissionHost);
     if (!allowed(page.url())) throw new LoginStop("unknown_page", "off_host_page", hostOf(page.url()));
-    const current = await signals();
-    if (current?.captcha) throw new LoginStop("captcha", "visible_challenge", hostOf(page.url()));
-    if (current?.otpField) throw new LoginStop("two_factor", "one_time_code_field", hostOf(page.url()));
+    let current = await signals();
+    if (!current) {
+      await page.waitForTimeout(timings.pollMs);
+      current = await signals();
+    }
+    const host = hostOf(page.url());
+    if (!current) throw new LoginStop("unknown_page", "page_inspection_failed", host);
+    if (current.captcha) throw new LoginStop("captcha", "visible_challenge", host);
+    if (current.otpField) throw new LoginStop("two_factor", "one_time_code_field", host);
+    if (current.approvalPrompt) throw new LoginStop("two_factor", "approval_prompt", host);
+    if (current.locked) throw new LoginStop("login_failed", "account_locked_or_rate_limited", host);
+    if (current.loginError) throw new LoginStop("login_failed", "error_shown_before_submit", host);
   };
-  /** One GET navigation; an unreachable page is a stop, and a refused redirect is reported by the next check. */
   const open = async (url: string, reason: string) => {
     const reached = await page.goto(url, { waitUntil: "domcontentloaded" }).then(() => true, () => false);
     if (!reached && !refusedNavigationHost && !allowed(page.url())) throw new LoginStop("unknown_page", reason, hostOf(url));
     await settle();
   };
-  return { page, timings, allowed, refusedHost: () => refusedNavigationHost, signals, settle, open, assertSafePage };
+  return {
+    page,
+    timings,
+    allowed,
+    refusedHost: () => refusedNavigationHost,
+    redirectedSubmissionHost: () => redirectedSubmissionHost,
+    blockedSubmissionHost: () => blockedSubmissionHost,
+    markSubmitted: () => {
+      submitted = true;
+    },
+    signals,
+    settle,
+    open,
+    assertSafePage,
+  };
 }
 
-/** Opens the landing page and judges it with the vendor definition's classifier, as the kernel would. */
+/** Opens the landing page and requires positive signed-in evidence the vendor's classifier also accepts. */
 async function confirmLanding(guarded: GuardedPage, profile: VendorSessionProfile): Promise<void> {
   const { page } = guarded;
   await guarded.open(profile.landingUrl, "landing_page_unreachable");
   await guarded.assertSafePage();
-  const state = await profile.definition.hooks.classifyPortalState({
+  const host = hostOf(page.url());
+  const snapshot = {
     url: page.url(),
     bodyText: await page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""),
     passwordInputCount: await page.locator("input[type='password']").count().catch(() => 0),
-  });
-  if (state === "captcha") throw new LoginStop("captcha", "terminal_signal_captcha", hostOf(page.url()));
-  if (state === "unexpected_origin") throw new LoginStop("unknown_page", "landing_unexpected_origin", hostOf(page.url()));
-  if (state === "unavailable") throw new LoginStop("unknown_page", "portal_unavailable", hostOf(page.url()));
-  if (!sessionStateAccepted(state)) throw new LoginStop("login_failed", "landing_still_requires_login", hostOf(page.url()));
+  };
+  const state = await profile.definition.hooks.classifyPortalState(snapshot);
+  if (state === "captcha") throw new LoginStop("captcha", "terminal_signal_captcha", host);
+  if (state === "unexpected_origin") throw new LoginStop("unknown_page", "landing_unexpected_origin", host);
+  if (state === "unavailable") throw new LoginStop("unknown_page", "portal_unavailable", host);
+  if (!sessionStateAccepted(state)) throw new LoginStop("login_failed", "landing_still_requires_login", host);
+  const current = await guarded.signals();
+  const signedIn = (current?.logoutControl === true && !current.passwordVisible)
+    || await signedInEvidence(snapshot, profile.definition);
+  if (!signedIn) throw new LoginStop("login_failed", "landing_not_signed_in", host);
 }
 
 function stopResult(error: unknown, page: Page | null): LoginFlowResult {
@@ -328,7 +426,7 @@ async function attemptLogin(
     if (overrides.password) return firstVisible(frame, [overrides.password]);
     const preferred = await firstVisible(frame, ["input[type='password'][autocomplete~='current-password' i]"]);
     if (preferred) return preferred;
-    const fields = frame.locator("input[type='password']").filter({ visible: true });
+    const fields = frame.locator(SIGN_IN_PASSWORD).filter({ visible: true });
     const count = Math.min(await fields.count().catch(() => 0), 5);
     for (let index = 0; index < count; index += 1) {
       const field = fields.nth(index);
@@ -339,13 +437,28 @@ async function attemptLogin(
     return null;
   };
 
-  const submitIn = async (form: Locator | null, text: RegExp): Promise<Locator | null> => {
+  /**
+   * The form's submit control, only when its label is sign-in vocabulary (or
+   * it is the form's single unlabeled control). A sign-up, reset or
+   * subscribe control is a stop, never a click.
+   */
+  const chooseSubmit = async (form: Locator | null, text: RegExp, allowUnlabeled: boolean): Promise<Locator | null> => {
     if (overrides.submit) return firstVisible(frame, [overrides.submit]);
-    if (form) {
-      const inForm = await firstVisible(form, SUBMIT_IN_FORM);
-      if (inForm) return inForm;
+    if (!form) return firstVisibleByText(frame, "button, [role='button'], input[type='submit']", text);
+    const controls = form.locator(SUBMIT_IN_FORM).filter({ visible: true });
+    const count = Math.min(await controls.count().catch(() => 0), 10);
+    const labels: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const label = await labelOf(controls.nth(index));
+      if (text.test(label)) return controls.nth(index);
+      labels.push(label);
     }
-    return firstVisibleByText(form ?? frame, "button, [role='button'], input[type='submit']", text);
+    if (labels.some((label) => REGISTRATION_TEXT.test(label))) {
+      throw new LoginStop("unknown_page", "registration_or_reset_form", hostOf(page.url()));
+    }
+    if (allowUnlabeled && labels.length === 1 && labels[0].trim() === "") return controls.first();
+    if (labels.length > 0) throw new LoginStop("unknown_page", "submit_control_unrecognized", hostOf(page.url()));
+    return firstVisibleByText(form, "button, [role='button']", text);
   };
 
   await guarded.open(profile.loginUrl, "login_page_unreachable");
@@ -360,11 +473,15 @@ async function attemptLogin(
 
     const username = await firstVisible(frame, overrides.username ? [overrides.username] : USERNAME_SELECTORS);
     // A username-first step only on a sign-in route or after opening the sign-in control,
-    // so a newsletter or search box on a home page is never filled.
+    // inside a form, and only behind a Next or sign-in button, so a newsletter or
+    // search box on a home page is never filled.
     if (username && !usernameSubmitted && (openedLogin || looksLikeLoginRoute(page.url()))) {
-      const next = await submitIn(await formOf(username), NEXT_TEXT);
+      const form = await formOf(username);
+      if (!form) throw new LoginStop("unknown_page", "username_step_outside_form", hostOf(page.url()));
+      const next = await chooseSubmit(form, NEXT_TEXT, false);
       if (!next) throw new LoginStop("unknown_page", "username_step_without_next", hostOf(page.url()));
       await username.fill(credential.username.reveal());
+      await guarded.assertSafePage();
       await next.click({ timeout: 5_000 });
       usernameSubmitted = true;
       await guarded.settle();
@@ -387,13 +504,16 @@ async function attemptLogin(
 
   const form = await formOf(password);
   const username = await firstVisible(form ?? frame, overrides.username ? [overrides.username] : USERNAME_SELECTORS);
-  if (username) await username.fill(credential.username.reveal());
-  else if (!usernameSubmitted) throw new LoginStop("unknown_page", "username_field_not_found", hostOf(page.url()));
+  if (!username && !usernameSubmitted) throw new LoginStop("unknown_page", "username_field_not_found", hostOf(page.url()));
+  const submit = await chooseSubmit(form, SUBMIT_TEXT, true);
 
-  const submit = await submitIn(form, SUBMIT_TEXT);
-  // Last check immediately before the password is typed.
+  await guarded.assertSafePage();
+  if (username) await username.fill(credential.username.reveal());
+  // Last checks immediately before the password is typed, and again before the single submit.
   await guarded.assertSafePage();
   await password.fill(credential.password.reveal());
+  await guarded.assertSafePage();
+  guarded.markSubmitted();
   if (submit) await submit.click({ timeout: 5_000 });
   else await password.press("Enter");
   await waitForLoginOutcome(guarded);
@@ -408,11 +528,13 @@ async function waitForLoginOutcome(guarded: GuardedPage): Promise<void> {
     await page.waitForTimeout(timings.pollMs);
     const refused = guarded.refusedHost();
     if (refused) throw new LoginStop("unknown_page", "off_host_navigation", refused);
+    const redirected = guarded.redirectedSubmissionHost();
+    if (redirected) throw new LoginStop("unknown_page", "submission_redirected_off_host", redirected);
     const current = await guarded.signals();
     if (!current) continue;
     const host = hostOf(page.url());
     if (current.captcha) throw new LoginStop("captcha", "visible_challenge_after_submit", host);
-    if (current.otpField || (current.twoFactorText && !current.passwordVisible)) {
+    if (current.otpField || current.approvalPrompt || (current.twoFactorText && !current.passwordVisible)) {
       throw new LoginStop("two_factor", "second_factor_prompt", host);
     }
     if (current.locked) throw new LoginStop("login_failed", "account_locked_or_rate_limited", host);
@@ -424,5 +546,7 @@ async function waitForLoginOutcome(guarded: GuardedPage): Promise<void> {
       formGoneOnce = false;
     }
   }
+  const blocked = guarded.blockedSubmissionHost();
+  if (blocked) throw new LoginStop("login_failed", "submission_to_unreviewed_host_blocked", blocked);
   throw new LoginStop("login_failed", "still_on_login_form", hostOf(page.url()));
 }

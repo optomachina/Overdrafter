@@ -24,6 +24,7 @@ const {
   assertHumanOrLaunchdCaller,
   appendStatusLine,
   loginVendors,
+  minimalChildEnv,
   notificationFor,
   parseLoginCliArgs,
   statusLine,
@@ -58,10 +59,21 @@ const loggedInState = {
   origins: [],
 };
 
-function authenticatedEvidence(): SessionProbeEvidence {
+function probeEvidence(outcome: SessionProbeEvidence["outcome"], reason: SessionProbeEvidence["reason"]): SessionProbeEvidence {
   return {
-    provider: "quickparts", timestamp: "2026-10-22T00:00:00.000Z", outcome: "authenticated", reason: "authenticated_marker_found",
+    provider: "quickparts", timestamp: "2026-10-22T00:00:00.000Z", outcome, reason,
     finalHost: "quickquote.quickparts.com", httpStatus: 200, navigations: 1, blockedRequests: 0,
+  };
+}
+
+const authenticatedEvidence = () => probeEvidence("authenticated", "authenticated_marker_found");
+
+function probeReturning(result: SessionProbeEvidence): VendorLoginDeps["sessionDeps"] {
+  return {
+    probe: async (options) => {
+      if (result.outcome === "authenticated") await options.onAuthenticated?.(options.storageState);
+      return result;
+    },
   };
 }
 
@@ -124,10 +136,18 @@ describe("caller tripwire", () => {
     for (const env of [{ CLAUDECODE: "1" }, { CLAUDE_CODE_ENTRYPOINT: "cli" }, { CODEX_SANDBOX: "seatbelt" }, { AI_AGENT: "1" }]) {
       expect(() => assertHumanOrLaunchdCaller(env, true)).toThrow(/Agents run session:check/);
     }
+    for (const env of [{ DEBUG: "*" }, { DEBUG: "pw*" }, { DEBUG_FILE: "/tmp/x" }, { NODE_DEBUG: "child_process" }, { NODE_OPTIONS: "--inspect=9229" }]) {
+      expect(() => assertHumanOrLaunchdCaller(env, true)).toThrow(/diagnostics enabled/);
+    }
     // User configuration a shell profile might export is not an agent marker.
     expect(() => assertHumanOrLaunchdCaller({ CLAUDE_CODE_USE_BEDROCK: "1", CODEX_HOME: "/x" }, true)).not.toThrow();
-    expect(() => assertHumanOrLaunchdCaller({ DEBUG: "pw:api" }, true)).toThrow(/debug logging/);
-    expect(() => assertHumanOrLaunchdCaller({ PWDEBUG: "1" }, true)).toThrow(/debug logging/);
+    expect(() => assertHumanOrLaunchdCaller({ DEBUG: "pw:api" }, true)).toThrow(/diagnostics enabled/);
+    expect(() => assertHumanOrLaunchdCaller({ PWDEBUG: "1" }, true)).toThrow(/diagnostics enabled/);
+  });
+
+  it("hands browsers and the notifier neither the vault session nor worker secrets", () => {
+    const env = minimalChildEnv({ PATH: "/bin", HOME: "/h", BW_SESSION: "s", SUPABASE_SERVICE_ROLE_KEY: "k", BITWARDENCLI_APPDATA_DIR: "/b" });
+    expect(env).toEqual({ PATH: "/bin", HOME: "/h" });
   });
 });
 
@@ -194,6 +214,73 @@ describe("login:vendors orchestration", () => {
     }
   });
 
+  it("stops instead of logging in when the session check meets a challenge or fails", async () => {
+    await fs.writeFile(sessionStatePath(stateDir, "quickparts"), JSON.stringify({ cookies: [cookie("qp_session", "quickquote.quickparts.com")], origins: [] }));
+    const run = deps({ sessionDeps: probeReturning(probeEvidence("blocked", "challenge_page")) });
+    const [result] = await loginVendors(["quickparts"], run);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "session_check_failed:challenge_page" });
+    expect(run.vault.open).not.toHaveBeenCalled();
+    expect(runVendorLoginFlow).not.toHaveBeenCalled();
+  });
+
+  it("logs in again for a signed-out session", async () => {
+    await fs.writeFile(sessionStatePath(stateDir, "quickparts"), JSON.stringify({ cookies: [cookie("qp_session", "quickquote.quickparts.com")], origins: [] }));
+    flow.login.push({ outcome: "authenticated", storageState: loggedInState });
+    flow.confirm.push({ outcome: "authenticated", storageState: loggedInState });
+    let calls = 0;
+    const run = deps({
+      sessionDeps: {
+        probe: async (options) => {
+          calls += 1;
+          if (calls === 1) return probeEvidence("logged_out", "login_form");
+          await options.onAuthenticated?.(options.storageState);
+          return authenticatedEvidence();
+        },
+      },
+    });
+    const [result] = await loginVendors(["quickparts"], run);
+    expect(result).toMatchObject({ outcome: "saved", check: "valid:authenticated_marker_found" });
+  });
+
+  it("reports a save its own GET-only check cannot confirm as saved_unconfirmed", async () => {
+    flow.login.push({ outcome: "authenticated", storageState: loggedInState });
+    flow.confirm.push({ outcome: "authenticated", storageState: loggedInState });
+    const [result] = await loginVendors(["quickparts"], deps({ sessionDeps: probeReturning(probeEvidence("logged_out", "no_authenticated_marker")) }));
+    expect(result).toMatchObject({
+      outcome: "saved_unconfirmed", reason: "session_check_not_valid", check: "login_required:no_authenticated_marker",
+    });
+    expect(notificationFor(result, "Quickparts")).toMatch(/session:check reports login_required:no_authenticated_marker/);
+  });
+
+  it("refuses to save a session holding the typed password, or one with nothing left after scoping", async () => {
+    const leaky = {
+      cookies: loggedInState.cookies,
+      origins: [{ origin: "https://quickquote.quickparts.com", localStorage: [{ name: "remember", value: PASSWORD }] }],
+    };
+    flow.login.push({ outcome: "authenticated", storageState: leaky });
+    flow.confirm.push({ outcome: "authenticated", storageState: leaky });
+    const [leaked] = await loginVendors(["quickparts"], deps());
+    expect(leaked).toMatchObject({ outcome: "stopped", reason: "not_saved:session_contains_credential" });
+    await expect(fs.stat(sessionStatePath(stateDir, "quickparts"))).rejects.toThrow();
+
+    flow.login.push({ outcome: "authenticated", storageState: { cookies: [cookie("NID", ".google.com")], origins: [] } });
+    const [empty] = await loginVendors(["quickparts"], deps());
+    expect(empty).toMatchObject({ outcome: "stopped", reason: "login_failed:scoped_session_empty" });
+  });
+
+  it("stops a vendor whose session the worker reads from the environment", async () => {
+    const run = deps({ env: { QUOTE_VENDOR_STORAGE_STATE_PATHS: JSON.stringify({ quickparts: "/elsewhere.json" }) }, force: true });
+    const [result] = await loginVendors(["quickparts"], run);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "worker_reads_session_from_env" });
+    expect(run.vault.open).not.toHaveBeenCalled();
+  });
+
+  it("keeps going when a status write fails", async () => {
+    const run = deps({ report: async () => { throw new Error("disk full"); } });
+    const results = await loginVendors(["geomiq", "weerg"], { ...run, config: { ...run.config, vendors: {} } });
+    expect(results.map((result) => result.reason)).toEqual(["config_missing_item", "config_missing_item"]);
+  });
+
   it("does not save when the scoped session fails the fresh-context confirmation", async () => {
     flow.login.push({ outcome: "authenticated", storageState: loggedInState });
     flow.confirm.push({ outcome: "login_failed", reason: "landing_still_requires_login", host: "quickquote.quickparts.com" });
@@ -223,6 +310,22 @@ describe("status line and notification", () => {
     vendor: "quickparts", outcome: "stopped", reason: "captcha:visible_challenge", host: "quickquote.quickparts.com",
     killSwitch: "not_checked", check: null,
   };
+
+  it("tightens an older world-readable log and refuses a symlinked one", async () => {
+    const logPath = path.join(stateDir, "logs", "vendor-login.log");
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    await fs.writeFile(logPath, "older line\n", { mode: 0o644 });
+    await fs.chmod(logPath, 0o644);
+    await appendStatusLine(logPath, "new line");
+    expect((await fs.stat(logPath)).mode & 0o777).toBe(0o600);
+
+    const target = path.join(stateDir, "elsewhere.log");
+    await fs.writeFile(target, "");
+    const link = path.join(stateDir, "logs", "linked.log");
+    await fs.symlink(target, link);
+    await expect(appendStatusLine(link, "line")).rejects.toThrow();
+    expect(await fs.readFile(target, "utf8")).toBe("");
+  });
 
   it("writes one scrubbed line per vendor to an owner-only log", async () => {
     const line = statusLine(result, new Date("2026-10-22T06:30:00.000Z"));

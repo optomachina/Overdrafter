@@ -1,3 +1,4 @@
+import { constants as fsConstants, existsSync, readFileSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -53,9 +54,38 @@ function isInside(child: string, parent: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-/** Refuses a private path inside the public checkout, where it could be committed. */
+/** The real path of a file that may not exist yet: its nearest existing ancestor, resolved, plus the rest. */
+function canonicalPath(filePath: string): string {
+  let existing = path.resolve(filePath);
+  const rest: string[] = [];
+  while (!existsSync(existing) && path.dirname(existing) !== existing) {
+    rest.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  return path.join(realpathSync(existing), ...rest);
+}
+
+/**
+ * This checkout, plus the main checkout when this one is a linked worktree
+ * (its `.git` is a file naming `<main>/.git/worktrees/<name>`).
+ */
+export function checkoutRoots(repositoryRoot = REPOSITORY_ROOT): string[] {
+  const roots = [canonicalPath(repositoryRoot)];
+  try {
+    const marker = readFileSync(path.join(repositoryRoot, ".git"), "utf8");
+    const gitDir = /^gitdir:\s*(.+)$/m.exec(marker)?.[1]?.trim();
+    const main = gitDir ? /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+$/.exec(path.resolve(repositoryRoot, gitDir))?.[1] : undefined;
+    if (main) roots.push(canonicalPath(main));
+  } catch {
+    // A directory .git (or none) means this is the main checkout.
+  }
+  return roots;
+}
+
+/** Refuses a private path that resolves inside any checkout of the public repository, where it could be committed. */
 export function assertOutsideRepository(filePath: string, label: string, repositoryRoot = REPOSITORY_ROOT): void {
-  if (isInside(path.resolve(filePath), path.resolve(repositoryRoot))) {
+  const target = canonicalPath(filePath);
+  if (checkoutRoots(repositoryRoot).some((root) => isInside(target, root))) {
     throw new Error(`The ${label} must live outside the repository checkout.`);
   }
 }
@@ -73,22 +103,33 @@ export async function readVendorLoginConfig(options: {
   const env = options.env ?? process.env;
   const configPath = path.resolve(expandHome(options.path ?? env.OVD_VENDOR_LOGIN_CONFIG ?? DEFAULT_VENDOR_LOGIN_CONFIG_PATH));
   assertOutsideRepository(configPath, "vendor login config", options.repositoryRoot);
-  let stats;
+  // Checked and read through one descriptor opened without following a symlink.
+  let handle: Awaited<ReturnType<typeof fs.open>>;
   try {
-    stats = await fs.lstat(configPath);
-  } catch {
+    handle = await fs.open(configPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new Error("The vendor login config must be a regular file, not a symlink.");
+    }
     throw new Error(`Vendor login config not found at ${configPath}.`);
   }
-  if (!stats.isFile()) throw new Error("The vendor login config must be a regular file, not a symlink.");
-  if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
-    throw new Error("The vendor login config must be owned by the current user.");
-  }
-  if ((stats.mode & 0o077) !== 0) {
-    throw new Error(`The vendor login config must be owner-only. Run: chmod 600 ${configPath}`);
+  let text: string;
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile()) throw new Error("The vendor login config must be a regular file, not a symlink.");
+    if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+      throw new Error("The vendor login config must be owned by the current user.");
+    }
+    if ((stats.mode & 0o077) !== 0) {
+      throw new Error(`The vendor login config must be owner-only. Run: chmod 600 ${configPath}`);
+    }
+    text = await handle.readFile({ encoding: "utf8" });
+  } finally {
+    await handle.close();
   }
   let raw: unknown;
   try {
-    raw = JSON.parse(await fs.readFile(configPath, "utf8"));
+    raw = JSON.parse(text);
   } catch {
     throw new Error("The vendor login config is not valid JSON.");
   }

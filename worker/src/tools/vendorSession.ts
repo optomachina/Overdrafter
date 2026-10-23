@@ -12,6 +12,7 @@ import {
   isAllowedProviderUrl,
   resolveIsolatedProviderStorageState,
   type ProviderPortalDefinition,
+  type ProviderPortalSnapshot,
   type ProviderPortalState,
 } from "../adapters/providerPortalKernel.js";
 import { buildQuickpartsProductionPortalDefinition } from "../adapters/quickpartsPortal.js";
@@ -30,8 +31,8 @@ import { readVendorLoginConfig, resolveStateDir, type VendorLoginConfig } from "
 /**
  * OVD-1060: the session half of unattended vendor login. `session:check` and
  * `session:refresh` never read credentials, fill a form, click, or upload;
- * the bounded probe they share sends GET and HEAD requests only. Agents may
- * run both. `login:vendors` (Blaine's terminal or LaunchAgent only) reuses
+ * the bounded probe they share sends only GET and HEAD requests to the vendor.
+ * Agents may run both. `login:vendors` (Blaine's terminal or LaunchAgent only) reuses
  * the same check to decide whether a password login is needed at all.
  */
 
@@ -110,6 +111,35 @@ export function sessionStateAccepted(state: ProviderPortalState): boolean {
   return !SESSION_BLOCKING_STATES.has(state);
 }
 
+/**
+ * Text a settled signed-in page should not show. The kernel classifier calls
+ * any page without a failure pattern ready, so a blank shell, a spinner, an
+ * error page or an anonymous page with a sign-in link would otherwise pass.
+ */
+const NOT_SIGNED_IN_TEXT = [
+  /\b(log ?in|sign ?in|sign ?up|register|create (an |your )?account|forgot (your )?password)\b/i,
+  /\b(loading|please wait|something went wrong|error|not found|try again|oops|access denied|forbidden|session expired)\b/i,
+  /\b(two[- ]factor|two[- ]step|verification code|authenticator|enter the code|security code|verify your (email|account))\b/i,
+];
+const MIN_SIGNED_IN_TEXT = 40;
+
+/**
+ * Signed-in evidence from page content alone, used when a page has no log
+ * out control: the vendor definition's classifier must accept the page, and
+ * the page must have real content with no password field and no sign-in,
+ * loading, error or second-factor text. Anything doubtful is a no.
+ */
+export async function signedInEvidence(
+  snapshot: ProviderPortalSnapshot,
+  definition: Pick<ProviderPortalDefinition, "hooks">,
+): Promise<boolean> {
+  if (!sessionStateAccepted(await definition.hooks.classifyPortalState(snapshot))) return false;
+  if (snapshot.passwordInputCount > 0) return false;
+  const text = snapshot.bodyText.replace(/\s+/g, " ").trim();
+  if (text.replace(/\s/g, "").length < MIN_SIGNED_IN_TEXT) return false;
+  return !NOT_SIGNED_IN_TEXT.some((pattern) => pattern.test(text));
+}
+
 export type VendorSessionState = "valid" | "login_required" | "missing" | "unopenable_by_kernel" | "check_failed";
 
 export type VendorSessionCheck = {
@@ -172,18 +202,30 @@ export async function probeStorageState(
   storageState: StorageState,
   deps: VendorSessionDeps = {},
 ): Promise<VendorSessionCheck & { refreshedState: StorageState | null }> {
-  let refreshedState: StorageState | null = null;
-  const evidence = await (deps.probe ?? runBoundedBrowserSessionProbe)({
-    target: { provider: profile.vendor, adapterKind: "portal", landingUrl: profile.landingUrl, allowedHosts: profile.probeHosts },
-    storageState: storageState as BrowserProbeOptions["storageState"],
-    sandbox: deps.sandbox ?? sandboxFromEnv(),
-    settledPageAccepts: async (snapshot) => sessionStateAccepted(await profile.definition.hooks.classifyPortalState(snapshot)),
-    onAuthenticated: (state) => {
-      refreshedState = state as unknown as StorageState;
-    },
-    ...deps.probeOverrides,
-  });
-  return { ...mapEvidence(profile.vendor, evidence), refreshedState };
+  const probe = deps.probe ?? runBoundedBrowserSessionProbe;
+  const run = async (state: StorageState) => {
+    let captured: StorageState | null = null;
+    const evidence = await probe({
+      target: { provider: profile.vendor, adapterKind: "portal", landingUrl: profile.landingUrl, allowedHosts: profile.probeHosts },
+      storageState: state as BrowserProbeOptions["storageState"],
+      sandbox: deps.sandbox ?? sandboxFromEnv(),
+      settledPageAccepts: (snapshot) => signedInEvidence(snapshot, profile.definition),
+      onAuthenticated: (refreshed) => {
+        captured = refreshed as unknown as StorageState;
+      },
+      ...deps.probeOverrides,
+    });
+    return { check: mapEvidence(profile.vendor, evidence), captured: captured as StorageState | null };
+  };
+  const result = await run(storageState);
+  // Content-only evidence must also tell a session apart from no session at all.
+  if (result.check.state === "valid" && result.check.reason === "terminal_signals_ready") {
+    const anonymous = await run({ cookies: [], origins: [] });
+    if (anonymous.check.state === "valid") {
+      return { vendor: profile.vendor, state: "check_failed", reason: "unconfirmable_public_landing", refreshedState: null };
+    }
+  }
+  return { ...result.check, refreshedState: result.captured };
 }
 
 async function sessionFileExists(filePath: string): Promise<boolean> {
@@ -196,12 +238,37 @@ async function sessionFileExists(filePath: string): Promise<boolean> {
   }
 }
 
-/** `missing`, then `unopenable_by_kernel`, then the GET-only probe's verdict. */
+const WORKER_SESSION_OVERRIDES = ["QUOTE_VENDOR_STORAGE_STATE_JSON", "QUOTE_VENDOR_STORAGE_STATE_PATHS"] as const;
+
+/**
+ * The worker reads a vendor's session from these variables before the state
+ * directory. When one names the vendor (or cannot be parsed), a file in the
+ * directory is not what a live run would use.
+ */
+export function workerSessionOverride(vendor: UnattendedLoginVendor, env: NodeJS.ProcessEnv): string | null {
+  for (const name of WORKER_SESSION_OVERRIDES) {
+    const raw = env[name]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return name;
+      if (Object.keys(parsed).some((key) => key.trim().toLowerCase() === vendor)) return name;
+    } catch {
+      return name;
+    }
+  }
+  return null;
+}
+
+/** An override, then `missing`, then `unopenable_by_kernel`, then the GET-only probe's verdict. */
 export async function checkVendorSession(
   profile: VendorSessionProfile,
   stateDir: string,
-  deps: VendorSessionDeps = {},
+  deps: VendorSessionDeps & { env?: NodeJS.ProcessEnv } = {},
 ): Promise<VendorSessionCheck & { refreshedState: StorageState | null }> {
+  if (workerSessionOverride(profile.vendor, deps.env ?? process.env)) {
+    return { vendor: profile.vendor, state: "check_failed", reason: "worker_reads_session_from_env", refreshedState: null };
+  }
   const filePath = sessionStatePath(stateDir, profile.vendor);
   if (!(await sessionFileExists(filePath))) {
     return { vendor: profile.vendor, state: "missing", reason: "session_file_missing", refreshedState: null };
@@ -213,21 +280,81 @@ export async function checkVendorSession(
   return probeStorageState(profile, opened, deps);
 }
 
+export type SaveResult = { saved: true } | { saved: false; reason: string };
+
+/** The forms a typed secret could take in a cookie or local-storage value. */
+function secretForms(value: string): string[] {
+  return [value, encodeURIComponent(value), Buffer.from(value, "utf8").toString("base64")].filter((form) => form.length >= 4);
+}
+
 /**
- * Scopes a session to the reviewed hosts, re-parses it as the kernel would,
- * and writes it 0600 over the old file. Returns false (and writes nothing)
- * when the kernel would refuse the scoped state.
+ * Scopes a session to the reviewed hosts and writes it 0600 over the old
+ * file, only when it is not empty, holds none of `forbiddenValues` (the typed
+ * password), the kernel would parse it, and the directory has no symlinked
+ * component. The written file is then read back through the kernel's own
+ * path resolver.
  */
 export async function saveScopedSession(
   profile: VendorSessionProfile,
   stateDir: string,
   state: StorageState,
-): Promise<boolean> {
+  forbiddenValues: readonly string[] = [],
+): Promise<SaveResult> {
   const scoped = scopeStorageStateToHosts(state, profile.sessionHosts);
-  if (!(await kernelOpensStorageState(profile, { state: scoped }))) return false;
+  if (scoped.cookies.length === 0 && scoped.origins.length === 0) return { saved: false, reason: "scoped_session_empty" };
+  const serialized = JSON.stringify(scoped);
+  if (forbiddenValues.some((value) => secretForms(value).some((form) => serialized.includes(form)))) {
+    return { saved: false, reason: "session_contains_credential" };
+  }
+  if (!(await kernelOpensStorageState(profile, { state: scoped }))) return { saved: false, reason: "scoped_session_refused_by_kernel" };
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
-  await writePrivateStorageState({ storageState: async () => scoped }, sessionStatePath(stateDir, profile.vendor));
-  return true;
+  if ((await fs.realpath(stateDir)) !== path.resolve(stateDir)) return { saved: false, reason: "state_dir_has_symlink" };
+  const filePath = sessionStatePath(stateDir, profile.vendor);
+  await writePrivateStorageState({ storageState: async () => scoped }, filePath);
+  if (!(await kernelOpensStorageState(profile, { path: filePath }))) return { saved: false, reason: "saved_file_refused_by_kernel" };
+  return { saved: true };
+}
+
+function processAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * One writer per session directory: `login:vendors` and `session:refresh`
+ * both hold this lock while they may write, so neither overwrites a session
+ * the other just saved. A lock whose holder process is gone is taken over.
+ */
+export async function acquireSessionLock(stateDir: string): Promise<() => Promise<void>> {
+  await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const lockPath = path.join(stateDir, ".vendor-session.lock");
+  const owner = String(process.pid);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await fs.open(lockPath, "wx", 0o600);
+      await handle.writeFile(`${owner}\n`);
+      await handle.close();
+      return async () => {
+        if ((await fs.readFile(lockPath, "utf8").catch(() => "")).trim() === owner) await fs.rm(lockPath, { force: true });
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const holder = (await fs.readFile(lockPath, "utf8").catch(() => "")).trim();
+      const stats = await fs.stat(lockPath).catch(() => null);
+      // A just-created lock may not hold its pid yet.
+      const fresh = holder === "" && stats !== null && Date.now() - stats.mtimeMs < 5_000;
+      if (attempt === 0 && !fresh && !processAlive(Number.parseInt(holder, 10))) {
+        await fs.rm(lockPath, { force: true });
+        continue;
+      }
+    }
+  }
+  throw new Error("Another login:vendors or session:refresh run is writing sessions in this directory.");
 }
 
 export type KillSwitchDecision = "not_checked" | "disengaged" | "engaged_or_unreadable";
@@ -267,9 +394,8 @@ export async function refreshVendorSession(
   }
   const { refreshedState, ...check } = await checkVendorSession(profile, stateDir, deps);
   if (check.state !== "valid") return { ...check, refreshed: false, killSwitch };
-  if (!refreshedState || !(await saveScopedSession(profile, stateDir, refreshedState))) {
-    return { ...check, state: "check_failed", reason: "refreshed_state_refused_by_kernel", refreshed: false, killSwitch };
-  }
+  const saved = refreshedState ? await saveScopedSession(profile, stateDir, refreshedState) : { saved: false as const, reason: "refreshed_state_missing" };
+  if (!saved.saved) return { ...check, state: "check_failed", reason: saved.reason, refreshed: false, killSwitch };
   return { ...check, refreshed: true, killSwitch };
 }
 
@@ -287,7 +413,8 @@ const SESSION_USAGE = [
   "",
   `Vendors: ${UNATTENDED_LOGIN_VENDORS.join(", ")}. Without a list, the vendors in the login config are used.`,
   "The state directory is --state-dir, else QUOTE_VENDOR_STORAGE_STATE_DIR, else the login config's stateDir.",
-  "Both commands send GET requests only and never read credentials.",
+  "Both send only GET and HEAD requests to the vendor and never read credentials. session:refresh also",
+  "reads the provider kill switch from OverDrafter's Supabase when service-role credentials are set.",
 ].join("\n");
 
 export function parseVendorList(raw: string): UnattendedLoginVendor[] {
@@ -344,17 +471,22 @@ async function main() {
   if (!vendors) throw new Error(`Name the vendors, or add them to the login config.\n\n${SESSION_USAGE}`);
   const stateDir = resolveStateDir({ flag: args.stateDir, env: process.env, config });
   let allValid = true;
-  for (const vendor of vendors) {
-    const profile = resolveVendorSessionProfile(vendor);
-    let result: VendorSessionCheck & { refreshed?: boolean };
-    if (args.command === "refresh") {
-      result = await refreshVendorSession(profile, stateDir);
-    } else {
-      const check = await checkVendorSession(profile, stateDir);
-      result = { vendor: check.vendor, state: check.state, reason: check.reason };
+  const release = args.command === "refresh" ? await acquireSessionLock(stateDir) : async () => undefined;
+  try {
+    for (const vendor of vendors) {
+      const profile = resolveVendorSessionProfile(vendor);
+      let result: VendorSessionCheck & { refreshed?: boolean };
+      if (args.command === "refresh") {
+        result = await refreshVendorSession(profile, stateDir);
+      } else {
+        const check = await checkVendorSession(profile, stateDir);
+        result = { vendor: check.vendor, state: check.state, reason: check.reason };
+      }
+      if (result.state !== "valid") allValid = false;
+      console.log(args.json ? JSON.stringify(result) : formatLine(result));
     }
-    if (result.state !== "valid") allValid = false;
-    console.log(args.json ? JSON.stringify(result) : formatLine(result));
+  } finally {
+    await release();
   }
   process.exitCode = allValid ? 0 : 1;
 }

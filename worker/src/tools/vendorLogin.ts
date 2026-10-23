@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { execFile } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import type { ProviderKillSwitchReader } from "../providerSettings.js";
-import { BitwardenError, BitwardenVault, type LoginCredential } from "./vendorLoginBitwarden.js";
+import { BitwardenError, BitwardenVault, childEnv, type LoginCredential } from "./vendorLoginBitwarden.js";
 import {
   readVendorLoginConfig,
   resolveLogPath,
@@ -17,6 +18,7 @@ import {
 import { confirmStorageState, runVendorLoginFlow, type LoginFlowResult, type LoginFlowTimings } from "./vendorLoginFlow.js";
 import { scopeStorageStateToHosts } from "./vendorAuth.js";
 import {
+  acquireSessionLock,
   checkVendorSession,
   kernelOpensStorageState,
   parseVendorList,
@@ -24,7 +26,9 @@ import {
   resolveVendorSessionProfile,
   sandboxFromEnv,
   saveScopedSession,
+  sessionStatePath,
   vendorKillSwitchDecision,
+  workerSessionOverride,
   type KillSwitchDecision,
   type UnattendedLoginVendor,
   type VendorSessionDeps,
@@ -42,16 +46,16 @@ import {
  *
  * Per vendor: kill switch (when credentials to read it exist), then the
  * GET-only session check (a still-valid session is refreshed, not logged in
- * again), then one password login. A CAPTCHA, a second factor, an unknown
- * page or a failed login stops that vendor, raises a macOS notification and
- * writes one scrubbed status line to a log outside the repository.
+ * again; a challenge or failed check stops the vendor), then one password
+ * login. A CAPTCHA, a second factor, an unknown page or a failed login stops
+ * that vendor, raises a macOS notification and writes one scrubbed status
+ * line to a log outside the repository. A saved session that the GET-only
+ * check cannot confirm is reported as `saved_unconfirmed` and notified too.
  */
-
-type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 export const LAUNCHD_LABEL = "com.overdrafter.vendor-login";
 
-export type VendorLoginOutcome = "saved" | "refreshed" | "skipped_kill_switch" | "stopped";
+export type VendorLoginOutcome = "saved" | "saved_unconfirmed" | "refreshed" | "skipped_kill_switch" | "stopped";
 
 export type VendorLoginResult = {
   vendor: UnattendedLoginVendor;
@@ -107,10 +111,20 @@ export function assertHumanOrLaunchdCaller(env: NodeJS.ProcessEnv, stdinIsTTY: b
   if (!stdinIsTTY && !launchd) {
     throw new Error("login:vendors needs an interactive terminal or the com.overdrafter.vendor-login LaunchAgent.");
   }
-  // Playwright debug logging could echo filled values.
-  if (/pw:/.test(env.DEBUG ?? "") || env.PWDEBUG) {
-    throw new Error("Refusing to run with Playwright debug logging (DEBUG=pw:* or PWDEBUG) enabled.");
+  // Playwright debug namespaces (including DEBUG=*) echo filled values, Node's
+  // child_process diagnostics echo child environments, and an inspector can read memory.
+  const diagnostics = ["DEBUG", "DEBUG_FILE", "PWDEBUG", "NODE_DEBUG"].filter((name) => env[name]?.trim());
+  if (/--inspect/.test(env.NODE_OPTIONS ?? "")) diagnostics.push("NODE_OPTIONS=--inspect");
+  if (diagnostics.length > 0) {
+    throw new Error(`Refusing to run with diagnostics enabled (${diagnostics.join(", ")}). Unset them first.`);
   }
+}
+
+/** Only what a browser or notifier needs: no vault session, no worker secrets. */
+export function minimalChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { BW_NOINTERACTION: _bitwardenOnly, ...rest } = childEnv(env);
+  delete rest.BITWARDENCLI_APPDATA_DIR;
+  return rest;
 }
 
 function stopped(
@@ -153,6 +167,9 @@ async function passwordLogin(
   }
   if (login.outcome !== "authenticated") return login;
   const scoped = scopeStorageStateToHosts(login.storageState, profile.sessionHosts);
+  if (scoped.cookies.length === 0 && scoped.origins.length === 0) {
+    return { outcome: "login_failed", reason: "scoped_session_empty", host: null };
+  }
   const opened = await kernelOpensStorageState(profile, { state: scoped });
   if (!opened) return { outcome: "login_failed", reason: "scoped_session_refused_by_kernel", host: null };
   try {
@@ -175,13 +192,21 @@ export async function loginVendor(
     return { vendor, outcome: "skipped_kill_switch", reason: "kill_switch_engaged_or_unreadable", host: null, killSwitch, check: null };
   }
 
+  if (workerSessionOverride(vendor, deps.env)) return stopped(vendor, "worker_reads_session_from_env", killSwitch);
+
   if (!deps.force) {
-    const current = await checkVendorSession(profile, deps.stateDir, deps.sessionDeps);
-    if (current.state === "valid" && current.refreshedState) {
-      return await saveScopedSession(profile, deps.stateDir, current.refreshedState)
+    const current = await checkVendorSession(profile, deps.stateDir, { ...deps.sessionDeps, env: deps.env });
+    if (current.state === "valid") {
+      const refreshed = current.refreshedState
+        ? await saveScopedSession(profile, deps.stateDir, current.refreshedState)
+        : { saved: false as const, reason: "refreshed_state_missing" };
+      return refreshed.saved
         ? { vendor, outcome: "refreshed", reason: current.reason, host: null, killSwitch, check: `valid:${current.reason}` }
-        : stopped(vendor, "refreshed_state_refused_by_kernel", killSwitch);
+        : stopped(vendor, `refresh_not_saved:${refreshed.reason}`, killSwitch);
     }
+    // Only a session that is absent, unusable, or signed out is worth a password.
+    // A challenge, denial or failed check is a stop, not a reason to try logging in.
+    if (current.state === "check_failed") return stopped(vendor, `session_check_failed:${current.reason}`, killSwitch);
   }
 
   const item = deps.config.vendors[vendor]?.item;
@@ -197,17 +222,26 @@ export async function loginVendor(
   const login = await passwordLogin(profile, credential, deps);
   if (login.outcome !== "authenticated") return stopped(vendor, `${login.outcome}:${login.reason}`, killSwitch, login.host);
 
-  const saved: StorageState = login.storageState;
-  if (!(await saveScopedSession(profile, deps.stateDir, saved))) {
-    return stopped(vendor, "login_failed:scoped_session_refused_by_kernel", killSwitch);
-  }
-  // The agent-facing GET-only check, run once so a vendor it cannot confirm is visible on the first run.
+  const forbidden = [credential.password.reveal()];
+  const saved = await saveScopedSession(profile, deps.stateDir, login.storageState, forbidden);
+  if (!saved.saved) return stopped(vendor, `not_saved:${saved.reason}`, killSwitch);
+  // The agent-facing GET-only check. A login it cannot confirm is not reported as a plain save.
   // Its visit may rotate session tokens, so a valid verdict's state replaces the file just written.
-  const verdict = await probeStorageState(profile, scopeStorageStateToHosts(saved, profile.sessionHosts), deps.sessionDeps);
-  if (verdict.state === "valid" && verdict.refreshedState) {
-    await saveScopedSession(profile, deps.stateDir, verdict.refreshedState);
+  const opened = await kernelOpensStorageState(profile, { path: sessionStatePath(deps.stateDir, vendor) });
+  const verdict = opened
+    ? await probeStorageState(profile, opened, deps.sessionDeps)
+    : { state: "unopenable_by_kernel" as const, reason: "kernel_refused_session", refreshedState: null };
+  const check = `${verdict.state}:${verdict.reason}`;
+  if (verdict.state !== "valid") {
+    return { vendor, outcome: "saved_unconfirmed", reason: "session_check_not_valid", host: null, killSwitch, check };
   }
-  return { vendor, outcome: "saved", reason: "password_login_confirmed", host: null, killSwitch, check: `${verdict.state}:${verdict.reason}` };
+  if (verdict.refreshedState) {
+    const resaved = await saveScopedSession(profile, deps.stateDir, verdict.refreshedState, forbidden);
+    if (!resaved.saved) {
+      return { vendor, outcome: "saved_unconfirmed", reason: `refresh_not_saved:${resaved.reason}`, host: null, killSwitch, check };
+    }
+  }
+  return { vendor, outcome: "saved", reason: "password_login_confirmed", host: null, killSwitch, check };
 }
 
 /** Runs vendors in order; the vault is unlocked at most once, only when a password login is needed. */
@@ -227,7 +261,8 @@ export async function loginVendors(vendors: readonly UnattendedLoginVendor[], de
         result = stopped(vendor, "unexpected_failure", "not_checked");
       }
       results.push(result);
-      await deps.report(result);
+      // A failed status write must not stop the remaining vendors.
+      await deps.report(result).catch(() => undefined);
     }
   } finally {
     if (vaultOpen) await deps.vault.close().catch(() => undefined);
@@ -255,9 +290,25 @@ export function statusLine(result: VendorLoginResult, now: Date): string {
   ].join(" ");
 }
 
+/**
+ * Appends through a descriptor opened without following a symlink, then
+ * forces owner-only permissions on it, so an older 0644 log or a planted
+ * link never receives a status line.
+ */
 export async function appendStatusLine(logPath: string, line: string): Promise<void> {
   await fs.mkdir(path.dirname(logPath), { recursive: true, mode: 0o700 });
-  await fs.appendFile(logPath, `${line}\n`, { encoding: "utf8", mode: 0o600 });
+  const flags = fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | (fsConstants.O_NOFOLLOW ?? 0);
+  const handle = await fs.open(logPath, flags, 0o600);
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || (typeof process.getuid === "function" && stats.uid !== process.getuid())) {
+      throw new Error("The vendor login log is not a regular file owned by this user.");
+    }
+    await handle.chmod(0o600);
+    await handle.appendFile(`${line}\n`, { encoding: "utf8" });
+  } finally {
+    await handle.close();
+  }
 }
 
 function appleScriptString(value: string): string {
@@ -269,33 +320,15 @@ export type Notifier = (message: string) => Promise<void>;
 /** macOS notification through osascript (no shell); a failure to notify never fails the run. */
 export const osascriptNotifier: Notifier = (message) => new Promise((resolve) => {
   const script = `display notification ${appleScriptString(message)} with title "OverDrafter vendor login"`;
-  execFile("/usr/bin/osascript", ["-e", script], { timeout: 10_000, shell: false }, () => resolve());
+  execFile("/usr/bin/osascript", ["-e", script], { timeout: 10_000, shell: false, env: minimalChildEnv(process.env) }, () => resolve());
 });
 
 export function notificationFor(result: VendorLoginResult, displayName: string): string | null {
+  if (result.outcome === "saved_unconfirmed") {
+    return `${displayName} login saved, but session:check reports ${token(result.check)}. Agents will ask you to log in.`;
+  }
   if (result.outcome !== "stopped") return null;
   return `${displayName} login stopped (${token(result.reason)}). Log in by hand with auth:vendor ${result.vendor}.`;
-}
-
-/** Holds a per-machine lock so a manual run and the LaunchAgent never log in at once. */
-async function acquireRunLock(lockPath: string, staleMs = 30 * 60_000): Promise<() => Promise<void>> {
-  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const handle = await fs.open(lockPath, "wx", 0o600);
-      await handle.writeFile(`${process.pid}\n`);
-      await handle.close();
-      return () => fs.rm(lockPath, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const stats = await fs.stat(lockPath).catch(() => null);
-      if (attempt === 0 && stats && Date.now() - stats.mtimeMs > staleMs) {
-        await fs.rm(lockPath, { force: true });
-        continue;
-      }
-    }
-  }
-  throw new Error("Another login:vendors run holds the lock.");
 }
 
 type LoginCliArgs = {
@@ -340,16 +373,23 @@ async function main() {
   const vendors = args.vendors ?? parseVendorList(Object.keys(config.vendors).join(","));
   const stateDir = resolveStateDir({ flag: args.stateDir, env: process.env, config });
   const logPath = resolveLogPath(config);
-  const release = await acquireRunLock(path.join(path.dirname(logPath), "vendor-login.lock"));
+  const release = await acquireSessionLock(stateDir);
   const headless = args.headed ? false : config.headless;
+  // The vault keeps the exported session key; nothing launched later inherits it.
+  const vault = new BitwardenVault(config.bitwarden, process.env);
+  delete process.env.BW_SESSION;
   try {
     const results = await loginVendors(vendors, {
       config,
       stateDir,
       force: args.force,
       env: process.env,
-      vault: new BitwardenVault(config.bitwarden, process.env),
-      launchBrowser: () => chromium.launch({ headless, ...chromiumSandboxLaunchOptions(sandboxFromEnv()) }),
+      vault,
+      launchBrowser: () => chromium.launch({
+        headless,
+        env: minimalChildEnv(process.env),
+        ...chromiumSandboxLaunchOptions(sandboxFromEnv()),
+      }),
       report: async (result) => {
         const line = statusLine(result, new Date());
         console.log(line);
@@ -358,7 +398,7 @@ async function main() {
         if (message) await osascriptNotifier(message);
       },
     });
-    process.exitCode = results.some((result) => result.outcome === "stopped") ? 1 : 0;
+    process.exitCode = results.some((result) => result.outcome === "stopped" || result.outcome === "saved_unconfirmed") ? 1 : 0;
   } finally {
     await release();
   }
