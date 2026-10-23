@@ -457,6 +457,46 @@ describe("RMFG quote transport with a stated stock (OVD-1057)", () => {
   });
 
   it.each([
+    ["a substituted configured stock", (quote: typeof plateQuote) => ({ ...quote.items[0], dfm: { ...quote.items[0].dfm,
+      configuration: { parts: [{ part_id: "part-plate", material_id: "stock-5052-125" }] } } }), "dfm_configuration_unverified"],
+    ["a line on substituted stock", (quote: typeof plateQuote) => ({ ...quote.items[0],
+      line_items: [{ ...quote.items[0].line_items[0], material_id: "stock-5052-125" }] }), "line_items_unverified"],
+    ["another quantity", (quote: typeof plateQuote) => ({ ...quote.items[0], quantity: 2 }), "offer_provenance_incomplete"],
+    ["another design", (quote: typeof plateQuote) => ({ ...quote.items[0], design_id: "design-other" }),
+      "offer_provenance_incomplete"],
+  ])("stops on %s while the quote is processing, before any later clean answer", async (_label, item, reason) => {
+    const { requests, transport } = plateFixture({ quote: { ...plateQuote, status: "processing", items: [item(plateQuote)] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason, offer: null });
+    expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
+  });
+
+  it("stops on a shipping charge while the quote is processing", async () => {
+    const { requests, transport } = plateFixture({ quote: { ...plateQuote, status: "processing", amount_shipping_cents: 900 } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({ state: "unknown", reason: "quote_totals_unverified" });
+    expect(requests.some((request) => request.endpoint === "quote_status")).toBe(false);
+  });
+
+  it("treats a blocking finding RMFG marks accepted as blocking, since no risk was ever accepted", async () => {
+    const accepted = { ...plateQuote, items: [{ ...plateQuote.items[0], dfm: { ...plateQuote.items[0].dfm,
+      parts: [{ ...plateQuote.items[0].dfm.parts[0], issues: [{ code: "hole_too_close_to_bend", severity: "blocking",
+        accepted: true, source: "geometry", message: "Synthetic" }] }] } }] };
+    expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: accepted }).transport)).toMatchObject({
+      state: "blocked", dfmIssueCodes: ["hole_too_close_to_bend"], offer: null });
+  });
+
+  it.each([
+    ["accepted_risks", "hole_too_close_to_bend"],
+    ["assembly_operations", { weld: true }],
+    ["recommended_finish", "yes"],
+    ["defaults", "stock-6061-125"],
+  ])("stops on a malformed %s in the echoed configuration", async (key, value) => {
+    const { transport } = plateFixture({ quote: { ...plateQuote, items: [{ ...plateQuote.items[0], dfm: {
+      ...plateQuote.items[0].dfm, configuration: { ...plateQuote.items[0].dfm.configuration, [key]: value } } }] } });
+    expect(await runRmfgQuoteOnly(stockInput, transport)).toMatchObject({
+      state: "unknown", reason: "unrequested_work_priced", offer: null });
+  });
+
+  it.each([
     ["instance_count", { instance_count: null }],
     ["analysis_status", { analysis_status: null }],
   ])("does not read an explicit null %s as its documented default", async (_label, partOverride) => {
