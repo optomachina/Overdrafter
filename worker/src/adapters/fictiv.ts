@@ -703,9 +703,13 @@ type FictivActionKind = "click" | "press" | "fill";
 /** Each guard read waits at most this long; the target was found just before. */
 const ACTION_GUARD_READ_TIMEOUT_MS = 2_000;
 
-/** A guard field as it is matched: camel case and separators read as spaces ("placeOrder", "request-quote"). */
+/** A guard field as it is matched: camel case and separators read as spaces ("placeOrder", "RequestAQuote", "request-quote"). */
 function actionGuardText(value: string) {
-  return value.replaceAll(/([a-z])([A-Z])/g, "$1 $2").replaceAll(/[\s_\-./:]+/g, " ").trim();
+  return value
+    .replaceAll(/([a-z\d])([A-Z])/g, "$1 $2")
+    .replaceAll(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+    .replaceAll(/[\s_\-./:]+/g, " ")
+    .trim();
 }
 
 /**

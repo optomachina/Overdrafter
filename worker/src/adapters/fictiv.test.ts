@@ -4491,6 +4491,122 @@ describe("FictivAdapter", () => {
       });
     });
 
+    // OVD-1052 round 8 (H2): on each of the adapter's click paths a selector
+    // resolves to a forbidden control. The guard refuses it before anything
+    // is done on it, and the run stops as selector drift.
+    describe("the action guard on each click path (OVD-1052 round 8, H2)", () => {
+      const awaitingWith = (extra: string, cell = configurationCell(REQUESTED_CONFIGURATION)) => quotePage(
+        `<div>Parts have been configured based on your drawings!</div>${partTable(cell)}${extra}<div>${AWAITING_CLASSIFICATION}</div>`,
+      );
+      const CHECKOUT_CONFIG_CELL = configurationCell(REQUESTED_CONFIGURATION)
+        .replace(">Edit configuration</a>", ">Checkout</a>");
+      const QUOTE_REQUEST_CLASSIFICATION = '<label class="ant-radio-wrapper"><span class="ant-radio">'
+        + '<input type="radio" class="ant-radio-input" data-test-target="quote-classification-selection-import-classification-radio-button-prototype" title="Request a quote" value="fixture-prototype">'
+        + "</span><span>Prototype</span></label>";
+      const CREDIT_QUANTITY = '<input type="number" role="spinbutton" data-test-target="select-quantity" aria-label="Store credit amount" aria-valuenow="1" value="1">';
+      const ORDER_CONTINUE = '<div class="ant-modal"><button type="button" class="guide-auto-config-loading-modal-auto-config-loading-modal-continue">Place order</button></div>';
+      const PAY_MODAL_CLOSE = '<div class="ant-modal"><button type="button" class="ant-modal-close" aria-label="Pay now"><span class="ant-modal-close-x"></span></button></div>';
+      const CART_MATERIAL = '<button type="button" data-test-target="material">Add to cart</button>';
+      const cncCardWith = async (extra: string) =>
+        (await fixtureHtml()).replace("<span>CNC Machining</span>", `<span>CNC Machining</span>${extra}`);
+
+      it.each([
+        { label: "the configuration drawer link reads Checkout", action: "configuration_drawer", scenario: () => ({ afterAnalysisPage: awaitingWith("", CHECKOUT_CONFIG_CELL) }), field: "text", term: "checkout" },
+        { label: "the Prototype radio is titled Request a quote", action: "end_use", scenario: () => ({ afterAnalysisPage: awaitingWith(QUOTE_REQUEST_CLASSIFICATION) }), field: "title", term: "request a quote" },
+        { label: "Fictiv's quantity control is a store credit field", action: "quantity_fill", scenario: () => ({ quantityControl: "none" as const, afterAnalysisPage: awaitingWith(CREDIT_QUANTITY) }), field: "aria-label", term: "credit" },
+        { label: "the auto configuration Continue reads Place order", action: "auto_config_continue", scenario: () => ({ afterAnalysisPage: awaitingWith(ORDER_CONTINUE) }), field: "text", term: "place order" },
+        { label: "a modal close button is labeled Pay now", action: "modal_close", scenario: () => ({ afterAnalysisPage: awaitingWith(PAY_MODAL_CLOSE) }), field: "aria-label", term: "pay" },
+        { label: "the material control reads Add to cart", action: "material_dropdown", scenario: () => ({ afterAnalysisPage: awaitingWith(CART_MATERIAL) }), field: "text", term: "add to cart" },
+      ] satisfies Array<{ label: string; action: string; scenario: () => Scenario; field: string; term: string }>)(
+        "never acts when $label",
+        async ({ action, scenario, field, term }) => {
+          const { result, error, events } = await runProcessFirstQuote(scenario());
+
+          expect(result).toBeNull();
+          expect(error).toBeInstanceOf(VendorAutomationError);
+          const failure = error as VendorAutomationError;
+          expect(failure).toMatchObject({
+            code: "unexpected_ui_state",
+            payload: { terminalState: "selector_drift", reason: "unsafe_click", action, matchedField: field, matchedTerm: term },
+          });
+          expect(failure.payload).not.toHaveProperty("totalPriceUsd");
+          expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "selector_drift" });
+          // Only the clicks before the refused one were made, none on it, and nothing after it.
+          const actions = events.filter((event) => MUTATIONS.has(event.kind));
+          expect(actions.filter((event) => /checkout|credit|place order|pay now|add to cart|request a quote/i.test(event.detail))).toEqual([]);
+          if (action === "quantity_fill") expect(events.filter((event) => event.kind === "fill" || event.kind === "press")).toEqual([]);
+          expect(actions.at(-1)).toEqual(
+            action === "configuration_drawer" || action === "auto_config_continue" || action === "modal_close"
+              ? { kind: "set_input_files", detail: "part.step,part.pdf" }
+              : expect.anything(),
+          );
+        },
+      );
+
+      it("never clicks a CNC card that also offers Buy now, and uploads nothing", async () => {
+        const { result, error, events } = await runProcessFirstQuote({ landingPage: await cncCardWith("<span>Buy now</span>") });
+
+        expect(result).toBeNull();
+        expect(error).toMatchObject({
+          payload: { terminalState: "selector_drift", reason: "unsafe_click", action: "cnc_process_card", matchedTerm: "buy" },
+        });
+        expect(events.filter((event) => MUTATIONS.has(event.kind))).toEqual([]);
+      });
+    });
+
+    // OVD-1052 round 8 (H3): the headline published is the selected
+    // option's own single price; a selected option that shows more than one
+    // never has its first amount taken.
+    describe("the selected option's own single price (OVD-1052 round 8, H3)", () => {
+      const USD = '<div data-test-target="quote-currency-selector"><span>USD</span></div>';
+      const liveSelected = (inner: string) =>
+        '<ul><li class="ant-list-item" data-test-target="quote-level-lead-time-selected-option" data-name="quote-level-lead-time-domesticFastest">'
+        + `<label class="ant-radio-wrapper ant-radio-wrapper-checked"><span><span>4 production days (USA or Mexico)</span>${inner}<span>Fastest</span></span></label></li></ul>`
+        + '<div data-test-target="qllt-header-wrapper"><span>Below is the price for part production.</span></div>';
+      const SPAN = (amount: string) => `<span data-test-target="quote-level-lead-time-price">${amount}</span>`;
+
+      it.each([
+        { label: "a struck-through amount next to its price span", selection: liveSelected(`<s>$ 450.00</s>${SPAN("$ 412.30")}`), counts: { selectedOptionCount: 1, selectedOptionPriceSpanCount: 1, selectedOptionAmountCount: 2 } },
+        { label: "two price spans", selection: liveSelected(`${SPAN("$ 412.30")}${SPAN("$ 450.00")}`), counts: { selectedOptionCount: 1, selectedOptionPriceSpanCount: 2, selectedOptionAmountCount: 2 } },
+        { label: "a price span and a placeholder span", selection: liveSelected(`${SPAN("$ 412.30")}${SPAN("$ --")}`), counts: { selectedOptionCount: 1, selectedOptionPriceSpanCount: 2, selectedOptionAmountCount: 1 } },
+        {
+          label: "two options both marked selected",
+          selection: `${liveSelected(SPAN("$ 412.30"))}${liveSelected(SPAN("$ 301.25")).replace("domesticFastest", "overseasStandard")}`,
+          counts: { selectedOptionCount: 2, selectedOptionPriceSpanCount: 2, selectedOptionAmountCount: 1 },
+        },
+      ])("publishes nothing when the selected option shows $label", async ({ selection, counts }) => {
+        const { result, error } = await runProcessFirstQuote({ pricedPage: pricedPage({ selection, extra: USD }) });
+
+        expect(result).toBeNull();
+        expect(error).toBeInstanceOf(VendorAutomationError);
+        const failure = error as VendorAutomationError;
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: { terminalState: "selector_drift", reason: "selected_offer_ambiguous", ...counts },
+        });
+        expect(failure.payload).not.toHaveProperty("totalPriceUsd");
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "selector_drift" });
+        expect(failure.artifacts.map((artifact) => artifact.label)).toContain("selected-offer-ambiguous-dom");
+      });
+
+      it("publishes the selected option's one price from its own span", async () => {
+        const { result, error } = await runProcessFirstQuote({ pricedPage: pricedPage({ selection: liveSelected(SPAN("$ 412.30")), extra: USD }) });
+
+        expect(error).toBeNull();
+        expect(result).toMatchObject({ status: "instant_quote_received", totalPriceUsd: 412.3 });
+      });
+
+      it("publishes nothing when the selected option's one amount, unverified, differs from the selected price", async () => {
+        const selection = '<div data-test-target="quote-level-lead-time-selected-option" data-name="quote-level-lead-time-domesticFastest">'
+          + "Fastest 4 production days (USA or Mexico) $ 405.00</div>"
+          + '<div data-test-target="quote-level-lead-time-price-selected">Total USD $412.30</div>';
+        const { result, error } = await runProcessFirstQuote({ pricedPage: pricedPage({ selection }) });
+
+        expect(result).toBeNull();
+        expect(error).toMatchObject({ payload: { terminalState: "selector_drift", reason: "selected_offer_mismatch" } });
+      });
+    });
+
     // OVD-1052 (G3): the 02:46Z result capture's lead-time panel, hand-built:
     // the qllt header with its "price for part production" statement, one li
     // per option with Fictiv's per-option hook and data-name (the selected
