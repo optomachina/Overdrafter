@@ -13,25 +13,34 @@ unset OVD_PREFLIGHT_DOCKER_UNAVAILABLE
 
 cd "$(dirname "$0")/.."
 
-# Stage names come first. Anything from -- on stays in "$@" and goes to the
-# single stage's npm run. The stage lines name those arguments, so a filtered or
-# sharded run is never reported as a plain full-suite PASS.
-stages=()
-while [ $# -gt 0 ] && [ "$1" != "--" ]; do
-  stages+=("$1")
+# Only "<stage> -- <args>" passes arguments: "$@" then holds "-- <args>" for that
+# stage's npm run, and note names the arguments in the stage lines, so a
+# filtered or sharded run never reads as a plain full-suite PASS. Keep this
+# parsing free of new conditional assignments: the proposed guard-migrations
+# hook reads this file and fails closed past 32 variable combinations.
+[ $# -gt 0 ] || set -- lint typecheck test
+if [ $# -ge 2 ] && [ "$2" = "--" ]; then
+  stages=("$1")
   shift
+else
+  stages=("$@")
+  set --
+fi
+note="${2:+ (args: ${*:2})}"
+
+for stage in "${stages[@]}"; do
+  case "$stage" in
+    lint | typecheck | test) ;;
+    --)
+      echo "preflight: arguments after -- need exactly one stage" >&2
+      exit 2
+      ;;
+    *)
+      echo "preflight: unknown stage '$stage' (expected lint, typecheck, test)" >&2
+      exit 2
+      ;;
+  esac
 done
-if [ ${#stages[@]} -eq 0 ]; then
-  stages=(lint typecheck test)
-fi
-args_note=""
-if [ $# -gt 1 ]; then
-  if [ ${#stages[@]} -ne 1 ]; then
-    echo "preflight: arguments after -- need exactly one stage" >&2
-    exit 2
-  fi
-  args_note=" (args: ${*:2})"
-fi
 
 docker_only_tests=(
   "rejects 'a routing override' before qualification"
@@ -45,20 +54,13 @@ docker_unavailable() {
 
 status=0
 for stage in "${stages[@]}"; do
-  case "$stage" in
-    lint | typecheck | test) ;;
-    *)
-      echo "preflight: unknown stage '$stage' (expected lint, typecheck, test)" >&2
-      exit 2
-      ;;
-  esac
-  echo "preflight: $stage start$args_note"
-  summary="$args_note"
+  echo "preflight: $stage start$note"
+  summary="$note"
   if [ "$stage" = test ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ] && docker_unavailable; then
     for test_name in "${docker_only_tests[@]}"; do
       echo "preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > $test_name (docker unavailable)"
     done
-    summary="$args_note (${#docker_only_tests[@]} docker tests SKIPPED: docker unavailable)"
+    summary="$note (${#docker_only_tests[@]} docker tests SKIPPED: docker unavailable)"
     OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1 npm run --silent "$stage" "$@"
     result=$?
   else

@@ -155,6 +155,13 @@ describe("preflight stage arguments", () => {
     expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
   });
 
+  it("rejects an unknown stage before running any stage", () => {
+    const result = runPreflight({ args: ["lint", "bogus"], ci: true, stderr: "preflight: unknown stage 'bogus' (expected lint, typecheck, test)\n" });
+    expect(result.status).toBe(2);
+    expect(result.npmCalls).toBe("");
+    expect(result.output).toBe("");
+  });
+
   it.each([
     [["lint", "test", "--", "--shard=1/3"]],
     [["--", "--shard=1/3"]],
