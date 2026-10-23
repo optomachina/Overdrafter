@@ -70,6 +70,12 @@ export type RmfgQuoteOffer = {
   leadTimeBusinessDays: null;
   /** The quote's own `expires_at`, when RMFG states one. */
   validUntil: string | null;
+  /** Integer cents behind the USD figures. */
+  totalCents: number;
+  /** What RMFG stated alongside the price, kept for audit. None of it is published as a lead time. */
+  fulfillment: { standardProductionDays: number | null; standardShipDate: string | null; expeditedOffered: boolean };
+  /** Line price component types, such as "base". */
+  pricedComponents: string[];
   provenance: {
     quantity: "items[0].quantity";
     currency: "currency";
@@ -89,8 +95,8 @@ export type RmfgQuoteResult = {
   dfmIssueCodes: string[];
   dfmStatus: "ready" | "requires_input" | "blocked" | "unknown";
   offer: RmfgQuoteOffer | null;
-  /** The catalog stock picked for an operator-stated stock requirement. */
-  stock: { materialId: string; thicknessIn: number } | null;
+  /** The catalog stock picked for an operator-stated stock requirement, with its catalog label. */
+  stock: { materialId: string; thicknessIn: number; label: string; displayThickness: string | null } | null;
   /** On a stock stop: current public catalog entries at the stated thickness, so a person can see what was offered. */
   stockMatches?: Array<{ materialId: string; label: string; thicknessIn: number }>;
 };
@@ -460,6 +466,28 @@ function quoteTotalsMatch(quote: Json, item: Json): boolean {
 }
 
 /** The quote's stated expiry: absent, or a readable instant still in the future. */
+/** RMFG's own standard production estimate (V1FulfillmentEstimate.production). */
+function fulfillmentEvidence(quote: Json): RmfgQuoteOffer["fulfillment"] {
+  const production = Array.isArray(record(quote.fulfillment)?.production)
+    ? (record(quote.fulfillment)!.production as unknown[]).map(record) : [];
+  const standard = production.find((estimate) => estimate?.speed === "standard") ?? null;
+  const shipDate = string(standard?.estimated_ship_date);
+  return {
+    standardProductionDays: nonNegativeInteger(standard?.production_days) ? standard!.production_days as number : null,
+    standardShipDate: shipDate && /^\d{4}-\d{2}-\d{2}$/.test(shipDate) ? shipDate : null,
+    expeditedOffered: production.some((estimate) => estimate?.speed === "expedited"),
+  };
+}
+
+function pricedComponents(item: Json): string[] {
+  const lines = Array.isArray(item.line_items) ? item.line_items : [];
+  const types = lines.flatMap((line) => {
+    const breakdown = record(line)?.breakdown;
+    return Array.isArray(breakdown) ? breakdown.map((part) => string(record(part)?.type)) : [];
+  });
+  return [...new Set(types.filter((type): type is string => type !== null))].sort();
+}
+
 function expiry(value: unknown, nowMs: number): { validUntil: string | null } | "elapsed" | "unreadable" {
   if (value === undefined || value === null) return { validUntil: null };
   const at = typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -524,6 +552,9 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
     totalPriceUsd: (item.amount_cents as number) / 100,
     leadTimeBusinessDays: null,
     validUntil: validity.validUntil,
+    totalCents: item.amount_cents as number,
+    fulfillment: fulfillmentEvidence(quote),
+    pricedComponents: pricedComponents(item),
     provenance: {
       quantity: "items[0].quantity", currency: "currency",
       unitPrice: "items[0].unit_amount_cents", totalPrice: "items[0].amount_cents",
@@ -671,7 +702,8 @@ async function prepareStock(stock: RmfgStockRequirement, transport: RmfgQuoteTra
   const materialId = string(material.id)!;
   return { designId, selectedParts: [{ part_id: partId, material_id: materialId }],
     instanceCounts: new Map([[partId, 1]]), bentParts: new Set(hasBends(part) ? [partId] : []),
-    stock: { materialId, thicknessIn: material.thickness_in as number } };
+    stock: { materialId, thicknessIn: material.thickness_in as number, label: rawStockLabel(material).slice(0, 80),
+      displayThickness: string(material.display_thickness)?.slice(0, 40) ?? null } };
 }
 
 async function prepareSelection(input: RmfgQuoteInput, transport: RmfgQuoteTransport,

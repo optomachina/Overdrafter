@@ -354,8 +354,20 @@ export class RmfgAdapter extends VendorAdapter {
   }
 
   private fromResult(input: VendorQuoteAdapterInput, result: RmfgQuoteResult): VendorQuoteAdapterOutput {
+    const offerEvidence = result.offer;
+    // Labels and figures only, no RMFG IDs: what a reviewer or the publish path needs to check the price.
+    const rmfgEvidence = {
+      stock: result.stock ? { label: result.stock.label, displayThickness: result.stock.displayThickness,
+        thicknessIn: result.stock.thicknessIn } : null,
+      stockOffered: result.stockMatches?.map(({ label, thicknessIn }) => ({ label, thicknessIn })) ?? null,
+      dfmStatus: result.dfmStatus, dfmIssueCodes: result.dfmIssueCodes, requirementCodes: result.requirementCodes,
+      totalCents: offerEvidence?.totalCents ?? null,
+      // RMFG quotes never select shipping or compute tax, and its minimum order is checked only at cart payment.
+      excludes: offerEvidence ? ["shipping", "tax", "cart_minimum_order"] : null,
+      fulfillment: offerEvidence?.fulfillment ?? null, pricedComponents: offerEvidence?.pricedComponents ?? null,
+    };
     const rawPayload = {
-      source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, transportRevision: result.revision,
+      source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, transportRevision: result.revision, rmfgEvidence,
       rmfgState: result.state, reason: result.reason, designId: result.designId, quoteId: result.quoteId,
       requirementCodes: result.requirementCodes, dfmStatus: result.dfmStatus, dfmIssueCodes: result.dfmIssueCodes,
       stock: result.stock, stockMatches: result.stockMatches ?? null, requestedQuantity: input.requestedQuantity,

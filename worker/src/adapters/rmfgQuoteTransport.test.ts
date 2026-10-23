@@ -243,8 +243,22 @@ describe("RMFG quote transport with a stated stock (OVD-1057)", () => {
     expect(requests[2]).toMatchObject({ idempotencyKey: expect.stringMatching(/^quote-plate-1-[0-9a-f]{16}$/),
       body: { items: [{ design_id: "design-plate",
       quantity: 1, configuration: { parts: [{ part_id: "part-plate", material_id: "stock-6061-125" }] } }] } });
-    expect(outcome).toMatchObject({ state: "ready", stock: { materialId: "stock-6061-125", thicknessIn: 0.125 },
-      offer: { quantity: 1, unitPriceUsd: 43.21, totalPriceUsd: 43.21, validUntil: null } });
+    expect(outcome).toMatchObject({ state: "ready",
+      stock: { materialId: "stock-6061-125", thicknessIn: 0.125, label: "Aluminum 6061 T6", displayThickness: null },
+      offer: { quantity: 1, unitPriceUsd: 43.21, totalPriceUsd: 43.21, validUntil: null, totalCents: 4321,
+        fulfillment: { standardProductionDays: null, standardShipDate: null, expeditedOffered: false }, pricedComponents: [] } });
+  });
+
+  it("keeps RMFG's stated production estimate and price components as evidence", async () => {
+    const withFulfillment = { ...plateQuote,
+      fulfillment: { shipping_status: "destination_required", production: [
+        { speed: "standard", production_days: 5, estimated_ship_date: "2099-10-30" },
+        { speed: "expedited", production_days: 2, estimated_ship_date: "2099-10-27", surcharge_cents: 900 }] },
+      items: [{ ...plateQuote.items[0], line_items: [{ ...plateQuote.items[0].line_items[0],
+        breakdown: [{ type: "base", unit_amount_cents: 4321, amount_cents: 4321 }] }] }] };
+    expect(await runRmfgQuoteOnly(stockInput, plateFixture({ quote: withFulfillment }).transport)).toMatchObject({
+      state: "ready", offer: { leadTimeBusinessDays: null, pricedComponents: ["base"],
+        fulfillment: { standardProductionDays: 5, standardShipDate: "2099-10-30", expeditedOffered: true } } });
   });
 
   it.each([

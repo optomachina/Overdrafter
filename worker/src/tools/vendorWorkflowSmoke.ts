@@ -978,6 +978,8 @@ const SAFE_EVALUATION_PAYLOAD_KEYS = new Set([
   "fabworksState",
   "oshcutState",
   "sendCutSendState",
+  "rmfgState",
+  "rmfgEvidence",
   "eligibilityReason",
 ]);
 

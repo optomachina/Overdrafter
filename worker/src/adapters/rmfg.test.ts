@@ -418,6 +418,15 @@ describe("RMFG live evaluation with a stated stock (OVD-1057)", () => {
     });
     expect(assertProviderAdapterContract({ definition: RMFG_CONTRACT, adapterInput, output }))
       .toMatchObject({ ok: true, terminalState: "offers_extracted" });
+    // Labels and figures a reviewer can check, and no RMFG IDs.
+    const evidence = output.rawPayload.rmfgEvidence;
+    expect(evidence).toEqual({
+      stock: { label: "Aluminum 6061 T6", displayThickness: null, thicknessIn: 0.125 }, stockOffered: null,
+      dfmStatus: "ready", dfmIssueCodes: [], requirementCodes: [], totalCents: 4321,
+      excludes: ["shipping", "tax", "cart_minimum_order"],
+      fulfillment: { standardProductionDays: null, standardShipDate: null, expeditedOffered: false }, pricedComponents: [],
+    });
+    expect(JSON.stringify(evidence)).not.toMatch(/stock-6061|quote-plate|design-plate|part-plate/);
   });
 
   it("sends the captured bytes under operation specific idempotency keys", async () => {
