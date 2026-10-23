@@ -10,7 +10,7 @@ const dockerTests = [...preflight.match(/docker_only_tests=\(([\s\S]*?)\)/)[1].m
 const bashPath = process.env.PATH.split(":").map((dir) => join(dir, "bash")).find(existsSync);
 const dirnamePath = process.env.PATH.split(":").map((dir) => join(dir, "dirname")).find(existsSync);
 
-function runPreflight({ docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false } = {}) {
+function runPreflight({ args = ["test"], docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false, stderr = "" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ovd909-preflight-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -35,13 +35,13 @@ function runPreflight({ docker = "available", ci = false, githubActions = false,
     if (inheritedDockerUnavailable) env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE = "1";
     if (ci) env.CI = "true";
     if (githubActions) env.GITHUB_ACTIONS = "true";
-    const result = spawnSync(bashPath, [preflightPath, "test"], { env, encoding: "utf8", stdio: "pipe" });
+    const result = spawnSync(bashPath, [preflightPath, ...args], { env, encoding: "utf8", stdio: "pipe" });
     expect(result.error).toBeUndefined();
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toBe(stderr);
     return {
       status: result.status,
       output: result.stdout,
-      npmCalls: readFileSync(callsPath, "utf8"),
+      npmCalls: existsSync(callsPath) ? readFileSync(callsPath, "utf8") : "",
       dockerCalls: existsSync(probePath) ? readFileSync(probePath, "utf8") : "",
     };
   } finally {
@@ -123,5 +123,37 @@ describe("preflight local Docker skips", () => {
 
   it("retains failure status and the skipped count when npm fails", () => {
     expectSkipped(runPreflight({ docker: "missing", npmStatus: 1 }), true);
+  });
+});
+
+describe("preflight stage arguments", () => {
+  it("passes arguments after -- to the one stage and keeps the stage lines", () => {
+    const result = runPreflight({ args: ["test", "--", "--shard=2/3"], ci: true });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test -- --shard=2/3\nunset\n");
+    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
+  });
+
+  it("prints the FAIL line a rerun classifier needs when a shard fails", () => {
+    const result = runPreflight({ args: ["test", "--", "--shard=1/3"], ci: true, npmStatus: 1 });
+    expect(result.status).toBe(1);
+    expect(result.output).toBe("preflight: test start\npreflight: test FAIL\n");
+  });
+
+  it("keeps the local Docker skip when arguments are passed", () => {
+    const result = runPreflight({ args: ["test", "--", "--shard=3/3"], docker: "missing" });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test -- --shard=3/3\n1\n");
+    expect(result.output).toContain("preflight: test PASS (3 docker tests SKIPPED: docker unavailable)\n");
+  });
+
+  it.each([
+    [["lint", "test", "--", "--shard=1/3"]],
+    [["--", "--shard=1/3"]],
+  ])("rejects arguments after -- unless exactly one stage is named: %j", (args) => {
+    const result = runPreflight({ args, ci: true, stderr: "preflight: arguments after -- need exactly one stage\n" });
+    expect(result.status).toBe(2);
+    expect(result.npmCalls).toBe("");
+    expect(result.output).toBe("");
   });
 });

@@ -3,6 +3,8 @@
 # Locally, when Docker is unavailable, test skips three Docker-dependent cases; CI never skips
 # (a non-empty CI or GITHUB_ACTIONS disables the skip).
 # Usage: scripts/preflight.sh [lint|typecheck|test ...]   (no args runs all three)
+#        scripts/preflight.sh <stage> -- <args>   (passes args to that one stage,
+#        e.g. test -- --shard=1/3 as the CI unit shards do)
 # Exit codes: 0 pass, 1 code failure, 2 usage error. Each stage prints a
 # "preflight: <stage> PASS|FAIL" line so logs separate code failures from
 # infra failures (install, network, runner), which fail before any stage starts.
@@ -11,9 +13,23 @@ unset OVD_PREFLIGHT_DOCKER_UNAVAILABLE
 
 cd "$(dirname "$0")/.."
 
-stages=("$@")
+stages=()
+stage_args=()
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--" ]; then
+    shift
+    stage_args=("$@")
+    break
+  fi
+  stages+=("$1")
+  shift
+done
 if [ ${#stages[@]} -eq 0 ]; then
   stages=(lint typecheck test)
+fi
+if [ ${#stage_args[@]} -gt 0 ] && [ ${#stages[@]} -ne 1 ]; then
+  echo "preflight: arguments after -- need exactly one stage" >&2
+  exit 2
 fi
 
 docker_only_tests=(
@@ -37,15 +53,19 @@ for stage in "${stages[@]}"; do
   esac
   echo "preflight: $stage start"
   summary=""
+  npm_args=(run --silent "$stage")
+  if [ ${#stage_args[@]} -gt 0 ]; then
+    npm_args+=(-- "${stage_args[@]}")
+  fi
   if [ "$stage" = test ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ] && docker_unavailable; then
     for test_name in "${docker_only_tests[@]}"; do
       echo "preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > $test_name (docker unavailable)"
     done
     summary=" (${#docker_only_tests[@]} docker tests SKIPPED: docker unavailable)"
-    OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1 npm run --silent "$stage"
+    OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1 npm "${npm_args[@]}"
     result=$?
   else
-    npm run --silent "$stage"
+    npm "${npm_args[@]}"
     result=$?
   fi
   if [ "$result" -eq 0 ]; then
