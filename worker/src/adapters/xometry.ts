@@ -3506,6 +3506,10 @@ export class XometryAdapter extends VendorAdapter {
           {
             vendor: "xometry",
             reason: quantityFailure.reason,
+            // OVD-1052: a price-capture refusal on the quote page is a finite stop.
+            terminalState: quantityFailure.reason === "quantity_mismatch"
+              ? "configuration_required"
+              : "selector_drift",
             requestedQuantity: normalizedQuantity(input),
             observedLineItemQuantities: quantityFailure.values,
             lineItemQuantitySelector: quantityFailure.selector,

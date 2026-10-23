@@ -44,6 +44,12 @@ export type XometryOfferSnapshot = {
   selector: string;
   text: string;
   tierText?: string;
+  /**
+   * OVD-1052: text of the struck-through list amount the card renders in
+   * [data-testid="part-discount"] (its <span>, before the "(Save $X)" note).
+   * Absent when the card has no such slot.
+   */
+  listPriceText?: string;
   attributes: Record<string, string>;
 };
 
@@ -90,6 +96,89 @@ const SAVINGS_AMOUNT = /\b(?:you\s+)?sav(?:e|es|ing|ings)\b[^\S\r\n]*(?:of\s*)?(
 function withoutSavings(text: string) {
   return text.replace(SAVINGS_AMOUNT, "");
 }
+/** One shown amount: `$146.80`, `USD $146.80` or `USD 146.80`. */
+const PRICE_TOKEN_SOURCE = String.raw`(?:\bUSD[^\S\r\n]*\$?|\$)[^\S\r\n]*([\d,]+(?:\.\d{2})?)`;
+/**
+ * A savings figure ("Save $45.55", "You save USD $45.55", "Savings: $45.55",
+ * "$45.55 off"). It is never an offer price; a "(" before it marks the note
+ * Xometry renders after a struck-through list total.
+ */
+const SAVINGS_FIGURE_SOURCE = String.raw`\b(?:you[^\S\r\n]+)?sav(?:e|es|ing|ings)\b[^\S\r\n]*(?:of[^\S\r\n]*|:[^\S\r\n]*)?${PRICE_TOKEN_SOURCE}|${PRICE_TOKEN_SOURCE}[^\S\r\n]*off\b`;
+
+/** Exact cents for a matched `1,234.56` amount; float parsing never decides equality. */
+function amountCents(value: string | undefined) {
+  const [whole = "", fraction = "00"] = (value ?? "").replaceAll(",", "").split(".");
+  if (!/^\d+$/.test(whole)) return null;
+  const cents = Number(whole) * 100 + Number(fraction);
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+function shownAmountCents(text: string) {
+  return [...text.matchAll(new RegExp(PRICE_TOKEN_SOURCE, "g"))].map((match) => amountCents(match[1]));
+}
+
+export type XometryDiscountFailure =
+  | "savings_ambiguous"
+  | "list_price_ambiguous"
+  | "list_price_unreconciled"
+  | "current_total_mismatch";
+
+type DiscountReconciliation =
+  | { ok: true; text: string; currentTotalCents: number | null }
+  | { ok: false; failure: XometryDiscountFailure };
+
+/**
+ * OVD-1052: a discounted Xometry tier shows its current total beside a
+ * struck-through list total and a savings note. On the captured quote page
+ * the list total is the <span> in [data-testid="part-discount"], followed by
+ * its note ("$146.80 (Save $45.55)" beside the current "$101.25"), but text
+ * order alone cannot say which amount the note belongs to. The list total is
+ * the DOM's part-discount amount when the collector read one, otherwise the
+ * one shown amount that sits exactly the savings above another shown amount.
+ * It is removed, and the caller requires the parsed total to equal list minus
+ * savings to the cent. Every other combination fails closed instead of risking
+ * the list total as the price. A standalone savings figure that matches no
+ * list amount is only dropped, as before.
+ */
+function reconcileDiscount(rawText: string, listPriceText: string | undefined): DiscountReconciliation {
+  const savings = [...rawText.matchAll(new RegExp(SAVINGS_FIGURE_SOURCE, "gi"))];
+  const text = rawText.replace(new RegExp(SAVINGS_FIGURE_SOURCE, "gi"), "");
+  if (savings.length === 0 && listPriceText === undefined) {
+    return { ok: true, text, currentTotalCents: null };
+  }
+  const savingsCents = new Set(savings.map((match) => amountCents(match[1] ?? match[2])));
+  if (savingsCents.size > 1) return { ok: false, failure: "savings_ambiguous" };
+  const [saved = null] = savingsCents;
+  if (saved === null || saved <= 0) return { ok: false, failure: "list_price_unreconciled" };
+  const notedListPrice = savings.some((match) => /\([^\S\r\n]*$/.test(rawText.slice(0, match.index)));
+
+  const shown = new Set(shownAmountCents(text).filter((cents): cents is number => cents !== null));
+  let listCents: number;
+  if (listPriceText === undefined) {
+    const candidates = [...shown].filter((cents) => shown.has(cents - saved));
+    if (candidates.length > 1) return { ok: false, failure: "list_price_ambiguous" };
+    if (candidates.length === 0) {
+      return notedListPrice
+        ? { ok: false, failure: "list_price_unreconciled" }
+        : { ok: true, text, currentTotalCents: null };
+    }
+    listCents = candidates[0];
+  } else {
+    const domAmounts = shownAmountCents(listPriceText);
+    if (domAmounts.length !== 1 || domAmounts[0] === null || !shown.has(domAmounts[0])) {
+      return { ok: false, failure: "list_price_unreconciled" };
+    }
+    listCents = domAmounts[0];
+  }
+  const currentTotalCents = listCents - saved;
+  if (!shown.has(currentTotalCents)) return { ok: false, failure: "list_price_unreconciled" };
+  const withoutList = text.replace(
+    new RegExp(PRICE_TOKEN_SOURCE, "g"),
+    (token, value: string) => amountCents(value) === listCents ? "" : token,
+  );
+  return { ok: true, text: withoutList, currentTotalCents };
+}
+
 /** `$` amounts; symbol-less `USD 41.41` amounts count only when no `$` amount exists. */
 function amountSource(text: string) {
   return new RegExp(DOLLAR_AMOUNT_SOURCE).test(text) ? DOLLAR_AMOUNT_SOURCE : USD_CODE_AMOUNT_SOURCE;
@@ -265,7 +354,37 @@ function isExplicitlyUnavailable(snapshot: XometryOfferSnapshot) {
   return disabled || unavailableText;
 }
 
-function parseProviderLabel(snapshot: XometryOfferSnapshot) {
+/** Collapses spaces, including the no-break space after a tier icon. */
+function collapseInlineSpace(value: string) {
+  return value.replaceAll(/[^\S\r\n]+/g, " ");
+}
+
+/**
+ * OVD-1052: Xometry's current tier card names its tier in a header slot that
+ * precedes the [data-testid="tierAndLeadTime"] label, and that label now holds
+ * only the timing (synthetic fixture values: "Least Expensive" | "Arrives by
+ * Nov 3", "Standard" | "Arrives by Nov 6", "Fastest" | "Arrives by Oct 30").
+ * The earlier layout put "<Tier> - Lead Time: ..." inside the label itself.
+ * The header names the option only when it is one short word label, not a
+ * price, timing or sourcing statement; the caller also refuses a header name
+ * shared by two cards.
+ */
+function parseTierHeaderLabel(snapshot: XometryOfferSnapshot) {
+  const tierText = collapseInlineSpace(snapshot.tierText ?? "").trim();
+  if (!/^(?:lead\s+time|arrives?\s+by)\b/i.test(tierText) || tierText.includes(" - ")) {
+    return null;
+  }
+  const text = collapseInlineSpace(snapshot.text);
+  const headerEnd = text.indexOf(tierText);
+  if (headerEnd <= 0) return null;
+  const segments = text.slice(0, headerEnd).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (segments.length !== 1) return null;
+  const [label] = segments;
+  if (!/^[A-Za-z][A-Za-z '&/-]{0,39}$/.test(label)) return null;
+  return parseGeographicOrigin(label).source === "none" ? label : null;
+}
+
+function parseProviderLabel(snapshot: XometryOfferSnapshot, sharedHeaderLabels: ReadonlySet<string>) {
   const lines = [snapshot.tierText ?? "", snapshot.text]
     .flatMap((value) => value.split(/\r?\n/))
     .map((line) => line.trim())
@@ -283,6 +402,13 @@ function parseProviderLabel(snapshot: XometryOfferSnapshot) {
     if (tierLabel && !isPresentationBadge) {
       return tierLabel;
     }
+  }
+
+  // A header name that more than one card carries is a presentation badge,
+  // not the identity of either option.
+  const headerLabel = parseTierHeaderLabel(snapshot);
+  if (headerLabel && !sharedHeaderLabels.has(headerLabel.toLowerCase())) {
+    return headerLabel;
   }
 
   for (const line of lines) {
@@ -330,7 +456,9 @@ function getProviderId(
 /**
  * Normalizes Xometry tier containers without combining fields across options.
  * A discovered container with no anchored price fails the entire result so a
- * partially parsed provider response cannot be presented as complete.
+ * partially parsed provider response cannot be presented as complete. Every
+ * refusal declares a finite terminal state (OVD-1052), so a drifted quote page
+ * stops as selector drift instead of an unclassified adapter failure.
  */
 export function parseXometryOfferSnapshots(input: {
   snapshots: XometryOfferSnapshot[];
@@ -343,13 +471,19 @@ export function parseXometryOfferSnapshots(input: {
     ? PROVIDER_CATALOG.xometry.quoteCurrency
     : input.registryCurrency;
   const availableSnapshots = input.snapshots.filter((snapshot) => !isExplicitlyUnavailable(snapshot));
+  const headerLabels = availableSnapshots
+    .map((snapshot) => parseTierHeaderLabel(snapshot)?.toLowerCase())
+    .filter((label): label is string => Boolean(label));
+  const sharedHeaderLabels = new Set(
+    headerLabels.filter((label, index) => headerLabels.indexOf(label) !== index),
+  );
   const offers = availableSnapshots.map((snapshot, index) => {
     const currency = currencyEvidence(snapshot.text, registryCurrency);
     if (currency.unverified) {
       throw new VendorAutomationError(
         "A Xometry option used bare dollar prices without a USD registry currency.",
         "unexpected_ui_state",
-        { vendor: "xometry", reason: "price_currency_unverified",
+        { vendor: "xometry", reason: "price_currency_unverified", terminalState: "unsupported",
           containerSelector: snapshot.selector, optionIndex: index, registryCurrency,
           observedCurrencies: currency.observedCurrencies,
           providerText: snapshot.text.slice(0, 1000) },
@@ -359,13 +493,27 @@ export function parseXometryOfferSnapshots(input: {
       throw new VendorAutomationError(
         "A Xometry option did not establish exclusively USD prices.",
         "unexpected_ui_state",
-        { vendor: "xometry", reason: "xometry_offer_currency_untrusted",
+        { vendor: "xometry", reason: "xometry_offer_currency_untrusted", terminalState: "unsupported",
           containerSelector: snapshot.selector, optionIndex: index,
           observedCurrencies: currency.observedCurrencies,
           providerText: snapshot.text.slice(0, 1000) },
       );
     }
-    const prices = parsePrices(snapshot.text, input.requestedQuantity);
+    const discountFailure = (failure: XometryDiscountFailure) => new VendorAutomationError(
+      "A Xometry option's list price and savings note did not reconcile to one current total.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "xometry_offer_discount_unreconciled",
+        terminalState: "selector_drift",
+        discountFailure: failure,
+        containerSelector: snapshot.selector,
+        optionIndex: index,
+      },
+    );
+    const discount = reconcileDiscount(snapshot.text, snapshot.listPriceText);
+    if (!discount.ok) throw discountFailure(discount.failure);
+    const prices = parsePrices(discount.text, input.requestedQuantity);
     if (prices === null) {
       throw new VendorAutomationError(
         "A Xometry option container did not expose an anchored price.",
@@ -373,6 +521,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_price_missing",
+          terminalState: "selector_drift",
           containerSelector: snapshot.selector,
           optionIndex: index,
         },
@@ -388,6 +537,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: quantityFailure.reason,
+          terminalState: quantityFailure.reason === "quantity_mismatch" ? "configuration_required" : "selector_drift",
           requestedQuantity: input.requestedQuantity,
           observedQuantity: quantityFailure.observedQuantity,
           observedUnitPriceUsd: prices.unitPriceExplicit ? prices.unitPriceUsd : null,
@@ -397,8 +547,14 @@ export function parseXometryOfferSnapshots(input: {
         },
       );
     }
+    if (
+      discount.currentTotalCents !== null
+      && Math.round(prices.totalPriceUsd * 100) !== discount.currentTotalCents
+    ) {
+      throw discountFailure("current_total_mismatch");
+    }
 
-    const providerLabel = parseProviderLabel(snapshot)
+    const providerLabel = parseProviderLabel(snapshot, sharedHeaderLabels)
       ?? (availableSnapshots.length === 1 ? "Xometry option" : null);
     if (providerLabel === null) {
       throw new VendorAutomationError(
@@ -407,6 +563,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_tier_missing",
+          terminalState: "selector_drift",
           containerSelector: snapshot.selector,
           optionIndex: index,
         },
@@ -421,6 +578,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_identifier_missing",
+          terminalState: "selector_drift",
           containerSelector: snapshot.selector,
           optionIndex: index,
         },
@@ -436,6 +594,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_timing_missing",
+          terminalState: "selector_drift",
           containerSelector: snapshot.selector,
           optionIndex: index,
         },
@@ -478,6 +637,7 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "duplicate_xometry_offer_identifier",
+          terminalState: "selector_drift",
           providerOptionId: offer.providerOptionId,
         },
       );
@@ -503,6 +663,45 @@ async function readAttributes(locator: Locator) {
   }, {});
 }
 
+const TIER_LABEL_SELECTOR = '[data-testid="tierAndLeadTime"]';
+const OFFER_CONTAINER_LIST_SELECTOR = XOMETRY_LOCATORS.offerContainers.join(", ");
+const LIST_PRICE_SELECTOR = '[data-testid="part-discount"] > span';
+
+/**
+ * OVD-1052: an option container scopes exactly one tier. The part card's drag
+ * handle (#draggable-parts > div[role=button][tabindex=0]) matches the
+ * role=button container selector but wraps every tier card, so a candidate
+ * that holds another option container or more than one tier label is a
+ * wrapper, not an option. A count the page cannot answer keeps the candidate.
+ */
+async function wrapsOtherOptions(option: Locator) {
+  try {
+    const [nestedContainers, tierLabels] = await Promise.all([
+      option.locator(OFFER_CONTAINER_LIST_SELECTOR).count(),
+      option.locator(TIER_LABEL_SELECTOR).count(),
+    ]);
+    return nestedContainers > 0 || tierLabels > 1;
+  } catch {
+    return false;
+  }
+}
+
+/** Every struck-through list amount the card shows, or undefined when it has none. */
+async function readListPriceText(option: Locator) {
+  try {
+    const listPrices = option.locator(LIST_PRICE_SELECTOR);
+    const count = await listPrices.count();
+    if (count === 0) return undefined;
+    const texts: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      texts.push((await listPrices.nth(index).innerText()).trim());
+    }
+    return texts.join("\n");
+  } catch {
+    return undefined;
+  }
+}
+
 /** Collect every distinct supported Xometry tier container in provider order. */
 export async function collectXometryOffers(
   page: Page,
@@ -520,8 +719,9 @@ export async function collectXometryOffers(
       const option = locator.nth(index);
       const text = (await option.innerText().catch(() => "")).trim();
       if (!text) continue;
+      if (await wrapsOtherOptions(option)) continue;
       const tierText = (await option
-        .locator('[data-testid="tierAndLeadTime"]')
+        .locator(TIER_LABEL_SELECTOR)
         .first()
         .innerText()
         .catch(() => ""))
@@ -545,7 +745,14 @@ export async function collectXometryOffers(
       const fingerprint = `${attributes["data-option-id"] ?? attributes.id ?? ""}\n${text}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
-      snapshots.push({ selector, text, tierText: tierText || undefined, attributes });
+      const listPriceText = await readListPriceText(option);
+      snapshots.push({
+        selector,
+        text,
+        tierText: tierText || undefined,
+        ...(listPriceText === undefined ? {} : { listPriceText }),
+        attributes,
+      });
       if (observedSnapshots && observedAttributes) {
         observedSnapshots.push({ selector, text, tierText: tierText || undefined, attributes: observedAttributes });
       }

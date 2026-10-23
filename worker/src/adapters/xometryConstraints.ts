@@ -164,6 +164,10 @@ export const XOMETRY_LOCATORS = {
     '[data-testid*="line-item" i] [data-testid*="quantity" i] input',
     '[data-testid*="part-row" i] [data-testid*="quantity" i] input',
     'input[aria-label="Quantity"]',
+    // OVD-1052: the current part row labels its quantity stepper with a
+    // sibling <span>Quantity</span>; the number input has no aria-label. The
+    // label anchors this to the part row, never a stray number input.
+    'div:has(> span:text-is("Quantity")) > div > input[type="number"]',
   ],
   // Current configuration controls. Material and finish are required inputs;
   // the adapter fails closed when it cannot apply the requested requirement.
