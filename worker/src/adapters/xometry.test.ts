@@ -1446,12 +1446,17 @@ describe("XometryAdapter", () => {
       xometryBrowserEngine: "playwright",
     });
     const input = await makeLiveEvaluationInput({ uploadCapabilityCheckpoint: vi.fn(passingUploadCapabilityCheckpoint) });
-    const failure = await makeLiveEvaluationAdapter(config).quote(input).catch((error: unknown) => error);
+    const adapter = makeLiveEvaluationAdapter(config);
+    const failure = await adapter.quote(input).catch((error: unknown) => error);
 
     // The fake page has no real uploader, so the run fails later; it must not fail as an expired session.
     expect(failure).not.toMatchObject({ code: "login_required" });
     expect(reads).toBeGreaterThan(3);
-    expect(config.xometryProfileSnapshotGeneration).toBe("41");
+    // The adapter keeps its own config copy: a quarantined snapshot would make the next quote refuse
+    // with profile_snapshot_unavailable before launching a browser.
+    const retry = await adapter.quote(input).catch((error: unknown) => error);
+    expect(retry).not.toMatchObject({ payload: { reason: "profile_snapshot_unavailable" } });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([undefined, "production_dispatch", "live_evaluation"] as const)(
