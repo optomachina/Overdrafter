@@ -98,6 +98,8 @@ test.describe("OVD-1032 both-theme rendered contrast", () => {
   test.use({ storageState: "playwright/.auth/client.json", viewport: { width: 1280, height: 900 } });
 
   test("keeps review, handoff, package and notification text readable in both themes", async ({ page }, testInfo) => {
+    // Two themes × five pages, each waiting up to 30 s for data; the 30 s default timed out on CI.
+    test.setTimeout(120_000);
     for (const theme of ["light", "dark"] as const) {
       await page.goto(PART_ROUTE);
       await page.evaluate((value) => localStorage.setItem("theme", value), theme);
@@ -133,6 +135,20 @@ test.describe("OVD-1032 both-theme rendered contrast", () => {
       const receipt = page.locator(".border").filter({ has: receiptHeading }).last();
       await expect(receipt).toBeVisible({ timeout: 30_000 });
       await measureSurface(page, receipt, `${theme}-package-selection-received`, testInfo);
+      const insetColors = await lowest.evaluate((card) => {
+        const probe = document.createElement("div");
+        probe.style.backgroundColor = "var(--muted)";
+        document.body.appendChild(probe);
+        try {
+          return { card: getComputedStyle(card).backgroundColor, muted: getComputedStyle(probe).backgroundColor };
+        } finally {
+          probe.remove();
+        }
+      });
+      expect(insetColors.card, `${theme}: package option card must use the --muted inset surface`).toBe(insetColors.muted);
+      const lowestMuted = lowest.locator(".text-muted-foreground");
+      await expect(lowestMuted.first()).toBeVisible();
+      await measureSurface(page, lowestMuted, `${theme}-package-option-muted-on-inset`, testInfo);
       const stats = page.locator("section").filter({ has: page.getByText("Best Price", { exact: true }) });
       await expect(stats.getByText("Selected", { exact: true })).toBeVisible();
       await measureSurface(page, stats, `${theme}-package-stat-strip`, testInfo);
