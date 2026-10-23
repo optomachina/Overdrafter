@@ -19,6 +19,7 @@ import {
 } from "./xometryAuthProbe.js";
 import type { PageFingerprint } from "./fixtureHeal/fingerprint.js";
 import type { BrowserContext } from "playwright";
+import anonymousQuoteHome from "./adapters/fixtures/xometry-anonymous-quote-home.json";
 
 function fakeProbeContext(input: {
   url?: string;
@@ -275,6 +276,32 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
     });
+  });
+
+  it.each([
+    ["", "anonymous_quote_home"],
+    [anonymousQuoteHome.errorBanner, "anonymous_quote_home"],
+    ["My Account", "anonymous_quote_home"],
+    ["Welcome back. Recent quotes", "authenticated_dashboard"],
+    ["My Account Part Library", "authenticated_dashboard"],
+    ["Sign in", "login_required"],
+    ["Sign in Verify you are human", "captcha"],
+    [`Welcome back ${anonymousQuoteHome.errorBanner}`, "provider_error"],
+    ["Welcome back Already have an account?", "anonymous_quote_home"],
+  ])("classifies the upload prompt with %s as %s", (extra, reason) => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/quoting/home/",
+      bodyText: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${extra}`,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: reason === "authenticated_dashboard", reason });
+  });
+
+  it("does not classify the upload prompt away from quote home as anonymous", () => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/resources/",
+      bodyText: anonymousQuoteHome.uploadPrompt,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: false, reason: "authenticated_dashboard_not_confirmed" });
   });
 
   it.each([

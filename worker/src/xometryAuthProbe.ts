@@ -303,10 +303,6 @@ export function classifyXometryAuthProbe(input: {
     return { authenticated: false, reason: "anonymous_quote_home" };
   }
 
-  if (signalPresent(input.bodyText, XOMETRY_LOCATORS.genericErrorSignals)) {
-    return { authenticated: false, reason: "provider_error" };
-  }
-
   const dashboardTextVisible = signalPresent(
     input.bodyText,
     XOMETRY_LOCATORS.dashboardSignals,
@@ -315,7 +311,21 @@ export function classifyXometryAuthProbe(input: {
     XOMETRY_LOCATORS.accountQuoteListSignals.every((pattern) =>
       pattern.test(input.bodyText),
     );
-  if (quoteHome && (dashboardTextVisible || accountQuoteListVisible)) {
+  const dashboardConfirmed = quoteHome && (dashboardTextVisible || accountQuoteListVisible);
+  // The anonymous prompt can coexist with an error banner or a real dashboard.
+  // Only absent dashboard evidence makes session recovery the actionable cause.
+  if (
+    quoteHome && !dashboardConfirmed &&
+    signalPresent(input.bodyText, XOMETRY_LOCATORS.anonymousUploadPromptSignals)
+  ) {
+    return { authenticated: false, reason: "anonymous_quote_home" };
+  }
+
+  if (signalPresent(input.bodyText, XOMETRY_LOCATORS.genericErrorSignals)) {
+    return { authenticated: false, reason: "provider_error" };
+  }
+
+  if (dashboardConfirmed) {
     return { authenticated: true, reason: "authenticated_dashboard" };
   }
 

@@ -7,6 +7,9 @@ export const XOMETRY_URLS = {
 
 export const XOMETRY_LOCATORS = {
   loginSignals: [/sign in/i, /log in/i, /continue with/i],
+  anonymousUploadPromptSignals: [
+    /upload a 3d model to see instant pricing, lead time, and dfm feedback/i,
+  ],
   anonymousQuoteHomeSignals: [
     /upload a 3d model to see instant pricing, lead time, and dfm feedback/i,
     /already have an account/i,

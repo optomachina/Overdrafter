@@ -359,6 +359,16 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
     return "login_required";
   }
 
+  const dashboardVisible =
+    isSignalPresent(input.text, XOMETRY_LOCATORS.dashboardSignals) ||
+    XOMETRY_LOCATORS.accountQuoteListSignals.every((pattern) => pattern.test(input.text));
+  if (
+    input.url.startsWith(XOMETRY_URLS.quoteHome) && !dashboardVisible &&
+    isSignalPresent(input.text, XOMETRY_LOCATORS.anonymousUploadPromptSignals)
+  ) {
+    return "login_required";
+  }
+
   if (isSignalPresent(input.text, XOMETRY_LOCATORS.genericErrorSignals)) {
     return "anti_detection_block";
   }
@@ -2743,6 +2753,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "captcha",
       {
         vendor: "xometry",
+        terminalState: "captcha",
         url: page.url(),
       },
       artifacts,
@@ -2759,6 +2770,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "login_required",
       {
         vendor: "xometry",
+        terminalState: "login_required",
         reason,
         url: page.url(),
         expectedLoginUrl: XOMETRY_URLS.login,
@@ -2774,6 +2786,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "anti_detection_block",
       {
         vendor: "xometry",
+        terminalState: "unavailable",
         url: page.url(),
         bodyExcerpt: excerptText(bodyText),
       },
@@ -2900,7 +2913,7 @@ export class XometryAdapter extends VendorAdapter {
         throw new VendorAutomationError(
           "Xometry snapshot mode requires a local profile directory.",
           "login_required",
-          { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+          { vendor: "xometry", terminalState: "login_required", reason: "profile_snapshot_unavailable" },
         );
       }
       return this.quoteWithoutSnapshotLock(input, allowLiveEvaluation);
@@ -2920,7 +2933,7 @@ export class XometryAdapter extends VendorAdapter {
           throw new VendorAutomationError(
             "Xometry profile snapshot ownership is unavailable; browser launch is blocked.",
             "login_required",
-            { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+            { vendor: "xometry", terminalState: "login_required", reason: "profile_snapshot_unavailable" },
           );
         }
         return withXometryProfileSnapshotLock(async () => {
@@ -3020,6 +3033,7 @@ export class XometryAdapter extends VendorAdapter {
         "login_required",
         {
           vendor: "xometry",
+          terminalState: "login_required",
           expectedLoginUrl: XOMETRY_URLS.login,
         },
       );
@@ -3034,6 +3048,7 @@ export class XometryAdapter extends VendorAdapter {
         "login_required",
         {
           vendor: "xometry",
+          terminalState: "login_required",
           reason: "profile_snapshot_unavailable",
         },
       );
