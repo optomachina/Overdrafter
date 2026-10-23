@@ -115,7 +115,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const result = await checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11" });
     expect(result.ok).toBe(true);
     expect(result.providerCount).toBe(9);
-    expect(result.enabledKeys).toEqual(["xometry", "fictiv", "quickparts", "rmfg"]);
+    expect(result.enabledKeys).toEqual(["xometry", "fictiv", "quickparts", "geomiq", "rmfg", "oshcut", "sendcutsend"]);
     expect([
       "provider-integrations/provider-registry.v1.json",
       "provider-integrations/*/manifest.v1.json",
@@ -217,11 +217,11 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).toBe(false);
   });
 
-  it.each(["xometry", "fictiv", "quickparts"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
+  it.each(["xometry", "fictiv", "quickparts", "geomiq", "oshcut", "sendcutsend"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
     const { document } = await readRepoMatrix();
     const row = document.providers.find((provider) => provider.key === key);
-    expect(row.tos_stance).toBe({ xometry: "prohibited", fictiv: "prior-consent", quickparts: "silent" }[key]);
-    expect(row.owner_override.recorded_on).toBe("2026-10-21");
+    expect(row.tos_stance).toBe({ xometry: "prohibited", fictiv: "prior-consent", quickparts: "silent", geomiq: "silent", oshcut: "silent", sendcutsend: "silent" }[key]);
+    expect(row.owner_override.recorded_on).toBe(["geomiq", "oshcut", "sendcutsend"].includes(key) ? "2026-10-22" : "2026-10-21");
     expect(row.written_permission).toBeNull();
     expect(row.replies).toEqual([]);
     expect(deriveEnabledForPaidAutomation(row)).toBe(true);
@@ -263,7 +263,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
       else expect(contract.properties[key].const).toBe(value);
     }
     expect(document.providers.filter((row) => row.owner_override).map((row) => row.key))
-      .toEqual(["xometry", "fictiv", "quickparts"]);
+      .toEqual(["xometry", "fictiv", "quickparts", "weerg", "geomiq", "oshcut", "sendcutsend"]);
     expect(() => validatePermissionsMatrixDocument(document, schema)).not.toThrow();
   });
 
