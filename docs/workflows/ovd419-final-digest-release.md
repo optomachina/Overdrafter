@@ -720,6 +720,12 @@ never forwarded; URLs, snapshot identifiers and other private fields stay out
 of this failure record. An earlier guard failure remains the sole diagnostic,
 and synchronous exit handling and failed logging still preserve rejection.
 
+For `authenticated_dashboard_not_confirmed`, the worker also writes one
+scrubbed `fixtureHealFingerprint` line to stderr. The guard neither reads nor
+forwards it. That result is possible site drift, not an expired session; turn
+the line into a drift result and start selector repair as described in
+[`docs/provider-integration.md`](../provider-integration.md#auth-probe-result-authenticated_dashboard_not_confirmed).
+
 Older `probe_result` records without this field do not identify which
 authentication outcome occurred. In particular, the sixth attempt's generic
 record cannot establish login expiry, CAPTCHA or another provider condition.

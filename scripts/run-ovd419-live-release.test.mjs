@@ -2284,6 +2284,26 @@ describe("OVD-419 generated regional pre-network guard", () => {
     expect(child.stderr.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))).toEqual([{ reason: "ovd419_guard_failed", stage: "probe_result", probeReason: "login_required" }]);
   });
 
+  it("keeps the bounded not-confirmed diagnostic when the worker also writes a drift fingerprint line", async () => {
+    const fixture = await generatedGuardFixture();
+    const fingerprintLine = JSON.stringify({ fixtureHealFingerprint: "fixture-page-fingerprint.v1", vocabularyDigest: "0123456789abcdef", trigger: "authenticated_dashboard_not_confirmed", fingerprint: null });
+    // Mirrors the worker: fingerprint on stderr, evidence on stdout, exitCode 1 without process.exit.
+    const workerResult = `guardState.started = true; guardState.executed = true; console.error(${JSON.stringify(fingerprintLine)}); console.log(JSON.stringify({ authenticated: false, reason: "authenticated_dashboard_not_confirmed", url: "private-url" })); process.exitCode = 1;`;
+    const source = 'globalThis.fetch = async () => { throw new Error("network_forbidden"); };\n' + fixture.emitted.replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', workerResult);
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", source], {
+      encoding: "utf8", timeout: 3000,
+      env: { ...ENV, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(fixture.expected)).toString("base64url") },
+    });
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(1);
+    expect(child.stdout).toBe("");
+    const jsonLines = child.stderr.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
+    expect(jsonLines).toEqual([
+      JSON.parse(fingerprintLine),
+      { reason: "ovd419_guard_failed", stage: "probe_result", probeReason: "authenticated_dashboard_not_confirmed" },
+    ]);
+  });
+
   it.each([0, 200, 600, "private-status"])("omits invalid diagnostic HTTP status %s", async (status) => {
     const fixture = await generatedGuardFixture((f) => { f.failAt = "job"; f.httpStatus = status; });
     await expect(fixture.run()).rejects.toThrow();
