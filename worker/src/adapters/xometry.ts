@@ -2879,29 +2879,51 @@ async function detectManualReview(page: Page, bodyText: string) {
  * OVD-1052: a card that shows text is also withdrawn when a line in its part
  * card (the child of #draggable-parts around it), outside every card, says
  * with a tier as its subject that the tier is unavailable ("Fastest is not
- * available for this part."), and the card's text starts with that tier name,
- * as the collector's checkPartCard withdraws it. Each text node is read as one
- * line. Otherwise the wait timed out on the unpriced card the collector would
- * withdraw, and the page was refused as pending.
+ * available for this part."), and the card's rendered text names that tier as
+ * a whole word. The lines are read as the collector's checkPartCard reads
+ * them: the part card's rendered text (innerText) with each card's rendered
+ * text cut out. So a statement split across elements or text nodes
+ * ("<strong>Fastest</strong> is not available") counts, and a hidden one does
+ * not. The collector withdraws only the card whose tier label the line names;
+ * a card that merely mentions that name is withdrawn here too, which can end
+ * the wait early, but the collector still reads that card and refuses the
+ * page if it is unpriced. Otherwise the wait timed out on the unpriced card
+ * the collector withdraws, and the page was refused as pending.
+ *
+ * OVD-1052: the price and timing a card must show are what the collector's
+ * parser reads: a "$" or "USD" amount (parsePrices), and "N business days",
+ * "Lead time: N days" (parseLeadTime) or an arrival date ("Arrives by Nov 3",
+ * "Receive by", "Delivery on"; parseArrivalText). A timed-out wait is refused
+ * as pending, so a card the parser prices but this predicate did not
+ * ("USD 101.25", "Lead Time: 7 Days") held a priced page pending.
  */
 export function xometryPriceTiersSettled(): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
   if (cards.length > 0) {
+    // Rendered text, as the collector reads it (Playwright's innerText).
+    const renderedCards = cards.map((card) => ((card as HTMLElement).innerText ?? "").trim());
     const statedUnavailable: string[] = [];
     let partCard: Element | null = cards[0];
     while (partCard && partCard.parentElement?.id !== "draggable-parts") partCard = partCard.parentElement;
-    if (partCard) {
-      // 4 is NodeFilter.SHOW_TEXT.
-      const outside = document.createTreeWalker(partCard, 4);
-      for (let node = outside.nextNode(); node; node = outside.nextNode()) {
-        if (cards.some((card) => card.contains(node))) continue;
-        const statement = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)\b/i
-          .exec((node.nodeValue ?? "").replaceAll(/\s+/g, " ").trim());
-        if (statement) statedUnavailable.push(statement[1].toLowerCase());
-      }
+    const partCardText = (partCard as HTMLElement | null)?.innerText ?? "";
+    // The part card's rendered lines outside every card, cut out as the
+    // collector's linesOutsideCards does; none when a card's text is not there.
+    const outside: string[] = [];
+    let cursor = 0;
+    for (const cardText of renderedCards) {
+      if (!cardText || cursor < 0) continue;
+      const at = partCardText.indexOf(cardText, cursor);
+      if (at >= 0) outside.push(partCardText.slice(cursor, at));
+      cursor = at < 0 ? -1 : at + cardText.length;
+    }
+    if (cursor >= 0) outside.push(partCardText.slice(cursor));
+    for (const line of outside.join("\n").split(/\r?\n/)) {
+      const statement = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)\b/i
+        .exec(line.replaceAll(/\s+/g, " ").trim());
+      if (statement) statedUnavailable.push(statement[1].toLowerCase());
     }
     let availableCardCount = 0;
-    for (const card of cards) {
+    for (const [index, card] of cards.entries()) {
       const parts: string[] = [];
       // 4 is NodeFilter.SHOW_TEXT.
       const walker = document.createTreeWalker(card, 4);
@@ -2923,19 +2945,22 @@ export function xometryPriceTiersSettled(): boolean {
       }
       const showsText = text.trim() !== "";
       const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
+      const renderedText = renderedCards[index].replaceAll(/\s+/g, " ").toLowerCase();
       const explicitlyUnavailable = withdrawn || (showsText && (
         card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
         || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text)
-        || statedUnavailable.some((name) =>
-          normalizedText.startsWith(name) && !/^[a-z0-9]/.test(normalizedText.slice(name.length)))
+        || statedUnavailable.some((name) => new RegExp(
+          String.raw`(?:^|[^a-z0-9])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?![a-z0-9])`,
+        ).test(renderedText))
       ));
       if (explicitlyUnavailable) continue;
       availableCardCount += 1;
-      const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
-      const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
-      const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
-      const hasTiming = hasBusinessDays || hasArrival;
-      if (!hasPrice || !hasTiming) return false;
+      // What parsePrices, parseLeadTime and parseArrivalText read.
+      const hasPrice = /\$\s*\d|\bUSD[^\S\r\n]*\d/.test(text);
+      const leadTimeText = normalizedText.replaceAll(":", "");
+      const hasLeadTime = /\b\d{1,4} (?:business|working) days?\b|\blead time \d{1,4} days?\b/.test(leadTimeText);
+      const hasArrival = /\b(?:arrives?|received?|delivery) (?:by|on) [a-z]+ \d{1,2}/.test(normalizedText);
+      if (!hasPrice || !(hasLeadTime || hasArrival)) return false;
     }
     return availableCardCount > 0;
   }

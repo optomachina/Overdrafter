@@ -5909,9 +5909,20 @@ describe("XometryAdapter", () => {
     });
 
     describe("price-tier readiness predicate", () => {
-      /** Runs the page-side predicate against a fixture document. */
-      function settledOn(html: string) {
-        const { document } = new JSDOM(html).window;
+      /**
+       * Runs the page-side predicate against a fixture document. jsdom has no
+       * innerText, so renderedText (the collector harness's innerText) stands
+       * in for it: the predicate and the collector read the same lines.
+       */
+      function settledOnDocument(document: Document) {
+        const view = document.defaultView;
+        if (!view) throw new Error("fixture document has no window");
+        Object.defineProperty(view.HTMLElement.prototype, "innerText", {
+          configurable: true,
+          get(this: HTMLElement) {
+            return renderedText(this);
+          },
+        });
         const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
         Object.defineProperty(globalThis, "document", { configurable: true, value: document });
         try {
@@ -5923,6 +5934,10 @@ describe("XometryAdapter", () => {
             Reflect.deleteProperty(globalThis, "document");
           }
         }
+      }
+
+      function settledOn(html: string) {
+        return settledOnDocument(new JSDOM(html).window.document);
       }
 
       const stripWhitespace = (html: string) => html.replaceAll(/>\s+</g, "><");
@@ -5954,6 +5969,22 @@ describe("XometryAdapter", () => {
         mutate(dom.window.document);
         return dom.serialize();
       }
+      /**
+       * The fixture document after a mutation, unserialized, so adjacent text
+       * nodes stay separate (serializing would merge them).
+       */
+      async function mutatedDocument(mutate: (document: Document) => void) {
+        const { document } = new JSDOM(await fs.readFile(fixturePath, "utf8")).window;
+        mutate(document);
+        return document;
+      }
+      /** What the collector publishes once the settle wait has passed. */
+      const settledOffers = async (mutate: (document: Document) => void) => offerSummary(
+        await collectXometryOffers(fixturePage(await loadCurrentQuotePage(mutate)), 1, undefined, {
+          priceTiersSettled: true,
+          pricingInProgress: false,
+        }),
+      );
       /** Removes the third card's price block, as a tier the page has not priced. */
       const unpriceThirdCard = (document: Document) => {
         const amounts = nthCard(document, 2).querySelector('[kind="discount"]');
@@ -6011,8 +6042,75 @@ describe("XometryAdapter", () => {
       });
 
       it.each([
+        ["an element around the tier name", (document: Document) => {
+          addToPanel("<p><strong>Fastest</strong> is not available for this part.</p>")(document);
+        }],
+        ["two text nodes", (document: Document) => {
+          const line = document.createElement("p");
+          line.append("Fastest", " is not available for this part.");
+          pricePanel(document).append(line);
+        }],
+        ["an element around the tier name, elsewhere in the part card", (document: Document) => {
+          addToPartCard(document, "<div><strong>Fastest</strong> is not available.</div>");
+        }],
+      ])("settles, as the collector withdraws it, on an unavailability line split across %s", async (_split, addLine) => {
+        const mutate = (document: Document) => {
+          unpriceThirdCard(document);
+          addLine(document);
+        };
+
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+        expect(await settledOffers(mutate)).toEqual(expectedTierOffers.slice(0, 2));
+      });
+
+      it("settles, as the collector withdraws it, when the named card shows a badge before its tier name", async () => {
+        const mutate = (document: Document) => {
+          const standard = nthCard(document, 1);
+          const amounts = standard.querySelector('[kind="discount"]');
+          const header = standard.querySelector('[scale="small"]');
+          if (!amounts || !header) throw new Error("fixture tier card lost its price block or header");
+          amounts.replaceChildren();
+          header.insertAdjacentHTML("beforebegin", "<div>Popular</div>");
+          addToPanel("<p>Standard is not available for this part.</p>")(document);
+        };
+
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+        expect(await settledOffers(mutate)).toEqual([expectedTierOffers[0], expectedTierOffers[2]]);
+      });
+
+      it.each([
+        ["a lead time in days", (document: Document) => {
+          for (const [index, label] of document.querySelectorAll('[data-testid="tierAndLeadTime"]').entries()) {
+            label.textContent = `Lead Time: ${[7, 5, 2][index]} Days`;
+          }
+        }],
+        ["a receive-by date", (document: Document) => {
+          const label = nthCard(document, 1).querySelector('[data-testid="tierAndLeadTime"]');
+          if (!label) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+          label.textContent = "Receive by Nov 6";
+        }],
+        ["USD amounts", (document: Document) => {
+          for (const card of tierCards(document)) {
+            // 4 is NodeFilter.SHOW_TEXT.
+            const walker = document.createTreeWalker(card, 4);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              node.nodeValue = (node.nodeValue ?? "").replaceAll("$", "USD ");
+            }
+          }
+        }],
+      ])("settles on cards whose price and timing the collector reads, shown as %s", async (_evidence, mutate) => {
+        expect(settledOn(await mutatedFixture(mutate))).toBe(true);
+        expect((await settledOffers(mutate)).map(({ id, total }) => ({ id, total })))
+          .toEqual(expectedTierOffers.map(({ id, total }) => ({ id, total })));
+      });
+
+      it.each([
         ["sits outside the part card", (document: Document) => {
           addToOrderSummary(document, "<div>Fastest is not available for this part.</div>");
+        }],
+        // The collector reads rendered lines, so it never withdraws a card on a hidden one.
+        ["is hidden", (document: Document) => {
+          addToPartCard(document, '<div style="display: none">Fastest is not available for this part.</div>');
         }],
         ["names a longer word", (document: Document) => addToPartCard(document, "<div>Fastestest is unavailable.</div>")],
         ["names a shorter word", (document: Document) => addToPartCard(document, "<div>Fast is unavailable.</div>")],
