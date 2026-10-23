@@ -20,10 +20,18 @@ export type FixturePageOptions = {
   pollOverheadMs?: number;
   /** Shared, ordered log of page actions; tests append kill-switch reads to the same log. */
   events?: FixturePageEvent[];
-  /** Runs before the default click behavior; throw to simulate a click Playwright could not complete. */
-  onClick?: (element: Element, page: FictivFixturePage) => void;
+  /**
+   * Runs before the default click behavior; throw to simulate a click Playwright
+   * could not complete, or return false for a click that resolves but does not
+   * take (the default activation is skipped).
+   */
+  onClick?: (element: Element, page: FictivFixturePage) => boolean | void;
   onSetInputFiles?: (element: Element, files: unknown, page: FictivFixturePage) => void;
+  /** Runs after a key press is recorded, as the page reacts to it (Enter in the quantity control, say). */
+  onPress?: (element: Element, key: string, page: FictivFixturePage) => void;
   onTick?: (page: FictivFixturePage) => void;
+  /** Runs when the adapter waits on a locator (no time passes), so a test can change the page at that moment. */
+  onWaitFor?: (label: string, page: FictivFixturePage) => void;
 };
 
 /** A non-opaque origin so jsdom never throws on storage access; nothing is ever fetched from it. */
@@ -31,8 +39,15 @@ const FIXTURE_ORIGIN = { url: "https://fixture.invalid/" };
 
 const SKIPPED_TEXT_PARENTS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
 
-/** Approximates Playwright's innerText: one line per text node, hidden subtrees and scripts skipped. */
+/**
+ * Approximates Playwright's innerText: one line per text node, hidden subtrees
+ * and scripts skipped. An element that is itself hidden is not rendered, so,
+ * as in a browser, its innerText is its whole text content.
+ */
 export function fixtureText(element: Element): string {
+  if (element.closest("[hidden]")) {
+    return (element.textContent ?? "").replaceAll(/\s+/g, " ").trim();
+  }
   const document = element.ownerDocument;
   const walker = document.createTreeWalker(element, 4 /* NodeFilter.SHOW_TEXT */);
   const lines: string[] = [];
@@ -45,13 +60,23 @@ export function fixtureText(element: Element): string {
   return lines.join("\n");
 }
 
-/** Playwright's `:has-text("…")` is not CSS; emulate it as a case-insensitive substring filter. */
+/**
+ * Playwright's `:has-text("…")` and `:text-is("…")` are not CSS; emulate them:
+ * `:has-text` as a case-insensitive substring filter, `:text-is` as a
+ * case-sensitive match of the element's whole, whitespace-normalized text.
+ */
 function queryAll(document: Document, selector: string): Element[] {
   const hasText = /^(.*):has-text\("([^"]*)"\)$/.exec(selector);
   if (hasText) {
     const needle = hasText[2].toLowerCase();
     return queryAll(document, hasText[1] || "*")
       .filter((element) => fixtureText(element).replaceAll("\n", " ").toLowerCase().includes(needle));
+  }
+  const textIs = /^(.*):text-is\("([^"]*)"\)$/.exec(selector);
+  if (textIs) {
+    const needle = textIs[2].replaceAll(/\s+/g, " ").trim();
+    return queryAll(document, textIs[1] || "*")
+      .filter((element) => fixtureText(element).replaceAll(/\s+/g, " ").trim() === needle);
   }
   try {
     return [...document.querySelectorAll(selector)];
@@ -70,7 +95,7 @@ export function describeFixtureElement(element: Element): string {
 }
 
 /** Clicking anywhere inside an Ant Design radio card's label checks that card, as a browser would. */
-function activateRadioCard(element: Element) {
+export function activateRadioCard(element: Element) {
   const card = element.closest("label.ant-radio-wrapper");
   if (!card) return;
   const group = card.closest(".ant-radio-group") ?? card.ownerDocument;
@@ -88,6 +113,8 @@ class FixtureLocator {
     private readonly label: string,
     private readonly resolve: () => Element[],
     private readonly narrowed: boolean,
+    /** The CSS selector of a `page.locator(…)`, so it can serve as a `has` / `hasNot` inner locator. */
+    readonly cssSelector: string | null = null,
   ) {}
 
   first() {
@@ -98,13 +125,18 @@ class FixtureLocator {
     return new FixtureLocator(this.page, `${this.label} >> nth=${index}`, () => this.resolve().slice(index, index + 1), true);
   }
 
-  filter(options: { hasText?: RegExp }) {
-    const hasText = options.hasText;
-    if (!hasText) return this;
+  /** Playwright's `hasNot` matches elements with no descendant matching the inner locator. */
+  filter(options: { hasText?: RegExp; hasNot?: FixtureLocator }) {
+    const { hasText, hasNot } = options;
+    if (hasNot && !hasNot.cssSelector) throw new Error("fixture hasNot needs a page.locator(selector)");
+    if (!hasText && !hasNot) return this;
     return new FixtureLocator(
       this.page,
-      `${this.label} >> has-text=${hasText.source}`,
-      () => this.resolve().filter((element) => hasText.test(fixtureText(element))),
+      [this.label, hasText && `has-text=${hasText.source}`, hasNot && `has-not=${hasNot.cssSelector}`]
+        .filter(Boolean).join(" >> "),
+      () => this.resolve().filter((element) =>
+        (!hasText || hasText.test(fixtureText(element)))
+        && (!hasNot || !element.querySelector(hasNot.cssSelector!))),
       this.narrowed,
     );
   }
@@ -126,14 +158,23 @@ class FixtureLocator {
     return this.single(true)!.getAttribute(name);
   }
 
+  async inputValue() {
+    const element = this.single(true)!;
+    if (!["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)) {
+      throw new Error(`Error: Node is not an <input>, <textarea> or <select> element (${this.label})`);
+    }
+    return (element as HTMLInputElement).value;
+  }
+
   async waitFor() {
+    this.page.options.onWaitFor?.(this.label, this.page);
     if (this.resolve().length === 0) throw new Error(`Timeout waiting for ${this.label}`);
   }
 
   async click() {
     const element = this.single(true)!;
     this.page.record("click", describeFixtureElement(element));
-    this.page.options.onClick?.(element, this.page);
+    if (this.page.options.onClick?.(element, this.page) === false) return;
     activateRadioCard(element);
   }
 
@@ -155,8 +196,14 @@ class FixtureLocator {
   }
 
   async press(key: string) {
-    this.single(true);
+    const element = this.single(true)!;
     this.page.record("press", key);
+    this.page.options.onPress?.(element, key, this.page);
+  }
+
+  /** Playwright's evaluate on the one element: the page function runs on the jsdom element. */
+  async evaluate<R, A>(pageFunction: (element: Element, arg: A) => R, arg: A) {
+    return pageFunction(this.single(true)!, arg);
   }
 
   /** Playwright actions are strict: an unnarrowed locator that matches several elements throws. */
@@ -196,6 +243,11 @@ export class FictivFixturePage {
     if (url) this.currentUrl = url;
   }
 
+  /** Change the address bar only, keeping the document, as a client-side route change can. */
+  setUrl(url: string) {
+    this.currentUrl = url;
+  }
+
   /** Clone one of the fixture's `<template data-fixture-template="…">` blocks into `target`. */
   showTemplate(name: string, target: Element) {
     const template = this.document.querySelector(`template[data-fixture-template="${name}"]`) as HTMLTemplateElement | null;
@@ -219,7 +271,7 @@ export class FictivFixturePage {
   }
 
   locator(selector: string) {
-    return new FixtureLocator(this, selector, () => queryAll(this.document, selector), false);
+    return new FixtureLocator(this, selector, () => queryAll(this.document, selector), false, selector);
   }
 
   getByRole(role: string, input: { name?: RegExp } = {}) {

@@ -5,23 +5,32 @@
   <title>Fictiv create a quote, process first (synthetic OVD-1053 fixture)</title>
   <!--
     Structure-only reconstruction of Fictiv's create-a-quote upload page
-    (/pages/quotes/upload) from a redacted local capture taken on 2026-10-23.
-    The capture itself is never committed. Kept: the hooks the adapter relies
-    on, namely the Ant Design steps, the process radio cards
-    (.ant-radio-wrapper and .ant-radio-wrapper-checked), and the lock icon
-    Fictiv renders inside each locked process card
+    (/pages/quotes/upload) from redacted local captures taken on 2026-10-23.
+    The captures themselves are never committed. Kept: the hooks the adapter
+    relies on, namely the Ant Design steps, the process radio cards
+    (.ant-radio-wrapper and .ant-radio-wrapper-checked) in their two groups,
+    and the lock icon Fictiv renders inside each locked process card
     (data-test-target="process-lock-icon"). Text is cut down to the step
-    titles and process names. There is no account, quote, file or contact data.
+    titles, process names and the page's standing helper text (the account
+    banner and the group labels). There is no account, quote, file or contact
+    data.
 
-    The capture was taken after the files were set, so the dropzone itself was
-    not observed. The "dropzone" template is a generic stand-in that only
-    asserts what the run proved: an input[type=file] in the right-hand panel
-    once a process is selected. The "progress" template reproduces the panel
-    that replaced it ("Uploading files (0/0)", 0%, "Creating new quote...").
+    The "dropzone" template is the panel the 02:46Z capture showed once CNC
+    Machining was selected, cut down: the hidden input[type=file] (accept list
+    shortened), Fictiv's select-files button and support link, and the
+    standing export-control notice under them, which begins "Uploading parts"
+    (OVD-1052 G1). The "progress" template reproduces the panel that replaced
+    it after the files were set ("Uploading files (0/0)", 0%, "Creating new
+    quote...").
   -->
 </head>
 <body>
   <section class="ant-layout">
+    <div class="bannerContainer">
+      <span role="img" aria-label="lock" class="anticon anticon-lock"></span>
+      <span class="title">Unlock full capabilities with a company email—get access to dedicated support and advanced features</span>
+      <button name="unlock-b2c-b2b-button" data-test-target="unlock-b2c-b2b-button" type="button" class="ant-btn ant-btn-primary ant-btn-sm"><span>Update company email</span></button>
+    </div>
     <div class="uploadPageWithSteps">
       <div class="ant-steps ant-steps-horizontal">
         <div class="ant-steps-item ant-steps-item-process ant-steps-item-active" data-fixture-step="process">
@@ -57,6 +66,9 @@
               <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-sheet-metal"><span class="ant-radio-inner"></span></span>
               <span><div class="processContainer"><span>Sheet Metal</span></div></span>
             </label>
+          </div>
+          <span>Quote available within 48 hours</span>
+          <div class="ant-radio-group ant-radio-group-outline">
             <label class="ant-radio-wrapper" data-fixture-process="injection">
               <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-injection"><span class="ant-radio-inner"></span></span>
               <span><div class="processContainer"><span>Injection Molding</span><span role="img" aria-label="lock" data-test-target="process-lock-icon" class="anticon anticon-lock"></span></div></span>
@@ -68,7 +80,15 @@
     </div>
   </section>
   <template data-fixture-template="dropzone">
-    <div data-fixture-panel="dropzone"><input type="file" multiple style="display: none"></div>
+    <div class="baseDropzone dropzoneMain" tabindex="0" data-fixture-panel="dropzone">
+      <input accept=".sldprt,.step,.stp,.x_t,.pdf" multiple type="file" autocomplete="off" tabindex="-1" style="display: none;">
+      <div class="dropzoneContent">
+        <div><span role="img" aria-label="cloud-upload" class="anticon anticon-cloud-upload"></span>Drag and drop your CAD models and drawings or</div>
+        <div><button name="select-files" data-test-target="select-files-quote-dropzone-page" data-placement="quote-dropzone-page" data-name="select-files" type="button" class="ant-btn ant-btn-primary"><span>Select files or folder to upload</span></button></div>
+        <div><a href="" data-name="fictiv-support-link">See all supported file types</a></div>
+        <div><span>Uploading parts subject to any export control regulations (eg. EAR, ITAR) is a violation of <a href="" data-name="fictiv-terms-service">Fictiv Terms of Service</a>.</span></div>
+      </div>
+    </div>
   </template>
   <template data-fixture-template="progress">
     <div class="progress-bar" data-fixture-panel="progress">
