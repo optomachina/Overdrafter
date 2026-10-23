@@ -20,12 +20,12 @@
     #draggable-parts > div[role="button"][tabindex="0"], which matches the
     role=button offer-container selector while wrapping every tier card.
 -->
-<html>
+<html lang="en">
 <head><title>Quote</title></head>
 <body>
 <div id="root">
   <div id="draggable-parts">
-    <div role="button" tabindex="0">
+    <div role="button" tabindex="0" onkeydown="return true">
       <div class="part-card">
         <div data-testid="part-card-title">
           <span>synthetic-bracket.step</span>
@@ -34,10 +34,10 @@
         </div>
         <div>
           <div>
-            <span>Quantity</span>
+            <span id="synthetic-quantity-label">Quantity</span>
             <div>
               <button type="button" disabled=""><i class="fal fa-minus"></i></button>
-              <input type="number" pattern="^[0-9]*$" value="1">
+              <input type="number" id="synthetic-quantity-input" aria-labelledby="synthetic-quantity-label" pattern="^[0-9]*$" value="1">
               <button type="button"><i class="fal fa-plus"></i></button>
             </div>
           </div>

@@ -737,12 +737,12 @@ const SHOWN_AMOUNT_SOURCE = String.raw`(?:\bUSD[^\S\r\n]*\$?|[$€£¥])[^\S\r\n
 function shownAmounts(text: string) {
   return [...text.matchAll(new RegExp(SHOWN_AMOUNT_SOURCE, "gi"))]
     .map((match) => match[0].replaceAll(/\s+/g, "").toUpperCase())
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function sameAmounts(left: readonly string[], right: readonly string[]) {
-  const sortedLeft = [...left].sort();
-  const sortedRight = [...right].sort();
+  const sortedLeft = [...left].sort((a, b) => a.localeCompare(b));
+  const sortedRight = [...right].sort((a, b) => a.localeCompare(b));
   return sortedLeft.length === sortedRight.length
     && sortedLeft.every((amount, index) => amount === sortedRight[index]);
 }
