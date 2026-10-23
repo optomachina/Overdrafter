@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fictiv create a quote, process first (synthetic OVD-1053 fixture)</title>
+  <!--
+    Structure-only reconstruction of Fictiv's create-a-quote upload page
+    (/pages/quotes/upload) from a redacted local capture taken on 2026-10-23.
+    The capture itself is never committed. Kept: the hooks the adapter relies
+    on, namely the Ant Design steps, the process radio cards
+    (.ant-radio-wrapper and .ant-radio-wrapper-checked), and the lock icon
+    Fictiv renders inside each locked process card
+    (data-test-target="process-lock-icon"). Text is cut down to the step
+    titles and process names. There is no account, quote, file or contact data.
+
+    The capture was taken after the files were set, so the dropzone itself was
+    not observed. The "dropzone" template is a generic stand-in that only
+    asserts what the run proved: an input[type=file] in the right-hand panel
+    once a process is selected. The "progress" template reproduces the panel
+    that replaced it ("Uploading files (0/0)", 0%, "Creating new quote...").
+  -->
+</head>
+<body>
+  <section class="ant-layout">
+    <div class="uploadPageWithSteps">
+      <div class="ant-steps ant-steps-horizontal">
+        <div class="ant-steps-item ant-steps-item-process ant-steps-item-active" data-fixture-step="process">
+          <div class="ant-steps-item-title">
+            <h4 class="ant-typography">Select a process</h4>
+            <a class="ant-typography">How to configure for multiple processes</a>
+          </div>
+        </div>
+        <div class="ant-steps-item ant-steps-item-wait" data-fixture-step="upload">
+          <div class="ant-steps-item-title">
+            <h4 class="ant-typography">Upload your files</h4>
+            <button type="button" class="ant-btn"><span>New quote from Parts Library</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="fixture-columns">
+        <div class="processList">
+          <span>Instant quoting available</span>
+          <div class="ant-radio-group ant-radio-group-outline">
+            <label class="ant-radio-wrapper" data-fixture-process="cnc">
+              <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-cnc"><span class="ant-radio-inner"></span></span>
+              <span><div class="processContainer"><span>CNC Machining</span><ul><li>Mill | Lathe</li></ul></div></span>
+            </label>
+            <label class="ant-radio-wrapper" data-fixture-process="printing">
+              <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-printing"><span class="ant-radio-inner"></span></span>
+              <span><div class="processContainer"><span>3D Printing</span></div></span>
+            </label>
+            <label class="ant-radio-wrapper" data-fixture-process="urethane">
+              <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-urethane"><span class="ant-radio-inner"></span></span>
+              <span><div class="processContainer"><span>Urethane Casting</span><span role="img" aria-label="lock" data-test-target="process-lock-icon" class="anticon anticon-lock"></span></div></span>
+            </label>
+            <label class="ant-radio-wrapper" data-fixture-process="sheet-metal">
+              <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-sheet-metal"><span class="ant-radio-inner"></span></span>
+              <span><div class="processContainer"><span>Sheet Metal</span></div></span>
+            </label>
+            <label class="ant-radio-wrapper" data-fixture-process="injection">
+              <span class="ant-radio"><input type="radio" class="ant-radio-input" value="fixture-injection"><span class="ant-radio-inner"></span></span>
+              <span><div class="processContainer"><span>Injection Molding</span><span role="img" aria-label="lock" data-test-target="process-lock-icon" class="anticon anticon-lock"></span></div></span>
+            </label>
+          </div>
+        </div>
+        <div class="fixture-upload-panel" data-fixture-panel="upload"></div>
+      </div>
+    </div>
+  </section>
+  <template data-fixture-template="dropzone">
+    <div data-fixture-panel="dropzone"><input type="file" multiple style="display: none"></div>
+  </template>
+  <template data-fixture-template="progress">
+    <div class="progress-bar" data-fixture-panel="progress">
+      <span>Uploading files (0/0)</span>
+      <div class="ant-progress ant-progress-line"><span class="ant-progress-text">0%</span></div>
+      <span>Creating new quote...</span>
+    </div>
+  </template>
+</body>
+</html>

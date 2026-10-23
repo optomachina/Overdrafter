@@ -487,6 +487,16 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+/**
+ * The process-first create-a-quote page renders its process radio cards before
+ * any upload input, so the cards count as a rendered upload surface too.
+ */
+const UPLOAD_SURFACE_READY_SELECTORS = [
+  ...FICTIV_LOCATORS.uploadInputs,
+  ...FICTIV_LOCATORS.processRadioCards,
+  ...FICTIV_LOCATORS.processButtons,
+];
+
 async function waitForUploadSurfaceReady(page: Page, timeoutMs: number, runDir: string) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + timeoutMs;
@@ -496,7 +506,7 @@ async function waitForUploadSurfaceReady(page: Page, timeoutMs: number, runDir: 
   while (Date.now() < deadline) {
     await detectBlockingState(page, runDir);
 
-    for (const selector of [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons]) {
+    for (const selector of UPLOAD_SURFACE_READY_SELECTORS) {
       if (!attemptedSelectors.includes(selector)) {
         attemptedSelectors.push(selector);
       }
@@ -528,7 +538,7 @@ async function waitForUploadSurfaceReady(page: Page, timeoutMs: number, runDir: 
       vendor: "fictiv",
       failedSelector: FICTIV_LOCATORS.uploadInputs[0],
       attemptedSelectors,
-      nearbyAttributes: [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons],
+      nearbyAttributes: [...UPLOAD_SURFACE_READY_SELECTORS],
       sawUploadSurfaceSignal,
       bodyExcerpt: excerptText(lastBodyText),
       url: page.url(),
@@ -556,14 +566,34 @@ function portalStateSignalFor(state: Exclude<FictivPortalState, "unknown">, body
 /**
  * The "configure all parts" summary lingers after the prototype classification
  * click while Fictiv reprices (live: still shown after networkidle, replaced by
- * the final summary later), so it only counts as terminal once it holds for
- * this many consecutive polls (about 25 s live).
+ * the final summary later), and right after upload it can show while Fictiv's
+ * drawing-based auto configuration is still pending. In both waits it only
+ * counts as terminal once it holds for this many consecutive polls (about
+ * 25 s live), so the adapter never starts configuring, or reports
+ * configuration required, while Fictiv is still changing the quote.
  */
 const CONFIGURATION_REQUIRED_SETTLE_POLLS = 40;
 
-async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir: string) {
+/**
+ * OVD-1053: upload, quote creation, navigation to the quote, geometry analysis
+ * and the 40-poll settle above all happen inside the post-upload wait. On the
+ * single-action browser timeout (30 s) that sum overran the budget, so the run
+ * failed as selector drift before configuring anything (2026-10-23 live run,
+ * 36 s). The post-upload wait gets a budget of its own instead.
+ */
+const POST_UPLOAD_ANALYSIS_TIMEOUT_MS = 90_000;
+
+type FictivTerminalWaitPhase = "post_upload" | "post_configuration";
+
+async function waitForTerminalQuoteOutcome(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+  phase: FictivTerminalWaitPhase,
+) {
   const deadline = Date.now() + timeoutMs;
   let lastBodyText = "";
+  let lastState: FictivPortalState = "unknown";
   let configurationRequiredPolls = 0;
 
   while (Date.now() < deadline) {
@@ -571,6 +601,7 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
     lastBodyText = bodyText;
 
     const state = classifyPortalState(bodyText);
+    lastState = state;
     configurationRequiredPolls = state === "configuration_required" ? configurationRequiredPolls + 1 : 0;
     if (
       state === "in_progress" ||
@@ -588,16 +619,24 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
     } satisfies FictivTerminalOutcome;
   }
 
+  // A prompt that had not held for the full settle when the budget ran out may
+  // still be a reprice or auto configuration in flight, so it is not reported
+  // as configuration required. Keep the page that timed out: without it the
+  // failure cannot be told apart from analysis that is still running or a
+  // state no signal recognizes.
+  const artifacts = await capturePageArtifacts(page, runDir, `${phase}-timeout`).catch(() => []);
   throw new VendorAutomationError(
     "Fictiv quote did not reach a terminal state after upload.",
     "unexpected_ui_state",
     {
       vendor: "fictiv",
+      detectedFlow: phase === "post_upload" ? "upload_complete" : "configuration_complete",
+      reason: `${phase}_wait_ended_${lastState}`,
       url: page.url(),
       bodyExcerpt: excerptText(lastBodyText),
       inProgressSignals: FICTIV_LOCATORS.inProgressSignals.map((signal) => signal.source),
     },
-    [],
+    artifacts,
   );
 }
 
@@ -1543,7 +1582,12 @@ export class FictivAdapter extends VendorAdapter {
       await appendArtifacts(artifacts, page, runDir, "uploaded");
       await detectBlockingState(page, runDir);
 
-      await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
+      await waitForTerminalQuoteOutcome(
+        page,
+        Math.max(this.config.browserTimeoutMs, POST_UPLOAD_ANALYSIS_TIMEOUT_MS),
+        runDir,
+        "post_upload",
+      );
       await appendArtifacts(artifacts, page, runDir, "analysis-complete");
       // OVD-722: overlay close clicks follow a long poll; read the switch first.
       await input.providerKillSwitchCheckpoint?.("before_configure");
@@ -1582,6 +1626,7 @@ export class FictivAdapter extends VendorAdapter {
       page,
       this.config.browserTimeoutMs,
       runDir,
+      "post_configuration",
     );
 
     return {

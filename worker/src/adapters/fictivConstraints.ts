@@ -54,12 +54,13 @@ export const FICTIV_LOCATORS = {
     /creating new quote/i,
     /parts are being analyzed/i,
   ],
+  // 2026-10-23 step titles: "Select a process", "Upload your files".
   uploadSurfaceSignals: [
-    /upload your parts/i,
+    /upload your (?:parts|files)/i,
     /drag (?:and|&) drop/i,
     /drop files here/i,
-    /select process/i,
-    /choose process/i,
+    /select (?:a )?process/i,
+    /choose (?:a )?process/i,
   ],
   uploadInputs: [
     '[data-test-target*="upload"] input[type="file"]',
@@ -69,7 +70,10 @@ export const FICTIV_LOCATORS = {
     'input[type="file"]',
   ],
   processButtons: [
-    '[data-test-target*="process"]',
+    // Fictiv renders data-test-target="process-lock-icon" inside each locked
+    // process card (first one: Urethane Casting), so the bare substring match
+    // resolved to a lock icon and a click on it lands on that card's label.
+    '[data-test-target*="process"]:not([data-test-target*="lock"])',
     '[aria-label*="process" i]',
     'button:has-text("Process")',
     '[role="combobox"][aria-label*="process" i]',

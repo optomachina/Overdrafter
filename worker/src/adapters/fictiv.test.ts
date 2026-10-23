@@ -3,6 +3,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { launchMock } = vi.hoisted(() => ({
@@ -43,6 +45,12 @@ import {
 } from "./fictivConstraints";
 import { evaluateProviderAdapterContract, evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
 import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
+import {
+  describeFixtureElement,
+  FictivFixturePage,
+  fixtureText,
+  type FixturePageEvent,
+} from "../../test-support/fictivFixturePage";
 
 const tempDirs: string[] = [];
 
@@ -298,7 +306,7 @@ function createFakePage(options: FakePageOptions) {
   };
 }
 
-function createFakeBrowser(page: ReturnType<typeof createFakePage>) {
+function createFakeBrowser(page: ReturnType<typeof createFakePage> | FictivFixturePage) {
   const context = {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
@@ -1690,6 +1698,370 @@ describe("FictivAdapter", () => {
         resultClassification: "configuration_required",
         portalStateSignal: "configure all parts",
       });
+    });
+  });
+
+  describe("process-first upload page captured live on 2026-10-23 (OVD-1053)", () => {
+    // Structure-only fixture; the capture itself stays local (see the fixture's header).
+    const fixtureHtml = () => fs.readFile(
+      fileURLToPath(new URL("../../test-support/fixtures/fictiv-process-first-upload.html", import.meta.url)),
+      "utf8",
+    );
+    // The live landing capture was Fictiv's loading shell: the app renders after navigation.
+    const LOADING_SHELL = '<html><body><div data-role="react-content"></div><div>loading</div></body></html>';
+    const QUOTE_URL = "https://app.fictiv.com/pages/quotes/synthetic-quote";
+    // The 2026-10-23 capture ends before the quote page, so the quote page is
+    // modeled on the text states recorded live on 2026-10-15 (block above) and
+    // the adapter's existing price and lead-time hooks. The Checkout and Place
+    // order buttons are guards, not observed structure.
+    const AWAITING_CLASSIFICATION =
+      "Please configure all parts and select if these parts are for prototype or commercial use to receive a quote and lead times.";
+    const GUARD_BUTTONS = '<button type="button">Checkout</button><button type="button">Place order</button>';
+    const quotePage = (main: string) => `<html><body><main>${main}${GUARD_BUTTONS}</main></body></html>`;
+    const ANALYZING_PAGE = quotePage(
+      `<div>Analyzing parts (0/1)</div><div>50%</div><div>synthetic-part.step</div><div>Analyzing geometry...</div><div>${AWAITING_CLASSIFICATION}</div><div>Hang tight! Your parts are being analyzed &amp; configured...</div>`,
+    );
+    const AWAITING_PAGE = quotePage(
+      `<div>Parts have been configured based on your drawings!</div><div>CNC 6061 Aluminum</div><button type="button">Edit configuration</button><div>${AWAITING_CLASSIFICATION}</div>`,
+    );
+    // Modeled, not observed: the prompt and the configuration control are
+    // already shown while Fictiv is still applying the drawing-based auto
+    // configuration, which re-renders the quote when it lands.
+    const AUTO_CONFIGURING_PAGE = quotePage(
+      `<div>CNC</div><button type="button">Edit configuration</button><div>${AWAITING_CLASSIFICATION}</div>`,
+    );
+    const PRICED_PAGE = quotePage(
+      '<div>Select regional preference</div><div>Prototype</div>'
+      + '<div data-test-target="quote-level-lead-time-selected-option">Fastest<br>4 production days (USA or Mexico)</div>'
+      + '<div data-test-target="quote-level-lead-time-price-selected">Total USD $412.30</div>',
+    );
+    const UNRECOGNIZED_PAGE = quotePage("<div>synthetic-part.step</div>");
+
+    type Scenario = {
+      /** Simulated live cost of one poll beyond its 500 ms wait. */
+      pollOverheadMs?: number;
+      uploadingMs?: number;
+      analyzingMs?: number;
+      /** Show the prompt this long after analysis while auto configuration is still pending. */
+      autoConfiguringMs?: number;
+      /** Reprice this long after the adapter's first configuration click; null never reprices. */
+      repriceAfterMs?: number | null;
+      /** The page Fictiv shows once analysis ends. */
+      afterAnalysisPage?: string;
+      failFirstCncClick?: boolean;
+    };
+    type Stage =
+      | "loading" | "upload" | "uploading" | "analyzing" | "auto_configuring" | "awaiting" | "repricing" | "done";
+    type ClickRecord = { target: string; stage: Stage; at: number };
+
+    async function runProcessFirstQuote(scenario: Scenario = {}) {
+      const workerTempDir = await makeTempDir();
+      const clock = { now: 1_800_000_000_000 };
+      vi.spyOn(Date, "now").mockImplementation(() => clock.now);
+      const events: FixturePageEvent[] = [];
+      const html = await fixtureHtml();
+      let stage: Stage = "loading";
+      let stageEndsAt = Number.POSITIVE_INFINITY;
+      let cncClicks = 0;
+      let checkedAtUpload: string | null = null;
+      let uploadedAt = Number.NaN;
+      const clickLog: ClickRecord[] = [];
+      /** Polls (and other page waits) that saw the reprice still running. */
+      let repricingTicks = 0;
+
+      const page = new FictivFixturePage({
+        html: LOADING_SHELL,
+        url: "about:blank",
+        clock,
+        pollOverheadMs: scenario.pollOverheadMs ?? 100,
+        events,
+        onClick(element, fixturePage) {
+          clickLog.push({ target: describeFixtureElement(element), stage, at: clock.now });
+          const card = element.closest("label.ant-radio-wrapper")?.getAttribute("data-fixture-process");
+          if (card === "cnc") {
+            cncClicks += 1;
+            if (scenario.failFirstCncClick && cncClicks === 1) {
+              throw new Error("element click intercepted");
+            }
+          }
+          if (stage === "upload" && card) {
+            // Choosing a process completes step 1 and shows the upload panel.
+            const panel = fixturePage.document.querySelector('[data-fixture-panel="upload"]')!;
+            if (!panel.querySelector('input[type="file"]')) fixturePage.showTemplate("dropzone", panel);
+          }
+          if (stage === "awaiting" && scenario.repriceAfterMs !== null) {
+            stage = "repricing";
+            stageEndsAt = clock.now + (scenario.repriceAfterMs ?? 6_000);
+          }
+        },
+        onSetInputFiles(_element, _files, fixturePage) {
+          checkedAtUpload = fixturePage.document
+            .querySelector("label.ant-radio-wrapper-checked")
+            ?.getAttribute("data-fixture-process") ?? null;
+          fixturePage.showTemplate("progress", fixturePage.document.querySelector('[data-fixture-panel="upload"]')!);
+          stage = "uploading";
+          uploadedAt = clock.now;
+          stageEndsAt = clock.now + (scenario.uploadingMs ?? 2_000);
+        },
+        onTick(fixturePage) {
+          if (stage === "loading") {
+            fixturePage.render(html);
+            stage = "upload";
+          } else if (stage === "uploading" && clock.now >= stageEndsAt) {
+            fixturePage.render(ANALYZING_PAGE, QUOTE_URL);
+            stage = "analyzing";
+            stageEndsAt = clock.now + (scenario.analyzingMs ?? 15_000);
+          } else if (stage === "analyzing" && clock.now >= stageEndsAt && scenario.autoConfiguringMs) {
+            fixturePage.render(AUTO_CONFIGURING_PAGE);
+            stage = "auto_configuring";
+            stageEndsAt = clock.now + scenario.autoConfiguringMs;
+          } else if (
+            (stage === "analyzing" || stage === "auto_configuring") && clock.now >= stageEndsAt
+          ) {
+            // Auto configuration landing re-renders the quote, dropping anything set meanwhile.
+            fixturePage.render(scenario.afterAnalysisPage ?? AWAITING_PAGE);
+            stage = "awaiting";
+          } else if (stage === "repricing" && clock.now >= stageEndsAt) {
+            fixturePage.render(PRICED_PAGE);
+            stage = "done";
+          } else if (stage === "repricing") {
+            repricingTicks += 1;
+          }
+        },
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const providerKillSwitchCheckpoint = async (checkpoint: string) => {
+        events.push({ kind: "checkpoint", detail: checkpoint });
+      };
+      const adapter = new FictivAdapter("fictiv", makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }));
+      const stagedDrawingFile = {
+        originalName: "part.pdf",
+        localPath: path.resolve(".tmp/part.pdf"),
+        storageBucket: "job-files",
+        storagePath: "drawings/part.pdf",
+        trustedContentSha256: "f".repeat(64),
+      };
+      const outcome = await adapter.quote(makeInput({
+        requestedQuantity: 1,
+        stagedDrawingFile,
+        requirement: {
+          ...makeUnauthorizedInput().requirement,
+          material: "6061-T6 aluminum",
+          finish: "as machined",
+          quantity: 1,
+          quote_quantities: [1],
+        },
+        providerKillSwitchCheckpoint,
+      })).then(
+        (result) => ({ result, error: null }),
+        (error: unknown) => ({ result: null, error }),
+      );
+      return {
+        ...outcome,
+        events,
+        page,
+        clickLog,
+        checkedAtUpload: () => checkedAtUpload,
+        uploadedAt: () => uploadedAt,
+        repricingTicks: () => repricingTicks,
+      };
+    }
+
+    const MUTATIONS = new Set(["click", "set_input_files", "fill", "press"]);
+    /** Every provider-side action follows a kill switch read made after the previous action. */
+    function expectCheckpointBeforeEveryMutation(events: FixturePageEvent[]) {
+      let checkpointSinceLastMutation = false;
+      for (const event of events) {
+        if (event.kind === "checkpoint") {
+          checkpointSinceLastMutation = true;
+        } else if (MUTATIONS.has(event.kind)) {
+          expect(checkpointSinceLastMutation, `${event.kind} ${event.detail}`).toBe(true);
+          checkpointSinceLastMutation = false;
+        }
+      }
+    }
+    const clicked = (events: FixturePageEvent[]) =>
+      events.filter((event) => event.kind === "click").map((event) => event.detail);
+
+    it("keeps the adapter's process, lock and upload-step hooks pointed at the right elements", async () => {
+      const document = new JSDOM(await fixtureHtml(), { url: "https://fixture.invalid/" }).window.document;
+      const cards = [...document.querySelectorAll(FICTIV_LOCATORS.processRadioCards[0])];
+      expect(cards.filter((card) => /CNC\s*Machining/i.test(fixtureText(card)))
+        .map((card) => card.getAttribute("data-fixture-process"))).toEqual(["cnc"]);
+      // A process button hook must never resolve inside a process card: the
+      // first lock icon sits inside the Urethane Casting card's label.
+      for (const selector of FICTIV_LOCATORS.processButtons) {
+        let matches: Element[] = [];
+        try {
+          matches = [...document.querySelectorAll(selector)];
+        } catch {
+          continue; // Playwright-only syntax; no button carries "Process" here.
+        }
+        expect(matches.filter((element) => element.closest("label.ant-radio-wrapper")).map(describeFixtureElement), selector)
+          .toEqual([]);
+      }
+      const bodyText = fixtureText(document.body);
+      expect(FICTIV_LOCATORS.uploadSurfaceSignals.filter((signal) => signal.test(bodyText)).map((signal) => signal.source))
+        .toEqual(["upload your (?:parts|files)", "select (?:a )?process"]);
+    });
+
+    it("selects CNC, uploads the STEP and drawing, configures after analysis and returns the priced quote", async () => {
+      const { result, error, events, page, checkedAtUpload } = await runProcessFirstQuote();
+
+      // Before OVD-1053 upload, analysis and the 40-poll settle of the
+      // configure-all-parts prompt shared the 30 s browser timeout and ran out
+      // of time as selector drift (live: 36 s).
+      expect(error).toBeNull();
+      expect(result).toMatchObject({
+        status: "instant_quote_received",
+        totalPriceUsd: 412.3,
+        leadTimeBusinessDays: 4,
+        quoteUrl: QUOTE_URL,
+        rawPayload: {
+          selectedProcess: "CNC Machining",
+          uploadSelector: 'input[type="file"]',
+          resultClassification: "instant_quote",
+        },
+      });
+      expect(checkedAtUpload()).toBe("cnc");
+      expect(events.filter((event) => event.kind === "set_input_files")).toEqual([
+        { kind: "set_input_files", detail: "part.step,part.pdf" },
+      ]);
+      expect(clicked(events)).toEqual(["process-card:cnc", "button:Edit configuration"]);
+      expect(events.slice(0, 2)).toEqual([
+        { kind: "checkpoint", detail: "before_navigation" },
+        { kind: "goto", detail: FICTIV_URLS.upload },
+      ]);
+      const uploadIndex = events.findIndex((event) => event.kind === "set_input_files");
+      expect(events[uploadIndex - 1]).toEqual({ kind: "checkpoint", detail: "before_upload" });
+      expectCheckpointBeforeEveryMutation(events);
+      expect(page.visitedUrls).toEqual([FICTIV_URLS.upload]);
+
+      const labels = result!.artifacts.map((artifact) => artifact.label);
+      expect(labels).toEqual(["landing-dom", "uploaded-dom", "analysis-complete-dom", "configured-dom", "result-dom"]);
+      // The live "uploaded" capture had no file input and "Uploading files (0/0)":
+      // it is taken right after the files are set, while Fictiv creates the quote.
+      const uploadedHtml = await fs.readFile(result!.artifacts[1].localPath, "utf8");
+      expect(uploadedHtml).toContain("Uploading files (0/0)");
+      expect(uploadedHtml).toContain("Creating new quote...");
+      expect(new JSDOM(uploadedHtml).window.document.querySelectorAll('input[type="file"]')).toHaveLength(0);
+    });
+
+    it("waits out a post-upload timeline longer than the 30 s browser timeout before configuring", async () => {
+      // 6 s upload and quote creation, 20 s analysis, then the prompt for the
+      // full 40-poll settle: about 50 s, which only the post-upload budget fits.
+      const { result, error, events, clickLog, uploadedAt } = await runProcessFirstQuote({
+        uploadingMs: 6_000,
+        analyzingMs: 20_000,
+      });
+
+      expect(error).toBeNull();
+      expect(result).toMatchObject({
+        status: "instant_quote_received",
+        totalPriceUsd: 412.3,
+        leadTimeBusinessDays: 4,
+        rawPayload: { resultClassification: "instant_quote" },
+      });
+      const configureClick = clickLog.find((click) => click.target === "button:Edit configuration");
+      expect(configureClick?.stage).toBe("awaiting");
+      expect(configureClick!.at - uploadedAt()).toBeGreaterThan(30_000);
+      expect(clicked(events)).toEqual(["process-card:cnc", "button:Edit configuration"]);
+      expectCheckpointBeforeEveryMutation(events);
+    });
+
+    it("does not start configuring while drawing-based auto configuration is still pending", async () => {
+      // The prompt shows for about 13 polls before the auto configuration
+      // lands: past a short settle, inside the 40-poll one.
+      const { result, error, events, clickLog } = await runProcessFirstQuote({ autoConfiguringMs: 8_000 });
+
+      expect(error).toBeNull();
+      expect(result).toMatchObject({ status: "instant_quote_received", totalPriceUsd: 412.3 });
+      expect(clickLog.filter((click) => !click.target.startsWith("process-card:")))
+        .toEqual([expect.objectContaining({ target: "button:Edit configuration", stage: "awaiting" })]);
+      expect(clickLog.some((click) => click.stage === "auto_configuring")).toBe(false);
+      expectCheckpointBeforeEveryMutation(events);
+    });
+
+    it("does not report a post-configuration reprice that outlasts the budget as configuration_required", async () => {
+      // Slow polls (900 ms) fit about 34 polls in the 30 s post-configuration
+      // budget; the reprice outlasts it while staying under the 40-poll settle.
+      const { result, error, events, repricingTicks } = await runProcessFirstQuote({
+        pollOverheadMs: 400,
+        repriceAfterMs: 34_000,
+      });
+
+      expect(repricingTicks()).toBeGreaterThan(4);
+      expect(repricingTicks()).toBeLessThan(40);
+      expect(result).toBeNull();
+      expect(error).toBeInstanceOf(VendorAutomationError);
+      const failure = error as VendorAutomationError;
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          detectedFlow: "configuration_complete",
+          reason: "post_configuration_wait_ended_configuration_required",
+          url: QUOTE_URL,
+        },
+      });
+      expect(failure.artifacts.map((artifact) => artifact.label)).toContain("post_configuration-timeout-dom");
+      expect(clicked(events)).toEqual(["process-card:cnc", "button:Edit configuration"]);
+      expectCheckpointBeforeEveryMutation(events);
+    });
+
+    it("returns configuration_required when the prompt holds for the full settle after configuration", async () => {
+      const { result, error, events } = await runProcessFirstQuote({ repriceAfterMs: null });
+
+      expect(error).toBeNull();
+      expect(result).toMatchObject({
+        status: "manual_review_pending",
+        totalPriceUsd: null,
+        offers: [],
+        rawPayload: {
+          detectedFlow: "configuration_required",
+          resultClassification: "configuration_required",
+          portalStateSignal: "configure all parts",
+        },
+      });
+      expect(clicked(events)).toEqual(["process-card:cnc", "button:Edit configuration"]);
+      expectCheckpointBeforeEveryMutation(events);
+    });
+
+    it("never clicks a locked process card's lock icon when the CNC card click fails once", async () => {
+      const { result, error, events, checkedAtUpload } = await runProcessFirstQuote({ failFirstCncClick: true });
+
+      expect(error).toBeNull();
+      expect(result?.status).toBe("instant_quote_received");
+      expect(checkedAtUpload()).toBe("cnc");
+      expect(clicked(events).filter((target) => target.startsWith("process-card:")))
+        .toEqual(["process-card:cnc", "process-card:cnc"]);
+      expectCheckpointBeforeEveryMutation(events);
+    });
+
+    it("keeps the page and a non-sensitive reason when the post-upload wait runs out", async () => {
+      const { result, error, events } = await runProcessFirstQuote({ afterAnalysisPage: UNRECOGNIZED_PAGE });
+
+      expect(result).toBeNull();
+      expect(error).toBeInstanceOf(VendorAutomationError);
+      const failure = error as VendorAutomationError;
+      expect(failure.message).toBe("Fictiv quote did not reach a terminal state after upload.");
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          terminalState: "selector_drift",
+          detectedFlow: "upload_complete",
+          reason: "post_upload_wait_ended_unknown",
+          url: QUOTE_URL,
+        },
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "selector_drift" });
+      expect(failure.artifacts.map((artifact) => artifact.label))
+        .toEqual(["landing-dom", "uploaded-dom", "post_upload-timeout-dom"]);
+      expect(await fs.readFile(failure.artifacts[2].localPath, "utf8")).toContain("synthetic-part.step");
+      // Nothing is configured on a page no signal recognizes.
+      expect(clicked(events)).toEqual(["process-card:cnc"]);
     });
   });
 
