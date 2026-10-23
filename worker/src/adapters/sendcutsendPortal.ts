@@ -233,37 +233,57 @@ export function inspectSendCutSendFlatPlate(input: { fileName: string; buffer: B
     });
     const body = metadata.bodies[0];
     const box = body?.boundingBox;
-    if (!body || !box) return null;
-    const axes = ["x", "y", "z"] as const;
-    const thin = axes.reduce((best, axis) => (box.size[axis] < box.size[best] ? axis : best), "x" as (typeof axes)[number]);
-    const [u, v] = axes.filter((axis) => axis !== thin);
-    const tolerance = Math.max(box.size.x, box.size.y, box.size.z) * 1e-6;
-    const near = (a: number, b: number) => Math.abs(a - b) <= tolerance;
-    const positions = new Map<string, Vector3>(metadata.vertices.map((vertex) => [vertex.id, vertex.position]));
-    const cap = (position: Vector3) => near(position[thin], box.min[thin]) ? "low"
-      : near(position[thin], box.max[thin]) ? "high" : null;
-    const profile = (side: "low" | "high") => body.vertexIds
-      .map((id) => positions.get(id))
-      .filter((position): position is Vector3 => Boolean(position) && cap(position as Vector3) === side)
-      .map((position) => `${Math.round(position[u] / tolerance)}:${Math.round(position[v] / tolerance)}`)
-      .sort();
-    const vertices = body.vertexIds.map((id) => positions.get(id));
-    if (vertices.some((position) => !position || cap(position) === null)) return null;
-    const edges = metadata.edges.filter((edge) => body.edgeIds.includes(edge.id));
-    for (const edge of edges) {
-      const start = edge.startVertexId ? positions.get(edge.startVertexId) : undefined;
-      const end = edge.endVertexId ? positions.get(edge.endVertexId) : undefined;
-      if (!start || !end) return null;
-      if (cap(start) !== cap(end) && !(near(start[u], end[u]) && near(start[v], end[v]))) return null;
-    }
-    const low = profile("low");
-    const high = profile("high");
-    if (low.length < 3 || JSON.stringify(low) !== JSON.stringify(high)) return null;
+    if (!body || !box || body.vertexIds.length > MAX_FLAT_PLATE_VERTICES) return null;
     const inchesPerUnit = geometry.units === "millimeter" ? 1 / 25.4 : 1;
-    return box.size[thin] * inchesPerUnit;
+    // Scale-relative, but never looser than a ten-thousandth of an inch.
+    const tolerance = Math.min(Math.max(box.size.x, box.size.y, box.size.z) * 1e-6, 0.0001 / inchesPerUnit);
+    const positions = new Map<string, Vector3>(metadata.vertices.map((vertex) => [vertex.id, vertex.position]));
+    const vertices = body.vertexIds.map((id) => positions.get(id));
+    const edges = metadata.edges.filter((edge) => body.edgeIds.includes(edge.id))
+      .map((edge) => [edge.startVertexId ? positions.get(edge.startVertexId) : undefined,
+        edge.endVertexId ? positions.get(edge.endVertexId) : undefined] as const);
+    if (vertices.some((position) => !position) || edges.some(([start, end]) => !start || !end)) return null;
+    const thinnest = Math.min(box.size.x, box.size.y, box.size.z);
+    // Every axis tied for thinnest is a candidate extrusion direction.
+    const candidates = (["x", "y", "z"] as const).filter((axis) => box.size[axis] - thinnest <= tolerance);
+    const extruded = candidates.some((thin) => isStraightExtrusion(
+      thin, box, vertices as Vector3[], edges as ReadonlyArray<readonly [Vector3, Vector3]>, tolerance,
+    ));
+    return extruded ? thinnest * inchesPerUnit : null;
   } catch {
     return null;
   }
+}
+
+const MAX_FLAT_PLATE_VERTICES = 5_000;
+
+function isStraightExtrusion(
+  thin: "x" | "y" | "z",
+  box: { min: Vector3; max: Vector3 },
+  vertices: readonly Vector3[],
+  edges: ReadonlyArray<readonly [Vector3, Vector3]>,
+  tolerance: number,
+): boolean {
+  const [u, v] = (["x", "y", "z"] as const).filter((axis) => axis !== thin);
+  const near = (a: number, b: number) => Math.abs(a - b) <= tolerance;
+  const cap = (position: Vector3) => near(position[thin], box.min[thin]) ? "low"
+    : near(position[thin], box.max[thin]) ? "high" : null;
+  if (vertices.some((position) => cap(position) === null)) return false;
+  // Edges between the caps must run straight through the thickness (no taper or slope).
+  if (edges.some(([start, end]) => cap(start) !== cap(end) && !(near(start[u], end[u]) && near(start[v], end[v])))) {
+    return false;
+  }
+  // The cap profiles must match one-to-one within tolerance (no pocket, step or wedge).
+  const low = vertices.filter((position) => cap(position) === "low");
+  const high = vertices.filter((position) => cap(position) === "high");
+  if (low.length < 3 || low.length !== high.length) return false;
+  const unmatched = [...high];
+  for (const point of low) {
+    const match = unmatched.findIndex((other) => near(point[u], other[u]) && near(point[v], other[v]));
+    if (match < 0) return false;
+    unmatched.splice(match, 1);
+  }
+  return true;
 }
 
 /**
@@ -469,9 +489,16 @@ export async function extractSendCutSendSheetOffers(
   let streak: { key: string; since: number; reads: number } | null = null;
   let settled: { unit: string; total: string } | null = null;
   let last: SummaryRead = { kind: "pending" };
+  // While the dialog shows its loading overlay, quotes are still loading or
+  // repricing. The overlay is checked on both sides of the price read, so a
+  // read that overlaps the start of a reprice does not count.
+  const readWhenIdle = async (): Promise<SummaryRead> => {
+    if (await reader.count(locators.activeLoading) > 0) return { kind: "pending" };
+    const read = await readSummary(reader);
+    return await reader.count(locators.activeLoading) > 0 ? { kind: "pending" } : read;
+  };
   await within(waits.priceWaitMs ?? SENDCUTSEND_PRICE_WAIT_MS, async () => {
-    // While the dialog shows its loading overlay, quotes are still loading or repricing.
-    last = await reader.count(locators.activeLoading) > 0 ? { kind: "pending" } : await readSummary(reader);
+    last = await readWhenIdle();
     if (last.kind === "custom") return true;
     if (last.kind !== "priced") {
       streak = null;
@@ -506,6 +533,10 @@ export async function extractSendCutSendSheetOffers(
     throw terminal("selector_drift", "sendcutsend_price_arithmetic_mismatch", "the unit price and subtotal disagree");
   }
   await assertExactStockSelected(reader, walk);
+  const final = await readWhenIdle();
+  if (final.kind !== "priced" || final.unit !== unit || final.total !== total) {
+    throw terminal("selector_drift", "sendcutsend_price_pending", "the price changed after it settled");
+  }
   const shipDate = parseShipDate(await reader.readText(locators.shipDate));
   return [{
     providerOptionId: SENDCUTSEND_SHEET_STOCK.sku,

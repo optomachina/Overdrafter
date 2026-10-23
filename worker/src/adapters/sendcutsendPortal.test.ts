@@ -211,6 +211,25 @@ describe("SendCutSend sheet envelope", () => {
     });
   });
 
+  it("matches cap profiles by tolerance, not by a rounding grid", async () => {
+    const plate = await fs.readFile(PLATE_FIXTURE, "utf8");
+    // Tolerance here is 2.54e-5 mm. Shift the low cap by 0.45 and the high cap by 0.55 tolerances in x:
+    // the caps still match within tolerance, but a rounding grid would split them.
+    const tolerance = 25.4 * 1e-6;
+    const shifted = plate.replace(/CARTESIAN_POINT\('',\(([^)]*)\)\)/g, (_match: string, coordinates: string) => {
+      const [x, y, z] = coordinates.split(",").map(Number);
+      return `CARTESIAN_POINT('',(${x + (z > 0 ? 0.55 : 0.45) * tolerance},${y},${z}))`;
+    });
+    expect(shifted).not.toBe(plate);
+    expect(inspectSendCutSendFlatPlate({ fileName: "plate.step", buffer: Buffer.from(shifted) })).toBeCloseTo(0.125, 9);
+  });
+
+  it("accepts a straight extrusion when two dimensions tie for thinnest", async () => {
+    const plate = await fs.readFile(PLATE_FIXTURE, "utf8");
+    const bar = plate.replaceAll("6.35", "1.5875");
+    expect(inspectSendCutSendFlatPlate({ fileName: "bar.step", buffer: Buffer.from(bar) })).toBeCloseTo(0.125, 9);
+  });
+
   it("measures the thickness of a straight extrusion", async () => {
     const plate = await fs.readFile(PLATE_FIXTURE);
     expect(inspectSendCutSendFlatPlate({ fileName: "plate.step", buffer: plate })).toBeCloseTo(0.125, 9);
@@ -539,6 +558,36 @@ describe("SendCutSend summary price", () => {
     const [offer] = await extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 2_000, priceStableMs: 0 });
     expect(offer.unitPriceUsd.value).toBe(31.4);
     expect(polls).toBeGreaterThan(30);
+  });
+
+  it("does not count a read that a reprice started during", async () => {
+    // The overlay is absent before each read but appears before the read ends, for the first polls.
+    let checks = 0;
+    const base = fakeReader({ ...CRUMBS, [L.selectedSkuTitles]: [".125"] });
+    const reader: ProviderPortalReadCapability = {
+      ...base,
+      count: async (selector) => {
+        if (selector !== L.activeLoading) return base.count(selector);
+        checks += 1;
+        return checks < 20 && checks % 2 === 0 ? 1 : 0;
+      },
+      readTexts: async (selector) => selector === L.unitPrice || selector === L.totalPrice
+        ? [checks < 20 ? "$12.00" : "$31.40"]
+        : base.readTexts(selector),
+    };
+    const [offer] = await extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 2_000, priceStableMs: 0 });
+    expect(offer.unitPriceUsd.value).toBe(31.4);
+  });
+
+  it("withholds the offer when the price changes after it settled", async () => {
+    const reader = fakeReader({
+      ...CRUMBS,
+      [L.selectedSkuTitles]: [".125"],
+      [L.unitPrice]: [["$31.40"], ["$31.40"], ["$31.40"], ["$32.00"]],
+      [L.totalPrice]: [["$31.40"], ["$31.40"], ["$31.40"], ["$32.00"]],
+    });
+    await expect(extractSendCutSendSheetOffers(reader, 1, walked, FAST))
+      .rejects.toMatchObject({ payload: { reason: "sendcutsend_price_pending" } });
   });
 
   it("withholds the offer when the loading overlay never clears", async () => {
