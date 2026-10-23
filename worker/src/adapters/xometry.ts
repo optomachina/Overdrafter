@@ -2883,9 +2883,10 @@ async function detectManualReview(page: Page, bodyText: string) {
  * so, as a browser returns a display:none element's text content.
  *
  * OVD-1052: a card that shows text is also withdrawn when a line in the price
- * panel (the innermost element that encloses every card), outside every card,
- * says with a tier as its subject that the tier is unavailable ("Fastest is
- * not available for this part."), and one of the card's rendered lines is
+ * panel (the innermost element that encloses every card the page shows; a
+ * hidden copy elsewhere in the part card does not widen it), outside every
+ * card, says with a tier as its subject that the tier is unavailable ("Fastest
+ * is not available for this part."), and one of the card's rendered lines is
  * exactly that tier name, as its header slot shows it. The lines are read as
  * the collector's checkPartCard reads them: the panel's rendered text with
  * each card's rendered text cut out, and none at all when a card's text is not
@@ -2918,8 +2919,16 @@ export function xometryPriceTiersSettled(): boolean {
     });
     // Rendered text, as the collector reads it (Playwright's innerText).
     const renderedCards = shownCards.map((card) => ((card as HTMLElement).innerText ?? "").trim());
-    let panel = cards[0].parentElement;
-    while (panel && panel.querySelectorAll(".price-tier").length < cards.length) panel = panel.parentElement;
+    // The price panel: the innermost element around every card the page
+    // shows, as the collector's locatePricePanel finds it. A hidden copy is
+    // not counted, so it cannot widen the panel to the part card.
+    let panel = shownCards.length === 0 ? null : shownCards[0].parentElement;
+    while (
+      panel
+      && [...panel.querySelectorAll(".price-tier")].filter((card) => shownCards.includes(card)).length < shownCards.length
+    ) {
+      panel = panel.parentElement;
+    }
     const panelText = ((panel as HTMLElement | null)?.innerText ?? "").trim();
     // The panel's rendered lines outside every card, cut out as the
     // collector's linesOutside does; none when a card's text is not there.

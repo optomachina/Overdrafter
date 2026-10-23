@@ -4710,6 +4710,39 @@ describe("XometryAdapter", () => {
       firstCard(document).after(copy);
       hide(copy);
     };
+    /** The part card's Finish requirement, which reads "Finish: Standard". */
+    const finishRequirement = (document: Document) => {
+      const finish = document.querySelector('[data-testid="requirement-Finish"]');
+      if (!finish) throw new Error("fixture lost its Finish requirement");
+      return finish;
+    };
+    /** Adds markup right after the Finish requirement, beside the part's configuration. */
+    const addBesideFinish = (html: string) => (document: Document) => {
+      finishRequirement(document).insertAdjacentHTML("afterend", html);
+    };
+    /**
+     * Hidden copies the page can keep in the part card outside the price
+     * panel. Neither is on screen, so neither may widen the price panel to
+     * the part card around the configuration.
+     */
+    const hiddenCopiesOutsidePanel: Array<[string, (document: Document) => void]> = [
+      ...hiddenCopies.map(([how, hide]): [string, (document: Document) => void] => [
+        `a copy of a tier card after the Finish requirement (${how})`,
+        (document) => {
+          const copy = firstCard(document).cloneNode(true) as Element;
+          finishRequirement(document).after(copy);
+          hide(copy);
+        },
+      ]),
+      ["a copy of the whole price panel at the top of the part card (display:none on the copy)", (document) => {
+        const copy = pricePanel(document).cloneNode(true) as Element;
+        copy.setAttribute("style", "display: none;");
+        const partCard = document.querySelector(".part-card");
+        if (!partCard) throw new Error("fixture lost its part card");
+        partCard.prepend(copy);
+      }],
+    ];
+    const finishNotice = "<div>Standard is not available for this material.</div>";
 
     async function failureOf(
       fixture: Awaited<ReturnType<typeof loadCurrentQuotePage>>,
@@ -5341,11 +5374,7 @@ describe("XometryAdapter", () => {
         "Standard is not available for this material.",
         "The Standard option is not available for this material.",
       ])("never drops the Standard tier on the finish notice %j beside the Finish requirement", async (line) => {
-        const besideFinish = (document: Document) => {
-          const finish = document.querySelector('[data-testid="requirement-Finish"]');
-          if (!finish) throw new Error("fixture lost its Finish requirement");
-          finish.insertAdjacentHTML("afterend", `<div>${line}</div>`);
-        };
+        const besideFinish = addBesideFinish(`<div>${line}</div>`);
         const fixture = await loadCurrentQuotePage(besideFinish);
         expect(fixture.bodyText.split("\n")).toEqual(expect.arrayContaining(["Finish: Standard", line]));
 
@@ -5366,6 +5395,49 @@ describe("XometryAdapter", () => {
           violations: [],
         });
       });
+
+      // A hidden copy is not on screen, so the price panel is still the
+      // element around the cards the page shows, and the finish notice stays
+      // outside it. Counting the copy widened the panel to the part card, and
+      // the notice then withdrew the Standard tier.
+      it.each(hiddenCopiesOutsidePanel)("never drops the Standard tier on the finish notice beside %s", async (_copy, addCopy) => {
+        const mutate = (document: Document) => {
+          addBesideFinish(finishNotice)(document);
+          addCopy(document);
+        };
+        const fixture = await loadCurrentQuotePage(mutate);
+        expect(fixture.document.querySelectorAll(tierCardSelector).length).toBeGreaterThan(3);
+
+        expect(await driftOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          unavailableLinesOutsidePricePanel: 1,
+          namedTierCards: 1,
+        });
+        const failure = await quoteCurrentPage({ mutate }).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(VendorAutomationError);
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ ambiguity: "availability_ambiguous" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+      });
+
+      it.each(hiddenCopiesOutsidePanel)(
+        "publishes the three tiers beside %s, and still withdraws a tier a price-panel line names",
+        async (_copy, addCopy) => {
+          expect(offerSummary(await collectXometryOffers(fixturePage(await loadCurrentQuotePage(addCopy)), 1)))
+            .toEqual(expectedTierOffers);
+          const withdrawn = await loadCurrentQuotePage((document) => {
+            addToPanel("<div>Fastest is not available for this part.</div>")(document);
+            addCopy(document);
+          });
+          expect(offerSummary(await collectXometryOffers(fixturePage(withdrawn), 1))).toEqual(expectedTierOffers.slice(0, 2));
+        },
+      );
 
       it.each([
         ["names no tier", "Some options are not available.", 0],
@@ -6227,6 +6299,36 @@ describe("XometryAdapter", () => {
         expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
         expect(await settledOffers(mutate)).toEqual(expectedTierOffers.slice(0, 2));
       });
+
+      it.each(hiddenCopiesOutsidePanel)(
+        "keeps waiting on an unpriced Standard card when the finish notice sits beside %s, as the collector refuses it",
+        async (_copy, addCopy) => {
+          const mutate = (document: Document) => {
+            const amounts = nthCard(document, 1).querySelector('[kind="discount"]');
+            if (!amounts) throw new Error("fixture tier card lost its price block");
+            amounts.replaceChildren();
+            addBesideFinish(finishNotice)(document);
+            addCopy(document);
+          };
+
+          expect(settledOnDocument(await mutatedDocument(mutate))).toBe(false);
+          expect(await driftOf(await loadCurrentQuotePage(mutate))).toMatchObject({ ambiguity: "availability_ambiguous" });
+        },
+      );
+
+      it.each(hiddenCopiesOutsidePanel)(
+        "still settles, as the collector withdraws it, on a price-panel line beside %s",
+        async (_copy, addCopy) => {
+          const mutate = (document: Document) => {
+            unpriceThirdCard(document);
+            addToPanel("<p>Fastest is not available for this part.</p>")(document);
+            addCopy(document);
+          };
+
+          expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+          expect(await settledOffers(mutate)).toEqual(expectedTierOffers.slice(0, 2));
+        },
+      );
 
       it("keeps waiting while the page hides every tier card", async () => {
         expect(settledOnDocument(await mutatedDocument((document) => {

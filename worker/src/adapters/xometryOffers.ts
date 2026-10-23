@@ -895,19 +895,35 @@ async function locatePartCard(cards: Locator, cardCount: number): Promise<PartCa
 
 /**
  * OVD-1052: the price panel, the innermost element that encloses every tier
- * card (on every captured quote page, the <div> that holds the "Price and Lead
- * Time" heading and the three cards). It sits in the part card, which holds
- * every card, so the search never leaves the part card. Null when it cannot be
- * read.
+ * card the page shows (on every captured quote page, the <div> that holds the
+ * "Price and Lead Time" heading and the three cards). A card the page hides
+ * (isHiddenByPage) is not counted, as the collector skips it: a hidden copy
+ * elsewhere in the part card would otherwise widen the panel to the part card,
+ * and a line beside the part's configuration ("Standard is not available for
+ * this material.") would read as a panel line that withdraws a tier.
+ * xometryPriceTiersSettled locates the panel the same way. It sits in the part
+ * card, which holds every card, so the search never leaves the part card. Null
+ * when no card is shown or the panel cannot be read.
  */
-async function locatePricePanel(cards: Locator, cardCount: number) {
-  const ancestors = cards.nth(0).locator(PART_CARD_ANCESTORS_SELECTOR);
+async function locatePricePanel(cards: Locator, cardCount: number, shownCards: readonly number[]) {
+  if (shownCards.length === 0) return null;
+  const ancestors = cards.nth(shownCards[0]).locator(PART_CARD_ANCESTORS_SELECTOR);
   const count = await countOrNull(ancestors);
   if (count === null) return null;
   for (let index = count - 1; index >= 0; index -= 1) {
-    const enclosed = await countOrNull(ancestors.nth(index).locator(PRICE_TIER_CARD_SELECTOR));
-    if (enclosed === null) return null;
-    if (enclosed === cardCount) return ancestors.nth(index);
+    const enclosed = ancestors.nth(index).locator(PRICE_TIER_CARD_SELECTOR);
+    const enclosedCount = await countOrNull(enclosed);
+    if (enclosedCount === null) return null;
+    if (enclosedCount < shownCards.length) continue;
+    // When the page hides no card, every card the element encloses is shown.
+    let enclosedShown = enclosedCount;
+    if (shownCards.length < cardCount) {
+      enclosedShown = 0;
+      for (let card = 0; card < enclosedCount; card += 1) {
+        if (!(await isHiddenByPage(enclosed.nth(card)))) enclosedShown += 1;
+      }
+    }
+    if (enclosedShown === shownCards.length) return ancestors.nth(index);
   }
   return null;
 }
@@ -1002,9 +1018,10 @@ async function checkPartCard(
   partCard: Locator,
   cards: Locator,
   cardTexts: readonly string[],
+  shownCards: readonly number[],
   snapshots: readonly XometryOfferSnapshot[],
 ) {
-  const panel = await locatePricePanel(cards, cardTexts.length);
+  const panel = await locatePricePanel(cards, cardTexts.length, shownCards);
   const panelText = panel === null ? null : (await panel.innerText().catch(() => null))?.trim() ?? null;
   const partCardText = await partCard.innerText().catch(() => null);
   const panelLines = panelText === null ? null : linesOutside(panelText, cardTexts);
@@ -1129,14 +1146,15 @@ export async function collectXometryOffers(
   const observedSnapshots: XometryOfferSnapshot[] | undefined = observer ? [] : undefined;
   /** Every card's rendered text, in page order, blank cards included. */
   const cardTexts: string[] = [];
-  let hiddenCards = 0;
+  /** The index of every card the page shows, in page order. */
+  const shownCards: number[] = [];
   for (let index = 0; index < cardCount; index += 1) {
     const card = cards.nth(index);
     if (await isHiddenByPage(card)) {
-      hiddenCards += 1;
       cardTexts.push("");
       continue;
     }
+    shownCards.push(index);
     const renderedText = await card.innerText().catch(() => null);
     if (renderedText === null) {
       throw ambiguousCardError("shape_unreadable", { nestedTierCards: null, visibleTierLabels: null }, index);
@@ -1205,7 +1223,7 @@ export async function collectXometryOffers(
       });
     }
   }
-  if (hiddenCards === cardCount) throw pricePendingError("price_tier_cards_absent");
+  if (shownCards.length === 0) throw pricePendingError("price_tier_cards_absent");
 
   // A tier label the cards do not hold is a tier this collector cannot see.
   const pageTierLabels = await countOrNull(page.locator(VISIBLE_TIER_LABEL_SELECTOR));
@@ -1213,7 +1231,7 @@ export async function collectXometryOffers(
   const coverage = { visibleTierLabels: pageTierLabels, coveredTierLabels: cardTierLabels };
   if (pageTierLabels === null || cardTierLabels === null) throw ambiguousCardError("shape_unreadable", coverage);
   if (pageTierLabels > cardTierLabels) throw ambiguousCardError("wrapper_uncovered_content", coverage);
-  await checkPartCard(located.partCard, cards, cardTexts, snapshots);
+  await checkPartCard(located.partCard, cards, cardTexts, shownCards, snapshots);
 
   // Never publish the cards that did render as the complete set. When every
   // card is unavailable the settle wait cannot succeed, and nothing is published.
