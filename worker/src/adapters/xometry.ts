@@ -2865,6 +2865,16 @@ async function detectManualReview(page: Page, bodyText: string) {
  * adjacent elements together when the markup has no whitespace between them
  * ("least expensivearrives by nov 3"), which defeats every word boundary below
  * and left each quote waiting out the full timeout.
+ *
+ * OVD-1052: a card counts as withdrawn exactly when collectXometryOffers
+ * withdraws it: a mark (disabled, aria-disabled/data-disabled "true",
+ * data-available "false", or a disabled/unavailable class token, values
+ * compared case-insensitively) on the card or on any element that encloses
+ * it, up to <html>; or, for a card that shows text, a disabled descendant or
+ * unavailability text. A blank card without such a mark is a skeleton still
+ * being priced, so the page keeps waiting. Otherwise a card the page withdrew
+ * through an enclosing element or a class held the wait to its timeout, and
+ * the collector then refused an otherwise settled page as pending.
  */
 export function xometryPriceTiersSettled(): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
@@ -2878,10 +2888,23 @@ export function xometryPriceTiersSettled(): boolean {
         parts.push(node.nodeValue ?? "");
       }
       const text = parts.join(" ");
-      const explicitlyUnavailable =
-        card.matches('[disabled], [aria-disabled="true"], [data-disabled="true"], [data-available="false"]')
-        || card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
-        || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text);
+      let withdrawn = false;
+      for (let element: Element | null = card; element && !withdrawn; element = element.parentElement) {
+        let classMarked = false;
+        for (const token of (element.getAttribute("class") ?? "").split(/\s+/)) {
+          if (/^(?:is-)?(?:disabled|unavailable)$|[-_](?:disabled|unavailable)$/i.test(token)) classMarked = true;
+        }
+        withdrawn = element.hasAttribute("disabled")
+          || element.getAttribute("aria-disabled")?.toLowerCase() === "true"
+          || element.getAttribute("data-disabled")?.toLowerCase() === "true"
+          || element.getAttribute("data-available")?.toLowerCase() === "false"
+          || classMarked;
+      }
+      const showsText = text.trim() !== "";
+      const explicitlyUnavailable = withdrawn || (showsText && (
+        card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
+        || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text)
+      ));
       if (explicitlyUnavailable) continue;
       availableCardCount += 1;
       const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
@@ -3497,9 +3520,11 @@ export class XometryAdapter extends VendorAdapter {
       // Xometry recomputes prices after quantity changes. Tier cards can finish
       // at different times, so wait until every available card exposes both
       // commercial and timing evidence before parsing the complete option set.
-      await page
+      // OVD-1052: a timed-out wait is kept, not swallowed: the cards that did
+      // render are then never published as the complete option set.
+      const priceTiersSettled = await page
         .waitForFunction(xometryPriceTiersSettled, undefined, { timeout: this.config.browserTimeoutMs })
-        .catch(() => undefined);
+        .then(() => true, () => false);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readQuoteSummaryText(page);
@@ -3563,7 +3588,15 @@ export class XometryAdapter extends VendorAdapter {
       }
       const offers = manualReviewResult.manualReview
         ? []
-        : await collectXometryOffers(page, normalizedQuantity(input), this.providerObserver ?? this.operationalProviderObserver);
+        : await collectXometryOffers(
+          page,
+          normalizedQuantity(input),
+          this.providerObserver ?? this.operationalProviderObserver,
+          {
+            priceTiersSettled,
+            pricingInProgress: isXometryPricingInProgress({ url: page.url(), bodyText }),
+          },
+        );
       const compatibilityOffer = selectCompatibilityOffer(offers);
       const priceResult = compatibilityOffer
         ? {
@@ -3622,8 +3655,10 @@ export class XometryAdapter extends VendorAdapter {
           {
             vendor: "xometry",
             reason: "xometry_offer_containers_missing",
-            // OVD-1052: no option container matched (a renamed .price-tier,
-            // say), so the adapter's contract with the page is broken.
+            // OVD-1052: the collector fails closed on a page without tier
+            // cards, so this is a page whose every card is unavailable while
+            // a fallback locator still reads an amount: a finite stop that
+            // publishes no price.
             terminalState: "selector_drift",
             url: page.url(),
             detectedFlow,

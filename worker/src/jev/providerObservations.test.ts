@@ -11,7 +11,7 @@ function quotePage(texts: string[], tierText = "Standard", disabled?: { parent: 
   const options = texts.map((text, index) => ({
     innerText: vi.fn(async () => text),
     getAttribute: vi.fn(async (name: string) => name === "data-option-id" ? `option-${index}` : name === "data-disabled" ? disabled?.parent ?? null : null),
-    locator: vi.fn((selector: string) => selector.includes("disabled")
+    locator: vi.fn((selector: string) => /* A markerless price panel that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => texts.join("\n"), locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0 }) }) } : selector.includes("disabled")
       ? { count: async () => disabled?.descendant ? 1 : 0 }
       // One visible tier label; no nested option container or list-price slot.
       : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tierText }) }),
@@ -19,7 +19,7 @@ function quotePage(texts: string[], tierText = "Standard", disabled?: { parent: 
   return {
     url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
     locator: (selector: string) => ({
-      count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? options.length : 0,
+      count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? options.length : 0,
       nth: (index: number) => options[index],
     }),
   } as unknown as Page;
