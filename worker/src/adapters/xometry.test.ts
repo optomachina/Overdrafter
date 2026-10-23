@@ -93,6 +93,7 @@ import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
 import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
+import anonymousQuoteHome from "./fixtures/xometry-anonymous-quote-home.json";
 import {
   XometryAdapter,
   chooseOptionByTerms,
@@ -1327,7 +1328,7 @@ describe("Xometry helpers", () => {
         text: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
         url: XOMETRY_URLS.quoteHome,
       }),
-    ).toBeNull();
+    ).toBe("login_required");
     expect(
       detectBlockingStateSignal({
         text: [
@@ -1350,6 +1351,78 @@ describe("Xometry helpers", () => {
 });
 
 describe("XometryAdapter", () => {
+  it.each([
+    ["", "login_required"],
+    [anonymousQuoteHome.errorBanner, "login_required"],
+    ["My Account", "login_required"],
+    ["Welcome back. Recent quotes", null],
+    ["My Account Part Library", null],
+    ["Sign in", "login_required"],
+    ["Sign in Verify you are human", "captcha"],
+    [`Welcome back ${anonymousQuoteHome.errorBanner}`, "anti_detection_block"],
+    ["Welcome back Already have an account?", "login_required"],
+  ])("classifies the upload prompt with %s as %s", (extra, expected) => {
+    expect(detectBlockingStateSignal({
+      url: XOMETRY_URLS.quoteHome,
+      text: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${extra}`,
+    })).toBe(expected);
+  });
+
+  it("does not block the upload prompt away from quote home", () => {
+    expect(detectBlockingStateSignal({
+      url: "https://www.xometry.com/resources/",
+      text: anonymousQuoteHome.uploadPrompt,
+    })).toBeNull();
+  });
+
+  it.each(["", anonymousQuoteHome.errorBanner])(
+    "ends an expired-session evaluation before upload with a login_required terminal state: %s",
+    async (banner) => {
+      const workerTempDir = await makeTempDir();
+      const page = createFakePage({
+        bodyText: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${banner}`,
+      });
+      const hydration = vi.spyOn(page, "waitForFunction");
+      const context = createFakeContext(page);
+      const close = vi.spyOn(context, "close");
+      playwrightLaunchPersistentContextMock.mockResolvedValue(context);
+      const config = makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: null,
+        xometryUserDataDir: path.join(workerTempDir, "profile"),
+        xometryProfileSnapshotBucket: "synthetic-profile-bucket",
+        xometryProfileSnapshotObject: "xometry/profile.tgz",
+        xometryProfileSnapshotGeneration: "41",
+        xometryBrowserEngine: "playwright",
+      });
+      const uploadCheckpoint = vi.fn(passingUploadCapabilityCheckpoint);
+      const input = await makeLiveEvaluationInput({ uploadCapabilityCheckpoint: uploadCheckpoint });
+      const adapter = makeLiveEvaluationAdapter(config);
+      const failure = await adapter.quote(input).catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        code: "login_required",
+        payload: { terminalState: "login_required", reason: "session_authentication_required" },
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
+      expect(hydration).toHaveBeenCalledTimes(1);
+      await expect(hydration.mock.results[0].value).resolves.toBeUndefined();
+      expect(uploadCheckpoint).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(persistSnapshotMock).not.toHaveBeenCalled();
+      const retryFailure = await adapter.quote(input).catch((error: unknown) => error);
+      expect(retryFailure).toMatchObject({
+        code: "login_required", payload: { reason: "profile_snapshot_unavailable" },
+      });
+      expect(evaluateProviderAdapterFailureContract(retryFailure)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
+      expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each([undefined, "production_dispatch", "live_evaluation"] as const)(
     "refuses direct live browser launch without authorization for context %s",
     async (executionContext) => {
@@ -4306,7 +4379,7 @@ describe("XometryAdapter", () => {
               "View My Quote",
               "OVD-VALIDATION-002.STEP",
             ].join(" ")
-          : "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+          : `Welcome back. ${anonymousQuoteHome.uploadPrompt}`,
       quoteNavigationFails: true,
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
@@ -4343,6 +4416,9 @@ describe("XometryAdapter", () => {
       await adapter.quote(makeInput());
       throw new Error("expected the anonymous email gate to require login");
     } catch (error) {
+      expect(evaluateProviderAdapterFailureContract(error)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
       expect(error).toMatchObject({
         code: "login_required",
         payload: {
@@ -4391,7 +4467,7 @@ describe("XometryAdapter", () => {
   it("quarantines snapshot ownership when the browser cannot close", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+      bodyText: "Instant quoting",
     });
     const context = createFakeContext(page);
     context.close = vi.fn().mockRejectedValue(new Error("close failed"));
@@ -5853,16 +5929,17 @@ describe("XometryAdapter", () => {
     });
   });
 
-  it("fails closed on login and captcha barriers", async () => {
+  it("returns contract-valid failures on login, captcha and generic-error barriers", async () => {
     const workerTempDir = await makeTempDir();
 
-    for (const [bodyText, redirectUrl, expectedCode] of [
-      ["Sign in to continue", XOMETRY_URLS.login, "login_required"],
-      ["Verify you are human", XOMETRY_URLS.quoteHome, "captcha"],
+    for (const [bodyText, gotoRedirectUrl, expectedCode, terminalState] of [
+      ["Sign in to continue", XOMETRY_URLS.login, "login_required", "login_required"],
+      ["Verify you are human", XOMETRY_URLS.quoteHome, "captcha", "captcha"],
+      [anonymousQuoteHome.errorBanner, XOMETRY_URLS.quoteHome, "anti_detection_block", "unavailable"],
     ] as const) {
       const page = createFakePage({
         bodyText,
-        redirectUrl,
+        gotoRedirectUrl,
       });
       launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -5871,9 +5948,13 @@ describe("XometryAdapter", () => {
         makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
 
-      await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+      expect(failure).toMatchObject({
         name: "VendorAutomationError",
         code: expectedCode,
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toEqual({
+        ok: true, terminalState, violations: [],
       });
     }
   });

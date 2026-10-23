@@ -184,6 +184,8 @@ Stop without further mutation on login refresh, CAPTCHA, missing session, manual
 
 ## Selector repair
 
+The auth-probe reason `anonymous_quote_home` also covers the current instant-pricing upload-prompt page when authenticated dashboard signals are absent, even if a generic error banner is present. Re-authenticate the expired session through the governed hosted session-recovery procedure; this reason calls for session recovery, not selector repair.
+
 Repair starts from a finite drift result. Compare the smallest scrubbed current-state fixture with the last reviewed selector/reference state. Roles, stable labels, test IDs, route class, and terminal signals may be retained when they contain no account/customer data. Raw whole-page captures, provider-account or customer identifiers, quote data tied to a customer, secrets, cookies, tokens, and CAD/drawing bytes may not be committed. Non-sensitive stable offer/option identifiers may appear only in local evaluation evidence; they do not belong in committed repair fixtures.
 
 Selector and terminal-signal changes are proposals until human-reviewed. Confidence never permits automatic application. After review, run the kernel tests, reusable adapter contract, affected provider tests, `provider:check`, and the required worker/full verification lane. Until revalidation passes, changed selectors and observed prices remain untrusted. A provider-interacting retest requires a fresh exact-file live approval.
