@@ -151,10 +151,19 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
     "ws-surface-base", "ws-surface-card", "ws-surface-inset", "ws-surface-raised",
     "ws-surface-shell", "ws-surface-deep", "ws-surface-overlay", "ws-accent-surface",
   ];
-  // Match whole families, including future suffixes and workspace aliases.
+  // A family word anywhere in the name counts, in any case: --bg2, --surface_3,
+  // --warning-surface, --ws-warning-surface, --warningSurface, --panelbg, --surfacealt.
   // Never exempt foreground/border/etc. by suffix: each exception needs review.
-  const surfaceToken = /^--(?:ws-)?(?:bg|surface|background|card|popover|secondary|muted|accent|input-background|sidebar|base|inset|raised|shell|deep|overlay)(?:-[\w-]+)?$/;
+  // Name-only limit: a surface with an unrelated name (e.g. --panel) cannot be detected
+  // here; add such a token to mutedTextSurfaces by hand.
+  const surfaceFamilies = ["bg", "surface", "background", "card", "popover", "secondary", "muted", "accent", "sidebar", "base", "inset", "raised", "shell", "deep", "overlay"];
+  const surfaceToken = new RegExp(`^--.*(?:${surfaceFamilies.join("|")})`, "i");
+  for (const name of ["--ws-warning-surface", "--warning-surface", "--surface3", "--surface_3", "--bg2", "--warningSurface", "--panelbg", "--bgcolor", "--surfacealt", "--surfaces"]) {
+    expect(surfaceToken.test(name), `${name}: surface guard must catch this name`).toBe(true);
+  }
   const nonSurfaceTokens: Record<string, string> = {
+    "radius-surface-sm": "Small surface corner radius length, not a color.",
+    "radius-surface-lg": "Large surface corner radius length, not a color.",
     "card-foreground": "Card text ink.",
     "popover-foreground": "Popover text ink.",
     "secondary-foreground": "Secondary text ink.",
