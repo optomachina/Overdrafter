@@ -89,6 +89,22 @@ describe("SendCutSend session save", () => {
     await expect(fs.stat(target)).rejects.toThrow();
   });
 
+  it("treats a stalled session check as not signed in and still closes the verification context", async () => {
+    const target = await outputPath();
+    const stalled = { goto: vi.fn(async () => undefined), evaluate: vi.fn(() => new Promise<never>(() => undefined)) };
+    const { session: headed, close } = session();
+    const startedAt = Date.now();
+    await expect(saveSendCutSendSession({ ...headed, page: stalled as never }, target, () => undefined, 30))
+      .rejects.toThrow(/did not report a signed-in user/);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    await expect(fs.stat(target)).rejects.toThrow();
+
+    headed.browser.newContext.mockResolvedValueOnce({ storageState: async () => ({}), newPage: async () => stalled as never, close });
+    await expect(saveSendCutSendSession(headed, target, () => undefined, 30))
+      .rejects.toThrow(/does not survive the exact-host filter/);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("saves nothing without an app cookie", async () => {
     const target = await outputPath();
     await expect(saveSendCutSendSession(

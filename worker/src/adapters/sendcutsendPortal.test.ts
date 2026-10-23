@@ -19,6 +19,7 @@ import {
   configureSendCutSendSheet,
   extractSendCutSendSheetOffers,
   filterSendCutSendStorageState,
+  inspectSendCutSendFlatPlate,
   newSendCutSendWizardWalk,
   SENDCUTSEND_ALLOWED_HOSTS,
   SENDCUTSEND_OFF_HOST_ALLOWLIST,
@@ -188,6 +189,31 @@ describe("SendCutSend sheet envelope", () => {
       state: "unsupported",
       reason: "sendcutsend_geometry_thickness_mismatch",
     });
+  });
+
+  it.each([
+    ["tapered sides", (plate: string) => plate.replace(
+      /CARTESIAN_POINT\('',\((-?12\.7),(-?6\.35),1\.5875\)\)/g,
+      (_match: string, x: string, y: string) => `CARTESIAN_POINT('',(${Number(x) * 0.9},${y},1.5875))`,
+    )],
+    ["a vertex between the caps (wedge, pocket floor or step)", (plate: string) => plate.replace(
+      "#5 = CARTESIAN_POINT('',(-12.7,-6.35,1.5875));",
+      "#5 = CARTESIAN_POINT('',(-12.7,-6.35,0.5));",
+    )],
+  ])("refuses a 0.125 in bounding box that is not a straight extrusion: %s", async (_label, mutate) => {
+    const plate = await fs.readFile(PLATE_FIXTURE, "utf8");
+    const changed = mutate(plate);
+    expect(changed).not.toBe(plate);
+    expect(inspectSendCutSendFlatPlate({ fileName: "plate.step", buffer: Buffer.from(changed) })).toBeNull();
+    expect(assessSendCutSendSheetEligibility(await sheetInput({ cad: changed }))).toEqual({
+      state: "unsupported",
+      reason: "sendcutsend_sheet_geometry_unverified",
+    });
+  });
+
+  it("measures the thickness of a straight extrusion", async () => {
+    const plate = await fs.readFile(PLATE_FIXTURE);
+    expect(inspectSendCutSendFlatPlate({ fileName: "plate.step", buffer: plate })).toBeCloseTo(0.125, 9);
   });
 
   it("refuses geometry the deterministic STEP reader cannot verify", async () => {
@@ -491,6 +517,41 @@ describe("SendCutSend summary price", () => {
     expect(offer.totalPriceUsd.value).toBe(31.4);
     const unitReads = reader.reads.filter((selector) => selector === L.unitPrice).length;
     expect(unitReads).toBeGreaterThanOrEqual(4);
+  });
+
+  it("does not settle on an old price while the dialog shows its loading overlay", async () => {
+    // The old, arithmetically valid price stays visible while the dialog reprices;
+    // a reader that ignored the overlay would settle on it.
+    let polls = 0;
+    const repricing = () => polls < 30;
+    const base = fakeReader({ ...CRUMBS, [L.selectedSkuTitles]: [".125"] });
+    const reader: ProviderPortalReadCapability = {
+      ...base,
+      count: async (selector) => {
+        if (selector !== L.activeLoading) return base.count(selector);
+        polls += 1;
+        return repricing() ? 1 : 0;
+      },
+      readTexts: async (selector) => selector === L.unitPrice || selector === L.totalPrice
+        ? [repricing() ? "$12.00" : "$31.40"]
+        : base.readTexts(selector),
+    };
+    const [offer] = await extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 2_000, priceStableMs: 0 });
+    expect(offer.unitPriceUsd.value).toBe(31.4);
+    expect(polls).toBeGreaterThan(30);
+  });
+
+  it("withholds the offer when the loading overlay never clears", async () => {
+    const reader = fakeReader({
+      ...CRUMBS,
+      [L.selectedSkuTitles]: [".125"],
+      [L.activeLoading]: [""],
+      [L.unitPrice]: ["$12.00"],
+      [L.totalPrice]: ["$12.00"],
+    });
+    await expect(extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 20 }))
+      .rejects.toMatchObject({ payload: { reason: "sendcutsend_price_pending" } });
+    expect(reader.reads).not.toContain(L.unitPrice);
   });
 
   it("re-checks the material and session after the price read", async () => {

@@ -83,8 +83,9 @@ function wizardPage(options: WizardPageOptions = {}): string {
         dialog.innerHTML = '<div class="modal-card"><section class="modal-card-body">' + steps[step]() + '</section>' + footer + '</div>';
         dialog.querySelectorAll("input[type=radio]").forEach((input, index) => { input.value = "SKU-" + cfg.thicknesses[index]; });
       };
+      let repriced = false;
       const summary = (qty, priced) => {
-        const unit = Number(cfg.unitPrice);
+        const unit = repriced ? Number(cfg.unitPrice) : 12;
         const money = (v) => "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         document.getElementById("summary").innerHTML = '<div class="post-processing-summary-container">' +
           '<span class="quantity__input"><input type="number" class="input" min="1" value="' + qty + '"></span>' +
@@ -102,8 +103,16 @@ function wizardPage(options: WizardPageOptions = {}): string {
         const input = event.target.closest("input[type=radio]");
         if (!input) return;
         dialog.querySelectorAll(".tile-sku").forEach((tile) => tile.classList.toggle("selected", tile.contains(input)));
-        summary(1, false);
-        setTimeout(() => summary(Number(document.querySelector(".quantity__input input").value) || 1, true), 300);
+        // An old-looking price stays up under Buefy's loading overlay while the quote reprices.
+        summary(1, true);
+        const overlay = document.createElement("div");
+        overlay.className = "loading-overlay is-active";
+        dialog.querySelector(".modal-card").appendChild(overlay);
+        setTimeout(() => {
+          repriced = true;
+          overlay.remove();
+          summary(Number(document.querySelector(".quantity__input input").value) || 1, true);
+        }, 4500);
       });
       document.getElementById("cad").addEventListener("change", async (event) => {
         await fetch("/api/upload", { method: "POST", body: event.target.files[0] });

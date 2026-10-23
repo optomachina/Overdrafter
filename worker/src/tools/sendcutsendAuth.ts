@@ -40,18 +40,42 @@ export const SENDCUTSEND_SESSION_BOOTSTRAP = Object.freeze({
   save: saveSendCutSendSession,
 });
 
+/** Bound for the whole signed-in check; a stalled response or body counts as not signed in. */
+export const SENDCUTSEND_SESSION_CHECK_TIMEOUT_MS = 15_000;
+
 /**
  * True only when the app reports a signed-in, non-guest user. The check runs
- * in the page and returns a boolean; the response body never leaves it.
+ * in the page and returns a boolean; the response body never leaves it. The
+ * fetch aborts after 10 s inside the page and the evaluation itself is raced
+ * against `timeoutMs`, so neither stalled headers nor a stalled body can hang.
  */
-async function reportsSignedInUser(page: SessionPage): Promise<boolean> {
-  await page.goto(SENDCUTSEND_QUOTE_URL, { waitUntil: "domcontentloaded" });
-  return page.evaluate(async () => {
-    const response = await fetch("/users/current", { credentials: "same-origin", headers: { Accept: "application/json" } });
-    if (response.status !== 200) return false;
-    const user = await response.json().catch(() => null) as { id?: unknown; guest?: unknown } | null;
-    return Boolean(user && (typeof user.id === "number" || typeof user.id === "string") && !user.guest);
-  }).catch(() => false);
+async function reportsSignedInUser(page: SessionPage, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  const check = (async () => {
+    await page.goto(SENDCUTSEND_QUOTE_URL, { waitUntil: "domcontentloaded" });
+    return page.evaluate(async () => {
+      const controller = new AbortController();
+      const abort = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch("/users/current", {
+          credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
+        });
+        if (response.status !== 200) return false;
+        const user = await response.json() as { id?: unknown; guest?: unknown } | null;
+        return Boolean(user && (typeof user.id === "number" || typeof user.id === "string") && !user.guest);
+      } catch {
+        return false;
+      } finally {
+        clearTimeout(abort);
+      }
+    });
+  })().catch(() => false);
+  try {
+    return await Promise.race([check, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -63,8 +87,9 @@ export async function saveSendCutSendSession(
   session: { browser: SessionBrowser; context: SessionContext; page: SessionPage },
   outputPath: string,
   log: (line: string) => void = console.log,
+  timeoutMs: number = SENDCUTSEND_SESSION_CHECK_TIMEOUT_MS,
 ): Promise<void> {
-  if (!(await reportsSignedInUser(session.page))) {
+  if (!(await reportsSignedInUser(session.page, timeoutMs))) {
     throw new Error("SendCutSend did not report a signed-in user; nothing was saved.");
   }
   const filtered = filterSendCutSendStorageState(await session.context.storageState());
@@ -73,7 +98,7 @@ export async function saveSendCutSendSession(
   }
   const verification = await session.browser.newContext({ storageState: filtered.state as never });
   try {
-    if (!(await reportsSignedInUser(await verification.newPage()))) {
+    if (!(await reportsSignedInUser(await verification.newPage(), timeoutMs))) {
       throw new Error("The SendCutSend session does not survive the exact-host filter; nothing was saved.");
     }
   } finally {

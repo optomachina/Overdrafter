@@ -236,13 +236,16 @@ digest-pinned) for `https://app.sendcutsend.com` and
 `https://main.realtime.ably.net`, which the quote page calls on load. It admits
 one flat STEP plate, laser cut from 6061-T6 aluminum at 0.125 in, quantity 1
 through 100, with no drawing; the thinnest bounding dimension of the uploaded
-model must be the stock thickness (a bounding-box check on a planar,
-straight-edged model; holes and arcs are refused). The harness reads the kill switch before
+model must be a straight extrusion of the stock thickness (planar,
+straight-edged, every vertex on one of the two caps, edges between the caps
+parallel to the thin axis, identical cap profiles; tapers, pockets, steps,
+bends, holes with arcs and curves are refused). The harness reads the kill switch before
 launch and guards each quote like any provider-reaching vendor. The portal
 kernel walks the quote wizard (Sheet Cutting, Metals, Aluminum, 6061 T6
 Aluminum, `.125`) and reads the side-summary price only while signed in, with
 the dialog's material breadcrumbs ending in "Metals, Aluminum, 6061 T6
-Aluminum", and after the price reads the same for 2.5 seconds. It never clicks
+Aluminum", once the dialog shows no loading overlay and the price reads the
+same for 2.5 seconds. It never clicks
 the wizard footer, so nothing is added to the cart. A missing or disabled 0.125 in stock
 stops in `configuration_required` instead of quoting another thickness.
 SendCutSend shows a ship date rather than a duration, so lead time stays null

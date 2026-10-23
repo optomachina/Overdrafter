@@ -11,6 +11,7 @@ import {
   type ProviderPortalSnapshot,
   type ProviderPortalState,
 } from "./providerPortalKernel.js";
+import { normalizeStepToCanonicalGeometryMetadata, type Vector3 } from "../extraction/stepGeometryMetadata.js";
 import { inspectSendCutSendStepGeometry, SENDCUTSEND_CNC_ENVELOPE } from "./sendcutsendEnvelope.js";
 
 export const SENDCUTSEND_SHEET_ADAPTER_REVISION = "sendcutsend-sheet-portal.v1";
@@ -92,6 +93,8 @@ export const SENDCUTSEND_SHEET_LOCATORS = Object.freeze({
   totalPrice: ".post-processing-summary-container .subtotal__summary .subtotal .currency .cash",
   shipDate: ".est-ship-date p",
   quoteDialog: ".modal-card .quote-footer",
+  /** Buefy's loading overlay: the wizard shows it while quotes load or reprice. */
+  activeLoading: ".modal-card .loading-overlay.is-active",
   /** The logged-out header's sign-in link (anonymous capture, 2026-10-22); visible only while signed out. */
   visibleLoginLink: "a.login:visible",
   /** The header's navigation items render with the header itself. */
@@ -214,10 +217,61 @@ function extensionOf(fileName: string) {
 }
 
 /**
+ * Proves the model is a straight extrusion through its thinnest axis: one
+ * planar, straight-edged solid (the shared inspector's topology gate), every
+ * vertex on one of the two cap planes, every edge between the caps parallel
+ * to the thin axis (no taper or slope), and identical cap profiles (no
+ * pocket, step or wedge). Returns the thickness in inches, or null.
+ */
+export function inspectSendCutSendFlatPlate(input: { fileName: string; buffer: Buffer }): number | null {
+  const geometry = inspectSendCutSendStepGeometry(input);
+  if (!geometry?.dimensions || geometry.units === "unsupported" || geometry.solidBodyCount !== 1) return null;
+  try {
+    const metadata = normalizeStepToCanonicalGeometryMetadata({
+      stepContent: input.buffer.toString("utf8"),
+      sourceName: input.fileName,
+    });
+    const body = metadata.bodies[0];
+    const box = body?.boundingBox;
+    if (!body || !box) return null;
+    const axes = ["x", "y", "z"] as const;
+    const thin = axes.reduce((best, axis) => (box.size[axis] < box.size[best] ? axis : best), "x" as (typeof axes)[number]);
+    const [u, v] = axes.filter((axis) => axis !== thin);
+    const tolerance = Math.max(box.size.x, box.size.y, box.size.z) * 1e-6;
+    const near = (a: number, b: number) => Math.abs(a - b) <= tolerance;
+    const positions = new Map<string, Vector3>(metadata.vertices.map((vertex) => [vertex.id, vertex.position]));
+    const cap = (position: Vector3) => near(position[thin], box.min[thin]) ? "low"
+      : near(position[thin], box.max[thin]) ? "high" : null;
+    const profile = (side: "low" | "high") => body.vertexIds
+      .map((id) => positions.get(id))
+      .filter((position): position is Vector3 => Boolean(position) && cap(position as Vector3) === side)
+      .map((position) => `${Math.round(position[u] / tolerance)}:${Math.round(position[v] / tolerance)}`)
+      .sort();
+    const vertices = body.vertexIds.map((id) => positions.get(id));
+    if (vertices.some((position) => !position || cap(position) === null)) return null;
+    const edges = metadata.edges.filter((edge) => body.edgeIds.includes(edge.id));
+    for (const edge of edges) {
+      const start = edge.startVertexId ? positions.get(edge.startVertexId) : undefined;
+      const end = edge.endVertexId ? positions.get(edge.endVertexId) : undefined;
+      if (!start || !end) return null;
+      if (cap(start) !== cap(end) && !(near(start[u], end[u]) && near(start[v], end[v]))) return null;
+    }
+    const low = profile("low");
+    const high = profile("high");
+    if (low.length < 3 || JSON.stringify(low) !== JSON.stringify(high)) return null;
+    const inchesPerUnit = geometry.units === "millimeter" ? 1 / 25.4 : 1;
+    return box.size[thin] * inchesPerUnit;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Admits only the reviewed sheet envelope, and binds the declared 0.125 in
- * thickness to the authorized CAD bytes: the STEP must be one planar solid
- * whose thinnest bounding dimension is the stock thickness. A bent part has
- * no such dimension, so it is refused here rather than quoted flat.
+ * thickness to the authorized CAD bytes: the STEP must be a straight
+ * extrusion (see `inspectSendCutSendFlatPlate`) whose thickness is the stock
+ * thickness. A bent, tapered, pocketed or stepped part is refused here
+ * rather than quoted as a flat outline.
  */
 export function assessSendCutSendSheetEligibility(input: VendorQuoteAdapterInput): ProviderPortalEligibility {
   const envelope = SENDCUTSEND_SHEET_ENVELOPE;
@@ -242,13 +296,11 @@ export function assessSendCutSendSheetEligibility(input: VendorQuoteAdapterInput
   if (!(envelope.fileExtensions as readonly string[]).includes(extensionOf(files.cad.name))) {
     return { state: "unsupported", reason: "sendcutsend_file_type_outside_sheet_envelope" };
   }
-  const geometry = inspectSendCutSendStepGeometry({ fileName: files.cad.name, buffer: files.cad.buffer });
-  if (!geometry?.dimensions || geometry.units === "unsupported" || geometry.solidBodyCount !== 1) {
+  const thickness = inspectSendCutSendFlatPlate({ fileName: files.cad.name, buffer: files.cad.buffer });
+  if (thickness === null) {
     return { state: "unsupported", reason: "sendcutsend_sheet_geometry_unverified" };
   }
-  const inchesPerUnit = geometry.units === "millimeter" ? 1 / 25.4 : 1;
-  const thinnest = Math.min(...geometry.dimensions) * inchesPerUnit;
-  if (!Number.isFinite(thinnest) || Math.abs(thinnest - envelope.thicknessInch) > envelope.thicknessToleranceInch) {
+  if (!Number.isFinite(thickness) || Math.abs(thickness - envelope.thicknessInch) > envelope.thicknessToleranceInch) {
     return { state: "unsupported", reason: "sendcutsend_geometry_thickness_mismatch" };
   }
   return { state: "eligible", reason: "sendcutsend_sheet_envelope_match" };
@@ -395,9 +447,11 @@ function parseShipDate(text: string | null): { qualifier: "ships" | "arrives"; d
 
 /**
  * Reads the side summary for the exact stock, signed in, with the reviewed
- * material breadcrumbs, before and after the price read. The price must read
- * the same at least three times over `priceStableMs` (the summary reprices
- * asynchronously), the unit price times the quantity must equal the subtotal
+ * material breadcrumbs, before and after the price read. The summary renders
+ * the selected tile's quote reactively; a read counts only while the dialog
+ * shows no loading overlay (the wizard's own "quotes loading or repricing"
+ * signal), and the price must read the same at least three times over
+ * `priceStableMs`, the unit price times the quantity must equal the subtotal
  * to the cent, and the SKU must still be the checked one afterwards. Anything
  * else withholds the offer. USD only. SendCutSend shows a ship date, not a
  * duration, so the lead time stays null and the date is kept as
@@ -416,7 +470,8 @@ export async function extractSendCutSendSheetOffers(
   let settled: { unit: string; total: string } | null = null;
   let last: SummaryRead = { kind: "pending" };
   await within(waits.priceWaitMs ?? SENDCUTSEND_PRICE_WAIT_MS, async () => {
-    last = await readSummary(reader);
+    // While the dialog shows its loading overlay, quotes are still loading or repricing.
+    last = await reader.count(locators.activeLoading) > 0 ? { kind: "pending" } : await readSummary(reader);
     if (last.kind === "custom") return true;
     if (last.kind !== "priced") {
       streak = null;
