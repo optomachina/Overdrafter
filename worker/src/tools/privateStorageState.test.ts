@@ -53,7 +53,9 @@ describe("writePrivateStorageState", () => {
     for (const tool of ["vendorAuth.ts", "xometryAuth.ts", "fictivAuth.ts"]) {
       const source = await fs.readFile(path.join(import.meta.dirname, tool), "utf8");
       expect(source).not.toMatch(/\.storageState\(\s*\{/);
-      expect(source).toContain("writePrivateStorageState(context, outputPath)");
+      expect(source).not.toMatch(/writeFile\([^)]*storage/i);
+      // vendorAuth.ts hands over a host-scoped state source (OVD-1059).
+      expect(source).toMatch(/writePrivateStorageState\([\s\S]*?, outputPath\);/);
     }
   });
 });
