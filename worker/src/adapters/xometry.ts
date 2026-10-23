@@ -2875,10 +2875,31 @@ async function detectManualReview(page: Page, bodyText: string) {
  * being priced, so the page keeps waiting. Otherwise a card the page withdrew
  * through an enclosing element or a class held the wait to its timeout, and
  * the collector then refused an otherwise settled page as pending.
+ *
+ * OVD-1052: a card that shows text is also withdrawn when a line in its part
+ * card (the child of #draggable-parts around it), outside every card, says
+ * with a tier as its subject that the tier is unavailable ("Fastest is not
+ * available for this part."), and the card's text starts with that tier name,
+ * as the collector's checkPartCard withdraws it. Each text node is read as one
+ * line. Otherwise the wait timed out on the unpriced card the collector would
+ * withdraw, and the page was refused as pending.
  */
 export function xometryPriceTiersSettled(): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
   if (cards.length > 0) {
+    const statedUnavailable: string[] = [];
+    let partCard: Element | null = cards[0];
+    while (partCard && partCard.parentElement?.id !== "draggable-parts") partCard = partCard.parentElement;
+    if (partCard) {
+      // 4 is NodeFilter.SHOW_TEXT.
+      const outside = document.createTreeWalker(partCard, 4);
+      for (let node = outside.nextNode(); node; node = outside.nextNode()) {
+        if (cards.some((card) => card.contains(node))) continue;
+        const statement = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)\b/i
+          .exec((node.nodeValue ?? "").replaceAll(/\s+/g, " ").trim());
+        if (statement) statedUnavailable.push(statement[1].toLowerCase());
+      }
+    }
     let availableCardCount = 0;
     for (const card of cards) {
       const parts: string[] = [];
@@ -2901,14 +2922,16 @@ export function xometryPriceTiersSettled(): boolean {
           || classMarked;
       }
       const showsText = text.trim() !== "";
+      const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
       const explicitlyUnavailable = withdrawn || (showsText && (
         card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
         || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text)
+        || statedUnavailable.some((name) =>
+          normalizedText.startsWith(name) && !/^[a-z0-9]/.test(normalizedText.slice(name.length)))
       ));
       if (explicitlyUnavailable) continue;
       availableCardCount += 1;
       const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
-      const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
       const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
       const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
       const hasTiming = hasBusinessDays || hasArrival;

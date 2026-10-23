@@ -687,18 +687,26 @@ const ANCESTOR_SELECTOR = "xpath=ancestor::*";
 /** The attributes an element carries itself that can mark it unavailable. */
 const AVAILABILITY_ATTRIBUTES = ["disabled", "aria-disabled", "data-disabled", "data-available", "class"] as const;
 /**
- * Matches when an element is too wide to be one part's price panel: it is the
- * <body> or <html> itself, or it is or holds the parts list (#draggable-parts)
- * that encloses every part card.
+ * OVD-1052: the part card around a tier card: the enclosing element that is a
+ * direct child of the parts list (#draggable-parts). On every captured quote
+ * page it is the drag handle, #draggable-parts > div[role=button], which holds
+ * the whole part card and all three tier cards.
  */
-const PANEL_TOO_WIDE_SELECTOR = 'xpath=self::body | self::html | descendant-or-self::*[@id="draggable-parts"]';
+const PART_CARD_SELECTOR = 'xpath=ancestor::*[parent::*[@id="draggable-parts"]]';
 /**
- * OVD-1052: the heading the price panel shows above its tier cards ("Price
- * and Lead Time" on every captured quote page). It is the only panel text
- * outside the cards those pages show, and it names no tier, so a line that is
- * exactly this heading is the one exemption from the timing check below.
+ * OVD-1052: the price panel's heading ("Price and Lead Time" on every captured
+ * quote page). It names no tier and no date, so a line that is exactly this
+ * heading is exempt from the timing check below.
  */
 const PRICE_PANEL_HEADING = /^price\s+and\s+lead\s+time:?$/i;
+/**
+ * OVD-1052: the last sentence of the Repeat Part note every captured part card
+ * shows outside the tier cards ("Mark as a Repeat Part if ... Pricing and lead
+ * time for Repeat Parts may vary."). It names no tier and no date, so this
+ * sentence is removed before the timing check; the rest of its line is still
+ * checked.
+ */
+const REPEAT_PART_NOTE = /\bpricing\s+and\s+lead\s+time\s+for\s+repeat\s+parts\s+may\s+vary\./gi;
 /**
  * Timing only a tier option carries: what parseLeadTime and parseArrivalText
  * read in a card ("Arrives by", "Delivery on", "Lead time", "5 business days").
@@ -713,7 +721,7 @@ type XometryTierCardAmbiguity =
   | "multiple_visible_tier_labels"
   | "wrapper_uncovered_content"
   | "availability_ambiguous"
-  | "price_panel_unbounded";
+  | "part_card_unbounded";
 
 async function countOrNull(locator: Locator) {
   try {
@@ -765,8 +773,8 @@ const AMBIGUITY_MESSAGES: Partial<Record<XometryTierCardAmbiguity, string>> = {
   availability_ambiguous: "A Xometry tier card's availability could not be established.",
   wrapper_uncovered_content:
     "Xometry shows tier content outside every tier card, so the cards are not known to be the complete option set.",
-  price_panel_unbounded:
-    "Xometry's tier cards share no price panel narrower than the parts list, so the text beside them cannot be checked.",
+  part_card_unbounded:
+    "Xometry's tier cards do not sit in one part card of the parts list, so the text beside them cannot be checked.",
 };
 
 function ambiguousCardError(
@@ -829,54 +837,47 @@ async function readListPriceText(option: Locator) {
   }
 }
 
-type PricePanel =
-  | { kind: "panel"; panel: Locator }
+type PartCard =
+  | { kind: "part_card"; partCard: Locator }
   | { kind: "unbounded" }
   | { kind: "unreadable" };
 
 /**
- * OVD-1052: the price panel, the innermost element that encloses every tier
- * card. On the captured quote page it is the <div> that holds the "Price and
- * Lead Time" heading and the cards, inside the part card. It is never the
- * <body> or <html>, nor an element that is or holds the parts list
- * (#draggable-parts): cards that share no narrower element are not one part's
- * panel ("unbounded"), and the check never widens to the whole page.
- * "unreadable" when the enclosing elements cannot be listed or counted, or
- * when none of them holds exactly the page's cards.
+ * OVD-1052: the part card that holds every tier card (PART_CARD_SELECTOR).
+ * "unbounded" when the first card sits in no part card, or its part card does
+ * not hold every card on the page: the cards are then not one part's options,
+ * and the check never widens to the parts list or the page. "unreadable" when
+ * the part card or the cards in it cannot be counted, or the counts disagree
+ * with the page's.
  */
-async function locatePricePanel(cards: Locator, cardCount: number): Promise<PricePanel> {
-  const ancestors = cards.nth(0).locator(ANCESTOR_SELECTOR);
-  const count = await countOrNull(ancestors);
-  if (count === null || count === 0) return { kind: "unreadable" };
-  // The ancestor axis lists <html> first, so the innermost enclosing element is last.
-  for (let index = count - 1; index >= 0; index -= 1) {
-    const ancestor = ancestors.nth(index);
-    const enclosedCards = await countOrNull(ancestor.locator(PRICE_TIER_CARD_SELECTOR));
-    if (enclosedCards === null || enclosedCards > cardCount) return { kind: "unreadable" };
-    if (enclosedCards < cardCount) continue;
-    const tooWide = await countOrNull(ancestor.locator(PANEL_TOO_WIDE_SELECTOR));
-    if (tooWide === null) return { kind: "unreadable" };
-    return tooWide === 0 ? { kind: "panel", panel: ancestor } : { kind: "unbounded" };
-  }
-  return { kind: "unreadable" };
+async function locatePartCard(cards: Locator, cardCount: number): Promise<PartCard> {
+  const partCards = cards.nth(0).locator(PART_CARD_SELECTOR);
+  const count = await countOrNull(partCards);
+  if (count === null || count > 1) return { kind: "unreadable" };
+  if (count === 0) return { kind: "unbounded" };
+  const partCard = partCards.nth(0);
+  const enclosedCards = await countOrNull(partCard.locator(PRICE_TIER_CARD_SELECTOR));
+  if (enclosedCards === null || enclosedCards > cardCount) return { kind: "unreadable" };
+  return enclosedCards === cardCount ? { kind: "part_card", partCard } : { kind: "unbounded" };
 }
 
 /**
- * The panel's rendered lines outside every card: each card's text (in page
- * order) is cut out of the panel's text. Null when a card's text is not where
- * the panel shows it, so the two reads do not describe one page.
+ * The part card's rendered lines outside every tier card: each card's text
+ * (in page order) is cut out of the part card's text. Null when a card's text
+ * is not where the part card shows it, so the two reads do not describe one
+ * page.
  */
-function panelLinesOutsideCards(panelText: string, cardTexts: readonly string[]) {
+function linesOutsideCards(partCardText: string, cardTexts: readonly string[]) {
   const outside: string[] = [];
   let cursor = 0;
   for (const cardText of cardTexts) {
     if (!cardText) continue;
-    const at = panelText.indexOf(cardText, cursor);
+    const at = partCardText.indexOf(cardText, cursor);
     if (at < 0) return null;
-    outside.push(panelText.slice(cursor, at));
+    outside.push(partCardText.slice(cursor, at));
     cursor = at + cardText.length;
   }
-  outside.push(panelText.slice(cursor));
+  outside.push(partCardText.slice(cursor));
   return outside
     .join("\n")
     .split(/\r?\n/)
@@ -884,48 +885,82 @@ function panelLinesOutsideCards(panelText: string, cardTexts: readonly string[])
     .filter(Boolean);
 }
 
+/**
+ * Whether a line outside the cards shows what only a tier option carries: a
+ * currency amount, or tier timing other than the part card's static lines
+ * (the price panel heading, the Repeat Part note).
+ */
+function showsTierContent(line: string) {
+  if (PANEL_AMOUNT_TEXT.test(line)) return true;
+  if (PRICE_PANEL_HEADING.test(line)) return false;
+  return PANEL_TIMING_TEXT.test(line.replaceAll(REPEAT_PART_NOTE, " "));
+}
+
 function escapeRegExp(value: string) {
   return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
-/** Whether a line names the tier label as a whole word or phrase. */
+/** Whether a line names the tier label as a whole word or phrase, in any case. */
 function namesTier(line: string, label: string) {
   return new RegExp(String.raw`(?:^|[^a-z0-9])${escapeRegExp(label)}(?![a-z0-9])`, "i").test(line);
 }
 
 /**
- * OVD-1052: what the price panel shows beside the tier cards.
+ * Whether a line says, with the tier as its subject, that the tier is
+ * unavailable: "[The] <tier>[ tier | option] is [currently] unavailable | not
+ * available | not offered ...", in any case. A line that only mentions the
+ * tier's name ("Standard finish not available for this material") does not.
+ */
+function statesTierUnavailable(line: string, label: string) {
+  const name = escapeRegExp(collapseInlineSpace(label).trim()).replaceAll(" ", String.raw`\s+`);
+  return new RegExp(
+    String.raw`^(?:the\s+)?${name}(?:\s+(?:tier|option))?\s+is\s+(?:currently\s+)?(?:unavailable|not\s+available|not\s+offered)\b`,
+    "i",
+  ).test(line);
+}
+
+/**
+ * OVD-1052: what the part card shows beside the tier cards. The whole part
+ * card is read, not just the price panel around the cards: a tier card that
+ * lost both hooks, or a notice about a tier, can sit anywhere in it.
  *
- * - A rendered line outside every card with tier timing (an arrival date, a
- *   lead time, business days) or a currency amount is content the cards do not
+ * - A rendered line outside every card with a currency amount or tier timing
+ *   (an arrival date, a lead time, business days) is content the cards do not
  *   cover, a tier card whose class and label hook were both renamed, say:
- *   selector drift (wrapper_uncovered_content). The panel heading ("Price and
- *   Lead Time") is the one line exempt.
- * - A line outside the cards that says a tier is unavailable withdraws the one
- *   card whose tier it names; one that names no card's tier, or several, is
- *   availability_ambiguous. A line with timing or an amount fails the first
+ *   selector drift (wrapper_uncovered_content). Only the static lines every
+ *   captured part card shows are exempt from the timing check: the "Price and
+ *   Lead Time" heading, and the Repeat Part note's sentence "Pricing and lead
+ *   time for Repeat Parts may vary.".
+ * - A line outside the cards that says something is unavailable withdraws a
+ *   card only when it names exactly one card's tier, as a whole word, and
+ *   says that tier is unavailable as its subject ("Fastest is not available
+ *   for this part."). Any other unavailability line ("Standard finish not
+ *   available for this material", "Standard and Fastest are not available")
+ *   is availability_ambiguous. A line with timing or an amount fails the first
  *   check even when it also names one tier.
  *
- * Only the panel is read: text elsewhere in the part card or on the page
- * (the order summary's own arrival date, say) is never checked here.
+ * Text outside the part card (the order summary's own arrival date, say) is
+ * never read here.
  */
-async function checkPricePanel(
+async function checkPartCard(
   cards: Locator,
   cardTexts: readonly string[],
   snapshots: readonly XometryOfferSnapshot[],
 ) {
-  const located = await locatePricePanel(cards, cardTexts.length);
-  if (located.kind === "unbounded") throw ambiguousCardError("price_panel_unbounded", { tierCards: cardTexts.length });
-  const panelText = located.kind === "panel"
-    ? await located.panel.innerText().catch(() => null)
+  const located = await locatePartCard(cards, cardTexts.length);
+  if (located.kind === "unbounded") throw ambiguousCardError("part_card_unbounded", { tierCards: cardTexts.length });
+  const partCardText = located.kind === "part_card"
+    ? await located.partCard.innerText().catch(() => null)
     : null;
-  const lines = panelText === null ? null : panelLinesOutsideCards(panelText, cardTexts);
-  if (lines === null) throw ambiguousCardError("shape_unreadable", { tierCards: cardTexts.length, panelLines: null });
+  const lines = partCardText === null ? null : linesOutsideCards(partCardText, cardTexts);
+  if (lines === null) throw ambiguousCardError("shape_unreadable", { tierCards: cardTexts.length, partCardLines: null });
 
-  const uncovered = lines.filter((line) =>
-    PANEL_AMOUNT_TEXT.test(line) || (PANEL_TIMING_TEXT.test(line) && !PRICE_PANEL_HEADING.test(line)));
+  const uncovered = lines.filter(showsTierContent);
   if (uncovered.length > 0) {
-    throw ambiguousCardError("wrapper_uncovered_content", { panelLines: lines.length, uncoveredPanelLines: uncovered.length });
+    throw ambiguousCardError("wrapper_uncovered_content", {
+      partCardLines: lines.length,
+      uncoveredPartCardLines: uncovered.length,
+    });
   }
 
   const unavailableLines = lines.filter((line) => UNAVAILABLE_TEXT.test(line));
@@ -936,17 +971,17 @@ async function checkPricePanel(
   const sharedHeaderLabels = new Set(headerLabels.filter((label, index) => headerLabels.indexOf(label) !== index));
   const tierLabels = snapshots.map((snapshot) => parseProviderLabel(snapshot, sharedHeaderLabels));
   for (const line of unavailableLines) {
-    const named = snapshots.filter((_snapshot, index) => {
+    const named = snapshots.flatMap((snapshot, index) => {
       const label = tierLabels[index];
-      return label !== null && namesTier(line, label);
+      return label !== null && namesTier(line, label) ? [{ snapshot, label }] : [];
     });
-    if (named.length !== 1) {
+    if (named.length !== 1 || !statesTierUnavailable(line, named[0].label)) {
       throw ambiguousCardError("availability_ambiguous", {
-        panelUnavailableLines: unavailableLines.length,
+        partCardUnavailableLines: unavailableLines.length,
         namedTierCards: named.length,
       });
     }
-    named[0].attributes["data-disabled"] = "true";
+    named[0].snapshot.attributes["data-disabled"] = "true";
   }
 }
 
@@ -983,9 +1018,9 @@ export type XometryPriceReadiness = {
  *   nothing is published.
  * - Every rendered tier label on the page must sit in a card; one outside
  *   them all means the cards may not be every tier: selector drift.
- * - The price panel around the cards must show no tier timing or amount
- *   outside them, and a tier it calls unavailable is excluded
- *   (checkPricePanel).
+ * - The part card around the cards must show no tier timing or amount
+ *   outside them, and a tier a line there says is unavailable is excluded
+ *   (checkPartCard).
  * - A timed-out settle wait (`readiness.priceTiersSettled` false) is pending
  *   whenever any card is available.
  *
@@ -1101,7 +1136,7 @@ export async function collectXometryOffers(
   const coverage = { visibleTierLabels: pageTierLabels, coveredTierLabels: cardTierLabels };
   if (pageTierLabels === null || cardTierLabels === null) throw ambiguousCardError("shape_unreadable", coverage);
   if (pageTierLabels > cardTierLabels) throw ambiguousCardError("wrapper_uncovered_content", coverage);
-  await checkPricePanel(cards, cardTexts, snapshots);
+  await checkPartCard(cards, cardTexts, snapshots);
 
   // Never publish the cards that did render as the complete set. When every
   // card is unavailable the settle wait cannot succeed, and nothing is published.

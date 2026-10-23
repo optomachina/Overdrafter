@@ -289,6 +289,9 @@ function makeInputWithDrawing() {
   });
 }
 
+/** The selector the collector reads a tier card's part card with (the child of #draggable-parts around it). */
+const PART_CARD_XPATH = 'xpath=ancestor::*[parent::*[@id="draggable-parts"]]';
+
 type LocatorBehavior = {
   count?: number | (() => number);
   text?: string | (() => string);
@@ -424,9 +427,9 @@ function makeSingleLocator(behavior: LocatorBehavior = {}) {
         ? behavior.children(selector)
         : behavior.children?.[selector];
       // A fake element sits in a document: unless a test says otherwise, its
-      // one enclosing element is a markerless price panel that holds just
-      // this element (and so shows just its text).
-      if (scoped === undefined && selector === "xpath=ancestor::*") {
+      // one enclosing element is a markerless part card that holds just this
+      // element (and so shows just its text).
+      if (scoped === undefined && (selector === "xpath=ancestor::*" || selector === PART_CARD_XPATH)) {
         return makeLocator({
           count: 1,
           text: currentText,
@@ -4646,6 +4649,24 @@ describe("XometryAdapter", () => {
       if (!partCard) throw new Error("fixture lost its part card");
       partCard.insertAdjacentHTML("afterbegin", html);
     };
+    /** The innermost element that holds every tier card: the fixture's price panel. */
+    const pricePanel = (document: Document) => {
+      const panel = firstCard(document).parentElement;
+      if (!panel || panel.querySelectorAll(tierCardSelector).length !== tierCards(document).length) {
+        throw new Error("fixture lost its price panel");
+      }
+      return panel;
+    };
+    /** Adds markup inside the price panel, after its last tier card. */
+    const addToPanel = (html: string) => (document: Document) => {
+      pricePanel(document).insertAdjacentHTML("beforeend", html);
+    };
+    /** Adds markup to the order summary, beside the parts list and outside every part card. */
+    const addToOrderSummary = (document: Document, html: string) => {
+      const summary = document.querySelector(".order-summary");
+      if (!summary) throw new Error("fixture lost its order summary");
+      summary.insertAdjacentHTML("afterbegin", html);
+    };
     /** Adds markup inside the first tier card, after its price block. */
     const addToFirstCard = (html: string) => (document: Document) => {
       const block = firstCard(document).querySelector('[kind="outlineWhite"]');
@@ -4876,9 +4897,9 @@ describe("XometryAdapter", () => {
         expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
       });
 
-      it("ignores amounts and text outside the cards", async () => {
+      it("ignores amounts and text outside the part card", async () => {
         const fixture = await loadCurrentQuotePage((document) => {
-          addToPartCard(document, "<div>Handling $12.00</div><div>Expedited shipping not available</div>");
+          addToOrderSummary(document, "<div>Handling $12.00</div><div>Expedited shipping not available</div>");
         });
 
         expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
@@ -5027,66 +5048,111 @@ describe("XometryAdapter", () => {
       });
     });
 
-    describe("the price panel around the tier cards", () => {
-      /** The innermost element that holds every tier card: the fixture's price panel. */
-      const pricePanel = (document: Document) => {
-        const panel = firstCard(document).parentElement;
-        if (!panel || panel.querySelectorAll(tierCardSelector).length !== tierCards(document).length) {
-          throw new Error("fixture lost its price panel");
-        }
-        return panel;
-      };
-      /** Adds markup inside the price panel, after its last tier card. */
-      const addToPanel = (html: string) => (document: Document) => {
-        pricePanel(document).insertAdjacentHTML("beforeend", html);
-      };
-      const renameThirdCardAndLabel = (document: Document) => {
-        const third = nthCard(document, 2);
-        third.className = "price-tier-v2";
-        const label = third.querySelector('[data-testid="tierAndLeadTime"]');
+    describe("the part card around the tier cards", () => {
+      /** Renames a card's class and its timing label's hook, so neither selector finds that tier. */
+      const renameTierHooks = (card: Element) => {
+        card.className = "price-tier-v2";
+        const label = card.querySelector('[data-testid="tierAndLeadTime"]');
         if (!label) throw new Error("fixture tier card lost its tierAndLeadTime hook");
         label.setAttribute("data-testid", "tierAndLeadTimeV2");
       };
+      const renameThirdCardAndLabel = (document: Document) => renameTierHooks(nthCard(document, 2));
+      /** A tier block with neither hook: no .price-tier class and no tierAndLeadTime label. */
+      const hooklessTier = "<div><div>Economy</div><div>Arrives by Nov 20</div><div>$90.00 ea.</div><div>$90.00</div></div>";
+      const repeatPartNote = "Mark as a Repeat Part if you have previously ordered this part with your personal Xometry account,"
+        + " even if the geometry has been slightly revised. Pricing and lead time for Repeat Parts may vary.";
+      /** Where a line can sit in the part card outside every card. */
+      const partCardPlacements: Array<[string, (html: string) => (document: Document) => void]> = [
+        ["the price panel", addToPanel],
+        ["the part card outside the price panel", (html) => (document) => addToPartCard(document, html)],
+      ];
 
-      it("shows only its heading outside the cards, and the order summary's arrival date is never read", async () => {
+      it("shows timing outside the cards only in its static lines, and the order summary's arrival date is never read", async () => {
         const fixture = await loadCurrentQuotePage();
-        const panelLines = renderedText(pricePanel(fixture.document)).split("\n");
         const cardLines = new Set(fixture.cards.flatMap((card) => card.text.split("\n")));
-        expect(panelLines.filter((line) => !cardLines.has(line))).toEqual(["Price and Lead Time"]);
-        // Arrival text beside the part card, outside the panel.
+        const outsideLines = renderedText(dragHandle(fixture.document)).split("\n").filter((line) => !cardLines.has(line));
+        expect(outsideLines.filter((line) => /lead\s+time|arriv|deliver|business\s+days|\$/i.test(line)))
+          .toEqual([repeatPartNote, "Price and Lead Time"]);
+        // Arrival text beside the part card, outside it.
         expect(fixture.bodyText).toMatch(/to arrive by Nov 6/);
 
         expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
       });
 
+      it("exempts only the Repeat Part note's sentence, not timing beside it on its line", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          const note = [...document.querySelectorAll("div")].find((element) => element.textContent === repeatPartNote);
+          if (!note) throw new Error("fixture lost its Repeat Part note");
+          note.textContent = `${repeatPartNote} Arrives by Nov 9`;
+        });
+
+        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "wrapper_uncovered_content", uncoveredPartCardLines: 1 });
+      });
+
       it("fails closed on a tier card whose class and label hook were both renamed", async () => {
         const fixture = await loadCurrentQuotePage(renameThirdCardAndLabel);
         expect(fixture.cards).toHaveLength(2);
-        // Every rendered tier label still sits in a card, so only the panel shows the third tier.
+        // Every rendered tier label still sits in a card, so only the part card shows the third tier.
         expect(fixture.document.querySelectorAll('[data-testid="tierAndLeadTime"]')).toHaveLength(2);
 
         expect(await driftOf(fixture)).toMatchObject({
           reason: "xometry_offer_container_ambiguous",
           ambiguity: "wrapper_uncovered_content",
           containerSelector: tierCardSelector,
-          panelLines: 6,
-          uncoveredPanelLines: 4,
+          partCardLines: 20,
+          uncoveredPartCardLines: 4,
+        });
+      });
+
+      it.each([
+        ["a hookless tier block in the part card, outside the price panel", (document: Document) => {
+          addToPartCard(document, hooklessTier);
+        }, 3],
+        ["the third card, both hooks renamed, moved out of the price panel into the part card", (document: Document) => {
+          const third = nthCard(document, 2);
+          renameTierHooks(third);
+          const partCard = document.querySelector(".part-card");
+          if (!partCard) throw new Error("fixture lost its part card");
+          partCard.prepend(third);
+        }, 4],
+        ["the third card renamed beside a new wrapper around the first two cards", (document: Document) => {
+          const [first, second, third] = tierCards(document);
+          const wrapper = wrapCard(first);
+          wrapper.append(second);
+          renameTierHooks(third);
+        }, 4],
+        ["the second and third cards renamed, each card in a wrapper of its own", (document: Document) => {
+          const cards = tierCards(document);
+          for (const card of cards) wrapCard(card);
+          renameTierHooks(cards[1]);
+          renameTierHooks(cards[2]);
+        }, 8],
+      ])("fails closed on %s, wherever the part card shows it", async (_shape, mutate, uncoveredPartCardLines) => {
+        const fixture = await loadCurrentQuotePage(mutate);
+        expect(fixture.document.querySelectorAll(`.part-card ${tierCardSelector}`).length).toBeLessThan(4);
+
+        expect(await driftOf(fixture)).toMatchObject({
+          reason: "xometry_offer_container_ambiguous",
+          ambiguity: "wrapper_uncovered_content",
+          uncoveredPartCardLines,
         });
       });
 
       it("never lets the adapter publish two of three tiers when the third card and label were renamed", async () => {
-        const failure = await quoteCurrentPage({ mutate: renameThirdCardAndLabel }).catch((error: unknown) => error);
+        for (const mutate of [renameThirdCardAndLabel, (document: Document) => addToPartCard(document, hooklessTier)]) {
+          const failure = await quoteCurrentPage({ mutate }).catch((error: unknown) => error);
 
-        expect(failure).toBeInstanceOf(VendorAutomationError);
-        expect(failure).toMatchObject({
-          code: "unexpected_ui_state",
-          payload: expect.objectContaining({ ambiguity: "wrapper_uncovered_content" }),
-        });
-        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
-          ok: true,
-          terminalState: "selector_drift",
-          violations: [],
-        });
+          expect(failure).toBeInstanceOf(VendorAutomationError);
+          expect(failure).toMatchObject({
+            code: "unexpected_ui_state",
+            payload: expect.objectContaining({ ambiguity: "wrapper_uncovered_content" }),
+          });
+          expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+            ok: true,
+            terminalState: "selector_drift",
+            violations: [],
+          });
+        }
       });
 
       it.each([
@@ -5097,17 +5163,19 @@ describe("XometryAdapter", () => {
         ["a lead time", "<div>Lead time: 12</div>"],
         ["business days", "<div>Ships in 7 business days</div>"],
         ["the heading with a timing after it", "<div>Price and Lead Time: 5 business days</div>"],
-      ])("fails closed on %s in the panel outside every card", async (_text, html) => {
-        for (const oneCard of [false, true]) {
-          const fixture = await loadCurrentQuotePage((document) => {
-            if (oneCard) keepFirstCardOnly(document);
-            addToPanel(html)(document);
-          });
+      ])("fails closed on %s outside every card, in the panel or elsewhere in the part card", async (_text, html) => {
+        for (const [, add] of partCardPlacements) {
+          for (const oneCard of [false, true]) {
+            const fixture = await loadCurrentQuotePage((document) => {
+              if (oneCard) keepFirstCardOnly(document);
+              add(html)(document);
+            });
 
-          expect(await driftOf(fixture)).toMatchObject({
-            ambiguity: "wrapper_uncovered_content",
-            uncoveredPanelLines: 1,
-          });
+            expect(await driftOf(fixture)).toMatchObject({
+              ambiguity: "wrapper_uncovered_content",
+              uncoveredPartCardLines: 1,
+            });
+          }
         }
       });
 
@@ -5116,13 +5184,14 @@ describe("XometryAdapter", () => {
           nthCard(document, 1).before(document.createTextNode("Arrives by Nov 9"));
         });
 
-        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "wrapper_uncovered_content", uncoveredPanelLines: 1 });
+        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "wrapper_uncovered_content", uncoveredPartCardLines: 1 });
       });
 
-      it("publishes beside other panel text, a hidden amount, and timing or amounts outside the panel", async () => {
+      it("publishes beside other part-card text, hidden amounts or timing, and timing or amounts outside the part card", async () => {
         const fixture = await loadCurrentQuotePage((document) => {
           addToPanel('<div>Choose a tier</div><div style="display: none;">Subtotal $324.75</div>')(document);
-          addToPartCard(document, "<div>Arrives by Nov 9</div><div>Subtotal $324.75</div>");
+          addToPartCard(document, '<div>Finish: Standard</div><div style="display: none;">Arrives by Nov 9</div>');
+          addToOrderSummary(document, "<div>Arrives by Nov 9</div><div>Subtotal $324.75</div>");
         });
 
         expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
@@ -5131,7 +5200,13 @@ describe("XometryAdapter", () => {
       it.each([
         ["the order summary", (document: Document) => document.querySelector(".order-summary")],
         ["the <body>", (document: Document) => document.body],
-      ])("fails closed when a card sits in %s, so no panel narrower than the parts list holds every card", async (_where, target) => {
+        ["a second part card", (document: Document) => {
+          const parts = document.querySelector("#draggable-parts");
+          if (!parts) throw new Error("fixture lost its parts list");
+          parts.insertAdjacentHTML("beforeend", '<div role="button" tabindex="0"><div class="part-card"></div></div>');
+          return parts.lastElementChild?.firstElementChild ?? null;
+        }],
+      ])("fails closed when a card sits in %s, so no one part card holds every card", async (_where, target) => {
         const fixture = await loadCurrentQuotePage((document) => {
           const container = target(document);
           if (!container) throw new Error("fixture lost a container");
@@ -5141,35 +5216,32 @@ describe("XometryAdapter", () => {
 
         expect(await driftOf(fixture)).toMatchObject({
           reason: "xometry_offer_container_ambiguous",
-          ambiguity: "price_panel_unbounded",
+          ambiguity: "part_card_unbounded",
           tierCards: 3,
         });
       });
 
-      it("fails closed when the panel's text cannot be read", async () => {
+      it("fails closed when the part card's text cannot be read", async () => {
         const fixture = await loadCurrentQuotePage((document) => {
-          pricePanel(document).setAttribute("data-test-unreadable", "text");
+          dragHandle(document).setAttribute("data-test-unreadable", "text");
         });
 
-        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "shape_unreadable", tierCards: 3, panelLines: null });
+        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "shape_unreadable", tierCards: 3, partCardLines: null });
       });
 
-      it("fails closed when the panel's text does not hold a card's text", async () => {
+      it("fails closed when the part card's text does not hold a card's text", async () => {
         const cardText = "Standard\nArrives by Nov 6\n$50.00";
+        // The part card shows a different arrival date than the card did.
+        const partCard: LocatorBehavior = {
+          count: 1,
+          text: `Price and Lead Time\n${cardText.replace("Nov 6", "Nov 7")}`,
+          children: (inner) => ({ count: inner === tierCardSelector ? 1 : 0 }),
+        };
         const card: LocatorBehavior = {
           count: 1,
           text: cardText,
           children: (selector) => {
-            if (selector === "xpath=ancestor::*") {
-              // The panel shows a different arrival date than the card did.
-              return {
-                items: [{
-                  count: 1,
-                  text: `Price and Lead Time\n${cardText.replace("Nov 6", "Nov 7")}`,
-                  children: (inner) => ({ count: inner === tierCardSelector ? 1 : 0 }),
-                }],
-              };
-            }
+            if (selector === "xpath=ancestor::*" || selector === PART_CARD_XPATH) return { items: [partCard] };
             return selector === '[data-testid="tierAndLeadTime"]:visible'
               ? { count: 1, text: "Arrives by Nov 6" }
               : { count: 0 };
@@ -5185,7 +5257,7 @@ describe("XometryAdapter", () => {
         const failure = await collectXometryOffers(page, 1).catch((error: unknown) => error);
 
         expect(failure).toMatchObject({
-          payload: { reason: "xometry_offer_container_ambiguous", ambiguity: "shape_unreadable", panelLines: null },
+          payload: { reason: "xometry_offer_container_ambiguous", ambiguity: "shape_unreadable", partCardLines: null },
         });
         expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "selector_drift" });
       });
@@ -5194,44 +5266,63 @@ describe("XometryAdapter", () => {
         ["Least Expensive", [1, 2]],
         ["Standard", [0, 2]],
         ["Fastest", [0, 1]],
-      ])("excludes the one tier a panel line calls unavailable (%s)", async (tier, kept) => {
-        const fixture = await loadCurrentQuotePage(addToPanel(`<div>${tier} is not available for this part.</div>`));
+      ])("excludes the one tier a line in the panel or elsewhere in the part card calls unavailable (%s)", async (tier, kept) => {
+        for (const [, add] of partCardPlacements) {
+          for (const line of [`${tier} is not available for this part.`, `The ${tier.toLowerCase()} tier is unavailable.`]) {
+            const fixture = await loadCurrentQuotePage(add(`<div>${line}</div>`));
 
-        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1)))
-          .toEqual(kept.map((index) => expectedTierOffers[index]));
+            expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1)))
+              .toEqual(kept.map((index) => expectedTierOffers[index]));
+          }
+        }
       });
 
-      it("ends the quote on the remaining tiers when the panel withdraws one", async () => {
-        const { result } = await quoteCurrentPage({ mutate: addToPanel("<div>Least Expensive is not available.</div>") });
+      it.each(partCardPlacements)("ends the quote on the remaining tiers when a line in %s withdraws one", async (_where, add) => {
+        const { result } = await quoteCurrentPage({ mutate: add("<div>The Fastest tier is not available for this part.</div>") });
 
         expect(result.status).toBe("instant_quote_received");
-        expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(["standard", "fastest"]);
-        expect(result.totalPriceUsd).toBe(106.4);
+        expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(["least-expensive", "standard"]);
+        expect(result.totalPriceUsd).toBe(101.25);
       });
 
       it.each([
-        ["names no tier", "<div>Some options are not available.</div>", 0],
-        ["names two tiers", "<div>Standard and Fastest are not available.</div>", 2],
-      ])("fails closed as availability_ambiguous when a panel line %s", async (_case, html, namedTierCards) => {
-        const fixture = await loadCurrentQuotePage(addToPanel(html));
+        ["names no tier", "Some options are not available.", 0],
+        ["names two tiers", "Standard and Fastest are not available.", 2],
+        ["withdraws one tier and names another", "Fastest is not available and Standard is not offered.", 2],
+        ["only mentions a tier's name", "Standard finish not available for this material.", 1],
+        ["names a tier as part of a longer name", "Standard Inspection is not available.", 1],
+        ["holds a tier's name inside a longer word", "Standardized finish is not available.", 0],
+        ["holds a tier's name inside a longer word", "Fastestest is unavailable.", 0],
+      ])("fails closed as availability_ambiguous when a part-card line %s: %s", async (_case, line, namedTierCards) => {
+        for (const [, add] of partCardPlacements) {
+          const fixture = await loadCurrentQuotePage(add(`<div>${line}</div>`));
 
-        expect(await driftOf(fixture)).toMatchObject({
-          reason: "xometry_offer_container_ambiguous",
-          ambiguity: "availability_ambiguous",
-          panelUnavailableLines: 1,
-          namedTierCards,
-        });
+          expect(await driftOf(fixture)).toMatchObject({
+            reason: "xometry_offer_container_ambiguous",
+            ambiguity: "availability_ambiguous",
+            partCardUnavailableLines: 1,
+            namedTierCards,
+          });
+        }
+      });
+
+      it("names a tier only as a whole word, so a longer word holding another tier's name withdraws nothing more", async () => {
+        const fixture = await loadCurrentQuotePage(addToPanel("<div>Fastest is not available for Standardized parts.</div>"));
+
+        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers.slice(0, 2));
       });
 
       it("fails an unavailability line that also shows timing as uncovered content", async () => {
-        const fixture = await loadCurrentQuotePage(addToPanel("<div>Fastest is not available: arrives by Nov 9</div>"));
+        for (const [, add] of partCardPlacements) {
+          const fixture = await loadCurrentQuotePage(add("<div>Fastest is not available: arrives by Nov 9</div>"));
 
-        expect(await driftOf(fixture)).toMatchObject({ ambiguity: "wrapper_uncovered_content", uncoveredPanelLines: 1 });
+          expect(await driftOf(fixture)).toMatchObject({ ambiguity: "wrapper_uncovered_content", uncoveredPartCardLines: 1 });
+        }
       });
 
-      it("never reads an unavailability line outside the panel", async () => {
+      it("never reads an unavailability line outside the part card", async () => {
         const fixture = await loadCurrentQuotePage((document) => {
-          addToPartCard(document, "<div>Fastest is not available for this part.</div>");
+          addToOrderSummary(document, "<div>Fastest is not available for this part.</div>");
         });
 
         expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
@@ -5899,6 +5990,41 @@ describe("XometryAdapter", () => {
           }
         },
       );
+
+      it.each([
+        ["the price panel", (document: Document, html: string) => addToPanel(html)(document)],
+        ["the part card outside the price panel", addToPartCard],
+      ])("settles, as the collector withdraws it, when a line in %s says the unpriced card's tier is not available", async (_where, add) => {
+        for (const line of ["Fastest is not available for this part.", "The Fastest tier is not available for this part."]) {
+          const mutate = (document: Document) => {
+            unpriceThirdCard(document);
+            add(document, `<div>${line}</div>`);
+          };
+
+          expect(settledOn(await mutatedFixture(mutate))).toBe(true);
+          const fixture = await loadCurrentQuotePage(mutate);
+          expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1, undefined, {
+            priceTiersSettled: true,
+            pricingInProgress: false,
+          }))).toEqual(expectedTierOffers.slice(0, 2));
+        }
+      });
+
+      it.each([
+        ["sits outside the part card", (document: Document) => {
+          addToOrderSummary(document, "<div>Fastest is not available for this part.</div>");
+        }],
+        ["names a longer word", (document: Document) => addToPartCard(document, "<div>Fastestest is unavailable.</div>")],
+        ["names a shorter word", (document: Document) => addToPartCard(document, "<div>Fast is unavailable.</div>")],
+        ["only mentions the tier", (document: Document) => {
+          addToPartCard(document, "<div>Fastest finish not available for this material.</div>");
+        }],
+      ])("keeps waiting on an unpriced card when the unavailability line %s", async (_case, mutate) => {
+        expect(settledOn(await mutatedFixture((document) => {
+          unpriceThirdCard(document);
+          mutate(document);
+        }))).toBe(false);
+      });
 
       it("keeps waiting on an unpriced card that is not withdrawn, or whose mark sits beside it", async () => {
         expect(settledOn(await mutatedFixture(unpriceThirdCard))).toBe(false);
