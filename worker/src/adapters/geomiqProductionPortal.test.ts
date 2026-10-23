@@ -108,13 +108,23 @@ describe("Geomiq local-evaluation eligibility (OVD-1058)", () => {
     expect(assess({ requestedQuantity })).toMatchObject({ state: "unsupported", reason: "quantity_outside_envelope" });
   });
 
-  it.each(["6082 aluminum", "6061-T3", "Aluminum 6061-O", "7075-T6", "", null])("never substitutes %s", (material) => {
+  it.each(["6082 aluminum", "6061-T3", "Aluminum 6061-O", "6061 O", "6061 annealed", "6061-T651", "6061T651", "6061/6082", "6061 or 7075", "6061-T6 / 7075-T6", "7075-T6", "", null])("never substitutes %s", (material) => {
     expect(assess({ requirement: { material } } as unknown as Partial<VendorQuoteAdapterInput>))
       .toMatchObject({ state: "unsupported", reason: "geomiq_material_outside_adapter" });
   });
 
-  it.each(["6061 aluminum", "Aluminum 6061-T6", "6061 T6", "AL 6061"])("maps %s to Aluminium 6061 T6 only", (material) => {
+  it.each(["6061 aluminum", "Aluminum 6061-T6", "6061 T6", "AL 6061", "aluminium  6061-t6"])("maps %s to Aluminium 6061 T6 only", (material) => {
     expect(geomiqMaterialFor(material)).toEqual({ label: "Aluminium 6061 T6", enNumber: "3.3216" });
+  });
+
+  it.each(["anodized", "Bead blasted", "as machined + anodize"])("refuses the requested finish %s", (finish) => {
+    expect(assess({ requirement: { material: "6061 aluminum", finish } } as unknown as Partial<VendorQuoteAdapterInput>))
+      .toMatchObject({ state: "unsupported", reason: "geomiq_finish_outside_adapter" });
+  });
+
+  it.each(["as machined", "As-Machined", "", null])("accepts the as-machined finish %s", (finish) => {
+    expect(assess({ requirement: { material: "6061 aluminum", finish } } as unknown as Partial<VendorQuoteAdapterInput>))
+      .toMatchObject({ state: "eligible" });
   });
 });
 
@@ -161,10 +171,11 @@ const extractInput = (requestedQuantity = 1) => ({
   requestedQuantity, stagedCadFile: { originalName: "synthetic-geomiq-part.step" }, requirement: { material: "6061 aluminum" },
 }) as unknown as VendorQuoteAdapterInput;
 
-/** Runs extraction on fake timers: a price is accepted only after two equal reads one poll apart. */
-async function extract(page: Page, requestedQuantity = 1, advanceMs = 10_000) {
+/** Runs extraction on fake timers: a price is accepted only after equal reads one poll apart (three after a requote, six without). */
+async function extract(page: Page, requestedQuantity = 1, advanceMs = 20_000, timeline: Array<[atMs: number, change: Page]> = []) {
   vi.useFakeTimers();
   try {
+    for (const [atMs, change] of timeline) setTimeout(() => Object.assign(page, change), atMs);
     const outcome = extractGeomiqProductionOffers(reader(page), extractInput(requestedQuantity))
       .then((offers) => ({ offers, error: null }), (error: unknown) => ({ offers: null, error }));
     await vi.advanceTimersByTimeAsync(advanceMs);
@@ -208,13 +219,13 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
   it.each<[string, Page, string, string]>([
     ["a manual quote", { [L.rowStatus]: { text: "Manual quote needed" } }, "manual_review", "geomiq_manual_quote_needed"],
     ["an unquotable part", { [L.rowStatus]: { text: "Unable to quote" } }, "unsupported", "geomiq_unable_to_quote"],
-    ["a different material", { [L.rowMaterial]: { text: "Aluminium 6082" } }, "configuration_required", "geomiq_material_not_6061_t6"],
     ["a different finish", { [L.finish]: { text: "Bead Blasted" } }, "configuration_required", "geomiq_finish_not_as_machined"],
     ["a different service", { [L.rowService]: { text: "3D Printing" } }, "configuration_required", "geomiq_service_not_cnc"],
     ["a tool cost", { [L.rowToolCost]: { count: 1 } }, "selector_drift", "geomiq_unexpected_tool_cost"],
     ["a subtotal for another quantity", { [L.rowSubtotal]: { text: "US$85.00" } }, "selector_drift", "geomiq_price_quantity_mismatch"],
     ["mixed currencies", { [L.rowSubtotal]: { text: "£42.50" } }, "selector_drift", "geomiq_price_unparsed"],
     ["another selected part", { [L.selectedPartRow]: { count: 1, text: "previous-draft" } }, "selector_drift", "geomiq_selected_part_not_uploaded_file"],
+    ["a part whose name only contains the file name", { [L.selectedPartRow]: { count: 1, text: "copy-of-synthetic-geomiq-part" } }, "selector_drift", "geomiq_selected_part_not_uploaded_file"],
     ["two selected parts", { [L.selectedPartRow]: { count: 2, text: "synthetic-geomiq-part" } }, "selector_drift", "geomiq_selected_part_not_unique"],
   ])("ends %s in a finite terminal state", async (_name, overrides, terminalState, reason) => {
     const { offers, error } = await extract(settledRow(overrides));
@@ -222,9 +233,100 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
     expect(error).toMatchObject({ payload: { vendor: "geomiq", terminalState, reason, providerMutationPossible: true } });
   });
 
+  it("waits out a requote that keeps the previous material's price before marking the row", async () => {
+    // Relabelled to 6061 T6 with the old price still shown, then "Updating part", then the new price.
+    const page = settledRow({ [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" } });
+    const { offers, error } = await extract(page, 1, 30_000, [
+      [4_000, { [L.rowStatus]: { text: "Updating part" } }],
+      [8_000, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
+    ]);
+    expect(error).toBeNull();
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
+  });
+
+  it("waits out a stale price that changes without any loading status", async () => {
+    // No status ever appears; the previous price is replaced after three equal reads.
+    const page = settledRow({ [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" } });
+    const { offers, error } = await extract(page, 1, 40_000, [
+      [7_000, { [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
+    ]);
+    expect(error).toBeNull();
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
+  });
+
+  it("needs three equal reads after a requote, so a transient price is not read", async () => {
+    const page = settledRow({ [L.rowStatus]: { text: "Pricing part" } });
+    const { offers, error } = await extract(page, 1, 30_000, [
+      [1_000, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" } }],
+      [8_000, { [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
+    ]);
+    expect(error).toBeNull();
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
+  });
+
+  it("needs six equal reads when no requote is seen", async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const outcome = extractGeomiqProductionOffers(reader(settledRow()), extractInput()).finally(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(13_000); // five reads: t = 0, 3, 6, 9, 12 s
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(3_000); // the sixth read
+      await expect(outcome).resolves.toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a penny of rounding per two parts between unit price and subtotal", async () => {
+    const offers = await extractOffers(settledRow({ [L.rowUnitPrice]: { text: "US$33.33" }, [L.rowSubtotal]: { text: "US$100.00" } }), 3);
+    expect(offers).toEqual([expect.objectContaining({ quantity: 3, totalPriceUsd: expect.objectContaining({ value: 100 }) })]);
+  });
+
+  it("reports a material selection that never took as configuration_required", async () => {
+    const { error } = await extract(settledRow({ [L.rowMaterial]: { text: "Aluminium 6082" } }), 1, 200_000);
+    expect(error).toMatchObject({ payload: { terminalState: "configuration_required", reason: "geomiq_material_not_6061_t6" } });
+  });
+
   it("stops as selector drift when the price never settles", async () => {
     const { error } = await extract(settledRow({ [L.rowStatus]: { text: "Pricing part" } }), 1, 200_000);
     expect(error).toMatchObject({ payload: { terminalState: "selector_drift", reason: "geomiq_price_not_settled" } });
+  });
+});
+
+describe("Geomiq pre-upload page guard (synthetic readers)", () => {
+  const signedIn: Page = {
+    [L.signedIn]: { count: 1 }, [L.cadUpload]: { count: 1 }, body: { text: "Drag and drop or click here to upload your files" },
+  };
+
+  async function guard(page: Page, timeline: Array<[atMs: number, change: Page]> = []) {
+    vi.useFakeTimers();
+    try {
+      for (const [atMs, change] of timeline) setTimeout(() => Object.assign(page, change), atMs);
+      const outcome = Promise.resolve(buildGeomiqProductionPortalDefinition().hooks.beforeUpload!(reader(page)))
+        .then(() => null, (error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(30_000);
+      return await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("passes a stable signed-in page with nothing selected", async () => {
+    expect(await guard({ ...signedIn })).toBeNull();
+  });
+
+  it.each<[string, Page, Array<[number, Page]>, string, string]>([
+    ["an anonymous page", { ...signedIn, [L.signedIn]: { count: 0 }, [L.signedOut]: { count: 1 } }, [], "login_required", "geomiq_session_anonymous"],
+    ["a login button that replaces the header", { ...signedIn }, [[1_000, { [L.signedOut]: { count: 1 } }]], "login_required", "geomiq_session_anonymous"],
+    ["a selected draft part", { ...signedIn, [L.selectedPartRow]: { count: 1 } }, [], "configuration_required", "geomiq_other_part_selected"],
+    ["an open configurator", { ...signedIn, [L.quantity]: { count: 1 } }, [], "configuration_required", "geomiq_other_part_selected"],
+    ["a selection restored late", { ...signedIn }, [[1_000, { [L.selectedPartRow]: { count: 1 } }]], "configuration_required", "geomiq_other_part_selected"],
+    ["a bot challenge", { body: { text: "Just a moment... Checking your browser" } }, [], "captcha", "geomiq_bot_challenge"],
+    ["maintenance", { body: { text: "Geomiq is under maintenance" } }, [], "unavailable", "geomiq_portal_unavailable"],
+    ["a page that never renders", { body: { text: "" } }, [], "selector_drift", "geomiq_quote_page_not_rendered"],
+  ])("stops before upload on %s", async (_name, page, timeline, terminalState, reason) => {
+    expect(await guard(page, timeline)).toMatchObject({ payload: { terminalState, reason, providerMutationPossible: false } });
   });
 });
 

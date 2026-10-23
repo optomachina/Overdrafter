@@ -24,6 +24,10 @@ action under `AGENTS.md`. Promotion follows the three stages in
 Allowed hosts (OVD-1058, from the public buyer app): `app.geomiq.com`, `geomiq.com`, `api.geomiq.com` (Sanctum API and Pusher socket), `gserve.geomiq.com` (thumbnail upload). The signed direct-upload host is added only after a live run names it.
 
 Geomiq displays every price in GBP. Local evaluation records it as non-comparable native evidence (`LocalEvidenceCurrency` includes `GBP`); it is never converted or relabelled as USD.
+
+The definition declares no cleanup hook: Geomiq confirms "Delete part" in a modal outside the part row, and the kernel's cleanup only clicks inside an owned row. Each local evaluation that uploads leaves one draft part in the account, which the operator removes by hand and records in the run ledger.
+
+An untempered "6061" requirement maps to Geomiq's "Aluminium 6061 T6" because the designated validation drawing calls for 6061-T6; Geomiq's untempered "Aluminium 6061" option is never chosen, and any other alloy, temper or finish is `unsupported` before session access.
 CAD extensions (from the manifest envelope): `step`, `stp`.
 
 ## Remaining manual steps before admission

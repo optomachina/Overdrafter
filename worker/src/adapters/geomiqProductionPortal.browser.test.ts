@@ -35,16 +35,15 @@ type PageOptions = {
   signedIn?: boolean;
   otherPartSelected?: boolean;
   materials?: Array<[label: string, enNumber: string]>;
-  price?: { unit: string; subtotal: string } | { status: string };
+  /** `unit` is per part; the fixture renders the subtotal from the configurator's quantity. */
+  price?: { symbol: string; unit: number } | { status: string };
   uploadUrl?: string;
 };
 
 function quotePage(options: PageOptions = {}): string {
-  const materials = options.materials ?? [["Aluminium 6061", "3.3211"], ["Aluminium 6061 T3", "3.3214"], ["Aluminium 6061 T6", "3.3216"]];
-  const price = options.price ?? { unit: "US$42.50", subtotal: "US$42.50" };
-  const priced = "status" in price
-    ? `<p class="quote-status-field">${price.status}</p>`
-    : `<div><p>Price per unit:</p><p> ${price.unit} </p><p>Subtotal:</p><p> ${price.subtotal} </p></div>`;
+  const materials = options.materials
+    ?? [["Aluminium 6061 T651", "3.3216"], ["Aluminium 6061", "3.3211"], ["Aluminium 6061 T3", "3.3214"], ["Aluminium 6061 T6", "3.3216"]];
+  const price = options.price ?? { symbol: "US$", unit: 42.5 };
   const nav = options.signedIn === false
     ? `<button data-testid="login-button">Login</button>`
     : `<div data-testid="menu-dropdown">Account</div>`;
@@ -68,11 +67,11 @@ function quotePage(options: PageOptions = {}): string {
             <div><p>Service:</p><p>CNC</p></div>
             <div><p>Material:</p><p id="row-material"> Aluminium 6061 </p></div>
             <div><p>Shipping in:</p><p> 10 business days </p></div>
-            <div class="number-input-wrapper"><input type="number" id="quantity_initial" value="1"></div>
+            <div class="number-input-wrapper"><input type="number" id="quantity_initial" value="7"></div>
             <div id="row-price"><span class="quote-status-field">Pricing part</span></div>
           </div>\`);
         document.getElementById("configurator").innerHTML = \`
-          <div class="number-input-wrapper"><input type="number" id="quantity_initial" value="1"></div>
+          <div class="number-input-wrapper"><input type="number" id="quantity_initial" value="5"></div>
           <div class="g-input-dropdown">
             <div class="selected"><button id="material-label">Aluminium 6061</button></div>
             <div class="dropdown" style="display:none"><input type="text"></div>
@@ -97,7 +96,14 @@ function quotePage(options: PageOptions = {}): string {
               const label = button.querySelector("div").firstChild.textContent.trim();
               document.getElementById("row-material").textContent = " " + label + " ";
               document.getElementById("row-price").innerHTML = '<span class="quote-status-field">Updating part</span>';
-              setTimeout(() => { document.getElementById("row-price").innerHTML = ${JSON.stringify(priced)}; }, 500);
+              const price = ${JSON.stringify(price)};
+              const quantity = Number(document.querySelector("#configurator input#quantity_initial").value);
+              const money = (amount) => price.symbol + amount.toFixed(2);
+              setTimeout(() => {
+                document.getElementById("row-price").innerHTML = "status" in price
+                  ? '<p class="quote-status-field">' + price.status + '</p>'
+                  : '<div><p>Price per unit:</p><p> ' + money(price.unit) + ' </p><p>Subtotal:</p><p> ' + money(price.unit * quantity) + ' </p></div>';
+              }, 500);
             });
           }
         });
@@ -165,6 +171,10 @@ async function quoteAgainst(page: string) {
 }
 
 describe("Geomiq production portal definition in a browser fixture (OVD-1058)", () => {
+  // Priced cases take about 50 s: the fixture requotes before extraction starts, so six equal reads are needed.
+  // The page prices the part from the configurator's quantity (default 5) and lists "6061 T651" with the
+  // same EN number first, so this passes only if the configurator, not the row (default 7), was set to 1
+  // and the exact 6061 T6 option was chosen.
   it("uploads to the app host, selects Aluminium 6061 T6 and reads the settled USD row", async () => {
     const { output, error, observed } = await quoteAgainst(quotePage());
     expect(error).toBeNull();
@@ -175,17 +185,17 @@ describe("Geomiq production portal definition in a browser fixture (OVD-1058)", 
     });
     expect(observed.uploads.map((upload) => upload.toString("utf8"))).toEqual([CAD_BYTES]);
     expectOnlyHostContacted(observed, "app.geomiq.com");
-  }, timeout);
+  }, 2 * timeout);
 
   it("records a GBP quote as native local evidence, never as USD", async () => {
-    const { output, error } = await quoteAgainst(quotePage({ price: { unit: "£42.50", subtotal: "£42.50" } }));
+    const { output, error } = await quoteAgainst(quotePage({ price: { symbol: "£", unit: 42.5 } }));
     expect(error).toBeNull();
     expect(output).toMatchObject({
       kind: "local_native_currency_evaluation", status: "native_offers_extracted", localOnly: true, customerOfferPersistence: false,
       nativeOffers: [expect.objectContaining({ quantity: 1, money: expect.objectContaining({ currency: "GBP", unitAmount: 42.5, totalAmount: 42.5 }) })],
     });
     expect(JSON.stringify(output)).not.toContain("PriceUsd");
-  }, timeout);
+  }, 2 * timeout);
 
   it("routes a manual quote to manual review", async () => {
     const { error } = await quoteAgainst(quotePage({ price: { status: "Manual quote needed" } }));

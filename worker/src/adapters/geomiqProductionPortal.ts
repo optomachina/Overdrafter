@@ -56,7 +56,12 @@ export const GEOMIQ_PRODUCTION_LOCATORS = Object.freeze({
   quantity: `.number-input-wrapper input#quantity_initial:not(${PART_ROW} input)`,
   materialTrigger: `${MATERIAL_DROPDOWN} > .selected button`,
   materialSearch: `${MATERIAL_DROPDOWN} > .dropdown input[type='text']`,
-  material6061T6: `#options-material-input-dropdown button.option:has-text("${GEOMIQ_MATERIAL_6061_T6.label}"):has-text("${GEOMIQ_MATERIAL_6061_T6.enNumber}")`,
+  /**
+   * The option whose text is exactly the label then the EN number, so "6061 T651" or another number
+   * cannot match. `:text-matches` tests raw text, so separators are "not alphanumeric", which also
+   * avoids backslash escapes inside the selector string.
+   */
+  material6061T6: `#options-material-input-dropdown button.option:has(div:text-matches("^[^A-Za-z0-9]*Aluminium 6061 T6[^A-Za-z0-9]+3[.]3216([^0-9]|$)"))`,
   finish: "button.select-target[entity='primary-finish'] [data-testid='configurator-preselected']",
   /** Row fields: each value is the paragraph after its label. */
   rowStatus: `${PART_ROW}.is-selected .quote-status-field`,
@@ -83,7 +88,14 @@ const GEOMIQ_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
 };
 
 const QUANTITY_MAXIMUM = 50_000;
+const PAGE_RENDER_BUDGET_MS = 20_000;
+/** The signed-in, nothing-selected state must hold across two reads this far apart. */
+const PAGE_STABLE_MS = 1_500;
 const SETTLE_POLL_MS = 3_000;
+/** Stable reads after a requote was seen (a loading status, no price, or a price change). */
+const SETTLE_STABLE_READS = 3;
+/** Stable reads when no requote was seen: the price may already be final, or still stale. */
+const SETTLE_UNOBSERVED_STABLE_READS = 6;
 const SETTLE_BUDGET_MS = 180_000;
 const LOADING_STATUSES = new Set(["Uploading file", "Analysing file", "Pricing part", "Updating part"]);
 
@@ -98,13 +110,17 @@ function stop(state: ProviderPortalTerminalState, reason: string, providerMutati
 /**
  * Untempered 6061 (the harness default for this package) and 6061-T6 both map
  * to Geomiq's "Aluminium 6061 T6": the designated drawing calls for 6061-T6.
- * Any other alloy or temper is outside the adapter and never substituted.
+ * The whole requirement must name that one material; any other alloy, temper
+ * or combination is outside the adapter and never substituted.
  */
 export function geomiqMaterialFor(material: string | null | undefined): typeof GEOMIQ_MATERIAL_6061_T6 | null {
-  const text = material?.trim() ?? "";
-  if (!/(?:^|\D)6061(?:\D|$)/.test(text)) return null;
-  const tempers = text.match(/\bT\d{1,4}\b|-O\b/gi) ?? [];
-  return tempers.every((temper) => temper.toUpperCase() === "T6") ? GEOMIQ_MATERIAL_6061_T6 : null;
+  const text = (material ?? "").trim().replace(/\s+/g, " ");
+  return /^(?:(?:aluminum|aluminium|al) )?6061(?:[- ]?t6)?(?: (?:aluminum|aluminium))?$/i.test(text) ? GEOMIQ_MATERIAL_6061_T6 : null;
+}
+
+/** The drawing's as-machined finish is Geomiq's default; any other requested finish is outside the adapter. */
+export function isGeomiqAsMachinedFinish(finish: string | null | undefined): boolean {
+  return /^(?:as[- ]machined)?$/i.test((finish ?? "").trim());
 }
 
 /** Parses one `Intl.NumberFormat("en-UK")` currency string; anything else is null. */
@@ -122,42 +138,87 @@ function leadBusinessDays(text: string | null): number | null {
   return days !== null && days > 0 ? days : null;
 }
 
-function fileStem(input: VendorQuoteAdapterInput): string {
-  return (input.stagedCadFile?.originalName ?? "").replace(/\.[^.]+$/, "").trim();
+/** The row names the part by its file name, with or without the extension, on a line of its own. */
+function uploadedPartNames(input: VendorQuoteAdapterInput): Set<string> {
+  const name = (input.stagedCadFile?.originalName ?? "").trim().toLowerCase();
+  return new Set(name ? [name, name.replace(/\.[^.]+$/, "")] : []);
 }
 
-/** Read-only: a signed-in quote page with the upload input and no other part selected. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Interstitials stop the run with their own state before any quote-page wait can mask them. */
+async function assertNoInterstitial(reader: ProviderPortalReadCapability): Promise<void> {
+  const text = (await reader.readText("body")) ?? "";
+  if (GEOMIQ_TERMINAL_SIGNALS.captcha.some((pattern) => pattern.test(text))) stop("captcha", "geomiq_bot_challenge", false);
+  if (GEOMIQ_TERMINAL_SIGNALS.unavailable.some((pattern) => pattern.test(text))) stop("unavailable", "geomiq_portal_unavailable", false);
+}
+
+/**
+ * Read-only, before upload: a signed-in quote page with one upload input, no
+ * configurator, and no selected part. The configurator edits the selected
+ * parts; after an upload the app selects only the new draft
+ * (`selectParts(<last draft>.hash)` in the public bundle), so a part selected
+ * now, or a configurator already open, would receive our configuration. The
+ * state must hold across two reads PAGE_STABLE_MS apart, so a signed-in header
+ * rendered from saved client state before a 401, or a late restored
+ * selection, stops the run instead of disclosing the file.
+ */
 async function assertSignedInQuotePage(reader: ProviderPortalReadCapability): Promise<void> {
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + PAGE_RENDER_BUDGET_MS;
   while (await reader.count(L.signedIn) === 0 && await reader.count(L.signedOut) === 0) {
+    await assertNoInterstitial(reader);
     if (Date.now() > deadline) stop("selector_drift", "geomiq_quote_page_not_rendered", false);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
-  if (await reader.count(L.signedOut) > 0 || await reader.count(L.signedIn) === 0) {
-    stop("login_required", "geomiq_session_anonymous", false);
+  for (const check of [0, 1]) {
+    if (check) await sleep(PAGE_STABLE_MS);
+    await assertNoInterstitial(reader);
+    if (await reader.count(L.signedOut) > 0 || await reader.count(L.signedIn) === 0) {
+      stop("login_required", "geomiq_session_anonymous", false);
+    }
+    if (await reader.count(L.cadUpload) !== 1) stop("selector_drift", "geomiq_upload_input_not_unique", false);
+    if (await reader.count(L.selectedPartRow) > 0 || await reader.count(L.quantity) > 0) {
+      stop("configuration_required", "geomiq_other_part_selected", false);
+    }
   }
-  if (await reader.count(L.cadUpload) !== 1) stop("selector_drift", "geomiq_upload_input_not_unique", false);
-  // The configurator edits the selected parts; another selected draft would receive our configuration.
-  if (await reader.count(L.selectedPartRow) > 0) stop("configuration_required", "geomiq_other_part_selected", false);
 }
 
-async function readSettledRow(reader: ProviderPortalReadCapability, stem: string): Promise<{ unit: string; subtotal: string }> {
+/**
+ * Polls the selected row until its price is settled for 6061-T6. A material
+ * change relabels the row at once (the bundle's UPDATE_DRAFT commits the new
+ * configuration before saving) while the previous price stays until the
+ * requote marks the row "Updating part"/"Pricing part". A price counts only
+ * after equal reads one poll apart, each with the 6061-T6 label and no loading
+ * status: SETTLE_STABLE_READS once a requote was seen (a loading status, no
+ * price, or a price change), else SETTLE_UNOBSERVED_STABLE_READS. This bounds
+ * the stale-price window by time; Geomiq exposes no quote revision to bind to.
+ */
+async function readSettledRow(reader: ProviderPortalReadCapability, names: Set<string>): Promise<{ unit: string; subtotal: string }> {
   const deadline = Date.now() + SETTLE_BUDGET_MS;
   let previous: string | null = null;
+  let stableReads = 0;
+  let requoteSeen = false;
   for (;;) {
     if (await reader.count(L.selectedPartRow) !== 1) stop("selector_drift", "geomiq_selected_part_not_unique", true);
-    const rowText = (await reader.readText(L.selectedPartRow)) ?? "";
-    if (!stem || !rowText.toLowerCase().includes(stem.toLowerCase())) stop("selector_drift", "geomiq_selected_part_not_uploaded_file", true);
+    const rowLines = ((await reader.readText(L.selectedPartRow)) ?? "").split("\n").map((line) => line.trim().toLowerCase());
+    if (!rowLines.some((line) => names.has(line))) stop("selector_drift", "geomiq_selected_part_not_uploaded_file", true);
     const status = (await reader.readText(L.rowStatus))?.trim() ?? null;
     if (status === "Manual quote needed") stop("manual_review", "geomiq_manual_quote_needed", true);
     if (status === "Unable to quote") stop("unsupported", "geomiq_unable_to_quote", true);
+    const material = (await reader.readText(L.rowMaterial))?.trim() ?? null;
     const unit = (await reader.readText(L.rowUnitPrice))?.trim() ?? null;
     const subtotal = (await reader.readText(L.rowSubtotal))?.trim() ?? null;
-    const settled = unit && subtotal && !(status && LOADING_STATUSES.has(status));
-    // Two equal reads a poll apart: a stale default-material price is replaced, not read.
-    if (settled && previous === `${unit}|${subtotal}`) return { unit, subtotal };
-    previous = settled ? `${unit}|${subtotal}` : null;
-    if (Date.now() > deadline) stop("selector_drift", "geomiq_price_not_settled", true);
+    const settled = unit && subtotal && material === GEOMIQ_MATERIAL_6061_T6.label && !(status && LOADING_STATUSES.has(status));
+    const sample = settled ? `${unit}|${subtotal}` : null;
+    if (sample === null || (previous !== null && sample !== previous)) requoteSeen = true;
+    stableReads = sample !== null && sample === previous ? stableReads + 1 : sample === null ? 0 : 1;
+    previous = sample;
+    if (settled && stableReads >= (requoteSeen ? SETTLE_STABLE_READS : SETTLE_UNOBSERVED_STABLE_READS)) return { unit, subtotal };
+    if (Date.now() > deadline) {
+      // A priced row that never showed 6061-T6 means the material selection did not take.
+      if (unit && material && material !== GEOMIQ_MATERIAL_6061_T6.label) stop("configuration_required", "geomiq_material_not_6061_t6", true);
+      stop("selector_drift", "geomiq_price_not_settled", true);
+    }
     await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
   }
 }
@@ -174,7 +235,7 @@ export async function extractGeomiqProductionOffers(
   reader: ProviderPortalReadCapability,
   input: VendorQuoteAdapterInput,
 ): Promise<Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>> {
-  const { unit, subtotal } = await readSettledRow(reader, fileStem(input));
+  const { unit, subtotal } = await readSettledRow(reader, uploadedPartNames(input));
   const service = (await reader.readText(L.rowService))?.trim();
   const material = (await reader.readText(L.rowMaterial))?.trim();
   const finish = (await reader.readText(L.finish))?.trim();
@@ -189,7 +250,9 @@ export async function extractGeomiqProductionOffers(
   }
   const quantity = input.requestedQuantity;
   const unitCents = Math.round(unitMoney.amount * 100);
-  if (!Number.isSafeInteger(unitCents * quantity) || Math.abs(unitCents * quantity - Math.round(totalMoney.amount * 100)) > 1) {
+  // The unit price is shown rounded to the penny, so the product can drift by up to half a penny per part.
+  const tolerance = Math.max(1, Math.ceil(quantity / 2));
+  if (!Number.isSafeInteger(unitCents * quantity) || Math.abs(unitCents * quantity - Math.round(totalMoney.amount * 100)) > tolerance) {
     stop("selector_drift", "geomiq_price_quantity_mismatch", true);
   }
   const lead = leadBusinessDays(await reader.readText(L.rowLeadTime));
@@ -266,6 +329,9 @@ export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinitio
         }
         if (!geomiqMaterialFor(input.requirement?.material)) {
           return { state: "unsupported", reason: "geomiq_material_outside_adapter" };
+        }
+        if (!isGeomiqAsMachinedFinish(input.requirement?.finish)) {
+          return { state: "unsupported", reason: "geomiq_finish_outside_adapter" };
         }
         return { state: "eligible", reason: "geomiq_step_6061_t6_and_quantity_fit" };
       },
