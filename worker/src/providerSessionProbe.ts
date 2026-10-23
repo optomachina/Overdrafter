@@ -24,6 +24,7 @@ export type SessionProbeOutcome = "authenticated" | "logged_out" | "blocked" | "
 
 export type SessionProbeReason =
   | "authenticated_marker_found"
+  | "terminal_signals_ready"
   | "login_form"
   | "no_authenticated_marker"
   | "challenge_page"
@@ -43,13 +44,15 @@ export type SessionProbeReason =
   | "navigation_failed"
   | "browser_launch_failed"
   | "page_inspection_failed"
+  | "storage_state_capture_failed"
   | "probe_not_supported"
   | "rmfg_endpoint_not_configured"
   | "rmfg_key_invalid"
   | "rmfg_transport_error";
 
 export type SessionProbeEvidence = {
-  provider: SessionProbeProvider;
+  /** A session probe provider, or a portal vendor probed through an explicit target (OVD-1060). */
+  provider: VendorName;
   timestamp: string;
   outcome: SessionProbeOutcome;
   reason: SessionProbeReason;
@@ -65,7 +68,7 @@ export type SessionProbeEvidence = {
 };
 
 export type SessionProbeTarget = {
-  provider: SessionProbeProvider;
+  provider: VendorName;
   adapterKind: "api" | "portal";
   landingUrl: string | null;
   allowedHosts: readonly string[];
@@ -84,7 +87,7 @@ const PROBE_LANDING_OVERRIDES: Partial<Record<SessionProbeProvider, string>> = {
 };
 
 /** Resolves landing URL and allowed hosts from the generated provider catalog. */
-export function resolveSessionProbeTarget(provider: string): SessionProbeTarget {
+export function resolveSessionProbeTarget(provider: string): SessionProbeTarget & { provider: SessionProbeProvider } {
   if (!(SESSION_PROBE_PROVIDERS as readonly string[]).includes(provider)) {
     throw new Error(`Unsupported provider "${provider}". Expected one of: ${SESSION_PROBE_PROVIDERS.join(", ")}.`);
   }
@@ -309,9 +312,22 @@ export type BrowserProbeOptions = {
   /** Gap before the confirming second page sample that must agree with the first. */
   confirmMs?: number;
   now?: () => Date;
+  /**
+   * Consulted only when the settled page shows no login form, no login route
+   * and no challenge, but also no log out control. Returning true reports the
+   * session as authenticated by the provider definition's own terminal
+   * signals (OVD-1060). The page text stays inside this callback.
+   */
+  settledPageAccepts?: (snapshot: { url: string; bodyText: string; passwordInputCount: number }) => boolean | Promise<boolean>;
+  /**
+   * Receives the context's storage state after an authenticated outcome,
+   * before the browser closes, so a caller can re-save a session the probe
+   * kept alive with GETs only (OVD-1060).
+   */
+  onAuthenticated?: (storageState: StorageStateInput) => void | Promise<void>;
 };
 
-function baseEvidence(provider: SessionProbeProvider, now: () => Date): SessionProbeEvidence {
+function baseEvidence(provider: VendorName, now: () => Date): SessionProbeEvidence {
   return {
     provider,
     timestamp: now().toISOString(),
@@ -379,6 +395,23 @@ function hopHeaders(request: Request): Record<string, string> {
   const headers = { ...request.headers() };
   delete headers.cookie;
   return headers;
+}
+
+/** Same snapshot the portal kernel classifies; any read failure counts as not accepted. */
+async function settledPageAccepted(
+  page: Page,
+  url: string,
+  accepts: NonNullable<BrowserProbeOptions["settledPageAccepts"]>,
+): Promise<boolean> {
+  try {
+    return await accepts({
+      url,
+      bodyText: await page.locator("body").innerText({ timeout: 5_000 }),
+      passwordInputCount: await page.locator("input[type='password']").count(),
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** The probe's own landing navigation, one routed page.goto per redirect hop. */
@@ -690,8 +723,21 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     if (status === null || status < 200 || status >= 300) {
       return { ...evidence, outcome: "error", reason: "http_status_unexpected" };
     }
-    if (!signals.marker) return { ...evidence, outcome: "logged_out", reason: "no_authenticated_marker" };
-    return { ...evidence, outcome: "authenticated", reason: "authenticated_marker_found" };
+    let reason: SessionProbeReason = "authenticated_marker_found";
+    if (!signals.marker) {
+      if (!options.settledPageAccepts || !(await settledPageAccepted(page, settledUrl, options.settledPageAccepts))) {
+        return { ...evidence, outcome: "logged_out", reason: "no_authenticated_marker" };
+      }
+      reason = "terminal_signals_ready";
+    }
+    if (options.onAuthenticated) {
+      try {
+        await options.onAuthenticated((await context.storageState()) as StorageStateInput);
+      } catch {
+        return { ...evidence, outcome: "error", reason: "storage_state_capture_failed" };
+      }
+    }
+    return { ...evidence, outcome: "authenticated", reason };
   } catch {
     return { ...evidence, outcome: "error", reason: "navigation_failed" };
   } finally {

@@ -1,0 +1,335 @@
+// @vitest-environment node
+
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { chromium, type Browser, type BrowserContext, type Request } from "playwright";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
+  sandboxedChromiumLaunchOptions,
+} from "../../test-support/localPortalBrowserFixture";
+import type { SessionProbeEvidence } from "../providerSessionProbe";
+import { loginVendors, statusLine, type VendorLoginDeps } from "./vendorLogin";
+import { SecretString } from "./vendorLoginBitwarden";
+import { sessionStatePath, type UnattendedLoginVendor } from "./vendorSession";
+
+/**
+ * OVD-1060 browser fixtures. Every page below is synthetic, written for this
+ * test, and served by route interception under the vendors' real host names
+ * so the reviewed host rules are exercised. Chromium resolves no host names
+ * at all, so a request the fixture does not answer fails instead of reaching
+ * a vendor. Credentials are fake and the Bitwarden vault is a stub.
+ */
+
+const USERNAME = "fixture-user@example.test";
+const PASSWORD = "fixture-vendor-password-SENTINEL";
+const WRONG_PASSWORD = "fixture-wrong-password-SENTINEL";
+
+type Served = { status?: number; contentType?: string; body: string };
+type Site = Record<string, Served | ((request: Request) => Served)>;
+type Observed = { requests: string[]; posts: Array<{ target: string; body: string }> };
+
+const html = (body: string): Served => ({ body });
+const json = (status: number, body: unknown): Served => ({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+const SIGNED_IN = `document.cookie.split("; ").includes("ovd_fixture=signed-in")`;
+const SIGN_IN_COOKIE = `document.cookie = "ovd_fixture=signed-in; path=/; Secure; SameSite=Lax";`;
+
+const INVISIBLE_RECAPTCHA = `
+  <iframe src="https://www.google.com/recaptcha/api2/anchor?k=fixture&size=invisible" style="position:fixed;bottom:0;right:0;width:256px;height:60px;border:0"></iframe>
+  <div style="visibility:hidden;position:absolute;top:-10000px"><iframe src="https://www.google.com/recaptcha/api2/bframe?k=fixture" style="width:400px;height:580px"></iframe></div>`;
+const VISIBLE_RECAPTCHA = `<iframe src="https://www.google.com/recaptcha/api2/anchor?k=fixture&size=normal" style="width:304px;height:78px;border:0"></iframe>`;
+
+/** A hash-routed single-page app shaped like a QuickQuote login, entirely synthetic. */
+function quickpartsApp(options: { captcha?: string; offHost?: boolean; noForm?: boolean } = {}): string {
+  const form = options.noForm
+    ? `'<p>Welcome to the fixture portal.</p>'`
+    : `'<form id="login"><label>Email <input type="email" name="email" autocomplete="username"></label>'
+      + '<label>Password <input type="password" name="password" autocomplete="current-password"></label>'
+      + '<button type="submit">Sign in</button><p role="alert" id="error"></p></form>'`;
+  return `<!doctype html><html><head><title>QuickQuote fixture</title></head><body><div id="app"></div>${options.captcha ?? INVISIBLE_RECAPTCHA}
+    <script>
+      const signedIn = ${SIGNED_IN};
+      const app = document.getElementById("app");
+      function render() {
+        if (${Boolean(options.offHost)} && !signedIn) { location.href = "https://sso.idp-fixture.test/authorize"; return; }
+        if (!signedIn && location.hash !== "#/login") { location.hash = "#/login"; return; }
+        if (signedIn && location.hash === "#/login") { location.hash = "#/"; return; }
+        if (!signedIn) {
+          app.innerHTML = ${form};
+          const login = document.getElementById("login");
+          if (login) login.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const response = await fetch("/api/login", { method: "POST", body: new URLSearchParams(new FormData(login)) });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) { document.getElementById("error").textContent = "Invalid email or password."; return; }
+            if (data.mfa) { app.innerHTML = '<label>Verification code <input name="code" autocomplete="one-time-code"></label>'; return; }
+            ${SIGN_IN_COOKIE}
+            location.hash = "#/";
+            location.reload();
+          });
+          return;
+        }
+        app.innerHTML = '<h1>Upload a part</h1><input type="file"><nav><a href="#/logout">Log out</a></nav>';
+      }
+      window.addEventListener("hashchange", render);
+      render();
+    </script></body></html>`;
+}
+
+function loginResponder(onSuccess: unknown = { ok: true }) {
+  return (request: Request): Served => {
+    const body = new URLSearchParams(request.postData() ?? "");
+    const user = body.get("email") ?? body.get("username");
+    return user === USERNAME && body.get("password") === PASSWORD ? json(200, onSuccess) : json(401, { ok: false });
+  };
+}
+
+const RECAPTCHA_FRAMES: Site = {
+  "GET www.google.com/recaptcha/api2/anchor": html("<!doctype html><title>fixture frame</title>"),
+  "GET www.google.com/recaptcha/api2/bframe": html("<!doctype html><title>fixture frame</title>"),
+};
+
+function quickpartsSite(app: string, onSuccess?: unknown): Site {
+  return {
+    ...RECAPTCHA_FRAMES,
+    "GET quickquote.quickparts.com/": html(app),
+    "POST quickquote.quickparts.com/api/login": loginResponder(onSuccess),
+  };
+}
+
+/** A home page with a newsletter box and a modal sign-in, shaped like a marketing-site login. */
+function weergSite(): Site {
+  const home = `<!doctype html><html><head><title>Weerg fixture</title></head><body>
+    <header><button id="open-login" type="button">Login</button></header>
+    <form id="newsletter"><input type="email" name="email" placeholder="Your email"><button type="submit">Subscribe</button></form>
+    <div id="modal" hidden><form id="login"><input type="text" name="username" autocomplete="username">
+      <input type="password" name="password"><button type="submit">Sign in</button><div role="alert" id="error"></div></form></div>
+    <script>
+      if (${SIGNED_IN}) { document.querySelector("header").innerHTML = '<a href="/logout">Log out</a>'; document.getElementById("modal").remove(); }
+      document.getElementById("open-login")?.addEventListener("click", () => { document.getElementById("modal").hidden = false; });
+      document.getElementById("newsletter").addEventListener("submit", (event) => { event.preventDefault(); fetch("/api/newsletter", { method: "POST" }); });
+      document.getElementById("login")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await fetch("/api/login", { method: "POST", body: new URLSearchParams(new FormData(event.target)) });
+        if (!response.ok) { document.getElementById("error").textContent = "Wrong password"; return; }
+        ${SIGN_IN_COOKIE}
+        location.href = "/en/global/quotation-tool/upload";
+      });
+    </script></body></html>`;
+  const upload = `<!doctype html><title>Weerg upload fixture</title><body><main id="main"></main><script>
+      document.getElementById("main").innerHTML = ${SIGNED_IN}
+        ? '<h1>Upload your CAD</h1><input type="file"><a href="/logout">Log out</a>'
+        : '<p>Session expired</p>';
+    </script></body>`;
+  return {
+    "GET www.weerg.com/": html(home),
+    "GET www.weerg.com/en/global/quotation-tool/upload": html(upload),
+    "POST www.weerg.com/api/login": loginResponder(),
+    "POST www.weerg.com/api/newsletter": json(200, {}),
+  };
+}
+
+/** Email first, then password on a second step. */
+function geomiqSite(): Site {
+  const root = `<!doctype html><title>Geomiq fixture</title><body><main id="main"></main><script>
+      if (!${SIGNED_IN}) location.replace("/login");
+      else document.getElementById("main").innerHTML = '<h1>Your parts</h1><button type="button">Sign out</button>';
+    </script></body>`;
+  const login = `<!doctype html><title>Geomiq sign-in fixture</title><body><main id="main">
+      <form id="email-step"><label>Email <input type="email" name="email"></label><button type="submit">Continue</button></form>
+    </main><script>
+      document.getElementById("email-step").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const email = new FormData(event.target).get("email");
+        document.getElementById("main").innerHTML = '<form id="password-step"><label>Password <input type="password" name="password"></label>'
+          + '<button type="submit">Log in</button></form>';
+        document.getElementById("password-step").addEventListener("submit", async (next) => {
+          next.preventDefault();
+          const body = new URLSearchParams({ email, password: new FormData(next.target).get("password") });
+          const response = await fetch("/api/login", { method: "POST", body });
+          if (response.ok) { ${SIGN_IN_COOKIE} location.href = "/"; }
+        });
+      });
+    </script></body>`;
+  return {
+    "GET app.geomiq.com/": html(root),
+    "GET app.geomiq.com/login": html(login),
+    "POST app.geomiq.com/api/login": loginResponder(),
+  };
+}
+
+let sharedBrowser: Browser;
+let stateDir: string;
+
+beforeAll(async () => {
+  sharedBrowser = await chromium.launch({
+    ...sandboxedChromiumLaunchOptions(),
+    headless: true,
+    // No host name resolves: anything the fixture does not answer fails locally.
+    args: ["--host-resolver-rules=MAP * ~NOTFOUND"],
+  });
+}, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+afterAll(async () => {
+  await sharedBrowser?.close();
+});
+
+afterEach(async () => {
+  if (stateDir) await fs.rm(stateDir, { recursive: true, force: true });
+});
+
+/** Hands the tool a browser whose close() only closes the contexts it opened. */
+function borrowedBrowser(): Browser {
+  const contexts: BrowserContext[] = [];
+  return {
+    newContext: async (options?: Parameters<Browser["newContext"]>[0]) => {
+      const context = await sharedBrowser.newContext(options);
+      contexts.push(context);
+      return context;
+    },
+    close: async () => {
+      await Promise.all(contexts.map((context) => context.close().catch(() => undefined)));
+    },
+  } as unknown as Browser;
+}
+
+async function serve(context: BrowserContext, site: Site, observed: Observed) {
+  // Third-party CAPTCHA state that must never reach a saved session.
+  await context.addCookies([{ name: "NID", value: "fixture-third-party", domain: ".google.com", path: "/", secure: true, sameSite: "None" }]);
+  await context.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const key = `${request.method()} ${url.host}${url.pathname}`;
+    observed.requests.push(key);
+    if (request.method() === "POST") observed.posts.push({ target: `${url.host}${url.pathname}`, body: request.postData() ?? "" });
+    const entry = site[key];
+    if (!entry) {
+      await route.fulfill({ status: 404, body: "" });
+      return;
+    }
+    const response = typeof entry === "function" ? entry(request) : entry;
+    await route.fulfill({ status: response.status ?? 200, contentType: response.contentType ?? "text/html", body: response.body });
+  });
+}
+
+const authenticatedEvidence = (vendor: UnattendedLoginVendor): SessionProbeEvidence => ({
+  provider: vendor, timestamp: "2026-10-22T00:00:00.000Z", outcome: "authenticated", reason: "authenticated_marker_found",
+  finalHost: null, httpStatus: 200, navigations: 1, blockedRequests: 0,
+});
+
+async function runLogin(vendor: UnattendedLoginVendor, site: Site, password = PASSWORD) {
+  stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ovd-vendor-login-browser-")));
+  const observed: Observed = { requests: [], posts: [] };
+  const lines: string[] = [];
+  const deps: VendorLoginDeps = {
+    config: {
+      headless: true,
+      bitwarden: { cliPath: "bw", unlock: "session-env" },
+      vendors: { [vendor]: { item: `fixture-${vendor}-item` } },
+    },
+    stateDir,
+    force: false,
+    env: {},
+    vault: {
+      open: async () => undefined,
+      loginItem: async () => ({ username: new SecretString(USERNAME), password: new SecretString(password) }),
+      close: async () => undefined,
+    },
+    launchBrowser: async () => borrowedBrowser(),
+    prepareContext: (context) => serve(context, site, observed),
+    // The GET-only probe launches its own browser against the network, so it is stubbed here;
+    // vendorSession.browser.test.ts runs it against a loopback server.
+    sessionDeps: {
+      probe: async (options) => {
+        await options.onAuthenticated?.(options.storageState);
+        return authenticatedEvidence(vendor);
+      },
+    },
+    timings: { settleMs: 1_500, outcomeMs: 6_000, pollMs: 150 },
+    report: async (result) => {
+      lines.push(statusLine(result, new Date()));
+    },
+  };
+  const [result] = await loginVendors([vendor], deps);
+  const savedPath = sessionStatePath(stateDir, vendor);
+  const saved = await fs.readFile(savedPath, "utf8").then((text) => JSON.parse(text), () => null);
+  return { result, observed, lines, saved, savedPath };
+}
+
+function expectNoSecretIn(lines: readonly string[]) {
+  for (const line of lines) {
+    expect(line).not.toContain(PASSWORD);
+    expect(line).not.toContain(WRONG_PASSWORD);
+    expect(line).not.toContain(USERNAME);
+  }
+}
+
+describe("login:vendors against synthetic portals", () => {
+  it("signs in to a hash-routed app behind an invisible reCAPTCHA and saves only the vendor's hosts", async () => {
+    const { result, observed, lines, saved, savedPath } = await runLogin("quickparts", quickpartsSite(quickpartsApp()));
+    expect(result).toMatchObject({ outcome: "saved", reason: "password_login_confirmed", check: "valid:authenticated_marker_found" });
+    expect(observed.posts).toHaveLength(1);
+    expect(observed.posts[0].target).toBe("quickquote.quickparts.com/api/login");
+    expect(new URLSearchParams(observed.posts[0].body).get("password")).toBe(PASSWORD);
+    expect(saved.cookies.map((cookie: { name: string; domain: string }) => `${cookie.name}@${cookie.domain}`)).toEqual([
+      "ovd_fixture@quickquote.quickparts.com",
+    ]);
+    expect(JSON.stringify(saved)).not.toContain(PASSWORD);
+    expect((await fs.stat(savedPath)).mode & 0o777).toBe(0o600);
+    expectNoSecretIn(lines);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops at a visible CAPTCHA before typing anything", async () => {
+    const { result, observed, saved } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ captcha: VISIBLE_RECAPTCHA })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "captcha:visible_challenge", host: "quickquote.quickparts.com" });
+    expect(observed.posts).toEqual([]);
+    expect(saved).toBeNull();
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops after one rejected login and never resubmits", async () => {
+    const { result, observed, saved, lines } = await runLogin("quickparts", quickpartsSite(quickpartsApp()), WRONG_PASSWORD);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "login_failed:credentials_rejected" });
+    expect(observed.posts).toHaveLength(1);
+    expect(saved).toBeNull();
+    expectNoSecretIn(lines);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops at a second-factor prompt", async () => {
+    const { result, observed, saved } = await runLogin("quickparts", quickpartsSite(quickpartsApp(), { mfa: true }));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "two_factor:second_factor_prompt" });
+    expect(observed.posts).toHaveLength(1);
+    expect(saved).toBeNull();
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("refuses a redirect to an unreviewed sign-in host without requesting it", async () => {
+    const { result, observed, saved } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ offHost: true })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:off_host_navigation", host: "sso.idp-fixture.test" });
+    expect(observed.requests.some((request) => request.includes("idp-fixture.test"))).toBe(false);
+    expect(observed.posts).toEqual([]);
+    expect(saved).toBeNull();
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops on a page with no sign-in form", async () => {
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ noForm: true })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:login_form_not_found" });
+    expect(observed.posts).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("opens a modal sign-in on a home page and never fills its newsletter box", async () => {
+    const { result, observed, saved } = await runLogin("weerg", weergSite());
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["www.weerg.com/api/login"]);
+    expect(saved.cookies.map((cookie: { domain: string }) => cookie.domain)).toEqual(["www.weerg.com"]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("handles an email-first, password-second sign-in", async () => {
+    const { result, observed, saved } = await runLogin("geomiq", geomiqSite());
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts).toHaveLength(1);
+    const body = new URLSearchParams(observed.posts[0].body);
+    expect([body.get("email"), body.get("password")]).toEqual([USERNAME, PASSWORD]);
+    expect(saved.cookies.map((cookie: { domain: string }) => cookie.domain)).toEqual(["app.geomiq.com"]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+});

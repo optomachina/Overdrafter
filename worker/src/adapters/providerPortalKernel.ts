@@ -629,7 +629,7 @@ export async function readProviderPortalApprovalFile(
 /** Resolves session bytes into a per-attempt object; paths are never handed to the browser. */
 export async function resolveIsolatedProviderStorageState(
   definition: ProviderPortalDefinition,
-  config: WorkerConfig,
+  config: Pick<WorkerConfig, "vendorStorageStateJson" | "vendorStorageStatePaths" | "vendorStorageStateDir">,
 ): Promise<Exclude<BrowserContextOptions["storageState"], string | undefined> | null> {
   const jsonState = config.vendorStorageStateJson?.[definition.provider];
   if (jsonState) {
