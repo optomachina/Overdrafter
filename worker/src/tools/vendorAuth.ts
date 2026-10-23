@@ -10,7 +10,7 @@ import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapter
 import type { LiveAutomationVendorName } from "../types.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 import { enabledPortalVendors } from "./enabledPortalVendors.js";
-import { bootstrapSendCutSendSession } from "./sendcutsendAuth.js";
+import { SENDCUTSEND_SESSION_BOOTSTRAP } from "./sendcutsendAuth.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
@@ -95,8 +95,8 @@ async function ensureParentDir(filePath: string) {
 
 export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
   if (vendor === "oshcut") refuseOshcutPortalAutomation();
-  if (vendor === "sendcutsend") return bootstrapSendCutSendSession(resolveOutputPath(vendor, explicitOutputPath));
-  const workflow = getExtendedVendorWorkflow(vendor);
+  const sendCutSend = vendor === "sendcutsend" ? SENDCUTSEND_SESSION_BOOTSTRAP : null;
+  const workflow = sendCutSend ?? getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);
   }
@@ -114,10 +114,12 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     console.log(`Storage state output: ${outputPath}`);
     console.log("");
     console.log("What to do:");
-    console.log("1. A Chromium window will open.");
-    console.log(`2. Create or log in to the ${workflow.displayName} account manually.`);
-    console.log("3. Open the quoting/upload surface and confirm it is authenticated.");
-    console.log("4. Return here and press Enter.");
+    for (const line of sendCutSend?.instructions ?? [
+      "1. A Chromium window will open.",
+      `2. Create or log in to the ${workflow.displayName} account manually.`,
+      "3. Open the quoting/upload surface and confirm it is authenticated.",
+      "4. Return here and press Enter.",
+    ]) console.log(line);
     console.log("");
     console.log("Do not paste shared passwords into source files or .env files.");
     console.log("");
@@ -130,6 +132,11 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     await page.goto(workflow.loginUrl, { waitUntil: "domcontentloaded" });
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
+    if (sendCutSend) {
+      // OVD-1056: exact-host, signed-in-only save; no production next step to print.
+      await sendCutSend.save(context, page, outputPath);
+      return;
+    }
     await writePrivateStorageState(context, outputPath);
 
     console.log("");

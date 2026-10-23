@@ -85,6 +85,8 @@ export const SENDCUTSEND_SHEET_LOCATORS = Object.freeze({
   totalPrice: ".post-processing-summary-container .subtotal__summary .subtotal .currency .cash",
   shipDate: ".est-ship-date p",
   quoteDialog: ".modal-card .quote-footer",
+  /** The logged-out header's sign-in link (anonymous capture, 2026-10-22). */
+  loginLink: "a.login",
 });
 
 /**
@@ -99,7 +101,11 @@ export const SENDCUTSEND_SHEET_SELECTORS = Object.freeze({
     materialGroup: Object.freeze({ selector: ".select-material-group p.title", operation: "click" as const }),
     materialCategory: Object.freeze({ selector: ".select-material-category p.title", operation: "click" as const }),
     materialType: Object.freeze({ selector: ".select-material-type p.title", operation: "click" as const }),
-    thickness: Object.freeze({ selector: ".material-skus .tile-sku label.b-radio p.title", operation: "click" as const }),
+    // A disabled tile is never clicked: its label retargets to the disabled radio and the click would hang.
+    thickness: Object.freeze({
+      selector: ".material-skus .tile-sku:not(.is-disabled) label.b-radio:has(input[type='radio']:enabled) p.title",
+      operation: "click" as const,
+    }),
     quantity: Object.freeze({ selector: ".post-processing-summary-container .quantity__input input", operation: "fill" as const }),
   }),
 });
@@ -423,9 +429,22 @@ export function classifySendCutSendPortalState(snapshot: ProviderPortalSnapshot)
   return state;
 }
 
-/** Never upload into a wizard or summary left open by an earlier part. */
-async function refuseOpenQuoteDialog(reader: ProviderPortalReadCapability): Promise<void> {
+/**
+ * Read-only guard before classification and again before upload: never
+ * upload while signed out (the header text may share a line with other
+ * items, so the visible link itself is checked), and never into a wizard or
+ * summary left open by an earlier part.
+ */
+async function guardBeforeUpload(reader: ProviderPortalReadCapability): Promise<void> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
+  if ((await reader.readTexts(locators.loginLink)).some((text) => /^\s*log ?in\s*$/i.test(text))) {
+    throw new VendorAutomationError("SendCutSend session is signed out.", "login_required", {
+      vendor: "sendcutsend",
+      terminalState: "login_required",
+      reason: "sendcutsend_signed_out",
+      providerMutationPossible: false,
+    });
+  }
   if (await reader.count(locators.quoteDialog) > 0 || await reader.count(locators.summary) > 0) {
     throw new VendorAutomationError("SendCutSend quote dialog already open; manual attention required.", "unexpected_ui_state", {
       vendor: "sendcutsend",
@@ -509,7 +528,7 @@ export function buildSendCutSendSheetPortalDefinition(
     terminalSignals: SENDCUTSEND_TERMINAL_SIGNALS,
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     hooks: {
-      beforeUpload: refuseOpenQuoteDialog,
+      beforeUpload: guardBeforeUpload,
       assessEligibility: assessSendCutSendSheetEligibility,
       configure: (configuration, input) => configureSendCutSendSheet(configuration, input, walk, options),
       classifyPortalState: classifySendCutSendPortalState,
