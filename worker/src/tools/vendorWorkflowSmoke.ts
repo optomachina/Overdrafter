@@ -385,7 +385,7 @@ function parseRmfgStock(argv: string[], vendors: LiveAutomationVendorName[]): Rm
     return null;
   }
   const thicknessIn = thickness !== null && /^\d*\.?\d+$/.test(thickness) ? Number(thickness) : Number.NaN;
-  if (!grade || !/^\d{4}-?[A-Za-z]\d*$/.test(grade) || !(thicknessIn > 0 && thicknessIn <= 1)) {
+  if (!grade || !/^\d{4}[- ]?[A-Za-z]\d*$/.test(grade) || !(thicknessIn > 0 && thicknessIn <= 1)) {
     throw new Error(
       "RMFG evaluation requires the stated sheet stock: --rmfg-grade <alloy-temper, e.g. 6061-T6> " +
       "--rmfg-thickness-in <inches, e.g. 0.125>.",

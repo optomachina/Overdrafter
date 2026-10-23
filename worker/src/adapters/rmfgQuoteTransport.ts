@@ -91,6 +91,8 @@ export type RmfgQuoteResult = {
   offer: RmfgQuoteOffer | null;
   /** The catalog stock picked for an operator-stated stock requirement. */
   stock: { materialId: string; thicknessIn: number } | null;
+  /** On a stock stop: current public catalog entries at the stated thickness, so a person can see what was offered. */
+  stockMatches?: Array<{ materialId: string; label: string; thicknessIn: number }>;
 };
 
 type Json = Record<string, unknown>;
@@ -278,6 +280,39 @@ function selectedPartMatches(part: Json | undefined, selection: SelectedPart): b
     Array.isArray(part[key]) && (part[key] as unknown[]).length > 0);
 }
 
+/** V1PartDFM.finish_id is the finish the part is priced with; absent means As Cut, the only finish requested. */
+function pricedWithFinish(part: Json | null): boolean {
+  return (part?.finish_id ?? null) !== null || part?.finish_recommended === true;
+}
+
+/** Line price components for cutting and forming; finishes, coating and hardware were not requested. */
+const REQUESTED_BREAKDOWN_TYPES = new Set(["base", "bends"]);
+
+function pricesBends(line: Json): boolean {
+  return Array.isArray(line.breakdown) && line.breakdown.some((part) => record(part)?.type === "bends");
+}
+
+function hasUnrequestedCharge(line: Json | null): boolean {
+  const breakdown = line?.breakdown;
+  if (breakdown === undefined) return false;
+  return !Array.isArray(breakdown) ||
+    breakdown.some((part) => !REQUESTED_BREAKDOWN_TYPES.has(record(part)?.type as string));
+}
+
+/**
+ * Evidence, complete or not, that RMFG is pricing something other than the
+ * request: echoed configuration, a finish on a part, or a priced operation.
+ * It stops the run as soon as it appears, even while the quote is processing.
+ */
+function showsUnrequestedWork(item: Json | null, dfm: Json | null): boolean {
+  const parts = Array.isArray(dfm?.parts) ? dfm.parts : [];
+  const lines = Array.isArray(item?.line_items) ? item.line_items : [];
+  return hasUnrequestedConfiguration(record(dfm?.configuration)) ||
+    parts.some((part) => pricedWithFinish(record(part))) ||
+    lines.some((line) => hasUnrequestedCharge(record(line))) ||
+    (item?.assembly_operations_amount_cents !== undefined && item?.assembly_operations_amount_cents !== 0);
+}
+
 function dfmMatchesSelection(dfm: Json | null, selectedParts: SelectedPart[]): boolean {
   const configuration = record(dfm?.configuration);
   const configuredParts = Array.isArray(configuration?.parts) ? configuration.parts : null;
@@ -296,9 +331,7 @@ function dfmMatchesSelection(dfm: Json | null, selectedParts: SelectedPart[]): b
   for (const value of reportedParts) {
     const part = record(value);
     const id = string(part?.part_id);
-    // V1PartDFM.finish_id is the finish the part is priced with; absent means As Cut, the only finish requested.
-    if (!id || reported.has(id) || part?.status !== "ready" ||
-        (part.finish_id ?? null) !== null || part.finish_recommended === true) return false;
+    if (!id || reported.has(id) || part?.status !== "ready" || pricedWithFinish(part)) return false;
     reported.add(id);
   }
   for (const selection of selectedParts) {
@@ -308,9 +341,6 @@ function dfmMatchesSelection(dfm: Json | null, selectedParts: SelectedPart[]): b
   return true;
 }
 
-/** Line price components for cutting and forming; finishes, coating and hardware were not requested. */
-const REQUESTED_BREAKDOWN_TYPES = new Set(["base", "bends"]);
-
 /**
  * Each unique part is priced once, on the selected stock, at the requested
  * quantity times its instance count, and the lines add up to the item total.
@@ -318,10 +348,10 @@ const REQUESTED_BREAKDOWN_TYPES = new Set(["base", "bends"]);
  * is not this request.
  */
 function lineItemsMatch(item: Json, selectedParts: SelectedPart[], requestedQuantity: number,
-  instanceCounts: ReadonlyMap<string, number>): boolean {
+  instanceCounts: ReadonlyMap<string, number>, bentParts: ReadonlySet<string>): boolean {
   const lines = Array.isArray(item.line_items) ? item.line_items.map(record) : null;
   if (!lines || lines.length !== selectedParts.length) return false;
-  if ((item.assembly_operations_amount_cents ?? 0) !== 0) return false;
+  if (item.assembly_operations_amount_cents !== undefined && item.assembly_operations_amount_cents !== 0) return false;
   const priced = new Set<string>();
   let total = 0;
   for (const line of lines) {
@@ -335,9 +365,7 @@ function lineItemsMatch(item: Json, selectedParts: SelectedPart[], requestedQuan
         (line.tube_profile_id ?? null) !== (selection.tube_profile_id ?? null) ||
         line.quantity !== requestedQuantity * instances ||
         !consistentPrice(line.unit_amount_cents, line.amount_cents, line.quantity) ||
-        (line.breakdown !== undefined && !Array.isArray(line.breakdown)) ||
-        (Array.isArray(line.breakdown) && line.breakdown.some((part) =>
-          !REQUESTED_BREAKDOWN_TYPES.has(record(part)?.type as string)))) return false;
+        hasUnrequestedCharge(line) || (!bentParts.has(partId) && pricesBends(line))) return false;
     total += line.amount_cents as number;
   }
   return total === item.amount_cents;
@@ -359,7 +387,8 @@ function expiry(value: unknown, nowMs: number): { validUntil: string | null } | 
 }
 
 function quoteDisposition(quote: Json, designId: string, requestedQuantity: number,
-  selectedParts: SelectedPart[], instanceCounts: ReadonlyMap<string, number>, nowMs: number): RmfgQuoteResult {
+  selection: PreparedSelection, nowMs: number): RmfgQuoteResult {
+  const { selectedParts, instanceCounts, bentParts } = selection;
   const quoteId = string(quote.id);
   if (!quoteId) return result("unknown", "quote_id_missing", designId);
   const items = Array.isArray(quote.items) ? quote.items : null;
@@ -377,6 +406,8 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
       { dfmStatus, offer, dfmIssueCodes: findings });
   if (quote.status === "failed" || quote.status === "expired")
     return finish("error", `quote_${quote.status}`);
+  // One item was requested: another count is not this request, processing or not.
+  if (items && items.length > 1) return finish("unknown", "quote_items_unverified");
   // A stop reported while the quote is still processing stops now; it is never polled past.
   const reportedParts = Array.isArray(dfm?.parts) ? dfm.parts : [];
   if (quote.status === "blocked" || dfmStatus === "blocked" || item?.status === "blocked" ||
@@ -386,6 +417,7 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
       reportedParts.some((part) => record(part)?.status === "requires_input"))
     return finish("requires_input", "manufacturing_input_required");
   if (codes.length) return finish("requires_input", "unresolved_requirements");
+  if (showsUnrequestedWork(item, dfm)) return finish("unknown", "unrequested_work_priced");
   if (quote.status === "processing") return finish("pending", "quote_processing");
   if (quote.status !== "ready") return finish("unknown", "quote_status_unknown");
   if (item?.status !== "ready" || dfmStatus !== "ready" ||
@@ -396,7 +428,7 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
   if (item.design_id !== designId || item.quantity !== requestedQuantity || quote.currency !== "usd" ||
       !consistentPrice(item.unit_amount_cents, item.amount_cents, item.quantity))
     return finish("unknown", "offer_provenance_incomplete");
-  if (!lineItemsMatch(item, selectedParts, requestedQuantity, instanceCounts))
+  if (!lineItemsMatch(item, selectedParts, requestedQuantity, instanceCounts, bentParts))
     return finish("unknown", "line_items_unverified");
   if (!quoteTotalsMatch(quote, item)) return finish("unknown", "quote_totals_unverified");
   const validity = expiry(quote.expires_at, nowMs);
@@ -453,15 +485,19 @@ function validInput(input: RmfgQuoteInput): boolean {
     (input.maxPolls === undefined || (positiveInteger(input.maxPolls) && input.maxPolls <= MAX_POLL_LIMIT)));
 }
 
-/** V1Part documents `instance_count` 1 and `analysis_status` "ready" as the defaults when a field is omitted. */
+/**
+ * V1Part documents `instance_count` 1 and `analysis_status` "ready" as the
+ * defaults when a field is omitted. An explicit null or any other value is not
+ * the default and is not trusted.
+ */
 function instanceCount(part: Json): number | null {
-  const count = part.instance_count ?? 1;
+  const count = part.instance_count === undefined ? 1 : part.instance_count;
   return positiveInteger(count) ? count : null;
 }
 
 function validAnalyzedPart(part: Json | null): boolean {
   return Boolean(part && string(part.id) && instanceCount(part) !== null &&
-    (part.analysis_status ?? "ready") === "ready" &&
+    (part.analysis_status === undefined || part.analysis_status === "ready") &&
     (part.suggested_process === "sheet_metal" || part.suggested_process === "tube_laser"));
 }
 
@@ -491,26 +527,43 @@ function stockScopeReason(parts: Json[], stock: RmfgStockRequirement): string | 
   return null;
 }
 
+/** Bends are assumed when the analyzer's count is present but not a whole number (omitted means 0). */
 function hasBends(part: Json): boolean {
-  return (typeof part.bend_count === "number" && part.bend_count > 0) ||
-    (Array.isArray(part.bends) && part.bends.length > 0);
+  const count = part.bend_count === undefined ? 0 : part.bend_count;
+  return !nonNegativeInteger(count) || count > 0 || (Array.isArray(part.bends) && part.bends.length > 0);
 }
 
-/** Catalog entries of the stated grade (from `material` and `type`) at the stated thickness. */
-function stockCandidates(catalog: ReadonlyMap<string, Json>, stock: RmfgStockRequirement): Json[] {
+/** Words that name the metal family or stock form, not a different product. */
+const PLAIN_STOCK_WORDS = new Set(["aluminum", "aluminium", "sheet", "plate"]);
+
+function rawStockLabel(entry: Json): string {
+  return `${string(entry.material) ?? ""} ${string(entry.type) ?? ""}`.trim();
+}
+
+/** Catalog entries at the stated nominal thickness; 0.124 in is not 0.125 in. */
+function atStockThickness(catalog: ReadonlyMap<string, Json>, stock: RmfgStockRequirement): Json[] {
+  return [...catalog.values()].filter((entry) => typeof entry.thickness_in === "number" &&
+    Math.round(entry.thickness_in * 10_000) === Math.round(stock.thicknessIn * 10_000));
+}
+
+/**
+ * The entry is the stated grade itself: its `material` and `type` name that
+ * alloy and temper, and any other word only names the family or form. "6061 T6
+ * PVC coated" or "6061-T6 diamond plate" is a different product.
+ */
+function isPlainStock(entry: Json, stock: RmfgStockRequirement): boolean {
   const grade = ` ${normalizedLabel(stock.grade)} `;
-  return [...catalog.values()].filter((entry) => {
-    const label = ` ${normalizedLabel(`${string(entry.material) ?? ""} ${string(entry.type) ?? ""}`)} `;
-    // Nominal catalog thickness must equal the stated thickness; 0.124 in is not 0.125 in.
-    return label.includes(grade) && typeof entry.thickness_in === "number" &&
-      Math.round(entry.thickness_in * 10_000) === Math.round(stock.thicknessIn * 10_000);
-  });
+  const label = ` ${normalizedLabel(rawStockLabel(entry))} `;
+  if (!label.includes(grade)) return false;
+  return label.replace(grade, " ").trim().split(" ").filter(Boolean).every((word) => PLAIN_STOCK_WORDS.has(word));
 }
 
 type PreparedSelection = {
   designId: string;
   selectedParts: SelectedPart[];
   instanceCounts: Map<string, number>;
+  /** Parts the analyzer found (or could not rule out) bends on; only these may carry a bend price. */
+  bentParts: Set<string>;
   stock: RmfgQuoteResult["stock"];
 };
 
@@ -521,15 +574,20 @@ async function prepareStock(stock: RmfgStockRequirement, transport: RmfgQuoteTra
   const [part] = parts;
   const catalog = await catalogEntries(transport, "materials", timeoutMs);
   if (!catalog) return result("error", "catalog_incomplete", designId);
-  const candidates = stockCandidates(catalog, stock);
-  if (candidates.length === 0) return result("requires_input", "stock_not_offered", designId);
-  if (candidates.length > 1) return result("requires_input", "stock_ambiguous", designId);
+  const offered = atStockThickness(catalog, stock);
+  const candidates = offered.filter((entry) => isPlainStock(entry, stock));
+  if (candidates.length !== 1) {
+    const stockMatches = offered.slice(0, 8).map((entry) => ({ materialId: string(entry.id)!,
+      label: rawStockLabel(entry).slice(0, 80), thicknessIn: entry.thickness_in as number }));
+    return { ...result("requires_input", candidates.length ? "stock_ambiguous" : "stock_not_offered", designId),
+      stockMatches };
+  }
   const [material] = candidates;
   if (hasBends(part) && material.bendable !== true) return result("requires_input", "stock_not_bendable", designId);
   const partId = string(part.id)!;
   const materialId = string(material.id)!;
   return { designId, selectedParts: [{ part_id: partId, material_id: materialId }],
-    instanceCounts: new Map([[partId, 1]]),
+    instanceCounts: new Map([[partId, 1]]), bentParts: new Set(hasBends(part) ? [partId] : []),
     stock: { materialId, thicknessIn: material.thickness_in as number } };
 }
 
@@ -561,12 +619,13 @@ async function prepareSelection(input: RmfgQuoteInput, transport: RmfgQuoteTrans
   }
   if (Object.keys(input.selections).some((partId) => !instanceCounts.has(partId)))
     return result("unknown", "unrecognized_part_selection", designId);
-  return { designId, selectedParts, instanceCounts, stock: null };
+  const bentParts = new Set(parts.filter((part) => hasBends(part!)).map((part) => string(part!.id)!));
+  return { designId, selectedParts, instanceCounts, bentParts, stock: null };
 }
 
 async function requestQuote(input: RmfgQuoteInput, transport: RmfgQuoteTransport,
   selection: PreparedSelection, polling: Polling): Promise<RmfgQuoteResult> {
-  const { designId, selectedParts, instanceCounts } = selection;
+  const { designId, selectedParts } = selection;
   const body = { items: [{ design_id: designId, quantity: input.quantity, configuration: { parts: selectedParts } }] };
   const bodyDigest = createHash("sha256").update(JSON.stringify(body)).digest("hex").slice(0, 16);
   const quoted = await call(transport, { endpoint: "quote", method: "POST", path: "/v1/quotes",
@@ -577,7 +636,7 @@ async function requestQuote(input: RmfgQuoteInput, transport: RmfgQuoteTransport
   const quoteId = string(quote.id);
   if (!quoteId) return result("unknown", "quote_id_missing", designId);
   for (let poll = 0; poll <= polling.maxPolls; poll += 1) {
-    const disposition = quoteDisposition(quote, designId, input.quantity, selectedParts, instanceCounts, polling.now());
+    const disposition = quoteDisposition(quote, designId, input.quantity, selection, polling.now());
     if (disposition.state !== "pending" || poll === polling.maxPolls)
       return poll === polling.maxPolls && disposition.state === "pending"
         ? result("pending", "quote_poll_budget_exhausted", designId, quoteId,

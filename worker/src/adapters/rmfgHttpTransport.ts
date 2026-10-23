@@ -12,8 +12,9 @@ export const RMFG_API_ORIGIN = "https://api.rmfg.com";
 const PROVIDER_KEY = "rmfg";
 /**
  * Kept under the quote runner's ten second budget for a whole step, which also
- * covers the kill switch read (two seconds at most), so no request outlives the
- * step that sent it.
+ * covers the kill switch read (two seconds at most). A production export
+ * control recheck before analyze shares that budget too, so a slow one ends
+ * the step as a transport error rather than leaving a request behind.
  */
 const REQUEST_TIMEOUT_MS = 7_000;
 
@@ -145,8 +146,11 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
       // A payment, plan or terms demand is never answered by this client.
       if (response.status === 402) state.blocked = "account_action_required";
       if (response.status === 429) state.blocked = "rate_limited";
+      // A body that never finished arriving (a timeout mid read) is a transport error, not a page.
+      let text: string;
+      try { text = await response.text(); } catch { return { status: 0, body: null }; }
       let body: unknown = null;
-      try { body = await response.json(); } catch { body = null; }
+      try { body = JSON.parse(text); } catch { body = null; }
       return { status: response.status, body };
     },
     {

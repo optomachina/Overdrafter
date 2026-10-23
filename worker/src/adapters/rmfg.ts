@@ -79,9 +79,9 @@ export type RmfgAdapterOptions = {
 
 /**
  * Analysis and quoting are asynchronous. Each of the design and the quote may
- * poll this many times, three seconds apart. With every request bounded at ten
- * seconds a phase stops as pending within about nine minutes at worst, so a run
- * always ends inside the live harness's twenty minute limit.
+ * poll this many times, three seconds apart. With every step bounded at ten
+ * seconds a phase stops as pending within about nine minutes at worst, and a
+ * whole run within about nineteen.
  */
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLLS = 40;
@@ -358,7 +358,8 @@ export class RmfgAdapter extends VendorAdapter {
       source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, transportRevision: result.revision,
       rmfgState: result.state, reason: result.reason, designId: result.designId, quoteId: result.quoteId,
       requirementCodes: result.requirementCodes, dfmStatus: result.dfmStatus, dfmIssueCodes: result.dfmIssueCodes,
-      stock: result.stock, requestedQuantity: input.requestedQuantity, quoteOnly: true, orderProhibited: true,
+      stock: result.stock, stockMatches: result.stockMatches ?? null, requestedQuantity: input.requestedQuantity,
+      quoteOnly: true, orderProhibited: true,
     };
     if (result.state === "ready" && result.offer) {
       const offer = result.offer;

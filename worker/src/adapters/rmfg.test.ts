@@ -485,6 +485,25 @@ describe("RMFG live evaluation with a stated stock (OVD-1057)", () => {
     expect(calls).toEqual([]);
   });
 
+  it("starts no request once the run has returned, even if a checkpoint resolves late", async () => {
+    const { calls, fetchImpl } = fakeFetch(platePath());
+    const adapterInput = await evaluationInput({
+      providerKillSwitchCheckpoint: async (checkpoint) => {
+        if (checkpoint === "before_upload") await new Promise((resolve) => setTimeout(resolve, 11_000));
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      const pending = adapterWith(fetchImpl).quote(adapterInput).catch((caught: unknown) => caught);
+      // The step's ten second budget ends the run; the late checkpoint then finds it closed.
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(await pending).toMatchObject({ payload: { reason: "transport_error", terminalState: "unavailable" } });
+      expect(calls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refuses a copy of an authorized input, which carries no captured bytes", async () => {
     const { calls, fetchImpl } = fakeFetch(platePath());
     const adapterInput = await evaluationInput();
