@@ -17,8 +17,12 @@
   - The part row's quantity stepper input has no aria-label="Quantity"; its
     label is a sibling <span>Quantity</span>.
   - The whole part card sits inside a drag handle,
-    #draggable-parts > div[role="button"][tabindex="0"], which matches the
-    role=button offer-container selector while wrapping every tier card.
+    #draggable-parts > div[role="button"][tabindex="0"], that wraps every
+    tier card. The collector reads only the .price-tier cards, so the handle
+    matters only as an enclosing element whose availability marks count.
+  - The cards share one price panel <div> whose only other text is its
+    "Price and Lead Time" heading; the collector checks that panel's text
+    outside the cards and nothing wider.
 -->
 <html lang="en">
 <head><title>Quote</title></head>

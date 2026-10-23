@@ -254,15 +254,12 @@ export const XOMETRY_LOCATORS = {
     // selector key doesn't collide with priceText[0] in the unit-test mock.
     '[data-testid="tierAndLeadTime"]',
   ],
-  // Every supported entry must scope one complete purchasable tier. The
-  // adapter reads only container text so a price cannot be paired with a lead
-  // time or sourcing label from another option.
-  offerContainers: [
-    ".price-tier",
-    'button:has([data-testid="tierAndLeadTime"])',
-    'label:has([data-testid="tierAndLeadTime"])',
-    '[role="button"]:has([data-testid="tierAndLeadTime"])',
-  ],
+  // OVD-1052: the only offer container. Each tier Xometry quotes is one
+  // card, and the adapter reads only that card's text so a price cannot be
+  // paired with a lead time or sourcing label from another option. A quote
+  // page without one fails closed as selector drift; no other element is
+  // ever read as an option.
+  priceTierCard: ".price-tier",
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

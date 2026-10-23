@@ -343,13 +343,9 @@ function parseGeographicOrigin(text: string): {
   return { origin: "unknown", sourcing: null, source: "none" };
 }
 
-const UNAVAILABLE_TEXT_SOURCE = String.raw`\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b`;
+const UNAVAILABLE_TEXT = /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i;
 /** A class token that styles an element disabled or unavailable ("disabled", "is-unavailable", "tier--disabled"). */
 const UNAVAILABLE_CLASS_TOKEN = /^(?:is-)?(?:disabled|unavailable)$|[-_](?:disabled|unavailable)$/i;
-
-function unavailableTextCount(text: string) {
-  return [...text.matchAll(new RegExp(UNAVAILABLE_TEXT_SOURCE, "gi"))].length;
-}
 
 /**
  * Whether an element is marked unavailable by its own attributes (disabled,
@@ -362,7 +358,7 @@ function isMarkedUnavailable(attributes: Readonly<Record<string, string>>, text:
     || attributes["data-disabled"]?.toLowerCase() === "true"
     || attributes["data-available"]?.toLowerCase() === "false"
     || (attributes.class ?? "").split(/\s+/).some((token) => UNAVAILABLE_CLASS_TOKEN.test(token))
-    || unavailableTextCount(text) > 0;
+    || UNAVAILABLE_TEXT.test(text);
 }
 
 function isExplicitlyUnavailable(snapshot: XometryOfferSnapshot) {
@@ -678,49 +674,46 @@ async function readAttributes(locator: Locator) {
   }, {});
 }
 
+/** OVD-1052: the only offer container; each tier Xometry quotes is one card. */
+const PRICE_TIER_CARD_SELECTOR = XOMETRY_LOCATORS.priceTierCard;
 /** Only a rendered tier label counts; a hidden duplicate in a card is not a second tier. */
 const VISIBLE_TIER_LABEL_SELECTOR = '[data-testid="tierAndLeadTime"]:visible';
-const OFFER_CONTAINER_LIST_SELECTOR = XOMETRY_LOCATORS.offerContainers.join(", ");
+/** A rendered tier label inside some tier card, counted once however the cards nest. */
+const CARD_TIER_LABEL_SELECTOR = `${PRICE_TIER_CARD_SELECTOR} ${VISIBLE_TIER_LABEL_SELECTOR}`;
 const LIST_PRICE_SELECTOR = '[data-testid="part-discount"] > span';
 const DISABLED_DESCENDANT_SELECTOR = '[disabled], [aria-disabled="true"], [data-disabled="true"]';
+/** Every element that encloses a card, <body> and <html> included. */
+const ANCESTOR_SELECTOR = "xpath=ancestor::*";
 /** The attributes an element carries itself that can mark it unavailable. */
 const AVAILABILITY_ATTRIBUTES = ["disabled", "aria-disabled", "data-disabled", "data-available", "class"] as const;
+/**
+ * Matches when an element is too wide to be one part's price panel: it is the
+ * <body> or <html> itself, or it is or holds the parts list (#draggable-parts)
+ * that encloses every part card.
+ */
+const PANEL_TOO_WIDE_SELECTOR = 'xpath=self::body | self::html | descendant-or-self::*[@id="draggable-parts"]';
+/**
+ * OVD-1052: the heading the price panel shows above its tier cards ("Price
+ * and Lead Time" on every captured quote page). It is the only panel text
+ * outside the cards those pages show, and it names no tier, so a line that is
+ * exactly this heading is the one exemption from the timing check below.
+ */
+const PRICE_PANEL_HEADING = /^price\s+and\s+lead\s+time:?$/i;
+/**
+ * Timing only a tier option carries: what parseLeadTime and parseArrivalText
+ * read in a card ("Arrives by", "Delivery on", "Lead time", "5 business days").
+ */
+const PANEL_TIMING_TEXT = /\b(?:arrives?|receive[ds]?|delivery|delivered)\s+(?:by|on)\b|\blead\s*times?\b|\b(?:business|working)\s+days?\b/i;
+/** A shown currency amount: a currency symbol or USD beside digits. */
+const PANEL_AMOUNT_TEXT = /(?:[$€£¥]|\bUSD\b)[^\S\r\n]*\d|\d[^\S\r\n]*USD\b/i;
 
-type XometryOfferCandidateAmbiguity =
+type XometryTierCardAmbiguity =
   | "shape_unreadable"
-  | "overlapping_priced_candidates"
+  | "nested_tier_cards"
   | "multiple_visible_tier_labels"
   | "wrapper_uncovered_content"
-  | "wrapper_overlapping_candidates"
-  | "availability_ambiguous";
-
-/** What the collector read about a candidate; null where the page could not answer. */
-type CandidateFacts = {
-  nestedContainers: number | null;
-  pricedNestedContainers: number | null;
-  visibleTierLabels: number | null;
-};
-
-/** One option-container match inside a candidate, as the page renders it. */
-type NestedMatch = {
-  locator: Locator;
-  /** Rendered text, untrimmed. */
-  text: string;
-  /** Every amount it shows, savings figures included (see shownAmounts). */
-  amounts: string[];
-  /** Shows a price once savings figures are dropped (see showsPriceAmount). */
-  priced: boolean;
-  visibleTierLabels: number;
-};
-
-type OfferCandidateShape = { facts: CandidateFacts } & (
-  /** Holds two or more priced, labelled matches; `collected` are the ones collected on their own. */
-  | { kind: "wrapper"; collected: NestedMatch[] }
-  /** Shows nothing beyond its one priced, labelled match `option`, which is collected on its own. */
-  | { kind: "frame"; option: NestedMatch }
-  | { kind: "option"; visibleTierLabels: number }
-  | { kind: "ambiguous"; ambiguity: XometryOfferCandidateAmbiguity }
-);
+  | "availability_ambiguous"
+  | "price_panel_unbounded";
 
 async function countOrNull(locator: Locator) {
   try {
@@ -728,123 +721,6 @@ async function countOrNull(locator: Locator) {
   } catch {
     return null;
   }
-}
-
-/** One shown currency amount, in a marker the parser accepts or refuses alike. */
-const SHOWN_AMOUNT_SOURCE = String.raw`(?:\bUSD[^\S\r\n]*\$?|[$€£¥])[^\S\r\n]*\d[\d,]*(?:\.\d+)?`;
-
-/** Every amount a candidate shows, savings figures included, in a comparable order. */
-function shownAmounts(text: string) {
-  return [...text.matchAll(new RegExp(SHOWN_AMOUNT_SOURCE, "gi"))]
-    .map((match) => match[0].replaceAll(/\s+/g, "").toUpperCase())
-    .sort((a, b) => a.localeCompare(b));
-}
-
-function sameAmounts(left: readonly string[], right: readonly string[]) {
-  const sortedLeft = [...left].sort((a, b) => a.localeCompare(b));
-  const sortedRight = [...right].sort((a, b) => a.localeCompare(b));
-  return sortedLeft.length === sortedRight.length
-    && sortedLeft.every((amount, index) => amount === sortedRight[index]);
-}
-
-/**
- * Whether a candidate shows a price: any currency amount left once savings
- * figures ("Save $X", "$X off") are dropped. A struck-through list total still
- * counts, so a nested match holding only one is never taken for decoration.
- */
-function showsPriceAmount(text: string) {
-  return shownAmounts(text.replace(new RegExp(SAVINGS_FIGURE_SOURCE, "gi"), "")).length > 0;
-}
-
-/** Every option-container match inside `candidate`; `matches` is null when any cannot be read. */
-async function readNestedMatches(candidate: Locator): Promise<{ count: number | null; matches: NestedMatch[] | null }> {
-  const nested = candidate.locator(OFFER_CONTAINER_LIST_SELECTOR);
-  const count = await countOrNull(nested);
-  if (count === null) return { count, matches: null };
-  const matches: NestedMatch[] = [];
-  for (let index = 0; index < count; index += 1) {
-    const locator = nested.nth(index);
-    const text = await locator.innerText().catch(() => null);
-    const visibleTierLabels = await countOrNull(locator.locator(VISIBLE_TIER_LABEL_SELECTOR));
-    if (text === null || visibleTierLabels === null) return { count, matches: null };
-    matches.push({ locator, text, amounts: shownAmounts(text), priced: showsPriceAmount(text), visibleTierLabels });
-  }
-  return { count, matches };
-}
-
-/**
- * OVD-1052: an option container scopes exactly one tier. The part card's drag
- * handle (#draggable-parts > div[role=button][tabindex=0]) matches the
- * role=button container selector but wraps every tier card, and the
- * page-level selectors collect each of those cards on their own.
- *
- * A candidate is a wrapper only when it holds at least two nested
- * option-container matches that each render a visible tier label and show a
- * price. A nested match without a visible label or without a price (an empty
- * or hidden tierAndLeadTime inside a button, say) never makes its parent a
- * wrapper: the parent stays a candidate, so the real card is not dropped.
- *
- * A wrapper is skipped only when its own content is exactly the content of
- * the matches collected on their own: those that render text and hold no
- * priced match themselves (one that does is a frame or wrapper of its own).
- * Every visible tier label and every shown amount in the wrapper must sit in
- * exactly one of them. A label or amount outside all of them (a third tier
- * card the selectors no longer match, say) is `wrapper_uncovered_content`,
- * and a collected match holding another one is
- * `wrapper_overlapping_candidates`; skipping either would publish a partial
- * option set.
- *
- * A candidate that holds exactly one priced nested match is a second priced
- * candidate over the same part of the page. It is only a frame (the drag
- * handle around a single tier card) when that match renders a visible tier
- * label and the candidate shows no amount and no visible tier label beyond
- * it: it then carries no price of its own and is skipped, so the match alone
- * is the option. Any other overlap is ambiguous, as is a candidate whose
- * shape cannot be read or that renders more than one visible tier label: the
- * caller fails closed instead of publishing a doubtful or partial option set.
- */
-async function offerCandidateShape(option: Locator, text: string): Promise<OfferCandidateShape> {
-  const nested = await readNestedMatches(option);
-  const visibleTierLabels = await countOrNull(option.locator(VISIBLE_TIER_LABEL_SELECTOR));
-  const priced = nested.matches?.filter((match) => match.priced) ?? null;
-  const facts: CandidateFacts = {
-    nestedContainers: nested.count,
-    pricedNestedContainers: priced?.length ?? null,
-    visibleTierLabels,
-  };
-  const ambiguous = (ambiguity: XometryOfferCandidateAmbiguity): OfferCandidateShape => ({
-    kind: "ambiguous",
-    ambiguity,
-    facts,
-  });
-  if (nested.matches === null || priced === null || visibleTierLabels === null) return ambiguous("shape_unreadable");
-  const pricedAndLabelled = priced.filter((match) => match.visibleTierLabels > 0);
-  const ownAmounts = shownAmounts(text);
-
-  if (pricedAndLabelled.length >= 2) {
-    const collected: NestedMatch[] = [];
-    for (const match of nested.matches) {
-      if (!match.text.trim()) continue;
-      const inner = await readNestedMatches(match.locator);
-      if (inner.matches === null) return ambiguous("shape_unreadable");
-      if (inner.matches.some((innerMatch) => innerMatch.priced)) continue;
-      if (inner.matches.some((innerMatch) => innerMatch.text.trim())) return ambiguous("wrapper_overlapping_candidates");
-      collected.push(match);
-    }
-    const coveredTierLabels = collected.reduce((total, match) => total + match.visibleTierLabels, 0);
-    const covered = coveredTierLabels === visibleTierLabels
-      && sameAmounts(ownAmounts, collected.flatMap((match) => match.amounts));
-    return covered ? { kind: "wrapper", collected, facts } : ambiguous("wrapper_uncovered_content");
-  }
-  if (priced.length > 0) {
-    const only = priced.length === 1 ? pricedAndLabelled[0] ?? null : null;
-    const showsNothingBeyondIt = only !== null
-      && visibleTierLabels === only.visibleTierLabels
-      && sameAmounts(ownAmounts, only.amounts);
-    return showsNothingBeyondIt ? { kind: "frame", option: only, facts } : ambiguous("overlapping_priced_candidates");
-  }
-  if (visibleTierLabels > 1) return ambiguous("multiple_visible_tier_labels");
-  return { kind: "option", visibleTierLabels, facts };
 }
 
 /** The availability attributes an element carries itself; null when any cannot be read. */
@@ -861,30 +737,78 @@ async function readAvailabilityMarkers(locator: Locator) {
   }
 }
 
-/** The collector's identity for an option; a repeat match is the same option. */
-function optionFingerprint(attributes: Readonly<Record<string, string>>, text: string) {
-  return `${attributes["data-option-id"] ?? attributes.id ?? ""}\n${text}`;
+/**
+ * OVD-1052: whether the page marks a tier card unavailable on the card itself
+ * or on any element that encloses it, up to and including <body> and <html>.
+ * The live quote page wraps every card in the part card's drag handle
+ * (#draggable-parts > div[role=button][tabindex=0]) and several plain
+ * <div>s, so a mark anywhere on that path withdraws the card. Null when any
+ * of those elements cannot be read, or when no enclosing element can be
+ * listed at all (an attached card always has some): the caller then fails
+ * closed instead of presenting the card as available.
+ */
+async function isCardOrAncestorMarkedUnavailable(card: Locator): Promise<boolean | null> {
+  const own = await readAvailabilityMarkers(card);
+  if (own === null) return null;
+  const ancestors = card.locator(ANCESTOR_SELECTOR);
+  const count = await countOrNull(ancestors);
+  if (count === null || count === 0) return null;
+  const path = await Promise.all(
+    Array.from({ length: count }, (_, index) => readAvailabilityMarkers(ancestors.nth(index))),
+  );
+  const readable = path.filter((markers): markers is Record<string, string> => markers !== null);
+  if (readable.length !== count) return null;
+  return [own, ...readable].some((markers) => isMarkedUnavailable(markers, ""));
 }
 
-function ambiguousCandidateError(
-  selector: string,
-  index: number,
-  ambiguity: XometryOfferCandidateAmbiguity,
-  facts: CandidateFacts,
+const AMBIGUITY_MESSAGES: Partial<Record<XometryTierCardAmbiguity, string>> = {
+  availability_ambiguous: "A Xometry tier card's availability could not be established.",
+  wrapper_uncovered_content:
+    "Xometry shows tier content outside every tier card, so the cards are not known to be the complete option set.",
+  price_panel_unbounded:
+    "Xometry's tier cards share no price panel narrower than the parts list, so the text beside them cannot be checked.",
+};
+
+function ambiguousCardError(
+  ambiguity: XometryTierCardAmbiguity,
+  facts: Record<string, number | null>,
+  index?: number,
 ) {
   return new VendorAutomationError(
-    ambiguity === "availability_ambiguous"
-      ? "A Xometry option container's availability could not be established."
-      : "A Xometry option container could not be told apart from a wrapper or another priced option.",
+    AMBIGUITY_MESSAGES[ambiguity] ?? "A Xometry tier card could not be read as exactly one option.",
     "unexpected_ui_state",
     {
       vendor: "xometry",
       reason: "xometry_offer_container_ambiguous",
       terminalState: "selector_drift",
       ambiguity,
-      containerSelector: selector,
-      containerIndex: index,
+      containerSelector: PRICE_TIER_CARD_SELECTOR,
+      ...(index === undefined ? {} : { containerIndex: index }),
       ...facts,
+    },
+  );
+}
+
+/**
+ * OVD-1052: Xometry has not finished pricing every tier (a card renders no
+ * text yet, the settle wait timed out, or the page still says it is pricing,
+ * with or without cards on screen), so the cards on screen are not known to
+ * be the complete option set. A finite, retryable stop.
+ */
+function pricePendingError(
+  pendingCause: "tier_card_blank" | "price_tiers_unsettled" | "price_tier_cards_absent" | "pricing_in_progress",
+  index?: number,
+) {
+  return new VendorAutomationError(
+    "Xometry had not finished pricing every tier, so no complete option set could be read.",
+    "unexpected_ui_state",
+    {
+      vendor: "xometry",
+      reason: "xometry_price_pending",
+      terminalState: "unavailable",
+      pendingCause,
+      containerSelector: PRICE_TIER_CARD_SELECTOR,
+      ...(index === undefined ? {} : { containerIndex: index }),
     },
   );
 }
@@ -905,119 +829,284 @@ async function readListPriceText(option: Locator) {
   }
 }
 
-/** Collect every distinct supported Xometry tier container in provider order. */
+type PricePanel =
+  | { kind: "panel"; panel: Locator }
+  | { kind: "unbounded" }
+  | { kind: "unreadable" };
+
+/**
+ * OVD-1052: the price panel, the innermost element that encloses every tier
+ * card. On the captured quote page it is the <div> that holds the "Price and
+ * Lead Time" heading and the cards, inside the part card. It is never the
+ * <body> or <html>, nor an element that is or holds the parts list
+ * (#draggable-parts): cards that share no narrower element are not one part's
+ * panel ("unbounded"), and the check never widens to the whole page.
+ * "unreadable" when the enclosing elements cannot be listed or counted, or
+ * when none of them holds exactly the page's cards.
+ */
+async function locatePricePanel(cards: Locator, cardCount: number): Promise<PricePanel> {
+  const ancestors = cards.nth(0).locator(ANCESTOR_SELECTOR);
+  const count = await countOrNull(ancestors);
+  if (count === null || count === 0) return { kind: "unreadable" };
+  // The ancestor axis lists <html> first, so the innermost enclosing element is last.
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const ancestor = ancestors.nth(index);
+    const enclosedCards = await countOrNull(ancestor.locator(PRICE_TIER_CARD_SELECTOR));
+    if (enclosedCards === null || enclosedCards > cardCount) return { kind: "unreadable" };
+    if (enclosedCards < cardCount) continue;
+    const tooWide = await countOrNull(ancestor.locator(PANEL_TOO_WIDE_SELECTOR));
+    if (tooWide === null) return { kind: "unreadable" };
+    return tooWide === 0 ? { kind: "panel", panel: ancestor } : { kind: "unbounded" };
+  }
+  return { kind: "unreadable" };
+}
+
+/**
+ * The panel's rendered lines outside every card: each card's text (in page
+ * order) is cut out of the panel's text. Null when a card's text is not where
+ * the panel shows it, so the two reads do not describe one page.
+ */
+function panelLinesOutsideCards(panelText: string, cardTexts: readonly string[]) {
+  const outside: string[] = [];
+  let cursor = 0;
+  for (const cardText of cardTexts) {
+    if (!cardText) continue;
+    const at = panelText.indexOf(cardText, cursor);
+    if (at < 0) return null;
+    outside.push(panelText.slice(cursor, at));
+    cursor = at + cardText.length;
+  }
+  outside.push(panelText.slice(cursor));
+  return outside
+    .join("\n")
+    .split(/\r?\n/)
+    .map((line) => collapseInlineSpace(line).trim())
+    .filter(Boolean);
+}
+
+function escapeRegExp(value: string) {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+}
+
+/** Whether a line names the tier label as a whole word or phrase. */
+function namesTier(line: string, label: string) {
+  return new RegExp(String.raw`(?:^|[^a-z0-9])${escapeRegExp(label)}(?![a-z0-9])`, "i").test(line);
+}
+
+/**
+ * OVD-1052: what the price panel shows beside the tier cards.
+ *
+ * - A rendered line outside every card with tier timing (an arrival date, a
+ *   lead time, business days) or a currency amount is content the cards do not
+ *   cover, a tier card whose class and label hook were both renamed, say:
+ *   selector drift (wrapper_uncovered_content). The panel heading ("Price and
+ *   Lead Time") is the one line exempt.
+ * - A line outside the cards that says a tier is unavailable withdraws the one
+ *   card whose tier it names; one that names no card's tier, or several, is
+ *   availability_ambiguous. A line with timing or an amount fails the first
+ *   check even when it also names one tier.
+ *
+ * Only the panel is read: text elsewhere in the part card or on the page
+ * (the order summary's own arrival date, say) is never checked here.
+ */
+async function checkPricePanel(
+  cards: Locator,
+  cardTexts: readonly string[],
+  snapshots: readonly XometryOfferSnapshot[],
+) {
+  const located = await locatePricePanel(cards, cardTexts.length);
+  if (located.kind === "unbounded") throw ambiguousCardError("price_panel_unbounded", { tierCards: cardTexts.length });
+  const panelText = located.kind === "panel"
+    ? await located.panel.innerText().catch(() => null)
+    : null;
+  const lines = panelText === null ? null : panelLinesOutsideCards(panelText, cardTexts);
+  if (lines === null) throw ambiguousCardError("shape_unreadable", { tierCards: cardTexts.length, panelLines: null });
+
+  const uncovered = lines.filter((line) =>
+    PANEL_AMOUNT_TEXT.test(line) || (PANEL_TIMING_TEXT.test(line) && !PRICE_PANEL_HEADING.test(line)));
+  if (uncovered.length > 0) {
+    throw ambiguousCardError("wrapper_uncovered_content", { panelLines: lines.length, uncoveredPanelLines: uncovered.length });
+  }
+
+  const unavailableLines = lines.filter((line) => UNAVAILABLE_TEXT.test(line));
+  if (unavailableLines.length === 0) return;
+  const headerLabels = snapshots
+    .map((snapshot) => parseTierHeaderLabel(snapshot)?.toLowerCase())
+    .filter((label): label is string => Boolean(label));
+  const sharedHeaderLabels = new Set(headerLabels.filter((label, index) => headerLabels.indexOf(label) !== index));
+  const tierLabels = snapshots.map((snapshot) => parseProviderLabel(snapshot, sharedHeaderLabels));
+  for (const line of unavailableLines) {
+    const named = snapshots.filter((_snapshot, index) => {
+      const label = tierLabels[index];
+      return label !== null && namesTier(line, label);
+    });
+    if (named.length !== 1) {
+      throw ambiguousCardError("availability_ambiguous", {
+        panelUnavailableLines: unavailableLines.length,
+        namedTierCards: named.length,
+      });
+    }
+    named[0].attributes["data-disabled"] = "true";
+  }
+}
+
+/** What the adapter knows about the quote page's pricing before collection. */
+export type XometryPriceReadiness = {
+  /**
+   * False when xometryPriceTiersSettled timed out: some available tier card
+   * never showed both a price and timing, so the cards are not published.
+   */
+  priceTiersSettled: boolean;
+  /**
+   * The quote page still shows in-progress pricing text
+   * (isXometryPricingInProgress): nothing is published, cards or not.
+   */
+  pricingInProgress: boolean;
+};
+
+/**
+ * OVD-1052: collects Xometry's tier cards as the complete option set, in page
+ * order. The offer set is exactly the page's .price-tier cards; no other
+ * element is read as an option, and anything nested in a card (a button, say)
+ * is part of that card.
+ *
+ * - In-progress pricing text anywhere on the quote page
+ *   (`readiness.pricingInProgress`): pending, whether or not cards render.
+ * - No card: selector drift (xometry_price_tier_cards_missing).
+ * - A card whose text, label count or nesting cannot be read, that holds
+ *   another card, or that renders more than one tier label: selector drift.
+ * - A blank card is still being priced: pending, unless the card or an
+ *   enclosing element marks it unavailable.
+ * - A card is unavailable when it, any enclosing element or any descendant
+ *   carries an availability marker, or its text says so; it is excluded, and
+ *   markers that cannot be read fail closed. When every card is unavailable
+ *   nothing is published.
+ * - Every rendered tier label on the page must sit in a card; one outside
+ *   them all means the cards may not be every tier: selector drift.
+ * - The price panel around the cards must show no tier timing or amount
+ *   outside them, and a tier it calls unavailable is excluded
+ *   (checkPricePanel).
+ * - A timed-out settle wait (`readiness.priceTiersSettled` false) is pending
+ *   whenever any card is available.
+ *
+ * Each card's stated quantity is checked against its own text only (see
+ * parseXometryOfferSnapshots); the part card's quantity input is checked
+ * separately before collection.
+ */
 export async function collectXometryOffers(
   page: Page,
   requestedQuantity: number,
   observer?: XometryProviderObserver,
+  readiness: XometryPriceReadiness = { priceTiersSettled: true, pricingInProgress: false },
 ) {
+  const cards = page.locator(PRICE_TIER_CARD_SELECTOR);
+  const cardCount = await countOrNull(cards);
+  if (cardCount === null) throw ambiguousCardError("shape_unreadable", { tierCards: null });
+  // Cards on screen while the page still says it is pricing may be stale or
+  // partial, so none is published as the complete set.
+  if (readiness.pricingInProgress) {
+    throw pricePendingError(cardCount === 0 ? "price_tier_cards_absent" : "pricing_in_progress");
+  }
+  if (cardCount === 0) {
+    throw new VendorAutomationError(
+      "Xometry's quote page showed no tier card, so its option set could not be read.",
+      "unexpected_ui_state",
+      {
+        vendor: "xometry",
+        reason: "xometry_price_tier_cards_missing",
+        terminalState: "selector_drift",
+        containerSelector: PRICE_TIER_CARD_SELECTOR,
+      },
+    );
+  }
+
   const snapshots: XometryOfferSnapshot[] = [];
   const observedSnapshots: XometryOfferSnapshot[] | undefined = observer ? [] : undefined;
-  const snapshotByFingerprint = new Map<string, XometryOfferSnapshot>();
-  /** Options whose frame the page marks unavailable, keyed by fingerprint, with that frame. */
-  const unavailableFrames = new Map<string, { selector: string; index: number; facts: CandidateFacts }>();
+  /** Every card's rendered text, in page order, blank cards included. */
+  const cardTexts: string[] = [];
+  for (let index = 0; index < cardCount; index += 1) {
+    const card = cards.nth(index);
+    const renderedText = await card.innerText().catch(() => null);
+    if (renderedText === null) {
+      throw ambiguousCardError("shape_unreadable", { nestedTierCards: null, visibleTierLabels: null }, index);
+    }
+    const text = renderedText.trim();
+    cardTexts.push(text);
+    if (!text) {
+      // A blank card is a skeleton still being priced, not an absent tier.
+      // Only the card or an enclosing element can say the page withdrew it:
+      // a skeleton can render disabled controls.
+      const unavailable = await isCardOrAncestorMarkedUnavailable(card);
+      if (unavailable === null) {
+        throw ambiguousCardError("availability_ambiguous", { nestedTierCards: null, visibleTierLabels: null }, index);
+      }
+      if (unavailable) continue;
+      throw pricePendingError("tier_card_blank", index);
+    }
 
-  for (const selector of XOMETRY_LOCATORS.offerContainers) {
-    const locator = page.locator(selector);
-    const count = await locator.count().catch(() => 0);
-    for (let index = 0; index < count; index += 1) {
-      const option = locator.nth(index);
-      const renderedText = await option.innerText().catch(() => null);
-      const text = renderedText?.trim() ?? "";
-      // A candidate that renders no text is not an option; one whose text
-      // cannot be read is not known to be empty, so it is never dropped.
-      if (renderedText !== null && !text) continue;
-      const shape: OfferCandidateShape = renderedText === null
-        ? {
-          kind: "ambiguous",
-          ambiguity: "shape_unreadable",
-          facts: { nestedContainers: null, pricedNestedContainers: null, visibleTierLabels: null },
-        }
-        : await offerCandidateShape(option, text);
-      if (shape.kind === "ambiguous") {
-        throw ambiguousCandidateError(selector, index, shape.ambiguity, shape.facts);
-      }
-      if (shape.kind === "wrapper" || shape.kind === "frame") {
-        // X14: a skipped candidate's own availability still governs the
-        // options it holds. Only its own attributes, class and text count:
-        // its other descendants are page furniture (the part card's quantity
-        // stepper is disabled at quantity 1), and each held option's own
-        // descendants are judged when that option is collected.
-        const markers = await readAvailabilityMarkers(option);
-        if (markers === null) {
-          throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
-        }
-        if (shape.kind === "wrapper") {
-          // A wrapper marked unavailable, or showing unavailability text
-          // outside every option it holds, cannot say which option it means.
-          const textOutsideOptions = unavailableTextCount(text)
-            > shape.collected.reduce((total, match) => total + unavailableTextCount(match.text), 0);
-          if (isMarkedUnavailable(markers, "") || textOutsideOptions) {
-            throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
-          }
-        } else if (isMarkedUnavailable(markers, text)) {
-          // A frame around one tier card that the page marks unavailable:
-          // that card never yields an offer, whichever order they are read in.
-          const framedAttributes = await readAttributes(shape.option.locator);
-          unavailableFrames.set(
-            optionFingerprint(framedAttributes, shape.option.text.trim()),
-            { selector, index, facts: shape.facts },
-          );
-        }
-        continue;
-      }
-      const tierText = shape.visibleTierLabels === 0
-        ? ""
-        : (await option
-          .locator(VISIBLE_TIER_LABEL_SELECTOR)
-          .first()
-          .innerText()
-          .catch(() => ""))
-          .trim();
-      const attributes = await readAttributes(option);
-      // Normalization derives availability from descendants. Preserve actual
-      // parent attributes separately instead of presenting derived flags as DOM.
-      // One extra record is a bounded overflow sentinel; the factory refuses
-      // the whole observation rather than publishing a truncated document set.
-      const observedAttributes = observedSnapshots && observedSnapshots.length <= XOMETRY_OBSERVATION_LIMITS.documents
-        ? { ...attributes }
-        : undefined;
-      // An option whose availability the page cannot answer is never
-      // presented as available.
-      const markers = await readAvailabilityMarkers(option);
-      const disabledDescendants = await countOrNull(option.locator(DISABLED_DESCENDANT_SELECTOR));
-      if (markers === null || disabledDescendants === null) {
-        throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
-      }
-      if (disabledDescendants > 0 || isMarkedUnavailable(markers, "")) {
-        attributes["data-disabled"] = "true";
-      }
-      const fingerprint = optionFingerprint(attributes, text);
-      if (snapshotByFingerprint.has(fingerprint)) continue;
-      const listPriceText = await readListPriceText(option);
-      const snapshot: XometryOfferSnapshot = {
-        selector,
+    const nestedTierCards = await countOrNull(card.locator(PRICE_TIER_CARD_SELECTOR));
+    const visibleTierLabels = await countOrNull(card.locator(VISIBLE_TIER_LABEL_SELECTOR));
+    const facts = { nestedTierCards, visibleTierLabels };
+    if (nestedTierCards === null || visibleTierLabels === null) throw ambiguousCardError("shape_unreadable", facts, index);
+    if (nestedTierCards > 0) throw ambiguousCardError("nested_tier_cards", facts, index);
+    if (visibleTierLabels > 1) throw ambiguousCardError("multiple_visible_tier_labels", facts, index);
+
+    const tierText = visibleTierLabels === 0
+      ? ""
+      : (await card
+        .locator(VISIBLE_TIER_LABEL_SELECTOR)
+        .first()
+        .innerText()
+        .catch(() => ""))
+        .trim();
+    const attributes = await readAttributes(card);
+    // Normalization derives availability from enclosing elements and
+    // descendants. Preserve actual card attributes separately instead of
+    // presenting derived flags as DOM. One extra record is a bounded overflow
+    // sentinel; the factory refuses the whole observation rather than
+    // publishing a truncated document set.
+    const observedAttributes = observedSnapshots && observedSnapshots.length <= XOMETRY_OBSERVATION_LIMITS.documents
+      ? { ...attributes }
+      : undefined;
+    // A card whose availability the page cannot answer is never presented as available.
+    const unavailable = await isCardOrAncestorMarkedUnavailable(card);
+    const disabledDescendants = await countOrNull(card.locator(DISABLED_DESCENDANT_SELECTOR));
+    if (unavailable === null || disabledDescendants === null) {
+      throw ambiguousCardError("availability_ambiguous", facts, index);
+    }
+    if (unavailable || disabledDescendants > 0) {
+      attributes["data-disabled"] = "true";
+    }
+    const listPriceText = await readListPriceText(card);
+    snapshots.push({
+      selector: PRICE_TIER_CARD_SELECTOR,
+      text,
+      tierText: tierText || undefined,
+      ...(listPriceText === undefined ? {} : { listPriceText }),
+      attributes,
+    });
+    if (observedSnapshots && observedAttributes) {
+      observedSnapshots.push({
+        selector: PRICE_TIER_CARD_SELECTOR,
         text,
         tierText: tierText || undefined,
-        ...(listPriceText === undefined ? {} : { listPriceText }),
-        attributes,
-      };
-      snapshotByFingerprint.set(fingerprint, snapshot);
-      snapshots.push(snapshot);
-      if (observedSnapshots && observedAttributes) {
-        observedSnapshots.push({ selector, text, tierText: tierText || undefined, attributes: observedAttributes });
-      }
+        attributes: observedAttributes,
+      });
     }
   }
 
-  for (const [fingerprint, frame] of unavailableFrames) {
-    const framed = snapshotByFingerprint.get(fingerprint);
-    // The framed card is an option-container match itself, so it was
-    // collected; if it was not, the frame cannot be tied to an option.
-    if (!framed) {
-      throw ambiguousCandidateError(frame.selector, frame.index, "availability_ambiguous", frame.facts);
-    }
-    framed.attributes["data-disabled"] = "true";
+  // A tier label the cards do not hold is a tier this collector cannot see.
+  const pageTierLabels = await countOrNull(page.locator(VISIBLE_TIER_LABEL_SELECTOR));
+  const cardTierLabels = await countOrNull(page.locator(CARD_TIER_LABEL_SELECTOR));
+  const coverage = { visibleTierLabels: pageTierLabels, coveredTierLabels: cardTierLabels };
+  if (pageTierLabels === null || cardTierLabels === null) throw ambiguousCardError("shape_unreadable", coverage);
+  if (pageTierLabels > cardTierLabels) throw ambiguousCardError("wrapper_uncovered_content", coverage);
+  await checkPricePanel(cards, cardTexts, snapshots);
+
+  // Never publish the cards that did render as the complete set. When every
+  // card is unavailable the settle wait cannot succeed, and nothing is published.
+  if (!readiness.priceTiersSettled && snapshots.some((snapshot) => !isExplicitlyUnavailable(snapshot))) {
+    throw pricePendingError("price_tiers_unsettled");
   }
 
   const quoteUrl = page.url();
