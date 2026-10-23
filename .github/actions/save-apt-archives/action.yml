@@ -29,7 +29,9 @@ runs:
         # versions do not pile up in the cache.
         sudo apt-get autoclean -qq
         count="$(find "$dir" -maxdepth 1 -name '*.deb' | wc -l)"
-        digest="$(find "$dir" -maxdepth 1 -name '*.deb' -printf '%f\n' | LC_ALL=C sort | sha256sum | cut -c1-16)"
+        # Name and size, so a file apt replaced (same name, new size) saves a
+        # new cache instead of matching the restored key.
+        digest="$(find "$dir" -maxdepth 1 -name '*.deb' -printf '%f %s\n' | LC_ALL=C sort | sha256sum | cut -c1-16)"
         echo "count=$count" >> "$GITHUB_OUTPUT"
         echo "key=${KEY_PREFIX}${digest}" >> "$GITHUB_OUTPUT"
         echo "$count .deb files, cache key ${KEY_PREFIX}${digest}"
