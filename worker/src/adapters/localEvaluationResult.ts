@@ -10,7 +10,8 @@ import type {
 } from "../types.js";
 
 export const LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION = "local-native-currency-evidence.v1" as const;
-export type LocalEvidenceCurrency = "USD" | "EUR";
+/** GBP is Geomiq's only display currency (OVD-1058); like EUR it stays native and non-comparable. */
+export type LocalEvidenceCurrency = "USD" | "EUR" | "GBP";
 type SelectorProvenance = { source: "selector"; selector: string };
 
 /** Local evidence only. Deliberately has neither USD prices nor a raw payload. */
@@ -78,7 +79,7 @@ export function isLocalNativeCurrencyResult(result: LocalEvaluationResult): resu
 
 /** Explicit local-evidence allowlist; no symbol/locale inference or currency conversion. */
 export function isSupportedLocalCurrency(value: unknown): value is LocalEvidenceCurrency {
-  return value === "USD" || value === "EUR";
+  return value === "USD" || value === "EUR" || value === "GBP";
 }
 
 /** Require an observed value and a nonempty selector; value-domain checks remain separate. */
@@ -130,7 +131,7 @@ const nativeOfferShape = z.object({
   providerLabel: textSchema,
   quantity: z.number().int().positive().safe(),
   money: z.object({
-    currency: z.enum(["USD", "EUR"]),
+    currency: z.enum(["USD", "EUR", "GBP"]),
     unitAmount: positiveNumberSchema,
     totalAmount: positiveNumberSchema,
     provenance: z.object({

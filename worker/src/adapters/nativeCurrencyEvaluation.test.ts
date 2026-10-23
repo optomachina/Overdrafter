@@ -75,7 +75,7 @@ describe("native local money normalization", () => {
 
   it.each([
     ["missing currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = null; }],
-    ["unsupported currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "GBP"; c.money.totalCurrency.value = "GBP"; }],
+    ["unsupported currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "JPY"; c.money.totalCurrency.value = "JPY"; }],
     ["currency symbol without ISO code", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "€"; }],
     ["mixed currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.totalCurrency.value = "USD"; }],
     ["whole-page currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.source = "body_text"; }],
@@ -426,7 +426,7 @@ describe("native currency kernel to standalone CLI boundary", () => {
       { ...result, localOnly: false },
       { ...result, customerOfferPersistence: true },
       { ...result, nativeOffers: [{ ...result.nativeOffers[0], quantity: 10 }] },
-      { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, currency: "GBP" } }] },
+      { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, currency: "JPY" } }] },
       { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, provenance: {} } }] },
       { ...result, nativeOffers: [result.nativeOffers[0], { ...result.nativeOffers[0], providerOptionId: "synthetic-second",
         money: { ...result.nativeOffers[0].money, currency: "USD" } }] },
