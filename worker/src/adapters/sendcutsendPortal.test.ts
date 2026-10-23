@@ -27,7 +27,10 @@ import {
   type SendCutSendWizardWalk,
 } from "./sendcutsendPortal";
 
-const FAST = { processingWaitMs: 200, controlWaitMs: 50, priceWaitMs: 50, pollIntervalMs: 1 };
+const FAST = {
+  processingWaitMs: 200, controlWaitMs: 50, priceWaitMs: 50, pollIntervalMs: 1,
+  reclickAfterMs: 0, priceStableMs: 0, sessionSettleMs: 0, sessionWaitMs: 20,
+};
 const tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -204,6 +207,8 @@ describe("SendCutSend portal state", () => {
     ["logged out", { url: quote, bodyText: "LOGIN\nDrop up to 10 files here to get started" }, "login_required"],
     ["expired", { url: quote, bodyText: "Your session has expired" }, "login_required"],
     ["captcha", { url: quote, bodyText: "Verify you are human" }, "captcha"],
+    ["Cloudflare challenge", { url: quote, bodyText: "Verifying you are human. This may take a few seconds." }, "captcha"],
+    ["Cloudflare review", { url: quote, bodyText: "app.sendcutsend.com needs to review the security of your connection" }, "captcha"],
     ["custom quote", { url: quote, bodyText: "Subtotal:\nContact us for a custom quote" }, "manual_review"],
     ["other origin", { url: "https://sendcutsend.com/", bodyText: "" }, "unexpected_origin"],
     ["realtime origin", { url: "https://main.realtime.ably.net/", bodyText: "" }, "unexpected_origin"],
@@ -223,7 +228,18 @@ describe("SendCutSend portal state", () => {
 type WizardStep = "processing" | "format" | "group" | "category" | "type" | "sku";
 
 /** A synthetic wizard: one step visible at a time, as SendCutSend's tile view renders it. */
-function fakeWizard(options: { start?: WizardStep; processingPolls?: number; thicknesses?: string[]; quantityControl?: boolean } = {}) {
+function fakeWizard(options: {
+  start?: WizardStep;
+  processingPolls?: number;
+  thicknesses?: string[];
+  quantityControl?: boolean;
+  /** The first N type clicks report success but the wizard does not advance. */
+  ignoredTypeClicks?: number;
+  /** After the first type click, the wizard re-renders at the group step once. */
+  bounceAfterType?: boolean;
+} = {}) {
+  let ignoredTypeClicks = options.ignoredTypeClicks ?? 0;
+  let bounce = options.bounceAfterType ?? false;
   let step: WizardStep = options.start ?? "processing";
   let processingPolls = options.processingPolls ?? 0;
   const calls: string[] = [];
@@ -249,6 +265,12 @@ function fakeWizard(options: { start?: WizardStep; processingPolls?: number; thi
       const rule = next[field];
       if (!rule || rule[0] !== step || rule[1] !== text) return false;
       calls.push(`${field}:${text}`);
+      if (field === "materialType" && ignoredTypeClicks-- > 0) return true;
+      if (field === "materialType" && bounce) {
+        bounce = false;
+        step = "group";
+        return true;
+      }
       step = rule[2];
       return true;
     },
@@ -293,6 +315,37 @@ describe("SendCutSend wizard walk", () => {
     await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, FAST);
     expect(walk).toEqual({ typeSelected: false, thicknessSelected: false });
     expect(wizard.calls).toEqual(["thickness:.125"]);
+  });
+
+  it("re-clicks a type tile that ignored the click, then proves the walk", async () => {
+    const wizard = fakeWizard({ start: "type", ignoredTypeClicks: 1 });
+    const walk = newSendCutSendWizardWalk();
+    await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, FAST);
+    expect(wizard.calls).toEqual(["materialType:6061 T6 Aluminum", "materialType:6061 T6 Aluminum", "thickness:.125", "quantity:1"]);
+    expect(walk.thicknessSelected).toBe(true);
+  });
+
+  it("spaces re-clicks so a still-processing tile is not exhausted at once", async () => {
+    const wizard = fakeWizard({ start: "type", ignoredTypeClicks: 5 });
+    const walk = newSendCutSendWizardWalk();
+    await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, { ...FAST, reclickAfterMs: 1_000 });
+    expect(wizard.calls).toEqual(["materialType:6061 T6 Aluminum"]);
+    expect(walk.thicknessSelected).toBe(false);
+  });
+
+  it("clears the type when the wizard falls back to an earlier step", async () => {
+    const wizard = fakeWizard({ start: "type", bounceAfterType: true });
+    const walk = newSendCutSendWizardWalk();
+    await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, FAST);
+    expect(wizard.calls).toEqual([
+      "materialType:6061 T6 Aluminum",
+      "materialGroup:Metals",
+      "materialCategory:Aluminum",
+      "materialType:6061 T6 Aluminum",
+      "thickness:.125",
+      "quantity:1",
+    ]);
+    expect(walk).toEqual({ typeSelected: true, thicknessSelected: true });
   });
 
   it("never substitutes a neighbouring thickness", async () => {
@@ -345,15 +398,17 @@ function fakeReader(texts: Record<string, string[] | string[][]>): ProviderPorta
 }
 
 const walked: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: true };
+const CRUMBS = { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "6061 T6 Aluminum"] };
 /** A repricing summary that changes on every read. */
 const ALTERNATING = Array.from({ length: 10_000 }, (_value, index) => [index % 2 === 0 ? "$31.40" : "$31.50"]);
 
 describe("SendCutSend summary price", () => {
   it("returns one anchored USD offer once the price settles", async () => {
     const reader = fakeReader({
+      ...CRUMBS,
       [L.selectedSkuTitles]: [".125"],
-      [L.unitPrice]: [["$--"], ["$31.40"], ["$31.40"]],
-      [L.totalPrice]: [["$0.00"], ["$31.40"], ["$31.40"]],
+      [L.unitPrice]: [["$--"], ["$31.40"], ["$31.40"], ["$31.40"]],
+      [L.totalPrice]: [["$0.00"], ["$31.40"], ["$31.40"], ["$31.40"]],
       [L.shipDate]: ["Ships as soon as: Oct 28"],
     });
     const offers = await extractSendCutSendSheetOffers(reader, 1, walked, FAST);
@@ -372,6 +427,7 @@ describe("SendCutSend summary price", () => {
 
   it("checks the unit price against the subtotal at the requested quantity", async () => {
     const reader = fakeReader({
+      ...CRUMBS,
       [L.selectedSkuTitles]: [".125"],
       [L.unitPrice]: ["$1,204.10"],
       [L.totalPrice]: ["$2,408.20"],
@@ -388,30 +444,65 @@ describe("SendCutSend summary price", () => {
     ["a price that never settles", { [L.unitPrice]: ALTERNATING, [L.totalPrice]: ALTERNATING },
       "selector_drift", "sendcutsend_price_pending"],
     ["no price", { [L.unitPrice]: ["$--"], [L.totalPrice]: [] }, "selector_drift", "sendcutsend_price_pending"],
-    ["two prices", { [L.unitPrice]: ["$31.40", "$12.00"], [L.totalPrice]: ["$31.40"] }, "selector_drift", "sendcutsend_price_ambiguous"],
+    ["two prices that persist", { [L.unitPrice]: ["$31.40", "$12.00"], [L.totalPrice]: ["$31.40"] }, "selector_drift", "sendcutsend_price_ambiguous"],
     ["a non-USD amount", { [L.unitPrice]: ["€31,40"], [L.totalPrice]: ["€31,40"] }, "selector_drift", "sendcutsend_price_pending"],
     ["a custom quote", { [L.subtotal]: ["Subtotal: Custom quote"] }, "manual_review", "sendcutsend_custom_quote"],
   ])("withholds the offer for %s", async (_label, texts, terminalState, reason) => {
-    const reader = fakeReader({ [L.selectedSkuTitles]: [".125"], ...texts });
+    const reader = fakeReader({ ...CRUMBS, [L.selectedSkuTitles]: [".125"], ...texts });
     await expect(extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 5 }))
       .rejects.toMatchObject({ payload: { terminalState, reason, vendor: "sendcutsend" } });
   });
 
+  const typed: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: false };
   it.each([
-    ["the thickness is disabled", walked, { [L.disabledSkuTitles]: [".125"], [L.skuTitles]: [".100", ".125"] },
+    ["the thickness is disabled", typed, { ...CRUMBS, [L.disabledSkuTitles]: [".125"], [L.skuTitles]: [".100", ".125"] },
       "configuration_required", "sendcutsend_thickness_unavailable"],
-    ["the thickness is not offered", { typeSelected: true, thicknessSelected: false }, { [L.skuTitles]: [".100", ".187"] },
+    ["the thickness is not offered", typed, { ...CRUMBS, [L.skuTitles]: [".100", ".187"] },
       "configuration_required", "sendcutsend_thickness_not_offered"],
+    ["a disabled .125 belongs to another type", typed,
+      { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "5052 H32 Aluminum"], [L.disabledSkuTitles]: [".125"] },
+      "selector_drift", "sendcutsend_material_path_incomplete"],
     ["the walk never reached the stock", newSendCutSendWizardWalk(), {}, "selector_drift", "sendcutsend_material_path_incomplete"],
-    ["another thickness is selected", walked, { [L.selectedSkuTitles]: [".100"], [L.skuTitles]: [".100", ".125"] },
+    ["another thickness is selected", walked, { ...CRUMBS, [L.selectedSkuTitles]: [".100"], [L.skuTitles]: [".100", ".125"] },
       "selector_drift", "sendcutsend_material_path_incomplete"],
-    ["the type was not chosen this run", { typeSelected: false, thicknessSelected: false }, { [L.selectedSkuTitles]: [".125"] },
+    ["the type was not chosen this run", { typeSelected: false, thicknessSelected: false }, { ...CRUMBS, [L.selectedSkuTitles]: [".125"] },
       "selector_drift", "sendcutsend_material_path_incomplete"],
+    ["the page shows another alloy", walked,
+      { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "5052 H32 Aluminum"], [L.selectedSkuTitles]: [".125"] },
+      "selector_drift", "sendcutsend_material_unverified"],
+    ["the page shows no material", walked, { [L.selectedSkuTitles]: [".125"] }, "selector_drift", "sendcutsend_material_unverified"],
+    ["the session signed out after upload", walked, { ...CRUMBS, [L.selectedSkuTitles]: [".125"], [L.visibleLoginLink]: ["LOGIN"] },
+      "login_required", "sendcutsend_signed_out"],
   ])("stops before reading a price when %s", async (_label, walk, texts, terminalState, reason) => {
     const reader = fakeReader({ [L.unitPrice]: ["$31.40"], [L.totalPrice]: ["$31.40"], ...texts });
     await expect(extractSendCutSendSheetOffers(reader, 1, walk, FAST))
       .rejects.toMatchObject({ payload: { terminalState, reason } });
     expect(reader.reads).not.toContain(L.unitPrice);
+  });
+
+  it("waits out a transient duplicate price and requires a stable window", async () => {
+    const reader = fakeReader({
+      ...CRUMBS,
+      [L.selectedSkuTitles]: [".125"],
+      [L.unitPrice]: [["$31.40", "$30.00"], ["$31.40"], ["$31.40"], ["$31.40"]],
+      [L.totalPrice]: [["$31.40"], ["$31.40"], ["$31.40"], ["$31.40"]],
+    });
+    const [offer] = await extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 500, priceStableMs: 20 });
+    expect(offer.totalPriceUsd.value).toBe(31.4);
+    const unitReads = reader.reads.filter((selector) => selector === L.unitPrice).length;
+    expect(unitReads).toBeGreaterThanOrEqual(4);
+  });
+
+  it("re-checks the material and session after the price read", async () => {
+    const reader = fakeReader({
+      // One read before the price, one after it.
+      [L.materialCrumbs]: [CRUMBS[L.materialCrumbs], ["Categories", "Metals", "Aluminum", "7075 T6 Aluminum"]],
+      [L.selectedSkuTitles]: [".125"],
+      [L.unitPrice]: ["$31.40"],
+      [L.totalPrice]: ["$31.40"],
+    });
+    await expect(extractSendCutSendSheetOffers(reader, 1, walked, FAST))
+      .rejects.toMatchObject({ payload: { reason: "sendcutsend_material_unverified" } });
   });
 
   it("records scrubbed page text for a stop the reader throws, without replacing the stop", async () => {
@@ -426,6 +517,26 @@ describe("SendCutSend summary price", () => {
       payload: { reason: "sendcutsend_material_path_incomplete" },
       artifacts: [{ label: "sendcutsend_material_path_incomplete" }],
     });
+  });
+});
+
+describe("SendCutSend pre-upload guard", () => {
+  const signedInPage = { [L.navbar]: ["Quote"], [L.uploadInput]: [""] };
+  const guard = (texts: Record<string, string[]>) =>
+    Promise.resolve(buildSendCutSendSheetPortalDefinition(FAST).hooks.beforeUpload?.(fakeReader(texts)));
+
+  it("passes a rendered, signed-in page with one upload input", async () => {
+    await expect(guard(signedInPage)).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ["a visible sign-in link", { ...signedInPage, [L.visibleLoginLink]: ["LOGIN"] }, "login_required", "sendcutsend_signed_out"],
+    ["a header that never renders", { [L.uploadInput]: [""] }, "selector_drift", "sendcutsend_header_missing"],
+    ["two upload inputs", { ...signedInPage, [L.uploadInput]: ["", ""] }, "selector_drift", "sendcutsend_upload_input_ambiguous"],
+    ["no upload input", { [L.navbar]: ["Quote"] }, "selector_drift", "sendcutsend_upload_input_ambiguous"],
+    ["an open quote dialog", { ...signedInPage, [L.quoteDialog]: [""] }, "manual_review", "sendcutsend_quote_dialog_already_open"],
+  ])("stops before upload on %s", async (_label, texts, terminalState, reason) => {
+    await expect(guard(texts)).rejects.toMatchObject({ payload: { terminalState, reason, providerMutationPossible: false } });
   });
 });
 

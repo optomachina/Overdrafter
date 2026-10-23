@@ -29,7 +29,7 @@ const launchChromium = chromium.launch.bind(chromium);
 let browser: Browser;
 const tempDirs: string[] = [];
 beforeAll(async () => { browser = await launchChromium(sandboxedChromiumLaunchOptions()); }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
-afterAll(async () => { await browser?.close(); });
+afterAll(async () => { await browser?.close(); }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -69,7 +69,9 @@ function wizardPage(options: WizardPageOptions = {}): string {
         group: () => tiles("select-material-group", "group", ["Metals", "Plastics"]),
         category: () => tiles("select-material-category", "category", ["Steel", "Aluminum"]),
         type: () => tiles("select-material-type", "type", ["5052 H32 Aluminum", "6061 T6 Aluminum", "6061 Aluminum"]),
-        sku: () => '<div class="material-skus"><div class="tile-container">' + cfg.thicknesses.map((t) =>
+        sku: () => '<div class="material_breadcrumbs"><span><a class="is-standalone editable">Categories</a></span><span><a class="is-standalone editable">Metals</a></span>' +
+          '<span><a class="is-standalone editable">Aluminum</a></span><span><a class="is-standalone disabled">6061 T6 Aluminum</a></span></div>' +
+          '<div class="material-skus"><div class="tile-container">' + cfg.thicknesses.map((t) =>
           '<div class="tile-sku quote-tile level-1 thickness' + (cfg.disabled.includes(t) ? ' is-disabled' : '') + '">' +
           '<label class="b-radio radio"><input type="radio" name="sku"' + (cfg.disabled.includes(t) ? ' disabled' : '') + '>' +
           '<span class="check"></span><span class="control-label"><p class="title is-5 mb-0">' + t + '</p></span></label></div>').join("") +
@@ -167,6 +169,7 @@ async function quoteAgainst(page: string) {
     createLocalPortalBrowser(browser, { pages: { "app.sendcutsend.com/customer": page } }, observed));
   const definition = buildSendCutSendSheetPortalDefinition({
     processingWaitMs: 8_000, controlWaitMs: 3_000, priceWaitMs: 5_000, pollIntervalMs: 100,
+    reclickAfterMs: 1_000, priceStableMs: 600, sessionSettleMs: 300, sessionWaitMs: 3_000,
   });
   const input = await approvedInput();
   const outcome = await runProviderPortalKernel(definition, config(), input).then(
@@ -216,6 +219,14 @@ describe("SendCutSend sheet definition in a browser fixture (OVD-1056)", () => {
   it("stops in configuration_required when .125 is disabled for the part", async () => {
     const { error } = await quoteAgainst(wizardPage({ disabled: [".125"] }));
     expect(error).toMatchObject({ payload: { terminalState: "configuration_required", reason: "sendcutsend_thickness_unavailable" } });
+  }, timeout);
+
+  it("proceeds when the signed-in header keeps a hidden sign-in link in the DOM", async () => {
+    const { result, error } = await quoteAgainst(wizardPage({
+      header: `<span>Account</span><a href="#" class="login link" style="display:none">LOGIN</a>`,
+    }));
+    expect(error).toBeNull();
+    expect(result).toMatchObject({ state: "offers_extracted" });
   }, timeout);
 
   it.each([

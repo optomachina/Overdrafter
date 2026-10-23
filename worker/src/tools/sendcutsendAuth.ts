@@ -5,10 +5,18 @@ import {
 } from "../adapters/sendcutsendPortal.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 
-type SessionContext = { storageState(): Promise<unknown> };
 type SessionPage = {
   goto(url: string, options: { waitUntil: "domcontentloaded" }): Promise<unknown>;
   evaluate<T>(fn: () => Promise<T>): Promise<T>;
+};
+type SessionContext = {
+  storageState(): Promise<unknown>;
+  newPage(): Promise<SessionPage>;
+  close(): Promise<void>;
+};
+/** Structural, so this module stays free of a browser import; the storage state is Playwright's own shape. */
+type SessionBrowser = {
+  newContext(options: { storageState: never }): Promise<SessionContext>;
 };
 
 /**
@@ -17,7 +25,7 @@ type SessionPage = {
  * headed browser that vendorAuth opens; nothing here types or reads
  * credentials. Only the definition's exact-host cookies and local storage
  * are kept (the kernel refuses any other), and nothing is saved unless the
- * app reports a signed-in user.
+ * app reports a signed-in, non-guest user before and after that filter.
  */
 export const SENDCUTSEND_SESSION_BOOTSTRAP = Object.freeze({
   vendor: "sendcutsend" as const,
@@ -32,24 +40,44 @@ export const SENDCUTSEND_SESSION_BOOTSTRAP = Object.freeze({
   save: saveSendCutSendSession,
 });
 
+/**
+ * True only when the app reports a signed-in, non-guest user. The check runs
+ * in the page and returns a boolean; the response body never leaves it.
+ */
+async function reportsSignedInUser(page: SessionPage): Promise<boolean> {
+  await page.goto(SENDCUTSEND_QUOTE_URL, { waitUntil: "domcontentloaded" });
+  return page.evaluate(async () => {
+    const response = await fetch("/users/current", { credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (response.status !== 200) return false;
+    const user = await response.json().catch(() => null) as { id?: unknown; guest?: unknown } | null;
+    return Boolean(user && (typeof user.id === "number" || typeof user.id === "string") && !user.guest);
+  }).catch(() => false);
+}
+
+/**
+ * Saves the filtered session only after a fresh context built from exactly
+ * that filtered state still reports the signed-in user, so a session cookie
+ * on a dropped domain cannot produce a file that silently runs signed out.
+ */
 export async function saveSendCutSendSession(
-  context: SessionContext,
-  page: SessionPage,
+  session: { browser: SessionBrowser; context: SessionContext; page: SessionPage },
   outputPath: string,
   log: (line: string) => void = console.log,
 ): Promise<void> {
-  // A same-origin status read only; the response body is never read.
-  await page.goto(SENDCUTSEND_QUOTE_URL, { waitUntil: "domcontentloaded" });
-  const status = await page.evaluate(async () => {
-    const response = await fetch("/users/current", { credentials: "same-origin", headers: { Accept: "application/json" } });
-    return response.status;
-  }).catch(() => 0);
-  if (status !== 200) {
-    throw new Error(`SendCutSend did not report a signed-in user (status ${status}); nothing was saved.`);
+  if (!(await reportsSignedInUser(session.page))) {
+    throw new Error("SendCutSend did not report a signed-in user; nothing was saved.");
   }
-  const filtered = filterSendCutSendStorageState(await context.storageState());
+  const filtered = filterSendCutSendStorageState(await session.context.storageState());
   if (filtered.keptCookies === 0) {
     throw new Error("No SendCutSend app cookie was found; nothing was saved.");
+  }
+  const verification = await session.browser.newContext({ storageState: filtered.state as never });
+  try {
+    if (!(await reportsSignedInUser(await verification.newPage()))) {
+      throw new Error("The SendCutSend session does not survive the exact-host filter; nothing was saved.");
+    }
+  } finally {
+    await verification.close();
   }
   await writePrivateStorageState({ storageState: async () => filtered.state }, outputPath);
   log(`Saved SendCutSend storage state to: ${outputPath}`);

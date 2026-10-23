@@ -780,14 +780,32 @@ export class SendCutSendAdapter extends VendorAdapter {
         this.sheetPayload(input, "sendcutsend_evaluation_lane_ambiguous", "unsupported", false),
       );
     }
-    const result = await runProviderPortalKernel(
-      buildSendCutSendSheetPortalDefinition({
-        writeDiagnostic: (diagnostic) => writeSendCutSendTextEvidence(this.config, diagnostic),
-      }),
-      this.config,
-      input,
-      sheetKernelDependencies(this.config, { operationalJev: this.operationalJev }),
-    );
+    let result: ProviderPortalKernelResult;
+    try {
+      result = await runProviderPortalKernel(
+        buildSendCutSendSheetPortalDefinition({
+          writeDiagnostic: (diagnostic) => writeSendCutSendTextEvidence(this.config, diagnostic),
+        }),
+        this.config,
+        input,
+        sheetKernelDependencies(this.config, { operationalJev: this.operationalJev }),
+      );
+    } catch (error) {
+      // The sheet hooks' own follow-up stops get the same output shape as the
+      // kernel-classified ones; everything else (kill switch, refusals, drift) propagates.
+      const state = error instanceof VendorAutomationError ? error.payload.terminalState : null;
+      const reason = error instanceof VendorAutomationError ? error.payload.reason : null;
+      if (error instanceof VendorAutomationError && typeof reason === "string" && reason.startsWith("sendcutsend_")
+        && (state === "configuration_required" || state === "manual_review")) {
+        return this.sheetFollowUp(input, {
+          reason,
+          url: typeof error.payload.url === "string" ? error.payload.url : null,
+          artifacts: error.artifacts,
+          providerMutationPossible: error.payload.providerMutationPossible === true,
+        }, state, {});
+      }
+      throw error;
+    }
     return this.outputForSheetResult(input, result);
   }
 
@@ -816,14 +834,7 @@ export class SendCutSendAdapter extends VendorAdapter {
         rawPayload: this.sheetPayload(input, result.reason, "offers_extracted", result.providerMutationPossible, boundary),
       };
     }
-    if (result.state === "manual_review") {
-      return {
-        ...this.sheetFollowUp(input, result, result.state, boundary),
-        status: "manual_review_pending",
-        notes: ["SendCutSend accepted the upload but asked for a custom quote."],
-      };
-    }
-    if (result.state === "configuration_required" || result.state === "unsupported") {
+    if (result.state === "manual_review" || result.state === "configuration_required" || result.state === "unsupported") {
       return this.sheetFollowUp(input, result, result.state, boundary);
     }
     const state: ProviderPortalTerminalState = result.state === "offers_extracted" || result.state === "native_offers_extracted"
@@ -843,13 +854,13 @@ export class SendCutSendAdapter extends VendorAdapter {
 
   private sheetFollowUp(
     input: VendorQuoteAdapterInput,
-    result: ProviderPortalKernelResult,
+    result: Pick<ProviderPortalKernelResult, "reason" | "url" | "artifacts" | "providerMutationPossible">,
     state: "manual_review" | "configuration_required" | "unsupported",
     extra: Record<string, unknown>,
   ): VendorQuoteAdapterOutput {
     return {
       vendor: "sendcutsend",
-      status: "manual_vendor_followup",
+      status: state === "manual_review" ? "manual_review_pending" : "manual_vendor_followup",
       unitPriceUsd: null,
       totalPriceUsd: null,
       leadTimeBusinessDays: null,

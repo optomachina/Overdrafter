@@ -134,7 +134,7 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
 
     if (sendCutSend) {
       // OVD-1056: exact-host, signed-in-only save; no production next step to print.
-      await sendCutSend.save(context, page, outputPath);
+      await sendCutSend.save({ browser, context, page }, outputPath);
       return;
     }
     await writePrivateStorageState(context, outputPath);

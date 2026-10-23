@@ -225,9 +225,10 @@ are read. The harness rechecks staged authorization digests before constructing
 configuration, registry, or adapter objects, skips provider credential/session
 preparation, and returns only the adapter's finite local evaluation outcome; it
 does not open a browser or contact SendCutSend. `--vendor all` includes
-SendCutSend and therefore also requires `--sendcutsend-manifest` (or the sheet
-lane's package and approval), in addition to the Fabworks and OSH Cut metadata
-required by those providers.
+SendCutSend and therefore also requires `--sendcutsend-manifest`, in addition to
+the Fabworks and OSH Cut metadata required by those providers; the sheet lane
+below runs only as a single-vendor invocation, because its approval names one
+provider.
 
 The quote-only sheet lane (OVD-1056) is selected by the exact package flags
 shown above plus an operator approval file (`provider-portal-approval.v1`,
@@ -235,11 +236,14 @@ digest-pinned) for `https://app.sendcutsend.com` and
 `https://main.realtime.ably.net`, which the quote page calls on load. It admits
 one flat STEP plate, laser cut from 6061-T6 aluminum at 0.125 in, quantity 1
 through 100, with no drawing; the thinnest bounding dimension of the uploaded
-model must be the stock thickness. The harness reads the kill switch before
+model must be the stock thickness (a bounding-box check on a planar,
+straight-edged model; holes and arcs are refused). The harness reads the kill switch before
 launch and guards each quote like any provider-reaching vendor. The portal
 kernel walks the quote wizard (Sheet Cutting, Metals, Aluminum, 6061 T6
-Aluminum, `.125`) and reads the side-summary price. It never clicks the wizard
-footer, so nothing is added to the cart. A missing or disabled 0.125 in stock
+Aluminum, `.125`) and reads the side-summary price only while signed in, with
+the dialog's material breadcrumbs ending in "Metals, Aluminum, 6061 T6
+Aluminum", and after the price reads the same for 2.5 seconds. It never clicks
+the wizard footer, so nothing is added to the cart. A missing or disabled 0.125 in stock
 stops in `configuration_required` instead of quoting another thickness.
 SendCutSend shows a ship date rather than a duration, so lead time stays null
 and the date is kept as `shipReceiveBy`. The uploaded part stays in the
@@ -250,7 +254,8 @@ QUOTE_VENDOR_STORAGE_STATE_DIR=/absolute/path/worker/state npm run auth:vendor -
 ```
 
 The tool keeps only the exact-host cookies (the kernel refuses a session with
-any other) and saves nothing unless SendCutSend reports a signed-in user. The
+any other) and saves nothing unless SendCutSend reports a signed-in, non-guest
+user both before and after that filter. The
 sheet lane has no production dispatch and does not change the provider
 registry.
 

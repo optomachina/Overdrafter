@@ -75,7 +75,14 @@ export const SENDCUTSEND_SHEET_STOCK = Object.freeze({
  * no cart item is needed. A changed table needs a new revision.
  */
 export const SENDCUTSEND_SHEET_LOCATORS = Object.freeze({
-  revision: "sendcutsend-sheet-locators.v1",
+  revision: "sendcutsend-sheet-locators.v2",
+  /**
+   * The quote dialog's material breadcrumbs ("Categories > Metals > Aluminum >
+   * 6061 T6 Aluminum") render on the desktop tile view at the thickness step.
+   * They are the on-page proof of the material; the thickness tiles show only
+   * a thickness, identical across alloys.
+   */
+  materialCrumbs: ".material_breadcrumbs a",
   skuTitles: ".material-skus .tile-sku p.title",
   disabledSkuTitles: ".material-skus .tile-sku.is-disabled p.title",
   selectedSkuTitles: ".material-skus .tile-sku.selected:has(input[type='radio']:checked) p.title",
@@ -85,8 +92,11 @@ export const SENDCUTSEND_SHEET_LOCATORS = Object.freeze({
   totalPrice: ".post-processing-summary-container .subtotal__summary .subtotal .currency .cash",
   shipDate: ".est-ship-date p",
   quoteDialog: ".modal-card .quote-footer",
-  /** The logged-out header's sign-in link (anonymous capture, 2026-10-22). */
-  loginLink: "a.login",
+  /** The logged-out header's sign-in link (anonymous capture, 2026-10-22); visible only while signed out. */
+  visibleLoginLink: "a.login:visible",
+  /** The header's navigation items render with the header itself. */
+  navbar: "a.navbar-item",
+  uploadInput: "input[type='file']",
 });
 
 /**
@@ -97,13 +107,14 @@ export const SENDCUTSEND_SHEET_LOCATORS = Object.freeze({
 export const SENDCUTSEND_SHEET_SELECTORS = Object.freeze({
   cadUpload: "input[type='file']",
   configuration: Object.freeze({
-    productionMethod: Object.freeze({ selector: ".select-tile p.has-text-weight-bold", operation: "click" as const }),
-    materialGroup: Object.freeze({ selector: ".select-material-group p.title", operation: "click" as const }),
-    materialCategory: Object.freeze({ selector: ".select-material-category p.title", operation: "click" as const }),
-    materialType: Object.freeze({ selector: ".select-material-type p.title", operation: "click" as const }),
+    // `:visible` keeps a step hidden by v-show from being clicked (the click would hang until timeout).
+    productionMethod: Object.freeze({ selector: ".select-tile p.has-text-weight-bold:visible", operation: "click" as const }),
+    materialGroup: Object.freeze({ selector: ".select-material-group p.title:visible", operation: "click" as const }),
+    materialCategory: Object.freeze({ selector: ".select-material-category p.title:visible", operation: "click" as const }),
+    materialType: Object.freeze({ selector: ".select-material-type p.title:visible", operation: "click" as const }),
     // A disabled tile is never clicked: its label retargets to the disabled radio and the click would hang.
     thickness: Object.freeze({
-      selector: ".material-skus .tile-sku:not(.is-disabled) label.b-radio:has(input[type='radio']:enabled) p.title",
+      selector: ".material-skus .tile-sku:not(.is-disabled) label.b-radio:has(input[type='radio']:enabled) p.title:visible",
       operation: "click" as const,
     }),
     quantity: Object.freeze({ selector: ".post-processing-summary-container .quantity__input input", operation: "fill" as const }),
@@ -117,10 +128,17 @@ export const SENDCUTSEND_PRICE_WAIT_MS = 30_000;
 const SENDCUTSEND_POLL_INTERVAL_MS = 500;
 /** Repeated clicks of one step are harmless re-selections; a step that never advances is not. */
 const SENDCUTSEND_MAX_CLICKS_PER_STEP = 3;
+/** A tile that ignored a click (still processing) is clicked again only after this long. */
+const SENDCUTSEND_RECLICK_AFTER_MS = 5_000;
+/** The summary price must read the same, at least three times, for this long. */
+const SENDCUTSEND_PRICE_STABLE_MS = 2_500;
+/** The header resolves the session asynchronously; it must show no sign-in link for this long. */
+const SENDCUTSEND_SESSION_SETTLE_MS = 2_000;
+const SENDCUTSEND_SESSION_WAIT_MS = 15_000;
 
 const SENDCUTSEND_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
   login: [/\b(?:log ?in|sign[ -]?in)\b/i],
-  captcha: [/captcha|verify you are human|checking your browser/i],
+  captcha: [/captcha|verif(?:y|ying) you are human|checking your browser|security of your connection/i],
   manualReview: [/contact us for a custom quote/i],
   configurationRequired: [/some of your parts require material selection/i],
   unavailable: [/service unavailable|scheduled maintenance|down for maintenance/i],
@@ -136,17 +154,19 @@ const SENDCUTSEND_USD = /^\$(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})$/;
 const SENDCUTSEND_SHIP_DATE = /^(Ships|Arrives) as soon as:\s*([A-Z][a-z]{2} \d{1,2})$/;
 
 function terminal(
-  terminalState: "selector_drift" | "configuration_required" | "manual_review",
+  terminalState: "selector_drift" | "configuration_required" | "manual_review" | "login_required",
   reason: string,
   message: string,
+  providerMutationPossible = true,
 ): VendorAutomationError {
-  return new VendorAutomationError(`SendCutSend quote stopped: ${message}.`, terminalState === "selector_drift"
-    ? "selector_failure"
-    : "unexpected_ui_state", {
+  const code = terminalState === "selector_drift" ? "selector_failure"
+    : terminalState === "login_required" ? "login_required"
+      : "unexpected_ui_state";
+  return new VendorAutomationError(`SendCutSend quote stopped: ${message}.`, code, {
     vendor: "sendcutsend",
     terminalState,
     reason,
-    providerMutationPossible: true,
+    providerMutationPossible,
   });
 }
 
@@ -171,6 +191,10 @@ export type SendCutSendWaits = {
   controlWaitMs?: number;
   priceWaitMs?: number;
   pollIntervalMs?: number;
+  reclickAfterMs?: number;
+  priceStableMs?: number;
+  sessionSettleMs?: number;
+  sessionWaitMs?: number;
 };
 
 function usdCents(text: string | null | undefined): number | null {
@@ -231,9 +255,10 @@ export function assessSendCutSendSheetEligibility(input: VendorQuoteAdapterInput
 }
 
 /**
- * What this run's wizard walk actually clicked. The thickness tiles show
- * only a thickness, so the stock is proven by the exact type tile clicked
- * in the same run followed by the exact thickness tile.
+ * What this run's wizard walk actually clicked. A thickness counts only when
+ * the click immediately before it was the exact type tile; clicking an
+ * earlier step clears the type. This is necessary, not sufficient: the
+ * offer reader also checks the material breadcrumbs on the page.
  */
 export type SendCutSendWizardWalk = {
   typeSelected: boolean;
@@ -266,15 +291,24 @@ export async function configureSendCutSendSheet(
     ["materialGroup", stock.group],
     ["productionMethod", stock.productionMethod],
   ];
-  const clicks = new Map<string, number>();
+  const clicks = new Map<string, { count: number; at: number }>();
+  const reclickAfterMs = waits.reclickAfterMs ?? SENDCUTSEND_RECLICK_AFTER_MS;
+  let lastClicked: string | null = null;
   await within(waits.processingWaitMs ?? SENDCUTSEND_PROCESSING_WAIT_MS, async () => {
     for (const [field, text] of steps) {
-      if ((clicks.get(field) ?? 0) >= SENDCUTSEND_MAX_CLICKS_PER_STEP) continue;
+      const prior = clicks.get(field);
+      // A step that ignored a click (still processing) gets a bounded number of spaced retries.
+      if (prior && (prior.count >= SENDCUTSEND_MAX_CLICKS_PER_STEP || Date.now() - prior.at < reclickAfterMs)) continue;
       if (await configuration.click(field, text)) {
-        clicks.set(field, (clicks.get(field) ?? 0) + 1);
-        if (field === "materialType") walk.typeSelected = true;
-        // A thickness picked from a type this run did not choose proves nothing.
-        if (field === "thickness") walk.thicknessSelected = walk.typeSelected;
+        clicks.set(field, { count: (prior?.count ?? 0) + 1, at: Date.now() });
+        if (field === "thickness") {
+          // A thickness picked from a type this run did not just choose proves nothing.
+          walk.thicknessSelected = walk.typeSelected && lastClicked === "materialType";
+        } else {
+          walk.typeSelected = field === "materialType";
+          walk.thicknessSelected = false;
+        }
+        lastClicked = field;
         return field === "thickness";
       }
     }
@@ -296,14 +330,35 @@ function trimmedTexts(texts: readonly string[]) {
   return texts.map((text) => text.replace(/\s+/g, " ").trim());
 }
 
+async function assertSignedIn(reader: ProviderPortalReadCapability, providerMutationPossible: boolean): Promise<void> {
+  if (await reader.count(SENDCUTSEND_SHEET_LOCATORS.visibleLoginLink) > 0) {
+    throw terminal("login_required", "sendcutsend_signed_out", "the session is signed out", providerMutationPossible);
+  }
+}
+
+/** The breadcrumbs must end in the reviewed group, category and type. */
+async function hasReviewedMaterialCrumbs(reader: ProviderPortalReadCapability): Promise<boolean> {
+  const stock = SENDCUTSEND_SHEET_STOCK;
+  const crumbs = trimmedTexts(await reader.readTexts(SENDCUTSEND_SHEET_LOCATORS.materialCrumbs));
+  return JSON.stringify(crumbs.slice(-3)) === JSON.stringify([stock.group, stock.category, stock.type]);
+}
+
 async function assertExactStockSelected(
   reader: ProviderPortalReadCapability,
   walk: SendCutSendWizardWalk,
 ): Promise<void> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
   const thickness = SENDCUTSEND_SHEET_STOCK.thickness;
+  await assertSignedIn(reader, true);
+  const crumbsMatch = await hasReviewedMaterialCrumbs(reader);
   const selected = trimmedTexts(await reader.readTexts(locators.selectedSkuTitles));
-  if (walk.thicknessSelected && selected.length === 1 && selected[0] === thickness) return;
+  if (walk.thicknessSelected && crumbsMatch && selected.length === 1 && selected[0] === thickness) return;
+  if (walk.thicknessSelected && !crumbsMatch) {
+    throw terminal("selector_drift", "sendcutsend_material_unverified", "the page does not show 6061 T6 Aluminum as the material");
+  }
+  if (!walk.typeSelected || !crumbsMatch) {
+    throw terminal("selector_drift", "sendcutsend_material_path_incomplete", "the 6061-T6 0.125 in stock was not reached");
+  }
   if (trimmedTexts(await reader.readTexts(locators.disabledSkuTitles)).includes(thickness)) {
     throw terminal("configuration_required", "sendcutsend_thickness_unavailable", "6061-T6 at 0.125 in is not selectable for this part");
   }
@@ -320,6 +375,7 @@ type SummaryRead =
   | { kind: "ambiguous" }
   | { kind: "custom" };
 
+/** One read of the side summary; an ambiguous read is final only if it persists. */
 async function readSummary(reader: ProviderPortalReadCapability): Promise<SummaryRead> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
   const [units, totals] = [await reader.readTexts(locators.unitPrice), await reader.readTexts(locators.totalPrice)];
@@ -338,12 +394,14 @@ function parseShipDate(text: string | null): { qualifier: "ships" | "arrives"; d
 }
 
 /**
- * Reads the side summary for the exact stock. The price must read the same
- * on two consecutive polls (the summary reprices asynchronously), the unit
- * price times the quantity must equal the subtotal to the cent, and the SKU
- * must still be the checked one afterwards. Anything else withholds the
- * offer. USD only. SendCutSend shows a ship date, not a duration, so the
- * lead time stays null and the date is kept as `shipReceiveBy`.
+ * Reads the side summary for the exact stock, signed in, with the reviewed
+ * material breadcrumbs, before and after the price read. The price must read
+ * the same at least three times over `priceStableMs` (the summary reprices
+ * asynchronously), the unit price times the quantity must equal the subtotal
+ * to the cent, and the SKU must still be the checked one afterwards. Anything
+ * else withholds the offer. USD only. SendCutSend shows a ship date, not a
+ * duration, so the lead time stays null and the date is kept as
+ * `shipReceiveBy`.
  */
 export async function extractSendCutSendSheetOffers(
   reader: ProviderPortalReadCapability,
@@ -353,22 +411,26 @@ export async function extractSendCutSendSheetOffers(
 ): Promise<ProviderPortalOfferCandidate[]> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
   await assertExactStockSelected(reader, walk);
-  let previous: string | null = null;
+  const stableMs = waits.priceStableMs ?? SENDCUTSEND_PRICE_STABLE_MS;
+  let streak: { key: string; since: number; reads: number } | null = null;
   let settled: { unit: string; total: string } | null = null;
   let last: SummaryRead = { kind: "pending" };
   await within(waits.priceWaitMs ?? SENDCUTSEND_PRICE_WAIT_MS, async () => {
     last = await readSummary(reader);
-    if (last.kind === "ambiguous" || last.kind === "custom") return true;
+    if (last.kind === "custom") return true;
     if (last.kind !== "priced") {
-      previous = null;
+      streak = null;
       return false;
     }
     const key = `${last.unit}|${last.total}`;
-    if (previous === key) {
+    const current: { key: string; since: number; reads: number } = streak?.key === key
+      ? { ...streak, reads: streak.reads + 1 }
+      : { key, since: Date.now(), reads: 1 };
+    streak = current;
+    if (current.reads >= 3 && Date.now() - current.since >= stableMs) {
       settled = { unit: last.unit, total: last.total };
       return true;
     }
-    previous = key;
     return false;
   }, waits.pollIntervalMs);
   const outcome = last as SummaryRead;
@@ -430,20 +492,32 @@ export function classifySendCutSendPortalState(snapshot: ProviderPortalSnapshot)
 }
 
 /**
- * Read-only guard before classification and again before upload: never
- * upload while signed out (the header text may share a line with other
- * items, so the visible link itself is checked), and never into a wizard or
- * summary left open by an earlier part.
+ * Read-only guard before classification and again before upload. The header
+ * resolves the session asynchronously, so it must render and then show no
+ * visible sign-in link for `sessionSettleMs` (the link's text may share a
+ * line with other items, so the element is checked, not the page text).
+ * There must be exactly one upload input, and no wizard or summary left open
+ * by an earlier part.
  */
-async function guardBeforeUpload(reader: ProviderPortalReadCapability): Promise<void> {
+async function guardBeforeUpload(reader: ProviderPortalReadCapability, waits: SendCutSendWaits = {}): Promise<void> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
-  if ((await reader.readTexts(locators.loginLink)).some((text) => /^\s*log ?in\s*$/i.test(text))) {
-    throw new VendorAutomationError("SendCutSend session is signed out.", "login_required", {
-      vendor: "sendcutsend",
-      terminalState: "login_required",
-      reason: "sendcutsend_signed_out",
-      providerMutationPossible: false,
-    });
+  const settleMs = waits.sessionSettleMs ?? SENDCUTSEND_SESSION_SETTLE_MS;
+  let quietSince: number | null = null;
+  const settled = await within(waits.sessionWaitMs ?? SENDCUTSEND_SESSION_WAIT_MS, async () => {
+    if (await reader.count(locators.navbar) === 0 || await reader.count(locators.visibleLoginLink) > 0) {
+      quietSince = null;
+      return false;
+    }
+    const since: number = quietSince ?? Date.now();
+    quietSince = since;
+    return Date.now() - since >= settleMs;
+  }, waits.pollIntervalMs);
+  if (!settled) {
+    await assertSignedIn(reader, false);
+    throw terminal("selector_drift", "sendcutsend_header_missing", "the page header did not render", false);
+  }
+  if (await reader.count(locators.uploadInput) !== 1) {
+    throw terminal("selector_drift", "sendcutsend_upload_input_ambiguous", "the upload input is missing or not unique", false);
   }
   if (await reader.count(locators.quoteDialog) > 0 || await reader.count(locators.summary) > 0) {
     throw new VendorAutomationError("SendCutSend quote dialog already open; manual attention required.", "unexpected_ui_state", {
@@ -528,7 +602,7 @@ export function buildSendCutSendSheetPortalDefinition(
     terminalSignals: SENDCUTSEND_TERMINAL_SIGNALS,
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     hooks: {
-      beforeUpload: guardBeforeUpload,
+      beforeUpload: (reader) => guardBeforeUpload(reader, options),
       assessEligibility: assessSendCutSendSheetEligibility,
       configure: (configuration, input) => configureSendCutSendSheet(configuration, input, walk, options),
       classifyPortalState: classifySendCutSendPortalState,

@@ -193,6 +193,35 @@ describe("SendCutSend sheet lane results", () => {
     },
   );
 
+  it.each([
+    ["configuration_required", "sendcutsend_thickness_not_offered", "manual_vendor_followup"],
+    ["manual_review", "sendcutsend_custom_quote", "manual_review_pending"],
+  ] as const)("reports the hooks' own %s stop as a finite follow-up output", async (terminalState, reason, status) => {
+    runKernel.mockRejectedValue(new VendorAutomationError("stop", "unexpected_ui_state", {
+      vendor: "sendcutsend", terminalState, reason, providerMutationPossible: true,
+    }, [{ kind: "json", label: "SendCutSend scrubbed portal text", localPath: "/tmp/t.json", contentType: "application/json" }]));
+    const input = sheetInput();
+    const output = await adapter().quote(input);
+    expect(output).toMatchObject({
+      status, offers: [], unitPriceUsd: null,
+      artifacts: [{ label: "SendCutSend scrubbed portal text" }],
+      rawPayload: { terminalState, reason, providerMutationPossible: true },
+    });
+    expect(assertProviderAdapterContract({ definition: contractDefinition, adapterInput: input, output }).ok).toBe(true);
+  });
+
+  it("keeps kernel refusals, drift and sign-out as thrown failures", async () => {
+    for (const [terminalState, reason] of [
+      ["unsupported", "exact_provider_approval_mismatch"],
+      ["selector_drift", "sendcutsend_price_pending"],
+      ["login_required", "sendcutsend_signed_out"],
+    ]) {
+      const error = new VendorAutomationError("stop", "unexpected_ui_state", { vendor: "sendcutsend", terminalState, reason });
+      runKernel.mockRejectedValueOnce(error);
+      await expect(adapter().quote(sheetInput())).rejects.toBe(error);
+    }
+  });
+
   it("treats an empty or non-USD offer set as selector drift", async () => {
     runKernel.mockResolvedValue(result({ offers: [] }));
     await expect(adapter().quote(sheetInput())).rejects.toMatchObject({
