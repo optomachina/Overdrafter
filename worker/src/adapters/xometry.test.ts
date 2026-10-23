@@ -291,6 +291,8 @@ function makeInputWithDrawing() {
 
 /** The selector the collector reads a tier card's part card with (the child of #draggable-parts around it). */
 const PART_CARD_XPATH = 'xpath=ancestor::*[parent::*[@id="draggable-parts"]]';
+/** The selector the collector reads a tier card's enclosing elements with, up to and including its part card. */
+const PART_CARD_ANCESTORS_XPATH = 'xpath=ancestor::*[ancestor-or-self::*[parent::*[@id="draggable-parts"]]]';
 
 type LocatorBehavior = {
   count?: number | (() => number);
@@ -305,10 +307,12 @@ type LocatorBehavior = {
   dataTestId?: string | null;
   isChecked?: () => Promise<boolean> | boolean;
   isEnabled?: () => Promise<boolean> | boolean;
+  /** Runs a locator.evaluate page function against this element. */
+  evaluate?: (pageFunction: (element: Element) => unknown) => unknown;
   /** Distinct matches returned by nth(index); count follows their length. */
   items?: LocatorBehavior[];
-  /** Behaviors for selectors scoped under this locator. */
-  children?: Record<string, LocatorBehavior> | ((selector: string) => LocatorBehavior);
+  /** Behaviors for selectors scoped under this locator; undefined keeps the default part card. */
+  children?: Record<string, LocatorBehavior> | ((selector: string) => LocatorBehavior | undefined);
 };
 
 type FakePageOptions = {
@@ -394,7 +398,8 @@ function makeSingleLocator(behavior: LocatorBehavior = {}) {
     async click() {
       await behavior.click?.();
     },
-    async evaluate() {
+    async evaluate(pageFunction?: (element: Element) => unknown) {
+      if (behavior.evaluate && pageFunction) return behavior.evaluate(pageFunction);
       await behavior.click?.();
     },
     async evaluateAll() {
@@ -429,7 +434,7 @@ function makeSingleLocator(behavior: LocatorBehavior = {}) {
       // A fake element sits in a document: unless a test says otherwise, its
       // one enclosing element is a markerless part card that holds just this
       // element (and so shows just its text).
-      if (scoped === undefined && (selector === "xpath=ancestor::*" || selector === PART_CARD_XPATH)) {
+      if (scoped === undefined && (selector === PART_CARD_ANCESTORS_XPATH || selector === PART_CARD_XPATH)) {
         return makeLocator({
           count: 1,
           text: currentText,
@@ -4404,12 +4409,23 @@ describe("XometryAdapter", () => {
     );
     const lineBreakingTags = new Set(["BODY", "DIV", "P", "LABEL", "SECTION", "MAIN", "DIALOG", "UL", "LI"]);
 
+    /** Whether an element's inline style removes it and its subtree from rendering (the fixture's main hiding). */
+    const displayNone = (element: Element) => /display:\s*none/i.test(element.getAttribute("style") ?? "");
+    /** Whether an element's inline style hides it and its subtree (display:none or visibility:hidden). */
+    const hiddenByStyle = (element: Element) =>
+      displayNone(element) || /visibility:\s*hidden/i.test(element.getAttribute("style") ?? "");
+
     /**
      * Approximates Playwright's innerText for the fixture: hidden subtrees are
      * skipped, block boxes break lines, source indentation collapses, and the
-     * no-break space Xometry renders after a tier icon is kept.
+     * no-break space Xometry renders after a tier icon is kept. As in a
+     * browser, an element that is not rendered at all (display:none on it or
+     * an ancestor) returns its full text content instead.
      */
     function renderedText(root: Element) {
+      for (let node: Element | null = root; node; node = node.parentElement) {
+        if (displayNone(node)) return root.textContent ?? "";
+      }
       const parts: string[] = [];
       const visit = (node: Node) => {
         if (node.nodeType === node.TEXT_NODE) {
@@ -4418,7 +4434,7 @@ describe("XometryAdapter", () => {
         }
         if (node.nodeType !== node.ELEMENT_NODE) return;
         const element = node as Element;
-        if (/display:\s*none/i.test(element.getAttribute("style") ?? "")) return;
+        if (hiddenByStyle(element)) return;
         const breaksLine = lineBreakingTags.has(element.tagName);
         if (breaksLine) parts.push("\n");
         element.childNodes.forEach(visit);
@@ -4436,13 +4452,13 @@ describe("XometryAdapter", () => {
     /**
      * Approximates Playwright's :visible (a non-empty bounding box, not
      * hidden) for the fixture: neither the element nor an ancestor is
-     * display:none (the fixture's only hiding), and it renders some text,
+     * hidden by its inline style, and it renders some text,
      * since nothing in the fixture is sized without text (an empty
      * <span data-testid="tierAndLeadTime"></span> has a zero-width box).
      */
     function isRendered(element: Element) {
       for (let node: Element | null = element; node; node = node.parentElement) {
-        if (/display:\s*none/i.test(node.getAttribute("style") ?? "")) return false;
+        if (hiddenByStyle(node)) return false;
       }
       return renderedText(element) !== "";
     }
@@ -4471,6 +4487,7 @@ describe("XometryAdapter", () => {
             count: 1,
             text: textUnreadable ? detached : renderedText(element),
             getAttribute: attributesUnreadable ? detached : (name: string) => element.getAttribute(name),
+            evaluate: (pageFunction: (element: Element) => unknown) => pageFunction(element),
             children: (selector: string) => resolveSelector(element, selector, true),
           };
         }),
@@ -4679,6 +4696,19 @@ describe("XometryAdapter", () => {
       card.before(wrapper);
       wrapper.append(card);
       return wrapper;
+    };
+
+    /** Ways the page can hide a tier card's copy: they hide it from innerText too. */
+    const hiddenCopies: Array<[string, (copy: Element) => void]> = [
+      ["display:none on the copy", (copy) => copy.setAttribute("style", "display: none;")],
+      ["display:none on an element around the copy", (copy) => wrapCard(copy).setAttribute("style", "display: none;")],
+      ["visibility:hidden on the copy", (copy) => copy.setAttribute("style", "visibility: hidden;")],
+    ];
+    /** Adds a copy of the first tier card right after it, hidden by the page. */
+    const addHiddenCopy = (hide: (copy: Element) => void) => (document: Document) => {
+      const copy = firstCard(document).cloneNode(true) as Element;
+      firstCard(document).after(copy);
+      hide(copy);
     };
 
     async function failureOf(
@@ -4958,7 +4988,10 @@ describe("XometryAdapter", () => {
               items: [{
                 count: 1,
                 text: "Standard\nArrives by Nov 6\n$50.00 ea.\n$50.00",
-                children: () => ({ count: () => { throw new Error("card was detached"); } }),
+                // The card sits in its part card, but every read inside the card fails.
+                children: (selector) => selector.startsWith("xpath=")
+                  ? undefined
+                  : { count: () => { throw new Error("card was detached"); } },
               }],
             }
             : { count: 0 }),
@@ -5241,7 +5274,7 @@ describe("XometryAdapter", () => {
           count: 1,
           text: cardText,
           children: (selector) => {
-            if (selector === "xpath=ancestor::*" || selector === PART_CARD_XPATH) return { items: [partCard] };
+            if (selector === PART_CARD_ANCESTORS_XPATH || selector === PART_CARD_XPATH) return { items: [partCard] };
             return selector === '[data-testid="tierAndLeadTime"]:visible'
               ? { count: 1, text: "Arrives by Nov 6" }
               : { count: 0 };
@@ -5266,23 +5299,72 @@ describe("XometryAdapter", () => {
         ["Least Expensive", [1, 2]],
         ["Standard", [0, 2]],
         ["Fastest", [0, 1]],
-      ])("excludes the one tier a line in the panel or elsewhere in the part card calls unavailable (%s)", async (tier, kept) => {
-        for (const [, add] of partCardPlacements) {
-          for (const line of [`${tier} is not available for this part.`, `The ${tier.toLowerCase()} tier is unavailable.`]) {
-            const fixture = await loadCurrentQuotePage(add(`<div>${line}</div>`));
+      ])("excludes the one tier a line in the price panel calls unavailable (%s)", async (tier, kept) => {
+        for (const line of [`${tier} is not available for this part.`, `The ${tier.toLowerCase()} tier is unavailable.`]) {
+          const fixture = await loadCurrentQuotePage(addToPanel(`<div>${line}</div>`));
 
-            expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1)))
-              .toEqual(kept.map((index) => expectedTierOffers[index]));
-          }
+          expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1)))
+            .toEqual(kept.map((index) => expectedTierOffers[index]));
         }
       });
 
-      it.each(partCardPlacements)("ends the quote on the remaining tiers when a line in %s withdraws one", async (_where, add) => {
-        const { result } = await quoteCurrentPage({ mutate: add("<div>The Fastest tier is not available for this part.</div>") });
+      it("ends the quote on the remaining tiers when a line in the price panel withdraws one", async () => {
+        const { result } = await quoteCurrentPage({
+          mutate: addToPanel("<div>The Fastest tier is not available for this part.</div>"),
+        });
 
         expect(result.status).toBe("instant_quote_received");
         expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(["least-expensive", "standard"]);
         expect(result.totalPriceUsd).toBe(101.25);
+      });
+
+      it.each(["Least Expensive", "Standard", "Fastest"])(
+        "fails closed instead of excluding %s when the line sits in the part card outside the price panel",
+        async (tier) => {
+          for (const line of [`${tier} is not available for this part.`, `The ${tier.toLowerCase()} tier is unavailable.`]) {
+            const fixture = await loadCurrentQuotePage((document) => addToPartCard(document, `<div>${line}</div>`));
+
+            expect(await driftOf(fixture)).toMatchObject({
+              reason: "xometry_offer_container_ambiguous",
+              ambiguity: "availability_ambiguous",
+              partCardUnavailableLines: 1,
+              unavailableLinesOutsidePricePanel: 1,
+              namedTierCards: 1,
+            });
+          }
+        },
+      );
+
+      // The part card's Finish requirement reads "Finish: Standard", so a
+      // finish notice beside it names the Standard tier without meaning it.
+      it.each([
+        "Standard is not available for this material.",
+        "The Standard option is not available for this material.",
+      ])("never drops the Standard tier on the finish notice %j beside the Finish requirement", async (line) => {
+        const besideFinish = (document: Document) => {
+          const finish = document.querySelector('[data-testid="requirement-Finish"]');
+          if (!finish) throw new Error("fixture lost its Finish requirement");
+          finish.insertAdjacentHTML("afterend", `<div>${line}</div>`);
+        };
+        const fixture = await loadCurrentQuotePage(besideFinish);
+        expect(fixture.bodyText.split("\n")).toEqual(expect.arrayContaining(["Finish: Standard", line]));
+
+        expect(await driftOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          unavailableLinesOutsidePricePanel: 1,
+          namedTierCards: 1,
+        });
+        const failure = await quoteCurrentPage({ mutate: besideFinish }).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(VendorAutomationError);
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ ambiguity: "availability_ambiguous" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
       });
 
       it.each([
@@ -5370,7 +5452,6 @@ describe("XometryAdapter", () => {
           (document: Document) => dragHandle(document),
           (document: Document) => document.querySelector(".part-card"),
           (document: Document) => firstCard(document).parentElement,
-          (document: Document) => document.body,
         ]) {
           for (const oneCard of [false, true]) {
             const fixture = await loadCurrentQuotePage((document) => {
@@ -5384,6 +5465,26 @@ describe("XometryAdapter", () => {
 
             expect(await collectXometryOffers(fixturePage(fixture), 1)).toEqual([]);
           }
+        }
+      });
+
+      it.each([
+        ["the parts list", (document: Document) => document.querySelector("#draggable-parts")],
+        ["<body>", (document: Document) => document.body],
+        ["<html>", (document: Document) => document.documentElement],
+      ])("publishes every card when a mark sits above the part card, on %s", async (_where, target) => {
+        const aboveMarks: Array<[string, (element: Element) => void]> = [
+          ...markers,
+          ["a scroll-disabled class", (element) => element.classList.add("scroll-disabled")],
+        ];
+        for (const [, mark] of aboveMarks) {
+          const fixture = await loadCurrentQuotePage((document) => {
+            const element = target(document);
+            if (!element) throw new Error("fixture lost an element above the part card");
+            mark(element);
+          });
+
+          expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
         }
       });
 
@@ -5444,9 +5545,10 @@ describe("XometryAdapter", () => {
               items: [{
                 count: 1,
                 text: "Standard\n$50.00 ea.\n$50.00\n5 business days",
-                // Every scoped read, the enclosing elements included, finds
-                // nothing, although an attached card always has some.
-                children: () => ({ count: 0 }),
+                // The card's part card is found, but every other scoped read,
+                // the enclosing elements up to it included, finds nothing,
+                // although a card in a part card always has one.
+                children: (selector) => selector === PART_CARD_XPATH ? undefined : { count: 0 },
               }],
             }
             : { count: 0 }),
@@ -5482,6 +5584,35 @@ describe("XometryAdapter", () => {
             containerIndex: 2,
           });
         }
+      });
+
+      it("keeps an empty tier card the page does not hide pending, as a card whose content has not mounted", async () => {
+        const fixture = await loadCurrentQuotePage(addToPanel('<div class="price-tier"></div>'));
+        expect(fixture.document.querySelectorAll(tierCardSelector)).toHaveLength(4);
+
+        expect(await pendingOf(fixture)).toMatchObject({ pendingCause: "tier_card_blank", containerIndex: 3 });
+      });
+
+      it.each(hiddenCopies)("skips a hidden copy of a tier card (%s) and publishes the three tiers", async (_how, hide) => {
+        const fixture = await loadCurrentQuotePage(addHiddenCopy(hide));
+        expect(fixture.document.querySelectorAll(tierCardSelector)).toHaveLength(4);
+
+        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
+      });
+
+      it("is pending, not empty, when the page hides every tier card", async () => {
+        const hidePanel = (document: Document) => pricePanel(document).setAttribute("style", "display: none;");
+        const fixture = await loadCurrentQuotePage(hidePanel);
+
+        expect(await pendingOf(fixture)).toMatchObject({
+          reason: "xometry_price_pending",
+          pendingCause: "price_tier_cards_absent",
+        });
+        const failure = await quoteCurrentPage({ mutate: hidePanel, priceTiersTimeOut: true })
+          .catch((error: unknown) => error);
+        expect(failure).toMatchObject({
+          payload: expect.objectContaining({ reason: "xometry_price_pending", terminalState: "unavailable" }),
+        });
       });
 
       it("treats a blank card that shows only a disabled control as pending, not unavailable", async () => {
@@ -6022,23 +6153,109 @@ describe("XometryAdapter", () => {
         },
       );
 
-      it.each([
-        ["the price panel", (document: Document, html: string) => addToPanel(html)(document)],
-        ["the part card outside the price panel", addToPartCard],
-      ])("settles, as the collector withdraws it, when a line in %s says the unpriced card's tier is not available", async (_where, add) => {
+      it("settles, as the collector withdraws it, when a line in the price panel says the unpriced card's tier is not available", async () => {
         for (const line of ["Fastest is not available for this part.", "The Fastest tier is not available for this part."]) {
           const mutate = (document: Document) => {
             unpriceThirdCard(document);
-            add(document, `<div>${line}</div>`);
+            addToPanel(`<div>${line}</div>`)(document);
           };
 
           expect(settledOn(await mutatedFixture(mutate))).toBe(true);
-          const fixture = await loadCurrentQuotePage(mutate);
-          expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1, undefined, {
-            priceTiersSettled: true,
-            pricingInProgress: false,
-          }))).toEqual(expectedTierOffers.slice(0, 2));
+          expect(await settledOffers(mutate)).toEqual(expectedTierOffers.slice(0, 2));
         }
+      });
+
+      it("keeps waiting when the line sits in the part card outside the price panel, which the collector refuses", async () => {
+        const mutate = (document: Document) => {
+          unpriceThirdCard(document);
+          addToPartCard(document, "<div>Fastest is not available for this part.</div>");
+        };
+
+        expect(settledOn(await mutatedFixture(mutate))).toBe(false);
+        expect(await driftOf(await loadCurrentQuotePage(mutate))).toMatchObject({ ambiguity: "availability_ambiguous" });
+      });
+
+      it("keeps waiting on an unpriced card that only mentions the tier a panel line withdraws", async () => {
+        const mutate = (document: Document) => {
+          const leastExpensive = firstCard(document);
+          const amounts = leastExpensive.querySelector('[kind="discount"]');
+          const header = leastExpensive.querySelector('[scale="small"]');
+          if (!amounts || !header) throw new Error("fixture tier card lost its price block or header");
+          amounts.replaceChildren();
+          header.insertAdjacentHTML("afterend", "<div>Slower than Fastest</div>");
+          addToPanel("<p>Fastest is not available for this part.</p>")(document);
+        };
+
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(false);
+        // Once the wait times out, the page is refused as pending, which a retry can clear.
+        const failure = await collectXometryOffers(fixturePage(await loadCurrentQuotePage(mutate)), 1, undefined, {
+          priceTiersSettled: false,
+          pricingInProgress: false,
+        }).catch((error: unknown) => error);
+        expect(failure).toMatchObject({
+          payload: { reason: "xometry_price_pending", pendingCause: "price_tiers_unsettled" },
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "unavailable" });
+      });
+
+      it("reads no panel line when a card's text is not where the panel shows it, as the collector refuses it", async () => {
+        const document = await mutatedDocument((document) => {
+          unpriceThirdCard(document);
+          pricePanel(document).insertAdjacentHTML("afterbegin", "<p>Fastest is not available for this part.</p>");
+        });
+        // The second card reads differently on its own than inside the panel.
+        Object.defineProperty(nthCard(document, 1), "innerText", {
+          configurable: true,
+          get: () => "Standard\nArrives by Nov 7\n$106.40",
+        });
+
+        expect(settledOnDocument(document)).toBe(false);
+      });
+
+      it.each(hiddenCopies)("settles, as the collector skips it, beside a hidden copy of a tier card (%s)", async (_how, hide) => {
+        expect(settledOnDocument(await mutatedDocument(addHiddenCopy(hide)))).toBe(true);
+        expect(await settledOffers(addHiddenCopy(hide))).toEqual(expectedTierOffers);
+      });
+
+      it("still withdraws a card on a panel line beside a hidden copy of a tier card", async () => {
+        const mutate = (document: Document) => {
+          unpriceThirdCard(document);
+          addToPanel("<p>Fastest is not available for this part.</p>")(document);
+          addHiddenCopy((copy) => copy.setAttribute("style", "display: none;"))(document);
+        };
+
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+        expect(await settledOffers(mutate)).toEqual(expectedTierOffers.slice(0, 2));
+      });
+
+      it("keeps waiting while the page hides every tier card", async () => {
+        expect(settledOnDocument(await mutatedDocument((document) => {
+          pricePanel(document).setAttribute("style", "display: none;");
+        }))).toBe(false);
+      });
+
+      it("keeps waiting on an empty tier card the page does not hide, as the collector calls it pending", async () => {
+        expect(settledOnDocument(await mutatedDocument(addToPanel('<div class="price-tier"></div>')))).toBe(false);
+      });
+
+      it("settles, as the collector publishes them, when every card holds hidden unavailability text", async () => {
+        const mutate = (document: Document) => {
+          for (const card of tierCards(document)) {
+            card.insertAdjacentHTML("beforeend", '<span style="display: none;">Not available for international shipping.</span>');
+          }
+        };
+
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+        expect(await settledOffers(mutate)).toEqual(expectedTierOffers);
+      });
+
+      it.each([
+        ["<body>", (document: Document) => document.body.classList.add("scroll-disabled")],
+        ["<html>", (document: Document) => document.documentElement.setAttribute("aria-disabled", "true")],
+        ["the parts list", (document: Document) => document.querySelector("#draggable-parts")?.classList.add("is-disabled")],
+      ])("settles on priced cards, as the collector publishes them, when a mark sits above the part card on %s", async (_where, mutate) => {
+        expect(settledOnDocument(await mutatedDocument(mutate))).toBe(true);
+        expect(await settledOffers(mutate)).toEqual(expectedTierOffers);
       });
 
       it.each([
@@ -6049,9 +6266,6 @@ describe("XometryAdapter", () => {
           const line = document.createElement("p");
           line.append("Fastest", " is not available for this part.");
           pricePanel(document).append(line);
-        }],
-        ["an element around the tier name, elsewhere in the part card", (document: Document) => {
-          addToPartCard(document, "<div><strong>Fastest</strong> is not available.</div>");
         }],
       ])("settles, as the collector withdraws it, on an unavailability line split across %s", async (_split, addLine) => {
         const mutate = (document: Document) => {
@@ -6108,15 +6322,14 @@ describe("XometryAdapter", () => {
         ["sits outside the part card", (document: Document) => {
           addToOrderSummary(document, "<div>Fastest is not available for this part.</div>");
         }],
+        ["sits in the part card outside the price panel, even split across an element", (document: Document) => {
+          addToPartCard(document, "<div><strong>Fastest</strong> is not available.</div>");
+        }],
         // The collector reads rendered lines, so it never withdraws a card on a hidden one.
-        ["is hidden", (document: Document) => {
-          addToPartCard(document, '<div style="display: none">Fastest is not available for this part.</div>');
-        }],
-        ["names a longer word", (document: Document) => addToPartCard(document, "<div>Fastestest is unavailable.</div>")],
-        ["names a shorter word", (document: Document) => addToPartCard(document, "<div>Fast is unavailable.</div>")],
-        ["only mentions the tier", (document: Document) => {
-          addToPartCard(document, "<div>Fastest finish not available for this material.</div>");
-        }],
+        ["is hidden", addToPanel('<div style="display: none">Fastest is not available for this part.</div>')],
+        ["names a longer word", addToPanel("<div>Fastestest is unavailable.</div>")],
+        ["names a shorter word", addToPanel("<div>Fast is unavailable.</div>")],
+        ["only mentions the tier", addToPanel("<div>Fastest finish not available for this material.</div>")],
       ])("keeps waiting on an unpriced card when the unavailability line %s", async (_case, mutate) => {
         expect(settledOn(await mutatedFixture((document) => {
           unpriceThirdCard(document);

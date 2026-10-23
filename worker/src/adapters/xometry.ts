@@ -2861,34 +2861,42 @@ async function detectManualReview(page: Page, bodyText: string) {
  * timing evidence. Playwright serializes it into the page, so it must stay
  * self-contained: no module references and no named inner functions.
  *
- * OVD-1052: each card's text nodes are joined with spaces. textContent runs
- * adjacent elements together when the markup has no whitespace between them
- * ("least expensivearrives by nov 3"), which defeats every word boundary below
- * and left each quote waiting out the full timeout.
+ * OVD-1052: each card is read as collectXometryOffers reads it, by its
+ * rendered text (innerText), which breaks lines between block elements.
+ * textContent ran adjacent elements together when the markup had no
+ * whitespace between them ("least expensivearrives by nov 3"), which defeated
+ * every word boundary below and left each quote waiting out the full timeout;
+ * it also read hidden text, so a hidden "Not available" note in every card
+ * held a priced page to its timeout.
  *
  * OVD-1052: a card counts as withdrawn exactly when collectXometryOffers
  * withdraws it: a mark (disabled, aria-disabled/data-disabled "true",
  * data-available "false", or a disabled/unavailable class token, values
  * compared case-insensitively) on the card or on any element that encloses
- * it, up to <html>; or, for a card that shows text, a disabled descendant or
- * unavailability text. A blank card without such a mark is a skeleton still
- * being priced, so the page keeps waiting. Otherwise a card the page withdrew
- * through an enclosing element or a class held the wait to its timeout, and
- * the collector then refused an otherwise settled page as pending.
+ * it, up to and including its part card (the child of #draggable-parts); or,
+ * for a card that shows text, a disabled descendant or unavailability text.
+ * A mark above the part card (a "scroll-disabled" class on <body>, say) is not
+ * read. A blank card without such a mark is a skeleton still being priced, so
+ * the page keeps waiting. A card the page hides (display:none on it or an
+ * enclosing element, or a hidden visibility on it) is a copy that is not on
+ * screen, and is skipped as the collector skips it; its innerText cannot say
+ * so, as a browser returns a display:none element's text content.
  *
- * OVD-1052: a card that shows text is also withdrawn when a line in its part
- * card (the child of #draggable-parts around it), outside every card, says
- * with a tier as its subject that the tier is unavailable ("Fastest is not
- * available for this part."), and the card's rendered text names that tier as
- * a whole word. The lines are read as the collector's checkPartCard reads
- * them: the part card's rendered text (innerText) with each card's rendered
- * text cut out. So a statement split across elements or text nodes
- * ("<strong>Fastest</strong> is not available") counts, and a hidden one does
- * not. The collector withdraws only the card whose tier label the line names;
- * a card that merely mentions that name is withdrawn here too, which can end
- * the wait early, but the collector still reads that card and refuses the
- * page if it is unpriced. Otherwise the wait timed out on the unpriced card
- * the collector withdraws, and the page was refused as pending.
+ * OVD-1052: a card that shows text is also withdrawn when a line in the price
+ * panel (the innermost element that encloses every card), outside every card,
+ * says with a tier as its subject that the tier is unavailable ("Fastest is
+ * not available for this part."), and one of the card's rendered lines is
+ * exactly that tier name, as its header slot shows it. The lines are read as
+ * the collector's checkPartCard reads them: the panel's rendered text with
+ * each card's rendered text cut out, and none at all when a card's text is not
+ * there. So a statement split across elements or text nodes ("<strong>Fastest
+ * </strong> is not available") counts, and a hidden one does not. A line
+ * elsewhere in the part card withdraws nothing: the collector refuses it as
+ * ambiguous, as a tier's name there can be a requirement's value ("Finish:
+ * Standard"). A card that only mentions the name ("Slower than Fastest") is
+ * not withdrawn either. A card with another tier's name as a line of its own
+ * would still be withdrawn here and not by the collector, which then refuses
+ * that card if it is unpriced.
  *
  * OVD-1052: the price and timing a card must show are what the collector's
  * parser reads: a "$" or "USD" amount (parsePrices), and "N business days",
@@ -2900,39 +2908,45 @@ async function detectManualReview(page: Page, bodyText: string) {
 export function xometryPriceTiersSettled(): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
   if (cards.length > 0) {
+    const view = document.defaultView;
+    const shownCards = cards.filter((card) => {
+      if (["hidden", "collapse"].includes(view?.getComputedStyle(card).visibility ?? "")) return false;
+      for (let element: Element | null = card; element; element = element.parentElement) {
+        if (view?.getComputedStyle(element).display === "none") return false;
+      }
+      return true;
+    });
     // Rendered text, as the collector reads it (Playwright's innerText).
-    const renderedCards = cards.map((card) => ((card as HTMLElement).innerText ?? "").trim());
-    const statedUnavailable: string[] = [];
-    let partCard: Element | null = cards[0];
-    while (partCard && partCard.parentElement?.id !== "draggable-parts") partCard = partCard.parentElement;
-    const partCardText = (partCard as HTMLElement | null)?.innerText ?? "";
-    // The part card's rendered lines outside every card, cut out as the
-    // collector's linesOutsideCards does; none when a card's text is not there.
+    const renderedCards = shownCards.map((card) => ((card as HTMLElement).innerText ?? "").trim());
+    let panel = cards[0].parentElement;
+    while (panel && panel.querySelectorAll(".price-tier").length < cards.length) panel = panel.parentElement;
+    const panelText = ((panel as HTMLElement | null)?.innerText ?? "").trim();
+    // The panel's rendered lines outside every card, cut out as the
+    // collector's linesOutside does; none when a card's text is not there.
     const outside: string[] = [];
     let cursor = 0;
     for (const cardText of renderedCards) {
       if (!cardText || cursor < 0) continue;
-      const at = partCardText.indexOf(cardText, cursor);
-      if (at >= 0) outside.push(partCardText.slice(cursor, at));
+      const at = panelText.indexOf(cardText, cursor);
+      if (at >= 0) outside.push(panelText.slice(cursor, at));
       cursor = at < 0 ? -1 : at + cardText.length;
     }
-    if (cursor >= 0) outside.push(partCardText.slice(cursor));
-    for (const line of outside.join("\n").split(/\r?\n/)) {
+    if (cursor >= 0) outside.push(panelText.slice(cursor));
+    const statedUnavailable: string[] = [];
+    for (const line of cursor < 0 ? [] : outside.join("\n").split(/\r?\n/)) {
       const statement = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)\b/i
         .exec(line.replaceAll(/\s+/g, " ").trim());
       if (statement) statedUnavailable.push(statement[1].toLowerCase());
     }
     let availableCardCount = 0;
-    for (const [index, card] of cards.entries()) {
-      const parts: string[] = [];
-      // 4 is NodeFilter.SHOW_TEXT.
-      const walker = document.createTreeWalker(card, 4);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        parts.push(node.nodeValue ?? "");
-      }
-      const text = parts.join(" ");
+    for (const [index, card] of shownCards.entries()) {
+      const text = renderedCards[index];
       let withdrawn = false;
-      for (let element: Element | null = card; element && !withdrawn; element = element.parentElement) {
+      for (
+        let element: Element | null = card;
+        element && !withdrawn;
+        element = element.parentElement?.id === "draggable-parts" ? null : element.parentElement
+      ) {
         let classMarked = false;
         for (const token of (element.getAttribute("class") ?? "").split(/\s+/)) {
           if (/^(?:is-)?(?:disabled|unavailable)$|[-_](?:disabled|unavailable)$/i.test(token)) classMarked = true;
@@ -2943,19 +2957,19 @@ export function xometryPriceTiersSettled(): boolean {
           || element.getAttribute("data-available")?.toLowerCase() === "false"
           || classMarked;
       }
-      const showsText = text.trim() !== "";
-      const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
-      const renderedText = renderedCards[index].replaceAll(/\s+/g, " ").toLowerCase();
-      const explicitlyUnavailable = withdrawn || (showsText && (
+      if (withdrawn) continue;
+      if (text === "") return false;
+      const lines = text.split(/\r?\n/).map((line) => line.replaceAll(/\s+/g, " ").trim().toLowerCase());
+      if (
         card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
         || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text)
-        || statedUnavailable.some((name) => new RegExp(
-          String.raw`(?:^|[^a-z0-9])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?![a-z0-9])`,
-        ).test(renderedText))
-      ));
-      if (explicitlyUnavailable) continue;
+        || statedUnavailable.some((name) => lines.includes(name))
+      ) {
+        continue;
+      }
       availableCardCount += 1;
       // What parsePrices, parseLeadTime and parseArrivalText read.
+      const normalizedText = text.replaceAll(/\s+/g, " ").toLowerCase();
       const hasPrice = /\$\s*\d|\bUSD[^\S\r\n]*\d/.test(text);
       const leadTimeText = normalizedText.replaceAll(":", "");
       const hasLeadTime = /\b\d{1,4} (?:business|working) days?\b|\blead time \d{1,4} days?\b/.test(leadTimeText);
