@@ -1408,7 +1408,8 @@ describe("XometryAdapter", () => {
         ok: true, terminalState: "login_required", violations: [],
       });
       expect(hydration).toHaveBeenCalledTimes(1);
-      await expect(hydration.mock.results[0].value).resolves.toBeUndefined();
+      // The dashboard never hydrates, so the bounded wait runs out before the session is declared expired.
+      await expect(hydration.mock.results[0].value).rejects.toThrow("wait predicate did not match");
       expect(uploadCheckpoint).not.toHaveBeenCalled();
       expect(close).toHaveBeenCalledTimes(1);
       expect(persistSnapshotMock).not.toHaveBeenCalled();
@@ -1422,6 +1423,36 @@ describe("XometryAdapter", () => {
       expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("keeps waiting for dashboard copy that hydrates after the upload prompt", async () => {
+    const workerTempDir = await makeTempDir();
+    let reads = 0;
+    const page = createFakePage({
+      bodyText: () => {
+        reads += 1;
+        const prompt = `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton}`;
+        return reads <= 3 ? prompt : `Welcome back. Recent quotes ${prompt}`;
+      },
+      waitForFunctionAttempts: 5,
+    });
+    playwrightLaunchPersistentContextMock.mockResolvedValue(createFakeContext(page));
+    const config = makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: null,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryProfileSnapshotBucket: "synthetic-profile-bucket",
+      xometryProfileSnapshotObject: "xometry/profile.tgz",
+      xometryProfileSnapshotGeneration: "41",
+      xometryBrowserEngine: "playwright",
+    });
+    const input = await makeLiveEvaluationInput({ uploadCapabilityCheckpoint: vi.fn(passingUploadCapabilityCheckpoint) });
+    const failure = await makeLiveEvaluationAdapter(config).quote(input).catch((error: unknown) => error);
+
+    // The fake page has no real uploader, so the run fails later; it must not fail as an expired session.
+    expect(failure).not.toMatchObject({ code: "login_required" });
+    expect(reads).toBeGreaterThan(3);
+    expect(config.xometryProfileSnapshotGeneration).toBe("41");
+  });
 
   it.each([undefined, "production_dispatch", "live_evaluation"] as const)(
     "refuses direct live browser launch without authorization for context %s",

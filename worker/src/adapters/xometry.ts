@@ -565,7 +565,7 @@ async function readBodyText(page: Page) {
 }
 
 /**
- * Waits best-effort for dashboard copy or a terminal anonymous upload prompt.
+ * Waits best-effort for authenticated dashboard copy to hydrate.
  * The wait is capped at 10 seconds and suppresses timeout failures so the
  * caller can continue through the normal fail-closed state classification.
  */
@@ -580,14 +580,9 @@ async function waitForAuthenticatedDashboardHydration(
         new RegExp(pattern, "i").test(text)
       ) || patterns.dashboardPatterns.some((pattern) =>
         new RegExp(pattern, "i").test(text)
-      ) || (window.location.href.startsWith(patterns.quoteHome) &&
-        patterns.anonymousUploadPatterns.some((pattern) => new RegExp(pattern, "i").test(text)));
+      );
     },
     {
-      quoteHome: XOMETRY_URLS.quoteHome,
-      anonymousUploadPatterns: XOMETRY_LOCATORS.anonymousUploadPromptSignals.map(
-        (pattern) => pattern.source,
-      ),
       accountPatterns: XOMETRY_LOCATORS.accountQuoteListSignals.map(
         (pattern) => pattern.source,
       ),
