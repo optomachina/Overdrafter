@@ -343,15 +343,30 @@ function parseGeographicOrigin(text: string): {
   return { origin: "unknown", sourcing: null, source: "none" };
 }
 
+const UNAVAILABLE_TEXT_SOURCE = String.raw`\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b`;
+/** A class token that styles an element disabled or unavailable ("disabled", "is-unavailable", "tier--disabled"). */
+const UNAVAILABLE_CLASS_TOKEN = /^(?:is-)?(?:disabled|unavailable)$|[-_](?:disabled|unavailable)$/i;
+
+function unavailableTextCount(text: string) {
+  return [...text.matchAll(new RegExp(UNAVAILABLE_TEXT_SOURCE, "gi"))].length;
+}
+
+/**
+ * Whether an element is marked unavailable by its own attributes (disabled,
+ * aria-disabled, data-disabled, data-available=false), by a class that styles
+ * it disabled or unavailable, or by unavailability text.
+ */
+function isMarkedUnavailable(attributes: Readonly<Record<string, string>>, text: string) {
+  return attributes.disabled !== undefined
+    || attributes["aria-disabled"]?.toLowerCase() === "true"
+    || attributes["data-disabled"]?.toLowerCase() === "true"
+    || attributes["data-available"]?.toLowerCase() === "false"
+    || (attributes.class ?? "").split(/\s+/).some((token) => UNAVAILABLE_CLASS_TOKEN.test(token))
+    || unavailableTextCount(text) > 0;
+}
+
 function isExplicitlyUnavailable(snapshot: XometryOfferSnapshot) {
-  const disabled = snapshot.attributes.disabled !== undefined
-    || snapshot.attributes["aria-disabled"]?.toLowerCase() === "true"
-    || snapshot.attributes["data-disabled"]?.toLowerCase() === "true"
-    || snapshot.attributes["data-available"]?.toLowerCase() === "false";
-  const unavailableText = /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(
-    snapshot.text,
-  );
-  return disabled || unavailableText;
+  return isMarkedUnavailable(snapshot.attributes, snapshot.text);
 }
 
 /** Collapses spaces, including the no-break space after a tier icon. */
@@ -663,27 +678,215 @@ async function readAttributes(locator: Locator) {
   }, {});
 }
 
-const TIER_LABEL_SELECTOR = '[data-testid="tierAndLeadTime"]';
+/** Only a rendered tier label counts; a hidden duplicate in a card is not a second tier. */
+const VISIBLE_TIER_LABEL_SELECTOR = '[data-testid="tierAndLeadTime"]:visible';
 const OFFER_CONTAINER_LIST_SELECTOR = XOMETRY_LOCATORS.offerContainers.join(", ");
 const LIST_PRICE_SELECTOR = '[data-testid="part-discount"] > span';
+const DISABLED_DESCENDANT_SELECTOR = '[disabled], [aria-disabled="true"], [data-disabled="true"]';
+/** The attributes an element carries itself that can mark it unavailable. */
+const AVAILABILITY_ATTRIBUTES = ["disabled", "aria-disabled", "data-disabled", "data-available", "class"] as const;
+
+type XometryOfferCandidateAmbiguity =
+  | "shape_unreadable"
+  | "overlapping_priced_candidates"
+  | "multiple_visible_tier_labels"
+  | "wrapper_uncovered_content"
+  | "wrapper_overlapping_candidates"
+  | "availability_ambiguous";
+
+/** What the collector read about a candidate; null where the page could not answer. */
+type CandidateFacts = {
+  nestedContainers: number | null;
+  pricedNestedContainers: number | null;
+  visibleTierLabels: number | null;
+};
+
+/** One option-container match inside a candidate, as the page renders it. */
+type NestedMatch = {
+  locator: Locator;
+  /** Rendered text, untrimmed. */
+  text: string;
+  /** Every amount it shows, savings figures included (see shownAmounts). */
+  amounts: string[];
+  /** Shows a price once savings figures are dropped (see showsPriceAmount). */
+  priced: boolean;
+  visibleTierLabels: number;
+};
+
+type OfferCandidateShape = { facts: CandidateFacts } & (
+  /** Holds two or more priced, labelled matches; `collected` are the ones collected on their own. */
+  | { kind: "wrapper"; collected: NestedMatch[] }
+  /** Shows nothing beyond its one priced, labelled match `option`, which is collected on its own. */
+  | { kind: "frame"; option: NestedMatch }
+  | { kind: "option"; visibleTierLabels: number }
+  | { kind: "ambiguous"; ambiguity: XometryOfferCandidateAmbiguity }
+);
+
+async function countOrNull(locator: Locator) {
+  try {
+    return await locator.count();
+  } catch {
+    return null;
+  }
+}
+
+/** One shown currency amount, in a marker the parser accepts or refuses alike. */
+const SHOWN_AMOUNT_SOURCE = String.raw`(?:\bUSD[^\S\r\n]*\$?|[$€£¥])[^\S\r\n]*\d[\d,]*(?:\.\d+)?`;
+
+/** Every amount a candidate shows, savings figures included, in a comparable order. */
+function shownAmounts(text: string) {
+  return [...text.matchAll(new RegExp(SHOWN_AMOUNT_SOURCE, "gi"))]
+    .map((match) => match[0].replaceAll(/\s+/g, "").toUpperCase())
+    .sort();
+}
+
+function sameAmounts(left: readonly string[], right: readonly string[]) {
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.length === sortedRight.length
+    && sortedLeft.every((amount, index) => amount === sortedRight[index]);
+}
+
+/**
+ * Whether a candidate shows a price: any currency amount left once savings
+ * figures ("Save $X", "$X off") are dropped. A struck-through list total still
+ * counts, so a nested match holding only one is never taken for decoration.
+ */
+function showsPriceAmount(text: string) {
+  return shownAmounts(text.replace(new RegExp(SAVINGS_FIGURE_SOURCE, "gi"), "")).length > 0;
+}
+
+/** Every option-container match inside `candidate`; `matches` is null when any cannot be read. */
+async function readNestedMatches(candidate: Locator): Promise<{ count: number | null; matches: NestedMatch[] | null }> {
+  const nested = candidate.locator(OFFER_CONTAINER_LIST_SELECTOR);
+  const count = await countOrNull(nested);
+  if (count === null) return { count, matches: null };
+  const matches: NestedMatch[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const locator = nested.nth(index);
+    const text = await locator.innerText().catch(() => null);
+    const visibleTierLabels = await countOrNull(locator.locator(VISIBLE_TIER_LABEL_SELECTOR));
+    if (text === null || visibleTierLabels === null) return { count, matches: null };
+    matches.push({ locator, text, amounts: shownAmounts(text), priced: showsPriceAmount(text), visibleTierLabels });
+  }
+  return { count, matches };
+}
 
 /**
  * OVD-1052: an option container scopes exactly one tier. The part card's drag
  * handle (#draggable-parts > div[role=button][tabindex=0]) matches the
- * role=button container selector but wraps every tier card, so a candidate
- * that holds another option container or more than one tier label is a
- * wrapper, not an option. A count the page cannot answer keeps the candidate.
+ * role=button container selector but wraps every tier card, and the
+ * page-level selectors collect each of those cards on their own.
+ *
+ * A candidate is a wrapper only when it holds at least two nested
+ * option-container matches that each render a visible tier label and show a
+ * price. A nested match without a visible label or without a price (an empty
+ * or hidden tierAndLeadTime inside a button, say) never makes its parent a
+ * wrapper: the parent stays a candidate, so the real card is not dropped.
+ *
+ * A wrapper is skipped only when its own content is exactly the content of
+ * the matches collected on their own: those that render text and hold no
+ * priced match themselves (one that does is a frame or wrapper of its own).
+ * Every visible tier label and every shown amount in the wrapper must sit in
+ * exactly one of them. A label or amount outside all of them (a third tier
+ * card the selectors no longer match, say) is `wrapper_uncovered_content`,
+ * and a collected match holding another one is
+ * `wrapper_overlapping_candidates`; skipping either would publish a partial
+ * option set.
+ *
+ * A candidate that holds exactly one priced nested match is a second priced
+ * candidate over the same part of the page. It is only a frame (the drag
+ * handle around a single tier card) when that match renders a visible tier
+ * label and the candidate shows no amount and no visible tier label beyond
+ * it: it then carries no price of its own and is skipped, so the match alone
+ * is the option. Any other overlap is ambiguous, as is a candidate whose
+ * shape cannot be read or that renders more than one visible tier label: the
+ * caller fails closed instead of publishing a doubtful or partial option set.
  */
-async function wrapsOtherOptions(option: Locator) {
-  try {
-    const [nestedContainers, tierLabels] = await Promise.all([
-      option.locator(OFFER_CONTAINER_LIST_SELECTOR).count(),
-      option.locator(TIER_LABEL_SELECTOR).count(),
-    ]);
-    return nestedContainers > 0 || tierLabels > 1;
-  } catch {
-    return false;
+async function offerCandidateShape(option: Locator, text: string): Promise<OfferCandidateShape> {
+  const nested = await readNestedMatches(option);
+  const visibleTierLabels = await countOrNull(option.locator(VISIBLE_TIER_LABEL_SELECTOR));
+  const priced = nested.matches?.filter((match) => match.priced) ?? null;
+  const facts: CandidateFacts = {
+    nestedContainers: nested.count,
+    pricedNestedContainers: priced?.length ?? null,
+    visibleTierLabels,
+  };
+  const ambiguous = (ambiguity: XometryOfferCandidateAmbiguity): OfferCandidateShape => ({
+    kind: "ambiguous",
+    ambiguity,
+    facts,
+  });
+  if (nested.matches === null || priced === null || visibleTierLabels === null) return ambiguous("shape_unreadable");
+  const pricedAndLabelled = priced.filter((match) => match.visibleTierLabels > 0);
+  const ownAmounts = shownAmounts(text);
+
+  if (pricedAndLabelled.length >= 2) {
+    const collected: NestedMatch[] = [];
+    for (const match of nested.matches) {
+      if (!match.text.trim()) continue;
+      const inner = await readNestedMatches(match.locator);
+      if (inner.matches === null) return ambiguous("shape_unreadable");
+      if (inner.matches.some((innerMatch) => innerMatch.priced)) continue;
+      if (inner.matches.some((innerMatch) => innerMatch.text.trim())) return ambiguous("wrapper_overlapping_candidates");
+      collected.push(match);
+    }
+    const coveredTierLabels = collected.reduce((total, match) => total + match.visibleTierLabels, 0);
+    const covered = coveredTierLabels === visibleTierLabels
+      && sameAmounts(ownAmounts, collected.flatMap((match) => match.amounts));
+    return covered ? { kind: "wrapper", collected, facts } : ambiguous("wrapper_uncovered_content");
   }
+  if (priced.length > 0) {
+    const only = priced.length === 1 ? pricedAndLabelled[0] ?? null : null;
+    const showsNothingBeyondIt = only !== null
+      && visibleTierLabels === only.visibleTierLabels
+      && sameAmounts(ownAmounts, only.amounts);
+    return showsNothingBeyondIt ? { kind: "frame", option: only, facts } : ambiguous("overlapping_priced_candidates");
+  }
+  if (visibleTierLabels > 1) return ambiguous("multiple_visible_tier_labels");
+  return { kind: "option", visibleTierLabels, facts };
+}
+
+/** The availability attributes an element carries itself; null when any cannot be read. */
+async function readAvailabilityMarkers(locator: Locator) {
+  try {
+    const markers: Record<string, string> = {};
+    for (const name of AVAILABILITY_ATTRIBUTES) {
+      const value = await locator.getAttribute(name);
+      if (value !== null) markers[name] = value;
+    }
+    return markers;
+  } catch {
+    return null;
+  }
+}
+
+/** The collector's identity for an option; a repeat match is the same option. */
+function optionFingerprint(attributes: Readonly<Record<string, string>>, text: string) {
+  return `${attributes["data-option-id"] ?? attributes.id ?? ""}\n${text}`;
+}
+
+function ambiguousCandidateError(
+  selector: string,
+  index: number,
+  ambiguity: XometryOfferCandidateAmbiguity,
+  facts: CandidateFacts,
+) {
+  return new VendorAutomationError(
+    ambiguity === "availability_ambiguous"
+      ? "A Xometry option container's availability could not be established."
+      : "A Xometry option container could not be told apart from a wrapper or another priced option.",
+    "unexpected_ui_state",
+    {
+      vendor: "xometry",
+      reason: "xometry_offer_container_ambiguous",
+      terminalState: "selector_drift",
+      ambiguity,
+      containerSelector: selector,
+      containerIndex: index,
+      ...facts,
+    },
+  );
 }
 
 /** Every struck-through list amount the card shows, or undefined when it has none. */
@@ -710,22 +913,67 @@ export async function collectXometryOffers(
 ) {
   const snapshots: XometryOfferSnapshot[] = [];
   const observedSnapshots: XometryOfferSnapshot[] | undefined = observer ? [] : undefined;
-  const seen = new Set<string>();
+  const snapshotByFingerprint = new Map<string, XometryOfferSnapshot>();
+  /** Options whose frame the page marks unavailable, keyed by fingerprint, with that frame. */
+  const unavailableFrames = new Map<string, { selector: string; index: number; facts: CandidateFacts }>();
 
   for (const selector of XOMETRY_LOCATORS.offerContainers) {
     const locator = page.locator(selector);
     const count = await locator.count().catch(() => 0);
     for (let index = 0; index < count; index += 1) {
       const option = locator.nth(index);
-      const text = (await option.innerText().catch(() => "")).trim();
-      if (!text) continue;
-      if (await wrapsOtherOptions(option)) continue;
-      const tierText = (await option
-        .locator(TIER_LABEL_SELECTOR)
-        .first()
-        .innerText()
-        .catch(() => ""))
-        .trim();
+      const renderedText = await option.innerText().catch(() => null);
+      const text = renderedText?.trim() ?? "";
+      // A candidate that renders no text is not an option; one whose text
+      // cannot be read is not known to be empty, so it is never dropped.
+      if (renderedText !== null && !text) continue;
+      const shape: OfferCandidateShape = renderedText === null
+        ? {
+          kind: "ambiguous",
+          ambiguity: "shape_unreadable",
+          facts: { nestedContainers: null, pricedNestedContainers: null, visibleTierLabels: null },
+        }
+        : await offerCandidateShape(option, text);
+      if (shape.kind === "ambiguous") {
+        throw ambiguousCandidateError(selector, index, shape.ambiguity, shape.facts);
+      }
+      if (shape.kind === "wrapper" || shape.kind === "frame") {
+        // X14: a skipped candidate's own availability still governs the
+        // options it holds. Only its own attributes, class and text count:
+        // its other descendants are page furniture (the part card's quantity
+        // stepper is disabled at quantity 1), and each held option's own
+        // descendants are judged when that option is collected.
+        const markers = await readAvailabilityMarkers(option);
+        if (markers === null) {
+          throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
+        }
+        if (shape.kind === "wrapper") {
+          // A wrapper marked unavailable, or showing unavailability text
+          // outside every option it holds, cannot say which option it means.
+          const textOutsideOptions = unavailableTextCount(text)
+            > shape.collected.reduce((total, match) => total + unavailableTextCount(match.text), 0);
+          if (isMarkedUnavailable(markers, "") || textOutsideOptions) {
+            throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
+          }
+        } else if (isMarkedUnavailable(markers, text)) {
+          // A frame around one tier card that the page marks unavailable:
+          // that card never yields an offer, whichever order they are read in.
+          const framedAttributes = await readAttributes(shape.option.locator);
+          unavailableFrames.set(
+            optionFingerprint(framedAttributes, shape.option.text.trim()),
+            { selector, index, facts: shape.facts },
+          );
+        }
+        continue;
+      }
+      const tierText = shape.visibleTierLabels === 0
+        ? ""
+        : (await option
+          .locator(VISIBLE_TIER_LABEL_SELECTOR)
+          .first()
+          .innerText()
+          .catch(() => ""))
+          .trim();
       const attributes = await readAttributes(option);
       // Normalization derives availability from descendants. Preserve actual
       // parent attributes separately instead of presenting derived flags as DOM.
@@ -734,29 +982,42 @@ export async function collectXometryOffers(
       const observedAttributes = observedSnapshots && observedSnapshots.length <= XOMETRY_OBSERVATION_LIMITS.documents
         ? { ...attributes }
         : undefined;
-      const hasDisabledDescendant = await option
-        .locator('[disabled], [aria-disabled="true"], [data-disabled="true"]')
-        .count()
-        .then((value) => value > 0)
-        .catch(() => false);
-      if (hasDisabledDescendant) {
+      // An option whose availability the page cannot answer is never
+      // presented as available.
+      const markers = await readAvailabilityMarkers(option);
+      const disabledDescendants = await countOrNull(option.locator(DISABLED_DESCENDANT_SELECTOR));
+      if (markers === null || disabledDescendants === null) {
+        throw ambiguousCandidateError(selector, index, "availability_ambiguous", shape.facts);
+      }
+      if (disabledDescendants > 0 || isMarkedUnavailable(markers, "")) {
         attributes["data-disabled"] = "true";
       }
-      const fingerprint = `${attributes["data-option-id"] ?? attributes.id ?? ""}\n${text}`;
-      if (seen.has(fingerprint)) continue;
-      seen.add(fingerprint);
+      const fingerprint = optionFingerprint(attributes, text);
+      if (snapshotByFingerprint.has(fingerprint)) continue;
       const listPriceText = await readListPriceText(option);
-      snapshots.push({
+      const snapshot: XometryOfferSnapshot = {
         selector,
         text,
         tierText: tierText || undefined,
         ...(listPriceText === undefined ? {} : { listPriceText }),
         attributes,
-      });
+      };
+      snapshotByFingerprint.set(fingerprint, snapshot);
+      snapshots.push(snapshot);
       if (observedSnapshots && observedAttributes) {
         observedSnapshots.push({ selector, text, tierText: tierText || undefined, attributes: observedAttributes });
       }
     }
+  }
+
+  for (const [fingerprint, frame] of unavailableFrames) {
+    const framed = snapshotByFingerprint.get(fingerprint);
+    // The framed card is an option-container match itself, so it was
+    // collected; if it was not, the frame cannot be tied to an option.
+    if (!framed) {
+      throw ambiguousCandidateError(frame.selector, frame.index, "availability_ambiguous", frame.facts);
+    }
+    framed.attributes["data-disabled"] = "true";
   }
 
   const quoteUrl = page.url();
