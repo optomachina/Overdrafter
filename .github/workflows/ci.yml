@@ -156,8 +156,11 @@ jobs:
       - name: Setup Node.js and install root dependencies
         uses: ./.github/actions/setup-root-dependencies
 
+      # As in extraction-gate, no install scripts: the worker's only ones are
+      # esbuild's binary check, impit's package-manager check, and the native
+      # build of better-sqlite3, which only camoufox-js reaches at browser launch.
       - name: Install worker dependencies
-        run: npm --prefix worker ci
+        run: npm --prefix worker ci --ignore-scripts
 
       - name: Restore apt package archives
         id: apt-archives
