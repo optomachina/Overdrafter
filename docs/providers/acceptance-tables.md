@@ -13,7 +13,7 @@ Canonical matrix: [permissions-matrix.md](permissions-matrix.md) and
 | xometry | OVD-206 / controlled beta | true | owner override 2026-10-21; quote-only on owner accounts (`prohibited`) | `docs/1-0-beta-runbook.md` |
 | fictiv | OVD-395 | true | owner override 2026-10-21; quote-only on owner accounts (`prior-consent`) | [ovd673-fictiv-live-readiness.md](../workflows/ovd673-fictiv-live-readiness.md) |
 | quickparts | OVD-396 | true | owner override 2026-10-21; quote-only on owner accounts (`silent`) | [ovd674-quickparts-live-readiness.md](../workflows/ovd674-quickparts-live-readiness.md) |
-| weerg | OVD-397 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
+| weerg | OVD-397 | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
 | geomiq | OVD-398 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
 | rmfg | OVD-678 / OVD-580 | true | cleared on published agent/API only | [rmfg-public-capability-recon.md](../rmfg-public-capability-recon.md) |
 | oshcut | process-specific 1.0 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/oshcut/manifest.v1.json` |
