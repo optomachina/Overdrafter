@@ -106,6 +106,15 @@ export function childEnv(env: NodeJS.ProcessEnv, extra: Record<string, string> =
   return { ...child, ...extra };
 }
 
+/** Only what a browser or notifier needs: no vault session, no worker secrets. */
+export function minimalChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = {};
+  for (const name of PASSTHROUGH_ENV) {
+    if (name !== "BITWARDENCLI_APPDATA_DIR" && env[name] !== undefined) child[name] = env[name];
+  }
+  return child;
+}
+
 export type LoginCredential = {
   username: SecretString;
   password: SecretString;

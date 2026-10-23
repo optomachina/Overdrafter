@@ -28,6 +28,7 @@ const {
   notificationFor,
   parseLoginCliArgs,
   statusLine,
+  statusReporter,
 } = await import("./vendorLogin");
 const { runVendorLoginFlow } = await import("./vendorLoginFlow");
 const { sessionStatePath } = await import("./vendorSession");
@@ -223,6 +224,14 @@ describe("login:vendors orchestration", () => {
     expect(runVendorLoginFlow).not.toHaveBeenCalled();
   });
 
+  it("stops instead of logging in when the saved session lands on an error or second-factor page", async () => {
+    await fs.writeFile(sessionStatePath(stateDir, "quickparts"), JSON.stringify({ cookies: [cookie("qp_session", "quickquote.quickparts.com")], origins: [] }));
+    const run = deps({ sessionDeps: probeReturning(probeEvidence("error", "settled_page_indeterminate")) });
+    const [result] = await loginVendors(["quickparts"], run);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "session_check_failed:settled_page_indeterminate" });
+    expect(run.vault.open).not.toHaveBeenCalled();
+  });
+
   it("logs in again for a signed-out session", async () => {
     await fs.writeFile(sessionStatePath(stateDir, "quickparts"), JSON.stringify({ cookies: [cookie("qp_session", "quickquote.quickparts.com")], origins: [] }));
     flow.login.push({ outcome: "authenticated", storageState: loggedInState });
@@ -341,6 +350,22 @@ describe("status line and notification", () => {
     const line = statusLine({ ...result, reason: `password=${PASSWORD} ok`, host: "a b" }, new Date(0));
     expect(line).not.toContain(PASSWORD);
     expect(line).toContain("reason=redacted host=redacted");
+  });
+
+  it("still notifies when the status log cannot be written", async () => {
+    const notices: string[] = [];
+    const link = path.join(stateDir, "linked.log");
+    await fs.symlink(path.join(stateDir, "elsewhere.log"), link);
+    const report = statusReporter(link, async (message) => {
+      notices.push(message);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await report(result);
+    await report({ ...result, outcome: "refreshed", reason: "authenticated_marker_found" });
+    expect(notices).toEqual([
+      "Quickparts login stopped (captcha:visible_challenge). Log in by hand with auth:vendor quickparts. The status log could not be written.",
+      "quickparts: refreshed. The status log could not be written.",
+    ]);
   });
 
   it("notifies only for a stopped vendor, naming the hand fallback", () => {

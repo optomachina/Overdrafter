@@ -15,7 +15,9 @@ import {
   resolveVendorSessionProfile,
   saveScopedSession,
   sessionStatePath,
+  settledPageVerdict,
   signedInEvidence,
+  storageStateHoldsSecret,
   vendorKillSwitchDecision,
   workerSessionOverride,
   type SessionProbe,
@@ -156,11 +158,13 @@ describe("session:check", () => {
     });
     expect(options.storageState).toEqual(quickpartsState);
     expect(options.allowLoopbackHttp).toBeUndefined();
-    const accepts = options.settledPageAccepts!;
-    await expect(accepts({ url: "https://quickquote.quickparts.com/#/quotes", bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 })).resolves.toBe(true);
-    await expect(accepts({ url: "https://quickquote.quickparts.com/#/login", bodyText: "Sign in", passwordInputCount: 1 })).resolves.toBe(false);
-    await expect(accepts({ url: "https://quickquote.quickparts.com/", bodyText: "Please verify you are human", passwordInputCount: 0 })).resolves.toBe(false);
-    await expect(accepts({ url: "https://evil.example.test/", bodyText: "Upload", passwordInputCount: 0 })).resolves.toBe(false);
+    // The probe's Chromium gets no vault session and no worker secrets.
+    expect(Object.keys(options.browserEnv ?? { missing: true }).every((name) => ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "NODE_EXTRA_CA_CERTS"].includes(name))).toBe(true);
+    const verdict = options.settledPageVerdict!;
+    await expect(verdict({ url: "https://quickquote.quickparts.com/#/quotes", bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 })).resolves.toBe("signed_in");
+    await expect(verdict({ url: "https://quickquote.quickparts.com/#/login", bodyText: "Sign in", passwordInputCount: 1 })).resolves.toBe("signed_out");
+    await expect(verdict({ url: "https://quickquote.quickparts.com/", bodyText: "Please verify you are human", passwordInputCount: 0 })).resolves.toBe("indeterminate");
+    await expect(verdict({ url: "https://evil.example.test/", bodyText: "Upload", passwordInputCount: 0 })).resolves.toBe("indeterminate");
   });
 });
 
@@ -182,6 +186,23 @@ describe("signed-in evidence without a log out control", () => {
     }
     await expect(signedInEvidence({ url, bodyText: SIGNED_IN_TEXT, passwordInputCount: 1 }, definition)).resolves.toBe(false);
     await expect(signedInEvidence({ url: "https://evil.example.test/", bodyText: SIGNED_IN_TEXT, passwordInputCount: 0 }, definition)).resolves.toBe(false);
+  });
+
+  it("keeps an error, spinner or second-factor page apart from a signed-out one", async () => {
+    const page = (bodyText: string) => settledPageVerdict({ url, bodyText, passwordInputCount: 0 }, definition);
+    await expect(page("Loading…")).resolves.toBe("indeterminate");
+    await expect(page("Enter the verification code we sent to your phone to continue to your quotes.")).resolves.toBe("indeterminate");
+    await expect(page("Something went wrong. Please try again later, our team has been notified.")).resolves.toBe("indeterminate");
+    await expect(page(`${SIGNED_IN_TEXT} Log in to see prices`)).resolves.toBe("signed_out");
+    await expect(page(SIGNED_IN_TEXT)).resolves.toBe("signed_in");
+  });
+
+  it("needs a clearly signed-out anonymous visit to confirm content-only evidence", async () => {
+    await writeState("quickparts", quickpartsState);
+    const profile = resolveVendorSessionProfile("quickparts");
+    const fake = fakeProbe(evidence("authenticated", "terminal_signals_ready"), undefined, evidence("error", "navigation_failed"));
+    await expect(checkVendorSession(profile, stateDir, { probe: fake.probe, env: {} }))
+      .resolves.toMatchObject({ state: "check_failed", reason: "anonymous_comparison_inconclusive" });
   });
 
   it("reports a landing page an anonymous visit also passes as unconfirmable, not valid", async () => {
@@ -242,6 +263,18 @@ describe("scoped session save", () => {
   it("writes a scoped session the kernel reads back from disk", async () => {
     await expect(saveScopedSession(profile, stateDir, quickpartsState, [PASSWORD])).resolves.toEqual({ saved: true });
     expect((await fs.stat(sessionStatePath(stateDir, "quickparts"))).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("typed-password detection in saved state", () => {
+  it("finds the password as stored and decoded, including quotes and backslashes JSON would escape", () => {
+    const password = `pa"ss\\word+1 &x`;
+    const state = (value: string) => ({ cookies: [], origins: [{ origin: "https://quickquote.quickparts.com", localStorage: [{ name: "k", value }] }] });
+    for (const value of [password, encodeURIComponent(password), new URLSearchParams({ p: password }).toString(), Buffer.from(password).toString("base64"), `{"remember":"${password}"}`]) {
+      expect(storageStateHoldsSecret(state(value), [password])).toBe(true);
+    }
+    expect(storageStateHoldsSecret(state("unrelated"), [password])).toBe(false);
+    expect(storageStateHoldsSecret(state(password), [])).toBe(false);
   });
 });
 

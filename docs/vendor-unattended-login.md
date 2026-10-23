@@ -26,7 +26,8 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
 `check_failed` means the check could not decide, and logging in again may not fix it. Its reason says why:
 
 - `challenge_page`, `http_forbidden`, `navigation_failed`: a challenge, a denial, or a network failure;
-- `unconfirmable_public_landing`: the landing page looks the same with and without the session;
+- `unconfirmable_public_landing` or `anonymous_comparison_inconclusive`: the landing page looks the same with and without the session, or the comparison visit without it did not come back clearly signed out;
+- `settled_page_indeterminate`: the landing page showed an error, a spinner or a second-factor prompt rather than a signed-in or signed-out page;
 - `worker_reads_session_from_env`: `QUOTE_VENDOR_STORAGE_STATE_JSON` or `QUOTE_VENDOR_STORAGE_STATE_PATHS` names the vendor, so the worker would not read the file in the state directory.
 
 ## What `login:vendors` does per vendor
@@ -40,12 +41,20 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
    `--force` skips this step.
 3. **Credentials.** It unlocks Bitwarden at most once per run and reads the vendor's login item. The item must hold a URI on the vendor's reviewed hosts; otherwise the tool refuses it, so a password saved for another site is never typed into a vendor page.
 4. **Login.** It opens the workflow's `loginUrl` in Chromium and fills the form with generic heuristics. It handles a visible form, a sign-in button that opens a modal, and an email-first then password step.
-   - **Typing.** It types the password only into a visible sign-in field in the main frame, while the page is on a reviewed host. It skips a field marked as a new password, and refuses a form whose button reads as sign-up, register, reset or subscribe. It checks for every stop condition before typing, and again before its single submit.
+   - **Typing.** It types the password only into a visible sign-in field in the main frame, while the page is on a reviewed host. It refuses, before typing:
+     - a form that submits to another host or into another frame or window;
+     - a field marked as a new password;
+     - a form whose button reads as sign-up, register, reset or subscribe;
+     - a form whose text says create account, confirm password or reset password;
+     - a generic Continue or Submit button with no sign-in context around it.
+
+     It checks for every stop condition before typing, and again before its single submit.
    - **Request guard.** It aborts:
      - a script navigation of the main frame to another host;
      - any popup;
      - a POST-style request from the main frame to a host outside the vendor's reviewed hosts and their subdomains;
-     - a POST-style navigation of any frame to such a host.
+     - a POST-style navigation of any frame to such a host;
+     - once the password is typed, any child-frame navigation to such a host, and any main-frame request whose URL carries the password.
    - **Limit.** Playwright cannot hold a server redirect. If a reviewed host redirects the submitted form to another host (HTTP 307 or 308), the tool detects it afterwards, stops, and saves nothing. The password has already left by then. The tool trusts each vendor's reviewed hosts with that vendor's own password.
 5. **Confirmation.** It opens the vendor's landing page, the page the kernel opens first, and needs positive evidence of a signed-in session:
    - either a log out control;
@@ -60,7 +69,7 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
    It reads the file back through the kernel's own path resolver.
 7. **Agent check.** It runs the GET-only check on the saved file. If that check cannot confirm the session, the outcome is `saved_unconfirmed`. That outcome is notified and makes the run exit non-zero, because agents would otherwise ask Blaine to log in to a vendor the tool reported as saved.
 
-One writer at a time: `login:vendors` and `session:refresh` hold the same lock (`<state dir>/.vendor-session.lock`). A lock whose process is gone is taken over.
+One writer at a time: `login:vendors` and `session:refresh` hold the same lock (`<state dir>/.vendor-session.lock`). A lock whose process is gone is taken over, and each holder re-reads the lock after taking it. Two runs that take over the same stale lock in the same instant are therefore narrowed to a lost-race refusal, not fully excluded.
 
 ### Stop conditions
 

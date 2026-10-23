@@ -1,7 +1,7 @@
 import type { BrowserContext, Frame, Locator, Page, Request, Route } from "playwright";
 import { isAllowedProviderUrl } from "../adapters/providerPortalKernel.js";
 import type { LoginCredential } from "./vendorLoginBitwarden.js";
-import { sessionStateAccepted, signedInEvidence, type VendorSessionProfile } from "./vendorSession.js";
+import { secretForms, sessionStateAccepted, signedInEvidence, type VendorSessionProfile } from "./vendorSession.js";
 
 /**
  * OVD-1060: fills one vendor's login form with generic heuristics and stops,
@@ -10,12 +10,17 @@ import { sessionStateAccepted, signedInEvidence, type VendorSessionProfile } fro
  * - The password is typed only into a visible sign-in field of the main frame
  *   while the page is on one of the vendor's reviewed hosts, re-checked
  *   immediately before typing and again before the single submit.
+ * - A form that submits to another host or into another frame or window is a
+ *   stop before anything is typed.
  * - Script navigation of the main frame to another host is aborted, popups
  *   never load, and a state-changing request (POST and the like) from the
  *   main frame, or a state-changing navigation of any frame, to a host
- *   outside the vendor's reviewed hosts is aborted. Playwright cannot hold a
- *   server redirect, so a reviewed host that redirects a submission to another
- *   host is detected afterwards and stops the attempt; nothing is saved.
+ *   outside the vendor's reviewed hosts is aborted. Once the password is
+ *   typed, any navigation of a child frame to such a host, and any main-frame
+ *   request to one whose URL carries the password, is aborted too.
+ *   Playwright cannot hold a server redirect, so a reviewed host that
+ *   redirects a submission to another host is detected afterwards and stops
+ *   the attempt; nothing is saved.
  * - A visible CAPTCHA (in any frame), a second-factor prompt, an unknown page,
  *   a sign-up form, or a rejected login is a stop. Nothing is solved,
  *   bypassed or resubmitted, and no stealth or anti-detection measure is used.
@@ -142,6 +147,10 @@ const SUBMIT_IN_FORM = "button[type='submit'], input[type='submit'], button:not(
 const SUBMIT_TEXT = /^\s*(log ?in|sign ?in|continue|next|submit)\s*$/i;
 const NEXT_TEXT = /^\s*(next|continue|log ?in|sign ?in)\s*$/i;
 const REGISTRATION_TEXT = /\b(sign ?up|register|create (an |your )?account|join|subscribe|reset|send (a )?(reset )?link)\b/i;
+/** Text only a sign-up or reset form carries; a sign-in form's "Sign up" link does not count. */
+const REGISTRATION_FORM_TEXT = /\b(create (an |your )?account|confirm (your )?password|repeat (your )?password|choose a password|reset (your )?password|new password)\b/i;
+const EXPLICIT_SIGN_IN_TEXT = /^\s*(log ?in|sign ?in)\s*$/i;
+const SIGN_IN_CONTEXT_TEXT = /\b(log ?in|sign ?in)\b/i;
 const OPEN_LOGIN_TEXT = /^\s*(log ?in|sign ?in)(\s*(\/|\||or|&)\s*(register|sign ?up))?\s*$/i;
 const LOGIN_ROUTE = /(^|\/)(log-?in|sign-?in|signin|auth|authenticate|session\/new|users\/sign_in)(\/|$|\?)/i;
 const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -201,6 +210,8 @@ type GuardedPage = {
   refusedHost: () => string | null;
   redirectedSubmissionHost: () => string | null;
   blockedSubmissionHost: () => string | null;
+  /** From here on, child-frame navigation and credential-bearing URLs to unreviewed hosts are aborted. */
+  markPasswordTyped: (password: string) => void;
   markSubmitted: () => void;
   signals: () => Promise<PageSignals | null>;
   settle: () => Promise<void>;
@@ -246,6 +257,7 @@ async function guardedPage(
   let redirectedSubmissionHost: string | null = null;
   let blockedSubmissionHost: string | null = null;
   let submitted = false;
+  let passwordForms: string[] = [];
 
   context.on("page", (popup) => {
     if (popup !== page) void popup.close().catch(() => undefined);
@@ -269,9 +281,16 @@ async function guardedPage(
       await route.abort("blockedbyclient");
       return;
     }
+    const offHost = !submissionHostAllowed(url, profile);
     const stateChanging = !READ_ONLY_METHODS.has(request.method().toUpperCase());
-    if (stateChanging && (frameKind === "main" || navigation) && !submissionHostAllowed(url, profile)) {
-      if (submitted) blockedSubmissionHost ??= hostOf(url);
+    const afterPassword = passwordForms.length > 0;
+    const carriesPassword = afterPassword && passwordForms.some((form) => url.includes(form));
+    if (offHost && (
+      (stateChanging && (frameKind === "main" || navigation))
+      || (afterPassword && navigation)
+      || carriesPassword
+    )) {
+      if (submitted || carriesPassword) blockedSubmissionHost ??= hostOf(url);
       await route.abort("blockedbyclient");
       return;
     }
@@ -324,6 +343,9 @@ async function guardedPage(
     refusedHost: () => refusedNavigationHost,
     redirectedSubmissionHost: () => redirectedSubmissionHost,
     blockedSubmissionHost: () => blockedSubmissionHost,
+    markPasswordTyped: (password) => {
+      passwordForms = secretForms(password);
+    },
     markSubmitted: () => {
       submitted = true;
     },
@@ -438,27 +460,71 @@ async function attemptLogin(
   };
 
   /**
+   * A form must submit to a reviewed host in this same window. Anything else
+   * is a stop before a credential is typed into it.
+   */
+  const assertFormDestination = async (form: Locator | null) => {
+    if (!form) return;
+    const host = hostOf(page.url());
+    const action = await form.getAttribute("action").catch(() => null);
+    if (action && action.trim() && !action.trim().toLowerCase().startsWith("javascript:")) {
+      let target: string;
+      try {
+        target = new URL(action, page.url()).toString();
+      } catch {
+        throw new LoginStop("unknown_page", "form_action_unreadable", host);
+      }
+      if (!submissionHostAllowed(target, profile)) throw new LoginStop("unknown_page", "form_submits_off_host", hostOf(target));
+    }
+    const windowTarget = (await form.getAttribute("target").catch(() => null))?.trim().toLowerCase() ?? "";
+    if (windowTarget && windowTarget !== "_self") throw new LoginStop("unknown_page", "form_targets_other_window", host);
+  };
+
+  /** A sign-up or reset form is a stop; a generic button needs sign-in context around it. */
+  const assertSignInForm = async (form: Locator | null, label: string) => {
+    if (EXPLICIT_SIGN_IN_TEXT.test(label)) return;
+    const formText = form ? await form.innerText({ timeout: 2_000 }).catch(() => "") : "";
+    if (REGISTRATION_FORM_TEXT.test(formText)) throw new LoginStop("unknown_page", "registration_or_reset_form", hostOf(page.url()));
+    const title = await page.title().catch(() => "");
+    if (!SIGN_IN_CONTEXT_TEXT.test(formText) && !SIGN_IN_CONTEXT_TEXT.test(title) && !looksLikeLoginRoute(page.url())) {
+      throw new LoginStop("unknown_page", "sign_in_form_unconfirmed", hostOf(page.url()));
+    }
+  };
+
+  /**
    * The form's submit control, only when its label is sign-in vocabulary (or
-   * it is the form's single unlabeled control). A sign-up, reset or
-   * subscribe control is a stop, never a click.
+   * it is the form's single unlabeled control) and the form is a sign-in
+   * form. A sign-up, reset or subscribe control is a stop, never a click.
    */
   const chooseSubmit = async (form: Locator | null, text: RegExp, allowUnlabeled: boolean): Promise<Locator | null> => {
     if (overrides.submit) return firstVisible(frame, [overrides.submit]);
-    if (!form) return firstVisibleByText(frame, "button, [role='button'], input[type='submit']", text);
+    if (!form) {
+      const control = await firstVisibleByText(frame, "button, [role='button'], input[type='submit']", text);
+      if (control) await assertSignInForm(null, await labelOf(control));
+      return control;
+    }
     const controls = form.locator(SUBMIT_IN_FORM).filter({ visible: true });
     const count = Math.min(await controls.count().catch(() => 0), 10);
     const labels: string[] = [];
     for (let index = 0; index < count; index += 1) {
       const label = await labelOf(controls.nth(index));
-      if (text.test(label)) return controls.nth(index);
+      if (text.test(label)) {
+        await assertSignInForm(form, label);
+        return controls.nth(index);
+      }
       labels.push(label);
     }
     if (labels.some((label) => REGISTRATION_TEXT.test(label))) {
       throw new LoginStop("unknown_page", "registration_or_reset_form", hostOf(page.url()));
     }
-    if (allowUnlabeled && labels.length === 1 && labels[0].trim() === "") return controls.first();
+    if (allowUnlabeled && labels.length === 1 && labels[0].trim() === "") {
+      await assertSignInForm(form, "");
+      return controls.first();
+    }
     if (labels.length > 0) throw new LoginStop("unknown_page", "submit_control_unrecognized", hostOf(page.url()));
-    return firstVisibleByText(form, "button, [role='button']", text);
+    const control = await firstVisibleByText(form, "button, [role='button']", text);
+    if (control) await assertSignInForm(form, await labelOf(control));
+    return control;
   };
 
   await guarded.open(profile.loginUrl, "login_page_unreachable");
@@ -473,11 +539,12 @@ async function attemptLogin(
 
     const username = await firstVisible(frame, overrides.username ? [overrides.username] : USERNAME_SELECTORS);
     // A username-first step only on a sign-in route or after opening the sign-in control,
-    // inside a form, and only behind a Next or sign-in button, so a newsletter or
-    // search box on a home page is never filled.
+    // only behind a Next or sign-in button, and outside a form only on a sign-in route,
+    // so a newsletter or search box on a home page is never filled.
     if (username && !usernameSubmitted && (openedLogin || looksLikeLoginRoute(page.url()))) {
       const form = await formOf(username);
-      if (!form) throw new LoginStop("unknown_page", "username_step_outside_form", hostOf(page.url()));
+      if (!form && !looksLikeLoginRoute(page.url())) throw new LoginStop("unknown_page", "username_step_outside_form", hostOf(page.url()));
+      await assertFormDestination(form);
       const next = await chooseSubmit(form, NEXT_TEXT, false);
       if (!next) throw new LoginStop("unknown_page", "username_step_without_next", hostOf(page.url()));
       await username.fill(credential.username.reveal());
@@ -505,12 +572,14 @@ async function attemptLogin(
   const form = await formOf(password);
   const username = await firstVisible(form ?? frame, overrides.username ? [overrides.username] : USERNAME_SELECTORS);
   if (!username && !usernameSubmitted) throw new LoginStop("unknown_page", "username_field_not_found", hostOf(page.url()));
+  await assertFormDestination(form);
   const submit = await chooseSubmit(form, SUBMIT_TEXT, true);
 
   await guarded.assertSafePage();
   if (username) await username.fill(credential.username.reveal());
   // Last checks immediately before the password is typed, and again before the single submit.
   await guarded.assertSafePage();
+  guarded.markPasswordTyped(credential.password.reveal());
   await password.fill(credential.password.reveal());
   await guarded.assertSafePage();
   guarded.markSubmitted();

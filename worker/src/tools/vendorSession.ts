@@ -21,11 +21,13 @@ import {
   runBoundedBrowserSessionProbe,
   type BrowserProbeOptions,
   type SessionProbeEvidence,
+  type SettledPageVerdict,
 } from "../providerSessionProbe.js";
 import type { ProviderKillSwitchReader } from "../providerSettings.js";
 import { assertOperatorProvidersEnabled, envProviderKillSwitchReader } from "./operatorKillSwitchGate.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 import { scopeStorageStateToHosts, sessionHostsFor } from "./vendorAuth.js";
+import { minimalChildEnv } from "./vendorLoginBitwarden.js";
 import { readVendorLoginConfig, resolveStateDir, type VendorLoginConfig } from "./vendorLoginConfig.js";
 
 /**
@@ -140,6 +142,25 @@ export async function signedInEvidence(
   return !NOT_SIGNED_IN_TEXT.some((pattern) => pattern.test(text));
 }
 
+const SIGNED_OUT_TEXT = /\b(log ?in|sign ?in|session expired)\b/i;
+
+/**
+ * The probe's verdict for a settled page with no log out control: signed in
+ * only on `signedInEvidence`; signed out when the classifier or the page says
+ * so; anything else (an error, a spinner, a second-factor or challenge page)
+ * is indeterminate, so it is never mistaken for a session worth a password.
+ */
+export async function settledPageVerdict(
+  snapshot: ProviderPortalSnapshot,
+  definition: Pick<ProviderPortalDefinition, "hooks">,
+): Promise<SettledPageVerdict> {
+  const state = await definition.hooks.classifyPortalState(snapshot);
+  if (state === "login_required" || state === "missing_session") return "signed_out";
+  if (!sessionStateAccepted(state)) return "indeterminate";
+  if (await signedInEvidence(snapshot, definition)) return "signed_in";
+  return SIGNED_OUT_TEXT.test(snapshot.bodyText) ? "signed_out" : "indeterminate";
+}
+
 export type VendorSessionState = "valid" | "login_required" | "missing" | "unopenable_by_kernel" | "check_failed";
 
 export type VendorSessionCheck = {
@@ -209,7 +230,8 @@ export async function probeStorageState(
       target: { provider: profile.vendor, adapterKind: "portal", landingUrl: profile.landingUrl, allowedHosts: profile.probeHosts },
       storageState: state as BrowserProbeOptions["storageState"],
       sandbox: deps.sandbox ?? sandboxFromEnv(),
-      settledPageAccepts: (snapshot) => signedInEvidence(snapshot, profile.definition),
+      settledPageVerdict: (snapshot) => settledPageVerdict(snapshot, profile.definition),
+      browserEnv: minimalChildEnv(process.env),
       onAuthenticated: (refreshed) => {
         captured = refreshed as unknown as StorageState;
       },
@@ -218,11 +240,13 @@ export async function probeStorageState(
     return { check: mapEvidence(profile.vendor, evidence), captured: captured as StorageState | null };
   };
   const result = await run(storageState);
-  // Content-only evidence must also tell a session apart from no session at all.
+  // Content-only evidence must also tell a session apart from no session at all:
+  // the same visit without the session has to come back clearly signed out.
   if (result.check.state === "valid" && result.check.reason === "terminal_signals_ready") {
     const anonymous = await run({ cookies: [], origins: [] });
-    if (anonymous.check.state === "valid") {
-      return { vendor: profile.vendor, state: "check_failed", reason: "unconfirmable_public_landing", refreshedState: null };
+    if (anonymous.check.state !== "login_required") {
+      const reason = anonymous.check.state === "valid" ? "unconfirmable_public_landing" : "anonymous_comparison_inconclusive";
+      return { vendor: profile.vendor, state: "check_failed", reason, refreshedState: null };
     }
   }
   return { ...result.check, refreshedState: result.captured };
@@ -282,9 +306,33 @@ export async function checkVendorSession(
 
 export type SaveResult = { saved: true } | { saved: false; reason: string };
 
-/** The forms a typed secret could take in a cookie or local-storage value. */
-function secretForms(value: string): string[] {
-  return [value, encodeURIComponent(value), Buffer.from(value, "utf8").toString("base64")].filter((form) => form.length >= 4);
+/** The forms a typed secret could take in a cookie, a local-storage value or a URL. */
+export function secretForms(value: string): string[] {
+  return [
+    value,
+    encodeURIComponent(value),
+    new URLSearchParams({ v: value }).toString().slice(2),
+    Buffer.from(value, "utf8").toString("base64"),
+  ].filter((form) => form.length >= 4);
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
+  }
+}
+
+/** True when any cookie or local-storage name or value holds one of `secrets`, read as stored and decoded. */
+export function storageStateHoldsSecret(state: StorageState, secrets: readonly string[]): boolean {
+  if (secrets.length === 0) return false;
+  const forms = secrets.flatMap(secretForms);
+  const values = [
+    ...state.cookies.flatMap((cookie) => [cookie.name, cookie.value]),
+    ...state.origins.flatMap((origin) => origin.localStorage.flatMap((entry) => [entry.name, entry.value])),
+  ];
+  return values.some((value) => [value, safeDecode(value)].some((text) => forms.some((form) => text.includes(form))));
 }
 
 /**
@@ -302,10 +350,7 @@ export async function saveScopedSession(
 ): Promise<SaveResult> {
   const scoped = scopeStorageStateToHosts(state, profile.sessionHosts);
   if (scoped.cookies.length === 0 && scoped.origins.length === 0) return { saved: false, reason: "scoped_session_empty" };
-  const serialized = JSON.stringify(scoped);
-  if (forbiddenValues.some((value) => secretForms(value).some((form) => serialized.includes(form)))) {
-    return { saved: false, reason: "session_contains_credential" };
-  }
+  if (storageStateHoldsSecret(scoped, forbiddenValues)) return { saved: false, reason: "session_contains_credential" };
   if (!(await kernelOpensStorageState(profile, { state: scoped }))) return { saved: false, reason: "scoped_session_refused_by_kernel" };
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   if ((await fs.realpath(stateDir)) !== path.resolve(stateDir)) return { saved: false, reason: "state_dir_has_symlink" };
@@ -339,6 +384,9 @@ export async function acquireSessionLock(stateDir: string): Promise<() => Promis
       const handle = await fs.open(lockPath, "wx", 0o600);
       await handle.writeFile(`${owner}\n`);
       await handle.close();
+      // A peer that recovered the same stale lock at the same moment may have replaced ours.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if ((await fs.readFile(lockPath, "utf8").catch(() => "")).trim() !== owner) break;
       return async () => {
         if ((await fs.readFile(lockPath, "utf8").catch(() => "")).trim() === owner) await fs.rm(lockPath, { force: true });
       };
@@ -349,7 +397,8 @@ export async function acquireSessionLock(stateDir: string): Promise<() => Promis
       // A just-created lock may not hold its pid yet.
       const fresh = holder === "" && stats !== null && Date.now() - stats.mtimeMs < 5_000;
       if (attempt === 0 && !fresh && !processAlive(Number.parseInt(holder, 10))) {
-        await fs.rm(lockPath, { force: true });
+        // Remove only the stale lock that was read, not one a peer has just written.
+        if ((await fs.readFile(lockPath, "utf8").catch(() => "")).trim() === holder) await fs.rm(lockPath, { force: true });
         continue;
       }
     }

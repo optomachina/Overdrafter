@@ -45,6 +45,7 @@ export type SessionProbeReason =
   | "browser_launch_failed"
   | "page_inspection_failed"
   | "storage_state_capture_failed"
+  | "settled_page_indeterminate"
   | "probe_not_supported"
   | "rmfg_endpoint_not_configured"
   | "rmfg_key_invalid"
@@ -314,11 +315,17 @@ export type BrowserProbeOptions = {
   now?: () => Date;
   /**
    * Consulted only when the settled page shows no login form, no login route
-   * and no challenge, but also no log out control. Returning true reports the
-   * session as authenticated by the provider definition's own terminal
-   * signals (OVD-1060). The page text stays inside this callback.
+   * and no challenge, but also no log out control (OVD-1060). `signed_in`
+   * reports the session authenticated by the provider definition's own
+   * terminal signals, `signed_out` keeps the logged-out answer, and
+   * `indeterminate` (an error, a spinner, a second-factor prompt) reports an
+   * error rather than a logged-out session. The page text stays inside this
+   * callback.
    */
-  settledPageAccepts?: (snapshot: { url: string; bodyText: string; passwordInputCount: number }) => boolean | Promise<boolean>;
+  settledPageVerdict?: (snapshot: { url: string; bodyText: string; passwordInputCount: number }) =>
+    SettledPageVerdict | Promise<SettledPageVerdict>;
+  /** Environment for the probe's Chromium; the caller's own environment when absent. */
+  browserEnv?: NodeJS.ProcessEnv;
   /**
    * Receives the context's storage state after an authenticated outcome,
    * before the browser closes, so a caller can re-save a session the probe
@@ -326,6 +333,8 @@ export type BrowserProbeOptions = {
    */
   onAuthenticated?: (storageState: StorageStateInput) => void | Promise<void>;
 };
+
+export type SettledPageVerdict = "signed_in" | "signed_out" | "indeterminate";
 
 function baseEvidence(provider: VendorName, now: () => Date): SessionProbeEvidence {
   return {
@@ -397,20 +406,20 @@ function hopHeaders(request: Request): Record<string, string> {
   return headers;
 }
 
-/** Same snapshot the portal kernel classifies; any read failure counts as not accepted. */
-async function settledPageAccepted(
+/** Same snapshot the portal kernel classifies; a read failure is indeterminate. */
+async function settledPageVerdictOf(
   page: Page,
   url: string,
-  accepts: NonNullable<BrowserProbeOptions["settledPageAccepts"]>,
-): Promise<boolean> {
+  verdict: NonNullable<BrowserProbeOptions["settledPageVerdict"]>,
+): Promise<SettledPageVerdict> {
   try {
-    return await accepts({
+    return await verdict({
       url,
       bodyText: await page.locator("body").innerText({ timeout: 5_000 }),
       passwordInputCount: await page.locator("input[type='password']").count(),
     });
   } catch {
-    return false;
+    return "indeterminate";
   }
 }
 
@@ -463,6 +472,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
         headless: true,
         ...chromiumSandboxLaunchOptions(options.sandbox),
         executablePath: options.executablePath,
+        ...(options.browserEnv ? { env: options.browserEnv } : {}),
       });
     } catch {
       return { ...evidence, outcome: "error", reason: "browser_launch_failed" };
@@ -725,9 +735,11 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     }
     let reason: SessionProbeReason = "authenticated_marker_found";
     if (!signals.marker) {
-      if (!options.settledPageAccepts || !(await settledPageAccepted(page, settledUrl, options.settledPageAccepts))) {
-        return { ...evidence, outcome: "logged_out", reason: "no_authenticated_marker" };
-      }
+      const verdict = options.settledPageVerdict
+        ? await settledPageVerdictOf(page, settledUrl, options.settledPageVerdict)
+        : "signed_out";
+      if (verdict === "indeterminate") return { ...evidence, outcome: "error", reason: "settled_page_indeterminate" };
+      if (verdict === "signed_out") return { ...evidence, outcome: "logged_out", reason: "no_authenticated_marker" };
       reason = "terminal_signals_ready";
     }
     if (options.onAuthenticated) {

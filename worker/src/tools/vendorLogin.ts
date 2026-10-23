@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import type { ProviderKillSwitchReader } from "../providerSettings.js";
-import { BitwardenError, BitwardenVault, childEnv, type LoginCredential } from "./vendorLoginBitwarden.js";
+import { BitwardenError, BitwardenVault, minimalChildEnv, type LoginCredential } from "./vendorLoginBitwarden.js";
 import {
   readVendorLoginConfig,
   resolveLogPath,
@@ -120,12 +120,7 @@ export function assertHumanOrLaunchdCaller(env: NodeJS.ProcessEnv, stdinIsTTY: b
   }
 }
 
-/** Only what a browser or notifier needs: no vault session, no worker secrets. */
-export function minimalChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { BW_NOINTERACTION: _bitwardenOnly, ...rest } = childEnv(env);
-  delete rest.BITWARDENCLI_APPDATA_DIR;
-  return rest;
-}
+export { minimalChildEnv };
 
 function stopped(
   vendor: UnattendedLoginVendor,
@@ -331,6 +326,26 @@ export function notificationFor(result: VendorLoginResult, displayName: string):
   return `${displayName} login stopped (${token(result.reason)}). Log in by hand with auth:vendor ${result.vendor}.`;
 }
 
+/**
+ * Prints, logs and notifies one result. Logging and notifying are
+ * independent: a failed log write still notifies, and says so.
+ */
+export function statusReporter(
+  logPath: string,
+  notify: Notifier,
+  now: () => Date = () => new Date(),
+): (result: VendorLoginResult) => Promise<void> {
+  return async (result) => {
+    const line = statusLine(result, now());
+    console.log(line);
+    const logged = await appendStatusLine(logPath, line).then(() => true, () => false);
+    const message = notificationFor(result, resolveVendorSessionProfile(result.vendor).displayName);
+    if (message || !logged) {
+      await notify(`${message ?? `${result.vendor}: ${result.outcome}.`}${logged ? "" : " The status log could not be written."}`);
+    }
+  };
+}
+
 type LoginCliArgs = {
   vendors: UnattendedLoginVendor[] | null;
   force: boolean;
@@ -390,13 +405,7 @@ async function main() {
         env: minimalChildEnv(process.env),
         ...chromiumSandboxLaunchOptions(sandboxFromEnv()),
       }),
-      report: async (result) => {
-        const line = statusLine(result, new Date());
-        console.log(line);
-        await appendStatusLine(logPath, line);
-        const message = notificationFor(result, resolveVendorSessionProfile(result.vendor).displayName);
-        if (message) await osascriptNotifier(message);
-      },
+      report: statusReporter(logPath, osascriptNotifier),
     });
     process.exitCode = results.some((result) => result.outcome === "stopped" || result.outcome === "saved_unconfirmed") ? 1 : 0;
   } finally {
