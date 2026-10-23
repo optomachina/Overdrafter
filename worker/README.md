@@ -174,7 +174,9 @@ launch when a drawing is selected, rather than silently omitting it.
 For provider-interacting evaluation vendors, authenticate with the existing
 `auth:xometry`, `auth:fictiv`, or `auth:vendor` command and configure the
 corresponding storage-state/profile variables before running the harness.
-SendCutSend performs only local manifest and envelope admission and does not
+`auth:vendor` saves only the cookies and local storage of the provider's exact
+reviewed hosts, because the portal kernel refuses any session that also holds
+third-party analytics or CAPTCHA state. SendCutSend performs only local manifest and envelope admission and does not
 require or prepare a provider session. Example commands:
 
 ```bash
