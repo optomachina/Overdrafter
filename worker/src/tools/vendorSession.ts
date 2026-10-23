@@ -509,7 +509,8 @@ async function optionalConfig(configPath: string | null): Promise<VendorLoginCon
 }
 
 function formatLine(result: VendorSessionCheck & { refreshed?: boolean }): string {
-  const refreshed = result.refreshed === undefined ? "" : result.refreshed ? " refreshed" : " not_refreshed";
+  let refreshed = "";
+  if (result.refreshed !== undefined) refreshed = result.refreshed ? " refreshed" : " not_refreshed";
   return `${result.vendor.padEnd(11)} ${result.state} (${result.reason})${refreshed}`;
 }
 
@@ -520,7 +521,7 @@ async function main() {
   if (!vendors) throw new Error(`Name the vendors, or add them to the login config.\n\n${SESSION_USAGE}`);
   const stateDir = resolveStateDir({ flag: args.stateDir, env: process.env, config });
   let allValid = true;
-  const release = args.command === "refresh" ? await acquireSessionLock(stateDir) : async () => undefined;
+  const release = args.command === "refresh" ? await acquireSessionLock(stateDir) : () => Promise.resolve();
   try {
     for (const vendor of vendors) {
       const profile = resolveVendorSessionProfile(vendor);

@@ -19,7 +19,7 @@ export const DEFAULT_VENDOR_LOGIN_LOG_PATH = path.join(os.homedir(), "Library", 
 export const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 const itemReference = z.string().trim().min(1).max(200).refine(
-  (value) => ![...value].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f),
+  (value) => ![...value].some((char) => (char.codePointAt(0) ?? 0) < 0x20 || char.codePointAt(0) === 0x7f),
   { message: "must not contain control characters" },
 );
 
@@ -73,9 +73,13 @@ export function checkoutRoots(repositoryRoot = REPOSITORY_ROOT): string[] {
   const roots = [canonicalPath(repositoryRoot)];
   try {
     const marker = readFileSync(path.join(repositoryRoot, ".git"), "utf8");
-    const gitDir = /^gitdir:\s*(.+)$/m.exec(marker)?.[1]?.trim();
-    const main = gitDir ? /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+$/.exec(path.resolve(repositoryRoot, gitDir))?.[1] : undefined;
-    if (main) roots.push(canonicalPath(main));
+    const gitDir = /^gitdir:[ \t]*(\S.*)$/m.exec(marker)?.[1]?.trim();
+    const resolved = gitDir ? path.resolve(repositoryRoot, gitDir) : "";
+    const worktreesMarker = `${path.sep}.git${path.sep}worktrees${path.sep}`;
+    const index = resolved.lastIndexOf(worktreesMarker);
+    if (index > 0 && !resolved.slice(index + worktreesMarker.length).includes(path.sep)) {
+      roots.push(canonicalPath(resolved.slice(0, index)));
+    }
   } catch {
     // A directory .git (or none) means this is the main checkout.
   }

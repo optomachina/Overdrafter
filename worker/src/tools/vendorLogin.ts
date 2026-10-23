@@ -103,8 +103,7 @@ const AGENT_ENV_MARKERS = [
  * Refuses any environment an agent runtime marks as its own.
  */
 export function assertHumanOrLaunchdCaller(env: NodeJS.ProcessEnv, stdinIsTTY: boolean): void {
-  const marker = AGENT_ENV_MARKERS.find((name) => env[name]);
-  if (marker) {
+  if (AGENT_ENV_MARKERS.some((name) => env[name])) {
     throw new Error("login:vendors runs only from Blaine's terminal or LaunchAgent. Agents run session:check and ask Blaine to log in.");
   }
   const launchd = env.OVD_VENDOR_LOGIN_LAUNCHD === "1" && env.XPC_SERVICE_NAME === LAUNCHD_LABEL;
@@ -190,18 +189,8 @@ export async function loginVendor(
   if (workerSessionOverride(vendor, deps.env)) return stopped(vendor, "worker_reads_session_from_env", killSwitch);
 
   if (!deps.force) {
-    const current = await checkVendorSession(profile, deps.stateDir, { ...deps.sessionDeps, env: deps.env });
-    if (current.state === "valid") {
-      const refreshed = current.refreshedState
-        ? await saveScopedSession(profile, deps.stateDir, current.refreshedState)
-        : { saved: false as const, reason: "refreshed_state_missing" };
-      return refreshed.saved
-        ? { vendor, outcome: "refreshed", reason: current.reason, host: null, killSwitch, check: `valid:${current.reason}` }
-        : stopped(vendor, `refresh_not_saved:${refreshed.reason}`, killSwitch);
-    }
-    // Only a session that is absent, unusable, or signed out is worth a password.
-    // A challenge, denial or failed check is a stop, not a reason to try logging in.
-    if (current.state === "check_failed") return stopped(vendor, `session_check_failed:${current.reason}`, killSwitch);
+    const settled = await refreshOrStop(profile, deps, killSwitch);
+    if (settled) return settled;
   }
 
   const item = deps.config.vendors[vendor]?.item;
@@ -217,11 +206,50 @@ export async function loginVendor(
   const login = await passwordLogin(profile, credential, deps);
   if (login.outcome !== "authenticated") return stopped(vendor, `${login.outcome}:${login.reason}`, killSwitch, login.host);
 
-  const forbidden = [credential.password.reveal()];
-  const saved = await saveScopedSession(profile, deps.stateDir, login.storageState, forbidden);
+  return saveAndVerify(profile, deps, killSwitch, login.storageState, [credential.password.reveal()]);
+}
+
+/**
+ * The GET-only session check before a password is spent: a valid session is
+ * refreshed (result returned), a failed check stops the vendor (result
+ * returned), and a missing, unusable or signed-out session returns null so
+ * the caller logs in.
+ */
+async function refreshOrStop(
+  profile: VendorSessionProfile,
+  deps: VendorLoginDeps,
+  killSwitch: KillSwitchDecision,
+): Promise<VendorLoginResult | null> {
+  const vendor = profile.vendor;
+  const current = await checkVendorSession(profile, deps.stateDir, { ...deps.sessionDeps, env: deps.env });
+  if (current.state === "valid") {
+    const refreshed = current.refreshedState
+      ? await saveScopedSession(profile, deps.stateDir, current.refreshedState)
+      : { saved: false as const, reason: "refreshed_state_missing" };
+    return refreshed.saved
+      ? { vendor, outcome: "refreshed", reason: current.reason, host: null, killSwitch, check: `valid:${current.reason}` }
+      : stopped(vendor, `refresh_not_saved:${refreshed.reason}`, killSwitch);
+  }
+  // A challenge, denial or failed check is a stop, not a reason to try logging in.
+  if (current.state === "check_failed") return stopped(vendor, `session_check_failed:${current.reason}`, killSwitch);
+  return null;
+}
+
+/**
+ * Saves a confirmed login, then runs the agent-facing GET-only check: a login
+ * it cannot confirm is not reported as a plain save. Its visit may rotate
+ * session tokens, so a valid verdict's state replaces the file just written.
+ */
+async function saveAndVerify(
+  profile: VendorSessionProfile,
+  deps: VendorLoginDeps,
+  killSwitch: KillSwitchDecision,
+  state: Parameters<typeof saveScopedSession>[2],
+  forbidden: readonly string[],
+): Promise<VendorLoginResult> {
+  const vendor = profile.vendor;
+  const saved = await saveScopedSession(profile, deps.stateDir, state, forbidden);
   if (!saved.saved) return stopped(vendor, `not_saved:${saved.reason}`, killSwitch);
-  // The agent-facing GET-only check. A login it cannot confirm is not reported as a plain save.
-  // Its visit may rotate session tokens, so a valid verdict's state replaces the file just written.
   const opened = await kernelOpensStorageState(profile, { path: sessionStatePath(deps.stateDir, vendor) });
   const verdict = opened
     ? await probeStorageState(profile, opened, deps.sessionDeps)
@@ -341,7 +369,8 @@ export function statusReporter(
     const logged = await appendStatusLine(logPath, line).then(() => true, () => false);
     const message = notificationFor(result, resolveVendorSessionProfile(result.vendor).displayName);
     if (message || !logged) {
-      await notify(`${message ?? `${result.vendor}: ${result.outcome}.`}${logged ? "" : " The status log could not be written."}`);
+      const base = message ?? `${result.vendor}: ${result.outcome}.`;
+      await notify(logged ? base : `${base} The status log could not be written.`);
     }
   };
 }
