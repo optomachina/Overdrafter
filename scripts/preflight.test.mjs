@@ -127,24 +127,32 @@ describe("preflight local Docker skips", () => {
 });
 
 describe("preflight stage arguments", () => {
-  it("passes arguments after -- to the one stage and keeps the stage lines", () => {
+  it("passes arguments after -- to the one stage and names them in the stage lines", () => {
     const result = runPreflight({ args: ["test", "--", "--shard=2/3"], ci: true });
     expect(result.status).toBe(0);
     expect(result.npmCalls).toBe("run --silent test -- --shard=2/3\nunset\n");
-    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
+    expect(result.output).toBe("preflight: test start (args: --shard=2/3)\npreflight: test PASS (args: --shard=2/3)\n");
   });
 
-  it("prints the FAIL line a rerun classifier needs when a shard fails", () => {
+  it("prints the FAIL line the rerun classifier reads when a shard fails", () => {
     const result = runPreflight({ args: ["test", "--", "--shard=1/3"], ci: true, npmStatus: 1 });
     expect(result.status).toBe(1);
-    expect(result.output).toBe("preflight: test start\npreflight: test FAIL\n");
+    expect(result.output).toBe("preflight: test start (args: --shard=1/3)\npreflight: test FAIL (args: --shard=1/3)\n");
+    expect(result.output.split("\n")[1]).toMatch(/^preflight: \S+ FAIL\b/);
   });
 
   it("keeps the local Docker skip when arguments are passed", () => {
     const result = runPreflight({ args: ["test", "--", "--shard=3/3"], docker: "missing" });
     expect(result.status).toBe(0);
     expect(result.npmCalls).toBe("run --silent test -- --shard=3/3\n1\n");
-    expect(result.output).toContain("preflight: test PASS (3 docker tests SKIPPED: docker unavailable)\n");
+    expect(result.output).toContain("preflight: test PASS (args: --shard=3/3) (3 docker tests SKIPPED: docker unavailable)\n");
+  });
+
+  it("treats a bare trailing -- as no arguments", () => {
+    const result = runPreflight({ args: ["test", "--"], ci: true });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test --\nunset\n");
+    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
   });
 
   it.each([

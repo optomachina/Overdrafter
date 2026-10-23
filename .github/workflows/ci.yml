@@ -139,7 +139,9 @@ jobs:
     # Pinned to noble: the OCR step below installs exact noble package versions,
     # so an ubuntu-latest image change must not break every PR.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # A shard runs about 5 minutes of tests, but on a cold apt cache with a slow
+    # mirror its setup alone has taken about 15 (OVD-1062).
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
