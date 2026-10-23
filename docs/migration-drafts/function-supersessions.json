@@ -41,7 +41,7 @@
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
       "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
-      "reason": "OVD-723 contract moves the MD5-guarded OVD-987 body unchanged into its private core, preserving its quantity checks beneath the export-control wrapper; rollback restores that same core."
+      "reason": "OVD-723 contract renames the deployed OVD-987 body unchanged into its private core, preserving its quantity checks beneath the export-control wrapper; rollback restores that same core."
     },
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
