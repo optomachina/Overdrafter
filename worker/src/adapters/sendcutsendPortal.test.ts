@@ -120,7 +120,7 @@ describe("SendCutSend sheet portal definition", () => {
   it("declares exact hosts, no production dispatch and no cart or footer control", () => {
     const definition = buildSendCutSendSheetPortalDefinition();
     expect(definition.provider).toBe("sendcutsend");
-    expect(definition.allowedHosts).toEqual(["app.sendcutsend.com", "main.realtime.ably.net"]);
+    expect(definition.allowedHosts).toEqual(["app.sendcutsend.com", "main.realtime.ably.net", "sendcutsend.com"]);
     expect(definition.offHostAllowlist).toEqual(["cdn.sendcutsend.com"]);
     expect(definition.productionDispatch).toBeUndefined();
     expect(definition.selectors.quantity).toBeUndefined();
@@ -494,7 +494,8 @@ describe("SendCutSend summary price", () => {
     ["a custom quote", { [L.subtotal]: ["Subtotal: Custom quote"] }, "manual_review", "sendcutsend_custom_quote"],
   ])("withholds the offer for %s", async (_label, texts, terminalState, reason) => {
     const reader = fakeReader({ ...CRUMBS, [L.selectedSkuTitles]: [".125"], ...texts });
-    await expect(extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 5 }))
+    // Long enough for three reads under a loaded test runner; the never-settling cases run it out.
+    await expect(extractSendCutSendSheetOffers(reader, 1, walked, { ...FAST, priceWaitMs: 300 }))
       .rejects.toMatchObject({ payload: { terminalState, reason, vendor: "sendcutsend" } });
   });
 
@@ -657,6 +658,7 @@ describe("SendCutSend saved session filter", () => {
         { name: "app", value: "v", domain: "app.sendcutsend.com" },
         { name: "rt", value: "v", domain: ".main.realtime.ably.net" },
         { name: "cf", value: "v", domain: ".sendcutsend.com" },
+        { name: "w", value: "v", domain: "www.sendcutsend.com" },
         { name: "g", value: "v", domain: ".google.com" },
         { name: "i", value: "v", domain: ".intercom.io" },
       ],
@@ -666,13 +668,17 @@ describe("SendCutSend saved session filter", () => {
         { origin: "http://app.sendcutsend.com", localStorage: [] },
       ],
     });
-    expect(filtered.keptCookies).toBe(2);
+    expect(filtered.keptCookies).toBe(3);
     expect(filtered.state.cookies).toEqual([
       { name: "app", value: "v", domain: "app.sendcutsend.com" },
       { name: "rt", value: "v", domain: ".main.realtime.ably.net" },
+      { name: "cf", value: "v", domain: ".sendcutsend.com" },
     ]);
-    expect(filtered.state.origins).toEqual([{ origin: "https://app.sendcutsend.com", localStorage: [] }]);
-    expect(filtered.droppedCookieDomains).toEqual(["google.com", "intercom.io", "sendcutsend.com"]);
+    expect(filtered.state.origins).toEqual([
+      { origin: "https://app.sendcutsend.com", localStorage: [] },
+      { origin: "https://sendcutsend.com", localStorage: [] },
+    ]);
+    expect(filtered.droppedCookieDomains).toEqual(["google.com", "intercom.io", "www.sendcutsend.com"]);
     expect(JSON.stringify(filtered.droppedCookieDomains)).not.toContain("value");
   });
 

@@ -23,9 +23,13 @@ const SENDCUTSEND_APP_HOST = "app.sendcutsend.com";
  * Hosts the quote page needs, from the anonymous capture of 2026-10-22: the
  * Rails app itself, and Ably realtime, which the page calls on load (a token
  * POST and a WebSocket). The kernel treats either as a boundary violation
- * unless it is listed, and the operator approval names every host here.
+ * unless it is listed, and the operator approval names every host here. The
+ * apex `sendcutsend.com` is listed because SendCutSend may keep its session
+ * cookie on the parent domain, and the kernel admits a saved cookie only for
+ * a listed host; the classifier still treats any page outside the app as
+ * `unexpected_origin`.
  */
-export const SENDCUTSEND_ALLOWED_HOSTS = [SENDCUTSEND_APP_HOST, "main.realtime.ably.net"] as const;
+export const SENDCUTSEND_ALLOWED_HOSTS = [SENDCUTSEND_APP_HOST, "main.realtime.ably.net", "sendcutsend.com"] as const;
 
 /** SendCutSend's own CDN serves the page's stylesheets, fonts and images; body-less requests only. */
 export const SENDCUTSEND_OFF_HOST_ALLOWLIST = ["cdn.sendcutsend.com"] as const;

@@ -134,8 +134,17 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
 
     if (sendCutSend) {
       // OVD-1056: exact-host, signed-in-only save; no production next step to print.
-      await sendCutSend.save({ browser, context, page }, outputPath);
-      return;
+      // A refused save keeps the browser open so the operator can finish signing in and retry.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await sendCutSend.save({ browser, context, page }, outputPath);
+          return;
+        } catch (error) {
+          if (attempt >= 3) throw error;
+          console.log(error instanceof Error ? error.message : String(error));
+          await rl.question("Finish signing in in the browser, then press Enter to check again...");
+        }
+      }
     }
     await writePrivateStorageState(context, outputPath);
 

@@ -20,15 +20,15 @@ async function outputPath() {
 const signedIn = {
   cookies: [
     { name: "session", value: "v", domain: "app.sendcutsend.com", path: "/" },
-    { name: "ga", value: "v", domain: ".sendcutsend.com", path: "/" },
+    { name: "ga", value: "v", domain: ".google.com", path: "/" },
   ],
   origins: [{ origin: "https://app.sendcutsend.com", localStorage: [] }],
 };
 
-function page(signedIn: boolean) {
+function page(signedIn: boolean, detail = signedIn ? "status 200" : "status 401") {
   return {
     goto: vi.fn(async () => undefined),
-    evaluate: vi.fn(async () => signedIn) as unknown as <T>(fn: () => Promise<T>) => Promise<T>,
+    evaluate: vi.fn(async () => ({ signedIn, detail })) as unknown as <T>(fn: () => Promise<T>) => Promise<T>,
   };
 }
 
@@ -69,14 +69,14 @@ describe("SendCutSend session save", () => {
     expect(saved.cookies).toEqual([signedIn.cookies[0]]);
     expect(saved.origins).toEqual(signedIn.origins);
     expect((await fs.stat(target)).mode & 0o777).toBe(0o600);
-    expect(lines.join("\n")).toContain("Dropped cookies for: sendcutsend.com");
+    expect(lines.join("\n")).toContain("Dropped cookies for: google.com");
     expect(lines.join("\n")).not.toContain("v\"");
   });
 
   it("saves nothing when the app does not report a signed-in, non-guest user", async () => {
     const target = await outputPath();
     await expect(saveSendCutSendSession(session({ signedIn: false }).session, target, () => undefined))
-      .rejects.toThrow(/did not report a signed-in user/);
+      .rejects.toThrow(/did not report a signed-in user \(status 401\)/);
     await expect(fs.stat(target)).rejects.toThrow();
   });
 
@@ -84,7 +84,7 @@ describe("SendCutSend session save", () => {
     const target = await outputPath();
     const { session: headed, close } = session({ survivesFilter: false });
     await expect(saveSendCutSendSession(headed, target, () => undefined))
-      .rejects.toThrow(/does not survive the exact-host filter/);
+      .rejects.toThrow(/does not survive the exact-host filter \(status 401; dropped cookies for: google\.com\)/);
     expect(close).toHaveBeenCalledOnce();
     await expect(fs.stat(target)).rejects.toThrow();
   });
@@ -95,7 +95,7 @@ describe("SendCutSend session save", () => {
     const { session: headed, close } = session();
     const startedAt = Date.now();
     await expect(saveSendCutSendSession({ ...headed, page: stalled as never }, target, () => undefined, 30))
-      .rejects.toThrow(/did not report a signed-in user/);
+      .rejects.toThrow(/did not report a signed-in user \(timed out\)/);
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     await expect(fs.stat(target)).rejects.toThrow();
 
