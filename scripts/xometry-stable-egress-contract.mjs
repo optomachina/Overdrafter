@@ -64,7 +64,7 @@ export const STABLE_EGRESS_LIVE_ADAPTER_VALUES = Object.freeze(
  * Xometry and Fictiv are bespoke adapters with their own origin checks.
  */
 export const STABLE_EGRESS_PROVIDER_HOSTS = Object.freeze({
-  quickparts: Object.freeze(["quickparts.com", "quickquote.quickparts.com"]),
+  quickparts: Object.freeze(["quickparts.com", "quickquote.quickparts.com", "services.qpinternal.com"]),
   weerg: Object.freeze(["www.weerg.com"]),
 });
 
