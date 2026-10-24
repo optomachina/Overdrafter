@@ -85,7 +85,7 @@ each body is this file's or the previous one.
 
 | File | sha256 | md5 |
 | --- | --- | --- |
-| `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql` | `52d95bf97aa68ffec209010edb338614666174e6420212cac6000f55355501ca` | `8e9f067e7c9849b53ac267833d74ad64` |
+| `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
 | `docs/migration-drafts/ovd-987.rollback.sql` | `e863f27f7ae88d91208a7d8df277ad7a75a08bbbe5b5feb5a0a12398f828fe0b` | `2fa6068507562e09b22a21c68e1e43dd` |
 
 The migration's sha256 is also pinned in `scripts/free-quote-ci-profile.mjs` and
