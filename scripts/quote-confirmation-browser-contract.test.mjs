@@ -152,5 +152,6 @@ describe("Free quote browser fixture contracts (not browser acceptance)", () => 
     expect(browserJob).not.toContain("continue-on-error");
     expect(workflow).toContain("needs.browser-test.result");
     expect(browserJob).toContain("path: quote-confirmation-results/");
+    expect(browserJob).toContain("PLAYWRIGHT_JSON_OUTPUT_FILE: quote-confirmation-results/report.json");
   });
 });

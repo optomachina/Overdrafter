@@ -198,6 +198,23 @@ describe("Playwright execution lane configuration", () => {
     expect(browserJob).not.toContain("run: npm exec ");
   });
 
+  it.each(["admin-operations", "quote-confirmation"])("uploads the cwd-relative JSON report and test output for %s", lane => {
+    const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+    const browserJob = ci.split("  browser-test:")[1].split("\n  build:")[0];
+    const steps = browserJob.split("      - name:");
+    const testStep = steps.find(step => step.includes(`--output=${lane}-results `));
+    const uploadStep = steps.find(step => step.includes(`name: ${lane}-browser-evidence`));
+    expect(testStep).toBeDefined();
+    expect(uploadStep).toBeDefined();
+    const uploadPath = uploadStep.match(/path: ([^\s]+)\//)[1];
+    // OUTPUT_NAME defaults to configDir; OUTPUT_FILE and --output resolve from cwd.
+    expect(testStep).toContain(`PLAYWRIGHT_JSON_OUTPUT_FILE: ${uploadPath}/report.json`);
+    expect(testStep).not.toContain("PLAYWRIGHT_JSON_OUTPUT_NAME:");
+    expect(testStep).toContain(`--output=${uploadPath} --reporter=line,json`);
+    expect(uploadStep).toContain("uses: actions/upload-artifact@v4");
+    expect(uploadStep).toContain("always() && matrix.lane == 'synthetic'");
+  });
+
   it("wires both explicit lanes into the required CI job", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.scripts.e2e).toBe("npm run e2e:authenticated");
