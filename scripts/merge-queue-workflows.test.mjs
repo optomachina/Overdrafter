@@ -9,7 +9,12 @@ const REQUIRED_CHECKS = [
   { workflow: "ci.yml", job: "ci", noOp: false },
   { workflow: "pr-body-gate.yml", job: "provider-go-live", noOp: true },
 ];
-const FUTURE_REQUIRED_CHECKS = [{ workflow: "proof-check.yml", job: "proof-check", noOp: true }];
+// A writer check is not a job's own status: the job (named differently on
+// purpose) writes the check run through the Checks API, also on merge_group.
+const FUTURE_REQUIRED_CHECKS = [
+  { workflow: "proof-check.yml", job: "proof-check", noOp: true },
+  { workflow: "ovd-merge-gate.yml", job: "ovd-merge-gate", writer: "ovd-merge-gate-writer" },
+];
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readWorkflow = (file) => read(`.github/workflows/${file}`);
@@ -41,6 +46,21 @@ describe("merge queue workflows", () => {
       it("triggers on merge_group", () => {
         expect(onBlock(text)).toMatch(/^ {2}merge_group:/m);
       });
+
+      if (check.writer) {
+        it("writes the check from a job with another name and no job-level if", () => {
+          const block = jobBlock(text, check.writer);
+          expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
+          expect(block).not.toMatch(/^ {4}if:/m);
+          expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
+          expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
+        });
+
+        it("writes the check on merge_group as a no op", () => {
+          expect(jobBlock(text, check.writer)).toMatch(/merge_group\)\n\s+exec node scripts\/ovd-merge-gate\.mjs merge-group --sha "\$GITHUB_SHA"/);
+        });
+        return;
+      }
 
       it("reports the check under the bare job name", () => {
         expect(jobBlock(text, check.job)).toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
