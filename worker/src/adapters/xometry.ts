@@ -227,6 +227,8 @@ const XOMETRY_CONTROL_RENDER_TIMEOUT_MS = 10_000;
 const XOMETRY_MODAL_SUBMIT_TIMEOUT_MS = 60_000;
 const XOMETRY_OPTION_RENDER_TIMEOUT_MS = 10_000;
 const XOMETRY_UPLOAD_READINESS_POLL_MS = 500;
+const XOMETRY_PART_DETAILS_TIMEOUT_MS = 15_000;
+const XOMETRY_PART_DETAILS_POLL_MS = 500;
 const XOMETRY_SUPPORTED_FILE_TYPES_LOADING_PATTERN =
   /supported file types are still loading/i;
 
@@ -2219,7 +2221,7 @@ async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
  * Explicit summary quantities always take precedence, including contradictory
  * values, so callers can use the result for fail-closed verification.
  */
-async function readQuoteSummaryText(page: Page) {
+export async function readQuoteSummaryText(page: Page) {
   const bodyText = await readBodyText(page);
   const explicitQuantities = Array.from(
     bodyText.matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
@@ -2235,6 +2237,112 @@ async function readQuoteSummaryText(page: Page) {
   }
 
   return bodyText;
+}
+
+/**
+ * Reads the summary page's part-row quantity through the row-anchored
+ * lineItemQuantityInputs only, never the catch-all number inputs. Only
+ * `matched` (exactly one readable input showing the requested quantity, and no
+ * summary text naming another) lets the configure path skip setting it.
+ */
+export async function readSummaryRowQuantity(page: Page, requestedQuantity: number) {
+  const readback = await readLineItemQuantities(page);
+  const summaryQuantities = Array.from(
+    (await readBodyText(page)).matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
+    (match) => Number.parseInt(match[1], 10),
+  );
+  let status: "matched" | "mismatch" | "unreadable" | "ambiguous";
+  if (readback.values.length === 0 || readback.values.includes(null)) {
+    status = "unreadable";
+  } else if (
+    readback.values.length > 1
+    || summaryQuantities.some((quantity) => quantity !== requestedQuantity)
+  ) {
+    status = "ambiguous";
+  } else {
+    status = readback.values[0] === requestedQuantity ? "matched" : "mismatch";
+  }
+  return { status, selector: readback.selector, count: readback.values.length };
+}
+
+async function firstVisibleSelector(page: Page, selectors: readonly string[]) {
+  for (const selector of selectors) {
+    if (await page.locator(selector).first().isVisible().catch(() => false)) return selector;
+  }
+  return null;
+}
+
+/**
+ * One look at the uploaded quote page. `ready` needs the part row's quantity
+ * stepper plus the Edit Configuration button or a price-tier card. A
+ * manual-review page continues without them, as waitForQuoteSignals lets it.
+ */
+export async function observeXometryPartDetails(page: Page) {
+  const bodyText = await readBodyText(page);
+  const rowQuantitySelector = await firstVisibleSelector(page, XOMETRY_LOCATORS.lineItemQuantityInputs);
+  const companionSelector = await firstVisibleSelector(page, [
+    ...XOMETRY_LOCATORS.editConfigurationButtons,
+    XOMETRY_LOCATORS.offerContainers[0],
+  ]);
+  let status: "ready" | "manual_review" | "blocked" | "pending";
+  if (detectBlockingStateSignal({ text: bodyText, url: page.url() })) {
+    status = "blocked";
+  } else if (rowQuantitySelector && companionSelector) {
+    status = "ready";
+  } else if (isManualReviewText(bodyText)) {
+    status = "manual_review";
+  } else {
+    status = "pending";
+  }
+  return { status, rowQuantitySelector, companionSelector };
+}
+
+/**
+ * Waits up to 15 s for the part details before the uploaded summary is read,
+ * so a slow page is not mistaken for a summary mismatch. Fails closed on
+ * timeout instead of reading a half-rendered page.
+ */
+async function waitForPartDetails(page: Page, runDir: string) {
+  const startedAt = Date.now();
+  const maxPolls = Math.ceil(XOMETRY_PART_DETAILS_TIMEOUT_MS / XOMETRY_PART_DETAILS_POLL_MS);
+  let observation = await observeXometryPartDetails(page);
+  for (
+    let poll = 0;
+    observation.status === "pending" && poll < maxPolls
+      && Date.now() - startedAt < XOMETRY_PART_DETAILS_TIMEOUT_MS;
+    poll += 1
+  ) {
+    await page.waitForTimeout(XOMETRY_PART_DETAILS_POLL_MS).catch(() => undefined);
+    observation = await observeXometryPartDetails(page);
+  }
+  if (observation.status === "ready" || observation.status === "manual_review") {
+    return observation;
+  }
+  // A captcha or sign-in page is classified as itself, not as drift.
+  await detectBlockingState(page, runDir);
+  throw new VendorAutomationError(
+    "Xometry quote page did not render the part details before the summary read.",
+    "selector_failure",
+    {
+      vendor: "xometry",
+      reason: "part_details_not_rendered",
+      terminalState: "selector_drift",
+      detectedFlow: "upload_complete",
+      failedSelector: observation.rowQuantitySelector
+        ? XOMETRY_LOCATORS.editConfigurationButtons[0]
+        : XOMETRY_LOCATORS.lineItemQuantityInputs.at(-1),
+      attemptedSelectors: [
+        ...XOMETRY_LOCATORS.lineItemQuantityInputs,
+        ...XOMETRY_LOCATORS.editConfigurationButtons,
+        XOMETRY_LOCATORS.offerContainers[0],
+      ],
+      rowQuantitySelector: observation.rowQuantitySelector,
+      companionSelector: observation.companionSelector,
+      waitedMs: Date.now() - startedAt,
+      url: page.url(),
+    },
+    await capturePageArtifacts(page, runDir, "part-details-timeout"),
+  );
 }
 
 async function openPartConfigurationIfNeeded(
@@ -2599,7 +2707,7 @@ async function attachDrawingFallback(
   return null;
 }
 
-type SavedRequirementCheck = {
+export type SavedRequirementCheck = {
   quantity: number;
   processTerms: string[];
   materialTerms: string[];
@@ -2672,7 +2780,7 @@ export function toleranceSummaryMatches(bodyText: string, tier: string | null) {
   }
 }
 
-function verifySavedRequirements(
+export function verifySavedRequirements(
   bodyText: string,
   expected: SavedRequirementCheck,
 ) {
@@ -3128,6 +3236,7 @@ export class XometryAdapter extends VendorAdapter {
     let priceSource: ValueSource;
     let leadTimeSource: ValueSource;
     let saveConfigurationSelector: string | null = null;
+    let quantityConfiguration: "summary_row_matched" | "configure_input" | null = null;
     let drawingUploadSelector: string | null = null;
     let drawingUploadVerification: string | null = null;
     let quoteResult: VendorQuoteAdapterOutput | null = null;
@@ -3292,6 +3401,7 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "upload_complete";
+      await waitForPartDetails(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "uploaded");
 
       const requestedTolerance = selectToleranceTier(
@@ -3345,14 +3455,40 @@ export class XometryAdapter extends VendorAdapter {
             : null;
         selectedTolerance = requestedTolerance.tier;
       } else {
+        // Read before Edit Configuration: the configure view need not show
+        // the part-row stepper. Saved-quote checks below still verify it.
+        const summaryRowQuantity = await readSummaryRowQuantity(page, normalizedQuantity(input));
         await input.providerKillSwitchCheckpoint?.("before_configure");
-        await openPartConfigurationIfNeeded(
+        const editConfigurationSelector = await openPartConfigurationIfNeeded(
           page,
           this.config.browserTimeoutMs,
         );
-        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
-          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
-        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
+        if (editConfigurationSelector) {
+          await appendArtifacts(artifacts, page, runDir, "edit-configuration");
+        }
+        if (summaryRowQuantity.status === "matched") {
+          quantityConfiguration = "summary_row_matched";
+        } else {
+          try {
+            await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
+              scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+            async () => input.providerKillSwitchCheckpoint?.("before_configure"));
+          } catch (error) {
+            if (error instanceof ProviderKillSwitchError || isDispatchDecisionError(error)) throw error;
+            await appendArtifacts(artifacts, page, runDir, "set-quantity-failed");
+            if (!(error instanceof VendorAutomationError)) throw error;
+            // Flow and selector context only; never price fields.
+            throw new VendorAutomationError(error.message, error.code, {
+              ...error.payload,
+              terminalState: error.payload.terminalState ?? "selector_drift",
+              detectedFlow,
+              editConfigurationSelector,
+              summaryRowQuantityStatus: summaryRowQuantity.status,
+              summaryRowQuantitySelector: summaryRowQuantity.selector,
+            }, error.artifacts);
+          }
+          quantityConfiguration = "configure_input";
+        }
 
         // OVD-777: plate-like geometry can auto-select Sheet Cutting, whose
         // catalog has no CNC material options.
@@ -3744,6 +3880,7 @@ export class XometryAdapter extends VendorAdapter {
           toleranceSelector,
           requirementsVerified,
           saveConfigurationSelector,
+          quantityConfiguration,
           priceSource,
           leadTimeSource,
           offers,

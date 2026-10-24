@@ -105,6 +105,7 @@ import {
   hasVisibleFilename,
   isManualReviewText,
   isXometryPricingInProgress,
+  observeXometryPartDetails,
   parseFirstCurrency,
   parseLeadTime,
   resolveXometryCompatibilityLeadTime,
@@ -895,6 +896,25 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
+/** OVD-1052: the part row's stepper, labelled by a sibling <span>Quantity</span>, with no aria-label. */
+const PART_ROW_QUANTITY_SELECTOR = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
+  selector.includes('span:text-is("Quantity")')) ?? "missing-part-row-quantity-selector";
+
+/**
+ * The part row as the current quote page renders it: the labelled quantity
+ * stepper beside an Edit Configuration button. The part-details wait needs
+ * both (or a .price-tier card) before the uploaded summary is read.
+ */
+function partRowBehaviors(
+  quantity: string,
+  visible: () => boolean = () => true,
+): Record<string, LocatorBehavior> {
+  return {
+    [PART_ROW_QUANTITY_SELECTOR]: { count: () => (visible() ? 1 : 0), inputValue: () => quantity },
+    [XOMETRY_LOCATORS.editConfigurationButtons[0]]: { count: () => (visible() ? 1 : 0) },
+  };
+}
+
 /**
  * The reviewed live evaluation flow: dashboard upload, quote redirect, then
  * quantity, material, finish, tolerance and Save Configuration.
@@ -1084,12 +1104,8 @@ function createAutoSelectionFlow(options: {
     responseWaitDelayMs: options.drawing ? 20 : undefined,
     selectorBehaviors: {
       [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
-      [XOMETRY_LOCATORS.quantityInputs[0]]: {
-        count: 1,
-        inputValue: () => "10",
-        fill: vi.fn(),
-        press: vi.fn(),
-      },
+      // The summary row already shows the requested ten pieces.
+      ...partRowBehaviors("10"),
       [XOMETRY_LOCATORS.processButtons[0]]: { count: 1 },
       [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1 },
       [XOMETRY_LOCATORS.finishButtons[0]]: { count: 1 },
@@ -2603,10 +2619,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
         // A fallback price anchor that is not itself an offer container.
         '[data-testid*="price" i]': {
           count: 1,
@@ -4216,6 +4229,7 @@ describe("XometryAdapter", () => {
 
   it("does not let a visible quantity input override a contradictory summary", async () => {
     const workerTempDir = await makeTempDir();
+    const fillQuantity = vi.fn();
     const summaryText = [
       "Quantity: 1",
       "Material: Aluminum 6061-T6x (Best Available)",
@@ -4235,9 +4249,10 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.quantityInputs[0]]: {
           count: 1,
           inputValue: () => "2",
-          fill: vi.fn(),
+          fill: fillQuantity,
           press: vi.fn(),
         },
+        [XOMETRY_LOCATORS.editConfigurationButtons[0]]: { count: 1 },
       },
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4257,6 +4272,8 @@ describe("XometryAdapter", () => {
         field: "material",
       },
     });
+    // The contradictory summary keeps the configure path setting the quantity.
+    expect(fillQuantity).toHaveBeenCalledWith("2");
   });
 
   describe("OVD-776 line-item quantity guard before price capture", () => {
@@ -4383,8 +4400,26 @@ describe("XometryAdapter", () => {
         .catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(VendorAutomationError);
+      // A stray number input never stands in for the part row, so the page
+      // stops at the part-details wait before any summary or price is read.
       expect(failure).toMatchObject({
-        payload: { reason: "quantity_unverified", observedLineItemQuantities: [] },
+        code: "selector_failure",
+        payload: { reason: "part_details_not_rendered", rowQuantitySelector: null },
+      });
+      expect((failure as VendorAutomationError).payload).not.toHaveProperty("totalPriceUsd");
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+      });
+    });
+
+    it("fails closed with no price when the line-item quantity input reads back blank", async () => {
+      const failure = await quoteT1Page({ each: "41.41", total: "41.41", lineItemQuantity: "", summaryQuantity: "Quantity: 1" })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        payload: { reason: "quantity_unverified", observedLineItemQuantities: [null] },
       });
       // OVD-1052: the refusal is a finite selector-drift stop, not an
       // unclassified failure (finite_terminal_state_missing).
@@ -4541,33 +4576,56 @@ describe("XometryAdapter", () => {
       resolveFallbackSelectors?: boolean;
       /** The body text the page shows from the price-tier settle wait onward. */
       pricingBodyText?: (bodyText: string) => string;
+      /** The part card renders only after this many part-details polls on the quote page. */
+      partDetailsRenderAfterPolls?: number;
+      /** Counts the part-details polls; readable after a failed quote too. */
+      partDetailsPollCounter?: { polls: number };
     } = {}) {
       const fixture = await loadCurrentQuotePage(options.mutate);
-      const labelledQuantitySelector = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
-        selector.includes('span:text-is("Quantity")'));
-      expect(labelledQuantitySelector).toBeDefined();
       const workerTempDir = await makeTempDir();
       let bodyText = fixture.bodyText;
+      const counter = options.partDetailsPollCounter ?? { polls: 0 };
+      const partDetailsRendered = () => counter.polls >= (options.partDetailsRenderAfterPolls ?? 0);
+      const shell = fixture.document.body.cloneNode(true) as HTMLElement;
+      shell.querySelector(".part-card")?.remove();
+      const shellBodyText = renderedText(shell);
       const page = createFakePage({
-        bodyText: () => bodyText,
+        bodyText: () => (partDetailsRendered() ? bodyText : shellBodyText),
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
         selectorBehaviors: {
           [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
-          [labelledQuantitySelector ?? "missing"]: {
+          [PART_ROW_QUANTITY_SELECTOR]: {
             count: fixture.quantityInputs.length,
             inputValue: () => fixture.quantityInputs[0]?.getAttribute("value") ?? "",
           },
+          [XOMETRY_LOCATORS.editConfigurationButtons[0]]: domBehavior(
+            fixture.document.querySelectorAll(XOMETRY_LOCATORS.editConfigurationButtons[0]),
+          ),
           ...(options.resolveFallbackSelectors ? fallbackSelectorBehaviors(fixture.document) : {}),
           // Every offer-container selector resolves against the fixture DOM,
           // including the role=button drag handle around the part card.
           ...fixture.offerContainerBehaviors,
         },
       });
+      const partCardSelectors = new Set<string>([
+        ...XOMETRY_LOCATORS.lineItemQuantityInputs,
+        ...XOMETRY_LOCATORS.editConfigurationButtons,
+        ...XOMETRY_LOCATORS.offerContainers,
+      ]);
       const requestedSelectors: string[] = [];
       const locate = page.locator.bind(page);
       page.locator = (selector: string) => {
         requestedSelectors.push(selector);
+        if (!partDetailsRendered() && partCardSelectors.has(selector.replace(/:visible$/, ""))) {
+          return makeLocator({ count: 0 });
+        }
         return locate(selector);
+      };
+      const pause = page.waitForTimeout.bind(page);
+      page.waitForTimeout = async (ms?: number) => {
+        // Only the part-details wait polls at 500 ms once the quote URL is open.
+        if (ms === 500 && XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) counter.polls += 1;
+        return pause();
       };
       const { pricingBodyText } = options;
       if (pricingBodyText) {
@@ -4587,7 +4645,8 @@ describe("XometryAdapter", () => {
         "xometry",
         makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
-      return { fixture, input, requestedSelectors, result: await adapter.quote(input) };
+      const result = await adapter.quote(input);
+      return { fixture, input, requestedSelectors, result, partDetailsPolls: counter.polls };
     }
 
     it("pins the drift: the tier name left the timing label and the quantity input lost its aria-label", async () => {
@@ -5362,6 +5421,76 @@ describe("XometryAdapter", () => {
       expect(result.leadTimeBusinessDays).toBeNull();
     });
 
+    describe("part-details wait before the uploaded summary read", () => {
+      it("waits for a part row that renders after the quote URL, then takes the summary-match path", async () => {
+        const { result, partDetailsPolls } = await quoteCurrentPage({ partDetailsRenderAfterPolls: 3 });
+
+        expect(partDetailsPolls).toBe(3);
+        expect(result.status).toBe("instant_quote_received");
+        expect(result.totalPriceUsd).toBe(101.25);
+        expect(result.rawPayload).toMatchObject({
+          requirementsVerified: true,
+          saveConfigurationSelector: null,
+          quantityConfiguration: null,
+        });
+      });
+
+      it("fails closed as selector_drift with a snapshot after 15 s of polls when the part row never renders", async () => {
+        const partDetailsPollCounter = { polls: 0 };
+        const failure = await quoteCurrentPage({
+          partDetailsRenderAfterPolls: Number.POSITIVE_INFINITY,
+          partDetailsPollCounter,
+        }).then(() => null, (error: unknown) => error);
+
+        // 30 polls of 500 ms: the 15 s bound, never an open-ended wait.
+        expect(partDetailsPollCounter.polls).toBe(30);
+
+        expect(failure).toMatchObject({
+          code: "selector_failure",
+          message: "Xometry quote page did not render the part details before the summary read.",
+          payload: {
+            reason: "part_details_not_rendered",
+            rowQuantitySelector: null,
+            companionSelector: null,
+          },
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+        const labels = (failure as VendorAutomationError).artifacts.map((artifact) => artifact.label);
+        expect(labels).toContain("part-details-timeout-dom");
+        expect(labels).not.toContain("uploaded-dom");
+      });
+
+      it("classifies one look at the page", async () => {
+        const quoteUrl = "https://www.xometry.com/quoting/quote/Q00-TEST-1052";
+        const look = (bodyText: string, selectorBehaviors: Record<string, LocatorBehavior>) =>
+          observeXometryPartDetails(createFakePage({ bodyText, url: quoteUrl, selectorBehaviors }) as never);
+        const row = partRowBehaviors("1");
+
+        expect(await look("Quantity", row)).toMatchObject({
+          status: "ready",
+          rowQuantitySelector: PART_ROW_QUANTITY_SELECTOR,
+          companionSelector: XOMETRY_LOCATORS.editConfigurationButtons[0],
+        });
+        // A price-tier card stands in for the Edit Configuration button.
+        expect(await look("Quantity", {
+          [PART_ROW_QUANTITY_SELECTOR]: { count: 1, inputValue: () => "1" },
+          [XOMETRY_LOCATORS.offerContainers[0]]: { count: 1 },
+        })).toMatchObject({ status: "ready", companionSelector: XOMETRY_LOCATORS.offerContainers[0] });
+        // The button alone, or a catch-all number input, is not the part row.
+        expect(await look("Quantity", {
+          'input[type="number"]': { count: 1, inputValue: () => "1" },
+          [XOMETRY_LOCATORS.editConfigurationButtons[0]]: { count: 1 },
+        })).toMatchObject({ status: "pending", rowQuantitySelector: null });
+        // A manual-review page continues without the part row.
+        expect(await look("This part requires review before ordering.", {})).toMatchObject({ status: "manual_review" });
+        expect(await look("Verify you are human", row)).toMatchObject({ status: "blocked" });
+      });
+    });
+
     describe("a configured quote page without a recognizable price", () => {
       const removeTierCards = (document: Document) => {
         for (const card of document.querySelectorAll(".price-tier")) card.remove();
@@ -5938,10 +6067,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
       },
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -5981,10 +6107,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
       },
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -6033,10 +6156,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
       },
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -6298,10 +6418,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.drawingInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
@@ -6353,10 +6470,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.drawingInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
@@ -6441,10 +6555,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.drawingInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
@@ -6559,12 +6670,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-          inputValue: () => "2",
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -6738,11 +6844,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -6794,11 +6896,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -6941,11 +7039,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -6993,11 +7087,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        ...partRowBehaviors("2"),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -7278,6 +7368,9 @@ describe("XometryAdapter", () => {
 
   it("fails closed when the requested quantity cannot be configured", async () => {
     const workerTempDir = await makeTempDir();
+    // The summary row shows Xometry's default of 1 for a two-piece request;
+    // the configure view opened by Edit Configuration has no quantity input.
+    let configuring = false;
     const page = createFakePage({
       bodyText: "Configure part",
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003",
@@ -7285,6 +7378,13 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
+        },
+        ...partRowBehaviors("1", () => !configuring),
+        [XOMETRY_LOCATORS.editConfigurationButtons[0]]: {
+          count: () => (configuring ? 0 : 1),
+          click: () => {
+            configuring = true;
+          },
         },
       },
     });
@@ -7295,12 +7395,164 @@ describe("XometryAdapter", () => {
       makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
     );
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+    expect(failure).toMatchObject({
       name: "VendorAutomationError",
       code: "selector_failure",
+      message: "Xometry quantity input was not found.",
       payload: {
         failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
+        terminalState: "selector_drift",
+        summaryRowQuantityStatus: "mismatch",
       },
+    });
+    expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
+      .toEqual(expect.arrayContaining(["edit-configuration-dom", "set-quantity-failed-dom"]));
+  });
+
+  describe("configure-path quantity on the current quote page", () => {
+    // Synthetic summary of a just-uploaded part whose finish and tolerance
+    // need configuring. The summary Quantity row is a bare label; the
+    // number lives in the part row's stepper.
+    const summaryLines = (finish: string, tolerance: string) => [
+      "1 Part Uploaded",
+      "synthetic-bracket.step",
+      "Quantity",
+      "Edit Configuration",
+      "Process: CNC Machining",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      `Finish: ${finish}`,
+      `Precision Tolerance: ${tolerance}`,
+      "Price and Lead Time",
+      "Least Expensive",
+      "Arrives by Nov 6",
+      "USD $41.41 ea.",
+      "USD $41.41",
+    ].join("\n");
+
+    function qtyOneInput() {
+      const baseInput = makeInput();
+      return makeInput({
+        requestedQuantity: 1,
+        part: { ...baseInput.part, quantity: 1 },
+        requirement: { ...baseInput.requirement, quantity: 1, quote_quantities: [1] },
+      });
+    }
+
+    /**
+     * Edit Configuration hides the part row (stepper included) until Save
+     * Configuration returns to the summary; no quantity input exists in the
+     * configure view.
+     */
+    async function quoteConfigurePath(rowBehaviors: (visible: () => boolean) => Record<string, LocatorBehavior>) {
+      const workerTempDir = await makeTempDir();
+      let configuring = false;
+      const saveConfiguration = vi.fn(() => {
+        configuring = false;
+      });
+      const page = createFakePage({
+        bodyText: summaryLines("Standard", "±.010″ (±0.25mm)"),
+        postSaveBodyText: summaryLines("Black Anodize", "±.005″ (±0.13mm)"),
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1060",
+        saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1060#part-part-1",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          ...rowBehaviors(() => !configuring),
+          [XOMETRY_LOCATORS.editConfigurationButtons[0]]: {
+            count: () => (configuring ? 0 : 1),
+            click: () => {
+              configuring = true;
+            },
+          },
+          [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.toleranceOptions.standard]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: { count: 1, click: saveConfiguration },
+          [XOMETRY_LOCATORS.priceText[0]]: {
+            count: 1,
+            text: "Least Expensive\nArrives by Nov 6\nUSD $41.41 ea.\nUSD $41.41",
+          },
+        },
+        optionTexts: ["6061-T6", "Black Anodize"],
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      );
+      const outcome = await adapter.quote(qtyOneInput()).then(
+        (result) => ({ result, failure: null }),
+        (failure: unknown) => ({ result: null, failure }),
+      );
+      return { ...outcome, saveConfiguration };
+    }
+
+    it("skips the quantity when the summary row already shows it and the configure view has none", async () => {
+      const { result, failure, saveConfiguration } = await quoteConfigurePath((visible) => partRowBehaviors("1", visible));
+
+      expect(failure).toBeNull();
+      expect(result?.status).toBe("instant_quote_received");
+      expect(result?.totalPriceUsd).toBe(41.41);
+      expect(result?.rawPayload).toMatchObject({
+        quantityConfiguration: "summary_row_matched",
+        requirementsVerified: true,
+        selectedFinish: "Black Anodize",
+        selectedTolerance: "standard",
+      });
+      expect(saveConfiguration).toHaveBeenCalledTimes(1);
+      expect(result?.artifacts.map((artifact) => artifact.label)).toContain("edit-configuration-dom");
+    });
+
+    it.each([
+      {
+        status: "unreadable",
+        rows: (visible: () => boolean) => partRowBehaviors("", visible),
+      },
+      {
+        status: "mismatch",
+        rows: (visible: () => boolean) => partRowBehaviors("3", visible),
+      },
+      {
+        status: "ambiguous",
+        rows: (visible: () => boolean): Record<string, LocatorBehavior> => ({
+          [PART_ROW_QUANTITY_SELECTOR]: {
+            items: [
+              { count: () => (visible() ? 1 : 0), inputValue: () => "1" },
+              { count: () => (visible() ? 1 : 0), inputValue: () => "1" },
+            ],
+          },
+        }),
+      },
+    ])("never skips on a $status summary row and fails closed with a snapshot", async ({ status, rows }) => {
+      const { failure, saveConfiguration } = await quoteConfigurePath(rows);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      const error = failure as VendorAutomationError;
+      expect(error).toMatchObject({
+        code: "selector_failure",
+        message: "Xometry quantity input was not found.",
+        payload: {
+          failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
+          terminalState: "selector_drift",
+          detectedFlow: "upload_complete",
+          editConfigurationSelector: XOMETRY_LOCATORS.editConfigurationButtons[0],
+          summaryRowQuantityStatus: status,
+          summaryRowQuantitySelector: PART_ROW_QUANTITY_SELECTOR,
+        },
+      });
+      // Flow and selector context only: no price reaches the failure payload.
+      for (const key of ["totalPriceUsd", "unitPriceUsd", "offers", "priceSource", "bodyExcerpt"]) {
+        expect(error.payload).not.toHaveProperty(key);
+      }
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+      });
+      expect(saveConfiguration).not.toHaveBeenCalled();
+      const snapshot = error.artifacts.find((artifact) => artifact.label === "set-quantity-failed-dom");
+      expect(snapshot?.kind).toBe("html_snapshot");
+      expect((await fs.stat(snapshot?.localPath ?? "")).mode & 0o777).toBe(0o600);
+      expect(error.artifacts.map((artifact) => artifact.label)).toContain("edit-configuration-dom");
     });
   });
 
