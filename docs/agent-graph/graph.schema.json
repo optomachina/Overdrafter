@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "overdrafter.agent-graph/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "root",
+    "nodes",
+    "predicates",
+    "edge_semantics",
+    "edges",
+    "verdicts",
+    "merge_gate",
+    "protected",
+    "runtime_routing",
+    "adapters"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "enum": [
+        "overdrafter.agent-graph/v1"
+      ]
+    },
+    "version": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "predicates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "edge_semantics": {
+      "type": "string"
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "verdicts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bound_to": {
+            "type": "string"
+          },
+          "voided_by": {
+            "type": "string"
+          },
+          "rebase_reuse": {
+            "enum": [
+              "diff-id-equal"
+            ]
+          },
+          "rebase_reuse_on_error": {
+            "enum": [
+              "reject"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "merge_gate": {
+      "type": "object",
+      "required": [
+        "requires",
+        "auto_merge_also_requires",
+        "rules",
+        "auto_merge_allowlist",
+        "sensitive_paths"
+      ],
+      "properties": {
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auto_merge_also_requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auto_merge_allowlist": {
+          "type": "string"
+        },
+        "sensitive_paths": {
+          "type": "string"
+        }
+      }
+    },
+    "protected": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "runtime_routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cloud",
+        "local",
+        "bottleneck",
+        "priority"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "cloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "does",
+            "limited_by"
+          ],
+          "properties": {
+            "does": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "limited_by": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "local": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "does",
+            "runtimes",
+            "limited_by"
+          ],
+          "properties": {
+            "does": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "runtimes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "where": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            },
+            "why": {
+              "type": "string"
+            },
+            "limited_by": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "bottleneck": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issue"
+          ],
+          "properties": {
+            "issue": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "usage_balancer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "balancer",
+            "rules"
+          ],
+          "properties": {
+            "note": {
+              "type": "string"
+            },
+            "balancer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "repo",
+                "script"
+              ],
+              "properties": {
+                "repo": {
+                  "type": "string"
+                },
+                "script": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "rule"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "rule": {
+                    "type": "string"
+                  },
+                  "overrides": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "adapters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "role"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "root",
+            "router",
+            "writer",
+            "reviewer",
+            "verifier",
+            "gate",
+            "release",
+            "ci"
+          ]
+        },
+        "family": {
+          "type": "string"
+        },
+        "does": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtimes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "must_not_author": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unless": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "else": {
+          "type": "string"
+        },
+        "issue": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "gate": {
+          "type": "string"
+        },
+        "dedupe": {
+          "type": "string"
+        },
+        "handoff": {
+          "type": "string"
+        },
+        "backstop": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "report",
+            "enforce"
+          ]
+        }
+      }
+    }
+  }
+}
