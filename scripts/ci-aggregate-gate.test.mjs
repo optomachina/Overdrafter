@@ -12,11 +12,6 @@ const { jobs } = parse(readFileSync(new URL("../.github/workflows/ci.yml", impor
 const ci = jobs.ci;
 const check = ci.steps.find((step) => step.name === "Check dependency results");
 
-// ci fails extraction-gate only on failure, so a timed-out gate (result
-// cancelled) does not block yet; OVD-1066 tightens it. Its other results are
-// not asserted here, so this test does not lock that gap in.
-const FAILURE_ONLY = new Set(["extraction-gate"]);
-
 // Run the step the way GitHub does (bash -e with pipefail), with every needed
 // job succeeding except the overrides.
 function runCheck(overrides = {}) {
@@ -60,16 +55,12 @@ describe("ci aggregate gate", () => {
     expect(runCheck()).toBe(0);
   });
 
-  it.each(ci.needs.filter((job) => !FAILURE_ONLY.has(job)).flatMap((job) => ["failure", "cancelled", "skipped"].map((result) => [job, result])))(
+  it.each(ci.needs.flatMap((job) => ["failure", "cancelled", "skipped"].map((result) => [job, result])))(
     "fails when %s is %s",
     (job, result) => {
       expect(runCheck({ [job]: result })).not.toBe(0);
     },
   );
-
-  it.each([...FAILURE_ONLY])("fails when %s failed", (job) => {
-    expect(runCheck({ [job]: "failure" })).not.toBe(0);
-  });
 
   it("runs every vitest shard exactly once, unconditionally", () => {
     const { strategy, steps } = jobs.unit;
