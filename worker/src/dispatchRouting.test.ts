@@ -8,9 +8,11 @@ import {
   genericFictivEnvelope,
 } from "../test-support/genericDispatchResponse";
 import {
+  DISPATCH_QUANTITY_NOT_ADMITTED_NOTE,
   dispatchAuthorizationFailure,
   providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
+  xometryDispatchDenialNote,
 } from "./dispatchRouting";
 import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
@@ -190,6 +192,14 @@ describe("dispatch authorization failure classification", () => {
       .toEqual({ boundary: "xometry", reasonCode: "dispatch_rollout_disabled", retryable: false });
   });
 
+  it("names the OVD-987 quantity refusal as a terminal Xometry denial", () => {
+    const error = new XometryDispatchAuthorizationError("dispatch_quantity_not_admitted");
+    expect(dispatchAuthorizationFailure(error))
+      .toEqual({ boundary: "xometry", reasonCode: "dispatch_quantity_not_admitted", retryable: false });
+    expect(failureCodeForError(error)).toBe("dispatch_quantity_not_admitted");
+    expect(isRetryableVendorTaskError(error, undefined)).toBe(false);
+  });
+
   it("maps generic denials to their closed-vocabulary code and retryability", () => {
     expect(dispatchAuthorizationFailure(new ProviderDispatchAuthorizationError("preflight_unavailable")))
       .toEqual({ boundary: "provider", reasonCode: "preflight_unavailable", retryable: true });
@@ -205,6 +215,34 @@ describe("dispatch authorization failure classification", () => {
     const started = createProviderMutationPhase();
     started.started = true;
     expect(isRetryableVendorTaskError(new ProviderDispatchAuthorizationError("preflight_unavailable"), started)).toBe(false);
+  });
+});
+
+describe("Xometry denial lane notes (OVD-998)", () => {
+  const failureOf = (error: unknown) => dispatchAuthorizationFailure(error)!;
+
+  it("says the quantity was the reason, that nothing was sent, and that manual follow-up is next", () => {
+    const note = xometryDispatchDenialNote(
+      failureOf(new XometryDispatchAuthorizationError("dispatch_quantity_not_admitted")),
+    );
+    expect(note).toBe(DISPATCH_QUANTITY_NOT_ADMITTED_NOTE);
+    expect(note).toContain("quantity above 1");
+    expect(note).toContain("Nothing was sent to Xometry");
+    expect(note).toContain("Manual follow-up is required");
+    // The rollout may admit a quantity per participant or per request, so the note never calls the switch global.
+    expect(note).not.toMatch(/switch|global|currently/i);
+    expect(note).not.toContain("dispatch_");
+  });
+
+  it("leaves every other denial on the generic note", () => {
+    for (const reasonCode of ["dispatch_rollout_disabled", "dispatch_lane_identity_mismatch", "dispatch_preflight_unavailable"]) {
+      expect(xometryDispatchDenialNote(failureOf(new XometryDispatchAuthorizationError(reasonCode)))).toBeNull();
+    }
+  });
+
+  it("never lends the Xometry wording to another boundary or to a retryable result", () => {
+    expect(xometryDispatchDenialNote({ boundary: "provider", reasonCode: "dispatch_quantity_not_admitted", retryable: false })).toBeNull();
+    expect(xometryDispatchDenialNote({ boundary: "xometry", reasonCode: "dispatch_quantity_not_admitted", retryable: true })).toBeNull();
   });
 });
 
