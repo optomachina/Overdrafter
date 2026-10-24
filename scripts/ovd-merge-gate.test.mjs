@@ -18,8 +18,10 @@ import {
   classifyPull,
   collectVerdicts,
   conclusionFor,
-  deletedVerdictFromEvent,
+  bodyBuilders,
+  deletedVerdictsFromEvent,
   evaluate,
+  formatSummary,
   headDiffId,
   main,
   reasonCodes,
@@ -605,7 +607,7 @@ function response(status, body) {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) };
 }
 
-function fakeGithub({ head = HEAD, headAfter, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], fail = [] } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], fail = [] } = {}) {
   const requests = [];
   const posts = [];
   let pullReads = 0;
@@ -621,7 +623,7 @@ function fakeGithub({ head = HEAD, headAfter, comments = [], files = DOCS_FILES,
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
     }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
@@ -795,37 +797,177 @@ describe("IO wrapper and CLI", () => {
   });
 });
 
-describe("deleted verdicts fail closed until a fresh verdict", () => {
-  const deletion = (value, id = 1) => ({ action: "deleted", comment: { id, body: formatVerdictBlock(value), created_at: at(id), user: { login: value.verifier.github_login } } });
+describe("deleted verdicts: only blocking ones are carried forward (ruling b)", () => {
+  const deletion = (value, id = 1, body = formatVerdictBlock(value)) => ({ action: "deleted", comment: { id, body, created_at: at(id), user: { login: value.verifier.github_login } } });
+  const gateClient = (api) => ({ ...api.client, paginate: async (p, pick = (d) => d) => pick(await api.client.json(p)) });
+  const priorRun = (deletedVerdicts) => ({ name: CHECK_NAME, output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: deletedVerdicts })}\n\`\`\`` } });
+  const run = (api, event = null) => runGate({ client: gateClient(api), repo: "o/r", pr: 7, event, git: fakeGit(), diff: () => DIFF, classify: docsClassify });
 
-  it("reads a deleted verdict from an issue_comment deleted event", () => {
-    expect(deletedVerdictFromEvent(deletion(verdict({ result: "FAIL" })))).toMatchObject({ comment_id: 1, author: "optomachina", sha: HEAD, diff_id: DIFF, role: "verifier" });
-    expect(deletedVerdictFromEvent({ action: "created", comment: { body: formatVerdictBlock(verdict()) } })).toBeNull();
-    expect(deletedVerdictFromEvent({ action: "deleted", comment: { body: "hello" } })).toBeNull();
+  it("reads a deleted blocking verdict from an issue_comment deleted event, with a snapshot", () => {
+    const [item] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL" })));
+    expect(item).toMatchObject({ comment_id: 1, author: "optomachina", sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "FAIL", sha: HEAD, diff_id: DIFF } });
+    expect(deletedVerdictsFromEvent({ action: "created", comment: { body: formatVerdictBlock(verdict()) } })).toEqual([]);
+    expect(deletedVerdictsFromEvent({ action: "deleted", comment: { body: "hello" } })).toEqual([]);
   });
 
-  it("fails edited_verdict for a deleted trusted verdict with no fresher verdict", () => {
-    const deleted = deletedVerdictFromEvent(deletion(verdict({ result: "FAIL" }), 99999));
-    expect(codes(baseInput({ deletedVerdicts: [deleted] }))).toContain("edited_verdict");
+  it("drops a deleted clean PASS or PASS_NOTES, and keeps a deleted pass with a high note or finding", () => {
+    expect(deletedVerdictsFromEvent(deletion(verdict()))).toEqual([]);
+    expect(deletedVerdictsFromEvent(deletion(verdict({ result: "PASS_NOTES" })))).toEqual([]);
+    expect(deletedVerdictsFromEvent(deletion(verdict({ result: "PASS_NOTES", notes: ["high: broken"] })))).toHaveLength(1);
+    expect(deletedVerdictsFromEvent(deletion(verdict({ role: "reviewer", findings: [{ severity: "high", file: "a", line: 1, model: "opus", message: "x" }] })))).toHaveLength(1);
   });
 
-  it("clears once a fresh verdict of that role is posted after the deleted one", () => {
-    const deleted = deletedVerdictFromEvent(deletion(verdict({ result: "FAIL" }), 1));
+  it("keeps a deleted block that cannot be read, without a snapshot", () => {
+    const [item] = deletedVerdictsFromEvent(deletion(verdict(), 1, "```overdrafter-verdict\n{not json\n```"));
+    expect(item).toMatchObject({ comment_id: 1, sha: null, role: null });
+    expect(item.verdict_block).toBeUndefined();
+  });
+
+  it("a deleted FAIL stands even after a fresh PASS (it is not cleared by deleting it)", () => {
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL" }), 1));
+    const summary = evaluate(baseInput({ deletedVerdicts: [deleted] }));
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toContain("verdict_conflict");
+    expect(summary.reasons.find((reason) => reason.code === "verdict_conflict").detail).toContain("1 (deleted)");
+  });
+
+  it("a deleted FAIL with no other verdict of its role blocks", () => {
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ role: "reviewer", result: "FAIL" }), 99999));
+    expect(codes(baseInput({ comments: [posted(verdict())], deletedVerdicts: [deleted] }))).toContain("no_review_on_head");
+  });
+
+  it("a deleted infra FAIL can still be superseded the normal way, and a deleted verdict is never a supersede claim", () => {
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL", runs: [1] }), 1));
+    const fresh = posted(verdict({ runs: [2], supersedes: 1, reason: "infra" }));
+    expect(evaluate(baseInput({ comments: [fresh, posted(verdict({ role: "reviewer" }))], deletedVerdicts: [deleted] })).gate).toBe("pass");
+
+    const live = posted(verdict({ result: "FAIL", runs: [1] }), { id: 5 });
+    const [claim] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL", runs: [9], supersedes: 5, reason: "infra" }), 6));
+    expect(codes(baseInput({ comments: [live, posted(verdict()), posted(verdict({ role: "reviewer" }))], deletedVerdicts: [claim] }))).toContain("verdict_conflict");
+  });
+
+  it("a deleted pass with a high note blocks, and is never chosen as the pass", () => {
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ result: "PASS_NOTES", notes: ["high: broken"] }), 99999));
+    const summary = evaluate(baseInput({ comments: [posted(verdict({ role: "reviewer" }))], deletedVerdicts: [deleted] }));
+    expect(reasonCodes(summary)).toContain("no_qa_pass_on_head");
+    expect(summary.verifier_comment_id).toBeNull();
+  });
+
+  it("a deleted verdict for another SHA and another diff_id is ignored", () => {
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL", sha: OLD, diffId: OTHER_DIFF }), 99999));
     expect(evaluate(baseInput({ deletedVerdicts: [deleted] })).gate).toBe("pass");
+  });
+
+  it("an unreadable deleted trusted block fails edited_verdict until a fresher verdict is posted", () => {
+    const [late] = deletedVerdictsFromEvent(deletion(verdict(), 99999, "```overdrafter-verdict\n{not json\n```"));
+    expect(codes(baseInput({ deletedVerdicts: [late] }))).toContain("edited_verdict");
+    const [early] = deletedVerdictsFromEvent(deletion(verdict(), 1, "```overdrafter-verdict\n{not json\n```"));
+    expect(evaluate(baseInput({ deletedVerdicts: [early] })).gate).toBe("pass");
+  });
+
+  it("a carried-forward deletion without a readable snapshot (or with an unknown verdict) fails closed", () => {
+    const legacy = { comment_id: 99999, author: "optomachina", created_at: at(99999), sha: HEAD, diff_id: DIFF, role: "verifier" };
+    expect(codes(baseInput({ deletedVerdicts: [legacy] }))).toContain("edited_verdict");
+    const unknown = { ...legacy, comment_id: 1, created_at: at(1), verdict_block: { role: "verifier", verdict: "CHANGES_REQUIRED", sha: HEAD, diff_id: DIFF } };
+    expect(evaluate(baseInput({ deletedVerdicts: [unknown] })).gate).toBe("fail");
   });
 
   it("ignores deletions by untrusted logins", () => {
-    const deleted = deletedVerdictFromEvent(deletion(verdict({ result: "FAIL", login: "mallory" }), 99999));
+    const [deleted] = deletedVerdictsFromEvent(deletion(verdict({ result: "FAIL", login: "mallory" }), 99999));
     expect(evaluate(baseInput({ deletedVerdicts: [deleted] })).gate).toBe("pass");
   });
 
-  it("carries a deletion forward from earlier gate check runs on the head", async () => {
-    const deleted = deletedVerdictFromEvent(deletion(verdict({ result: "FAIL" }), 99999));
-    const checkRuns = [{ name: CHECK_NAME, output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: [deleted] })}\n\`\`\`` } }];
-    const api = fakeGithub({ comments: passingComments(), checkRuns });
+  it("a deleted FAIL still blocks on later runs (carried forward from earlier gate check runs on the head)", async () => {
+    const event = deletion(verdict({ result: "FAIL" }), 1);
+    const first = await run(fakeGithub({ comments: passingComments() }), event);
+    expect(reasonCodes(first)).toContain("verdict_conflict");
+    expect(first.deleted_verdicts).toHaveLength(1);
+    // A later run sees no deletion event, only what the earlier run recorded.
+    const later = await run(fakeGithub({ comments: passingComments(), checkRuns: [priorRun(first.deleted_verdicts)] }));
+    expect(later.gate).toBe("fail");
+    expect(reasonCodes(later)).toContain("verdict_conflict");
+    expect(later.deleted_verdicts).toEqual(first.deleted_verdicts);
+  });
+
+  it("a deleted PASS does not count as a pass on later runs, and is never recorded", async () => {
+    const reviewerOnly = [posted(verdict({ role: "reviewer" }))];
+    const first = await run(fakeGithub({ comments: reviewerOnly }), deletion(verdict(), 1));
+    expect(first.deleted_verdicts).toEqual([]);
+    expect(reasonCodes(first)).toEqual(["no_qa_pass_on_head"]);
+    // Even a forged earlier run that records a deleted PASS changes nothing: it does not pass (a) or (b)...
+    const forged = { comment_id: 1, author: "optomachina", created_at: at(1), sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "PASS", sha: HEAD, diff_id: DIFF } };
+    const forgedReviewer = { ...forged, comment_id: 2, role: "reviewer", verdict_block: { ...forged.verdict_block, role: "reviewer", findings: [] } };
+    const later = await run(fakeGithub({ comments: [], checkRuns: [priorRun([forged, forgedReviewer])] }));
+    expect(reasonCodes(later)).toEqual(["no_qa_pass_on_head", "no_review_on_head"]);
+    expect(later.deleted_verdicts).toEqual([]);
+    // ...and it simply disappears: it does not block a head that has live passes.
+    expect((await run(fakeGithub({ comments: passingComments(), checkRuns: [priorRun([forged])] }))).gate).toBe("pass");
+  });
+});
+
+describe("verifier independence from the PR builder (ruling 1, stage A warning)", () => {
+  const VERIFIER_ID = "astra-verifier";
+  const REVIEWER_ID = "opus-reviewer";
+  const notIndependent = (items) => items.filter((item) => item.code === "verifier_not_independent");
+
+  it("reads builder ids from canonical and free-text Built-by lines", () => {
+    expect(bodyBuilders("x\nBuilt-by: bot=engineer model=model:codex; bot=Architect model=model:claude-opus\n")).toEqual(["engineer", "architect"]);
+    expect(bodyBuilders("Built-by: Engineer / Codex (gpt via codex exec)")).toEqual(["engineer"]);
+    expect(bodyBuilders("Model-builder: bot=astra-verifier model=model:codex")).toEqual(["astra-verifier"]);
+    expect(bodyBuilders("Built-by: nonsense")).toEqual([]);
+    expect(bodyBuilders(undefined)).toEqual([]);
+  });
+
+  it("match: warns verifier_not_independent, visible in the summary, without blocking in stage A", () => {
+    const summary = evaluate(baseInput({ prBody: `Summary\n\nBuilt-by: bot=${VERIFIER_ID} model=model:codex\n` }));
+    expect(summary.gate).toBe("pass");
+    expect(summary.reasons).toEqual([]);
+    expect(notIndependent(summary.warnings)).toHaveLength(1);
+    expect(notIndependent(summary.warnings)[0].detail).toContain(VERIFIER_ID);
+    expect(conclusionFor(summary)).toMatchObject({ conclusion: "success" });
+    expect(formatSummary(summary)).toContain("`verifier_not_independent` (warning)");
+  });
+
+  it("match on the reviewer: warns too", () => {
+    const summary = evaluate(baseInput({ prBody: `Built-by: ${REVIEWER_ID} / opus` }));
+    expect(summary.gate).toBe("pass");
+    expect(notIndependent(summary.warnings)[0].detail).toContain(REVIEWER_ID);
+  });
+
+  it("a match is a blocking reason in stage B (from K3 on)", () => {
+    const comments = [posted(verdict({ login: BOT })), posted(verdict({ role: "reviewer", login: BOT }))];
+    const summary = evaluate(baseInput({ identity: "app", comments, prBody: `Built-by: bot=${VERIFIER_ID} model=model:codex` }));
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toEqual(["verifier_not_independent"]);
+  });
+
+  it("no match: no warning", () => {
+    const summary = evaluate(baseInput({ prBody: "Built-by: bot=engineer model=model:codex" }));
+    expect(summary.gate).toBe("pass");
+    expect(notIndependent(summary.warnings)).toEqual([]);
+    expect(formatSummary(summary)).not.toContain("verifier_not_independent");
+  });
+
+  it.each([
+    ["no body", undefined],
+    ["a null body", null],
+    ["a body without a builder line", "Just a summary."],
+    ["an unparseable builder line", "Built-by: ???"],
+  ])("%s: no warning and no pass effect", (_name, prBody) => {
+    const passing = evaluate(baseInput({ prBody }));
+    expect(passing.gate).toBe("pass");
+    expect(notIndependent(passing.warnings)).toEqual([]);
+    for (const comments of [[], [posted(verdict())], [posted(verdict({ result: "FAIL" })), posted(verdict({ role: "reviewer" }))]]) {
+      expect(evaluate(baseInput({ comments, prBody })).reasons).toEqual(evaluate(baseInput({ comments })).reasons);
+      expect(evaluate(baseInput({ comments, prBody })).gate).toBe("fail");
+    }
+  });
+
+  it("runGate reads the builder line from the PR body as data", async () => {
+    const api = fakeGithub({ comments: passingComments(), body: `Built-by: bot=${VERIFIER_ID} model=model:codex` });
     const summary = await runGate({ client: { ...api.client, paginate: async (p, pick = (d) => d) => pick(await api.client.json(p)) }, repo: "o/r", pr: 7, git: fakeGit(), diff: () => DIFF, classify: docsClassify });
-    expect(reasonCodes(summary)).toContain("edited_verdict");
-    expect(summary.deleted_verdicts).toEqual([deleted]);
+    expect(summary.gate).toBe("pass");
+    expect(notIndependent(summary.warnings)).toHaveLength(1);
   });
 });
 

@@ -271,10 +271,20 @@ only when all of these hold:
 - **(e) Edited, deleted or malformed trusted verdicts.** A trusted verdict
   comment that may be for the head (its `sha` or `diff_id` matches, or cannot
   be read) fails the gate until a fresher trusted verdict of that role is
-  posted: `edited_verdict` when it was edited, or deleted (seen on the
-  `issue_comment` deleted event and carried forward through the gate's own
-  check runs on the head), and `verdict_schema_error` when its block is
-  unparseable, fails the schema or lacks comment timestamps.
+  posted: `edited_verdict` when it was edited, and `verdict_schema_error`
+  when its block is unparseable, fails the schema or lacks comment
+  timestamps.
+  Deletions are seen on the `issue_comment` deleted event and carried
+  forward in `deleted_verdicts` through the gate's own check runs on the
+  head, but **only blocking verdicts are carried forward**: a FAIL, or a
+  PASS/PASS_NOTES with a `high` finding or `high:` note. A carried deletion
+  stands in the union exactly as if it were still posted (a deleted FAIL
+  stays outstanding unless a later verdict supersedes it under the normal
+  rules; a deleted verdict is never itself a supersede claim), and it never
+  counts as a pass. A deleted clean PASS/PASS_NOTES simply disappears: it is
+  not recorded, does not satisfy (a) or (b), and does not block. A deleted
+  block that cannot be read (or a carried entry without a readable verdict
+  snapshot) is `edited_verdict` until a fresher trusted verdict is posted.
 - **(f) Sensitive changes.** The default-branch copy of the sensitive-class
   detector (`scripts/sensitive-class-detect.mjs` over
   `docs/sensitive-paths.json`) classifies the PR files. Any `.github/**`
@@ -290,6 +300,14 @@ only when all of these hold:
   `overdrafter-verifier[bot]` counts, `optomachina` verdicts are ignored as
   `verifier_is_merger`, and a verdict from the PR author or any commit author
   or committer is `verifier_not_independent`.
+  Ruling 1 (both stages): when a counted verifier or reviewer verdict's
+  `verifier.id` (the agent id) equals a builder bot id in the PR body's
+  `Built-by:` (or `Model-builder:`) line, the gate reports
+  `verifier_not_independent`. Until K3 (stage A) it is a **warning** in
+  `warnings` and in the check-run summary, not a reason; from K3 (stage B) it
+  is a blocking reason. The body is read as data from the PR API. A missing
+  body or a missing or unparseable builder line gives no warning and never
+  helps a pass.
 
 **Fail closed.** A missing, unparseable, error, unknown or partial input is
 never a pass: no live head or a moved head (`missing_input`, `stale_sha`), a

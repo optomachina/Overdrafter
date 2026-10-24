@@ -13,13 +13,22 @@
  *     product FAIL and needs a new head),
  * (d) verdicts from trusted logins only (TRUSTED_VERIFIERS, a constant here,
  *     never an env or repo variable),
- * (e) no edited, deleted or malformed trusted verdict for the head until a
- *     fresh one is posted (untrusted and malformed-by-others blocks are ignored),
+ * (e) no edited or malformed trusted verdict for the head until a fresh one
+ *     is posted (untrusted and malformed-by-others blocks are ignored); a
+ *     deleted trusted verdict is carried forward only when it blocks (a FAIL,
+ *     or a pass with a high note or finding), and then it still stands in the
+ *     union exactly as if it had not been deleted; a deleted PASS/PASS_NOTES
+ *     simply disappears and never counts as a pass; a deleted block that
+ *     cannot be read fails closed until a fresh verdict is posted,
  * (f) Blaine's `overdrafter.approval/v1` record for any sensitive class, from
  *     the default-branch copy of the sensitive-class detector; a detector
  *     status other than ok, or a missing, partial or stale result, is
  *     classifier_error,
- * (g) independence, enforced only when IDENTITY is "app" (stage B).
+ * (g) independence, enforced only when IDENTITY is "app" (stage B). Ruling 1:
+ *     a counted verdict whose verifier id equals a builder in the PR body's
+ *     Built-by line is verifier_not_independent, a warning in stage A (until
+ *     K3) and a reason in stage B; a missing or unparseable line gives no
+ *     warning and never helps a pass.
  *
  * Fail closed: every missing, unparseable, error, unknown or partial input is
  * a reason, never a pass. The advisory `jev-screen` status is never read.
@@ -143,11 +152,12 @@ const isProductFail = (verdict) => (Array.isArray(verdict.findings) && verdict.f
  * not cite. An invalid claim leaves the FAIL standing and is a conflict.
  */
 function resolveFails(entries) {
-  const fails = entries.filter((entry) => entry.verdict.verdict === "FAIL");
+  // Any verdict that is not a pass is a FAIL (live verdicts are schema-checked; a deleted snapshot is not).
+  const fails = entries.filter((entry) => !PASSING.has(entry.verdict.verdict));
   const outstanding = [];
   const conflicts = [];
   for (const fail of fails) {
-    const claims = entries.filter((entry) => entry !== fail && entry.verdict.supersedes !== undefined && Number(entry.verdict.supersedes) === Number(fail.comment_id));
+    const claims = entries.filter((entry) => entry !== fail && !entry.deleted && entry.verdict.supersedes !== undefined && Number(entry.verdict.supersedes) === Number(fail.comment_id));
     const valid = claims.find((entry) => {
       if (isProductFail(fail.verdict) || entry.verdict.reason !== "infra" || entry.verdict.sha !== fail.verdict.sha || !postedAfter(entry, fail)) return false;
       const old = runIds(fail.verdict);
@@ -181,8 +191,8 @@ const changedPaths = (file) => [changedPath(file), typeof file === "object" ? fi
 /** Any .github/** change is sensitive (infra_ci) in every spelling, whatever the shared list says. */
 const touchesGithub = (file) => changedPaths(file).some((name) => pathCandidates(name).some((form) => /^\.github(?:\/|$)/i.test(form)));
 
-/** Edited, malformed or deleted trusted verdicts that may be for this head and have no fresher trusted verdict. */
-function staleTrustedEdits({ rejected, deletedVerdicts, entries, trusted, headSha, headDiffId }) {
+/** Edited, malformed or unreadable deleted trusted verdicts that may be for this head and have no fresher trusted verdict. */
+function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, headSha, headDiffId }) {
   const reasons = [];
   const mayBeForHead = (text) => {
     try {
@@ -203,13 +213,81 @@ function staleTrustedEdits({ rejected, deletedVerdicts, entries, trusted, headSh
     // A trusted block that does not parse may be a FAIL; it never counts as a pass and is not silently dropped.
     else if (MALFORMED.has(item.reason)) reasons.push({ code: "verdict_schema_error", detail: `trusted verdict comment ${item.comment_id} block ${item.block} is ${item.reason}; post a fresh verdict` });
   }
-  for (const item of Array.isArray(deletedVerdicts) ? deletedVerdicts : []) {
-    if (!item || !inList(trusted, lower(item.author))) continue;
+  for (const item of unreadableDeletions) {
+    if (!inList(trusted, lower(item.author))) continue;
     const forHead = typeof item.sha !== "string" || item.sha === headSha || typeof item.diff_id !== "string" || item.diff_id === headDiffId;
     const role = typeof item.role === "string" ? item.role : null;
-    if (forHead && !fresher(item, role)) reasons.push({ code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was deleted; post a fresh verdict` });
+    if (forHead && !fresher(item, role)) reasons.push({ code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was deleted and its verdict cannot be read; post a fresh verdict` });
   }
   return reasons;
+}
+
+/** A blocking verdict: anything that is not a clean PASS/PASS_NOTES (a FAIL, an unknown verdict, a high note or finding). */
+const isBlocking = (verdict) => !PASSING.has(verdict?.verdict) || isHigh(verdict);
+
+/** The verdict fields a deleted block keeps, so it can stand in the union and in later gate runs. */
+function deletedSnapshot(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const { role, verdict, sha, diff_id: diffId, findings, notes, evidence } = parsed;
+  if (!["verifier", "reviewer"].includes(role) || typeof verdict !== "string" || typeof sha !== "string") return null;
+  const snapshot = { role, verdict, sha };
+  if (typeof diffId === "string") snapshot.diff_id = diffId;
+  if (Array.isArray(findings)) snapshot.findings = findings.map((finding) => ({ severity: finding?.severity ?? null }));
+  if (Array.isArray(notes)) snapshot.notes = notes.filter((note) => typeof note === "string");
+  if (Array.isArray(evidence)) snapshot.evidence = evidence.filter((item) => item && RUN_KINDS.has(item.kind) && typeof item.url === "string").map(({ kind, url }) => ({ kind, url }));
+  return snapshot;
+}
+
+/**
+ * Sort deleted trusted verdicts (from the event and from earlier gate runs)
+ * into the blocking ones that keep standing and the unreadable ones. A
+ * deleted clean PASS/PASS_NOTES is dropped: it must never count as a pass,
+ * and it does not block either. Anything that cannot be read as a verdict
+ * fails closed as unreadable.
+ */
+export function carriedDeletions(deletedVerdicts, trusted) {
+  const blocking = [];
+  const unreadable = [];
+  for (const item of Array.isArray(deletedVerdicts) ? deletedVerdicts : []) {
+    if (!item || typeof item !== "object" || !inList(trusted, lower(item.author))) continue;
+    const snapshot = deletedSnapshot(item.verdict_block);
+    if (!snapshot) unreadable.push(item);
+    else if (isBlocking(snapshot)) blocking.push(item);
+  }
+  return { blocking, unreadable };
+}
+
+/**
+ * The builder bot ids recorded in the PR body's Built-by (or Model-builder)
+ * line: `bot=<id> model=model:<pool>` entries and the free-text
+ * `<bot> / <family>` form (docs/agent-pr-tags.md). Missing or unparseable
+ * lines give no ids; they only ever remove a warning, never add a pass.
+ */
+export function bodyBuilders(body) {
+  if (typeof body !== "string") return [];
+  const ids = new Set();
+  for (const line of body.split(/\r?\n/)) {
+    const match = /^\s*(?:Built-by|Model-builder):\s*(.*)$/i.exec(line);
+    if (!match) continue;
+    for (const entry of match[1].split(";")) {
+      const canonical = /(?:^|\s)bot=([A-Za-z0-9._-]+)/.exec(entry);
+      const freeText = /^\s*([A-Za-z0-9][A-Za-z0-9 ._-]*?)\s*\//.exec(entry);
+      const id = canonical?.[1] ?? freeText?.[1]?.replaceAll(/\s+/g, "-");
+      if (id) ids.add(id.toLowerCase());
+    }
+  }
+  return [...ids];
+}
+
+/** Ruling 1: counted verdicts whose verifier id equals a builder in the PR body. */
+function builderMatches(entries, prBody) {
+  const builders = new Set(bodyBuilders(prBody));
+  if (!builders.size) return [];
+  return entries
+    .filter((entry) => !entry.deleted)
+    .map((entry) => ({ entry, id: entry.verdict.verifier?.agent_id ?? entry.verdict.verifier?.id }))
+    .filter(({ id }) => typeof id === "string" && builders.has(id.toLowerCase()))
+    .map(({ entry, id }) => ({ code: "verifier_not_independent", detail: `${entry.verdict.role} comment ${entry.comment_id} verifier id ${id} is the PR's builder (Built-by line)` }));
 }
 
 function independenceProblems({ entries, identity, prAuthor, commits }) {
@@ -276,7 +354,7 @@ function failReasons(role, entries) {
   for (const detail of conflicts) reasons.push({ code: "verdict_conflict", detail });
   if (outstanding.length) {
     const disagree = entries.some((entry) => PASSING.has(entry.verdict.verdict));
-    const ids = outstanding.map((entry) => entry.comment_id).join(", ");
+    const ids = outstanding.map((entry) => `${entry.comment_id}${entry.deleted ? " (deleted)" : ""}`).join(", ");
     if (disagree) reasons.push({ code: "verdict_conflict", detail: `${role} verdicts bound to the head disagree: FAIL in comment(s) ${ids} stands` });
     else reasons.push({ code: role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head", detail: `${role} FAIL in comment(s) ${ids}` });
   }
@@ -309,7 +387,8 @@ function sensitiveReasons({ classification, headSha, headDiffId, changedFiles, c
  * @param {string|null} input.headDiffId diff_id recomputed from base...head, or null when it could not be
  * @param {string} [input.diffIdError] why diff_id could not be computed
  * @param {object[]} input.comments PR issue comments
- * @param {object[]} [input.deletedVerdicts] deleted trusted verdict comments seen ({ comment_id, author, created_at, sha, diff_id, role })
+ * @param {object[]} [input.deletedVerdicts] deleted trusted verdict comments seen ({ comment_id, author, created_at, sha, diff_id, role, verdict_block })
+ * @param {string} [input.prBody] PR body (data only), read for the Built-by line
  * @param {object[]} input.commits PR commits ({ author: { login }, committer: { login } })
  * @param {string} input.prAuthor PR author login
  * @param {Array<object|string>} input.changedFiles PR files ({ filename, status, previous_filename })
@@ -319,7 +398,7 @@ function sensitiveReasons({ classification, headSha, headDiffId, changedFiles, c
  */
 export function evaluate(given = {}) {
   const input = given !== null && typeof given === "object" ? given : {};
-  const { headSha, liveHeadSha, headDiffId, diffIdError, comments, deletedVerdicts = [], commits, prAuthor, changedFiles, classification } = input;
+  const { headSha, liveHeadSha, headDiffId, diffIdError, comments, deletedVerdicts = [], commits, prAuthor, prBody, changedFiles, classification } = input;
   const mode = MODES.has(input.mode) ? input.mode : "enforce";
   const identity = IDENTITIES.has(input.identity) ? input.identity : "app";
   const reasons = [];
@@ -368,15 +447,24 @@ export function evaluate(given = {}) {
   }
 
   const bound = (entry) => entry.verdict.sha === headSha || (summary.diff_id !== null && entry.verdict.diff_id === summary.diff_id);
-  // Only a fresh verdict bound to the head clears an edited, deleted or malformed one.
-  reasons.push(...staleTrustedEdits({ rejected, deletedVerdicts, entries: candidates.filter(bound), trusted, headSha, headDiffId: summary.diff_id }));
+  const deletions = carriedDeletions(deletedVerdicts, trusted);
+  // Only a fresh verdict bound to the head clears an edited, malformed or unreadable deleted one.
+  reasons.push(...staleTrustedEdits({ rejected, unreadableDeletions: deletions.unreadable, entries: candidates.filter(bound), trusted, headSha, headDiffId: summary.diff_id }));
+  // A deleted blocking verdict stands as if it were still posted; it never counts as a pass.
+  const deleted = deletions.blocking
+    .map((item) => ({ comment_id: item.comment_id ?? null, block: 0, created_at: item.created_at ?? null, author: item.author, verdict: deletedSnapshot(item.verdict_block), deleted: true }))
+    .filter(bound);
+  for (const entry of deleted.filter((item) => PASSING.has(item.verdict.verdict))) {
+    reasons.push({ code: entry.verdict.role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head", detail: `deleted ${entry.verdict.role} comment ${entry.comment_id} had a high note or finding` });
+  }
 
   const verifiers = candidates.filter((entry) => entry.verdict.role === "verifier" && bound(entry));
   const reviewers = candidates.filter((entry) => entry.verdict.role === "reviewer" && bound(entry));
   const staleVerifier = candidates.filter((entry) => entry.verdict.role === "verifier" && !bound(entry)).at(-1) ?? null;
+  const union = (role, live) => [...live, ...deleted.filter((entry) => entry.verdict.role === role)].sort(compareEntries);
 
-  const verifierFails = failReasons("verifier", verifiers);
-  const reviewerFails = failReasons("reviewer", reviewers);
+  const verifierFails = failReasons("verifier", union("verifier", verifiers));
+  const reviewerFails = failReasons("reviewer", union("reviewer", reviewers));
   reasons.push(...verifierFails.reasons, ...reviewerFails.reasons);
   const verifier = verifierReasons(verifiers, staleVerifier);
   reasons.push(...verifier.reasons);
@@ -392,6 +480,10 @@ export function evaluate(given = {}) {
   // eligible needs proof-check evidence per class (OVD-841), which does not exist yet.
   summary.automerge = sensitive.classifierOk && sensitive.classes.length === 0 ? "needs_release" : "needs_blaine";
 
+  // Ruling 1: a warning until K3 (stage A), blocking from K3 on (stage B).
+  const notIndependent = builderMatches([...verifiers, ...reviewers], prBody);
+  if (identity === "app") reasons.push(...notIndependent);
+  else warnings.push(...notIndependent);
   if (identity === "shared-account") warnings.push({ code: "identity_not_enforced", detail: IDENTITY_NOTES["shared-account"] });
   summary.reasons = dedupeReasons(reasons);
   summary.gate = summary.reasons.length === 0 ? "pass" : "fail";
@@ -437,6 +529,12 @@ export function formatSummary(summary) {
   ];
   for (const reason of summary.reasons) lines.push(`- \`${reason.code}\`: ${String(reason.detail).replaceAll(/[\r\n]+/g, " ")}`);
   if (summary.reasons.length) lines.push("");
+  const warnings = (Array.isArray(summary.warnings) ? summary.warnings : []).filter((warning) => warning?.code !== "identity_not_enforced");
+  if (warnings.length) {
+    lines.push("Warnings (non-blocking):", "");
+    for (const warning of warnings) lines.push(`- \`${warning.code}\` (warning): ${String(warning.detail).replaceAll(/[\r\n]+/g, " ")}`);
+    lines.push("");
+  }
   return lines.join("\n");
 }
 
@@ -567,23 +665,26 @@ function summaryFromCheckRun(run) {
   }
 }
 
-/** A deleted verdict comment from an issue_comment deleted event, or null. */
-export function deletedVerdictFromEvent(event) {
-  if (event?.action !== "deleted" || !event.comment) return null;
-  const blocks = extractVerdictBlocks(event.comment.body);
-  if (!blocks.length) return null;
-  const item = { comment_id: event.comment.id ?? null, author: event.comment.user?.login ?? null, created_at: event.comment.created_at ?? null, sha: null, diff_id: null, role: null };
-  if (blocks.length === 1) {
+/**
+ * The deleted verdict blocks to carry forward from an issue_comment deleted
+ * event, one per block. Only blocking verdicts are kept (with a snapshot of
+ * the verdict); a clean PASS/PASS_NOTES is dropped. A block that cannot be
+ * read is kept without a snapshot (treated as possibly a FAIL for the head).
+ */
+export function deletedVerdictsFromEvent(event) {
+  if (event?.action !== "deleted" || !event.comment) return [];
+  const base = { comment_id: event.comment.id ?? null, author: event.comment.user?.login ?? null, created_at: event.comment.created_at ?? null };
+  return extractVerdictBlocks(event.comment.body).flatMap((text) => {
+    let parsed = null;
     try {
-      const parsed = JSON.parse(blocks[0]);
-      if (typeof parsed?.sha === "string") item.sha = parsed.sha;
-      if (typeof parsed?.diff_id === "string") item.diff_id = parsed.diff_id;
-      if (typeof parsed?.role === "string") item.role = parsed.role;
+      parsed = JSON.parse(text);
     } catch {
-      // Unreadable: treated as possibly for the head.
+      // Unreadable: kept, and treated as possibly for the head.
     }
-  }
-  return item;
+    const snapshot = deletedSnapshot(parsed);
+    if (snapshot && !isBlocking(snapshot)) return [];
+    return [{ ...base, sha: snapshot?.sha ?? null, diff_id: snapshot?.diff_id ?? null, role: snapshot?.role ?? null, ...(snapshot ? { verdict_block: snapshot } : {}) }];
+  });
 }
 
 /**
@@ -617,9 +718,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     const list = await client.paginate(`/repos/${repo}/pulls/${pr}/commits`);
     return Number.isInteger(pull?.commits) && list.length === pull.commits ? list : undefined;
   });
-  const deleted = deletedVerdictFromEvent(event);
   const prior = HEX40.test(String(headSha)) ? await read(() => priorDeletions(client, repo, headSha)) : [];
-  const deletedVerdicts = [...(prior ?? []), ...(deleted ? [deleted] : [])];
+  const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];
   const { diffId, error: diffIdError } = headDiffId({ pr, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
   const { classification, files } = await classify({ client, repo, pr, headSha, root });
   const summary = evaluate({
@@ -631,6 +731,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     deletedVerdicts,
     commits,
     prAuthor: pull?.user?.login,
+    prBody: typeof pull?.body === "string" ? pull.body : null,
     changedFiles: files,
     classification,
     mode: MODE,
@@ -641,7 +742,9 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     summary.reasons.push({ code: "missing_input", detail: "earlier gate check runs on this head could not be read" });
     summary.gate = "fail";
   }
-  summary.deleted_verdicts = deletedVerdicts.filter((item) => inList([...TRUSTED_VERIFIERS, ...APP_TRUSTED_VERIFIERS], lower(item?.author)));
+  // Carry forward only blocking or unreadable deletions; a deleted clean pass is never recorded.
+  const carried = carriedDeletions(deletedVerdicts, [...TRUSTED_VERIFIERS, ...APP_TRUSTED_VERIFIERS]);
+  summary.deleted_verdicts = deletedVerdicts.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
   return summary;
 }
 
