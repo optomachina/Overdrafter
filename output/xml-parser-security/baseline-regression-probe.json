@@ -1,0 +1,9 @@
+{
+  "versions": {
+    "fast-xml-parser": "5.4.2",
+    "fast-xml-builder": "1.0.0"
+  },
+  "status": 1,
+  "stdout": "numeric-limit: accepted {\"r\":\"AAAAAAAAAAA\"}\n",
+  "stderr": "node:internal/modules/cjs/loader:524\n      throw err;\n      ^\n\nError: Cannot find module '/Users/blainewilson/Documents/GitHub/Overdrafter/worker/node_modules/fast-xml-builder/lib/fxb.cjs'. Please verify that the package.json has a valid \"main\" entry\n    at tryPackage (node:internal/modules/cjs/loader:516:19)\n    at Function._findPath (node:internal/modules/cjs/loader:778:18)\n    at Function._resolveFilename (node:internal/modules/cjs/loader:1415:27)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1040:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1045:22)\n    at Function._load (node:internal/modules/cjs/loader:1216:25)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Module.require (node:internal/modules/cjs/loader:1527:12)\n    at require (node:internal/modules/helpers:147:16)\n    at [eval]:1:318 {\n  code: 'MODULE_NOT_FOUND',\n  path: '/Users/blainewilson/Documents/GitHub/Overdrafter/worker/node_modules/fast-xml-builder/package.json',\n  requestPath: '/Users/blainewilson/Documents/GitHub/Overdrafter/worker/node_modules/fast-xml-builder'\n}\n\nNode.js v22.22.3\n"
+}

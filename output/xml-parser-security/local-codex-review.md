@@ -1,0 +1,1 @@
+No actionable findings in the staged two-file patch. Lock changes match the intended dependency scope; static inspection found no concrete compatibility, test-quality, or subprocess-cleanup regressions. Tests were not run, as requested; the parser’s separate XMLBuilder surface remains outside scope.

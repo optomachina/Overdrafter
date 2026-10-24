@@ -1,0 +1,63 @@
+{
+  "name": "overdrafter-cad-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "x-third-party-attribution": {
+    "heerich": {
+      "license": "MIT",
+      "usageScope": "geometry_projection artifact schema and compatible scene rendering pipeline"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "start:prod": "node dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
+    "auth:xometry": "tsx src/tools/xometryAuth.ts",
+    "probe:xometry-auth": "tsx src/tools/probeXometryProfileAuth.ts",
+    "export:xometry-profile": "tsx src/tools/exportXometryProfile.ts",
+    "auth:fictiv": "tsx src/tools/fictivAuth.ts",
+    "auth:vendor": "tsx src/tools/vendorAuth.ts",
+    "sweep:fictiv-quantity": "tsx src/tools/fictivQuantitySweep.ts",
+    "eval:gate": "tsx src/tools/extractEvalGate.ts",
+    "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
+    "eval:live-provider": "tsx src/tools/vendorWorkflowSmoke.ts",
+    "smoke:vendor-workflow": "tsx src/tools/vendorWorkflowSmoke.ts",
+    "validate:openclaw-gate": "tsx src/tools/validateOpenclawGate.ts",
+    "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
+    "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
+    "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",
+    "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
+    "install:browsers": "playwright install chromium",
+    "install:camoufox": "node node_modules/camoufox-js/dist/__main__.js fetch",
+    "extract:eval": "tsx src/tools/extractEval.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@supabase/supabase-js": "^2.77.0",
+    "camoufox-js": "^0.10.2",
+    "dotenv": "^16.6.1",
+    "fast-xml-parser": "5.7.0",
+    "node-stream-zip": "^1.15.0",
+    "occt-import-js": "0.0.23",
+    "openai": "^4.104.0",
+    "patchright": "^1.59.4",
+    "playwright": "^1.52.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.5",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "fast-xml-builder": "1.1.7",
+    "strnum": "2.2.3",
+    "@nodable/entities": "2.1.0",
+    "path-expression-matcher": "1.5.0"
+  }
+}

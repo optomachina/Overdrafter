@@ -1,0 +1,25 @@
+2026-09-06T00:56:49.486084Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.494697Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.501137Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.507350Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.513763Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.521193Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.527265Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.532913Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.538524Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.544228Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.551367Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.557509Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.563779Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.570247Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.576530Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.582662Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.588429Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:49.594482Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T00:56:57.306055Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-199c63d8-f9f6-4a4d-aaa4-aa120696e1d7"
+2026-09-06T00:57:13.330175Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-a9c05440-5a60-4965-8f04-00d34c4cb73e"
+2026-09-06T00:57:26.230930Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-48e71ce1-94b5-4f86-9f9b-1265f15c90a1"
+2026-09-06T00:57:35.024462Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-19b904c1-45ac-41de-be27-78d3e7101094"
+2026-09-06T00:57:45.514081Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-30c0f8be-5dc5-4bfe-bebb-47ab35d53b6c"
+2026-09-06T00:57:53.875148Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-42d3a278-b486-4e2a-916d-0f3ce7e3e6fc"
+2026-09-06T00:58:11.910788Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a07437-ce1f-7a50-bf62-d317b63e1719 turn_id=01a07437-cffe-7251-97d8-7f436f3ff059 item_id="exec-888c6e7d-8870-4080-8872-66095a401c58"

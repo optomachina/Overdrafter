@@ -1,0 +1,13 @@
+{
+  "head": "716b82f14d2c5e39df4deb43fb6defe4872ed3f7",
+  "base": "7f0c310e68a1f15fa17b1a7eb33a5cb1417d3335",
+  "patch_sha256": "a5b054c3756e5395c582186f86ea5b2fc13e1d713b398a79a07f6e0c4fcfab7d",
+  "changed_entries": {
+    "node_modules/path-expression-matcher": "1.5.0",
+    "node_modules/fast-xml-builder": "1.1.7",
+    "node_modules/@nodable/entities": "2.1.0",
+    "node_modules/fast-xml-parser": "5.7.0",
+    "node_modules/strnum": "2.2.3"
+  },
+  "manifest_and_lock_metadata_unchanged": true
+}

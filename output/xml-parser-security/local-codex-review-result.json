@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "elapsed_seconds": 81.59,
+  "auth": "ChatGPT subscription; API key variables removed",
+  "source_files": [
+    "worker/package-lock.json",
+    "worker/src/tools/xml-import-security.test.ts"
+  ]
+}

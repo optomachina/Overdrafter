@@ -1,0 +1,11 @@
+{
+  "current_main": "b6f4632ad35ad6c9e5c6f9c7728151b2fedb2bc2",
+  "pr_head": "716b82f14d2c5e39df4deb43fb6defe4872ed3f7",
+  "merged_tree": "dbf8efdc12c1bc1ff57e6c6c28a93a7b1593c92a",
+  "conflicts": false,
+  "files_vs_main": [
+    "worker/package-lock.json",
+    "worker/src/tools/xml-import-security.test.ts"
+  ],
+  "file_bytes_match_verified_head": true
+}

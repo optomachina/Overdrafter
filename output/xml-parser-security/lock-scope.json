@@ -1,0 +1,35 @@
+{
+  "source_sha": "134389aba914fe641e22a4242869ebd0d807f0db",
+  "package_json_unchanged": true,
+  "root_lock_metadata_unchanged": true,
+  "changed_entries": {
+    "node_modules/@nodable/entities": {
+      "before": null,
+      "after": "2.1.0",
+      "engines": null
+    },
+    "node_modules/fast-xml-builder": {
+      "before": "1.0.0",
+      "after": "1.1.7",
+      "engines": null
+    },
+    "node_modules/fast-xml-parser": {
+      "before": "5.4.2",
+      "after": "5.7.0",
+      "engines": null
+    },
+    "node_modules/path-expression-matcher": {
+      "before": null,
+      "after": "1.5.0",
+      "engines": {
+        "node": ">=14.0.0"
+      }
+    },
+    "node_modules/strnum": {
+      "before": "2.2.0",
+      "after": "2.2.3",
+      "engines": null
+    }
+  },
+  "node": "v22.22.3"
+}

@@ -1,0 +1,14 @@
+{
+  "base_sha": "134389aba914fe641e22a4242869ebd0d807f0db",
+  "branch": "fix/worker-xml-parser-security",
+  "root_verify_exit_code": 0,
+  "test_files_passed": 313,
+  "tests_passed": 3495,
+  "tests_skipped": 1,
+  "local_review_exit_code": 0,
+  "published": false,
+  "source_hashes": {
+    "worker/package-lock.json": "ff1ed12838c96f0d449f634f80b68430b4071ee370fa5e5647c94bb5f37234bf",
+    "worker/src/tools/xml-import-security.test.ts": "b9afe8413f534c083c2a035040897c349f498c6c1503e9295295f5ab04839d24"
+  }
+}
