@@ -22,7 +22,8 @@ async function collect(texts: string[], tier = "Least Expensive - Lead Time: 5 b
   const page = { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
     locator: (selector: string) => ({ count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? texts.length : 0,
       nth: (index: number) => ({ innerText: async () => texts[index], getAttribute: async (name: string) => attributes[name] ?? null,
-        locator: (selector: string) => selector.includes("disabled") ? { count: async () => 0 } : { first: () => ({ innerText: async () => tier }) } }) }) } as unknown as Page;
+        locator: (selector: string) => selector.includes("disabled") ? { count: async () => 0 }
+          : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tier }) } }) }) } as unknown as Page;
   await collectXometryOffers(page, 2, (observation) => { observations.push(observation); }).catch(() => undefined);
   return observations;
 }
