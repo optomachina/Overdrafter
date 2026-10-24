@@ -91,6 +91,12 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
+      - name: Restore apt package archives
+        id: apt-archives
+        uses: ./.github/actions/restore-apt-archives
+        with:
+          name: ocr-and-chromium-deps
+
       # The worker OCR suite (pdfDrawing.ocr.test.ts) skips without these tools.
       # Versions match worker/Dockerfile so CI reads the stamp the way production does.
       - name: Install poppler and tesseract for OCR tests
@@ -132,6 +138,12 @@ jobs:
 
       - name: Install Chromium for DOM recovery tests
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Save apt package archives
+        uses: ./.github/actions/save-apt-archives
+        with:
+          key-prefix: ${{ steps.apt-archives.outputs.key-prefix }}
+          matched-key: ${{ steps.apt-archives.outputs.matched-key }}
 
       - name: Test Edge Functions
         run: npm run test:functions
@@ -182,6 +194,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci --ignore-scripts
 
+      - name: Restore apt package archives
+        id: apt-archives
+        uses: ./.github/actions/restore-apt-archives
+        with:
+          name: chromium-deps
+
       - name: Resolve Playwright version
         id: playwright-version
         run: |
@@ -197,6 +215,12 @@ jobs:
 
       - name: Install Chromium
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Save apt package archives
+        uses: ./.github/actions/save-apt-archives
+        with:
+          key-prefix: ${{ steps.apt-archives.outputs.key-prefix }}
+          matched-key: ${{ steps.apt-archives.outputs.matched-key }}
 
       - name: Verify installed sandbox-capable Chrome
         run: test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version

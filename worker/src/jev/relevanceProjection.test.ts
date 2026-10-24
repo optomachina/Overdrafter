@@ -24,7 +24,8 @@ async function observeBadge(tierText: string) {
     getAttribute: async (name: string) => name === "data-option-id" ? "option-0" : null,
     locator: (selector: string) => selector.includes("disabled")
       ? { count: async () => 0 }
-      : { first: () => ({ innerText: async () => tierText }) },
+      // One visible tier label; no nested option container or list-price slot.
+      : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tierText }) },
   };
   const page = {
     url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
