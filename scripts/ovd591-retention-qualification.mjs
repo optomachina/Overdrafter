@@ -1,9 +1,9 @@
 /** Executes only inside the same admitted fixture; never provisions, changes auth or runs the six-race suite. */
+import { isEntryPoint } from './lib/entry-point.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { admitQualificationPaths, admitSourceInputs, sha256 as sha } from './ovd591-qualification-paths.mjs';
-import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { acceptContainer, acceptTap } from './ovd591-sql-qualification.mjs';
 import { MIGRATIONS, baselineInputs } from './ovd591-ci-fixture.mjs';
 import { RETENTION_MIGRATION, RETENTION_BASELINE, RETENTION_SUITES } from './ovd591-retention-profile.mjs';
@@ -23,7 +23,7 @@ export async function runRetentionQualification(container, destination, provisio
     'supabase/migrations/20260731015213_secure_commercial_admin_operations.sql',
     'supabase/tests/capability_runtime_persistence_concurrency.sql',
     'scripts/ovd591-ci-fixture.mjs', 'scripts/ovd591-sql-qualification.mjs', 'scripts/ovd591-psql-concurrency.mjs',
-    'scripts/ovd591-qualification-paths.mjs', 'scripts/ovd591-retention-profile.mjs',
+    'scripts/lib/entry-point.mjs', 'scripts/ovd591-qualification-paths.mjs', 'scripts/ovd591-retention-profile.mjs',
     'scripts/ovd591-readiness.mjs', 'scripts/ovd591-libpq-environment.mjs', 'scripts/ovd591-image-pull.mjs', 'scripts/free-quote-ci-profile.mjs',
     'scripts/free-quote-platform-sources.mjs', 'scripts/free-quote-psql-races.mjs',
     'scripts/ovd591-retention-qualification.mjs', 'scripts/ovd591-retention-concurrency.mjs',
@@ -74,7 +74,7 @@ export async function runRetentionQualification(container, destination, provisio
   finally { receipt.finishedAt = new Date().toISOString(); save(); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isEntryPoint(import.meta.url)) {
   try {
     assert.equal(process.argv.length, 6); assert.equal(process.argv[5], '--concurrency=psql');
     await runRetentionQualification(process.argv[2], process.argv[3], process.argv[4]);

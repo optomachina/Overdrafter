@@ -88,6 +88,16 @@ jobs:
               cp "$file" "$gate/$file"
             fi
           done
+          # Optional helper follows the selected source; its absence never selects head.
+          helper="scripts/lib/entry-point.mjs"
+          mkdir -p "$gate/scripts/lib"
+          if [ "$source" = base ]; then
+            if git cat-file -e "HEAD^1:$helper" 2>/dev/null; then
+              git show "HEAD^1:$helper" > "$gate/$helper"
+            fi
+          elif [ -f "$helper" ]; then
+            cp "$helper" "$gate/$helper"
+          fi
           echo "Gate scripts taken from: $source"
           ts_version="$(git show HEAD^1:package-lock.json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).packages["node_modules/typescript"].version)}catch{console.log("5.8.3")}})')"
           cd "$gate"
@@ -114,4 +124,8 @@ jobs:
             --diff-from "$RUNNER_TEMP/pr.diff" \
             --base-ref HEAD^1 --head-ref HEAD \
             --skip-unless-enabling \
-            --verify-links
+            --verify-links | tee "$RUNNER_TEMP/pr-body-validation.log"
+          if ! grep -Eq '^(PR body validation passed|No provider enablement or gate edit in this diff)' "$RUNNER_TEMP/pr-body-validation.log"; then
+            echo "::error::PR body validator exited successfully without validation evidence."
+            exit 1
+          fi

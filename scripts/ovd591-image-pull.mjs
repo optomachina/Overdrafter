@@ -3,11 +3,11 @@
  * CLI: node scripts/ovd591-image-pull.mjs pull <image>...
  *      node scripts/ovd591-image-pull.mjs save <cache-dir> <image>...   (registry-pulled images -> tarball + ID receipt)
  *      node scripts/ovd591-image-pull.mjs load <cache-dir> */
+import { isEntryPoint } from './lib/entry-point.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const RATE_LIMIT_PATTERNS = Object.freeze([/toomanyrequests/i, /data limit exceeded/i, /rate exceeded/i]);
@@ -211,7 +211,7 @@ export async function loadImageCache(dir, { call = spawnCall(), out = console.lo
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
   if (command === 'pull') process.exitCode = await pullImages(rest);
   else if (command === 'save') process.exitCode = await saveImageCache(rest[0], rest.slice(1));
