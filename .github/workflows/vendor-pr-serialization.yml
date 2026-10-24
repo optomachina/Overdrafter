@@ -1,0 +1,61 @@
+name: Vendor PR serialization
+
+# Fails a PR that changes a vendor-adapter file (worker/src/adapters/**, worker/src/tools/vendor*)
+# another open PR also changes, so shared auth/kernel/index edits land in one PR at a time.
+# Informational until "vendor-pr-serialization" is added to branch protection. The script runs
+# from the base copy (HEAD^1) on pull_request so a PR cannot edit it to skip itself.
+# schedule and push to main re-check all open vendor PRs (--all). Fails closed on API errors or page caps.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 */6 * * *"
+
+concurrency:
+  group: vendor-pr-serialization-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  vendor-pr-serialization:
+    name: vendor-pr-serialization
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, serialization was checked on the pull_request run."
+      - uses: actions/checkout@v5
+        if: github.event_name != 'merge_group'
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        if: github.event_name != 'merge_group'
+        with:
+          node-version: 20
+      - name: Check open vendor PRs
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/gate/scripts"; mkdir -p "$gate/lib"
+          for f in scripts/vendor-pr-serialization.mjs scripts/lib/entry-point.mjs; do
+            if git cat-file -e "HEAD^1:$f" 2>/dev/null; then git show "HEAD^1:$f" > "$RUNNER_TEMP/gate/$f"; else cp "$f" "$RUNNER_TEMP/gate/$f"; fi
+          done
+          node "$gate/vendor-pr-serialization.mjs" --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
+      # Schedule and push to main: re-check every open vendor PR against every other one.
+      - name: Re-check all open vendor PRs
+        if: github.event_name == 'schedule' || github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/vendor-pr-serialization.mjs --all --repo "$GITHUB_REPOSITORY"

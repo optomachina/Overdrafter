@@ -182,6 +182,8 @@
     { "glob": "scripts/verify-ovd417-*", "class": "infra_ci" },
     { "glob": "scripts/prepare-ovd373-schema-restore*", "class": "infra_ci" },
     { "glob": "scripts/compare-ovd372-app-schema*", "class": "infra_ci" },
+    { "glob": "scripts/vendor-pr-serialization*", "class": "infra_ci" },
+    { "glob": ".github/workflows/vendor-pr-serialization.yml", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
