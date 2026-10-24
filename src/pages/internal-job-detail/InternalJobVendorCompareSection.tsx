@@ -87,26 +87,26 @@ export function InternalJobVendorCompareSection({
                       <p className="text-lg font-medium">{part?.name ?? "Unknown part"}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                         <p className="text-muted-foreground">{formatVendorName(quote.vendor)}</p>
-                        <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+                        <Badge variant="secondary" className="border border-border bg-accent text-foreground">
                           Qty {quote.requested_quantity}
                         </Badge>
                         {isManualVendor ? (
-                          <Badge className="border border-sky-500/20 bg-sky-500/10 text-sky-200">
+                          <Badge className="border border-border bg-accent text-foreground">
                             Manual source
                           </Badge>
                         ) : null}
                         {isManualIntake ? (
-                          <Badge className="border border-amber-500/20 bg-amber-500/10 text-amber-200">
+                          <Badge className="border border-border bg-accent text-foreground">
                             Manual intake
                           </Badge>
                         ) : !isManualVendor ? (
-                          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+                          <Badge variant="secondary" className="border border-border bg-accent text-foreground">
                             Browser adapter
                           </Badge>
                         ) : null}
                       </div>
                     </div>
-                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground">
                       {formatStatusLabel(quote.status)}
                     </Badge>
                   </div>
@@ -175,7 +175,7 @@ export function InternalJobVendorCompareSection({
                                     {offer.quoteRef ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-border bg-accent text-foreground/80"
+                                        className="border border-border bg-accent text-foreground"
                                       >
                                         Ref: {offer.quoteRef}
                                       </Badge>
@@ -183,7 +183,7 @@ export function InternalJobVendorCompareSection({
                                     {offer.shipReceiveBy ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-border bg-accent text-foreground/80"
+                                        className="border border-border bg-accent text-foreground"
                                       >
                                         Ship/receive: {offer.shipReceiveBy}
                                       </Badge>
@@ -191,14 +191,14 @@ export function InternalJobVendorCompareSection({
                                     {offer.process ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-border bg-accent text-foreground/80"
+                                        className="border border-border bg-accent text-foreground"
                                       >
                                         {offer.process}
                                       </Badge>
                                     ) : null}
                                     <Badge
                                       variant="secondary"
-                                      className="border border-border bg-accent text-foreground/80"
+                                      className="border border-border bg-accent text-foreground"
                                     >
                                       Qty {offer.requestedQuantity}
                                     </Badge>
@@ -220,15 +220,15 @@ export function InternalJobVendorCompareSection({
                               <div className="mt-4 grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Unit</p>
-                                  <p className="mt-1 text-foreground/80">{formatCurrency(offer.unitPriceUsd)}</p>
+                                  <p className="mt-1 text-foreground">{formatCurrency(offer.unitPriceUsd)}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Material</p>
-                                  <p className="mt-1 text-foreground/80">{offer.material || "N/A"}</p>
+                                  <p className="mt-1 text-foreground">{offer.material || "N/A"}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Finish</p>
-                                  <p className="mt-1 text-foreground/80">{offer.finish || "N/A"}</p>
+                                  <p className="mt-1 text-foreground">{offer.finish || "N/A"}</p>
                                 </div>
                               </div>
                               {offer.notes ? <p className="mt-3 text-sm text-muted-foreground">{offer.notes}</p> : null}

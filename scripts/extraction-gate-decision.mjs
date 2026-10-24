@@ -6,16 +6,15 @@
  * line counts as `error`. Mode is `enforce` only when set exactly; anything
  * else is `report`, which never fails on the line. Enforce fails closed on fail and error.
  * A run with no checked-in corpus is a skip, not a failure. Mode governs only
- * the parsed line: a failed extraction-gate job (crash or infra step) fails in
- * every mode, mirroring the `failure` check in ci.yml's dependency step.
+ * the parsed line: any non-empty, non-success extraction-gate job result fails
+ * in every mode, mirroring the success requirement in ci.yml's dependency step.
  *
  * Usage (CI): EXTRACTION_GATE_MODE=<mode> EXTRACTION_GATE_OUTPUT=<text>
  *   EXTRACTION_GATE_CORPUS=<true|false> EXTRACTION_GATE_JOB_RESULT=<result>
  *   node scripts/extraction-gate-decision.mjs
  */
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { appendFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 export const RESULT_LINE_PREFIX = "EXTRACTION_GATE_RESULT=";
 export const RESULTS = ["pass", "fail", "error"];
@@ -51,7 +50,7 @@ export function decideExtractionGate({ mode, output, corpusPresent, jobResult } 
   let level;
   let exitCode = 0;
   let message;
-  if (jobResult === "failure") {
+  if (jobResult && jobResult !== "success") {
     level = "error";
     exitCode = 1;
     message = "Extraction gate job failed; ci fails in every mode.";
@@ -89,11 +88,7 @@ export function decideExtractionGate({ mode, output, corpusPresent, jobResult } 
   return { mode: effectiveMode, result, exitCode, annotation, summary };
 }
 
-const isDirectExecution = process.argv[1]
-  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-  : false;
-
-if (isDirectExecution) {
+if (isEntryPoint(import.meta.url)) {
   const decision = decideExtractionGate({
     mode: process.env.EXTRACTION_GATE_MODE,
     output: process.env.EXTRACTION_GATE_OUTPUT,

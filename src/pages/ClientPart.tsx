@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -22,6 +23,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { getQuoteSelectionPrompt, hasPublishedQuotePackage } from "@/features/quotes/sourcing-result";
 import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -74,6 +76,7 @@ import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   buildScopedPreset,
+  filterQuoteOptionsForScope,
   getPresetMode,
   getPresetScope,
   type ClientQuoteSelectionOption,
@@ -103,7 +106,7 @@ function CommentCard({ comment }: { comment: LocalComment }) {
           {new Date(comment.createdAt).toLocaleString()}
         </p>
       </div>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground/80">{comment.body}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">{comment.body}</p>
     </article>
   );
 }
@@ -235,6 +238,7 @@ const ClientPart = () => {
     needByRemovalSavesDrawingThreads,
     revisionOptions,
     saveRequestMutation,
+    singleQuantity,
     selectedQuoteOption,
     previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
@@ -300,9 +304,12 @@ const ClientPart = () => {
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const hasPublishedPackage = hasPublishedQuotePackage(partDetail);
   const validSelectedQuoteOption =
     rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
     selectedQuoteOption;
+  // Keep optimistic highlighting, but review must use the persisted package choice.
+  const reviewQuoteOption = hasPublishedPackage ? selectedQuoteOption : validSelectedQuoteOption;
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -407,9 +414,16 @@ const ClientPart = () => {
     // The mutation's own error toast is the error state; only the local selection needs rolling back.
     handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
-  const reviewOrderDisabledForSelection = rankedQuoteOptions.length > 0 && !validSelectedQuoteOption;
+  const reviewOrderDisabledForSelection = (hasPublishedPackage || rankedQuoteOptions.length > 0) && !reviewQuoteOption;
+
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
+  const scopedOptions = filterQuoteOptionsForScope(rankedQuoteOptions, partPresetScope);
+  const reviewOrderDisabledForScope = Boolean(reviewQuoteOption) &&
+    (scopedOptions.length === 0 || !scopedOptions.some((option) => option.key === reviewQuoteOption?.key));
+  const reviewOrderDisabledReason = reviewOrderDisabledForScope
+    ? "Switch to All sourcing to see your selected quote"
+    : reviewOrderDisabledForSelection ? getQuoteSelectionPrompt(hasPublishedPackage) : undefined;
 
   const applyPartPreset = (mode: "balanced" | "cheapest" | "fastest", scope: "domestic" | "global") => {
     handlePresetSelection(buildScopedPreset(mode, scope));
@@ -523,6 +537,7 @@ const ClientPart = () => {
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
+        singleQuantity={singleQuantity}
         statusContent={
           <>
             {revisionOptions.length > 1 ? (
@@ -725,7 +740,7 @@ const ClientPart = () => {
                         <>
                           <Link
                             to={appAwareHref(`/projects/${breadcrumbProject.id}`)}
-                            className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                            className="rounded-full border border-border bg-muted px-3 py-1 text-foreground transition hover:bg-accent hover:text-foreground"
                           >
                             {breadcrumbProject.name}
                           </Link>
@@ -898,7 +913,7 @@ const ClientPart = () => {
                             void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
                           }}
                           disabled={isPartArchiveBusy}
-                          className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
+                          className={STATUS_TONE.action}
                         >
                           <Archive className="mr-2 h-4 w-4" />
                           Archive part
@@ -962,6 +977,7 @@ const ClientPart = () => {
                     quoteDataMessage={quoteDataMessage}
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
+                    onScopeChange={(scope) => applyPartPreset(partPresetMode, scope)}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
                     deadline={toPanelDeadline(partDeadline)}
                     requestCompletion={{
@@ -983,26 +999,26 @@ const ClientPart = () => {
                       })),
                     }}
                     headerActions={
-                      <>
+                      <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
                         <Button
                           type="button"
                           className="rounded-full shadow-sm"
                           onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                          disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
-                          title={reviewOrderDisabledForSelection ? "Choose a quote to continue" : undefined}
-                          aria-describedby={reviewOrderDisabledForSelection ? "review-order-disabled-reason" : undefined}
+                          disabled={scopedOptions.length === 0 || !reviewQuoteOption || reviewOrderDisabledForScope}
+                          title={reviewOrderDisabledReason}
+                          aria-describedby={reviewOrderDisabledReason ? "review-order-disabled-reason" : undefined}
                         >
                           Review order
                           <MoveRight className="ml-2 h-4 w-4" />
                         </Button>
-                        {reviewOrderDisabledForSelection ? (
-                          <span id="review-order-disabled-reason" className="sr-only">
-                            Choose a quote to continue
+                        {reviewOrderDisabledReason ? (
+                          <span id="review-order-disabled-reason" className="text-sm text-muted-foreground">
+                            {reviewOrderDisabledReason}
                           </span>
                         ) : null}
-                      </>
+                      </div>
                     }
-                    controls={
+                    controls={(deadlineCounts, viewDeadline) => (
                       <>
                         {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
                           <SavedNeedByNotice
@@ -1015,12 +1031,8 @@ const ClientPart = () => {
                         <QuoteSelectionFunctionBar
                           scope={partPresetScope}
                           requestedByDate={quoteViewRequestedByDate}
-                          matchingOptionCount={
-                            quoteViewRequestedByDate
-                              ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
-                              : null
-                          }
-                          totalOptionCount={rankedQuoteOptions.length}
+                          viewDeadline={viewDeadline}
+                          deadlineCounts={viewDeadline ? deadlineCounts : null}
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
                           disabled={saveRequestMutation.isPending}
@@ -1031,7 +1043,7 @@ const ClientPart = () => {
                           }
                         />
                       </>
-                    }
+                    )}
                 />
                 {sourcingResult && sourcingResult.outcome !== "unsupported_package" ? (
                   <ClientSourcingResultPanel
@@ -1070,7 +1082,7 @@ const ClientPart = () => {
                     </div>
 
                     <div className="mt-5 rounded-surface-lg border border-border bg-muted p-4">
-                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground/80">
+                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground">
                         Leave a comment
                       </label>
                       <Textarea

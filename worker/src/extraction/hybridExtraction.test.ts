@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { withMonospaceGeometry } from "../../test-support/pdfWordBoxes";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFileRecord, PartRecord, WorkerConfig } from "../types";
 import * as pdfDrawing from "./pdfDrawing";
@@ -71,6 +72,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryProfileLockWaitMs: 0,
     openAiApiKey: "test-openai-key",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: true,
     ...overrides,
   };
@@ -82,7 +84,7 @@ describe("runHybridExtraction", () => {
   });
 
   it("derives fallback extraction details from the available CAD filename", async () => {
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile({
         original_name: "optic-bracket_lower.step",
@@ -189,7 +191,7 @@ describe("runHybridExtraction", () => {
   });
 
   it("prefers the drawing filename when present and raises confidence scores", async () => {
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile(),
       drawingFile: makeFile({
@@ -270,7 +272,7 @@ describe("runHybridExtraction", () => {
       debugCandidates: {},
     });
 
-    const result = await runHybridExtraction({
+    const result = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart(),
       cadFile: makeFile(),
       drawingFile: makeFile({
@@ -370,6 +372,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           openAiApiKey: null,
           anthropicApiKey: "test-anthropic-key",
           openRouterApiKey: null,
@@ -386,7 +389,7 @@ describe("runHybridExtraction", () => {
     expect(result.status).toBe("approved");
   });
 
-  it("uses the model to rescue a weak revision extraction", async () => {
+  it("uses the model to suggest a weak revision while preserving review", async () => {
     vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockReturnValue({
       description: {
         value: "Widget Clamp",
@@ -580,6 +583,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           openAiApiKey: null,
           anthropicApiKey: "test-anthropic-key",
           openRouterApiKey: null,
@@ -597,7 +601,7 @@ describe("runHybridExtraction", () => {
     expect(result.modelName).toBe("gpt-5.4");
     expect(result.fieldSelections?.revision).toBe("model");
     expect(result.extractedRevisionRaw.reasons).toContain("model_fallback");
-    expect(result.reviewFields).not.toContain("revision");
+    expect(result.reviewFields).toContain("revision");
 
     const incompatibleResult = await runHybridExtraction(
       {
@@ -612,6 +616,7 @@ describe("runHybridExtraction", () => {
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
         config: makeConfig({
+          titleBlockApprovalEnabled: true,
           drawingExtractionModel: "claude-sonnet-4-6",
           openAiApiKey: "test-openai-key",
           anthropicApiKey: null,
@@ -641,18 +646,52 @@ describe("runHybridExtraction", () => {
     };
     const beforeModelAttempt = vi.fn(async () => undefined);
     const seen = vi.fn().mockResolvedValue(null);
-    await runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: seen });
+    await runHybridExtraction({ ...input, config: { ...input.config, titleBlockApprovalEnabled: true }, beforeModelAttempt }, { extractWithModel: seen });
     expect(seen.mock.calls[0][0].beforeModelAttempt).toBe(beforeModelAttempt);
 
     for (const stop of [new ExportControlExtractionDeniedError("export_review_pending"), new ExportControlLookupError("extraction")]) {
       await expect(
-        runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: vi.fn().mockRejectedValue(stop) }),
+        runHybridExtraction({ ...input, config: { ...input.config, titleBlockApprovalEnabled: true }, beforeModelAttempt }, { extractWithModel: vi.fn().mockRejectedValue(stop) }),
       ).rejects.toBe(stop);
     }
 
     // Any other model failure still degrades to a warning.
     const degraded = await runHybridExtraction(input, { extractWithModel: vi.fn().mockRejectedValue(new Error("timeout")) });
     expect(degraded.warnings.join(" ")).toContain("Model fallback failed");
+  });
+
+  // OVD-978: api_list_client_part_metadata (docs/migration-drafts/ovd-978.sql) keeps these two
+  // operator-only diagnostics out of the client's warningCount by their "Model fallback "
+  // prefix. They embed the raw provider or spend-guard message, which a client must not see,
+  // and they say a model call did not run, not that a field needs review. Change the prefix
+  // only together with that filter.
+  it("writes the operator-only model diagnostics under the 'Model fallback ' prefix", async () => {
+    const input = {
+      part: makePart(),
+      cadFile: makeFile(),
+      drawingFile: makeFile({ id: "file-2", original_name: "widget-clamp.pdf", file_kind: "drawing" }),
+      drawingPath: "/tmp/widget-clamp.pdf",
+      runDir: "/tmp",
+      previewPagePath: "/tmp/drawing-page-1.png",
+      config: makeConfig(),
+      forceModelFallback: true,
+    };
+    const spendRefusal = Object.assign(new Error("Spending is halted by an operator kill switch"), {
+      name: "SpendCapExceededError",
+    });
+
+    const refused = await runHybridExtraction(input, { extractWithModel: vi.fn().mockRejectedValue(spendRefusal) });
+    const failed = await runHybridExtraction(input, {
+      extractWithModel: vi.fn().mockRejectedValue(new Error("429 Rate limit reached for the extraction model")),
+    });
+
+    const operatorWarnings = (warnings: string[]) => warnings.filter((warning) => warning.startsWith("Model fallback "));
+    expect(operatorWarnings(refused.warnings)).toEqual([
+      expect.stringContaining("Spending is halted by an operator kill switch"),
+    ]);
+    expect(operatorWarnings(failed.warnings)).toEqual([
+      expect.stringContaining("429 Rate limit reached for the extraction model"),
+    ]);
   });
 
   it("fails closed when parser and model disagree without a clear winner", async () => {
@@ -825,7 +864,7 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({ titleBlockApprovalEnabled: true }),
       },
       {
         extractWithModel,
@@ -853,20 +892,22 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
   });
 
   async function storedFromPages(pages: string[][]) {
-    const extraction = await runHybridExtraction({
+    const extraction = await runHybridExtraction({ config: { titleBlockApprovalEnabled: true } as WorkerConfig,
       part: makePart({ cad_file_id: "file-1", drawing_file_id: "file-2" }),
       cadFile: makeFile(),
       drawingFile: makeFile({ id: "file-2", original_name: "probe.pdf", file_kind: "drawing" }),
-      pdfText: {
+      pdfText: withMonospaceGeometry({
         pageCount: pages.length,
         pageCountKnown: true,
         drawingFullyRead: true,
         ocr: false,
         pages: pages.map((lines, index) => ({
           page: index + 1,
+          ocrText: "",
+          ocrStatus: "ok",
           text: (index === 0 ? ["MATERIAL 6061-T6", "DWG. NO. 1000-1 REV A", ...lines] : lines).join("\n"),
         })),
-      } as never,
+      }),
     });
     return {
       extraction,

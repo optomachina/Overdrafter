@@ -7,6 +7,9 @@ export const XOMETRY_URLS = {
 
 export const XOMETRY_LOCATORS = {
   loginSignals: [/sign in/i, /log in/i, /continue with/i],
+  anonymousUploadPromptSignals: [
+    /upload a 3d model to see instant pricing, lead time, and dfm feedback/i,
+  ],
   anonymousQuoteHomeSignals: [
     /upload a 3d model to see instant pricing, lead time, and dfm feedback/i,
     /already have an account/i,
@@ -146,6 +149,16 @@ export const XOMETRY_LOCATORS = {
     /analyzing geometry/i,
     /loading supported file extensions/i,
   ],
+  // OVD-1052: in-progress PRICING text on the quote page. Only these make a
+  // configured quote page without a recognizable price `unavailable` (pricing
+  // has not finished). The uploader/geometry text above is not one: it says
+  // nothing about pricing, so a page showing only that stays selector_drift.
+  // Synthetic phrasing, not captured from the live page; add a pattern only
+  // from reviewed quote-page evidence.
+  quotePricingInProgressSignals: [
+    /\b(?:re)?calculating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
+    /\bupdating (?:the |your )?(?:price|prices|pricing)\b/i,
+  ],
   quantityInputs: [
     'input[aria-label="Quantity"]',
     'input[type="number"][pattern]',
@@ -164,6 +177,10 @@ export const XOMETRY_LOCATORS = {
     '[data-testid*="line-item" i] [data-testid*="quantity" i] input',
     '[data-testid*="part-row" i] [data-testid*="quantity" i] input',
     'input[aria-label="Quantity"]',
+    // OVD-1052: the current part row labels its quantity stepper with a
+    // sibling <span>Quantity</span>; the number input has no aria-label. The
+    // label anchors this to the part row, never a stray number input.
+    'div:has(> span:text-is("Quantity")) > div > input[type="number"]',
   ],
   // Current configuration controls. Material and finish are required inputs;
   // the adapter fails closed when it cannot apply the requested requirement.
@@ -219,18 +236,22 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Save Configuration")',
     'button[type="submit"]:has-text("Save")',
   ],
-  // Summary-page price tier after Save Configuration. `[data-testid=part-discount]`
-  // exposes the tier total (e.g. "$252.97 (Save $59.81)").
+  // Fallback price anchors, read only when no offer container parsed. Their
+  // amount never reaches a customer: a page with a trusted fallback amount but
+  // no offer containers fails closed, and a manual-review page publishes no
+  // price. `[data-testid="part-discount"]` is deliberately absent: on the
+  // current quote page it holds the struck-through LIST total and its savings
+  // note ("$X (Save $Y)"), never the price the customer pays (OVD-1052).
   priceText: [
     'button:has-text("Least Expensive")',
-    '[data-testid="part-discount"]',
     '.price-tier',
     '[data-testid*="price" i]',
     '[data-testid*="total" i]',
     '[aria-label*="price" i]',
     '[class*="price" i]',
-    // tierAndLeadTime label contains both lead-time and price text; placed last so
-    // its selector key doesn't collide with priceText[0] in the unit-test mock.
+    // The legacy tierAndLeadTime label carried the tier name, lead time and
+    // price; the current one holds only the arrival date. Placed last so its
+    // selector key doesn't collide with priceText[0] in the unit-test mock.
     '[data-testid="tierAndLeadTime"]',
   ],
   // Every supported entry must scope one complete purchasable tier. The

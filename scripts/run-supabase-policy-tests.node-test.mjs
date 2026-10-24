@@ -87,6 +87,20 @@ test('OVD-736 pgTAP fixtures are byte copies of the migration draft and its roll
   }
 });
 
+test('project_jobs write path pgTAP fixtures are byte copies of the migration draft and its rollback', () => {
+  // Draft only until a migration window promotes it; the suite installs these copies.
+  for (const [fixture, draft] of [
+    ['project_jobs_write_path.inc', 'project-jobs-write-path.sql'],
+    ['project_jobs_write_path_rollback.inc', 'project-jobs-write-path.rollback.sql'],
+  ]) {
+    assert.deepEqual(readFileSync(join(source, 'fixtures', fixture)),
+      readFileSync(fileURLToPath(new URL(`../docs/migration-drafts/${draft}`, import.meta.url))));
+  }
+  const suite = readFileSync(join(source, 'project_jobs_write_path.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/project_jobs_write_path\.inc\n/);
+  assert.match(suite, /\\ir fixtures\/project_jobs_write_path_rollback\.inc\n/);
+});
+
 test('successful pg_prove summary must cover every selected file with real assertions', () => {
   const pass = 'All tests successful.\nFiles=53, Tests=2245, 27 wallclock secs\nResult: PASS\n';
   assert.deepEqual(admitPgProve(pass, 53), { files: 53, assertions: 2245, result: 'PASS' });

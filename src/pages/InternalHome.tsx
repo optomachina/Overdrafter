@@ -256,6 +256,44 @@ const InternalHome = () => {
           </div>
         </section>
 
+        <section className="mt-8" aria-labelledby="internal-jobs-heading">
+          <Card>
+            <CardHeader>
+              <CardTitle id="internal-jobs-heading">Jobs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {jobsQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading jobs…</p>
+              ) : jobsQuery.isError ? (
+                <p role="alert" className="text-sm text-destructive">Unable to load jobs. Please try again.</p>
+              ) : (jobsQuery.data ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No jobs yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Job</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(jobsQuery.data ?? []).map((job) => (
+                      <TableRow key={job.id}>
+                        <TableCell>
+                          <Link className="font-medium text-primary underline underline-offset-4" to={`/internal/jobs/${job.id}`}>
+                            {job.title}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{formatStatusLabel(job.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
         {activeMembership?.role === "internal_admin" ? (
           <section className="mt-8">
             <Card className="border-border bg-muted">

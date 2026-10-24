@@ -22,6 +22,9 @@ import {
   REQUIRED_OUTREACH_DRAFT_KEYS,
   assertCeaseAndDesistPlaybook,
   assertMarkdownAgreesWithJson,
+  assertMarkdownOwnerOverrides,
+  assertPaidAutomationGate,
+  assertEnabledDerivation,
   assertNoAdmittedProviderIsProhibitedOrCd,
   assertOvd722KillSwitchShipped,
   assertOutreachDirectoryContents,
@@ -112,7 +115,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const result = await checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11" });
     expect(result.ok).toBe(true);
     expect(result.providerCount).toBe(9);
-    expect(result.enabledKeys).toEqual(["rmfg"]);
+    expect(result.enabledKeys).toEqual(["xometry", "fictiv", "quickparts", "rmfg"]);
     expect([
       "provider-integrations/provider-registry.v1.json",
       "provider-integrations/*/manifest.v1.json",
@@ -214,6 +217,68 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).toBe(false);
   });
 
+  it.each(["xometry", "fictiv", "quickparts"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
+    const { document } = await readRepoMatrix();
+    const row = document.providers.find((provider) => provider.key === key);
+    expect(row.tos_stance).toBe({ xometry: "prohibited", fictiv: "prior-consent", quickparts: "silent" }[key]);
+    expect(row.owner_override.recorded_on).toBe("2026-10-21");
+    expect(row.written_permission).toBeNull();
+    expect(row.replies).toEqual([]);
+    expect(deriveEnabledForPaidAutomation(row)).toBe(true);
+    expect(() => assertPaidAutomationGate([row])).not.toThrow();
+    expect(deriveEnabledForPaidAutomation({ ...row, owner_override: null })).toBe(false);
+    expect(() => assertPaidAutomationGate([{ ...row, owner_override: null }])).toThrow();
+    for (const denial of [{ permission_status: "cease_and_desist" }, { in_1_0: false }]) {
+      const denied = { ...row, ...denial };
+      expect(deriveEnabledForPaidAutomation(denied)).toBe(false);
+      expect(() => assertPaidAutomationGate([denied])).toThrow();
+    }
+    expect(() => assertEnabledDerivation([row], "2027-02-01")).toThrow("older than 90 days");
+    if (key === "xometry") {
+      expect(() => assertNoAdmittedProviderIsProhibitedOrCd([row], new Map([[key, "approved"]])))
+        .toThrow("admitted 1.0 provider xometry is marked prohibited");
+    }
+  });
+
+  it.each([
+    ["recorded_by", "another owner"], ["recorded_on", "2026-02-30"],
+    ["scope", "all accounts"], ["tos_risk_accepted_until", "forever"],
+    ["orders_allowed", true], ["extra", true], ["recorded_on", undefined],
+  ])("rejects an invalid owner override %s", async (field, value) => {
+    const { document, schema } = await readRepoMatrix();
+    const row = document.providers.find((provider) => provider.key === "xometry");
+    row.owner_override[field] = value;
+    expect(deriveEnabledForPaidAutomation(row)).toBe(false);
+    expect(() => assertPaidAutomationGate([row])).toThrow();
+    expect(() => validatePermissionsMatrixDocument(document, schema)).toThrow("owner_override");
+  });
+
+  it("keeps the owner override schema closed and optional for other providers", async () => {
+    const { document, schema } = await readRepoMatrix();
+    const contract = schema.$defs.providerRow.properties.owner_override;
+    expect(contract.additionalProperties).toBe(false);
+    expect(contract.required.toSorted()).toEqual(["orders_allowed", "recorded_by", "recorded_on", "scope", "tos_risk_accepted_until"]);
+    for (const [key, value] of Object.entries(document.providers[0].owner_override)) {
+      if (key === "recorded_on") expect(value).toMatch(new RegExp(contract.properties[key].pattern));
+      else expect(contract.properties[key].const).toBe(value);
+    }
+    expect(document.providers.filter((row) => row.owner_override).map((row) => row.key))
+      .toEqual(["xometry", "fictiv", "quickparts"]);
+    expect(() => validatePermissionsMatrixDocument(document, schema)).not.toThrow();
+  });
+
+  it("rejects missing, stale, duplicate or unrecorded Markdown owner overrides", async () => {
+    const { document, markdown } = await readRepoMatrix();
+    expect(() => assertMarkdownOwnerOverrides(markdown, document.providers)).not.toThrow();
+    const line = markdown.match(/^- owner_override: .*$/m)[0];
+    for (const replacement of ["", line.replace("2026-10-21", "2026-10-20"), `${line}\n${line}`]) {
+      expect(() => assertMarkdownOwnerOverrides(markdown.replace(line, replacement), document.providers))
+        .toThrow("xometry.owner_override");
+    }
+    delete document.providers[0].owner_override;
+    expect(() => assertMarkdownOwnerOverrides(markdown, document.providers)).toThrow("xometry.owner_override");
+  });
+
   it("rejects a matrix that fails the closed schema", async () => {
     const { document, schema } = await readRepoMatrix();
     const invalid = clone(document);
@@ -251,11 +316,9 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const { document, markdown } = await readRepoMatrix();
     const matrix = clone(document);
     const fictiv = matrix.providers.find((row) => row.key === "fictiv");
-    fictiv.enabled_for_paid_automation = true;
-    const brokenMarkdown = markdown.replace(
-      "| fictiv | true | none | prior-consent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |",
-      "| fictiv | true | none | prior-consent | draft_outreach_prepared | true | 2026-10-11 | OVD-722 |",
-    );
+    delete fictiv.owner_override;
+    const sections = markdown.split("### fictiv\n");
+    const brokenMarkdown = sections[0] + "### fictiv\n" + sections[1].replace(/^- owner_override: .*\n/m, "");
     await expect(checkProviderPermissions({
       rootDir: repoRoot,
       today: "2026-10-11",
@@ -284,8 +347,8 @@ describe("OVD-724 provider permissions matrix lint", () => {
   it("rejects markdown that disagrees with the JSON", async () => {
     const { document, markdown } = await readRepoMatrix();
     const brokenMarkdown = markdown.replace(
-      "| xometry | true | partner_or_request_only | prohibited | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |",
-      "| xometry | true | partner_or_request_only | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |",
+      "| xometry | true | partner_or_request_only | prohibited | draft_outreach_prepared | true | 2026-10-21 | OVD-722 |",
+      "| xometry | true | partner_or_request_only | silent | draft_outreach_prepared | true | 2026-10-21 | OVD-722 |",
     );
     expect(() => assertMarkdownAgreesWithJson(parseMarkdownMatrix(brokenMarkdown), document.providers))
       .toThrow("markdown/JSON disagree on xometry.tos_stance");
@@ -316,7 +379,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const { document } = await readRepoMatrix();
     const xometry = document.providers.find((row) => row.key === "xometry");
     expect(xometry.tos_stance).toBe("prohibited");
-    expect(xometry.enabled_for_paid_automation).toBe(false);
+    expect(xometry.enabled_for_paid_automation).toBe(true);
     const admitted = parseAdmissionPolicyFixtures([
       await fs.readFile(
         path.join(repoRoot, "supabase/migrations/20260817133902_add_quote_provider_admission_registry.sql"),

@@ -107,9 +107,9 @@ describe("ClientQuoteRequestStatusCard", () => {
   });
 
   it.each([
-    ["not_requested", "Quote Not requested", ["border", "border-border", "bg-accent", "text-foreground/80"]],
-    ["queued", "Quote Queued", ["border", "border-amber-300", "bg-amber-300", "text-amber-950"]],
-    ["requesting", "Quote Requesting", ["border", "border-amber-300", "bg-amber-300", "text-amber-950"]],
+    ["not_requested", "Quote Not requested", ["border", "border-border", "bg-accent", "text-foreground"]],
+    ["queued", "Quote Queued", ["border", "border-border", "bg-accent", "text-foreground"]],
+    ["requesting", "Quote Requesting", ["border", "border-border", "bg-accent", "text-foreground"]],
     ["received", "Quote Quoted", ["border", "border-emerald-700", "bg-emerald-700", "text-white"]],
     ["failed", "Quote Failed", ["border", "border-rose-700", "bg-rose-700", "text-white"]],
     ["canceled", "Quote Canceled", ["border", "border-rose-700", "bg-rose-700", "text-white"]],

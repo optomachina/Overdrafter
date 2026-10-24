@@ -12,6 +12,7 @@ import ClientPart from "./ClientPart";
 const {
   api,
   mockQuoteCollectionMode,
+  mockQuantityScope,
   mockUseAppSession,
   mockUsePartDeadline,
   prefetchProjectPage,
@@ -77,6 +78,9 @@ const {
     plan: "pro",
     setAutomaticEnabled: vi.fn(),
     refresh: vi.fn(),
+  },
+  mockQuantityScope: {
+    status: "single_only" as "loading" | "single_only" | "multiple_allowed" | "unavailable",
   },
   mockUseAppSession: vi.fn(),
   mockUsePartDeadline: vi.fn(),
@@ -150,6 +154,10 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
 });
 vi.mock("@/features/quotes/quote-access", () => ({
   useQuoteAccess: () => mockQuoteCollectionMode,
+}));
+// The server read behind the single Quantity field (OVD-997) is controlled per test.
+vi.mock("@/features/quotes/quantity-scope", () => ({
+  useQuantityScope: () => mockQuantityScope,
 }));
 // Enrollment is explicit fixture data; it must never make a real RPC from this
 // page suite. Success, non-enrollment, and unavailable cases are covered below.
@@ -306,7 +314,11 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       lastFailureMessage?: string | null;
     } | null;
   }) => {
-    if (diagnostics?.lifecycle === "extracting") {
+    if (!diagnostics || diagnostics.lifecycle === "succeeded") {
+      return null;
+    }
+
+    if (diagnostics.lifecycle === "queued" || diagnostics.lifecycle === "extracting") {
       return <div>Drawing extraction in progress</div>;
     }
 
@@ -328,7 +340,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
       );
     }
 
-    return null;
+    return <div>Waiting for drawing metadata</div>;
   },
 }));
 
@@ -370,6 +382,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     controls,
     headerActions,
     onSelect,
+    onScopeChange,
   }: {
     requestedByDate?: string | null;
     options?: Array<{
@@ -385,8 +398,9 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     } | null;
     activePreset?: string | null;
     deadline?: { date: string | null; state: string } | null;
-    controls?: ReactNode;
+    controls?: ReactNode | ((counts: { on_time: number; unconfirmed: number; late: number }, deadline: string | null) => ReactNode);
     headerActions?: ReactNode;
+    onScopeChange?: (scope: "domestic" | "global") => void;
     onSelect?: (option: unknown) => void;
   }) => {
     lastQuoteDecisionPanelProps = {
@@ -399,13 +413,18 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       deadline,
       requestedByDate,
       onSelect,
+    onScopeChange,
     };
 
     return (
       <div data-testid="quote-decision-panel">
         Quote decision panel
         {headerActions}
-        {controls}
+        <button onClick={() => onScopeChange?.("global")}>Show all sourcing</button>
+        {/* Mirrors the real panel: the view deadline prefers the part deadline over the Need by filter. */}
+        {typeof controls === "function"
+          ? controls({ on_time: 1, unconfirmed: 2, late: 3 }, deadline?.date ?? requestedByDate ?? null)
+          : controls}
         <button type="button" onClick={() => onSelect?.(null)}>
           Clear quote selection
         </button>
@@ -423,6 +442,8 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     requestedByDate,
     disabled,
     dueDateHelpText,
+    deadlineCounts,
+    viewDeadline,
     onScopeChange,
     onModeChange,
     onRequestedByDateChange,
@@ -431,11 +452,14 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     requestedByDate?: string | null;
     disabled?: boolean;
     dueDateHelpText?: string;
+    deadlineCounts?: { on_time: number; unconfirmed: number; late: number } | null;
+    viewDeadline?: string | null;
     onScopeChange?: (next: "domestic" | "global") => void;
     onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
+      <output data-testid="deadline-counts">{JSON.stringify({ deadlineCounts, viewDeadline })}</output>
       <label htmlFor="mock-due-by">Need by date</label>
       <input
         id="mock-due-by"
@@ -967,6 +991,7 @@ describe("ClientPart", () => {
     mockQuoteCollectionMode.isLoading = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
     mockQuoteCollectionMode.plan = "pro";
+    mockQuantityScope.status = "single_only";
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       writable: true,
@@ -1504,6 +1529,226 @@ describe("ClientPart", () => {
     });
   });
 
+  describe("single Quantity field (OVD-997)", () => {
+    /** A saved request at the given quantities; a saved [1] is the case where a changed Qty used to be discarded. */
+    function createSavedQuantitiesDetail(quantities: number[]) {
+      const detail = createPartDetail();
+      const [quantity] = quantities;
+      return {
+        ...detail,
+        job: { ...detail.job, requested_quote_quantities: quantities },
+        summary: { ...detail.summary, quantity, requestedQuoteQuantities: quantities },
+        part: {
+          ...detail.part,
+          quantity,
+          approvedRequirement: { ...detail.part.approvedRequirement, quantity, quote_quantities: quantities },
+        },
+      };
+    }
+    const createSavedQuantityOneDetail = () => createSavedQuantitiesDetail([1]);
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("is off by default: the controller offers no single Quantity state and saves the typed list as before", async () => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toBeUndefined();
+
+      act(() => {
+        result.current.setQuoteQuantityInput("10/25");
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 10,
+        requestedQuoteQuantities: [10, 25],
+      });
+    });
+
+    it.each([
+      ["1,000/2,000", [1000, 2000]], ["0,500/10", [500, 10]], ["10,25,50", [10, 25, 50]],
+    ])("saves valid Quote quantities %j without truncation", async (text, quantities) => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => result.current.setQuoteQuantityInput(text as string));
+      act(() => result.current.handleSaveRequest());
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        requestedQuoteQuantities: quantities,
+      });
+    });
+
+    it.each([
+      "12.5", "250,500", "100,250,500", "1,000", "1,250 2,500", "1,250, 2,500",
+      "2,500 7,500", "100,250 500", "1,500,25/50", "1,500, 2,500 / 5,000",
+      "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5", "10,25,500",
+      "1000,250", "1234,567", "1,500,250", "1,500", "1,500, 25", "1,500 ,25",
+      "10 1,250,", "10,25,500/50", "1234,567/50", "10/12.5", "12.5/25", "1,0", "x 40",
+    ])("rejects Quote quantities %j without a save or success toast", async (text) => {
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => result.current.setQuoteQuantityInput(text));
+      await act(async () => result.current.handleSaveRequest());
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(toastMock.error).toHaveBeenCalled();
+      expect(toastMock.success).not.toHaveBeenCalled();
+    });
+
+    it("saves [5] when only Quantity changed from a saved [1], for a participant the server scoped", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "multiple_allowed";
+      api.fetchPartDetailByJobId.mockResolvedValue(createSavedQuantityOneDetail());
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedQuoteQuantities).toEqual([1]));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: true, loading: false, unavailable: false });
+
+      act(() => {
+        result.current.handleDraftChange({ quantity: 5 });
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        jobId: "job-1",
+        quantity: 5,
+        requestedQuoteQuantities: [5],
+      });
+    });
+
+    it("saves exactly one quantity even when several were saved, ignoring the hidden Quote quantities text", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "multiple_allowed";
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      act(() => {
+        result.current.setQuoteQuantityInput("10/25/50");
+      });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 10,
+        requestedQuoteQuantities: [10],
+      });
+    });
+
+    it("fixes the saved quantity at 1 when the server did not scope a larger quantity", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "single_only";
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false, unavailable: false });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        quantity: 1,
+        requestedQuoteQuantities: [1],
+      });
+    });
+
+    it("keeps the saved quantities when the scope read is unavailable, instead of writing 1", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "unavailable";
+      api.fetchPartDetailByJobId.mockResolvedValue(createSavedQuantitiesDetail([25, 50]));
+      const { result } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedQuoteQuantities).toEqual([25, 50]));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: false, unavailable: true });
+
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
+        jobId: "job-1",
+        quantity: 25,
+        requestedQuoteQuantities: [25, 50],
+      });
+    });
+
+    it("does not save while the server answer is pending, and never saves an unusable quantity", async () => {
+      vi.stubEnv("VITE_CONTROLLED_BETA_SINGLE_QUANTITY", "1");
+      mockQuantityScope.status = "loading";
+      const { result, rerender } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.effectiveRequestDraft?.quantity).toBe(10));
+      expect(result.current.singleQuantity).toEqual({ allowAboveOne: false, loading: true, unavailable: false });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      mockQuantityScope.status = "multiple_allowed";
+      rerender({ jobId: "job-1" });
+      act(() => {
+        result.current.handleDraftChange({ quantity: 0 });
+      });
+      act(() => {
+        result.current.handleSaveRequest();
+      });
+
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("published package selection precedence", () => {
+    function publishedDetail() {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      return {
+        ...detail,
+        publishedQuoteOptions: [{
+          id: "option-A", package_id: "package-1", organization_id: "org-1",
+          option_kind: "lowest_cost", label: "Lowest cost", requested_quantity: 10,
+          published_price_usd: 402.5, lead_time_business_days: 7,
+          source_vendor_quote_id: "quote-1", source_vendor_quote_offer_id: "offer-1",
+          comparison_summary: null, markup_policy_version: "v1",
+          created_at: new Date().toISOString(),
+        }],
+        publishedQuoteSelection: null,
+      };
+    }
+
+    it("ignores the pre-publication pointer in the part controller", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(publishedDetail());
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions).toHaveLength(1));
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(result.current.previousQuoteSelectionUnavailable).toBe(false);
+      queryClient.clear();
+    });
+
+    it("disables Review order until a package choice is persisted", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(publishedDetail());
+      renderWithClient("/parts/job-1");
+      const button = await screen.findByRole("button", { name: "Review order" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Choose a package option to continue");
+      const reason = screen.getByText("Choose a package option to continue");
+      expect(reason).toBeVisible();
+      expect(reason.parentElement).toBe(button.parentElement);
+      expect(button.parentElement).toHaveClass("flex", "flex-col", "lg:items-end");
+      expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
+      api.persistClientQuoteSelection.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        const onSelect = lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void;
+        onSelect(lastQuoteDecisionPanelProps?.firstOption);
+      });
+      expect(button).toBeDisabled();
+    });
+  });
+
   describe("when the stored quote selection is gone", () => {
     const missingSelectionDetail = () => createLiveOfferPartDetail(new Date().toISOString(), "offer-gone");
 
@@ -1561,11 +1806,14 @@ describe("ClientPart", () => {
       });
       await findReviewOrderButton("offer-1");
       expect(lastQuoteDecisionPanelProps?.deadline).toEqual({ date: "2026-01-15", state: "expired" });
+      // The Need by input stays bound to the customer's filter, not the panel's view deadline.
+      expect(screen.getByLabelText("Need by date")).toHaveValue("2026-04-15");
     });
 
     it("rolls the selection back and keeps the error state when persisting a selection fails", async () => {
       const button = await findReviewOrderButton("offer-1");
-      expect(button).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
       const persistedKey = (lastQuoteDecisionPanelProps?.selectedOption as { key: string }).key;
       api.setJobSelectedVendorQuoteOffer.mockRejectedValue(new Error("boom"));
       api.persistClientQuoteSelection.mockRejectedValue(new Error("boom"));
@@ -1596,9 +1844,53 @@ describe("ClientPart", () => {
       expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
     });
 
+    it("wires the panel scope action while preserving every fetched option", async () => {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      const quote = detail.part!.vendorQuotes[0];
+      quote.offers = ["domestic", "foreign", "unknown"].map((origin, index) => ({
+        ...quote.offers[0], id: `offer-${index + 1}`, offer_key: `origin-${origin}`, geographic_origin: origin,
+      }));
+      api.fetchPartDetailByJobId.mockResolvedValue(detail);
+      renderWithClient("/parts/job-1");
+      await screen.findByTestId("quote-decision-panel");
+      expect(screen.getByRole("button", { name: "US-only sourcing" })).toBeInTheDocument();
+      const count = lastQuoteDecisionPanelProps?.optionCount;
+      expect(count).toBe(3);
+      fireEvent.click(screen.getByRole("button", { name: "Show all sourcing" }));
+      await waitFor(() => expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global"));
+      expect(lastQuoteDecisionPanelProps?.optionCount).toBe(count);
+    });
+
+    it("passes panel deadline counts and its effective date to the function bar", async () => {
+      mockUsePartDeadline.mockReturnValue({ partId: "part-1", revision: null, recordedDate: "2026-01-15", activeDate: null, state: "expired" });
+      await findReviewOrderButton("offer-1");
+      expect(JSON.parse(screen.getByTestId("deadline-counts").textContent!)).toEqual({
+        deadlineCounts: { on_time: 1, unconfirmed: 2, late: 3 }, viewDeadline: "2026-01-15",
+      });
+    });
+
+    it("disables review for an unknown-origin saved selection until All sourcing is shown", async () => {
+      const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+      const offer = detail.part!.vendorQuotes[0].offers[0];
+      // Geographic origin, not the supplier sourcing label, controls scope eligibility.
+      Object.assign(offer, { geographic_origin: "unknown" });
+      api.fetchPartDetailByJobId.mockResolvedValue(detail);
+      renderWithClient("/parts/job-1");
+      const button = await screen.findByRole("button", { name: "Review order" });
+      expect(screen.getByRole("button", { name: "US-only sourcing" })).toBeInTheDocument();
+      expect(lastQuoteDecisionPanelProps?.firstOption).toMatchObject({ geographicOrigin: "unknown" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Switch to All sourcing to see your selected quote");
+      expect(button).toHaveAttribute("title", "Switch to All sourcing to see your selected quote");
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
+      expect(button).not.toHaveAttribute("aria-describedby");
+    });
+
     it("enables the Review order button when the stored selection is still current", async () => {
       const button = await findReviewOrderButton("offer-1");
-      expect(button).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+      await waitFor(() => expect(button).toBeEnabled());
       expect(button).not.toHaveAttribute("aria-describedby");
     });
   });
@@ -3495,6 +3787,37 @@ describe("ClientPart", () => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
     });
+  });
+
+  it("asks for material on a STEP-only upload with succeeded extraction and no stale drawing notice", async () => {
+    const detail = createDispatchReadyPartDetail([]);
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(createPartDetail({
+      ...detail,
+      job: { ...detail.job, status: "uploaded" },
+      files: [detail.part.cadFile],
+      part: {
+        ...detail.part,
+        approvedRequirement: null,
+        clientRequirement: {
+          description: "Bracket", partNumber: null, revision: null,
+          material: "Unknown material", finish: null, tightestToleranceInch: null,
+          process: null, notes: null, quantity: 1, quoteQuantities: [1], requestedByDate: null,
+        },
+        clientExtraction: {
+          lifecycle: "succeeded", hasCadFile: true, hasDrawingFile: false,
+          warningCount: 0, warnings: [], missingFields: ["material"], pageCount: 0,
+          lastFailureCode: null, lastFailureMessage: null,
+          extractedAt: null, failedAt: null, updatedAt: null,
+        },
+      },
+    }));
+
+    await renderClientPartOnTab();
+    expect(await screen.findByRole("heading", { name: "Confirm the material" })).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for drawing metadata")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", {
+      name: "This material is outside the launch scope",
+    })).not.toBeInTheDocument();
   });
 
   it("shows a failure notice when drawing extraction fails", async () => {

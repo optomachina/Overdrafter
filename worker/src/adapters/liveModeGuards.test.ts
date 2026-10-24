@@ -43,6 +43,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: "dev-local",
     drawingExtractionModel: "gpt-5.4",
+    titleBlockApprovalEnabled: false,
     drawingExtractionEnableModelFallback: false,
     drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,
@@ -171,14 +172,9 @@ describe("live-mode adapter guards", () => {
               },
             }),
           ),
-        ).resolves.toMatchObject({
-          status: "manual_vendor_followup",
-          rawPayload: {
-            operationalState: "manual_followup",
-            reasonCode: "process_confirmation_required",
-            customerLiveOfferEligible: false,
-          },
-        });
+        ).rejects.toThrow(
+          "OSH Cut portal automation is disabled until row-bound cart configuration exists (OVD-1022)",
+        );
         continue;
       }
 

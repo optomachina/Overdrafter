@@ -5,9 +5,10 @@ import { InternalJobPartRequirementCard } from "./InternalJobPartRequirementCard
 type InternalJobRequirementsSectionProps = {
   cadPreviewSources: Map<string, ReturnType<typeof import("@/lib/cad-preview").createCadPreviewSourceFromJobFile>>;
   getDraftForPart: (part: JobAggregate["parts"][number]) => ApprovedPartRequirement;
+  getQuantityInput: (partId: string, draft: ApprovedPartRequirement) => string;
   getQuoteQuantityInput: (partId: string, draft: ApprovedPartRequirement) => string;
   job: JobAggregate;
-  onDraftQuantityChange: (partId: string, draft: ApprovedPartRequirement, quantity: number) => void;
+  onDraftQuantityChange: (partId: string, draft: ApprovedPartRequirement, quantity: string) => void;
   onQuoteQuantityInputChange: (partId: string, value: string) => void;
   onQuoteQuantityInputCommit: (partId: string, draft: ApprovedPartRequirement) => void;
   updateDraft: (
@@ -23,6 +24,7 @@ export function InternalJobRequirementsSection({
   cadPreviewSources,
   getDraftForPart,
   getQuoteQuantityInput,
+  getQuantityInput,
   job,
   onDraftQuantityChange,
   onQuoteQuantityInputChange,
@@ -49,6 +51,7 @@ export function InternalJobRequirementsSection({
               partQueueTasks={partQueueTasks}
               showInternalDiagnostics={showInternalDiagnostics}
               draft={draft}
+              quantityInput={getQuantityInput(part.id, draft)}
               quoteQuantityInput={getQuoteQuantityInput(part.id, draft)}
               cadPreviewSource={cadPreviewSources.get(part.id) ?? null}
               disabled={writeActionsDisabled}

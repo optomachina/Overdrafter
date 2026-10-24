@@ -1,0 +1,91 @@
+{
+  "components/FileChip.tsx": [
+    "className=\"h-5 w-5 p-0 hover:bg-destructive/20 hover:text-destructive rounded-full\""
+  ],
+  "components/admin/FoundingBetaEnrollmentCard.tsx": [
+    "<p className=\"font-medium text-destructive\">{title}</p>",
+    "<p className=\"mt-2 text-sm text-destructive\">{getErrorMessage(error)}</p>"
+  ],
+  "components/admin/ManualQuoteRequestInbox.tsx": [
+    "className=\"rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive\"",
+    "<p className=\"text-sm text-destructive\">{message}</p>",
+    "<p className=\"mt-2 max-w-80 text-xs text-destructive\">"
+  ],
+  "components/admin/ProviderKillSwitchCard.tsx": [
+    "<p className=\"text-xs text-destructive\">Enter a whole number above 0, or choose unlimited.</p>",
+    "<p className=\"text-sm text-destructive\">"
+  ],
+  "components/admin/SpendCapCard.tsx": [
+    "<p className=\"text-sm text-destructive\">"
+  ],
+  "components/admin/commercial/CommercialEntitlementControls.tsx": [
+    "<p className=\"text-sm text-destructive lg:col-span-2\" role=\"alert\">",
+    "<p className=\"text-sm text-destructive lg:col-span-2\" role=\"alert\">",
+    "<p className=\"text-sm text-destructive\" role=\"alert\">"
+  ],
+  "components/auth/MfaStepUpDialog.tsx": [
+    "<p className=\"font-medium text-destructive\">",
+    "<p className=\"mt-2 text-sm text-destructive\">",
+    "<p className=\"text-sm text-destructive\" role=\"alert\">"
+  ],
+  "components/auth/StepUpNoticeBanner.tsx": [
+    "<p className=\"text-sm text-destructive\">{notice.message}</p>"
+  ],
+  "components/chat/WorkspaceSidebar.tsx": [
+    "className=\"text-destructive focus:text-destructive\""
+  ],
+  "components/debug/AppErrorBoundary.tsx": [
+    "<div className=\"rounded-2xl bg-destructive/10 p-3 text-destructive\">"
+  ],
+  "components/debug/DiagnosticsPanel.tsx": [
+    "<TriangleAlert className=\"mt-0.5 h-5 w-5 text-destructive\" />"
+  ],
+  "components/quotes/ClientPartRequestEditor.tsx": [
+    "<p id=\"client-request-tolerance-error\" role=\"alert\" className=\"text-xs text-destructive\">",
+    "<p id=\"client-request-qty-error\" role=\"alert\" className=\"text-xs text-destructive\">",
+    "<p id=\"client-request-quote-quantities-error\" role=\"alert\" className=\"text-xs text-destructive\">"
+  ],
+  "components/quotes/ClientQuoteRequestFlow.tsx": [
+    "<p role=\"alert\" className=\"border-y border-destructive/40 px-4 py-3 text-sm text-destructive\">",
+    "<p role=\"alert\" className=\"border-y border-destructive/40 py-3 text-sm text-destructive\">"
+  ],
+  "components/quotes/ExportControlDeclarationDialog.tsx": [
+    "<p role=\"alert\" className=\"text-sm text-destructive\">"
+  ],
+  "components/quotes/ManualQuoteIntakeCard.tsx": [
+    "? \"border-destructive/30 bg-destructive/10 text-destructive\""
+  ],
+  "components/quotes/SingleQuantityField.tsx": [
+    "<p role=\"alert\" className=\"text-xs text-destructive\">"
+  ],
+  "pages/ClientPackage.tsx": [
+    "<CardContent className=\"p-6 text-sm text-destructive\">"
+  ],
+  "pages/CommercialAccountDetail.tsx": [
+    "<p className=\"text-sm text-destructive\" role=\"alert\">"
+  ],
+  "pages/CommercialAccounts.tsx": [
+    "<p className=\"text-sm text-destructive\" role=\"alert\">",
+    "<p className=\"text-sm text-destructive\" role=\"alert\">"
+  ],
+  "pages/EngineeringWorkbench.tsx": [
+    "{error && <p role=\"alert\" className=\"text-sm text-destructive\">{error}</p>}"
+  ],
+  "pages/InternalAdmin.tsx": [
+    "<div className=\"rounded-3xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive\">"
+  ],
+  "pages/InternalHome.tsx": [
+    "<p role=\"alert\" className=\"text-sm text-destructive\">Unable to load jobs. Please try again.</p>",
+    "<div className=\"rounded-3xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive\">"
+  ],
+  "pages/InternalJobDetail.tsx": [
+    "<CardContent className=\"p-6 text-sm text-destructive\">"
+  ],
+  "pages/SharedInvite.tsx": [
+    "<p className=\"mt-4 text-sm text-destructive\">"
+  ],
+  "pages/internal-job-detail/InternalJobPartRequirementCard.tsx": [
+    "{showQuantityError ? <p id={`${quantityInputId}-error`} role=\"alert\" className=\"text-xs text-destructive\">{QUANTITY_FORMAT_ERROR}</p> : null}",
+    "{showQuoteError ? <p id={`${quoteQuantitiesInputId}-error`} role=\"alert\" className=\"text-xs text-destructive\">{quoteError}</p> : null}"
+  ]
+}

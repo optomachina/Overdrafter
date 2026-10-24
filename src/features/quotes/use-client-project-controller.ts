@@ -73,7 +73,8 @@ import {
 import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestIntake,
-  parseRequestedQuoteQuantitiesInput,
+  validateRequestedQuoteQuantitiesInput,
+  QUOTE_QUANTITIES_FORMAT_ERROR,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
@@ -81,7 +82,6 @@ import {
   applyBulkPresetSelection,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
-  getSelectedOption,
   revertBulkPresetSelection,
   sanitizeBulkSelectionHistory,
   sortQuoteOptionsForPreset,
@@ -95,6 +95,8 @@ import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnost
 import {
   buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
+  resolveWorkspaceSelectionIds,
+  resolveWorkspaceStoredQuoteSelection,
   type ClientSourcingResult,
 } from "@/features/quotes/sourcing-result";
 import type {
@@ -348,17 +350,17 @@ export function useClientProjectController() {
       Object.fromEntries(
         projectJobs.map((job) => {
           const workspaceItem = workspaceItemsByJobId.get(job.id);
-          const selectedPublishedOptionId = workspaceItem?.publishedQuoteSelection?.option_id;
+          const { selectedOfferId, selectedPublishedOptionId } = resolveWorkspaceSelectionIds(
+            workspaceItem,
+            selectedOfferOverrides[job.id] ?? job.selected_vendor_quote_offer_id,
+          );
           const selectedPublishedOfferId = workspaceItem?.publishedQuoteOptions?.find(
             (option) => option.id === selectedPublishedOptionId,
           )?.source_vendor_quote_offer_id;
 
           return [
             job.id,
-            selectedOfferOverrides[job.id] ??
-              selectedPublishedOfferId ??
-              job.selected_vendor_quote_offer_id ??
-              null,
+            selectedPublishedOfferId ?? selectedOfferId ?? null,
           ];
         }),
       ),
@@ -522,11 +524,11 @@ export function useClientProjectController() {
       Object.fromEntries(
         projectJobIds.map((jobId) => [
           jobId,
-          getSelectedOption(
+          resolveWorkspaceStoredQuoteSelection(
             optionsByJobId[jobId] ?? [],
+            workspaceItemsByJobId.get(jobId),
             currentSelectedOfferIdsByJobId[jobId],
-            workspaceItemsByJobId.get(jobId)?.publishedQuoteSelection?.option_id,
-          ),
+          ).selectedOption,
         ]),
       ) as Record<string, ClientQuoteSelectionOption | null>,
     [currentSelectedOfferIdsByJobId, optionsByJobId, projectJobIds, workspaceItemsByJobId],
@@ -1513,10 +1515,14 @@ export function useClientProjectController() {
       return;
     }
 
-    const requestedQuoteQuantities = parseRequestedQuoteQuantitiesInput(
+    const { quantities: requestedQuoteQuantities, invalidTokens, error } = validateRequestedQuoteQuantitiesInput(
       quoteQuantityInputsByJobId[jobId] ?? "",
       draft.quantity,
     );
+    if (invalidTokens.length > 0 || requestedQuoteQuantities.length === 0) {
+      toast.error(error ?? QUOTE_QUANTITIES_FORMAT_ERROR);
+      return;
+    }
     const nextDraft = {
       ...draft,
       requestedQuoteQuantities,

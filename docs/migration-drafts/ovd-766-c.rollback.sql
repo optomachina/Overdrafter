@@ -8,15 +8,7 @@
 --   - the definition from
 --     supabase/migrations/20260308113000_fix_job_file_reconcile_and_add_org_blob_dedupe.sql
 --     verbatim, including `set search_path = public`;
---   - EXECUTE for PUBLIC, anon, authenticated and service_role, matching the
---     recorded ACL {=X/postgres,postgres=X/postgres,anon=X/postgres,
---     authenticated=X/postgres,service_role=X/postgres}
---     (docs/release/ovd-510-prechange-compatibility-manifest.json).
--- Every grant is idempotent, so this is correct whether or not the commented
--- service_role-only block of the forward draft was enabled.
---
--- Note: this re-opens the PUBLIC and anon grants that OVD-736 also revokes.
--- If OVD-736 has been applied since, drop the PUBLIC and anon grants below.
+--   - Grants restore the post-OVD-736 state (20261015074957): no EXECUTE for PUBLIC or anon; EXECUTE for authenticated and service_role. Never re-grant PUBLIC or anon (OVD-949).
 -- =====================================================================
 
 begin;
@@ -117,9 +109,21 @@ begin
 end;
 $$;
 
-grant execute on function public.api_reconcile_job_parts(uuid) to public;
-grant execute on function public.api_reconcile_job_parts(uuid) to anon;
-grant execute on function public.api_reconcile_job_parts(uuid) to authenticated;
-grant execute on function public.api_reconcile_job_parts(uuid) to service_role;
+revoke all on function public.api_reconcile_job_parts(uuid) from public, anon;
+grant execute on function public.api_reconcile_job_parts(uuid) to authenticated, service_role;
+
+do $ovd949$
+declare f regprocedure;
+begin
+  foreach f in array array['public.api_reconcile_job_parts(uuid)']::regprocedure[] loop
+    if has_function_privilege('anon', f, 'EXECUTE') or exists (
+      select 1 from pg_catalog.pg_proc p,
+        pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+      where p.oid = f and a.grantee = 0 and a.privilege_type = 'EXECUTE') then
+      raise exception 'OVD-949: % is executable by anon or PUBLIC after rollback', f;
+    end if;
+  end loop;
+end;
+$ovd949$;
 
 commit;

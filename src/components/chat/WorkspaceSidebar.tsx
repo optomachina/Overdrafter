@@ -292,7 +292,7 @@ function SidebarSectionHeading({
         type="button"
         aria-expanded={expanded}
         aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
-        className="flex items-center gap-1 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/80 transition-colors hover:text-foreground/80"
+        className="flex items-center gap-1 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground transition-colors hover:text-foreground"
         onClick={onToggle}
       >
         <span>{label}</span>
@@ -313,7 +313,7 @@ type FilterOptionProps = {
 function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
   return (
     <DropdownMenuItem
-      className="flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-sm text-foreground/80 focus:bg-accent focus:text-foreground"
+      className="flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-sm text-foreground focus:bg-accent focus:text-foreground"
       onSelect={(event) => {
         event.preventDefault();
         onSelect();
@@ -321,7 +321,7 @@ function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
     >
       <span className="text-foreground">{icon}</span>
       <span>{label}</span>
-      {selected ? <Check className="ml-auto h-4 w-4 text-foreground/80" /> : null}
+      {selected ? <Check className="ml-auto h-4 w-4 text-foreground" /> : null}
     </DropdownMenuItem>
   );
 }
@@ -1208,7 +1208,7 @@ export function WorkspaceSidebar({
               {isActive ? (
                 <span
                   aria-hidden="true"
-                  className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-sky-300/85"
+                  className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-foreground"
                 />
               ) : null}
               {projectJobs.length > 0 ? (

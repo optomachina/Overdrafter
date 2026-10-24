@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 153,
+  "migrationCount": 159,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -156,7 +156,13 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql"
+    "supabase/migrations/20261015214135_ovd768_admin_list_guards.sql",
+    "supabase/migrations/20261015221725_ovd771_service_kill_switch.sql",
+    "supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql",
+    "supabase/migrations/20261016002932_ovd769_reconcile_job_parts_guard.sql",
+    "supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql",
+    "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql",
+    "supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -256,9 +262,39 @@
       "sha256": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8"
     },
     {
-      "path": "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql",
+      "path": "supabase/migrations/20261015214135_ovd768_admin_list_guards.sql",
+      "issue": "OVD-768",
+      "sha256": "a58fd72e4a25ecebbea815d5a13233f27c68ec1c264068491a03da6934d72b58"
+    },
+    {
+      "path": "supabase/migrations/20261015221725_ovd771_service_kill_switch.sql",
+      "issue": "OVD-771",
+      "sha256": "de2dd5fc7fe2583d79c27b0613a73442999758acedf8aa304743b57c117b6882"
+    },
+    {
+      "path": "supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql",
+      "issue": "OVD-767",
+      "sha256": "0dc63ded2bde449514624e7b4e6d0643eee2abaac9969ae9743c9c938b1d6721"
+    },
+    {
+      "path": "supabase/migrations/20261016002932_ovd769_reconcile_job_parts_guard.sql",
+      "issue": "OVD-769",
+      "sha256": "c20052fc842f1377be330118d5da2e474eddfef42e1d6cf406839c0b55c73b47"
+    },
+    {
+      "path": "supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql",
+      "issue": "OVD-770",
+      "sha256": "e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b"
+    },
+    {
+      "path": "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql",
       "issue": "OVD-736",
       "sha256": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    },
+    {
+      "path": "supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql",
+      "issue": "OVD-766",
+      "sha256": "73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f"
     }
   ],
   "baselineSuites": [
@@ -674,6 +710,12 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql": "ed1a2f17e7471a3b32c3e0927421b74191f5aff5fa72477ae959a8b4e7120118",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c",
+    "supabase/migrations/20261015214135_ovd768_admin_list_guards.sql": "a58fd72e4a25ecebbea815d5a13233f27c68ec1c264068491a03da6934d72b58",
+    "supabase/migrations/20261015221725_ovd771_service_kill_switch.sql": "de2dd5fc7fe2583d79c27b0613a73442999758acedf8aa304743b57c117b6882",
+    "supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql": "0dc63ded2bde449514624e7b4e6d0643eee2abaac9969ae9743c9c938b1d6721",
+    "supabase/migrations/20261016002932_ovd769_reconcile_job_parts_guard.sql": "c20052fc842f1377be330118d5da2e474eddfef42e1d6cf406839c0b55c73b47",
+    "supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql": "e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b",
+    "supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql": "73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f"
   }
 }
