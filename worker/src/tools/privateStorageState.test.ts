@@ -54,8 +54,13 @@ describe("writePrivateStorageState", () => {
       const source = await fs.readFile(path.join(import.meta.dirname, tool), "utf8");
       expect(source).not.toMatch(/\.storageState\(\s*\{/);
       expect(source).not.toMatch(/writeFile\([^)]*storage/i);
-      // vendorAuth.ts hands over a host-scoped state source (OVD-1059).
-      expect(source).toMatch(/writePrivateStorageState\([\s\S]*?, outputPath\);/);
+      if (tool === "vendorAuth.ts") {
+        // auth:vendor must hand over the host-scoped state, never the raw context (OVD-1059).
+        expect(source).toMatch(/writePrivateStorageState\(\{\s*storageState: async \(\) => scopeStorageStateToHosts\(await context\.storageState\(\), sessionHosts\),\s*\}, outputPath\);/);
+        expect(source).not.toContain("writePrivateStorageState(context, outputPath)");
+      } else {
+        expect(source).toContain("writePrivateStorageState(context, outputPath)");
+      }
     }
   });
 });
