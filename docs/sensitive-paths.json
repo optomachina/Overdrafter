@@ -8,7 +8,7 @@
     "payments": { "label": "Payments, pricing, billing", "description": "payment, billing, Stripe, pricing, invoice and checkout paths" },
     "provider_dispatch": { "label": "Provider dispatch", "description": "any provider, adapter or dispatch path, worker adapters, provider admission and upload" },
     "secrets": { "label": "Secrets and env", "description": "secrets, credentials, keys, tokens, vaults and env files" },
-    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, the scripts CI runs, agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md, GEMINI.md in any directory), the agent contract and agent configuration (WORKFLOW.md and its Symphony scripts, Codex and Claude config, settings, hooks and MCP servers), git hook directories, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
+    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, the scripts CI runs, agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md, GEMINI.md in any directory), the agent contract and agent configuration (WORKFLOW.md and its Symphony scripts, Codex and Claude config, settings, hooks and MCP servers), git hook directories, the gitleaks config and ignore files, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
     "deps": { "label": "Dependencies", "description": "package manifests and lockfiles" }
   },
   "globs": [
@@ -182,6 +182,8 @@
     { "glob": "scripts/verify-ovd417-*", "class": "infra_ci" },
     { "glob": "scripts/prepare-ovd373-schema-restore*", "class": "infra_ci" },
     { "glob": "scripts/compare-ovd372-app-schema*", "class": "infra_ci" },
+    { "glob": "**/.gitleaks.toml", "class": "infra_ci" },
+    { "glob": "**/.gitleaksignore", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
