@@ -174,14 +174,16 @@ launch when a drawing is selected, rather than silently omitting it.
 For provider-interacting evaluation vendors, authenticate with the existing
 `auth:xometry`, `auth:fictiv`, or `auth:vendor` command and configure the
 corresponding storage-state/profile variables before running the harness.
-SendCutSend performs only local manifest and envelope admission and does not
-require or prepare a provider session. Example commands:
+SendCutSend's manifest lane performs only local manifest and envelope admission
+and does not require or prepare a provider session; its quote-only sheet lane
+uses `auth:vendor sendcutsend`. Example commands:
 
 ```bash
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor sendcutsend --cad /absolute/path/part.step --quantities 1,5 --sendcutsend-manifest /absolute/path/reviewed-sendcutsend.json --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor sendcutsend --cad /absolute/path/plate.step --quantities 1 --approval-file /absolute/path/sendcutsend-approval.json --approval-file-sha256 <sha256> --sendcutsend-process sheet_laser_cutting --sendcutsend-material "6061-T6 aluminum" --sendcutsend-thickness-in 0.125 --confirm-non-export-controlled
 ```
 
 The command sets its own live adapter selection. Provider login expiry,
@@ -224,7 +226,51 @@ configuration, registry, or adapter objects, skips provider credential/session
 preparation, and returns only the adapter's finite local evaluation outcome; it
 does not open a browser or contact SendCutSend. `--vendor all` includes
 SendCutSend and therefore also requires `--sendcutsend-manifest`, in addition to
-the Fabworks and OSH Cut metadata required by those providers.
+the Fabworks and OSH Cut metadata required by those providers; the sheet lane
+below runs only as a single-vendor invocation, because its approval names one
+provider.
+
+The quote-only sheet lane (OVD-1056) is selected by the exact package flags
+shown above plus an operator approval file (`provider-portal-approval.v1`,
+digest-pinned) for `https://app.sendcutsend.com`,
+`https://main.realtime.ably.net` (the quote page calls Ably on load) and
+`https://sendcutsend.com` (SendCutSend may keep its session cookie on the
+parent domain, and the kernel admits saved cookies only for listed hosts). It admits
+one flat STEP plate, laser cut from 6061-T6 aluminum at 0.125 in, quantity 1
+through 100, with no drawing; the thinnest bounding dimension of the uploaded
+model must be a straight extrusion of the stock thickness (planar,
+straight-edged, every vertex on one of the two caps, edges between the caps
+parallel to the thin axis, identical cap profiles; tapers, pockets, steps,
+bends, holes with arcs and curves are refused). The harness reads the kill switch before
+launch and guards each quote like any provider-reaching vendor. The portal
+kernel walks the quote wizard (Sheet Cutting, Metals, Aluminum, 6061 T6
+Aluminum, `.125`) and reads the side-summary price only while signed in (before
+upload the app's own `/users/current` must report a user with an id and an
+explicit `guest: false`; a header without a LOGIN link is not enough), with
+the dialog's material breadcrumbs ending in "Metals, Aluminum, 6061 T6
+Aluminum", once the dialog shows no loading overlay and the price reads the
+same for 2.5 seconds. It never clicks
+the wizard footer, so nothing is added to the cart. A missing or disabled 0.125 in stock
+stops in `configuration_required` instead of quoting another thickness.
+SendCutSend shows a ship date rather than a duration, so lead time stays null
+and the date is kept as `shipReceiveBy`. The uploaded part stays in the
+account's parts library. Save the operator's own session first:
+
+```bash
+QUOTE_VENDOR_STORAGE_STATE_DIR=/absolute/path/worker/state npm run auth:vendor -- sendcutsend
+```
+
+The tool keeps only the exact-host cookies (the kernel refuses a session with
+any other) and saves nothing unless SendCutSend reports a signed-in, non-guest
+user both before and after that filter. A cookie on the parent domain
+(`.sendcutsend.com`) is rescoped to `app.sendcutsend.com`, so it never rides
+along on requests to `cdn.sendcutsend.com` (the kernel ends a run on any
+off-host request that carries a cookie); a session file saved before this
+rule that still holds a parent-domain cookie is refused and must be saved
+again. A parent-domain cookie the site sets during a run still stops that run
+as `unexpected_origin`. The
+sheet lane has no production dispatch and does not change the provider
+registry.
 
 #### Xometry evaluation runtime
 
@@ -759,7 +805,7 @@ Notes:
 
 - The web app in the repo uses Supabase RPCs and direct table access.
 - This worker intentionally lives outside the Vite app so browser automation can run in a proper long-lived process.
-- `sendcutsend` is modeled as a CNC manual-follow-up lane in v1.
+- `sendcutsend` is modeled as a CNC manual-follow-up lane in v1; its quote-only sheet lane serves only operator-approved live evaluation.
 - The live Xometry and Fictiv adapters fail closed if login or captcha is encountered.
 
 ## OpenClaw Task A Gate

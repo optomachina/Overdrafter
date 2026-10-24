@@ -41,6 +41,7 @@ const ADAPTER_IMPORT_ALLOWLIST = [
   "worker/src/recovery/comparison.ts",
   "worker/src/tools/liveHarnessArtifacts.ts",
   "worker/src/tools/probeXometryProfileAuth.ts",
+  "worker/src/tools/sendcutsendAuth.ts",
   "worker/src/tools/vendorAuth.ts",
   "worker/src/tools/vendorWorkflowSmoke.ts",
   "worker/src/tools/xometryAuth.ts",
