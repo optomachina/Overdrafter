@@ -100,11 +100,27 @@ export type XometryAuthProbeFailureStage =
   | "context_cleanup"
   | "unknown";
 
+/**
+ * Where a `navigation_or_inspection` failure happened: `goto` is the quote-home
+ * navigation and its load wait, `inspection` the classification loop, and
+ * `fingerprint` the tail after classification. Drift capture is fail-soft, so
+ * `fingerprint` only catches a defect in that tail.
+ */
+const NAVIGATION_SUB_STAGES = ["goto", "inspection", "fingerprint"] as const;
+export type XometryAuthProbeNavigationSubStage = (typeof NAVIGATION_SUB_STAGES)[number];
+
+const NAVIGATION_CAUSES = ["timeout", "navigation_aborted", "context_destroyed", "net_error", "other"] as const;
+export type XometryAuthProbeNavigationCause = (typeof NAVIGATION_CAUSES)[number];
+
 export type XometryAuthProbeFailureEvidence = {
   authenticated: false;
   reason: "probe_failed";
   failureStage: XometryAuthProbeFailureStage;
   snapshotRestore?: { phase: XometrySnapshotRestorePhase | "profile_lock" | "postcondition"; reason: string };
+  navigationOrInspection?: {
+    subStage: XometryAuthProbeNavigationSubStage;
+    cause: XometryAuthProbeNavigationCause;
+  };
   fileSelectionPerformed: false;
   userInputInteractionPerformed: false;
   snapshotPersisted: false;
@@ -218,6 +234,62 @@ export function classifyXometryAuthProbeFailureStage(
   return fallback;
 }
 
+// Ordered: net::ERR_ABORTED also matches the generic net:: shape below.
+const NAVIGATION_CAUSE_PATTERNS: ReadonlyArray<
+  readonly [RegExp, XometryAuthProbeNavigationCause]
+> = [
+  [/\bTimeout \d+ms exceeded\b/, "timeout"],
+  [/\bnet::ERR_ABORTED\b|\bNS_BINDING_ABORTED\b|\binterrupted by another navigation\b/, "navigation_aborted"],
+  [
+    /\bExecution context was destroyed\b|\bTarget page, context or browser has been closed\b|\bTarget (?:closed|crashed)\b|\bframe was detached\b/,
+    "context_destroyed",
+  ],
+  [/\bnet::ERR_[A-Z_]+|\bNS_ERROR_[A-Z_]+|\bSSL_ERROR_[A-Z_]+/, "net_error"],
+];
+
+/**
+ * Reduce a browser error to the closed cause vocabulary. Reads only the name
+ * and the first message line (Playwright appends a call log), and returns
+ * neither.
+ */
+function classifyNavigationCause(error: unknown): XometryAuthProbeNavigationCause {
+  try {
+    if (!(error instanceof Error)) return "other";
+    if (error.name === "TimeoutError") return "timeout";
+    const message = error.message;
+    if (typeof message !== "string") return "other";
+    const firstLine = message.split("\n", 1)[0];
+    return NAVIGATION_CAUSE_PATTERNS.find(([pattern]) => pattern.test(firstLine))?.[1] ?? "other";
+  } catch {
+    return "other";
+  }
+}
+
+/** Keeps the original fixed prefix so existing stage matching still applies. */
+function navigationFailureMessage(
+  subStage: XometryAuthProbeNavigationSubStage,
+  cause: XometryAuthProbeNavigationCause,
+) {
+  return `Xometry authentication probe navigation or inspection failed. subStage=${subStage} cause=${cause}.`;
+}
+
+const NAVIGATION_FAILURE_DETAILS = NAVIGATION_SUB_STAGES.flatMap((subStage) =>
+  NAVIGATION_CAUSES.map((cause) => ({
+    subStage,
+    cause,
+    message: navigationFailureMessage(subStage, cause),
+  })),
+);
+
+/** Recover the sub-stage and cause only from the probe's own fixed message. */
+function navigationFailureDetail(error: unknown) {
+  for (const message of sanitizedErrorMessages(error)) {
+    const detail = NAVIGATION_FAILURE_DETAILS.find((candidate) => message.startsWith(candidate.message));
+    if (detail) return { subStage: detail.subStage, cause: detail.cause };
+  }
+  return undefined;
+}
+
 const RESTORE_PHASES = new Set([
   "profile_lock", "postcondition", "credential", "metadata", "download",
   "archive_validation", "local_filesystem", "archive_extract", "manifest_validation", "cleanup",
@@ -260,6 +332,8 @@ export function buildXometryAuthProbeFailureEvidence(
   error?: unknown,
   restorePhase?: XometrySnapshotRestorePhase | "profile_lock" | "postcondition",
 ): XometryAuthProbeFailureEvidence {
+  const navigationOrInspection =
+    failureStage === "navigation_or_inspection" ? navigationFailureDetail(error) : undefined;
   return {
     authenticated: false,
     reason: "probe_failed",
@@ -267,6 +341,7 @@ export function buildXometryAuthProbeFailureEvidence(
     ...(failureStage === "snapshot_restore" && restorePhase && RESTORE_PHASES.has(restorePhase)
       ? { snapshotRestore: { phase: restorePhase, reason: safeSnapshotRestoreReason(error) } }
       : {}),
+    ...(navigationOrInspection ? { navigationOrInspection } : {}),
     fileSelectionPerformed: false,
     userInputInteractionPerformed: false,
     snapshotPersisted: false,
@@ -564,7 +639,8 @@ export function buildXometryAuthProbeEvidence(input: {
  * @param context - Newly launched persistent browser context to probe.
  * @returns Sanitized authentication evidence from the bounded read-only probe.
  * @throws An error with a fixed stage message when setup, activation, navigation,
- * or inspection fails.
+ * or inspection fails. A navigation or inspection failure also names its
+ * sub-stage and closed-vocabulary cause, never the underlying error text.
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
@@ -672,11 +748,13 @@ export async function runBoundedXometryAuthProbe(
     throw new Error("Xometry authentication probe network activation failed.");
   }
 
+  let subStage: XometryAuthProbeNavigationSubStage = "goto";
   try {
     await page.goto(XOMETRY_URLS.quoteHome, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForLoadState("networkidle").catch(() => undefined);
+    subStage = "inspection";
     let lastResult: XometryAuthProbeResult = {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
@@ -711,6 +789,7 @@ export async function runBoundedXometryAuthProbe(
       }
     }
 
+    subStage = "fingerprint";
     if (
       !lastResult.authenticated &&
       lastResult.reason === "authenticated_dashboard_not_confirmed" &&
@@ -738,10 +817,8 @@ export async function runBoundedXometryAuthProbe(
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
     };
-  } catch {
-    throw new Error(
-      "Xometry authentication probe navigation or inspection failed.",
-    );
+  } catch (error) {
+    throw new Error(navigationFailureMessage(subStage, classifyNavigationCause(error)));
   }
 }
 

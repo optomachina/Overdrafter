@@ -26,6 +26,7 @@ function fakeProbeContext(input: {
   bodyText: string | (() => string);
   dashboardUploadButtonVisible?: boolean;
   bodyTextError?: Error;
+  gotoError?: unknown;
   networkIdleError?: Error;
   routeSetupError?: Error;
   webSocketSetupError?: Error;
@@ -145,6 +146,7 @@ function fakeProbeContext(input: {
         goto: async (url: string) => {
           events.setupOrder.push("navigate");
           events.navigatedTo = url;
+          if (input.gotoError !== undefined) throw input.gotoError;
           for (const request of input.requests ?? []) {
             if (!routeHandler)
               throw new Error("route handler was not installed");
@@ -537,6 +539,96 @@ describe("Xometry authentication probe", () => {
     );
     expect(events.closed).toBe(true);
     expect(events.offlineTransitions).toEqual([false, true]);
+  });
+
+  const syntheticUrl = "https://www.xometry.com/quoting/home/?session=synthetic-secret";
+  const callLog = `\nCall log:\n  - navigating to "${syntheticUrl}", waiting until "domcontentloaded"`;
+  const named = (name: string, message: string) => Object.assign(new Error(message), { name });
+
+  it.each([
+    ["timeout", named("TimeoutError", `page.goto: Timeout 30000ms exceeded.${callLog}`)],
+    ["timeout", new Error(`page.goto: Timeout 30000ms exceeded.${callLog}`)],
+    ["navigation_aborted", new Error(`page.goto: net::ERR_ABORTED at ${syntheticUrl}${callLog}`)],
+    ["navigation_aborted", new Error(`page.goto: NS_BINDING_ABORTED${callLog}`)],
+    ["navigation_aborted", new Error(`page.goto: Navigation to "${syntheticUrl}" is interrupted by another navigation to "https://www.xometry.com/login?next=synthetic"`)],
+    ["context_destroyed", new Error("page.goto: Execution context was destroyed, most likely because of a navigation")],
+    ["context_destroyed", new Error("page.goto: Target page, context or browser has been closed")],
+    ["net_error", new Error(`page.goto: net::ERR_NAME_NOT_RESOLVED at ${syntheticUrl}${callLog}`)],
+    ["net_error", new Error(`page.goto: NS_ERROR_NET_TIMEOUT${callLog}`)],
+    ["net_error", new Error(`page.goto: net::ERR_CONNECTION_RESET at ${syntheticUrl}\nCall log:\n  - Timeout 30000ms exceeded`)],
+    ["other", new Error("<html>synthetic provider error body</html>")],
+    ["other", "synthetic thrown string"],
+  ])("reports a goto %s failure in the cold-relaunch line and failure evidence", async (cause, gotoError) => {
+    const { context, events } = fakeProbeContext({ bodyText: "unused", gotoError });
+    const thrown = await requireAuthenticatedXometryColdRelaunch({ launchContext: async () => context })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(Error);
+    const line = (thrown as Error).message;
+    expect(line).toBe(`Xometry authentication probe navigation or inspection failed. subStage=goto cause=${cause}.`);
+    expect((thrown as Error).cause).toBeUndefined();
+    const evidence = buildXometryAuthProbeFailureEvidence(
+      classifyXometryAuthProbeFailureStage(thrown, "bounded_probe"),
+      thrown,
+    );
+    expect(evidence).toEqual({
+      authenticated: false,
+      reason: "probe_failed",
+      failureStage: "navigation_or_inspection",
+      navigationOrInspection: { subStage: "goto", cause },
+      fileSelectionPerformed: false,
+      userInputInteractionPerformed: false,
+      snapshotPersisted: false,
+    });
+    expect(`${line} ${JSON.stringify(evidence)}`).not.toMatch(/synthetic|https?:|\?|Call log|html/);
+    expect(events.closed).toBe(true);
+  });
+
+  it("names the inspection sub-stage and keeps it when cleanup also fails", async () => {
+    const { context } = fakeProbeContext({
+      bodyText: "unused",
+      bodyTextError: new Error("locator.innerText: Execution context was destroyed, most likely because of a navigation"),
+      closeError: new Error("synthetic close diagnostics"),
+    });
+    const thrown = await requireAuthenticatedXometryColdRelaunch({ launchContext: async () => context })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).message).toBe(
+      "Xometry authentication probe navigation or inspection failed. subStage=inspection cause=context_destroyed. Probe cleanup also failed closed.",
+    );
+    expect(
+      buildXometryAuthProbeFailureEvidence(classifyXometryAuthProbeFailureStage(thrown), thrown)
+        .navigationOrInspection,
+    ).toEqual({ subStage: "inspection", cause: "context_destroyed" });
+  });
+
+  it("names the fingerprint sub-stage for a failure after classification", async () => {
+    // Drift capture is fail-soft, so a throwing option accessor stands in for a defect in that tail.
+    const { context } = fakeProbeContext({ bodyText: "Synthetic page without dashboard signals" });
+    await expect(
+      runBoundedXometryAuthProbe(context, {
+        get onDashboardNotConfirmed(): (fingerprint: PageFingerprint | null) => void {
+          throw named("TimeoutError", "synthetic accessor failure");
+        },
+      }),
+    ).rejects.toThrow(
+      /^Xometry authentication probe navigation or inspection failed\. subStage=fingerprint cause=timeout\.$/,
+    );
+  });
+
+  it("omits the navigation detail when the fixed message does not carry one", () => {
+    const evidence = buildXometryAuthProbeFailureEvidence(
+      "navigation_or_inspection",
+      new Error("Xometry authentication probe navigation or inspection failed. subStage=private cause=private."),
+    );
+    expect(evidence).not.toHaveProperty("navigationOrInspection");
+    expect(
+      buildXometryAuthProbeFailureEvidence(
+        "operation_timeout",
+        new Error("Xometry authentication probe navigation or inspection failed. subStage=goto cause=timeout."),
+      ),
+    ).not.toHaveProperty("navigationOrInspection");
   });
 
   it("closes while still offline when probe guard installation fails", async () => {

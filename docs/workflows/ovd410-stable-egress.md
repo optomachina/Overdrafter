@@ -247,6 +247,15 @@ as cleanup. Failure remains `probe_failed`, exits unsuccessfully and never
 permits a retry or bypasses any restore validation. Synthetic regression tests
 exercise these diagnostics without production credentials or profile data.
 
+For navigation/inspection failures, `navigationOrInspection` adds a fixed
+`subStage` (`goto`, `inspection` or `fingerprint`) and a closed `cause`
+(`timeout`, `navigation_aborted`, `context_destroyed`, `net_error` or `other`).
+The cause is derived from the browser error's name and first message line and
+never carries that text, URLs or page content. `timeout` means a browser
+deadline expired; a network-level timeout code is `net_error`. The guarded cold
+relaunch prints the same two values on its fixed error line. Like a restore
+phase, they record where and how the step failed, not its proven root cause.
+
 ## Exact-runtime recovery through the fixed path
 
 The earlier local recovery container proved the production image and the fixed
