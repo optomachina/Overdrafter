@@ -55,7 +55,15 @@ export type AdmitPriceInput = {
   total?: ObservedAmount<"total" | "subtotal"> | null;
 };
 
-/** Allowed |unit × qty − total| per piece, for per-piece rounding. */
+/**
+ * Allowed |unit × qty − total| per piece, for per-piece rounding. A gap equal to
+ * the tolerance is admitted; only a strictly larger gap is refused.
+ *
+ * Known limit: at qty 1–2 the tolerance is only 1–2¢, and at qty 1 unit equals
+ * total by definition, so a unit/total mix-up whose amounts differ by 2¢ or less
+ * (qty 1, or tiny unit prices) passes this arithmetic check. There the amount
+ * labels and the pageQuantity read are the guard, not the invariant.
+ */
 export const PRICE_TOLERANCE_CENTS_PER_PIECE = 1;
 
 const isQuantity = (value: number | null | undefined): value is number =>
