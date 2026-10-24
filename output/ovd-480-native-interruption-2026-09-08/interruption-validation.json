@@ -1,0 +1,440 @@
+{
+  "kind": "local_controlled_native_interruption_evidence_validation",
+  "status": "consistent",
+  "counts": {
+    "passed": 72,
+    "failed": 0
+  },
+  "sourceCommit": "939a1b9d318ebedb3d10c3949ca03e139df6c3af",
+  "packet": {
+    "bytes": 193397,
+    "sha256": "a73d62181df3e9c85714efa16f28e6f83c41f93a21c37fb3d0ff16d64f771762"
+  },
+  "checks": [
+    {
+      "name": "original_packet_size_and_sha256",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "artifact_and_raw_record_inventory_sizes",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "reconstruct:before-interrupt.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:before-interrupt.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:compile.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:compile.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-open.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-open.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-1.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-1.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-2.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-2.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-3.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-3.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-4.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted-ready-4.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:lifecycle-result.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-close-fixture.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-close-fixture.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-close-native.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-close-native.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-open.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-open.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-1.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-1.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-2.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-2.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-3.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-3.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-4.stderr.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery-ready-4.stdout.txt",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted\\attempt-result.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted\\input.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:interrupted\\pre-interrupt.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery\\attempt-result.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "reconstruct:recovery\\input.json",
+      "passed": true,
+      "provenance": "independent_embedded_record_reconstruction_hash"
+    },
+    {
+      "name": "all_artifact_digest_claims_well_formed",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "live_commit_identity",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "six_distinct_source_names",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "source_local_git_and_manifest:session-lifecycle/lifecycle.ps1",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "source_local_git_and_manifest:session-lifecycle/NativeSessionProbe.cs",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "source_local_git_and_manifest:session-lifecycle/PreparedCylinder.cs",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "source_local_git_and_manifest:session-lifecycle/InterruptionCase.ps1",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "source_local_git_and_manifest:file-admission/SharedFilePredicates.cs",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "source_local_git_and_manifest:file-admission/OwnedProcess.ps1",
+      "passed": true,
+      "provenance": "independent_local_source_and_git_hash"
+    },
+    {
+      "name": "lifecycle_checkpoint_source_bindings",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "compiler_and_interop_pins",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "binary_digest_link_is_reported_only",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "supervisor_and_compile_success",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "no_preexisting_native_and_unchanged_policy_originals",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "distinct_attempts_processes_and_private_copies",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "attempt_input_and_finalization_links:interrupted",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "attempt_input_and_finalization_links:recovery",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "checkpoint_pins_exact_verified_observation",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "checkpoint_chronology_and_observed_terminal_states",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "executed_source_waits_for_interrupted_exit_before_recovery",
+      "passed": true,
+      "provenance": "source_order_correlated_with_reported_exit_not_independent_kill_timestamp"
+    },
+    {
+      "name": "helper_observations_are_complete_and_not_killed",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "helper_native_bindings_and_readiness",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "mandatory_fixture_predicates:interrupted-open.stdout.txt",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "analytic_geometry_and_native_semantics:interrupted-open.stdout.txt",
+      "passed": true,
+      "provenance": "independent_analytic_comparison_of_reported_measurements"
+    },
+    {
+      "name": "mandatory_fixture_predicates:before-interrupt.stdout.txt",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "analytic_geometry_and_native_semantics:before-interrupt.stdout.txt",
+      "passed": true,
+      "provenance": "independent_analytic_comparison_of_reported_measurements"
+    },
+    {
+      "name": "mandatory_fixture_predicates:recovery-open.stdout.txt",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "analytic_geometry_and_native_semantics:recovery-open.stdout.txt",
+      "passed": true,
+      "provenance": "independent_analytic_comparison_of_reported_measurements"
+    },
+    {
+      "name": "mandatory_fixture_predicates:recovery-close-fixture.stdout.txt",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "analytic_geometry_and_native_semantics:recovery-close-fixture.stdout.txt",
+      "passed": true,
+      "provenance": "independent_analytic_comparison_of_reported_measurements"
+    },
+    {
+      "name": "strict_readonly_opens",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "final_fixture_and_native_close",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "metadata_reset_sentinel_report_and_source_order",
+      "passed": true,
+      "provenance": "executor_reported_sentinel_and_independent_source_order_check"
+    },
+    {
+      "name": "historical_inert_commit_not_mislabeled_as_live_head",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    },
+    {
+      "name": "historical_inert_sources_match_their_git_commit",
+      "passed": true,
+      "provenance": "independent_historical_git_blob_hash"
+    },
+    {
+      "name": "full_qualification_stays_incomplete",
+      "passed": true,
+      "provenance": "reported_evidence_consistency"
+    }
+  ],
+  "geometryComparisons": [
+    {
+      "phase": "interrupted-open.stdout.txt",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      },
+      "centerAbsoluteErrorsM": [
+        5.319322929190151e-19,
+        0,
+        0.0
+      ]
+    },
+    {
+      "phase": "before-interrupt.stdout.txt",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      },
+      "centerAbsoluteErrorsM": [
+        5.319322929190151e-19,
+        0,
+        0.0
+      ]
+    },
+    {
+      "phase": "recovery-open.stdout.txt",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      },
+      "centerAbsoluteErrorsM": [
+        5.319322929190151e-19,
+        0,
+        0.0
+      ]
+    },
+    {
+      "phase": "recovery-close-fixture.stdout.txt",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      },
+      "centerAbsoluteErrorsM": [
+        5.319322929190151e-19,
+        0,
+        0.0
+      ]
+    }
+  ],
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "limits": [
+    "Original local packet bytes, 34 reconstructed text records and six Git/source artifacts were independently hashed. Native executable and two private SLDPRT contents remain remote digest claims.",
+    "Geometry and exact numeric center comparisons use reported measurements; native/API activity, file persistence and policy were not independently re-executed or observed locally.",
+    "Checkpoint time precedes recovery-process creation. Exact kill/exit timestamps are not separately recorded; kill/wait-before-recovery order is supported by pinned executed source and terminal attempt records.",
+    "Attempt-result self-digests are null inside their own immutable snapshots; the final lifecycle record supplies their verified reconstruction digests.",
+    "The metadata-reset sentinel is reported true with matching reset-before-admission source order; separate sentinel inputs/outputs are not embedded.",
+    "Historical inert checks belong to 5bd7bb76. The live controlled interruption belongs to 939a1b9d; histories are not relabeled.",
+    "One controlled idle read-only synthetic interruption does not establish interrupted-save recovery, arbitrary crash recovery, worker leases, filesystem isolation or release authority."
+  ]
+}

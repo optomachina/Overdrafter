@@ -1,0 +1,19 @@
+{
+  "pr": 472,
+  "state": "MERGED",
+  "mergedAt": "2026-09-09T01:24:27Z",
+  "reviewedHead": "4216c2af27004de73f715ef954b15aa56561402c",
+  "liveSourceCommit": "939a1b9d318ebedb3d10c3949ca03e139df6c3af",
+  "mergeCommit": "c097b2e9681c6739b548770d279a2ae3a7cc6a89",
+  "mergeReachableOnMain": true,
+  "changedFilesMatchReviewedHead": [
+    "docs/solidworks-2022-feasibility.md",
+    "scripts/native/session-lifecycle/InterruptionCase.ps1",
+    "scripts/native/session-lifecycle/NativeSessionProbe.cs",
+    "scripts/native/session-lifecycle/PreparedCylinder.cs",
+    "scripts/native/session-lifecycle/README.md",
+    "scripts/native/session-lifecycle/lifecycle.ps1"
+  ],
+  "worktreesPreserved": true,
+  "fullIssueComplete": false
+}

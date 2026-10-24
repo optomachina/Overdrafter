@@ -1,0 +1,225 @@
+{
+  "outcome": "passed",
+  "sourceCommit": "5bd7bb7630074bd363711d5b064c6197c02b47d5",
+  "scope": "compile and inert admission only",
+  "powershell": "5.1.26100.9278",
+  "x64": true,
+  "before": {
+    "policy": [
+      {
+        "value": "Undefined",
+        "scope": "MachinePolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "UserPolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "Process"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "CurrentUser"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "LocalMachine"
+      }
+    ],
+    "fixtures": [
+      {
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\native-dimension-04-e8d2937cf8104a5385ed184c02e92009\\baseline-5mm.SLDPRT"
+      },
+      {
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\native-dimension-04-e8d2937cf8104a5385ed184c02e92009\\candidate-8mm.SLDPRT"
+      }
+    ],
+    "cim": [],
+    "dotnet": []
+  },
+  "after": {
+    "policy": [
+      {
+        "value": "Undefined",
+        "scope": "MachinePolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "UserPolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "Process"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "CurrentUser"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "LocalMachine"
+      }
+    ],
+    "fixtures": [
+      {
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\native-dimension-04-e8d2937cf8104a5385ed184c02e92009\\baseline-5mm.SLDPRT"
+      },
+      {
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\native-dimension-04-e8d2937cf8104a5385ed184c02e92009\\candidate-8mm.SLDPRT"
+      }
+    ],
+    "cim": [],
+    "dotnet": []
+  },
+  "sources": [
+    {
+      "sha256": "3434b83d88abb77fd8c48fefc763a7a27a1c718fec4bcd4bb71f159e4dc02a14",
+      "path": "session-lifecycle/lifecycle.ps1"
+    },
+    {
+      "sha256": "ad89d6ecdb3bf619d09ac20a836a5cad69f3983495e4ee2bfdf51eee5dec2dc6",
+      "path": "session-lifecycle/NativeSessionProbe.cs"
+    },
+    {
+      "sha256": "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+      "path": "session-lifecycle/PreparedCylinder.cs"
+    },
+    {
+      "sha256": "419757e5d7d0b16d29b2b6282803545785a4565ddb9ee2690ac8bdd1b99b4c87",
+      "path": "session-lifecycle/InterruptionCase.ps1"
+    },
+    {
+      "sha256": "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+      "path": "file-admission/SharedFilePredicates.cs"
+    },
+    {
+      "sha256": "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+      "path": "file-admission/OwnedProcess.ps1"
+    }
+  ],
+  "ast": [
+    {
+      "errors": [],
+      "name": "lifecycle.ps1"
+    },
+    {
+      "errors": [],
+      "name": "InterruptionCase.ps1"
+    },
+    {
+      "errors": [],
+      "name": "..\\file-admission\\OwnedProcess.ps1"
+    }
+  ],
+  "compile": {
+    "pid": 23460,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.2954116,
+    "error": null,
+    "stdout": "",
+    "stderr": ""
+  },
+  "cases": [
+    {
+      "passed": true,
+      "rawReceipts": [],
+      "case": 1,
+      "child": {
+        "pid": 13404,
+        "exitCode": 1,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.3096073,
+        "error": null,
+        "stdout": "",
+        "stderr": "Default-off: explicit -Execute and expected old identity required.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-I-32014834\\session-lifecycle\\lifecycle.ps1:21 char:22\r\n+ ... $Execute) { throw 'Default-off: explicit -Execute and expected old id ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.\r\n \r\n"
+      }
+    },
+    {
+      "passed": true,
+      "rawReceipts": [
+        "{\r\n    \"utc\":  \"2026-09-09T00:59:18.5518260Z\",\r\n    \"outcome\":  \"failed\",\r\n    \"stage\":  \"preflight\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  1,\r\n                   \"expectedOldTicks\":  \"\",\r\n                   \"interruptReadonly\":  true\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  false,\r\n    \"nativeCloseAttempted\":  false,\r\n    \"nativeStarted\":  false,\r\n    \"nativeExit\":  null,\r\n    \"recovery_required\":  false,\r\n    \"error\":  \"Interruption requires PID zero and both pinned synthetic source paths.\",\r\n    \"observations\":  [\r\n\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  \"5bd7bb7630074bd363711d5b064c6197c02b47d5\",\r\n    \"sourceHashes\":  [\r\n\r\n                     ],\r\n    \"compiler\":  null,\r\n    \"compile\":  null,\r\n    \"binarySha256\":  null\r\n}\r\n"
+      ],
+      "case": 2,
+      "child": {
+        "pid": 23544,
+        "exitCode": 2,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.40928119999999996,
+        "error": null,
+        "stdout": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-I-32014834\\case2\\session-6a8805c4dee84c30b10e7080a6741418\\lifecycle-result.json\r\n",
+        "stderr": ""
+      }
+    },
+    {
+      "passed": true,
+      "rawReceipts": [
+        "{\r\n    \"utc\":  \"2026-09-09T00:59:18.9958706Z\",\r\n    \"outcome\":  \"failed\",\r\n    \"stage\":  \"preflight\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  0,\r\n                   \"expectedOldTicks\":  \"1\",\r\n                   \"interruptReadonly\":  true\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  false,\r\n    \"nativeCloseAttempted\":  false,\r\n    \"nativeStarted\":  false,\r\n    \"nativeExit\":  null,\r\n    \"recovery_required\":  false,\r\n    \"error\":  \"PID zero requires empty expected ticks.\",\r\n    \"observations\":  [\r\n\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  \"5bd7bb7630074bd363711d5b064c6197c02b47d5\",\r\n    \"sourceHashes\":  [\r\n\r\n                     ],\r\n    \"compiler\":  null,\r\n    \"compile\":  null,\r\n    \"binarySha256\":  null\r\n}\r\n"
+      ],
+      "case": 3,
+      "child": {
+        "pid": 23432,
+        "exitCode": 2,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.4115062,
+        "error": null,
+        "stdout": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-I-32014834\\case3\\session-4517091ba5804ba69eaf63287c5ba949\\lifecycle-result.json\r\n",
+        "stderr": ""
+      }
+    },
+    {
+      "passed": true,
+      "rawReceipts": [
+        "{\r\n    \"utc\":  \"2026-09-09T00:59:19.4103257Z\",\r\n    \"outcome\":  \"failed\",\r\n    \"stage\":  \"preflight\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  0,\r\n                   \"expectedOldTicks\":  \"\",\r\n                   \"interruptReadonly\":  true\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  false,\r\n    \"nativeCloseAttempted\":  false,\r\n    \"nativeStarted\":  false,\r\n    \"nativeExit\":  null,\r\n    \"recovery_required\":  false,\r\n    \"error\":  \"Synthetic fixture file identity mismatch.\",\r\n    \"observations\":  [\r\n\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  \"5bd7bb7630074bd363711d5b064c6197c02b47d5\",\r\n    \"sourceHashes\":  [\r\n                         {\r\n                             \"sha256\":  \"3434b83d88abb77fd8c48fefc763a7a27a1c718fec4bcd4bb71f159e4dc02a14\",\r\n                             \"name\":  \"lifecycle.ps1\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"ad89d6ecdb3bf619d09ac20a836a5cad69f3983495e4ee2bfdf51eee5dec2dc6\",\r\n                             \"name\":  \"NativeSessionProbe.cs\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c\",\r\n                             \"name\":  \"PreparedCylinder.cs\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"419757e5d7d0b16d29b2b6282803545785a4565ddb9ee2690ac8bdd1b99b4c87\",\r\n                             \"name\":  \"InterruptionCase.ps1\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7\",\r\n                             \"name\":  \"SharedFilePredicates.cs\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e\",\r\n                             \"name\":  \"OwnedProcess.ps1\"\r\n                         }\r\n                     ],\r\n    \"compiler\":  null,\r\n    \"compile\":  null,\r\n    \"binarySha256\":  null\r\n}\r\n"
+      ],
+      "case": 4,
+      "child": {
+        "pid": 23164,
+        "exitCode": 2,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.6538942,
+        "error": null,
+        "stdout": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-I-32014834\\case4\\session-e677f2a9623041e2853bf6642f5f5b7b\\lifecycle-result.json\r\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "error": null,
+  "compiler": {
+    "path": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+    "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+    "version": "4.8.9221.0 built by: NET481REL1LAST_25H2"
+  },
+  "interop": {
+    "sha256": "9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0",
+    "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\api\\redist\\SolidWorks.Interop.sldworks.dll"
+  },
+  "binarySha256": "7d97a128d88c669ef9fbf222f963da60479d1f27c533c937ae350ef5ab36c7d9",
+  "outer": {
+    "pid": 18764,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 3.3076337,
+    "error": null,
+    "stdout": "",
+    "stderr": ""
+  },
+  "beforeAfterEqual": true
+}

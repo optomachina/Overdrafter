@@ -1,0 +1,93 @@
+{
+  "pr": "https://github.com/optomachina/Overdrafter/pull/472",
+  "head": "4216c2af27004de73f715ef954b15aa56561402c",
+  "liveSourceCommit": "939a1b9d318ebedb3d10c3949ca03e139df6c3af",
+  "scope": "one controlled readonly synthetic interruption and fresh-session verification",
+  "artifacts": [
+    {
+      "path": "preflight-source-packet.json",
+      "bytes": 14166,
+      "sha256": "6364ddd6277cc3f24ed30e94d19b43312466b1198e7c1e31df882ede3e2683fd"
+    },
+    {
+      "path": "compile-source-packet.json",
+      "bytes": 67463,
+      "sha256": "2edf6878c620008b3de18a1ef7cdc3668b8a9264984a543d0fbef28bdb579707"
+    },
+    {
+      "path": "compile-inert-receipt.json",
+      "bytes": 11603,
+      "sha256": "33f4d789c27b95a92263339f040810034845d3d97fa555f8647f5e582abcaa08"
+    },
+    {
+      "path": "live-source-delta.json",
+      "bytes": 21133,
+      "sha256": "2074f6198ffe251f42972391809c4b14bb69dbf3016b5c70bb938130ad918722"
+    },
+    {
+      "path": "live-complete-receipt.json",
+      "bytes": 193397,
+      "sha256": "a73d62181df3e9c85714efa16f28e6f83c41f93a21c37fb3d0ff16d64f771762"
+    },
+    {
+      "path": "rolling-before-interruption.md",
+      "bytes": 87632,
+      "sha256": "65bd8c2d856e2144c80a5d13172293379ee2e4d3a945c8425774d07d773a33b2"
+    },
+    {
+      "path": "rolling-after-live.md",
+      "bytes": 94000,
+      "sha256": "042ac73971c7bebe05a6cad49c28a9d3039d7a73f5412fdee7575acb74bb1cc8"
+    },
+    {
+      "path": "local-verify.log",
+      "bytes": 197262,
+      "sha256": "f98811635a9efb0aadb1f54527e836ea7a7d87deb78601652e8fcacc8d9806c3"
+    },
+    {
+      "path": "codex-review.log",
+      "bytes": 110147,
+      "sha256": "3769157b449fa36e997e9f3300ddab1e13711d6e9b13db1e69ba4a07614251e7"
+    },
+    {
+      "path": "validate-interruption-evidence.py",
+      "bytes": 18496,
+      "sha256": "b2d9aabfe578d94c052cebe06e808d9fe6bca88aa93bae78f0a87baa84ea8372"
+    },
+    {
+      "path": "interruption-validation.json",
+      "bytes": 14312,
+      "sha256": "91bf3c959b1bc60e6400359608565edb79842c37ffb02149419c92e33ae6b805"
+    },
+    {
+      "path": "sonar-final-issues.json",
+      "bytes": 165,
+      "sha256": "bd5ffd42633f61ec96f7c97607987808dc670616f3adee47ea593cce85eb5660"
+    },
+    {
+      "path": "final-hosted-checks.log",
+      "bytes": 35689,
+      "sha256": "879ba48b486455a14056ffb49064f05c20eacdab3d085476382a6cbfd8ea6842"
+    },
+    {
+      "path": "final-review-snapshot.json",
+      "bytes": 149,
+      "sha256": "7246458d17a9488cd669252abfb16db7494dd06e6659964134f5d7b399f013c2"
+    },
+    {
+      "path": "coderabbit-status.json",
+      "bytes": 11857,
+      "sha256": "c2c29464167698d1933f3b6944f90ffbc51acd34290ce0ccb6c61ac6c229e35b"
+    },
+    {
+      "path": "landing.json",
+      "bytes": 727,
+      "sha256": "e40e8d0b915c089b1947dcae8a3155dda2463242f7e35f55064cdf2db27c150f"
+    },
+    {
+      "path": "pr-body.md",
+      "bytes": 6591,
+      "sha256": "c3feb412c32aa9c106154cfe7a9eedefd4da834386c0becd05759ede9e0f6c87"
+    }
+  ]
+}
