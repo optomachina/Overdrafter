@@ -982,10 +982,13 @@ async function readCardContent(card: Locator) {
 /**
  * OVD-1052: whether a part card's rendered text says the page is still
  * loading, saving or re-pricing (PART_CARD_LOADING_TEXT) on any line, once
- * each file name (FILE_NAME_TEXT) is cut out of it.
+ * each known uploaded file name is cut out of it, including spaces. The
+ * token pattern (FILE_NAME_TEXT) remains a fallback for other file names.
  */
-function showsLoadingText(text: string) {
-  return text.split(/\r?\n/).some((line) => PART_CARD_LOADING_TEXT.test(line.replaceAll(FILE_NAME_TEXT, " ")));
+function showsLoadingText(text: string, fileNames: string[]) {
+  const withoutFileNames = fileNames.filter(Boolean).sort((a, b) => b.length - a.length)
+    .reduce((remaining, fileName) => remaining.replaceAll(fileName, " "), text);
+  return withoutFileNames.split(/\r?\n/).some((line) => PART_CARD_LOADING_TEXT.test(line.replaceAll(FILE_NAME_TEXT, " ")));
 }
 
 /**
@@ -1363,6 +1366,8 @@ async function checkPartCard(
 
 /** What the adapter knows about the quote page's pricing before collection. */
 export type XometryPriceReadiness = {
+  /** Exact uploaded names, so spaces in a filename cannot look like status text. */
+  fileNames?: string[];
   /**
    * False when xometryPriceTiersSettled timed out: some available tier card
    * never showed both a price and timing, or the part card kept showing
@@ -1464,7 +1469,7 @@ export async function collectXometryOffers(
   // in the cards or beside them.
   const partCardText = await located.partCard.innerText().catch(() => null);
   if (partCardText === null) throw ambiguousCardError("shape_unreadable", { tierCards: cardCount, partCardLines: null });
-  if (showsLoadingText(partCardText)) throw pricePendingError("pricing_in_progress");
+  if (showsLoadingText(partCardText, readiness.fileNames ?? [])) throw pricePendingError("pricing_in_progress");
 
   const snapshots: XometryOfferSnapshot[] = [];
   const observedSnapshots: XometryOfferSnapshot[] | undefined = observer ? [] : undefined;

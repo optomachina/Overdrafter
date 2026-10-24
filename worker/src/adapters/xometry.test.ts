@@ -4581,7 +4581,7 @@ describe("XometryAdapter", () => {
      * has no innerText, so renderedText (the collector harness's innerText)
      * stands in for it: the predicate and the collector read the same lines.
      */
-    function settledOnDocument(document: Document) {
+    function settledOnDocument(document: Document, fileNames: string[] = []) {
       const view = document.defaultView;
       if (!view) throw new Error("fixture document has no window");
       Object.defineProperty(view.HTMLElement.prototype, "innerText", {
@@ -4593,7 +4593,7 @@ describe("XometryAdapter", () => {
       const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
       Object.defineProperty(globalThis, "document", { configurable: true, value: document });
       try {
-        return xometryPriceTiersSettled();
+        return xometryPriceTiersSettled(fileNames);
       } finally {
         if (previous) {
           Object.defineProperty(globalThis, "document", previous);
@@ -4610,6 +4610,7 @@ describe("XometryAdapter", () => {
      */
     async function quoteCurrentPage(options: {
       mutate?: (document: Document) => void;
+      cadFileName?: string;
       /** Also resolve the fallback price/lead/review selectors against the fixture DOM. */
       resolveFallbackSelectors?: boolean;
       /** The body text the page shows from the price-tier settle wait onward. */
@@ -4648,7 +4649,7 @@ describe("XometryAdapter", () => {
       page.waitForFunction = async (callback: unknown, argument?: unknown) => {
         if (callback !== xometryPriceTiersSettled) return waitForFunction(callback, argument);
         if (pricingBodyText) bodyText = pricingBodyText(fixture.bodyText);
-        if (priceTiersTimeOut || !settledOnDocument(fixture.document)) {
+        if (priceTiersTimeOut || !settledOnDocument(fixture.document, argument as string[] | undefined)) {
           throw new Error("Timeout exceeded while waiting for the price tiers");
         }
         return undefined;
@@ -4657,6 +4658,11 @@ describe("XometryAdapter", () => {
       const baseInput = makeInput();
       const input = makeInput({
         requestedQuantity: 1,
+        ...(options.cadFileName ? { stagedCadFile: {
+          ...baseInput.stagedCadFile!,
+          originalName: options.cadFileName,
+          localPath: path.join(workerTempDir, options.cadFileName),
+        } } : {}),
         requirement: { ...baseInput.requirement, finish: "as machined", quantity: 1, quote_quantities: [1] },
       });
       const adapter = new XometryAdapter(
@@ -6331,18 +6337,39 @@ describe("XometryAdapter", () => {
         });
       });
 
-      it("publishes the three tiers when only the part's file name holds a loading word", async () => {
+      it.each(["loading-dock-bracket.step", "loading dock bracket.step", "loading dock bracket.v2.STEP"])("publishes the three tiers when only the known file name %j holds a loading word", async (fileName) => {
         const mutate = (document: Document) => {
           const title = document.querySelector('[data-testid="part-card-title"] > span');
           if (!title) throw new Error("fixture lost its part title");
-          title.textContent = "loading-dock-bracket.step";
+          title.textContent = fileName;
         };
         const fixture = await loadCurrentQuotePage(mutate);
-        expect(fixture.bodyText).toContain("loading-dock-bracket.step");
+        expect(fixture.bodyText).toContain(fileName);
 
-        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers);
-        const { result } = await quoteCurrentPage({ mutate });
+        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1, undefined, {
+          priceTiersSettled: true, pricingInProgress: false, fileNames: [fileName],
+        }))).toEqual(expectedTierOffers);
+        const { result } = await quoteCurrentPage({ mutate, cadFileName: fileName });
         expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(expectedTierOffers.map(({ id }) => id));
+      });
+
+      it.each([
+        "Loading loading dock bracket.step",
+        "Fetching new price for loading dock bracket.step...",
+        "loading dock bracket.step — Saving...",
+      ])("preserves surrounding status in %j after removing the known spaced filename", async (line) => {
+        const fileName = "loading dock bracket.step";
+        const mutate = (document: Document) => {
+          const title = document.querySelector('[data-testid="part-card-title"] > span');
+          if (!title) throw new Error("fixture lost its part title");
+          title.textContent = line;
+        };
+        const fixture = await loadCurrentQuotePage(mutate);
+        expect(settledOnDocument(fixture.document, [fileName])).toBe(false);
+        const failure = await collectXometryOffers(fixturePage(fixture), 1, undefined, {
+          priceTiersSettled: true, pricingInProgress: false, fileNames: [fileName],
+        }).catch((error: unknown) => error);
+        expect(failure).toMatchObject({ payload: { pendingCause: "pricing_in_progress" } });
       });
 
       it("publishes the three tiers beside a progress bar the page hides, aria-busy=false, or a progress bar outside the part card", async () => {
@@ -7135,12 +7162,12 @@ describe("XometryAdapter", () => {
         }
       });
 
-      it("settles on priced cards when only the part's file name holds a loading word", async () => {
+      it.each(["loading-dock-bracket.step", "loading dock bracket.step", "loading dock bracket.v2.STEP"])("settles on priced cards when only the known file name %j holds a loading word", async (fileName) => {
         expect(settledOnDocument(await mutatedDocument((document) => {
           const title = document.querySelector('[data-testid="part-card-title"] > span');
           if (!title) throw new Error("fixture lost its part title");
-          title.textContent = "loading-dock-bracket.step";
-        }))).toBe(true);
+          title.textContent = fileName;
+        }), [fileName])).toBe(true);
       });
 
       it.each([

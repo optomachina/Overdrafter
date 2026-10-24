@@ -2932,7 +2932,7 @@ async function detectManualReview(page: Page, bodyText: string) {
  * as pending, so a card the parser prices but this predicate did not
  * ("USD 101.25", "Lead Time: 7 Days") held a priced page pending.
  */
-export function xometryPriceTiersSettled(): boolean {
+export function xometryPriceTiersSettled(fileNames: string[] = []): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
   if (cards.length > 0) {
     const view = document.defaultView;
@@ -2962,8 +2962,11 @@ export function xometryPriceTiersSettled(): boolean {
       if (element.getAttribute("aria-busy")?.toLowerCase() === "true") return false;
     }
     // Loading, saving or re-pricing text anywhere in the part card, once each
-    // file name is cut out of its line, as the collector refuses it.
-    for (const line of ((partCard as HTMLElement | null)?.innerText ?? "").split(/\r?\n/)) {
+    // known uploaded file name is cut out exactly, including spaces. Keep
+    // surrounding status text and the token fallback, as the collector does.
+    const withoutFileNames = fileNames.filter(Boolean).sort((a, b) => b.length - a.length)
+      .reduce((remaining, fileName) => remaining.replaceAll(fileName, " "), (partCard as HTMLElement | null)?.innerText ?? "");
+    for (const line of withoutFileNames.split(/\r?\n/)) {
       const status = line.replaceAll(
         /[\w\-+~#()]*(?:\.[\w\-+~#()]+)*\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi,
         " ",
@@ -3708,8 +3711,12 @@ export class XometryAdapter extends VendorAdapter {
       // commercial and timing evidence before parsing the complete option set.
       // OVD-1052: a timed-out wait is kept, not swallowed: the cards that did
       // render are then never published as the complete option set.
+      const fileNames = uploadedFileNames.map((filePath) => path.basename(filePath));
+      if (input.stagedDrawingFile) {
+        fileNames.push(liveEvaluationUploadFiles?.drawing?.name ?? path.basename(input.stagedDrawingFile.localPath));
+      }
       const priceTiersSettled = await page
-        .waitForFunction(xometryPriceTiersSettled, undefined, { timeout: this.config.browserTimeoutMs })
+        .waitForFunction(xometryPriceTiersSettled, fileNames, { timeout: this.config.browserTimeoutMs })
         .then(() => true, () => false);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
@@ -3779,6 +3786,7 @@ export class XometryAdapter extends VendorAdapter {
           normalizedQuantity(input),
           this.providerObserver ?? this.operationalProviderObserver,
           {
+            fileNames,
             priceTiersSettled,
             pricingInProgress: isXometryPricingInProgress({ url: page.url(), bodyText }),
           },
