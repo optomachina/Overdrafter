@@ -115,7 +115,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const result = await checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11" });
     expect(result.ok).toBe(true);
     expect(result.providerCount).toBe(9);
-    expect(result.enabledKeys).toEqual(["xometry", "fictiv", "quickparts", "rmfg"]);
+    expect(result.enabledKeys).toEqual(["xometry", "fictiv", "quickparts", "geomiq", "rmfg", "oshcut", "sendcutsend"]);
     expect([
       "provider-integrations/provider-registry.v1.json",
       "provider-integrations/*/manifest.v1.json",
@@ -217,11 +217,32 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).toBe(false);
   });
 
-  it.each(["xometry", "fictiv", "quickparts"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
+  it.each([
+    ["weerg", "Weerg",
+      "Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors."],
+    ["geomiq", "Geomiq",
+      "User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal. Ask for partner API access and written permission. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. The partner-API and written-permission ask above stays open."],
+    ["oshcut", "OSH Cut",
+      "Sales terms are silent on automation. Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. This is not a matrix clearance, so enabled_for_paid_automation stays derived false. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. It supersedes the \"not a matrix clearance\" sentence above: the override is the matrix clearance; runtime gates (liveAdapter, session secrets, egress, admission) are unchanged. The partner-API and written-permission ask above stays open."],
+    ["sendcutsend", "SendCutSend",
+      "Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors."],
+  ])("pins the full %s notes, keeps prior notes before the 2026-10-22 override, and matches the Markdown row", async (key, displayName, fullNotes) => {
+    const { document, markdown } = await readRepoMatrix();
+    const row = document.providers.find((provider) => provider.key === key);
+    expect(row.notes).toBe(fullNotes);
+    expect(row.notes.indexOf("2026-10-22 owner override")).toBeGreaterThan(0);
+    expect(row.owner_override.orders_allowed).toBe(false);
+    const section = markdown.split(`- displayName: ${displayName}\n`)[1];
+    expect(section).toBeDefined();
+    const markdownNotes = section.match(/^- notes: (.*)$/m)[1];
+    expect(markdownNotes).toBe(row.notes);
+  });
+
+  it.each(["xometry", "fictiv", "quickparts", "geomiq", "oshcut", "sendcutsend"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
     const { document } = await readRepoMatrix();
     const row = document.providers.find((provider) => provider.key === key);
-    expect(row.tos_stance).toBe({ xometry: "prohibited", fictiv: "prior-consent", quickparts: "silent" }[key]);
-    expect(row.owner_override.recorded_on).toBe("2026-10-21");
+    expect(row.tos_stance).toBe({ xometry: "prohibited", fictiv: "prior-consent", quickparts: "silent", geomiq: "silent", oshcut: "silent", sendcutsend: "silent" }[key]);
+    expect(row.owner_override.recorded_on).toBe(["geomiq", "oshcut", "sendcutsend"].includes(key) ? "2026-10-22" : "2026-10-21");
     expect(row.written_permission).toBeNull();
     expect(row.replies).toEqual([]);
     expect(deriveEnabledForPaidAutomation(row)).toBe(true);
@@ -263,7 +284,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
       else expect(contract.properties[key].const).toBe(value);
     }
     expect(document.providers.filter((row) => row.owner_override).map((row) => row.key))
-      .toEqual(["xometry", "fictiv", "quickparts"]);
+      .toEqual(["xometry", "fictiv", "quickparts", "weerg", "geomiq", "oshcut", "sendcutsend"]);
     expect(() => validatePermissionsMatrixDocument(document, schema)).not.toThrow();
   });
 
