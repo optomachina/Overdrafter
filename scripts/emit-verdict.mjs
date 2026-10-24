@@ -278,8 +278,9 @@ function isGateFinding(finding) {
  */
 function prepareFindings(findings) {
   if (!Array.isArray(findings)) throw new Error("findings must be a JSON array of finding objects");
-  if (findings.some(isGateFinding)) return findings;
-  return tagCorroborated(findings);
+  const legacy = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)));
+  let legacyIndex = 0;
+  return findings.map((finding) => (isGateFinding(finding) ? finding : legacy[legacyIndex++]));
 }
 
 const parseEvidence = (entry) => {

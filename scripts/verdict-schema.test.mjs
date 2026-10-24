@@ -290,6 +290,22 @@ describe("OVD-845 optional verdict fields", () => {
     expect(validateVerdict(valid({ base_sha: baseSha, approved: true })).errors).toContain("verdict.approved: is not an allowed field");
   });
 
+  it.each([
+    "C:../x", "C:x", String.raw`C:\x`, "c:/x",
+    String.raw`\\server\share\x`, "//server", String.raw`\\?\C:\x`, String.raw`\\.\C:\x`,
+    String.raw`a\..\..\x`, String.raw`a/..\x`, String.raw`\x`, "/x", "file.ts:stream",
+  ])("rejects unsafe gate finding repo path %s", (file) => {
+    const result = validateVerdict(valid({ findings: [gateFinding({ file })] }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("verdict.findings[0].file: must be a repo-relative path");
+  });
+
+  it.each(["scripts/foo.mjs", "docs/a.b/c.md", String.raw`scripts\foo.mjs`])(
+    "accepts gate finding repo-relative path %s", (file) => {
+      expect(validateVerdict(valid({ findings: [gateFinding({ file })] }))).toEqual({ ok: true, errors: [] });
+    },
+  );
+
   it("accepts gate findings for both roles, with line optional", () => {
     expect(validateVerdict(valid({ findings: [] }))).toEqual({ ok: true, errors: [] });
     expect(validateVerdict(valid({ findings: [gateFinding()] })).ok).toBe(true);

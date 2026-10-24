@@ -459,6 +459,32 @@ describe("emit -> validate round trip", () => {
     expect(parseVerdictComments(comments, { sha: verdict.sha }).verdict).toEqual(verdict);
   });
 
+  it("recomputes mixed legacy corroboration while preserving gate bytes and finding order", () => {
+    const gate = { severity: "high", file: "solo.ts", line: 1, summary: "gate only" };
+    const otherGate = { severity: "low", file: "docs/a.md", summary: "context" };
+    const findings = [
+      gate,
+      { severity: "high", file: "solo.ts", line: 1, model: "grok", corroborated: true },
+      { severity: "low", file: "shared.ts", line: 2, model: "grok", corroborated: false },
+      otherGate,
+      { severity: "medium", file: "shared.ts", line: 2, model: "codex", corroborated: false },
+    ];
+    const original = JSON.stringify(findings);
+    const verdict = buildVerdict({
+      role: "reviewer", verdict: "FAIL", sha: "a".repeat(40), patchId: "b".repeat(40), diffId: "c".repeat(64),
+      verifierId: "v", modelFamily: "opus", githubLogin: "bot",
+      evidence: [{ kind: "log", url: "https://x.test/" }],
+      readiness: { conflicts: 0, open_threads: 0, checks: "red" }, findings,
+    }, { now: NOW });
+    expect(verdict.findings).toEqual([
+      gate, { ...findings[1], corroborated: false }, { ...findings[2], corroborated: true },
+      otherGate, { ...findings[4], corroborated: true },
+    ]);
+    expect(JSON.stringify(verdict.findings[0])).toBe(JSON.stringify(gate));
+    expect(JSON.stringify(verdict.findings[3])).toBe(JSON.stringify(otherGate));
+    expect(JSON.stringify(findings)).toBe(original);
+  });
+
   it("binds patch_id to the given sha rather than head", () => {
     const wsA = sha("ws-a");
     const verdict = buildVerdict(

@@ -164,10 +164,11 @@ function boxPathError(value) {
 
 /** Repo-relative path: no leading slash, no `..` segment, no empty segment. */
 function repoPathError(value) {
-  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(value)) {
+  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:/.test(value)) {
     return "must be a repo-relative path with no leading /";
   }
   const segments = value.split(/[\\/]/);
+  if (segments[0].includes(":")) return "must be a repo-relative path with no colon in the first segment";
   if (segments.includes("..")) return "must be a repo-relative path with no .. segment";
   if (segments.some((segment) => segment.length === 0)) return "must be a repo-relative path";
   return null;
