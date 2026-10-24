@@ -1546,7 +1546,7 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+  it.each(["weerg", "quickparts", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
@@ -1563,6 +1563,30 @@ describe("runEvaluationBatch", () => {
       buildRegistry: () => ({}),
     })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
     expect(killSwitchReader).not.toHaveBeenCalled();
+  });
+
+  it("gates the live Geomiq batch on the kill switch before staging (OVD-1058)", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "geomiq", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const stageFiles = vi.fn();
+
+    await expect(runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({}),
+    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(killSwitchReader).toHaveBeenCalled();
+    expect(stageFiles).not.toHaveBeenCalled();
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(registry.geomiq?.evaluateLocallyReachesProvider).toBe(true);
   });
 
   it("keeps the offline portal vendor set in step with the registry", () => {

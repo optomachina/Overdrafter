@@ -9,7 +9,7 @@ import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import { parseSmokeArgs, runQuote } from "../tools/vendorWorkflowSmoke.js";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index.js";
 import { buildQuickpartsOfflinePortalDefinition } from "./quickpartsPortal.js";
-import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
+import { buildGeomiqProductionPortalDefinition } from "./geomiqProductionPortal.js";
 import { createWeergPortalDefinition } from "./weergPortal.js";
 import { buildExpectedProviderPortalApproval } from "./providerPortalKernel.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
@@ -23,7 +23,6 @@ afterEach(async () => {
 const definitions = [
   buildQuickpartsOfflinePortalDefinition(),
   createWeergPortalDefinition(),
-  buildGeomiqPortalDefinition(),
 ];
 
 function isolatedConfig(): WorkerConfig {
@@ -94,6 +93,6 @@ describe("local provider registry integration", () => {
   });
 
   it("rejects a definition bound to a different provider", () => {
-    expect(() => new PortalQuoteWorkflowAdapter("quickparts", isolatedConfig(), getExtendedVendorWorkflow("quickparts")!, buildGeomiqPortalDefinition())).toThrow("must match");
+    expect(() => new PortalQuoteWorkflowAdapter("quickparts", isolatedConfig(), getExtendedVendorWorkflow("quickparts")!, buildGeomiqProductionPortalDefinition())).toThrow("must match");
   });
 });

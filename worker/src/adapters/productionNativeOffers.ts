@@ -7,7 +7,7 @@ import type { ProviderPortalNormalizedOffer } from "./providerPortalKernel.js";
  *
  * - a batch the provider itself priced in USD (per-option ISO anchor) becomes
  *   ordinary comparable USD offers, unchanged in value;
- * - any other currency (EUR) stays native and is explicitly non-comparable. It
+ * - any other currency (EUR, GBP) stays native and is explicitly non-comparable. It
  *   is recorded as evidence and never reaches a USD field.
  *
  * Mixed or empty batches return null; the caller treats that as drift.
