@@ -61,8 +61,13 @@ function locatorPhrases() {
 export const XOMETRY_DRIVER_VOCABULARY: ReadonlySet<string> = new Set(
   [...UI_LABEL_PHRASES, ...locatorPhrases(), ...CONFIGURATION_PHRASES].map(normalizeLabel).filter(Boolean),
 );
+// Code-unit order keeps the digest byte-stable across locales.
+function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
 export const XOMETRY_DRIVER_VOCABULARY_DIGEST = createHash("sha256")
-  .update([...XOMETRY_DRIVER_VOCABULARY].sort().join("\n")).digest("hex").slice(0, 16);
+  .update([...XOMETRY_DRIVER_VOCABULARY].sort(compareCodeUnits).join("\n")).digest("hex").slice(0, 16);
 
 const CATALOG_TERMS = [
   ...["6061", "7075", "2024", "303", "304", "316", "17-4", "1018", "4140", "brass", "copper", "titanium", "peek", "nylon", "abs", "delrin"]

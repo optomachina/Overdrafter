@@ -92,13 +92,19 @@ export type ValidChoice = { choice: string; probabilities: Record<string, number
  * value is finite in [0, 1], the sum is within 0.02 of 1 (jev-1.14.0 returned
  * 0.99), and the chosen option carries the maximum probability.
  */
+// Code-unit order: the comparison only checks set equality, so locale order is irrelevant.
+function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 export function validateChoiceAnswer(answer: unknown, offered: readonly string[]): ValidChoice | null {
   if (!answer || typeof answer !== "object") return null;
   const { type, choice, confidence, probabilities } = answer as Record<string, unknown>;
   if (type !== "choice" || typeof choice !== "string" || !probabilities || typeof probabilities !== "object") return null;
   const entries = Object.entries(probabilities as Record<string, unknown>);
-  const keys = entries.map(([key]) => key).sort();
-  if (JSON.stringify(keys) !== JSON.stringify([...offered].sort()) || !offered.includes(choice)) return null;
+  const keys = entries.map(([key]) => key).sort(compareCodeUnits);
+  if (JSON.stringify(keys) !== JSON.stringify([...offered].sort(compareCodeUnits)) || !offered.includes(choice)) return null;
   const values: number[] = [];
   for (const [, value] of entries) {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return null;

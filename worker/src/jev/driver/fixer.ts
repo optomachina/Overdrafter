@@ -23,7 +23,7 @@ export function isStableTestId(value: string) {
 }
 
 function isStableAttribute(value: string) {
-  return STABLE_ATTRIBUTE.test(value) && !/^(:r|r[0-9])|react-select|\d{3,}/.test(value);
+  return STABLE_ATTRIBUTE.test(value) && !/(?:^(?::r|r\d))|(?:react-select)|(?:\d{3,})/.test(value);
 }
 
 /** Every quoted string in a candidate must be a reviewed phrase or a stable token; anything else is dropped. */
