@@ -1,0 +1,107 @@
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    unticked real '- [ ] Envelope reviewed (automatic). Signed: ...'  -> "envelope reviewed (automatic)" must be ticked
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    unticked plain '- [ ] envelope reviewed (automatic)'  -> "envelope reviewed (automatic)" must be ticked
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  unticked bold '- [ ] **Envelope reviewed (automatic).** Signed: x'  -> "envelope reviewed (automatic)" must be ticked
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    unticked '* [ ] Envelope reviewed (automatic)'  -> "envelope reviewed (automatic)" must be ticked
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    missing auto line  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  auto text only on continuation line  -> missing Provider go-live item "envelope reviewed (automatic)" | add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "Signed: Grok Bot Envelope reviewed (automatic)"
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    prose only 'Envelope reviewed (automatic) is pending.'  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    quoted '> - [x] envelope reviewed (automatic)' only  -> missing Provider go-live item "envelope reviewed (automatic)" | add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "envelope reviewed (automatic)"
+PASS     A auto     exp=FAIL  head=FAIL  r2=ok    mid-line 'Note: - [x] envelope reviewed (automatic)'  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  unticked real + ticked real  -> check "Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority."
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  two ticked real lines  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority."
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  '- [ ] not envelope reviewed' only  -> missing Provider go-live item "envelope reviewed (automatic)" | check "not envelope reviewed"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  '- [ ] envelope reviewed? NO' only  -> missing Provider go-live item "envelope reviewed (automatic)" | check "envelope reviewed? NO"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  '- [x] not envelope reviewed' (no link) only  -> missing Provider go-live item "envelope reviewed (automatic)" | add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "not envelope reviewed"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  real + '- [ ] not envelope reviewed' before it  -> check "not envelope reviewed"
+PASS     A auto     exp=FAIL  head=FAIL  r2=FAIL  <!-- comment-only text --> after box: '- [x] <!-- envelope reviewed (automatic) -->'  -> missing Provider go-live item "envelope reviewed (automatic)" | add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "an extra Provider go-live checkbox"
+PASS     B ticked   exp=ok    head=ok    r2=ok    full rendered checklist (ticked real)
+PASS     B ticked   exp=ok    head=ok    r2=ok    ticked plain '- [x] envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    ticked bold '- [x] **Envelope reviewed (automatic).** Signed: Grok Bot ...'
+PASS     B ticked   exp=ok    head=ok    r2=FAIL  ticked '__Envelope reviewed (automatic)__'
+PASS     B ticked   exp=ok    head=ok    r2=ok    '* [X] Envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    '+ [x] Envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    '1. [x] Envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    '1) [x] Envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    nested '  - [x] Envelope reviewed (automatic)'
+PASS     B ticked   exp=ok    head=ok    r2=ok    real line + trailing <!-- note -->
+PASS     B ticked   exp=ok    head=ok    r2=ok    bare ticked auto line, no signature (accepted)
+PASS     B ticked   exp=ok    head=ok    r2=FAIL  manual items with '+' / '1.' markers
+PASS     B ticked   exp=FAIL  head=FAIL  r2=FAIL  manual item unticked with '+' marker  -> check "provider:check green"
+PASS     B ticked   exp=FAIL  head=FAIL  r2=FAIL  manual item nested '- - [ ]' unticked  -> check "no stored customer passwords, encrypted session tokens only"
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ``` ticked auto inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ``` unticked auto inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ~~~ ticked auto inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ```` longer fence with inner ``` and ticked auto, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=ok    head=ok    r2=FAIL  ```` longer fence (closed by ````) + real outside
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ~~~~ longer tilde fence with ~~~ inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=ok    head=ok    r2=FAIL  ``` ticked auto inside + real ticked outside
+PASS     C fence    exp=ok    head=ok    r2=FAIL  ``` unticked auto inside + real ticked outside
+PASS     C fence    exp=ok    head=ok    r2=FAIL  ~~~ unticked real inside + real ticked outside
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    3-space indented ``` fence, ticked inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=ok    head=ok    r2=FAIL  3-space indented ~~~ fence + real outside
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    fence in list item, ticked inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    fence opened after list marker '- ```', no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=ok    head=ok    r2=FAIL  fence in list item + real outside
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    fence in blockquote, ticked inside, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     C fence    exp=ok    head=ok    r2=ok    fence in blockquote + real outside
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    unclosed ``` fence then auto line  -> add Provider go-live checkboxes to "Provider go-live" | missing Provider go-live item "provider:check green" | missing Provider go-live item "envelope reviewed (automatic)" | missing Provider go-live item "worker adapter and Secret Manager secret" | missing Provider go-live item "stable egress verified" | missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)" |
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    ~~~ not closed by ```, auto after  -> add Provider go-live checkboxes to "Provider go-live" | missing Provider go-live item "provider:check green" | missing Provider go-live item "envelope reviewed (automatic)" | missing Provider go-live item "worker adapter and Secret Manager secret" | missing Provider go-live item "stable egress verified" | missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)" |
+PASS     C fence    exp=FAIL  head=FAIL  r2=ok    manual item only inside fence (real one removed)  -> missing Provider go-live item "provider:check green"
+PASS     C fence    exp=any   head=FAIL  r2=ok    ambiguous fence end (accepted fail-closed)  -> add Provider go-live checkboxes to "Provider go-live" | missing Provider go-live item "provider:check green" | missing Provider go-live item "envelope reviewed (automatic)" | missing Provider go-live item "worker adapter and Secret Manager secret" | missing Provider go-live item "stable egress verified" | missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)" |
+PASS     C fence    exp=any   head=FAIL  r2=ok    4-space-indented ``` then real line (accepted safe-side)  -> add Provider go-live checkboxes to "Provider go-live" | missing Provider go-live item "provider:check green" | missing Provider go-live item "envelope reviewed (automatic)" | missing Provider go-live item "worker adapter and Secret Manager secret" | missing Provider go-live item "stable egress verified" | missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)" |
+PASS     C fence    exp=any   head=ok    r2=ok    4-space indented code block holding ticked auto line (not a fence)
+PASS     D comment  exp=FAIL  head=FAIL  r2=ok    single-line <!-- - [x] envelope reviewed (automatic) -->, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     D comment  exp=FAIL  head=FAIL  r2=ok    multi-line comment with ticked auto, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     D comment  exp=FAIL  head=FAIL  r2=ok    multi-line comment with real ticked auto line, no real  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     D comment  exp=FAIL  head=FAIL  r2=ok    manual item only inside comment  -> missing Provider go-live item "provider:check green"
+PASS     D comment  exp=ok    head=ok    r2=ok    comment with unticked auto + real outside
+PASS     D comment  exp=FAIL  head=FAIL  r2=ok    evidence link only inside comment on manual item  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "provider:check green"
+PASS     E dup      exp=FAIL  head=FAIL  r2=ok    second '## Provider go-live' section  -> "Provider go-live" appears 2 times; keep exactly one section
+PASS     E dup      exp=FAIL  head=FAIL  r2=FAIL  second '### Provider go-live' heading  -> "Provider go-live" appears 2 times; keep exactly one section | check "x"
+PASS     E dup      exp=FAIL  head=FAIL  r2=ok    <h2>Provider go-live</h2>  -> "Provider go-live" appears 2 times; keep exactly one section
+PASS     E dup      exp=FAIL  head=FAIL  r2=ok    setext 'Provider go-live\n---'  -> "Provider go-live" appears 2 times; keep exactly one section
+PASS     E dup      exp=FAIL  head=FAIL  r2=ok    '> ## Provider go-live' in blockquote  -> "Provider go-live" appears 2 times; keep exactly one section
+PASS     E dup      exp=ok    head=ok    r2=ok    heading inside ``` fence (must not count)
+PASS     E dup      exp=any   head=ok    r2=ok    single-line <!-- ## Provider go-live --> (not a heading)
+PASS     E dup      exp=any   head=FAIL  r2=FAIL  multi-line commented-out heading (accepted safe-side)  -> "Provider go-live" appears 2 times; keep exactly one section
+PASS     E dup      exp=FAIL  head=FAIL  r2=ok    go-live section placed inside an HTML comment, real one absent  -> missing required section "Provider go-live" for a PR that enables a provider ((rendered body): provider go-live requested)
+PASS     F items    exp=ok    head=ok    r2=ok    omit removed item rollback (old list minus it, new list)
+PASS     F items    exp=FAIL  head=-     r2=-     main: omit rollback from old list  -> main=FAIL
+PASS     F items    exp=ok    head=ok    r2=ok    omit removed item kill-switch (old list minus it, new list)
+PASS     F items    exp=FAIL  head=-     r2=-     main: omit kill-switch from old list  -> main=FAIL
+PASS     F items    exp=ok    head=ok    r2=ok    omit removed item same-day-off (old list minus it, new list)
+PASS     F items    exp=FAIL  head=-     r2=-     main: omit same-day-off from old list  -> main=FAIL
+PASS     F items    exp=ok    head=ok    r2=ok    omit removed item rate-limit (old list minus it, new list)
+PASS     F items    exp=FAIL  head=-     r2=-     main: omit rate-limit from old list  -> main=FAIL
+PASS     F items    exp=ok    head=ok    r2=ok    omit removed item no-evasion (old list minus it, new list)
+PASS     F items    exp=FAIL  head=-     r2=-     main: omit no-evasion from old list  -> main=FAIL
+PASS     F items    exp=FAIL  head=FAIL  r2=ok    old named-reviewer line 'Envelope reviewed by a named reviewer' instead of auto  -> missing Provider go-live item "envelope reviewed (automatic)"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  supplier-switch omitted  -> missing Provider go-live item "per-supplier on/off switch in the admin dashboard"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  supplier-switch N/A  -> N/A is not allowed for "per-supplier on/off switch in the admin dashboard"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  supplier-switch unticked  -> check "per-supplier on/off switch in the admin dashboard"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  supplier-switch no evidence  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "per-supplier on/off switch in the admin dashboard"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  no-passwords N/A  -> N/A is not allowed for "no stored customer passwords, encrypted session tokens only"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  no-passwords omitted  -> missing Provider go-live item "no stored customer passwords, encrypted session tokens only"
+PASS     F items    exp=FAIL  head=FAIL  r2=FAIL  provider-check N/A  -> N/A is not allowed for "provider:check green"
+PASS     F items    exp=ok    head=ok    r2=ok    export-control N/A (US-only, allowed)
+PASS     F items    exp=ok    head=ok    r2=ok    supplier-switch text containing 'envelope reviewed (automatic)'
+PASS     F items    exp=FAIL  head=-     r2=-     main validator on new checklist (loosening/replacement)  -> main=FAIL
+PASS     G own      exp=ok    head=ok    r2=-     PR #830 body, validatePrBody(changedFiles) head
+PASS     G own      exp=ok    head=ok    r2=-     PR #830 body, validatePrBody(changedFiles) main (what CI runs)
+PASS     G own      exp=ok    head=ok    r2=ok    render-pr-body output, all evidence
+PASS     G own      exp=ok    head=ok    r2=-     render-pr-body output, validatePrBody
+PASS     G own      exp=ok    head=ok    r2=ok    render-pr-body output with a valid N/A
+PASS     G own      exp=ok    head=ok    r2=ok    PR template Provider go-live, items ticked + evidence (auto pre-checked as shipped)
+PASS     G own      exp=FAIL  head=FAIL  r2=FAIL  PR template as shipped (unfilled)  -> check "provider:check green" | check "worker adapter and Secret Manager secret" | check "stable egress verified" | check "approved admission revision (generic_dispatch_enabled=true)" | check "automatic_quote_collection rollout and org enablement" | check "certification run evidence" | check "per-supplier on/off switch in the admin dashboard" | check "no stored customer passwords, encrypted session
+PASS     H recent   exp=same  head=116/116 identical r2=-     116 recent PR bodies (98 merged + 18 open), validatePrBody head vs main
+
+SUMMARY: 96 PASS / 96 rows; mismatches: none
+BLOCKERS (FAIL->ok): none
+OBSERVATIONS:
+  ambiguous fence end (accepted fail-closed): head=FAIL r2=ok (ambiguous fence end; accepted safe-side rejection if FAIL)
+  4-space-indented ``` then real line (accepted safe-side): head=FAIL r2=ok (4-space ``` is indented code on GitHub; accepted safe-side rejection if FAIL)
+  4-space indented code block holding ticked auto line (not a fence): head=ok r2=ok (GitHub renders this as an indented code block; pre-existing, also on main/326f)
+  single-line <!-- ## Provider go-live --> (not a heading): head=ok r2=ok (not a heading line)
+  multi-line commented-out heading (accepted safe-side): head=FAIL r2=FAIL (commented-out heading; accepted safe-side rejection if FAIL)
+  body 743.md: gl head=ok main=FAIL
+  body 769.md: gl head=FAIL main=FAIL

@@ -1,0 +1,3 @@
+Automatic merge went well; stopped before committing as requested
+F4b base->early(ancestor) merges=[1,2]: code=1 refused=plan-digest-mismatch stop=undefined landed=0 log_unchanged=true
+F4b stop-added merges=[1,2]: code=1 refused=plan-digest-mismatch stop=undefined landed=0 log_unchanged=true

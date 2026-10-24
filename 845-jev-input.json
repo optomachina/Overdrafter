@@ -1,0 +1,23 @@
+[
+  {
+    "pr": 845,
+    "sha": "dc145bfb09774bdb33e6993e1bd52e37f073d3d8",
+    "title": "OVD-923: spend-ledger collector and weekly dollars per merged PR",
+    "files": [
+      ".gitignore",
+      "docs/spend-ledger.md",
+      "package.json",
+      "scripts/fixtures/spend-ledger/README.md",
+      "scripts/fixtures/spend-ledger/attribution.json",
+      "scripts/fixtures/spend-ledger/prs.json",
+      "scripts/fixtures/spend-ledger/usage.jsonl",
+      "scripts/lib/spend-ledger.mjs",
+      "scripts/spend-ledger.mjs",
+      "scripts/spend-ledger.test.mjs"
+    ],
+    "additions": 743,
+    "deletions": 0,
+    "deterministic": "low",
+    "notes": "Local read-only tooling scripts (spend ledger CLI), fixtures, docs, package.json script, .gitignore."
+  }
+]

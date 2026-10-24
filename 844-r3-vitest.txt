@@ -1,0 +1,63 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt844-r3
+
+ ✓ scripts/verify-result-judge.test.mjs (21 tests) 40ms
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ src/features/jarvis/core/conversation-service.test.ts (39 tests) 122ms
+stdout | server/design-graph/import-boundary.test.ts > design-graph import boundary > G-5 real repo: channel and UI code reach workers only through the DesignGraph entry
+design-graph import boundary: scanned 613 files in src, api, server/chatgpt
+OK: no worker or design-graph internal imports
+
+stdout | server/design-graph/import-boundary.test.ts > design-graph import boundary > G-5 fixture: fails when channel/UI code imports a worker or graph internals directly
+design-graph import boundary: scanned 4 files in src, api, server/chatgpt
+FAIL: 4 violation(s)
+  api/jarvis.ts:2 imports "../worker/src/cad" (worker/src/cad) [worker_import]
+  server/chatgpt/jarvis-channel.ts:1 imports "../../worker/src/types" (worker/src/types) [worker_import]
+  src/features/jarvis/Panel.tsx:2 imports "../../../server/design-graph/agents" (server/design-graph/agents) [design_graph_internal_import]
+  src/features/jarvis/Panel.tsx:3 imports "../../../worker/src/quoteRunner" (worker/src/quoteRunner) [worker_import]
+
+ ✓ server/design-graph/import-boundary.test.ts (3 tests) 72ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx (8 tests) 205ms
+ ✓ src/pages/JarvisArPreview.test.tsx (2 tests) 345ms
+ ✓ src/components/jarvis/ArMoreAction.test.tsx (4 tests) 375ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts (9 tests) 15ms
+ ✓ src/features/jarvis/import-boundary.test.ts (7 tests) 12ms
+ ✓ server/design-graph/design-graph.test.ts (9 tests) 24ms
+stdout | server/design-graph/control/plate-pause-cancel.test.ts > DesignGraph control proof > C-proof prints the event log of a 4-inch plate run paused then cancelled
+OVD-810 proof: run-1 "Make me a 4-inch aluminum mounting plate" (owner owner-1)
+#00 status intake/started: Reading request
+#01 status intake/completed: Routed to cad agent
+#02 status concept_picks/started: Choosing concept
+#03 status concept_picks/completed: Concept chosen
+#04 status domain_agent/started: Running cad agent
+#05 status domain_agent/info: Modeling 101.6 mm square plate in 6061-T6 aluminum
+#06 artifact step stub://design-graph/run-1/plate-101.6mm.step
+#07 artifact glb stub://design-graph/run-1/plate-101.6mm.glb
+#08 control_requested kind=pause actor=owner-1 key=pause-1 at=domain_agent
+#09 control_applied kind=pause state=paused at=domain_agent/agent
+#10 control_requested kind=cancel actor=owner-1 key=cancel-1 at=domain_agent
+#11 control_applied kind=cancel state=cancelled at=domain_agent/agent kept=[step,glb]
+final state=cancelled claim=released kept=[{"kind":"step","uri":"stub://design-graph/run-1/plate-101.6mm.step"},{"kind":"glb","uri":"stub://design-graph/run-1/plate-101.6mm.glb"}]
+
+ ✓ server/design-graph/control/plate-pause-cancel.test.ts (1 test) 8ms
+ ✓ server/design-graph/control/control.test.ts (15 tests) 36ms
+ ✓ server/design-graph/cad-agent.test.ts (16 tests | 3 skipped) 2513ms
+   ✓ OVD-802 CadAgent plate recipe > the default runner's Python timeout fires inside its outer timeout: no claim and no process outlives a timed-out job  2478ms
+ ✓ scripts/verify-overdrafter-skill.test.mjs (36 tests) 10135ms
+   ✓ verify-overdrafter driver behavior > rejects unknown, empty and spec-less feature selections  926ms
+   ✓ verify-overdrafter driver behavior > doctor and --prepare refuse non-local targets without printing them  3277ms
+   ✓ verify-overdrafter driver behavior > doctor fails when any listener holds a config port  451ms
+   ✓ verify-overdrafter verdict > the CLI sums runs and exits non-zero unless PASS  390ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > a clean verify.sh run at the head SHA passes the judge; another SHA or a dirty tree fails  1147ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > aggregates a failing mode into a non-zero exit and the judge names the failure  556ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > passes verify.sh's INCOMPLETE exit through and the judge fails it  597ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > the workflow's default features run in both modes and pass the judge, with provider skipped in local  1416ms
+
+ Test Files  13 passed (13)
+      Tests  167 passed | 3 skipped (170)
+   Start at  00:04:13
+   Duration  10.95s (transform 1.25s, setup 0ms, collect 3.48s, tests 13.90s, environment 6.54s, prepare 1.21s)
+
+vitest exit 0

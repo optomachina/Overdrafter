@@ -1,0 +1,14 @@
+$ (wt845) npm run typecheck
+
+> overdrafter-web@0.0.1.1 typecheck
+> tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.server.json
+
+[exit 0]
+$ (wt845) npm run lint
+
+> overdrafter-web@0.0.1.1 lint
+> eslint .
+
+[exit 0]
+$ (wt845) npx eslint scripts/lib/spend-ledger.mjs scripts/spend-ledger.mjs scripts/spend-ledger.test.mjs
+[exit 0]

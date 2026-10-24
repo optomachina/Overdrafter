@@ -1,0 +1,40 @@
+path env true
+path mig true
+path manifest true
+path registry true
+path renameOut true
+path renameOutEnv true
+path fixture false
+path unrelated false
+path near1 false
+path near2 false
+path near3 false
+path near4 false
+path GAP_genReg false
+path GAP_genCat false
+path GAP_genSecrets false
+path GAP_admMig false
+path GAP_deploy false
+body allGood PASS 
+body tickedNA[N/A: x] PASS 
+body tickedNA[N/A:    ] PASS 
+body tickedNA[N/A: n/a] PASS 
+body tickedNA[N/A: TODO] PASS 
+body tickedNA_real PASS 
+body uncheckedNA_real FAIL check N/A item "stable egress verified"
+body admissionNA FAIL N/A is not allowed for admission item "approved admission revision (generic_dispatch_enabled=true)"
+body evidence_x FAIL add evidence (link, command, SHA, or path) for "provider:check green"
+body evidence_TODO FAIL add evidence (link, command, SHA, or path) for "provider:check green"
+body oneLineAll FAIL missing Provider go-live item "envelope reviewed by a named reviewer" | missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)"
+body fencedHeading FAIL missing required section "Summary" | missing required section "Provider go-live" for a PR that touches a provider go-live path
+body fencedGoLive FAIL missing required section "Provider go-live" for a PR that touches a provider go-live path
+body weakEvidence_word_slash PASS 
+body weakEvidence_hexword PASS 
+body weakEvidence_git PASS 
+noGoLiveSkip true
+body evidenceFirst[N/A: x] FAIL mark N/A with a real justification for "stable egress verified"
+body evidenceFirst[N/A:    ] FAIL mark N/A with a real justification for "stable egress verified"
+body evidenceFirst[N/A: n/a] FAIL mark N/A with a real justification for "stable egress verified"
+body evidenceFirst[N/A: TODO] FAIL mark N/A with a real justification for "stable egress verified"
+body NA_x_with_path_after FAIL mark N/A with a real justification for "stable egress verified"
+body NA_x_alone FAIL mark N/A with a real justification for "stable egress verified"

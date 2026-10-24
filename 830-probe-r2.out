@@ -1,0 +1,57 @@
+main ids: provider-check, envelope-reviewer, worker-secret[na-ok], egress[na-ok], admission-revision[na-ok], rollout[na-ok], certification[na-ok], rollback, kill-switch, same-day-off, rate-limit, no-evasion, no-passwords, export-control[na-ok]
+head ids: provider-check, envelope-reviewer(auto), worker-secret[na-ok], egress[na-ok], admission-revision[na-ok], rollout[na-ok], certification[na-ok], supplier-switch, no-passwords, export-control[na-ok]
+removed from required: envelope-reviewer, rollback, kill-switch, same-day-off, rate-limit, no-evasion
+added: supplier-switch na=false group=Admit
+ok   head: full new checklist
+FAIL main: same new checklist (shows loosening/replacement)  -> missing Provider go-live item "envelope reviewed by a named reviewer" | missing Provider go-live item "rollback/disable steps rehearsed" | missing Provider go-live item "per provider kill switch rehearsal" | missing Provider go-live item "provider turned off the same day on a C&D, block, CAPTCHA wall, or ban" | missing Provider go-live item "about 20 quotes per provider per day" | missing Provider go-live item "never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block" | add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority."
+ok   head: omit envelope-reviewer
+FAIL main: omit envelope-reviewer from full old list  -> missing Provider go-live item "envelope reviewed by a named reviewer"
+ok   head: omit rollback
+FAIL main: omit rollback from full old list  -> missing Provider go-live item "rollback/disable steps rehearsed"
+ok   head: omit kill-switch
+FAIL main: omit kill-switch from full old list  -> missing Provider go-live item "per provider kill switch rehearsal"
+ok   head: omit same-day-off
+FAIL main: omit same-day-off from full old list  -> missing Provider go-live item "provider turned off the same day on a C&D, block, CAPTCHA wall, or ban"
+ok   head: omit rate-limit
+FAIL main: omit rate-limit from full old list  -> missing Provider go-live item "about 20 quotes per provider per day"
+ok   head: omit no-evasion
+FAIL main: omit no-evasion from full old list  -> missing Provider go-live item "never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block"
+FAIL head: old main checklist body as-is  -> missing Provider go-live item "per-supplier on/off switch in the admin dashboard"
+FAIL head: omit supplier-switch  -> missing Provider go-live item "per-supplier on/off switch in the admin dashboard"
+FAIL head: supplier-switch N/A  -> N/A is not allowed for "per-supplier on/off switch in the admin dashboard"
+FAIL head: supplier-switch unchecked  -> check "per-supplier on/off switch in the admin dashboard"
+FAIL head: supplier-switch no evidence  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "per-supplier on/off switch in the admin dashboard"
+FAIL head: no-passwords N/A  -> N/A is not allowed for "no stored customer passwords, encrypted session tokens only"
+FAIL head: no-passwords omitted  -> missing Provider go-live item "no stored customer passwords, encrypted session tokens only"
+ok   head: itar N/A (US-only, unchanged)
+FAIL head: unchecked '- [ ] not envelope reviewed' instead of auto line  -> check "not envelope reviewed"
+FAIL head: unchecked '- [ ] Envelope reviewed by a named reviewer. Evidence:' (no link)  -> check "Envelope reviewed by a named reviewer. Evidence:"
+FAIL head: unchecked '- [ ] envelope reviewed? NO - reviewer refused'  -> check "envelope reviewed? NO - reviewer refused"
+FAIL head: '- [ ] Envelope NOT reviewed' (no regex match)  -> check "Envelope NOT reviewed"
+FAIL head: auto line + a second unchecked 'not envelope reviewed'  -> check "not envelope reviewed"
+FAIL head: unchecked 'not envelope reviewed' placed BEFORE the auto line  -> check "not envelope reviewed"
+ok   head: supplier-switch line text mentioning 'envelope reviewed' (theft check)
+ok   head: export-control N/A (US-only)
+ok   main: export-control N/A (US-only)
+FAIL head: provider-check N/A (must fail)  -> N/A is not allowed for "provider:check green"
+FAIL head: 'not envelope reviewed' unchecked line in Legal stance group, no auto line  -> check "not envelope reviewed"
+
+=== round 2 (326f0452) envelope probes; base = full manual items, NO real auto line, plus the variant ===
+FAIL - [ ] not envelope reviewed  [box-lines consumed by auto: false]  -> check "not envelope reviewed"
+FAIL - [ ] envelope reviewed? NO  [box-lines consumed by auto: false]  -> check "envelope reviewed? NO"
+ok   prose: 'The envelope reviewed (automatic) item is pending.'  [box-lines consumed by auto: n/a (not a checkbox line)]
+ok   unticked real: '- [ ] Envelope reviewed (automatic). Signed: …'  [box-lines consumed by auto: true]
+FAIL unticked real bold  [box-lines consumed by auto: false]  -> check "**Envelope reviewed (automatic).** Signed: x"
+ok   code fence ticked  [box-lines consumed by auto: true]
+ok   code fence unticked  [box-lines consumed by auto: true]
+ok   blockquote ticked '> - [x] envelope reviewed (automatic)'  [box-lines consumed by auto: n/a (not a checkbox line)]
+ok   mid-line 'Note: - [x] envelope reviewed (automatic)'  [box-lines consumed by auto: n/a (not a checkbox line)]
+FAIL ticked lookalike '- [x] not envelope reviewed' (no link)  [box-lines consumed by auto: false]  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "not envelope reviewed"
+ok   ticked real  [box-lines consumed by auto: true]
+ok   ticked plain '- [x] envelope reviewed (automatic)'  [box-lines consumed by auto: true]
+ok   ticked bold '- [x] **Envelope reviewed (automatic).** Signed: …'  [box-lines consumed by auto: true]
+ok   ticked '* [X] Envelope reviewed (automatic)'  [box-lines consumed by auto: true]
+FAIL auto line + unticked lookalike before it  -> check "not envelope reviewed"
+FAIL unticked real BEFORE ticked real (only one consumed?)  -> check "Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority."
+FAIL two ticked real lines  -> add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority."
+ok   supplier-switch line text containing 'envelope reviewed (automatic)'

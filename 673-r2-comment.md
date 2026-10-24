@@ -1,0 +1,4 @@
+QA: FAIL on ed9312f
+CI 14/14 green; provider:check ok; 107 script tests pass, and mountPath tests are now present. The default-deny call is now rejected under describe.skip/only/todo/skipIf/runIf/concurrent/sequential, describe.each.skip, describe.skip.each, an aliased describe.skip, it.skip/test.skip, xdescribe, a nested skipped describe, if(false), an uncalled function, a comment, or a string. Readiness sections holding only `<!-- -->`, whitespace, or nbsp now fail.
+Still exit 0: readiness sections whose body is only `TBD` or only a `### sub` heading. Also `describe.each([])(...)` passes provider:check, and vitest drops the 13 default-deny tests (66→53 passed, exit 0).
+Exotic tricks that pass and are OK to document: a locally shadowed `describe`, and `&nbsp;` as a literal entity. `return;` before the call is caught by vitest, not provider:check.

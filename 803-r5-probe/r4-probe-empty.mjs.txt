@@ -1,0 +1,1 @@
+INFO empty squash (PR change already on main): tree_match=true reason=rebased-tree-matches

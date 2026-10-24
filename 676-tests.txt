@@ -1,0 +1,19 @@
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  3 failed | 8 passed (11)
+      Tests  134 passed (134)
+   Start at  18:13:39
+   Duration  6.11s (transform 1.98s, setup 0ms, collect 4.26s, tests 1.49s, environment 1.48s, prepare 869ms)
+
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 585.351002
+    "weerg"
+  ]
+}

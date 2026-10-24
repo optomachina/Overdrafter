@@ -1,0 +1,12 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt844-oct17
+
+ ✓ server/design-graph/QA844.uri-probe.test.ts (70 tests | 3 skipped) 2465ms
+   ✓ OVD-802 CadAgent plate recipe > the default runner's Python timeout fires inside its outer timeout: no claim and no process outlives a timed-out job  2423ms
+
+ Test Files  1 passed (1)
+      Tests  67 passed | 3 skipped (70)
+   Start at  08:14:01
+   Duration  2.93s (transform 156ms, setup 0ms, collect 186ms, tests 2.46s, environment 0ms, prepare 53ms)
+
+exit 0

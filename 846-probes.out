@@ -1,0 +1,33 @@
+PASS P1 same SHA twice: 1 Jev call :: calls=1
+PASS P1 second row marker_hit=true latency_ms=null, first marker_hit=false latency=111
+PASS P1 exactly one status POST, context jev-screen state success
+PASS P1 rows carry sha, caller, screener
+PASS P1 rows have no field named cache_hit / head_sha / tokens (AC wording) :: keys=ts,kind,pr,sha,model,ok,reason,jev,deterministic,sensitiveClasses,sensitivePathsUnavailable,filesProblem,final,latency_ms,marker_hit,marker_tier,caller,screener
+PASS P2 new head SHA re-screens (Jev called, marker_hit=false, new marker written on new SHA)
+PASS P2b stale SHA (not head) never uses the marker
+PASS P3 SCREEN_QUESTIONS exported (needed for hash)
+PASS P3 miss on other model
+PASS P3 miss on untrusted author
+PASS P3 miss on pending state
+PASS P3 miss on other screener
+PASS P3 miss on garbage
+PASS P3 miss on dup key tier=low=risky
+PASS P3 trusted low marker on sensitive file: hit but final risky (never lowers) :: final=risky
+PASS P3 info: duplicate 'tier=' key in description -> parsed tier :: parsed.tier=risky
+PASS P4 read API error -> re-screen
+PASS P4 write failure -> warned, result stands :: jev-pr-screen: marker write for #846 failed (api_error); the screen result stands
+PASS P4 uncertain answer writes no marker
+PASS P4 PR 0 logged as null, no GitHub call
+PASS P4 short SHA: no GitHub call
+PASS P4 uppercase SHA matching head -> marker written on lowercase SHA
+PASS P5 real GitHub marker IO (gh errors carrying a fake token): no token in stderr/stdout/log/records :: lines=2
+PASS P5 INFO (not a gate): an injected marker writer that throws/returns a secret string has it echoed in the warning (only TYPESAFE_API_KEY is redacted) :: echoed=true
+PASS P5 no fake Jev key in stderr/stdout/log/records :: reason=redacted
+PASS P5 warnings emitted for failures (sanitized) :: jev-pr-screen: marker write for #846 failed (api_error); the screen result stands | jev-pr-screen: marker write for #846 failed (api_error); the screen result stands | jev-pr-screen: marker write for #846 failed (ghp_QAFAKEGHTOKEN0123456789abcdefABCDEF); the screen result stands | jev-pr-screen: marker write for #846 failed (ghp_QAFAKEGHTOKEN0123456789abcdefABCDEF); the screen result stands
+PASS P6 DEFAULT_LOG outside repo (~/work/claude-jobs)
+PASS P6 log dir auto-created
+PASS P6 gh resolved from trusted dirs only, not PATH :: resolved=/usr/local/bin/gh
+PASS P6 resolveTrustedExecutable rejects path-like names
+PASS P6 CLI --caller parse + rejects missing id
+
+probes: 31 pass, 0 fail

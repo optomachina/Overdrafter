@@ -1,0 +1,3 @@
+tsc exit 0
+src/features/jarvis/thread/QA836.types-probe.ts(6,26): error TS2345: Argument of type '{ resolution: "chosen"; choice: string; }' is not assignable to parameter of type '{ resolution: "chosen" | "skipped_best_guess"; choice?: string; idempotencyKey: string; }'.
+  Property 'idempotencyKey' is missing in type '{ resolution: "chosen"; choice: string; }' but required in type '{ resolution: "chosen" | "skipped_best_guess"; choice?: string; idempotencyKey: string; }'.

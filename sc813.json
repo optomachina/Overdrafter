@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "sha": "ac9cc69160ba5b7f08d8f952a568d11296097bc7",
+  "base_sha": "0cfb7aa1ee5e2e526ee6eb93613c7ddb8a51a943",
+  "status": "ok",
+  "classes": [
+    "ci"
+  ],
+  "sensitive_count": 4,
+  "multi_class": false,
+  "files": [
+    {
+      "path": ".github/workflows/sensitive-class.yml",
+      "status": "added",
+      "classes": [
+        "ci"
+      ],
+      "category": null,
+      "reasons": [
+        "ci:path:.github/workflows/**"
+      ]
+    },
+    {
+      "path": "scripts/sensitive-class-detect.mjs",
+      "status": "added",
+      "classes": [
+        "ci"
+      ],
+      "category": null,
+      "reasons": [
+        "ci:path:scripts/sensitive-class*"
+      ]
+    },
+    {
+      "path": "scripts/sensitive-class-detect.test.mjs",
+      "status": "added",
+      "classes": [
+        "ci"
+      ],
+      "category": null,
+      "reasons": [
+        "ci:path:scripts/sensitive-class*"
+      ]
+    },
+    {
+      "path": "scripts/sensitive-classes.json",
+      "status": "added",
+      "classes": [
+        "ci"
+      ],
+      "category": null,
+      "reasons": [
+        "ci:path:scripts/sensitive-class*"
+      ]
+    }
+  ],
+  "unclassified": [],
+  "errors": []
+}

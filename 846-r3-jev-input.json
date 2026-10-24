@@ -1,0 +1,22 @@
+[
+  {
+    "pr": 846,
+    "sha": "8bab4a7cc81233eb563efe36ae3de43d5ff73876",
+    "title": "OVD-934: Dedupe Jev PR screen and move log outside repo",
+    "files": [
+      ".gitignore",
+      "AGENTS.md",
+      "docs/agent-log/README.md",
+      "docs/agent-log/jev-decisions.jsonl",
+      "docs/sensitive-paths.json",
+      "scripts/jev-pr-screen.mjs",
+      "scripts/jev-pr-screen.test.mjs",
+      "scripts/lib/jev-screen-marker.mjs",
+      "scripts/lib/sensitive-paths.test.mjs"
+    ],
+    "additions": 1132,
+    "deletions": 102,
+    "deterministic": "normal",
+    "notes": "Jev PR screen tooling: dedupe via GitHub commit status marker (paged read, strict parsing), marker module added to sensitive-paths list (docs/sensitive-paths.json + AGENTS.md mirror), decision log moved outside repo, cache_hit/head_sha/tokens log fields, tests and docs."
+  }
+]

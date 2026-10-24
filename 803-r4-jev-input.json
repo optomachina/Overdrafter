@@ -1,0 +1,17 @@
+[
+ {
+  "pr": 803,
+  "sha": "9732ee32c67de2e3d537570e2e10280237a17491",
+  "title": "OVD-857: merge read-back + append-only decision log for Release bot merge plans",
+  "files": [
+   ".codex/skills/land/SKILL.md",
+   "docs/recurring-workflows.md",
+   "scripts/merge-readback.mjs",
+   "scripts/merge-readback.test.mjs"
+  ],
+  "additions": 1797,
+  "deletions": 6,
+  "deterministic": "normal",
+  "notes": "QA r4 gate-repair head (F1-F5,F7); merge read-back script + docs + land skill step"
+ }
+]

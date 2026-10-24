@@ -1,0 +1,36 @@
+=== M0 baseline Tests  47 passed (47)
+=== M1 AC2: readHit treats a miss as a hit exit=1 Tests  7 failed | 40 passed (47)
+   × jev PR screen > logs Jev's token usage from screen() and null on a cache hit 17ms
+   × jev screen marker > treats a rejected marker as a miss, never as a hit 2ms
+   × jev screen marker > screens once per head SHA: the second screen hits the marker and skips Jev 3ms
+   × jev screen marker > screens again and writes a new marker when the PR head moves to a new SHA 2ms
+   × jev screen marker > misses when the model changed and screens again under the new model 1ms
+   × jev screen marker > misses when the question set changed 1ms
+=== M2 AC2: marker never written exit=1 Tests  5 failed | 42 passed (47)
+   × jev PR screen > logs Jev's token usage from screen() and null on a cache hit 51ms
+   × jev screen marker > screens once per head SHA: the second screen hits the marker and skips Jev 7ms
+   × jev screen marker > screens again and writes a new marker when the PR head moves to a new SHA 2ms
+   × jev screen marker > misses when the model changed and screens again under the new model 7ms
+   × jev screen marker > writes markers only for accepted answers, and a failed write keeps the result 5ms
+=== M3 paging: stop after page 1 exit=1 Tests  3 failed | 44 passed (47)
+   × jev screen marker > reads every page of statuses, so a stronger marker past the first 100 is never missed 12ms
+   × jev screen marker > misses fail-safe when a later page fails, a page is oversized or the pages never end 5ms
+   × jev screen marker > screens risky when the risky marker is on page 2 (no fail-open through a truncated list) 2ms
+=== M4 paging: partial read at page cap returns statuses instead of throwing exit=1 Tests  1 failed | 46 passed (47)
+   × jev screen marker > misses fail-safe when a later page fails, a page is oversized or the pages never end 24ms
+=== M5 strict: duplicate keys allowed (last wins) exit=1 Tests  2 failed | 45 passed (47)
+   × jev screen marker > rejects a marker with a duplicate field, so an appended tier cannot lower a risky marker 43ms
+   × jev screen marker > treats a rejected marker as a miss, never as a hit 7ms
+=== M6 strict: unknown/extra keys allowed exit=1 Tests  1 failed | 46 passed (47)
+   × jev screen marker > rejects malformed fields: hash format, confidence, incident, tier, version and extra junk 16ms
+=== M7 strict: malformed tokens skipped not rejected exit=1 Tests  2 failed | 45 passed (47)
+   × jev screen marker > rejects malformed fields: hash format, confidence, incident, tier, version and extra junk 26ms
+   × jev screen marker > treats a rejected marker as a miss, never as a hit 3ms
+=== M8 status url for another commit accepted exit=1 Tests  1 failed | 46 passed (47)
+   × jev screen marker > rejects a bad SHA and a status that names another commit 33ms
+=== M9 AC1: cache_hit field dropped exit=1 Tests  5 failed | 42 passed (47)
+   × jev PR screen > logs rows with head_sha, cache_hit and tokens, plus the sha and marker_hit aliases 26ms
+   × jev PR screen > logs Jev's token usage from screen() and null on a cache hit 8ms
+   × jev screen marker > treats a rejected marker as a miss, never as a hit 3ms
+   × jev screen marker > screens risky when the risky marker is on page 2 (no fail-open through a truncated list) 2ms
+   × jev screen marker > screens again and writes a new marker when the PR head moves to a new SHA 2ms

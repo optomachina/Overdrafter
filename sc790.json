@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "sha": "d73642da3ef495ee2e40abfa8c263eb78296cc67",
+  "base_sha": "4d38cd9a371887dafa949a045a82f8b0f11977d4",
+  "status": "ok",
+  "classes": [],
+  "sensitive_count": 0,
+  "multi_class": false,
+  "files": [
+    {
+      "path": "server/design-graph/README.md",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/agents.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/cad-agent.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/commands.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/control.test.ts",
+      "status": "added",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "server/design-graph/control/errors.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/index.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/machine.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/plate-pause-cancel.test.ts",
+      "status": "added",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "server/design-graph/control/step-validator.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/store.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/control/test-support.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/events.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/graph.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/design-graph/index.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "server/jarvis/design-graph-port.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "src/features/jarvis/core/conversation-service.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "src/features/jarvis/core/render.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "frontend_ui",
+      "reasons": [
+        "frontend_ui:path:src/features/**"
+      ]
+    },
+    {
+      "path": "src/features/jarvis/core/types.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "frontend_ui",
+      "reasons": [
+        "frontend_ui:path:src/features/**"
+      ]
+    }
+  ],
+  "unclassified": [
+    "server/design-graph/README.md",
+    "server/design-graph/agents.ts",
+    "server/design-graph/cad-agent.ts",
+    "server/design-graph/control/commands.ts",
+    "server/design-graph/control/errors.ts",
+    "server/design-graph/control/index.ts",
+    "server/design-graph/control/machine.ts",
+    "server/design-graph/control/step-validator.ts",
+    "server/design-graph/control/store.ts",
+    "server/design-graph/control/test-support.ts",
+    "server/design-graph/events.ts",
+    "server/design-graph/graph.ts",
+    "server/design-graph/index.ts"
+  ],
+  "errors": []
+}

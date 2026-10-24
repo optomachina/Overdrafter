@@ -1,0 +1,11 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt844-r3
+
+ ✓ server/design-graph/qa844-probe.test.ts (63 tests | 9 skipped) 22ms
+
+ Test Files  1 passed (1)
+      Tests  54 passed | 9 skipped (63)
+   Start at  00:04:39
+   Duration  513ms (transform 156ms, setup 0ms, collect 185ms, tests 22ms, environment 0ms, prepare 64ms)
+
+exit 0

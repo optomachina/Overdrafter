@@ -1,0 +1,33 @@
+[
+  {
+    "blocking": false,
+    "kind": "tracking",
+    "file": "PR #813 body",
+    "lines": [
+      240,
+      1439
+    ],
+    "message": "PR body still names 47ad2fa4 as the current/final head (Verification 'at this head', 'Final PR head SHA'); the head is now b5f2340c (two clean main merges since). The PR diff is unchanged (same patch-id), so only the SHA labels are stale; QA re-ran the Proof dry runs (#790/#792/#794) at this head and the JSON is byte-identical to the pasted blocks"
+  },
+  {
+    "blocking": false,
+    "kind": "test-gap",
+    "file": ".github/workflows/sensitive-class.yml",
+    "line": 71,
+    "message": "No test pins the base checkout: changing checkout ref from pull_request.base.sha to head.sha leaves all 24 workflow tests green (local mutation M3). Base-checkout behaviour is confirmed by reading the YAML only"
+  },
+  {
+    "blocking": false,
+    "kind": "real",
+    "file": "docs/sensitive-paths.json",
+    "line": 152,
+    "message": "scripts/verify-result-judge* has no {,/**} suffix (unlike scripts/symphony*{,/**}), so a future scripts/verify-result-judge/lib.mjs would be repo_scripts (safe). The drift test would catch it only once CI reaches that file. Today the glob covers the judge and its test, and removing it fails the drift test (mutation M1)"
+  },
+  {
+    "kind": "info",
+    "file": ".agents/skills/verify-overdrafter/scripts/feature-specs.mjs",
+    "line": 1,
+    "message": "The CI judge (scripts/verify-result-judge.mjs) imports this skill file. It has no class and no safe category, so detect() reports it as unclassified (sensitive, fails closed), not infra_ci. The drift walk checks only scripts/ files",
+    "severity": "info"
+  }
+]

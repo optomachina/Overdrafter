@@ -1,0 +1,25 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt813-bcb-mut
+
+ ✓ scripts/sensitive-class-detect.test.mjs (262 tests | 238 skipped) 12814ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)  701ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash --noprofile)  733ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)  611ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash -e)  710ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash --noprofile)  583ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash -e)  624ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash -e)  563ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash --noprofile)  713ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash -e)  767ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash -e)  491ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash --noprofile)  705ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash -e)  617ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  1707ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash --noprofile)  1599ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  1499ms
+
+ Test Files  1 passed (1)
+      Tests  24 passed | 238 skipped (262)
+   Start at  08:46:55
+   Duration  15.69s (transform 390ms, setup 0ms, collect 934ms, tests 12.81s, environment 0ms, prepare 236ms)
+

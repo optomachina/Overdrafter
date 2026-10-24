@@ -1,0 +1,5 @@
+QA: FAIL on ecb940570e757dacc95516c958548218a642f370
+- PASS: all 7 renamed files match the prod versions in the PR body. 5 are 100% renames. ovd769 and ovd770 differ only by removing `begin;`/`commit;`, as the body says. I recomputed the sha256 of all 7 and they match free-quote-ci-source.json and free-quote-ci-profile.mjs. There are 159 migrations. deploy-cloud-run-contract.test.mjs passes locally (84/84). The CI `test` job pgTAP run shows Files=82, Result: PASS, including the 6 updated files.
+- FAIL: SonarCloud Code Analysis fails with 6.6% duplication on new code (limit 3%). The duplicated lines are in supabase/migrations/…ovd771 (51), …ovd767 (116) and scripts/free-quote-ci-profile.mjs (13). The base 31caa86 had Sonar green, so this PR introduced the failure. #777 does not fix it, because it only excludes the docs/migration-drafts/ovd-766-*.sql paths. Every other check is green.
+- This PR only renames files and applies no migration. Any prod migration step needs Blaine's explicit approval.
+CI: https://github.com/optomachina/Overdrafter/actions/runs/38842131615 · Sonar: https://github.com/optomachina/Overdrafter/runs/116784829262

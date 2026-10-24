@@ -1,0 +1,25 @@
+24
+proof-check	completed	success	2026-10-17T16:39:33Z	https://github.com/optomachina/Overdrafter/actions/runs/39050349151/job/117447486734
+provider-go-live	completed	success	2026-10-17T16:39:29Z	https://github.com/optomachina/Overdrafter/actions/runs/39050349123/job/117447486732
+ci	completed	success	2026-10-17T16:38:13Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117447240848
+verify	completed	success	2026-10-17T16:31:41Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150291/job/117445831724
+SonarCloud	completed	success	2026-10-17T16:25:05Z	https://github.com/optomachina/Overdrafter/runs/117444452320
+SonarCloud Code Analysis	completed	success	2026-10-17T16:25:00Z	https://github.com/optomachina/Overdrafter/runs/117444451408
+test	completed	success	2026-10-17T16:38:06Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117444242475
+provider-go-live	completed	success	2026-10-17T16:23:21Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150327/job/117443997478
+ovd591-retention-qualification / retention-sql	completed	success	2026-10-17T16:24:08Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997416
+browser-test	completed	success	2026-10-17T16:36:42Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997410
+free-quote-sql-qualification / free-quote-sql	completed	success	2026-10-17T16:25:02Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997408
+ovd591-qualification / capability-sql	completed	success	2026-10-17T16:24:01Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997391
+lint	completed	success	2026-10-17T16:25:10Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997389
+ovd420-recovery-egress-network	completed	success	2026-10-17T16:23:43Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997375
+extraction-gate	completed	success	2026-10-17T16:23:29Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997351
+verify-worker	completed	success	2026-10-17T16:23:21Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997350
+typecheck	completed	success	2026-10-17T16:24:33Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997339
+migration-immutability	completed	success	2026-10-17T16:23:08Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997311
+rls-deny-coverage	completed	success	2026-10-17T16:23:04Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997298
+build	completed	success	2026-10-17T16:24:50Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150329/job/117443997190
+verify (run journeys at head)	completed	success	2026-10-17T16:31:28Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150291/job/117443997047
+proof-check	completed	success	2026-10-17T16:23:05Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150237/job/117443996871
+security-definer-lint	completed	success	2026-10-17T16:23:07Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150279/job/117443996774
+secret-scan	completed	success	2026-10-17T16:23:06Z	https://github.com/optomachina/Overdrafter/actions/runs/39049150250/job/117443996762

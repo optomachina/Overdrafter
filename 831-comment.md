@@ -1,0 +1,6 @@
+<!-- DRAFT - NOT POSTED. Blocked: no Jev screen/classification, no risk-sized review on head, browser-test pending. Do not post as-is; re-run on the then-current head when unblocked. -->
+QA: PASS on 70f4aa6e6a568fc2a8abbe11379bb16bfe6df8bd  (PROVISIONAL - PR-scoped ACs only; OVD-896 AC2 sync test and the missing-label check are out of this PR)
+YAML parses; 4 labels (opus/sonnet/codex/grok-overflow), each with label/provider/model/use_for/notes. Header + notes: Codex, Claude Code, Cursor are peer build pools; labels set by Lead via usage balancer; grok-overflow "label name is historical"; Cursor = Grok-model cloud agents only, included usage, stop ~90%, no on-demand, no Claude cloud agents.
+AGENTS.md: 1-line diff (+1/-1) appending "Linear model labels are mapped in `docs/agent-graph/model-routing.yaml`."; path exists. validate-agent-contract valid; test:agent-control-plane 4/4 + 47/47; validate-pr-body passed.
+CI on head: <FILL: all non-Vercel green incl. browser-test, run 39008836532>; SonarCloud gate passed (0 new issues). GOVERNANCE (AGENTS.md): needs Blaine's card; Release must not self-merge.
+Proof re-run: PR Proof `python3 yaml parse` -> yaml-ok, `node scripts/validate-agent-contract.mjs` -> valid, + `npm run test:agent-control-plane`, `validate-pr-body.mjs` at 70f4aa6e in fresh worktree wt831; runs 39008836532/39008836523/39008846599.

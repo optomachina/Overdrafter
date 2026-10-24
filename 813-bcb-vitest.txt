@@ -1,0 +1,35 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt813-bcb
+
+ ✓ scripts/verify-result-judge.test.mjs (21 tests) 31ms
+ ✓ scripts/jev-pr-screen.test.mjs (16 tests) 448ms
+stderr | scripts/sensitive-class-detect.test.mjs > main > returns 2 on bad arguments
+--repo owner/name is required
+Usage: node scripts/sensitive-class-detect.mjs --repo owner/name --pr <number> [--json out.json] [--head-sha <sha>] [--config file]
+Reads GITHUB_TOKEN or GH_TOKEN. Path classes come from docs/sensitive-paths.json in this checkout.
+Report mode: exits 0 whenever it writes a result, including status error.
+
+ ✓ scripts/sensitive-class-detect.test.mjs (262 tests) 4942ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  607ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash --noprofile)  608ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  661ms
+ ✓ scripts/sensitive-class-sweep.test.mjs (53 tests) 8818ms
+   ✓ sweep against 0163daf7 > loses no sensitive name outside the residual classes, and makes no name newly safe  8040ms
+   ✓ sweep against 0163daf7 > generates the names the reviews found, and classifies them as sensitive  557ms
+ ✓ scripts/verify-overdrafter-skill.test.mjs (36 tests) 10514ms
+   ✓ verify-overdrafter skill structure > drives another app root into a fixed evidence dir  364ms
+   ✓ verify-overdrafter driver behavior > rejects unknown, empty and spec-less feature selections  769ms
+   ✓ verify-overdrafter driver behavior > doctor and --prepare refuse non-local targets without printing them  2963ms
+   ✓ verify-overdrafter driver behavior > doctor fails when any listener holds a config port  644ms
+   ✓ verify-overdrafter verdict > the CLI sums runs and exits non-zero unless PASS  401ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > a clean verify.sh run at the head SHA passes the judge; another SHA or a dirty tree fails  1134ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > aggregates a failing mode into a non-zero exit and the judge names the failure  577ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > passes verify.sh's INCOMPLETE exit through and the judge fails it  625ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > the workflow's default features run in both modes and pass the judge, with provider skipped in local  1913ms
+
+ Test Files  5 passed (5)
+      Tests  388 passed (388)
+   Start at  08:44:14
+   Duration  11.39s (transform 566ms, setup 0ms, collect 1.26s, tests 24.75s, environment 1ms, prepare 516ms)
+
+exit=0

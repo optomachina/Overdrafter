@@ -1,0 +1,19 @@
+## Sensitive paths (report mode)
+AGENTS.md: infra_ci
+sensitive-paths: 1 file(s), 1 sensitive (infra_ci), config from base, 0 parity error(s) — report mode
+TAP version 13
+# Subtest: sensitive-paths report against HEAD^1 (report mode, never fails on findings)
+ok 1 - sensitive-paths report against HEAD^1 (report mode, never fails on findings)
+  ---
+  duration_ms: 54.663414
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 65.674231
+exit=0

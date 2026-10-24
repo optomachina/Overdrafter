@@ -1,0 +1,2 @@
+sensitive-paths: 5 file(s), 0 sensitive, config from base, 0 parity error(s) — report mode
+exit=0

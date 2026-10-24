@@ -1,0 +1,4 @@
+QA: PASS on dd519c4b
+OVD-798 ACs (repair round 2): in a fresh worktree, the Jarvis and design-graph tests pass 60/60 across 5 files. Coverage of jarvis/core is 99.34% statements and 96.61% branches. N1 is fixed. With a fake graph that emits events during submit, those events are held and reach the user in order after the acknowledgement: ack, "Reading request", then the no_agent reply. The fast no_agent error from the live-push port reaches the channel. `handleGraphEvent` returns `unknown_run` for an unlinked run, stores nothing, and handles a later retry. The diff adds no `supabase/migrations/` file. Review gate: Opus re-review APPROVED on the head (issuecomment-6209579732).
+CI run 38861543547 green (https://github.com/optomachina/Overdrafter/actions/runs/38861543547); SonarCloud gate passed.
+Proof re-run: `npx vitest run src/features/jarvis server/jarvis server/design-graph --maxWorkers=2 --coverage` at dd519c4b; run 38861543547.

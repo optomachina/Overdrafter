@@ -1,0 +1,41 @@
+Automatic merge went well; stopped before committing as requested
+F2a nearby-line correct squash (readback-run): {"code":1,"landed":[],"stop":"1:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false}
+F2a nearby-line correct squash (readback --log --pr): {"code":1,"tree_match":false,"reason":"tree-mismatch-patch-id-differs","has_log_digest":false}
+F2a nearby-line standalone readback: {"code":1,"tree_match":false,"reason":"tree-mismatch-patch-id-differs","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+F2b tampered nearby squash (readback-run): {"code":1,"landed":[],"stop":"1:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false}
+F2b tampered standalone: {"code":1,"tree_match":false,"reason":"tree-mismatch-patch-id-differs","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+F2c extra file rode along after main moved (readback-run): {"code":1,"landed":[],"stop":"1:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false}
+F3 reversed landing, one run: {"code":0,"landed":["1:true:patch-id-and-rebased-tree-match","2:true:patch-id-and-rebased-tree-match"],"stop":null,"skipped":[],"has_log_digest":false} log_actions=plan-land/,plan-land/,readback/true,readback/true
+F3 reversed landing, per-PR readback pr1: {"code":0,"tree_match":true,"reason":"patch-id-and-rebased-tree-match","has_log_digest":false}
+F3 reversed landing, per-PR readback pr2: {"code":0,"tree_match":true,"reason":"patch-id-and-rebased-tree-match","has_log_digest":false}
+F3-control correct stacked landing, one run: {"code":0,"landed":["1:true:tree-equals-verified-head","2:true:patch-id-and-rebased-tree-match"],"stop":null,"skipped":[],"has_log_digest":false}
+F3-control per-PR pr1: {"code":0,"tree_match":true,"reason":"tree-equals-verified-head","has_log_digest":false}
+F3-control per-PR pr2: {"code":0,"tree_match":true,"reason":"patch-id-and-rebased-tree-match","has_log_digest":false}
+BN2 standalone diagnostic readback (no --log) stacked pr2: {"code":1,"tree_match":false,"reason":"tree-mismatch-patch-id-differs","has_log_digest":false}
+BN2 --log path pr2 before pr1 read back: {"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+BN2 tampered stacked pr2 standalone: {"code":1,"tree_match":false,"reason":"tree-mismatch-patch-id-differs","has_log_digest":false}
+BN2 tampered stacked pr2 readback-run: {"code":1,"landed":["1:true:tree-equals-verified-head"],"stop":"2:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false}
+BN2 pr2 squashed without pr1 (standalone diagnostic): {"code":0,"tree_match":true,"reason":"tree-equals-verified-head","has_log_digest":false}
+BN2 pr2 squashed without pr1 (readback-run merges=[pr2]): {"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","landed":[],"stop":null,"skipped":[],"has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+F4 lower-deleted: readback-run={"code":1,"landed":[],"stop":"2:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false} readback={"code":1,"refused":"open-stop: PR 2 read back tree_match=false; ack it with stop-ack first","has_log_digest":false} log_unchanged=false
+F4 base-changed: readback-run={"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","landed":[],"stop":null,"skipped":[],"has_log_digest":false} readback={"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","has_log_digest":false} log_unchanged=true
+F4 land-reordered: readback-run={"code":1,"landed":[],"stop":"2:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false} readback={"code":1,"refused":"open-stop: PR 2 read back tree_match=false; ack it with stop-ack first","has_log_digest":false} log_unchanged=false
+F4 control: unedited plan: {"code":0,"landed":["1:true:tree-equals-verified-head","2:true:patch-id-and-rebased-tree-match"],"stop":null,"skipped":[],"has_log_digest":false}
+F5 plan --digest-out wrote d0: false
+F5 failing readback-run --prior d0 --digest-out d1: {"code":1,"landed":[],"stop":"1:false:tree-mismatch-patch-id-differs","skipped":[],"has_log_digest":false} d1_written=false
+F5 flipped (len-changing) verify-log --prior d0(plan-time): {"code":2,"err":"merge-readback: ENOENT: no such file or directory, open '/tmp/qa803r4-ki2NCI/d0.json'"}
+F5 flipped (len-changing) verify-log --prior d1(post-readback): {"code":1,"reason":"log-truncated","ok":false,"has_log_digest":false}
+F5 flipped readback-run --prior d1: {"code":0,"landed":[],"stop":null,"skipped":[{"pr":1,"merge_sha":"d957ff1c5a2cc6cd629788c44c65125d3643de08"}],"has_log_digest":false}
+F5 same-length rewrite verify-log --prior d1: {"code":1,"reason":"prior-rows-rewritten","ok":false,"has_log_digest":false}
+F5 untouched verify-log --prior d1: {"code":0,"reason":"unchanged","ok":true,"has_log_digest":false}
+F5 stop-ack prints log_digest: {"code":0,"err":""}
+Automatic merge went well; stopped before committing as requested
+F7 ~2.4MB diff readback-run: {"code":2,"err":"merge-readback: spawnSync /usr/bin/git ENOBUFS"}
+F7 ~2.4MB diff standalone: {"code":2,"err":"merge-readback: spawnSync /usr/bin/git ENOBUFS"}
+F4b base->early(ancestor) merges=[1,2]: code=1 refused=undefined stop=bottom-base-differs-from-merge-base: plan base 3c95c76c66072d7e4a33b54f46c3a697805b879d != merge-base(head, main) 377e62a14bcba1df2be83c083127b1a17ab521bd landed=0 log_unchanged=false
+F4b stop-added merges=[1,2]: code=0 refused=undefined stop=undefined landed=2 log_unchanged=false
+INFO empty squash (PR change already on main): tree_match=false reason=tree-mismatch-patch-id-differs

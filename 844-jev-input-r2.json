@@ -1,0 +1,169 @@
+[
+  {
+    "pr": 844,
+    "sha": "d99e586721a4648cfa081959c57131c825b34633",
+    "title": "OVD-903: Jarvis AR design fixes and #832 review suggestions",
+    "files": [
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/card-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/card-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-failed-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-failed-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-available-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-available-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-pwa-safari-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-pwa-safari-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-loading-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-loading-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-unavailable-desktop-375.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "docs/design/jarvis-pwa/screenshots/ovd-903/more-unavailable-desktop-430.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "server/design-graph/cad-agent.test.ts",
+        "additions": 17,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "server/design-graph/cad-agent.ts",
+        "additions": 12,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/App.tsx",
+        "additions": 1,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/components/jarvis/ArMoreAction.test.tsx",
+        "additions": 31,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/components/jarvis/ArMoreAction.tsx",
+        "additions": 57,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/features/jarvis/ar/ViewInArAction.test.tsx",
+        "additions": 2,
+        "deletions": 3,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/features/jarvis/ar/ar-support.test.ts",
+        "additions": 10,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/features/jarvis/ar/ar-support.ts",
+        "additions": 8,
+        "deletions": 5,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/features/jarvis/ar/ar.css",
+        "additions": 8,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/features/jarvis/ar/preview-assets/README.md",
+        "additions": 1,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/features/jarvis/ar/preview-assets/plate-thumb.png",
+        "additions": 0,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/features/jarvis/core/conversation-service.test.ts",
+        "additions": 7,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/pages/JarvisArPreview.test.tsx",
+        "additions": 27,
+        "deletions": 7,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/pages/JarvisArPreview.tsx",
+        "additions": 18,
+        "deletions": 11,
+        "changeType": "MODIFIED"
+      }
+    ],
+    "additions": 199,
+    "deletions": 32,
+    "deterministic": "low",
+    "notes": "UI behind DEV-only /dev/jarvis-ar route. One non-DEV runtime change: server/design-graph/cad-agent.ts uri() now rejects worker file names escaping the run folder (tightening). Lead triaged non-sensitive."
+  }
+]

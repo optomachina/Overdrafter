@@ -1,0 +1,2 @@
+#844 det=risky jev=normal@0.69 p_incident=0.14 -> risky
+#844 det=low jev=normal@0.7 p_incident=0.13 -> normal

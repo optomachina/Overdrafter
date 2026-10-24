@@ -1,0 +1,1 @@
+optional_usdz_export() -> (None, 'USDZ export unavailable: optional pxr converter dependency is absent')

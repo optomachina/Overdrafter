@@ -1,0 +1,5 @@
+
+> overdrafter-web@0.0.1.1 lint
+> eslint .
+
+lint exit 0

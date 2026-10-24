@@ -1,0 +1,24 @@
+                   table_name                    | total_rows | fixture_rows 
+-------------------------------------------------+------------+--------------
+ auth.users                                      |          0 |            0
+ public.organizations                            |          0 |            0
+ public.organization_memberships                 |          0 |            0
+ public.jobs                                     |          0 |            0
+ public.organization_file_blobs                  |          0 |            0
+ public.job_files                                |          0 |            0
+ public.parts                                    |          0 |            0
+ public.approved_part_requirements               |          0 |            0
+ public.quote_requests                           |          0 |            0
+ public.quote_runs                               |          0 |            0
+ public.vendor_quote_results                     |          0 |            0
+ vendor_quote_results with fixtureSanity         |          0 |            0
+ private.provider_kill_switches                  |         18 |           18
+ private.provider_kill_switches engaged          |          0 |            0
+ private.provider_global_kill_switch             |          1 |            1
+ public.canonical_parts (trigger)                |          0 |            0
+ public.part_versions (trigger)                  |          0 |            0
+ private.part_fingerprint_observations (trigger) |          0 |            0
+ private.part_deadline_history (trigger)         |          0 |            0
+ private.sourcing_destination_history (trigger)  |          0 |            0
+(20 rows)
+

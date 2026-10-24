@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt846-r3
+
+ ✓ scripts/jev-pr-screen.test.mjs (47 tests) 361ms
+
+ Test Files  1 passed (1)
+      Tests  47 passed (47)
+   Start at  09:44:03
+   Duration  1.06s (transform 92ms, setup 0ms, collect 147ms, tests 361ms, environment 0ms, prepare 75ms)
+

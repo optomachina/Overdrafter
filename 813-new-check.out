@@ -1,0 +1,17 @@
+fetched head=953666cee6e7019e1f79adc18c987d469e3f44dd main=953666cee6e7019e1f79adc18c987d469e3f44dd
+parents: b5f2340c0f787e006e474a7eac43e0b066ed5c2d bcb559ccb838d8cca876a3484f2e728a4d6e956e 953666cee6e7019e1f79adc18c987d469e3f44dd
+commits OLD..N: 2
+b5f2340c Merge remote-tracking branch 'origin/main' into HEAD
+953666ce Add triage and pools governance to AGENTS.md (#843)
+baseRefOid=953666cee6e7019e1f79adc18c987d469e3f44dd mergebase=953666cee6e7019e1f79adc18c987d469e3f44dd
+  3364 /tmp/813-old-pr.diff
+  3364 /tmp/813-new-pr.diff
+  6728 total
+PR DIFF DIFFERS
+patch-id old=0f552bf8e54cced1 new=0f552bf8e54cced1
+merge delta (first parent -> N):
+ AGENTS.md | 2 ++
+ 1 file changed, 2 insertions(+)
+auto-merge tree check: 5b9e19827b5cd9c960cf535a191565377ec2fefb vs 5b9e19827b5cd9c960cf535a191565377ec2fefb
+worktree HEAD=b5f2340c0f787e006e474a7eac43e0b066ed5c2d
+LOCK-SAME-LINKED

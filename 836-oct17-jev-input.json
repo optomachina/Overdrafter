@@ -1,0 +1,38 @@
+[
+  {
+    "pr": 836,
+    "sha": "e00c20f52fd7d84c59eb8ae2799144e8f3a0086e",
+    "title": "OVD-804 (1/4): Jarvis thread event transport (event source, Supabase source, client)",
+    "files": [
+      {
+        "path": "src/features/jarvis/thread/client.ts",
+        "additions": 5,
+        "deletions": 0
+      },
+      {
+        "path": "src/features/jarvis/thread/event-source.test.ts",
+        "additions": 61,
+        "deletions": 0
+      },
+      {
+        "path": "src/features/jarvis/thread/event-source.ts",
+        "additions": 65,
+        "deletions": 0
+      },
+      {
+        "path": "src/features/jarvis/thread/supabase-source.test.ts",
+        "additions": 10,
+        "deletions": 0
+      },
+      {
+        "path": "src/features/jarvis/thread/supabase-source.ts",
+        "additions": 26,
+        "deletions": 0
+      }
+    ],
+    "additions": 167,
+    "deletions": 0,
+    "notes": "Jarvis thread event transport only: new client interface, event source (dedupe, polling fallback, backoff), Supabase private broadcast channel source via structural type; tests. No gate, dependency, migration or workflow change.",
+    "deterministic": "low"
+  }
+]

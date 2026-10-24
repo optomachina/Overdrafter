@@ -1,0 +1,6 @@
+<!-- DRAFT ONLY - NOT POSTED. Gate unmet (only review on bf15b9e6 is Codex CHANGES REQUIRED), no GitHub Actions CI on bf15b9e6, and PR head moved to 259c8e7f. Do not post as-is; re-run QA on the current head. -->
+QA: (verdict withheld: no CI, gate unmet, SHA stale) on bf15b9e6851ae9137581e63d58f851e42312792f
+Local ACs held in a fresh worktree: no docker gives 3 SKIPPED (docker unavailable) + "test PASS (3 docker tests SKIPPED...)", exit 0. A stub `docker` on PATH means no skip. With CI=true they run and fail on "required tool is unavailable: docker". preflight.test.mjs 8/8 passes, with CI unset and with CI=true.
+Blocking: GitHub Actions has no runs on this SHA, so the 3 docker tests aren't shown to run and pass in CI. The gate is also unmet (Codex @bf15b9e6: CHANGES REQUIRED, P2 inherited OVD_PREFLIGHT_DOCKER_UNAVAILABLE, reproduced: flag=1 + working stub docker still skips, and the summary drops the skip note). SonarCloud gate is green (check run 117324699288 / 117324698357). mergeable_state=dirty.
+Note: GITHUB_ACTIONS=true with CI unset still skips. Only CI is gated; Actions sets both.
+Proof re-run: `env -u CI npm run preflight` (lint PASS, typecheck PASS, 624 files/12756 tests pass, 22 skipped, exit=0), `npx vitest run scripts/preflight.test.mjs` (CI unset + CI=true), stub-docker/CI probes at bf15b9e6851ae9137581e63d58f851e42312792f; no Actions run id.

@@ -1,0 +1,198 @@
+== sample: fresh, unedited, author optomachina
+{
+ "verdict": "FAIL",
+ "comment_id": 1,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": []
+}
+== sample: author login differs case (Optomachina)
+{
+ "verdict": "FAIL",
+ "comment_id": 1,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": []
+}
+== NEG edited comment (updated_at != created_at)
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "edited_comment",
+   "errors": [
+    "comment was edited; post a new comment instead"
+   ]
+  }
+ ]
+}
+== NEG author mismatch (posted by coderabbitai[bot])
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "author_mismatch",
+   "errors": [
+    "verifier.github_login \"optomachina\" is not the comment author \"coderabbitai[bot]\""
+   ]
+  }
+ ]
+}
+== NEG sha in block 39 chars
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "schema_error",
+   "errors": [
+    "verdict.sha: must match ^[0-9a-f]{40}$ (got \"dc145bfb09774bdb33e6993e1bd52e37f073d3d\")"
+   ]
+  }
+ ]
+}
+== NEG sha in block 7 chars
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "schema_error",
+   "errors": [
+    "verdict.sha: must match ^[0-9a-f]{40}$ (got \"dc145bf\")"
+   ]
+  }
+ ]
+}
+== NEG parse query sha 39 chars
+{
+ "threw": "parseVerdictComments: sha must be a 40-hex commit SHA"
+}
+== NEG comment created before verdict timestamp (-10 min)
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "schema_error",
+   "errors": [
+    "verdict.timestamp: is in the future (got \"2026-10-17T08:01:24Z\", now 2026-10-17T07:51:24.000Z)"
+   ]
+  }
+ ]
+}
+== NEG missing updated_at
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "missing_comment_timestamps",
+   "errors": []
+  }
+ ]
+}
+== NEG extra field in JSON (proof inside block)
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "schema_error",
+   "errors": [
+    "verdict.proof: is not an allowed field"
+   ]
+  }
+ ]
+}
+== NEG findings on verifier role
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": [
+  {
+   "id": 1,
+   "reason": "schema_error",
+   "errors": [
+    "verdict.findings: is only allowed when role is reviewer"
+   ]
+  }
+ ]
+}
+== NEG conflicting verdicts same sha (FAIL then PASS)
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": true,
+ "conflicts": [
+  "1:FAIL"
+ ],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": []
+}
+== same verdict repeated same sha (FAIL twice, fresh comments)
+{
+ "verdict": "FAIL",
+ "comment_id": 2,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 0,
+ "reviews": 0,
+ "rejected": []
+}
+== other sha query (stale head)
+{
+ "verdict": null,
+ "comment_id": null,
+ "conflict": false,
+ "conflicts": [],
+ "other_sha": 1,
+ "reviews": 0,
+ "rejected": []
+}

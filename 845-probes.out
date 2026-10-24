@@ -1,0 +1,482 @@
+== a) unknown or missing spend
+missingCost {"schema":"spend-ledger.v1","ts":"2026-10-05T00:00:00Z","period":"2026-10-05","pool":"codex","usd":null,"valuation":"unvalued","tokens":null,"source":"probe"}
+  [OK] a: missingCost -> usd=null valuation=unvalued
+nullDollars {"schema":"spend-ledger.v1","ts":"2026-10-05T00:00:00Z","period":"2026-10-05","pool":"codex","usd":null,"valuation":"unvalued","tokens":null,"source":"probe"}
+  [OK] a: nullDollars -> usd=null valuation=unvalued
+nullShare {"schema":"spend-ledger.v1","ts":"2026-10-05T00:00:00Z","period":"2026-10-05","pool":"codex","usd":null,"valuation":"unvalued","tokens":null,"source":"probe"}
+  [OK] a: nullShare -> usd=null valuation=unvalued
+  [OK] a: unknownProvider rejected: probe:1: bad pool
+  [OK] a: unknownProviderNoCost rejected: probe:1: bad pool
+  [OK] a: unknownPlan_noPlanPrice rejected: probe:1: subscriptionUsd required and positive
+  [OK] a: unknownPlan_zeroPlanPrice rejected: probe:1: subscriptionUsd required and positive
+  pool codex: usd=null perPR=null status=unknown coverage=partial flags=unknown,low-sample,partial
+  pool claude: usd=3 perPR=3 status=low-sample coverage=partial flags=low-sample,partial
+  pool cursor: usd=null perPR=null status=unknown coverage=missing flags=unknown,no-merges
+  pool jev: usd=null perPR=null status=unknown coverage=missing flags=unknown,no-merges
+  overall {"totalUsd":3,"mergedPRs":2,"unattributedPRs":0,"usdPerMergedPR":1.5,"status":"low-sample","flags":["low-sample","partial"],"missingPools":["cursor","jev"],"partialPools":["codex","claude"],"lowerBound":true}
+  [OK] a: codex unvalued-only pool -> usd null, ratio null, status unknown
+  [OK] a: cursor no-data pool -> usd null, coverage missing
+  [OK] a: claude partial -> lowerBound true
+  [OK] a: overall totalUsd=3 flagged partial/lowerBound, missingPools=cursor,jev
+  [OK] a: PR1 per-PR attributedUsd=null (null, not 0)
+## 2026-W41
+
+| Pool | Spend | Merged PRs | $/merged PR | Status | Coverage |
+| --- | --- | --- | --- | --- | --- |
+| codex | unknown | 1 | unknown | unknown | partial |
+| claude | $3.00 | 1 | ≥ $3.00 (partial) | low-sample | partial |
+| cursor | unknown | 0 | unknown | unknown | missing |
+| jev | unknown | 0 | unknown | unknown | missing |
+| **all pools** | $3.00 | 2 (0 unattributed) | ≥ $1.50 (partial) | low-sample, partial | cursor missing, jev missing, codex partial, claude partial |
+
+[Cost per accepted PR](https://github.com/optomachina/Overdrafter/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)
+
+  [OK] a: markdown has 0 '$0.00' cells; codex row: | codex | unknown | 1 | unknown | unknown | partial |
+  [OK] a: all-pools row shows ≥ (partial) and names missing pools
+  [OK] a: all-unvalued window -> totals.totalUsd=null status=unknown
+  explicit dollars:0 jev -> {"pool":"jev","usd":0,"mergedPRs":0,"usdPerMergedPR":null,"status":"no-merges","flags":["no-merges"],"coverage":"complete","recordsValued":1,"recordsUnvalued":0,"daysWithData":1,"daysWithValuedData":1,"missingDays":[]}
+  collect: {"code":0,"out":"{\"records\":2,\"valued\":1,\"unvalued\":1,\"dryRun\":false}\n","err":""}
+  [OK] a: collect stdout reports unvalued count
+== b) subscription share valuation
+  {"schema":"spend-ledger.v1","ts":"2026-10-05T00:00:00Z","period":"2026-10-05","pool":"claude","usd":50,"valuation":"subscription-share","subscriptionShare":0.25,"subscriptionUsd":200,"tokens":null,"source":"probe","pr":10}
+  [OK] b: 0.25 x $200 = 50
+  claude {"pool":"claude","usd":51.255,"mergedPRs":2,"usdPerMergedPR":25.63,"status":"ok","flags":[],"coverage":"complete","recordsValued":2,"recordsUnvalued":0,"daysWithData":2,"daysWithValuedData":2,"missingDays":[]}
+  cursor {"pool":"cursor","usd":7.000000000000001,"mergedPRs":1,"usdPerMergedPR":7,"status":"partial","flags":["partial"],"coverage":"partial","partial":true,"lowerBound":true,"recordsValued":1,"recordsUnvalued":0,"daysWithData":1,"daysWithValuedData":1,"missingDays":["2026-10-05"]}
+  overall {"totalUsd":58.255,"mergedPRs":3,"unattributedPRs":0,"usdPerMergedPR":19.42,"status":"partial","flags":["partial"],"missingPools":["codex","jev"],"partialPools":["cursor"],"lowerBound":true}
+  prs [{"number":10,"pool":"claude","attributionStatus":"explicit","attributedUsd":50},{"number":11,"pool":"claude","attributionStatus":"explicit","attributedUsd":null},{"number":12,"pool":"cursor","attributionStatus":"explicit","attributedUsd":null}]
+  [OK] b: claude (50 + 1.255)/2 = 25.63 (expected 25.63 half-up)
+  [OK] b: cursor 0.07 x $100 = 7.000000000000001 -> $/PR 7
+  [OK] b: overall 58.255/3 = 19.42 (expected 19.42)
+  [OK] b: PR10 attributedUsd = 50 (direct pr link)
+== c) gh pr list invocation
+  spend-ledger.mjs:4: import { execFileSync } from "node:child_process";
+  spend-ledger.mjs:41: try { repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  spend-ledger.mjs:102: const runGh = deps.runGh ?? ((argv) => execFileSync("gh", argv, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  [OK] c: no exec/execSync/spawn/shell:true; only execFileSync(cmd, argvArray)
+  exit 0 gh argv: ["pr","list","--repo","optomachina/Overdrafter","--state","merged","--base","main","--search","merged:2026-10-05..2026-10-11","--limit","1000","--json","number,title,mergedAt,labels,headRefName,body,author"]
+  [OK] c: stub gh got argv array: pr list --repo ... --state merged --base main --search merged:FROM..TO --limit 1000 --json ...
+  [OK] c: no write subcommands in argv (read-only pr list)
+  [OK] c: metachar --from rejected before gh (exit 2, stderr=invalid from/to window), gh not invoked, no side effect
+  [OK] c: --repo metachars passed as one argv element, not executed (exit 0)
+== d) secrets/env
+  [OK] d: process.env/TOKEN/API_KEY/SECRET references in spend-ledger.mjs + lib: 0
+  [OK] d: fake env token not present in weekly output
+  [OK] d: gh failure stderr secret not echoed (exit 1, stderr="File or gh operation failed")
+  [OK] d: invalid line error does not echo file contents: "/tmp/qa845-v1JPaP/bad.jsonl:1: invalid dollars"
+  [OK] d: unknown extra fields (apiKey) whitelisted out of the ledger
+== e) gitignore and fixtures
+  [OK] e: .gitignore contains evals/spend-ledger/*.jsonl
+  [OK] e: git check-ignore evals/spend-ledger/ledger.jsonl: .gitignore:63:evals/spend-ledger/*.jsonl	evals/spend-ledger/ledger.jsonl
+  [OK] e: git check-ignore evals/spend-ledger/2026-10.jsonl: .gitignore:63:evals/spend-ledger/*.jsonl	evals/spend-ledger/2026-10.jsonl
+  [OK] e: default collect wrote /workspace/qa-batch/wt845/evals/spend-ledger/ledger.jsonl; git status shows it? false (status before="", after="")
+  tracked fixture/evals files: ["evals/skills/add-quote-provider/spec.json","evals/skills/billing-implementation-guardrails/spec.json","evals/skills/bug-investigation/spec.json","evals/skills/commit/spec.json","evals/skills/implement-linear-issue/spec.json","evals/skills/land/spec.json","evals/skills/linear-feature-scoper/spec.json","evals/skills/linear-triage-router/spec.json","evals/skills/linear/spec.json","evals/skills/open-pr/spec.json","evals/skills/pull/spec.json","evals/skills/push/spec.json","evals/skills/qa-regression-check/spec.json","evals/skills/release-note-writer/spec.json","evals/skills/verify-overdrafter/spec.json","scripts/fixtures/spend-ledger/README.md","scripts/fixtures/spend-ledger/attribution.json","scripts/fixtures/spend-ledger/prs.json","scripts/fixtures/spend-ledger/usage.jsonl"]
+  [OK] e: fixtures: sources=synthetic, README says synthetic, no tracked evals/spend-ledger files
+== f) export compatibility with #835 @76c5c038 and #841 @d0509324
+  export-evals: {"code":0,"out":"","err":"Skipped 1 unvalued lines\n"} 
+{"ts":"2026-10-05T00:00:00Z","usd":2.5,"pr":100,"agent":"claude","source":"synthetic","pool":"claude"}
+{"ts":"2026-10-05T00:00:00Z","usd":1,"issue":"OVD-100","source":"synthetic","pool":"codex"}
+{"ts":"2026-10-05T00:00:00Z","usd":10,"source":"synthetic","pool":"cursor"}
+
+  #835 loadLedger -> [{"ts":"2026-10-05T00:00:00Z","usd":2.5,"pr":100},{"ts":"2026-10-05T00:00:00Z","usd":1,"issue":"OVD-100"},{"ts":"2026-10-05T00:00:00Z","usd":10}]
+  [OK] f: #835 loadLedger accepted all 3 exported lines (3 valued of 4 fixture records; 1 unvalued skipped: "Skipped 1 unvalued lines")
+  #845 export keys: ["ts","usd","pr","agent","source","pool","issue"]  #835 documented keys: ts,usd,pr,issue,agent,source; #835 loadLedger keeps: ts,usd,pr,issue
+  [OK] f: field-by-field: ts(ISO Z) usd(finite>=0) pr(int>0, optional) issue(OVD-n, optional) match #835 validator; agent/source documented by #835, pool is extra and ignored
+  #835 loadLedger on canonical spend-ledger.v1 (with an unvalued row): Invalid ledger line at /tmp/qa845-v1JPaP/fx-ledger.jsonl:4
+  exported total usd = 13.5; canonical ledger has 1 unvalued jev record that #835 cannot see (stderr-only note)
+  #841 snapshot keys: ["schemaVersion","generatedAt","window","sources","merges","qa","reverts","timeToMerge","liveQuotes","bots","botAttribution"] botAttribution: {"attributed":5,"noSignal":4,"conflicting":2,"ambiguous":5,"bySource":{"label":4,"body":1,"author":1}}
+  #845 weekly --attribution <#841 snapshot> -> {"code":2,"err":"attribution: invalid PR number"}
+  [OK] f: #841 trust snapshot is not accepted directly as --attribution (exit 2: attribution: invalid PR number); needs pr-pool-attribution.v1 adapter (follow-up)
+  without --attribution: {"code":0,"prs":[{"number":100,"pool":"unknown","attributionStatus":"no_signal","attributedUsd":3.5},{"number":200,"pool":"claude","attributionStatus":"explicit","attributedUsd":null},{"number":300,"pool":"unknown","attributionStatus":"no_signal","attributedUsd":null}],"sources":{"ledgerFiles":1,"ledgerLines":4,"prSource":"prs-json","attributionLoaded":false}}
+  [OK] f: attribution file absent -> runs, PRs without labels stay pool unknown/no_signal
+== g) npm run spend:ledger on fixtures
+  $ npm run spend:ledger -- collect --input scripts/fixtures/spend-ledger/usage.jsonl --ledger /tmp/qa845-v1JPaP/g-ledger.jsonl
+  exit=0
+{"records":4,"valued":3,"unvalued":1,"dryRun":false}
+
+  $ npm run spend:ledger -- collect --input scripts/fixtures/spend-ledger/usage.jsonl --ledger /tmp/qa845-v1JPaP/g-ledger.jsonl
+  exit=0
+{"records":4,"valued":3,"unvalued":1,"dryRun":false}
+
+  $ npm run spend:ledger -- weekly --from 2026-10-05 --to 2026-10-11 --ledger /tmp/qa845-v1JPaP/g-ledger.jsonl --prs-json scripts/fixtures/spend-ledger/prs.json --attribution scripts/fixtures/spend-ledger/attribution.json --generated-at 2026-10-12T00:00:00Z --format md
+  exit=0
+## 2026-W41
+
+| Pool | Spend | Merged PRs | $/merged PR | Status | Coverage |
+| --- | --- | --- | --- | --- | --- |
+| codex | $1.00 | 1 | ≥ $1.00 (partial) | low-sample | partial |
+| claude | $2.50 | 1 | ≥ $2.50 (partial) | low-sample | partial |
+| cursor | $10.00 | 0 | n/a (no merges) | no-merges | partial |
+| jev | unknown | 0 | unknown | unknown | partial |
+| **all pools** | $13.50 | 3 (1 unattributed) | ≥ $4.50 (partial) | low-sample, partial | codex partial, claude partial, cursor partial, jev partial |
+
+[Cost per accepted PR](https://github.com/optomachina/Overdrafter/blob/main/docs/agent-graph-metrics.md#cost-per-accepted-pr)
+
+  $ npm run spend:ledger -- weekly --from 2026-10-05 --to 2026-10-11 --ledger /tmp/qa845-v1JPaP/g-ledger.jsonl --prs-json scripts/fixtures/spend-ledger/prs.json --attribution scripts/fixtures/spend-ledger/attribution.json --generated-at 2026-10-12T00:00:00Z
+  exit=0
+{
+  "schema": "spend-per-pr.v1",
+  "generatedAt": "2026-10-12T00:00:00Z",
+  "window": {
+    "from": "2026-10-05",
+    "to": "2026-10-11"
+  },
+  "minSample": 5,
+  "pools": [
+    "codex",
+    "claude",
+    "cursor",
+    "jev"
+  ],
+  "sources": {
+    "ledgerFiles": 1,
+    "ledgerLines": 4,
+    "prSource": "prs-json",
+    "attributionLoaded": true
+  },
+  "weeks": [
+    {
+      "week": "2026-W41",
+      "weekStart": "2026-10-05",
+      "weekEnd": "2026-10-11",
+      "daysInWindow": 7,
+      "pools": [
+        {
+          "pool": "codex",
+          "usd": 1,
+          "mergedPRs": 1,
+          "usdPerMergedPR": 1,
+          "status": "low-sample",
+          "flags": [
+            "low-sample",
+            "partial"
+          ],
+          "coverage": "partial",
+          "partial": true,
+          "lowerBound": true,
+          "recordsValued": 1,
+          "recordsUnvalued": 0,
+          "daysWithData": 1,
+          "daysWithValuedData": 1,
+          "missingDays": [
+            "2026-10-06",
+            "2026-10-07",
+            "2026-10-08",
+            "2026-10-09",
+            "2026-10-10",
+            "2026-10-11"
+          ]
+        },
+        {
+          "pool": "claude",
+          "usd": 2.5,
+          "mergedPRs": 1,
+          "usdPerMergedPR": 2.5,
+          "status": "low-sample",
+          "flags": [
+            "low-sample",
+            "partial"
+          ],
+          "coverage": "partial",
+          "partial": true,
+          "lowerBound": true,
+          "recordsValued": 1,
+          "recordsUnvalued": 0,
+          "daysWithData": 1,
+          "daysWithValuedData": 1,
+          "missingDays": [
+            "2026-10-06",
+            "2026-10-07",
+            "2026-10-08",
+            "2026-10-09",
+            "2026-10-10",
+            "2026-10-11"
+          ]
+        },
+        {
+          "pool": "cursor",
+          "usd": 10,
+          "mergedPRs": 0,
+          "usdPerMergedPR": null,
+          "status": "no-merges",
+          "flags": [
+            "no-merges",
+            "partial"
+          ],
+          "coverage": "partial",
+          "partial": true,
+          "lowerBound": true,
+          "recordsValued": 1,
+          "recordsUnvalued": 0,
+          "daysWithData": 1,
+          "daysWithValuedData": 1,
+          "missingDays": [
+            "2026-10-06",
+            "2026-10-07",
+            "2026-10-08",
+            "2026-10-09",
+            "2026-10-10",
+            "2026-10-11"
+          ]
+        },
+        {
+          "pool": "jev",
+          "usd": null,
+          "mergedPRs": 0,
+          "usdPerMergedPR": null,
+          "status": "unknown",
+          "flags": [
+            "unknown",
+            "no-merges",
+            "partial"
+          ],
+          "coverage": "partial",
+          "partial": true,
+          "lowerBound": true,
+          "recordsValued": 0,
+          "recordsUnvalued": 1,
+          "daysWithData": 1,
+          "daysWithValuedData": 0,
+          "missingDays": [
+            "2026-10-06",
+            "2026-10-07",
+            "2026-10-08",
+            "2026-10-09",
+            "2026-10-10",
+            "2026-10-11"
+          ]
+        }
+      ],
+      "overall": {
+        "totalUsd": 13.5,
+        "mergedPRs": 3,
+        "unattributedPRs": 1,
+        "usdPerMergedPR": 4.5,
+        "status": "low-sample",
+        "flags": [
+          "low-sample",
+          "partial"
+        ],
+        "missingPools": [],
+        "partialPools": [
+          "codex",
+          "claude",
+          "cursor",
+          "jev"
+        ],
+        "lowerBound": true
+      },
+      "attributedUsd": 3.5,
+      "prs": [
+        {
+          "number": 100,
+          "pool": "codex",
+          "attributionStatus": "explicit",
+          "attributedUsd": 3.5
+        },
+        {
+          "number": 200,
+          "pool": "claude",
+          "attributionStatus": "explicit",
+          "attributedUsd": null
+        },
+        {
+          "number": 300,
+          "pool": "unknown",
+          "attributionStatus": "explicit",
+          "attributedUsd": null
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "daysInWindow": 7,
+    "pools": [
+      {
+        "pool": "codex",
+        "usd": 1,
+        "mergedPRs": 1,
+        "usdPerMergedPR": 1,
+        "status": "low-sample",
+        "flags": [
+          "low-sample",
+          "partial"
+        ],
+        "coverage": "partial",
+        "partial": true,
+        "lowerBound": true,
+        "recordsValued": 1,
+        "recordsUnvalued": 0,
+        "daysWithData": 1,
+        "daysWithValuedData": 1,
+        "missingDays": [
+          "2026-10-06",
+          "2026-10-07",
+          "2026-10-08",
+          "2026-10-09",
+          "2026-10-10",
+          "2026-10-11"
+        ]
+      },
+      {
+        "pool": "claude",
+        "usd": 2.5,
+        "mergedPRs": 1,
+        "usdPerMergedPR": 2.5,
+        "status": "low-sample",
+        "flags": [
+          "low-sample",
+          "partial"
+        ],
+        "coverage": "partial",
+        "partial": true,
+        "lowerBound": true,
+        "recordsValued": 1,
+        "recordsUnvalued": 0,
+        "daysWithData": 1,
+        "daysWithValuedData": 1,
+        "missingDays": [
+          "2026-10-06",
+          "2026-10-07",
+          "2026-10-08",
+          "2026-10-09",
+          "2026-10-10",
+          "2026-10-11"
+        ]
+      },
+      {
+        "pool": "cursor",
+        "usd": 10,
+        "mergedPRs": 0,
+        "usdPerMergedPR": null,
+        "status": "no-merges",
+        "flags": [
+          "no-merges",
+          "partial"
+        ],
+        "coverage": "partial",
+        "partial": true,
+        "lowerBound": true,
+        "recordsValued": 1,
+        "recordsUnvalued": 0,
+        "daysWithData": 1,
+        "daysWithValuedData": 1,
+        "missingDays": [
+          "2026-10-06",
+          "2026-10-07",
+          "2026-10-08",
+          "2026-10-09",
+          "2026-10-10",
+          "2026-10-11"
+        ]
+      },
+      {
+        "pool": "jev",
+        "usd": null,
+        "mergedPRs": 0,
+        "usdPerMergedPR": null,
+        "status": "unknown",
+        "flags": [
+          "unknown",
+          "no-merges",
+          "partial"
+        ],
+        "coverage": "partial",
+        "partial": true,
+        "lowerBound": true,
+        "recordsValued": 0,
+        "recordsUnvalued": 1,
+        "daysWithData": 1,
+        "daysWithValuedData": 0,
+        "missingDays": [
+          "2026-10-06",
+          "2026-10-07",
+          "2026-10-08",
+          "2026-10-09",
+          "2026-10-10",
+          "2026-10-11"
+        ]
+      }
+    ],
+    "overall": {
+      "totalUsd": 13.5,
+      "mergedPRs": 3,
+      "unattributedPRs": 1,
+      "usdPerMergedPR": 4.5,
+      "status": "low-sample",
+      "flags": [
+        "low-sample",
+        "partial"
+      ],
+      "missingPools": [],
+      "partialPools": [
+        "codex",
+        "claude",
+        "cursor",
+        "jev"
+      ],
+      "lowerBound": true
+    },
+    "attributedUsd": 3.5,
+    "prs": [
+      {
+        "number": 100,
+        "pool": "codex",
+        "attributionStatus": "explicit",
+        "attributedUsd": 3.5
+      },
+      {
+        "number": 200,
+        "pool": "claude",
+        "attributionStatus": "explicit",
+        "attributedUsd": null
+      },
+      {
+        "number": 300,
+        "pool": "unknown",
+        "attributionStatus": "explicit",
+        "attributedUsd": null
+      }
+    ]
+  },
+  "prs": [
+    {
+      "number": 100,
+      "pool": "codex",
+      "attributionStatus": "explicit",
+      "attributedUsd": 3.5
+    },
+    {
+      "number": 200,
+      "pool": "claude",
+      "attributionStatus": "explicit",
+      "attributedUsd": null
+    },
+    {
+      "number": 300,
+      "pool": "unknown",
+      "attributionStatus": "explicit",
+      "attributedUsd": null
+    }
+  ],
+  "notes": [
+    "Pool spend includes reviews and overhead; cross-pool reviews are not reallocated.",
+    "Partial or missing coverage makes ratios lower bounds."
+  ]
+}
+
+  $ npm run spend:ledger -- export-evals --ledger /tmp/qa845-v1JPaP/g-ledger.jsonl
+  exit=0
+{"ts":"2026-10-05T00:00:00Z","usd":2.5,"pr":100,"agent":"claude","source":"synthetic","pool":"claude"}
+{"ts":"2026-10-05T00:00:00Z","usd":1,"issue":"OVD-100","source":"synthetic","pool":"codex"}
+{"ts":"2026-10-05T00:00:00Z","usd":10,"source":"synthetic","pool":"cursor"}
+  stderr: Skipped 1 unvalued lines
+
+  [OK] g: collect (idempotent re-run), weekly md+json, export-evals all exit 0; md has no $0.00
+== SUMMARY
+a: PASS (16/16)
+b: PASS (5/5)
+c: PASS (5/5)
+d: PASS (5/5)
+e: PASS (5/5)
+f: PASS (4/4)
+g: PASS (1/1)

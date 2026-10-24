@@ -1,0 +1,38 @@
+## Linear issue ID
+- Issue: [OVD-843](https://linear.app/overdrafter/issue/OVD-843/run-the-verify-skill-in-ci-at-the-head-sha) (child of OVD-840). This is the main PR for the issue.
+- **Stacked on #801 (OVD-842).** The base branch is `bwilson/ovd-842-lane840`. Retarget it to main after #801 lands.
+
+## Summary
+Adds a `verify.yml` workflow (`pull_request` plus `merge_group`, `permissions: contents: read`, no secrets) that runs the verify-overdrafter skill against the PR head on a local stack: `supabase start`, build, then the Playwright journeys from the feature map. The harness (`.agents/skills/verify-overdrafter/run`) and the judge (`scripts/verify-result-judge.mjs`) are both taken from the **base** checkout, so a PR can't weaken how it is judged. The workflow uploads evidence plus a `verify-result.json` that records the head SHA, the journeys, and pass/fail. It runs in report mode by default (`VERIFY_MODE=report`). It is not a required check; making it one goes on Blaine's card.
+
+The design names `.cursor/skills/verify-overdrafter/run`. The real skill path from OVD-842 is `.agents/skills/verify-overdrafter/`, so this PR adds the `run` entrypoint there instead.
+
+## Fail-closed cases
+Each of these gives FAIL:
+- a missing harness in the base, or a missing result file
+- a SHA mismatch
+- a skipped, timed-out, cancelled, `test.fail()` or flaky journey
+- a mapped spec that ran nothing
+- a non-zero Playwright exit or a global Playwright error
+
+## Files changed
+`.github/workflows/verify.yml`, `scripts/verify-result-judge.mjs` and its test, `.agents/skills/verify-overdrafter/{run,SKILL.md,scripts/verify.sh}`, and `scripts/verify-overdrafter-skill.test.mjs`.
+
+## Known
+- The run on this PR will FAIL, because its base does not have the harness yet. That is expected.
+- With the current feature map, provider/fixture gives FAIL. `admin-operations.spec.ts` skips itself outside its own config, and `jarvis-front-door` is marked `test.fail()` until OVD-805. This is the judge working as designed; the feature-map fix is a follow-up. Report mode keeps it from blocking anything.
+- The PR touches `.github/workflows`, so it needs a human merge. It adds no secret, no dependency and no required-check change.
+
+## Verification
+- `bash scripts/preflight.sh lint`: PASS
+- `bash scripts/preflight.sh typecheck`: PASS
+- `npx vitest run --maxWorkers=2`: 11614 passed, 3 failed. All 3 are the known OVD-417 docker failures.
+- Judge plus skill tests: 17/17 passed.
+- `actionlint .github/workflows/verify.yml` is clean. It was built into /tmp with no package change, and shellcheck was not available.
+- Local `run --modes fixture --features auth`: PASS 12/12. `--features provider`: FAIL, naming the skipped and expected-failure journeys.
+
+## Migration notes
+- [x] No migration impact
+
+## Rollback / risk notes
+The workflow is not required and runs in report mode. To roll back, revert the PR.

@@ -1,0 +1,70 @@
+PASS P1 same SHA twice: 1 Jev call :: calls=1
+PASS P1 second row marker_hit=true latency_ms=null, first marker_hit=false latency=111
+PASS P1 exactly one status POST, context jev-screen state success
+PASS P1 rows carry sha, caller, screener
+PASS P1 AC1 fields: second row cache_hit=true head_sha=SHA tokens=null; aliases marker_hit/sha equal :: keys=ts,kind,pr,head_sha,sha,model,ok,reason,jev,deterministic,sensitiveClasses,sensitivePathsUnavailable,filesProblem,final,latency_ms,tokens,cache_hit,marker_hit,marker_tier,caller,screener
+PASS P1 AC1 first row cache_hit=false head_sha=SHA
+PASS P2 new head SHA re-screens (Jev called, cache_hit=false, head_sha=new, one marker on new SHA, old SHA marker untouched)
+PASS P2 next screen at new head is a cache hit
+PASS P2b stale SHA (not head) never uses the marker
+PASS P3 SCREEN_QUESTIONS exported (needed for hash)
+PASS P3 miss on other model
+PASS P3 miss on untrusted author
+PASS P3 miss on pending state
+PASS P3 miss on other screener
+PASS P3 miss on garbage
+PASS P3 miss on dup key tier=low=risky
+PASS P3 trusted low marker on sensitive file: hit but final risky (never lowers) :: final=risky
+PASS P3 duplicate 'tier=' key in description -> rejected (null) :: parsed=null
+PASS P4 read API error -> re-screen
+PASS P4 write failure -> warned, result stands :: jev-pr-screen: marker write for #846 failed (api_error); the screen result stands
+PASS P4 uncertain answer writes no marker
+PASS P4 PR 0 logged as null, no GitHub call
+PASS P4 short SHA: no GitHub call
+PASS P4 uppercase SHA matching head -> marker written on lowercase SHA
+PASS P5 real GitHub marker IO (gh errors carrying a fake token): no token in stderr/stdout/log/records :: lines=2
+PASS P5 INFO (not a gate): an injected marker writer that throws/returns a secret string has it echoed in the warning (only TYPESAFE_API_KEY is redacted) :: echoed=true
+PASS P5 no fake Jev key in stderr/stdout/log/records :: reason=redacted
+PASS P5 warnings emitted for failures (sanitized) :: jev-pr-screen: marker write for #846 failed (api_error); the screen result stands | jev-pr-screen: marker write for #846 failed (api_error); the screen result stands | jev-pr-screen: marker write for #846 failed (ghp_QAFAKEGHTOKEN0123456789abcdefABCDEF); the screen result stands | jev-pr-screen: marker write for #846 failed (ghp_QAFAKEGHTOKEN0123456789abcdefABCDEF); the screen result stands
+PASS P7 miss row tokens exactly {input_tokens:512,output_tokens:7} (no extra usage keys copied) :: {"input_tokens":512,"output_tokens":7}
+PASS P7 hit row tokens=null, cache_hit=true, latency_ms=null
+PASS P7 bad/missing usage -> null; partial -> {n,null} :: [null,null,{"input_tokens":9,"output_tokens":null},null,null,null,null]
+PASS P7 failed Jev call tokens=null
+PASS P7 no fake secret in any logged row
+PASS P7 every row has head_sha, sha, cache_hit, marker_hit, tokens keys
+PASS P7 replay accepts new and old names
+PASS P8 low marker p1 + risky marker p2 -> hit uses risky (strongest), 0 Jev calls :: final=risky pages=2
+PASS P8 only valid marker on page 3 (231 statuses) -> found :: pages=3
+PASS P8 exactly 100 statuses, marker at #100 -> found, reads page 2 to confirm end :: pages=2
+PASS P8 page 2 API error -> miss, re-screen
+PASS P8 endless full pages -> miss after MAX_STATUS_PAGES, re-screen :: pages=50 max=50
+PASS P8 oversized page (101 > 100) -> miss, re-screen
+PASS P8 marker whose url names another commit -> miss
+PASS P9 rejects Architect repro: risky marker + appended 'tier=low jev=low' -> parse null, re-screen (1 Jev call) :: len=94
+PASS P9 rejects duplicate c -> parse null, re-screen (1 Jev call) :: len=84
+PASS P9 rejects extra unknown field -> parse null, re-screen (1 Jev call) :: len=85
+PASS P9 rejects junk token -> parse null, re-screen (1 Jev call) :: len=82
+PASS P9 rejects token with two '=' -> parse null, re-screen (1 Jev call) :: len=81
+PASS P9 rejects missing p -> parse null, re-screen (1 Jev call) :: len=71
+PASS P9 rejects missing screener -> parse null, re-screen (1 Jev call) :: len=64
+PASS P9 rejects q uppercase -> parse null, re-screen (1 Jev call) :: len=77
+PASS P9 rejects q 9 hex -> parse null, re-screen (1 Jev call) :: len=78
+PASS P9 rejects c=1.5 -> parse null, re-screen (1 Jev call) :: len=77
+PASS P9 rejects c 4 decimals -> parse null, re-screen (1 Jev call) :: len=80
+PASS P9 rejects c=NaN -> parse null, re-screen (1 Jev call) :: len=77
+PASS P9 rejects c=.9 -> parse null, re-screen (1 Jev call) :: len=76
+PASS P9 rejects c=1e-1 -> parse null, re-screen (1 Jev call) :: len=78
+PASS P9 rejects p=-0.1 -> parse null, re-screen (1 Jev call) :: len=78
+PASS P9 rejects unknown tier -> parse null, re-screen (1 Jev call) :: len=76
+PASS P9 rejects wrong version -> parse null, re-screen (1 Jev call) :: len=77
+PASS P9 rejects over 140 chars -> parse null, re-screen (1 Jev call) :: len=141
+PASS P9 control: well-formed marker still hits (risky, 0 Jev calls)
+PASS P9 p=na accepted
+PASS P9 writer output round-trips (c floor, p ceil)
+PASS P6 DEFAULT_LOG outside repo (~/work/claude-jobs)
+PASS P6 log dir auto-created
+PASS P6 gh resolved from trusted dirs only, not PATH :: resolved=/usr/local/bin/gh
+PASS P6 resolveTrustedExecutable rejects path-like names
+PASS P6 CLI --caller parse + rejects missing id
+
+probes: 68 pass, 0 fail

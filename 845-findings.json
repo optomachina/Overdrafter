@@ -1,0 +1,12 @@
+[
+  {"blocking": true, "kind": "real", "file": "scripts/spend-ledger.mjs", "lines": [41, 102],
+   "message": "SonarCloud quality gate ERROR (new_security_rating=B, needs A): 2 open S4036 vulnerabilities, execFileSync(\"git\") and execFileSync(\"gh\") run with an unpinned PATH; pin PATH to fixed system dirs / absolute binaries."},
+  {"blocking": true, "kind": "real", "file": "scripts/lib/spend-ledger.mjs", "line": 118,
+   "message": "opus, sonnet and model:opus labels map to pool unknown (attributePR -> unknown/no_signal) instead of the claude pool, so Claude-built PRs never get Claude spend attributed."},
+  {"blocking": true, "kind": "tracking", 
+   "message": "PR body must say Refs OVD-923 (not close it) and move the out-of-scope follow-up ACs (Linear AC2 rest, AC3, AC4) to a tracked follow-up issue."},
+  {"blocking": false, "kind": "follow-up", "file": "scripts/lib/spend-ledger.mjs",
+   "message": "export-evals silently drops unvalued records (only a stderr count 'Skipped N unvalued lines'); consider an explicit marker or flag."},
+  {"blocking": false, "kind": "follow-up",
+   "message": "#841 trust-snapshot.v1 is aggregate-only (botAttribution counts), so it cannot feed --attribution; needs a per-PR adapter (OVD-919)."}
+]

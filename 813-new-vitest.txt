@@ -1,0 +1,50 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt813-new
+
+ ✓ scripts/verify-result-judge.test.mjs (21 tests) 80ms
+ ✓ scripts/jev-pr-screen.test.mjs (16 tests) 552ms
+ ✓ scripts/lib/sensitive-paths.test.mjs (30 tests) 3096ms
+   ✓ shared fixture > gives the same classification from every consumer  1295ms
+   ✓ shared fixture > runs the CLI when invoked through a symlinked directory (macOS /tmp is one)  412ms
+   ✓ matcher semantics > matches picomatch {dot, nocase} for every glob and path  436ms
+   ✓ gate loosening > never falls back to the head list when an explicit --base-ref cannot be read  356ms
+stderr | scripts/sensitive-class-detect.test.mjs > main > returns 2 on bad arguments
+--repo owner/name is required
+Usage: node scripts/sensitive-class-detect.mjs --repo owner/name --pr <number> [--json out.json] [--head-sha <sha>] [--config file]
+Reads GITHUB_TOKEN or GH_TOKEN. Path classes come from docs/sensitive-paths.json in this checkout.
+Report mode: exits 0 whenever it writes a result, including status error.
+
+ ✓ scripts/sensitive-class-detect.test.mjs (262 tests) 7840ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)  522ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash --noprofile)  327ms
+   ✓ workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)  510ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash --noprofile)  407ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash -e)  366ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash --noprofile)  326ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash -e)  379ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  1065ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash --noprofile)  991ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  943ms
+ ✓ scripts/sensitive-class-sweep.test.mjs (53 tests) 13602ms
+   ✓ sweep against 0163daf7 > loses no sensitive name outside the residual classes, and makes no name newly safe  12751ms
+   ✓ sweep against 0163daf7 > generates the names the reviews found, and classifies them as sensitive  618ms
+ ✓ scripts/verify-overdrafter-skill.test.mjs (36 tests) 15921ms
+   ✓ verify-overdrafter skill structure > drives another app root into a fixed evidence dir  479ms
+   ✓ verify-overdrafter driver behavior > rejects unknown, empty and spec-less feature selections  1263ms
+   ✓ verify-overdrafter driver behavior > doctor and --prepare refuse non-local targets without printing them  4876ms
+   ✓ verify-overdrafter driver behavior > doctor fails when any listener holds a config port  943ms
+   ✓ verify-overdrafter driver behavior > dry-run prints the mapped specs and the lane filter  312ms
+   ✓ verify-overdrafter lane mapping > keeps pending specs out of the selected specs and logs them on stderr only  322ms
+   ✓ verify-overdrafter verdict > the CLI sums runs and exits non-zero unless PASS  587ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > a clean verify.sh run at the head SHA passes the judge; another SHA or a dirty tree fails  1657ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > aggregates a failing mode into a non-zero exit and the judge names the failure  1161ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > passes verify.sh's INCOMPLETE exit through and the judge fails it  939ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > the workflow's default features run in both modes and pass the judge, with provider skipped in local  2208ms
+   ✓ verify-overdrafter run entrypoint and judge, end to end > dry-run walks every mode with the base feature map and requires --app-root and --out  326ms
+
+ Test Files  6 passed (6)
+      Tests  418 passed (418)
+   Start at  08:56:35
+   Duration  17.46s (transform 918ms, setup 0ms, collect 3.73s, tests 41.09s, environment 1ms, prepare 1.99s)
+
+exit=0

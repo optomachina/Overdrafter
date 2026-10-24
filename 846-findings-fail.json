@@ -1,0 +1,50 @@
+[
+ {
+  "blocking": true,
+  "severity": "high",
+  "kind": "real",
+  "file": "scripts/jev-pr-screen.test.mjs",
+  "line": 644,
+  "message": "OVD-934 AC2 asks for a test that a new SHA triggers a re-screen; no repo test pushes a new head and asserts a Jev call (the closest, line 644, covers the inverse: a stale SHA skips the marker). QA probe P2 shows the behaviour works (new head: Jev called, marker written on the new SHA). Add the test. Jev triage: real (not flaky/infra)."
+ },
+ {
+  "blocking": true,
+  "severity": "high",
+  "kind": "real",
+  "file": "scripts/jev-pr-screen.mjs",
+  "line": 197,
+  "message": "OVD-934 AC1 and fix item 3 name the row fields cache_hit and head_sha and ask for tokens; rows log marker_hit and sha and carry no token count. Jev triage: real; fix in code (log cache_hit and head_sha, keep aliases, add tokens or null). Same meaning (second same-SHA screen logs marker_hit=true with 1 Jev call, probe P1), but the field names differ from the issue and tokens are not logged."
+ },
+ {
+  "blocking": false,
+  "severity": "low",
+  "kind": "tracking",
+  "file": "scripts/jev-pr-screen.mjs",
+  "line": 330,
+  "message": "The default CLI now writes a jev-screen success commit status to GitHub as optomachina on every accepted screen. It is not a required check (branch protection requires ci and provider-go-live only, and qa-handoff gate.mjs counts only required checks), but any all-green helper over commit statuses, including the OVD-845 gate, must exclude jev-screen."
+ },
+ {
+  "blocking": false,
+  "severity": "low",
+  "kind": "tracking",
+  "file": "scripts/lib/jev-screen-marker.mjs",
+  "line": 1,
+  "message": "The new marker module is not on the sensitive-path list (docs/sensitive-paths.json covers scripts/jev-pr-screen* only); tracked as OVD-939 C2."
+ },
+ {
+  "blocking": false,
+  "severity": "low",
+  "kind": "tracking",
+  "file": "scripts/jev-pr-screen.mjs",
+  "line": 22,
+  "message": "The #743 duplicate came from screen.py, which does not read or write the marker, so dedupe across both callers (issue fix item 1) holds only after screen.py is retired; tracked as OVD-940."
+ },
+ {
+  "blocking": false,
+  "severity": "low",
+  "kind": "real",
+  "file": "scripts/jev-pr-screen.mjs",
+  "line": 309,
+  "message": "When an injected marker writer throws or returns a free-text reason, the warning echoes it after sanitizeToken, which redacts only TYPESAFE_API_KEY (probe P5). The real GitHub writer returns fixed reason codes, so no token reaches logs today; keep reasons to fixed codes."
+ }
+]

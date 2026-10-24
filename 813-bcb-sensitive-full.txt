@@ -1,0 +1,8 @@
+GATE LOOSENING: needs Grok Bot countersign + Blaine's card (report only, does not block)
+  gate_loosening matcher_changed: scripts/fixtures/sensitive-paths/paths.json edited; needs review
+.github/workflows/sensitive-class.yml: infra_ci
+AGENTS.md: infra_ci
+docs/sensitive-paths.json: infra_ci
+scripts/fixtures/sensitive-paths/paths.json: infra_ci
+sensitive-paths: 9 file(s), 4 sensitive (infra_ci), config from base, 0 parity error(s) — report mode
+exit=0

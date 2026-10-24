@@ -1,0 +1,19 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt844-r3
+
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+stdout | src/components/jarvis/qa844-focus.test.tsx > QA844 focus after TRY AGAIN
+PROBE after retry: activeElement=DIALOG insideDialog=true
+PROBE after Tab: insideDialog=true active=View in AR
+PROBE after Escape: dialogOpen=false focusOnMore=true
+
+ ✓ src/components/jarvis/qa844-focus.test.tsx (1 test) 93ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:04:37
+   Duration  1.05s (transform 214ms, setup 0ms, collect 300ms, tests 93ms, environment 325ms, prepare 101ms)
+
+exit 0

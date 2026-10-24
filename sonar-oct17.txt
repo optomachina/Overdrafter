@@ -1,0 +1,14 @@
+== 844
+{"reviews":0,"threads":0,"unresolved":0}
+{"ahead_by":4,"behind_by":0,"status":"ahead"}
+{"status":"OK","conditions":[{"metricKey":"new_reliability_rating","status":"OK","actualValue":"1"},{"metricKey":"new_security_rating","status":"OK","actualValue":"1"},{"metricKey":"new_maintainability_rating","status":"OK","actualValue":"1"},{"metricKey":"new_duplicated_lines_density","status":"OK","actualValue":"0.0"},{"metricKey":"new_security_hotspots_reviewed","status":"OK","actualValue":"100.0"}]}
+{"total":0}
+{"status":"SUCCESS","analysisId":"173c1930-0c37-4853-8efa-257d2116925c","executedAt":"2026-10-17T11:48:46+0000"}
+{"key":"844","status":{"qualityGateStatus":"OK","bugs":0,"vulnerabilities":0,"codeSmells":0},"analysisDate":"2026-10-17T06:57:53+0000","commit":"560cbf2b0c4c1557f774f471f7d1c3583a5ff28b"}
+== 836
+{"reviews":0,"threads":0,"unresolved":0}
+{"ahead_by":3,"behind_by":0,"status":"ahead"}
+{"status":"OK","conditions":[{"metricKey":"new_reliability_rating","status":"OK","actualValue":"1"},{"metricKey":"new_security_rating","status":"OK","actualValue":"1"},{"metricKey":"new_maintainability_rating","status":"OK","actualValue":"1"},{"metricKey":"new_duplicated_lines_density","status":"OK","actualValue":"0.0"},{"metricKey":"new_security_hotspots_reviewed","status":"OK","actualValue":"100.0"}]}
+{"total":0}
+{"status":"SUCCESS","analysisId":"173c1930-0c37-4853-8efa-257d2116925c","executedAt":"2026-10-17T11:48:46+0000"}
+{"key":"836","status":{"qualityGateStatus":"OK","bugs":0,"vulnerabilities":0,"codeSmells":0},"analysisDate":"2026-10-17T07:28:58+0000","commit":"e00c20f52fd7d84c59eb8ae2799144e8f3a0086e"}

@@ -1,0 +1,4 @@
+QA: FAIL on b86a548
+CI green: https://github.com/optomachina/Overdrafter/actions/runs/38187343482. provider:check exits 1 for: providerDispatchEnvelope.ts missing, unparseable, or empty; default-deny call in if(false), an uncalled nested function, it.skip, beforeAll, or xdescribe; readiness doc with empty or whitespace-only sections, headings in ``` or ~~~ fences, or Known gaps removed. 88 vitest pass.
+Survivors (exit 0) on weergProductionPortal.test.ts: describe.skip / describe.todo / describe.skipIf(true) around the registrar. isDescribeCallee accepts any describe.* chain; with describe.skip, vitest reports 53 passed and 13 skipped and still exits 0. A `return;` before the call also passes provider:check, though vitest then fails ('No test found in suite'). A section whose body is only `<!-- todo -->` counts as non-empty.
+The Fictiv 'Known gaps before admission' section has real content (6 specific gaps). No mountPath tests were added.

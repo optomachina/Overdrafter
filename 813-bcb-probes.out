@@ -1,0 +1,39 @@
+PASS P0 config loads :: []
+PASS P1 scripts/verify-result-judge.mjs infra_ci at head :: head=["infra_ci"] reasons=infra_ci:path:scripts/verify-result-judge* main=[]
+PASS P1 scripts/verify-result-judge.test.mjs infra_ci at head :: head=["infra_ci"] reasons=infra_ci:path:scripts/verify-result-judge* main=[]
+PASS P1 scripts/verify-result-judge-v2.mjs infra_ci at head :: head=["infra_ci"] reasons=infra_ci:path:scripts/verify-result-judge* main=[]
+FAIL P1 scripts/verify-result-judge/lib.mjs infra_ci at head :: head=[] reasons=repo_scripts:path:scripts/** main=[]
+PASS P1 near-miss scripts/verify-result.mjs not caught by judge glob :: {"classes":[],"category":"repo_scripts","reasons":["repo_scripts:path:scripts/**"]}
+PASS P1 verify.yml invokes scripts/verify-result-judge.mjs
+PASS P2 supabase/migrations/20260101_x.sql -> migrations :: ["schema","migrations"]
+PASS P2 src/features/auth/x.tsx -> auth :: ["auth"]
+PASS P2 src/pages/checkout/a.tsx -> payments :: ["payments"]
+PASS P2 worker/src/adapters/x.ts -> provider_dispatch :: ["provider_dispatch"]
+PASS P2 .env.local -> secrets :: ["secrets"]
+PASS P2 .github/workflows/x.yml -> infra_ci :: ["infra_ci"]
+PASS P2 package-lock.json -> deps :: ["deps"]
+PASS P2 scripts/deploy-x.sh -> infra_ci :: ["infra_ci"]
+PASS P2 docs/migration-drafts/x.sql -> schema :: ["schema"]
+PASS P2 e2e/fixtures/a.sql not tests category :: {"classes":["schema"],"category":null,"reasons":["schema:path:**/*.sql"]}
+PASS P2 docs/guide.md -> docs safe :: {"classes":[],"category":"docs","reasons":["docs:path:docs/**"]}
+PASS P3 policy -> rls :: {"classes":["rls"],"reasons":["rls:sql:create policy"]}
+PASS P3 definer -> definer
+PASS P3 definer in -- comment -> no definer :: {"classes":[],"reasons":[]}
+PASS P3 definer in /* */ -> no definer
+PASS P3 $$ string: flagged (documented fail-closed deviation)
+PASS P4 worker/foo.go -> unclassified, counts sensitive :: {"c":["unclassified"],"u":["worker/foo.go"],"n":1}
+PASS P4 rename from sensitive old path counts :: ["auth"]
+PASS P4 deleted migration still classified :: ["schema","migrations"]
+PASS P4 multi_class :: ["auth","deps"]
+PASS P4 empty list -> error :: ["the changed-file list is empty, but the PR does not report zero changed files"]
+PASS P4 blank path -> error
+PASS P4 config with classes section / unknown key -> errors :: config: unknown key "classes"
+PASS P4 unknown rule key -> errors :: config: unknown key "bogus"
+PASS P5 removing SQL rule -> gate_loosening :: ["sql_rule_removed"]
+PASS P5 adding SQL rule -> no gate_loosening :: []
+PASS P5 moving a path into a safe category -> gate_loosening :: ["exemption_added"]
+PASS P5 removing verify-result-judge* glob from shared list -> loosening (glob_removed) :: {"detected":true,"reasons":[{"code":"glob_removed","file":"docs/sensitive-paths.json","glob":"scripts/verify-result-judge*","class":"infra_ci","message":"scripts/verify-result-judge* (infra_ci) remove
+PASS P5 head list vs main: no glob loosening :: {"detected":false,"reasons":[],"requires":["grokbot_countersign","blaine_card"]}
+PASS P5 glob counts main->head :: 53 -> 138
+
+probes: 36 pass, 1 fail

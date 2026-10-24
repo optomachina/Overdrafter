@@ -1,0 +1,302 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt813-bcb-mut
+
+ ❯ scripts/sensitive-class-detect.test.mjs (262 tests | 3 failed | 238 skipped) 14431ms
+   ↓ config > compiles the checked-in config: SQL content rules and safe categories, no path classes
+   ↓ config > rejects a classes section, unknown rule keys, bad versions and SQL rules for other classes
+   ↓ config > compiles category and SQL globs with the shared matcher's syntax
+   ↓ config > fails closed when the base checkout has no shared list
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > gives the shared matcher's classes for every shared fixture path
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > supabase/migrations/20261001000000_x.sql -> ["schema","migrations"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > docs/migration-drafts/ovd707/notes.md -> ["schema"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > docs/release/window-2/forward.sql -> ["schema"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > supabase/tests/rls_quotes.test.sql -> ["schema","auth"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > src/lib/auth/session-store.ts -> ["auth"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > server/payments/handler.ts -> ["payments"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > src/pages/checkout/Summary.tsx -> ["payments"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > worker/src/adapters/xometry.ts -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > worker/src/dispatchQueue.ts -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > .env.production -> ["secrets"]
+   ✓ classifyPath: classes come from docs/sensitive-paths.json > .github/workflows/ci.yml -> ["infra_ci"] 43ms
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > infra/main.yaml -> ["infra_ci"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > scripts/deploy-x.sh -> ["infra_ci"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > package-lock.json -> ["deps"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: scripts/build.Dockerfile -> ["infra_ci"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: staging.tfvars -> ["infra_ci"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: config/.env.d/local.json -> ["secrets"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: scripts/bun.lock -> ["deps"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: tools/Pipfile.lock -> ["deps"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > kept coverage: Gemfile -> ["deps"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/sensitive-class-detect.mjs
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/sensitive-classes.json
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/sensitive-class-detect.test.mjs
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/proof-check.mjs
+   ✓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: .github/workflows/sensitive-class.yml 44ms
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/validate-pr-body.mjs
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: scripts/lib/sensitive-paths.mjs
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > the gate's own files are infra_ci, never a safe category: docs/sensitive-paths.json
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > matches more than one class on one path, with one reason per matching glob
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > matches a class word anywhere in a name, as the shared list does (fails closed)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file AGENTS.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file AGENTS.override.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file CLAUDE.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file CLAUDE.local.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file src/features/quotes/AGENTS.override.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file docs/AGENTS.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file docs/CLAUDE.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file scripts/AGENTS.override.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file .codex/skills/AGENTS.override.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file .claude/agents/CLAUDE.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent instruction file worker/src/CLAUDE.local.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > covers the tracked AGENTS.override.md
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/q/x.rls.ts" -> ["auth"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "scripts/x.rls.ts" -> ["auth"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/q/x,rls.ts" -> ["auth"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/upload/Form.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/admission/Form.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider.upload.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "scripts/provider/admission.mjs" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "docs/provider admission.md" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/components/provider+uploads.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/_upload/Form.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/_upload.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/pages/provider/(admission)/index.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/[upload]/Form.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/@upload/Form.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/x-provider_/upload.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/provider_/upload/x.ts" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "scripts/provider/_admission.mjs" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "worker/src/provider/_admission.ts" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "docs/provider/ upload.md" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/provider/_/upload.tsx" -> ["provider_dispatch"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/features/checKout.tsx" -> ["payments"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "docs/a.pgsql" -> ["schema"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > restored coverage: "src/assets/b.psql" -> ["schema"]
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file WORKFLOW.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file GEMINI.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file docs/GEMINI.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file scripts/symphony-ensure-branch.sh is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file scripts/symphony-agent.sh is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file scripts/vite-sample-plate-plugin.ts is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file scripts/vite-private-fixture-plugin.ts is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .codex/config.toml is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .codex/hooks.json is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .claude/settings.json is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .claude/settings.local.json is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .claude/hooks/pre-tool.sh is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .claude/rules/style.md is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .claude/launch.json is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .mcp.json is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .husky/pre-commit is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .githooks/pre-push is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file scripts/hooks/pre-commit is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file lefthook.yml is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent contract or configuration file .pre-commit-config.yaml is infra_ci, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > classifies every file validate-agent-contract reads as infra_ci
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > leaves React hooks alone and makes every provider page provider_dispatch (Release, final round)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/features/provider/_upload/Form.tsx is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/pages/provider/(admission)/index.tsx is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/features/provider/[upload]/Form.tsx is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path scripts/provider/_admission.mjs is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path worker/src/provider_/upload/x.ts is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/lib/quoteAdapter.ts is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/features/dispatch/Panel.tsx is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path src/components/ProviderBadge.tsx is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > provider path docs/adapters/README.md is provider_dispatch, never a safe category
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent-contract file WORKFLOW.md is infra_ci, never a safe category (Release, final round)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent-contract file scripts/symphony-ensure-branch.sh is infra_ci, never a safe category (Release, final round)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent-contract file scripts/symphony-agent.sh is infra_ci, never a safe category (Release, final round)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > agent-contract file scripts/symphony-preflight.sh is infra_ci, never a safe category (Release, final round)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > Symphony script scripts/symphony.sh is infra_ci, never a safe category (Release, final round 3)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > Symphony script scripts/symphony/run.sh is infra_ci, never a safe category (Release, final round 3)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > Symphony script scripts/symphony_agent.sh is infra_ci, never a safe category (Release, final round 3)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > Symphony script scripts/symphonyHook.mjs is infra_ci, never a safe category (Release, final round 3)
+   ↓ classifyPath: classes come from docs/sensitive-paths.json > does not match a camelCase rls, which would also match urls
+   ↓ classifyPath: safe categories > README.md -> docs
+   ↓ classifyPath: safe categories > docs/agent-graph-metrics.md -> docs
+   ↓ classifyPath: safe categories > src/lib/quote.test.ts -> tests
+   ↓ classifyPath: safe categories > scripts/check-compiled-worker-scope.node-test.mjs -> tests
+   ↓ classifyPath: safe categories > e2e/journeys/quote.spec.ts -> tests
+   ↓ classifyPath: safe categories > src/components/QuoteTable.tsx -> frontend_ui
+   ↓ classifyPath: safe categories > src/index.css -> styles_assets
+   ↓ classifyPath: safe categories > public/favicon.svg -> styles_assets
+   ↓ classifyPath: safe categories > scripts/generate-favicons.mjs -> repo_scripts
+   ↓ classifyPath: safe categories > .codex/skills/commit/SKILL.md -> agent_skills
+   ↓ classifyPath: safe categories > .claude/agents/implementer.md -> agent_skills
+   ↓ classifyPath: safe categories > exclusion: docs/migration-drafts/x.sql -> classes ["schema"], category null
+   ↓ classifyPath: safe categories > exclusion: docs/release/forward.sql -> classes ["schema"], category null
+   ↓ classifyPath: safe categories > exclusion: e2e/fixtures/a.sql -> classes ["schema"], category null
+   ↓ classifyPath: safe categories > exclusion: scripts/deploy-x.sh -> classes ["infra_ci"], category null
+   ↓ classifyPath: safe categories > exclusion: src/pages/checkout/Pay.tsx -> classes ["payments"], category null
+   ↓ classifyPath: safe categories > exclusion: src/features/auth/x.tsx -> classes ["auth"], category null
+   ↓ classifyPath: safe categories > exclusion: scripts/rotate-token-cache.mjs -> classes [], category null
+   ↓ classifyPath: safe categories > exclusion: AGENTS.md -> classes ["infra_ci"], category null
+   ↓ classifyPath: safe categories > exclusion: CLAUDE.md -> classes ["infra_ci"], category null
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/pages/Unauthorized.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/components/Reauthenticate.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/features/account/OAuthButton.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/pages/Login.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/pages/DevLogin.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/pages/PasswordReset.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/components/signIn.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/components/SignInDialog.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/pages/signup/Form.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/components/Logout.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: src/components/Subsessions.tsx is not safe
+   ↓ classifyPath: safe categories > exclusion keyword inside a word: scripts/accesstoken-cache.mjs is not safe
+   ↓ classifySql > create policy p on t for select using (true); -> ["rls"]
+   ↓ classifySql > ALTER POLICY p ON t USING (false); -> ["rls"]
+   ↓ classifySql > drop policy if exists p on t; -> ["rls"]
+   ↓ classifySql > alter table t enable row level security; -> ["rls"]
+   ↓ classifySql > create function f() returns int language sql security definer as $$ select 1 $$; -> ["definer"]
+   ↓ classifySql > do $$ begin create policy p on t using (true); end $$; -> ["rls"]
+   ↓ classifySql > create function f() returns void as $body$ begin alter table t force row level security; end $body$ language plpgsql; -> ["rls"]
+   ↓ classifySql > DO LANGUAGE plpgsql $$ begin create policy p on t using (true); end $$; -> ["rls"]
+   ↓ classifySql > do $$ begin execute $q$create policy p on t using (true)$q$; end $$; -> ["rls"]
+   ↓ classifySql > do $$ begin execute 'alter table t enable row level security'; end $$; -> ["rls"]
+   ↓ classifySql > create function f() returns void language sql as 'drop policy p on t'; -> ["rls"]
+   ↓ classifySql > create function f() returns int as 'select 1' language sql security definer; -> ["definer"]
+   ↓ classifySql > do $$ begin execute 'create policy p on t using (x = ''a'')'; end $$; -> ["rls"]
+   ↓ classifySql > do $$ begin execute E'alter table t enable row level security\n'; end $$; -> ["rls"]
+   ↓ classifySql > do $a$ begin execute $b$ execute $c$ create policy p on t $c$ $b$; end $a$; -> ["rls"]
+   ↓ classifySql > -- xCREATE POLICY p ON t USING (true); -> ["rls"]
+   ↓ classifySql > select 1; -- note
+alter table t enable row level security; -> ["rls"]
+   ↓ classifySql > still sees tokens below the recursion limit
+   ↓ classifySql > fails closed on a string literal: select $$ security definer $$; -> ["definer"]
+   ↓ classifySql > fails closed on a string literal: select $tag$ create policy $tag$; -> ["rls"]
+   ↓ classifySql > fails closed on a string literal: select 'create policy x'; -> ["rls"]
+   ↓ classifySql > fails closed on a string literal: select E'it\'s security definer'; -> ["definer"]
+   ↓ classifySql > no false positive: -- security definer
+select 1;
+   ↓ classifySql > no false positive: /* outer /* nested security definer */ create policy */ select 1;
+   ↓ classifySql > no false positive: select "security definer" from t;
+   ↓ classifySql > no false positive: create function f() returns text as $$ select 1 -- create policy
+ $$ language sql;
+   ↓ classifySql > no false positive: select 'a /* create policy */ b';
+   ↓ classifySql > no false positive: select 'security' || 'x' || 'definer';
+   ↓ detect > adds SQL content classes after the shared list's and keys the result to the head
+   ↓ detect > counts a sensitive old path of a rename
+   ↓ detect > classifies a deletion by path without reading the head
+   ↓ detect > an unmatched path vite.config.ts is sensitive with classes [unclassified]
+   ↓ detect > an unmatched path some/new/dir/file.xyz is sensitive with classes [unclassified]
+   ↓ detect > an unmatched path worker/foo.go is sensitive with classes [unclassified]
+   ↓ detect > an unmatched path src/lib/urls.ts is sensitive with classes [unclassified]
+   ↓ detect > a safe-only path docs/guide.md is the non-sensitive case
+   ↓ detect > a safe-only path src/components/Button.tsx is the non-sensitive case
+   ↓ detect > a safe-only path README.md is the non-sensitive case
+   ↓ detect > counts unclassified with the other classes and lists it last
+   ↓ detect > gives unclassified to a rename whose names land in different safe categories
+   ↓ detect > renders unclassified files as sensitive in the summary
+   ↓ detect > reads scripts/fixture.sql (unchanged) at the head as SQL
+   ↓ detect > reads scripts/fixture.pgsql (modified) at the head as SQL
+   ↓ detect > reads e2e/setup.psql (added) at the head as SQL
+   ↓ detect > reads scripts/fixture.sql (some-future-status) at the head as SQL
+   ↓ detect > fails closed when a head .sql file cannot be read
+   ↓ detect: strict file list > a missing filename is status error and never reaches the matcher
+   ↓ detect: strict file list > a null filename is status error and never reaches the matcher
+   ↓ detect: strict file list > an object filename is status error and never reaches the matcher
+   ↓ detect: strict file list > an empty filename is status error and never reaches the matcher
+   ↓ detect: strict file list > a blank filename is status error and never reaches the matcher
+   ↓ detect: strict file list > a filename that is only ./ is status error and never reaches the matcher
+   ↓ detect: strict file list > a missing status is status error and never reaches the matcher
+   ↓ detect: strict file list > a rename without previous_filename is status error and never reaches the matcher
+   ↓ detect: strict file list > a non-string previous_filename is status error and never reaches the matcher
+   ↓ detect: strict file list > a null entry is status error and never reaches the matcher
+   ↓ detect: strict file list > errors on an empty or missing list unless the PR reports zero changed files
+   ↓ detect: strict file list > classifyPath refuses a non-path instead of reading it as not sensitive
+   ↓ drift: scripts CI runs are infra_ci on the shared list > finds the scripts CI runs, including through npm run and package.json
+   ↓ drift: scripts CI runs are infra_ci on the shared list > resolves every npm run name, and lists the names a variable can take
+   ↓ drift: scripts CI runs are infra_ci on the shared list > no CI-run JavaScript file starts npm itself (the walk reads only shell scripts for npm runs)
+   ↓ drift: scripts CI runs are infra_ci on the shared list > classifies every one as infra_ci in docs/sensitive-paths.json
+   ✓ workflow > reruns when the PR is retargeted (edited) 1ms
+   ✓ workflow > runs the detect step with GitHub's default shell (bash -e) and no inline expressions 7ms
+   ✓ workflow > uses a harness where bash -e ends a script at the first failing command 22ms
+   × workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e) 400ms
+     → expected 3 to be +0 // Object.is equality
+   × workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash --noprofile) 299ms
+     → expected 3 to be +0 // Object.is equality
+   × workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e) 268ms
+     → expected 3 to be +0 // Object.is equality
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash -e)  438ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash --noprofile)  538ms
+   ✓ workflow > a detector that exits 0 with status ok gives no warning and keeps its summary (bash -e)  678ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash -e)  540ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash --noprofile)  734ms
+   ✓ workflow > a detector that exits 0 with status error gives a warning (bash -e)  736ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash -e)  435ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash --noprofile)  902ms
+   ✓ workflow > a detector that exits 0 without a result gives a warning and an ERROR summary (bash -e)  963ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  2798ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash --noprofile)  2529ms
+   ✓ workflow > a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (bash -e)  1985ms
+   ✓ workflow > a base without the detector skips with a summary (bash -e) 4ms
+   ✓ workflow > a base without the detector skips with a summary (bash --noprofile) 24ms
+   ✓ workflow > a base without the detector skips with a summary (bash -e) 8ms
+   ↓ fetchPullRequest > reads the PR, its files and head content
+   ↓ fetchPullRequest > errors on a truncated or incomplete list and a moved head
+   ↓ fetchPullRequest > returns the PR's own count, so only a PR with zero changed files may have an empty list
+   ↓ main > writes the JSON and a job summary
+   ↓ main > reports status error on an API failure and still exits 0
+   ↓ main > reports status error on a bad config
+   ↓ main > reports status error when the checkout has no shared list
+   ↓ main > reports status error when a touched config cannot be read at head (API error)
+   ↓ main > reports malformed API file entries as status error, end to end
+   ↓ main > accepts a PR with zero changed files
+   ↓ main > returns 2 on bad arguments
+   ↓ gate_loosening: detector config diff against base > does not flag an unchanged config or a PR that leaves the config alone
+   ↓ gate_loosening: detector config diff against base > flags a removed sql_content rule and a narrowed sql_content path
+   ↓ gate_loosening: detector config diff against base > the rename probe is unclassified on base
+   ↓ gate_loosening: detector config diff against base > flags reordered safe categories, which change the first-match category
+   ↓ gate_loosening: detector config diff against base > flags deleting safe category docs, which makes the rename probe safe
+   ↓ gate_loosening: detector config diff against base > flags dropping docs/** from docs.paths, which makes the rename probe safe
+   ↓ gate_loosening: detector config diff against base > flags adding docs.exclude **/*.test.ts, which makes the rename probe safe
+   ↓ gate_loosening: detector config diff against base > flags adding docs.exclude_keywords test, which makes the rename probe safe
+   ↓ gate_loosening: detector config diff against base > flags dropping a path_keywords item from a safe category
+   ↓ gate_loosening: detector config diff against base > covers every safe category field the validator accepts
+   ↓ gate_loosening: detector config diff against base > does not flag a description-only edit to safe categories
+   ↓ gate_loosening: detector config diff against base > does not flag reordered sql_content rules
+   ↓ gate_loosening: detector config diff against base > flags a new exemption: safe category path, keyword or category
+   ↓ gate_loosening: detector config diff against base > flags a safe category exclusion that is removed
+   ↓ gate_loosening: detector config diff against base > fails closed on an unparseable, invalid, removed or re-classed head config
+   ↓ gate_loosening: detector config diff against base > does not flag an added sql_content rule or path
+   ↓ gate_loosening: detector config diff against base > does not flag description or syntax text edits
+   ✓ gate_loosening: detector config diff against base > flags an edited or removed detector, helper or workflow, and an incomplete file list 31ms
+   ↓ gate_loosening: detector config diff against base > is in the JSON and the job summary
+   ↓ gate_loosening: the shared list's findGateLoosening > does not flag a PR that leaves the list alone or only adds globs
+   ↓ gate_loosening: the shared list's findGateLoosening > flags a removed or reclassified glob with the shared list's codes and fields
+   ↓ gate_loosening: the shared list's findGateLoosening > flags a deleted, renamed-away or invalid list
+   ↓ gate_loosening: the shared list's findGateLoosening > flags an edit to the matcher or other code that applies the list, but not its introduction
+   ↓ gate_loosening: the shared list's findGateLoosening > an unreadable head list is an error and config_unreadable, and matcher edits are still reported
+   ↓ gate_loosening: the shared list's findGateLoosening > flags a glob moved from the list into a safe category on both sides
+   ↓ gate_loosening: the base copy judges > a PR that edits the differ, the matcher, the config and the list is still judged by the base copies
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  scripts/sensitive-class-detect.test.mjs > workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)
+ FAIL  scripts/sensitive-class-detect.test.mjs > workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash --noprofile)
+ FAIL  scripts/sensitive-class-detect.test.mjs > workflow > a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (bash -e)
+AssertionError: expected 3 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 3
+
+ ❯ scripts/sensitive-class-detect.test.mjs:813:38
+    811|     for (const [stub, code] of [[`${writeArgs}process.exit(3);\n`, 3],…
+    812|       const run = runStep(shell, stub);
+    813|       expect(run.status, run.stdout).toBe(0);
+       |                                      ^
+    814|       expect(run.stdout).toContain(`::warning title=Sensitive class::s…
+    815|       expect(run.summary).toContain("### Sensitive classes: ERROR");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 21 passed | 238 skipped (262)
+   Start at  08:46:35
+   Duration  16.11s (transform 292ms, setup 0ms, collect 652ms, tests 14.43s, environment 0ms, prepare 186ms)
+

@@ -1,0 +1,100 @@
+===== wt833main 213b62a0cbc48eccebc414b6dc4b41bc3a27085c
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/v833-wt833main/fixture/playwright-report-0.json npx playwright test --config e2e/admin-operations.config.ts e2e/admin-operations.spec.ts --grep @fixture --reporter=list,json --output /tmp/v833-wt833main/fixture/test-results-0 --workers=1
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/v833-wt833main/fixture/playwright-report-1.json npx playwright test --config playwright.config.ts e2e/journeys/jarvis-front-door.spec.ts e2e/engineering-admin-route.spec.ts --grep @fixture --reporter=list,json --output /tmp/v833-wt833main/fixture/test-results-1 --workers=1
+doctor ok: mode=fixture specs=3 configs=2
+
+Running 6 tests using 1 worker
+
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+  ✓  1 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 320 (2.6s)
+  ✓  2 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 390 (971ms)
+  ✓  3 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 768 (903ms)
+  ✓  4 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 1280 (969ms)
+  ✓  5 e2e/admin-operations.spec.ts:112:1 › @fixture non-platform session makes no operations request (529ms)
+  ✓  6 e2e/admin-operations.spec.ts:128:1 › @fixture supplier settings: set a cap, see it persist, set unlimited, switch the supplier off (3.5s)
+
+  6 passed (11.5s)
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Running 9 tests using 1 worker
+
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:2525070) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/engineering-admin-route.spec.ts:91:3 › hosted engineering admin route › flag off compiles the route out; quote routes load no engineering code @fixture (12.2s)
+  ✓  2 e2e/engineering-admin-route.spec.ts:117:3 › hosted engineering admin route › flag on keeps engineering code out of the entry chunk and hides the page from signed out visitors @fixture (9.0s)
+  ✓  3 e2e/engineering-admin-route.spec.ts:152:3 › hosted engineering admin route › a signed in user reaches the inbox only when the server allowlist admits them @fixture (7.1s)
+  ✓  4 e2e/journeys/jarvis-front-door.spec.ts:41:5 › Jarvis front door on a 375x812 phone › boot guard: fixture loads and the client shell mounts @fixture (1.9s)
+  ✓  5 e2e/journeys/jarvis-front-door.spec.ts:47:5 › Jarvis front door on a 375x812 phone › OVD-805 guard: no public Jarvis link on / yet @fixture (1.7s)
+  ✘  6 e2e/journeys/jarvis-front-door.spec.ts:55:5 › Jarvis front door on a 375x812 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link @fixture (6.2s)
+  ✓  7 e2e/journeys/jarvis-front-door.spec.ts:41:5 › Jarvis front door on a 430x932 phone › boot guard: fixture loads and the client shell mounts @fixture (1.9s)
+  ✓  8 e2e/journeys/jarvis-front-door.spec.ts:47:5 › Jarvis front door on a 430x932 phone › OVD-805 guard: no public Jarvis link on / yet @fixture (1.7s)
+  ✘  9 e2e/journeys/jarvis-front-door.spec.ts:55:5 › Jarvis front door on a 430x932 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link @fixture (6.1s)
+
+  9 passed (1.1m)
+tests: passed=13 failed=0 skipped=0 expectedFail=2 flaky=0
+verdict: PASS
+evidence: /tmp/v833-wt833main/fixture
+run exit=0
+## verify-overdrafter: FAIL
+
+Expected head SHA: `213b62a0cbc48eccebc414b6dc4b41bc3a27085c`
+Journeys passed: 13/15
+
+### Why it failed
+- fixture: expected-failure: journeys/jarvis-front-door.spec.ts › Jarvis front door on a 375x812 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link
+- fixture: expected-failure: journeys/jarvis-front-door.spec.ts › Jarvis front door on a 430x932 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link
+judge exit=1
+===== wt833 2c4eeba227dad854a0c06e9c85b28e3b9e58828c
+PENDING: provider e2e/journeys/jarvis-front-door.spec.ts (journey is test.fail() until OVD-805 adds the public Jarvis link; not run, not counted as a pass)
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/v833-wt833/fixture/playwright-report-0.json npx playwright test --config e2e/admin-operations.config.ts e2e/admin-operations.spec.ts --grep @fixture --reporter=list,json --output /tmp/v833-wt833/fixture/test-results-0 --workers=1
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/v833-wt833/fixture/playwright-report-1.json npx playwright test --config playwright.config.ts e2e/engineering-admin-route.spec.ts --grep @fixture --reporter=list,json --output /tmp/v833-wt833/fixture/test-results-1 --workers=1
+doctor ok: mode=fixture specs=2 configs=2
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Running 6 tests using 1 worker
+
+  ✓  1 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 320 (2.2s)
+  ✓  2 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 390 (905ms)
+  ✓  3 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 768 (937ms)
+  ✓  4 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 1280 (927ms)
+  ✓  5 e2e/admin-operations.spec.ts:112:1 › @fixture non-platform session makes no operations request (500ms)
+  ✓  6 e2e/admin-operations.spec.ts:128:1 › @fixture supplier settings: set a cap, see it persist, set unlimited, switch the supplier off (3.7s)
+
+  6 passed (11.0s)
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Running 3 tests using 1 worker
+
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:2539475) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/engineering-admin-route.spec.ts:91:3 › hosted engineering admin route › flag off compiles the route out; quote routes load no engineering code @fixture (10.9s)
+  ✓  2 e2e/engineering-admin-route.spec.ts:117:3 › hosted engineering admin route › flag on keeps engineering code out of the entry chunk and hides the page from signed out visitors @fixture (8.3s)
+  ✓  3 e2e/engineering-admin-route.spec.ts:152:3 › hosted engineering admin route › a signed in user reaches the inbox only when the server allowlist admits them @fixture (6.7s)
+
+  3 passed (40.9s)
+tests: passed=9 failed=0 skipped=0 expectedFail=0 flaky=0
+verdict: PASS
+evidence: /tmp/v833-wt833/fixture
+run exit=0
+## verify-overdrafter: PASS
+
+Expected head SHA: `2c4eeba227dad854a0c06e9c85b28e3b9e58828c`
+Journeys passed: 9/9
+
+### Pending (not run, not counted as passing)
+- fixture: provider e2e/journeys/jarvis-front-door.spec.ts (OVD-805: journey is test.fail() until OVD-805 adds the public Jarvis link)
+judge exit=0

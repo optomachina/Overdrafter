@@ -1,0 +1,1 @@
+{"ts":"2026-10-17T15:16:21.297Z","kind":"pr_risk_screen","pr":844,"sha":"560cbf2b0c4c1557f774f471f7d1c3583a5ff28b","model":"jev-1.13.0","ok":true,"reason":null,"jev":{"tier":"normal","confidence":0.69,"status":"accepted","pIncident":0.14},"deterministic":"risky","sensitiveClasses":[],"sensitivePathsUnavailable":false,"filesProblem":null,"final":"risky","latencyMs":202}

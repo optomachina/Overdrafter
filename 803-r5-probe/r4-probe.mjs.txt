@@ -1,0 +1,38 @@
+Automatic merge went well; stopped before committing as requested
+F2a nearby-line correct squash (readback-run): {"code":0,"landed":["1:true:rebased-tree-matches"],"stop":null,"skipped":[],"has_log_digest":true}
+F2a nearby-line correct squash (readback --log --pr): {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":true}
+F2a nearby-line standalone readback: {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+F2b tampered nearby squash (readback-run): {"code":1,"landed":[],"stop":"1:false:tree-mismatch-after-rebase","skipped":[],"has_log_digest":true}
+F2b tampered standalone: {"code":1,"tree_match":false,"reason":"tree-mismatch-after-rebase","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+F2c extra file rode along after main moved (readback-run): {"code":1,"landed":[],"stop":"1:false:tree-mismatch-after-rebase","skipped":[],"has_log_digest":true}
+F3 reversed landing, one run: {"code":1,"landed":["1:true:rebased-tree-matches"],"stop":"2:false:lower-merge-not-ancestor-of-parent: PR 1 below 2","skipped":[],"has_log_digest":true} log_actions=plan-land/,plan-land/,plan-digest/,readback/true,readback/false
+F3 reversed landing, per-PR readback pr1: {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":true}
+F3 reversed landing, per-PR readback pr2: {"code":1,"tree_match":false,"reason":"lower-merge-not-ancestor-of-parent: PR 1 below 2","has_log_digest":true}
+F3-control correct stacked landing, one run: {"code":0,"landed":["1:true:tree-equals-verified-head","2:true:rebased-tree-matches"],"stop":null,"skipped":[],"has_log_digest":true}
+F3-control per-PR pr1: {"code":0,"tree_match":true,"reason":"tree-equals-verified-head","has_log_digest":true}
+F3-control per-PR pr2: {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":true}
+BN2 standalone diagnostic readback (no --log) stacked pr2: {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":false}
+BN2 --log path pr2 before pr1 read back: {"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","has_log_digest":false}
+Automatic merge went well; stopped before committing as requested
+BN2 tampered stacked pr2 standalone: {"code":1,"tree_match":false,"reason":"tree-mismatch-after-rebase","has_log_digest":false}
+BN2 tampered stacked pr2 readback-run: {"code":1,"landed":["1:true:tree-equals-verified-head"],"stop":"2:false:tree-mismatch-after-rebase","skipped":[],"has_log_digest":true}
+BN2 pr2 squashed without pr1 (standalone diagnostic): {"code":0,"tree_match":true,"reason":"tree-equals-verified-head","has_log_digest":false}
+BN2 pr2 squashed without pr1 (readback-run merges=[pr2]): {"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","landed":[],"stop":null,"skipped":[],"has_log_digest":true}
+Automatic merge went well; stopped before committing as requested
+F4 lower-deleted: readback-run={"code":1,"refused":"plan-digest-mismatch","landed":[],"stop":null,"skipped":[],"has_log_digest":true} readback={"code":1,"refused":"plan-digest-mismatch","has_log_digest":false} log_unchanged=true
+F4 base-changed: readback-run={"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","landed":[],"stop":null,"skipped":[],"has_log_digest":true} readback={"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","has_log_digest":false} log_unchanged=true
+F4 land-reordered: readback-run={"code":1,"refused":"plan-digest-mismatch","landed":[],"stop":null,"skipped":[],"has_log_digest":true} readback={"code":1,"refused":"plan-digest-mismatch","has_log_digest":false} log_unchanged=true
+F4 control: unedited plan: {"code":0,"landed":["1:true:tree-equals-verified-head","2:true:rebased-tree-matches"],"stop":null,"skipped":[],"has_log_digest":true}
+F5 plan --digest-out wrote d0: true
+F5 failing readback-run --prior d0 --digest-out d1: {"code":1,"landed":[],"stop":"1:false:tree-mismatch-after-rebase","skipped":[],"has_log_digest":true} d1_written=true
+F5 flipped (len-changing) verify-log --prior d0(plan-time): {"code":0,"reason":"appended","ok":true,"has_log_digest":false}
+F5 flipped (len-changing) verify-log --prior d1(post-readback): {"code":1,"reason":"log-truncated","ok":false,"has_log_digest":false}
+F5 flipped readback-run --prior d1: {"code":1,"refused":"log-truncated","has_log_digest":false}
+F5 same-length rewrite verify-log --prior d1: {"code":1,"reason":"prior-rows-rewritten","ok":false,"has_log_digest":false}
+F5 untouched verify-log --prior d1: {"code":0,"reason":"unchanged","ok":true,"has_log_digest":false}
+F5 stop-ack prints log_digest: {"code":0,"has_log_digest":true}
+Automatic merge went well; stopped before committing as requested
+F7 ~2.4MB diff readback-run: {"code":0,"landed":["1:true:rebased-tree-matches"],"stop":null,"skipped":[],"has_log_digest":true}
+F7 ~2.4MB diff standalone: {"code":0,"tree_match":true,"reason":"rebased-tree-matches","has_log_digest":false}

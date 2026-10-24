@@ -1,0 +1,4 @@
+QA: PASS on 1c07d9d5
+OVD-825 ACs: the reachability test and the front-door journey ran in a fresh worktree. The boot check is its own normal test (no `test.fail`). Normal run: 6 passed, with the journey test counted as an expected failure until OVD-805. With boot deliberately broken (a throw in `src/main.tsx`), the boot check failed on both phones and the run exited 1 (4 failed), so `test.fail` no longer masks boot failures. Review gate: Sonnet re-review APPROVED on the head (issuecomment-6209425962).
+CI run 38857798959 green (https://github.com/optomachina/Overdrafter/actions/runs/38857798959); SonarCloud gate passed.
+Proof re-run: `PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/journeys/jarvis-front-door.spec.ts --workers=1`, normal and with boot sabotaged, at 1c07d9d5; run 38857798959.

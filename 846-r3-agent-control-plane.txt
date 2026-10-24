@@ -1,0 +1,36 @@
+TAP version 13
+# Subtest: parses owned, detached, and prunable worktrees without implying deletion
+ok 1 - parses owned, detached, and prunable worktrees without implying deletion
+  ---
+  duration_ms: 2.145402
+  ...
+# Subtest: current agent contract is internally consistent
+ok 2 - current agent contract is internally consistent
+  ---
+  duration_ms: 4.129788
+  ...
+# Subtest: obsolete complexity approval and workflow settings are rejected
+ok 3 - obsolete complexity approval and workflow settings are rejected
+  ---
+  duration_ms: 4.572004
+  ...
+# Subtest: runs as a CLI when invoked through a symlinked directory
+ok 4 - runs as a CLI when invoked through a symlinked directory
+  ---
+  duration_ms: 98.186156
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 226.499421
+agent-contract: valid
+...............................................
+----------------------------------------------------------------------
+Ran 47 tests in 27.880s
+
+OK

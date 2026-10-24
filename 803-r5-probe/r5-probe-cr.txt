@@ -1,0 +1,1 @@
+CR short head_sha accepted by plan: [{"pr":1,"head_sha":"abcd1234","verdict_ref":"v1"}]

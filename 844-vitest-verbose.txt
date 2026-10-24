@@ -1,0 +1,60 @@
+ ✓ src/features/jarvis/ar/ar-support.test.ts > AR platform adapter > selects Quick Look on iOS and touch iPadOS 3ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > AR platform adapter > encodes the exact Scene Viewer intent including signed query, title and fallback 7ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > AR platform adapter > prioritizes Safari fallback inside the installed iOS app 1ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > AR platform adapter > hides AR on desktop, missing USDZ, unsupported rel and non HTTPS GLB 1ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > rejects unsafe or missing URLs: undefined 2ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > rejects unsafe or missing URLs:  1ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > rejects unsafe or missing URLs: invalid 1ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > rejects unsafe or missing URLs: javascript:alert(1) 6ms
+ ✓ src/features/jarvis/ar/ar-support.test.ts > rejects unsafe or missing URLs: http://files.example/model 5ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > renders the Quick Look anchor with an image child 86ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > renders the Scene Viewer intent 5ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > hides the action and explains unsupported devices: {"device":{"userAgent":"Macintosh Chrome","maxTouchPoints":0,"standalone":false,"supportsAr":false}} 5ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > hides the action and explains unsupported devices: {"device":{"userAgent":"iPhone Safari","maxTouchPoints":5,"standalone":false,"supportsAr":true}} 2ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > hides the action and explains unsupported devices: {"device":{"userAgent":"Android Chrome","maxTouchPoints":5,"standalone":false,"supportsAr":false},"glbUrl":"http://files.example/plate.glb"} 3ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > disables AR in standalone and offers the model share URL 14ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > shows quiet loading status without launch controls 3ms
+ ✓ src/features/jarvis/ar/ViewInArAction.test.tsx > ViewInArAction > offers retry after failure 10ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-1 happy path: one submit, one append, outbound to origin + web 7ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-2 duplicate inbound event id is processed once, including two concurrent copies 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-3 unlinked identity is denied with a generic link prompt and a reason-code-only log 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-3c denial and throttle replies are returned in the synchronous result, never sent, and only once 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M3 send() gets the adapter's opaque address from the linked identity; no address means no send 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-3b revoked identity gets the same response as an unlinked one 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-4 disabled channel drops before identity lookup, persists nothing, and suppresses outbound 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-5 user outside the allowlist tier (no grant) gets a generic denial and no graph call 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-5 user outside the allowlist tier (revoked grant) gets a generic denial and no graph call 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-5 user outside the allowlist tier (tier below min_tier) gets a generic denial and no graph call 0ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-6 rate limit throttles with zero side effects and releases the idempotency key 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-7 capability downgrade renders text plus a link instead of buttons or 3D 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > OVD-810 control events render as one short line in the shared thread on every channel 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-8 send failures retry with backoff, never duplicate, and mark failed after N attempts 2ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-8b a replayed graph event (same runId + seq) is stored and sent once 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M1 graph.submit rejects once: the claim is released and the channel's retry is accepted once 2ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M1 a failure after the graph accepted the submit retries onto the same run without a second submit 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M1 graph.resolveDecision rejects once: nothing is committed and the retry resolves the decision 2ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M1 a decision held pending by one event is busy for another 52ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > M1 graph.control rejects once: the command stays pending and the retry re-sends and promotes it 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > N1 events the graph emits inside submit, before the run is linked, reach the user after the acknowledgement 6ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > N1 an event for a run with no link returns unknown_run, stores nothing, and a later retry is handled 2ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > N1 minor: a retry after the graph accepted the answer but the commit failed is accepted, not refused 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > N1 minor: a pending claim left by a crashed attempt expires after the TTL instead of wedging the decision 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > N1 minor: a retried inbound event does not consume a second rate-limit token 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-9 adding TestAdapter2 needs only a registry line (no core diff) 3ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-10 a skipped decision records skipped_best_guess with rationale and the run continues 2ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-11 a request for an agent that isn't enabled gets 'not available yet' and no work 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-12 pause/cancel from a non-owner is refused; the owner's passes through with its idempotency key 2ms
+ ✓ src/components/jarvis/ArMoreAction.test.tsx > opens a labelled modal, contains focus and restores focus on every close path 136ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-13 flag JARVIS_UI_ENABLED off routes nothing for real adapters; only TestAdapter works in the test env 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis ConversationService (OVD-798) > CS-14 no bypass: every path that leads to work goes through the DesignGraph entry 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis identity linking (M4: same front of the pipeline, failed-attempt limit) > consumes a one-time code once, stores the hash and opaque address, and the linked chat then works 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis identity linking (M4: same front of the pipeline, failed-attempt limit) > flag off: a real adapter's link message is dropped before any repo access and the code survives 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis identity linking (M4: same front of the pipeline, failed-attempt limit) > a disabled channel or an unverified request never consumes a code 0ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis identity linking (M4: same front of the pipeline, failed-attempt limit) > repeated wrong codes block that sender, even with the right code, until the window passes 1ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis render and registry > renders USDZ as text and a web link even with 3D capability 0ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis render and registry > renders resolutions and truncates to the channel's maxText 0ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis render and registry > renders result and error events; error text never echoes the graph's internal message 0ms
+ ✓ src/features/jarvis/core/conversation-service.test.ts > Jarvis render and registry > rejects two adapters with the same id 0ms
+ ✓ src/pages/JarvisArPreview.test.tsx > keeps AR inside MORE with a thumbnail and restores focus after CANCEL 115ms
+ ✓ src/pages/JarvisArPreview.test.tsx > previews loading and failure with retry returning to ready 51ms
+      Tests  59 passed (59)

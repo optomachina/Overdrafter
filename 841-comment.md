@@ -1,0 +1,5 @@
+QA: FAIL on ce0efb2b1fdd5a29f8ce760fd748e4f9a8f871e9
+OVD-786 AC "anything that can't be attributed goes in as `unknown`, never guessed" not met: attributePullRequest on body `Model: codex/opus` gives `codex` (attributed); `Model: bot-` gives `bot`; `Model: z_bot` gives `zbot` (also from `z_bot review @ deadbeef: APPROVED`). This reproduces the open Codex CHANGES REQUIRED @ ce0efb2b.
+Passing: additive to v1 (keys, order and values same as main on both fixture sets; only botAttribution added); per-bot sums = merges/QA/revert totals; attributed+noSignal+conflicting = merges.total (5+4+2=11); no PR bodies or human logins in the output; conflicting evidence goes to unknown; two runs byte-identical. vitest 52/52, lint and typecheck pass. The 3 ovd417 docker-only failures match main locally.
+CI not green on this SHA: run 39007262253 `test` in progress, 39007262235 `verify` queued, many jobs cancelled. SonarCloud gate green.
+Proof re-run: `npx vitest run scripts/trust-metrics.test.mjs && npm run lint && npm run typecheck` + fixture snapshot diff vs main 33b2ecb6 + attribution probes, in fresh worktree at ce0efb2b.

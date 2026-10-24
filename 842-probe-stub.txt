@@ -1,0 +1,60 @@
+== nodocker (CI unset)
+preflight: test start
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects non-empty evidence before qualification (docker unavailable)
+STUBNPM args=run --silent test FLAG=1
+preflight: test PASS (3 docker tests SKIPPED: docker unavailable)
+exit=0
+== nodocker CI=true
+preflight: test start
+STUBNPM args=run --silent test FLAG=unset
+preflight: test PASS
+exit=0
+== nodocker GITHUB_ACTIONS=true CI unset
+preflight: test start
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects non-empty evidence before qualification (docker unavailable)
+STUBNPM args=run --silent test FLAG=1
+preflight: test PASS (3 docker tests SKIPPED: docker unavailable)
+exit=0
+== fakedocker_ok (CI unset)
+preflight: test start
+STUBNPM args=run --silent test FLAG=unset
+preflight: test PASS
+exit=0
+== fakedocker_ok CI=true
+preflight: test start
+STUBNPM args=run --silent test FLAG=unset
+preflight: test PASS
+exit=0
+== fakedocker_ok GITHUB_ACTIONS=true CI unset
+preflight: test start
+STUBNPM args=run --silent test FLAG=unset
+preflight: test PASS
+exit=0
+== docker_info_fails (CI unset)
+preflight: test start
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects non-empty evidence before qualification (docker unavailable)
+STUBNPM args=run --silent test FLAG=1
+preflight: test PASS (3 docker tests SKIPPED: docker unavailable)
+exit=0
+== docker_info_fails CI=true
+preflight: test start
+STUBNPM args=run --silent test FLAG=unset
+preflight: test PASS
+exit=0
+== docker_info_fails GITHUB_ACTIONS=true CI unset
+preflight: test start
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification (docker unavailable)
+preflight: SKIPPED scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects non-empty evidence before qualification (docker unavailable)
+STUBNPM args=run --silent test FLAG=1
+preflight: test PASS (3 docker tests SKIPPED: docker unavailable)
+exit=0
+preflight: test start
+STUBNPM args=run --silent test FLAG=1
+preflight: test PASS

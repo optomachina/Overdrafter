@@ -1,0 +1,58 @@
+[
+  {
+    "pr": 813,
+    "sha": "b5f2340c0f787e006e474a7eac43e0b066ed5c2d",
+    "title": "OVD-844: sensitive-class detector for PRs (report mode)",
+    "files": [
+      {
+        "path": ".github/workflows/sensitive-class.yml",
+        "additions": 120,
+        "deletions": 0
+      },
+      {
+        "path": "AGENTS.md",
+        "additions": 7,
+        "deletions": 7
+      },
+      {
+        "path": "docs/sensitive-paths.json",
+        "additions": 88,
+        "deletions": 3
+      },
+      {
+        "path": "scripts/fixtures/sensitive-paths/paths.json",
+        "additions": 47,
+        "deletions": 3
+      },
+      {
+        "path": "scripts/sensitive-class-detect.mjs",
+        "additions": 898,
+        "deletions": 0
+      },
+      {
+        "path": "scripts/sensitive-class-detect.test.mjs",
+        "additions": 1290,
+        "deletions": 0
+      },
+      {
+        "path": "scripts/sensitive-class-sweep.mjs",
+        "additions": 584,
+        "deletions": 0
+      },
+      {
+        "path": "scripts/sensitive-class-sweep.test.mjs",
+        "additions": 130,
+        "deletions": 0
+      },
+      {
+        "path": "scripts/sensitive-classes.json",
+        "additions": 52,
+        "deletions": 0
+      }
+    ],
+    "additions": 3216,
+    "deletions": 13,
+    "deterministic": "risky",
+    "notes": "Sensitive-class detector (report mode): new .github/workflows/sensitive-class.yml (pull_request + merge_group, read-only perms, base checkout, always exit 0, not required), detector script + tests, sweep, sensitive-classes.json config, docs/sensitive-paths.json additions only (53->138 globs), AGENTS.md marker mirror, shared fixture. Head is a clean merge of main."
+  }
+]

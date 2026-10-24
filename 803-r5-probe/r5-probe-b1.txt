@@ -1,0 +1,6 @@
+B1 step12 PR1 rider squash: {"code":1,"tree_match":false,"reason":"tree-mismatch-after-rebase","d1_written":true,"d1_equals_printed":true}
+B1 PR2 readback --prior d1 (recorded stop digest) after flip: {"code":1,"out":{"refused":"log-truncated"},"d2_written":false,"log_unchanged":true}
+B1 contrast PR2 readback --prior d0 (old skill path): {"code":0,"tree_match":true}
+stop-ack --prior d1 (unflipped): {"code":0,"acknowledged":"1","d3_written":true}
+readback refusal (wrong head) d4_written: false code 1 {"refused":"head-sha-not-the-verified-head: 2"}
+readback-run refusal: {"code":1,"refused":"out-of-order: 1 has no passing read-back below 2","d5_written":true,"d5_equals_d3":true}

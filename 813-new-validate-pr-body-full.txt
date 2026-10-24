@@ -1,0 +1,2 @@
+PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation
+exit=0

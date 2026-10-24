@@ -1,0 +1,10 @@
+Re-optimizing dependencies because vite config has changed
+
+  VITE v5.4.19  ready in 295 ms
+
+  ➜  Local:   http://localhost:5844/
+  ➜  Network: http://172.30.0.2:5844/
+  ➜  Network: http://100.80.28.51:5844/
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme

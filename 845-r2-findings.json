@@ -1,0 +1,7 @@
+[
+ {"blocking": false, "kind": "real", "file": "scripts/spend-ledger.mjs", "line": 111, "message": "export-evals --out on an all-unvalued ledger still writes an empty output file before exiting 3; a later reader that ignores the exit code could take that file as $0. Skip the write when exiting 3."},
+ {"blocking": false, "kind": "tracking", "file": "scripts/evals-weekly-report.mjs", "line": 256, "message": "#835 loadLedger (head 76c5c038) accepts the new export lines but drops exportUnvaluedRecords/exportComplete, so the #835 report does not yet show incompleteness; consumer side needs a follow-up."},
+ {"blocking": false, "kind": "tracking", "file": "scripts/spend-ledger.mjs", "lines": [41, 102], "message": "Two github-advanced-security S4036 review threads from dc145bfb are still unresolved although the code is fixed and Sonar shows 0 vulnerabilities at this head; resolve them."},
+ {"blocking": false, "kind": "tracking", "file": "scripts/spend-ledger.mjs", "line": 40, "message": "10 open Sonar code smells (S3776 cognitive complexity in main and usageToLedger, S3358 nested ternaries); gate is OK."},
+ {"blocking": false, "kind": "tracking", "file": "docs/spend-ledger.md", "line": 1, "message": "#841 trust snapshot has no per-PR attribution and is not accepted as --attribution (exit 2); tracked in OVD-930."}
+]

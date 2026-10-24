@@ -1,0 +1,25 @@
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191207Z/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/quote-comparison.spec.ts --grep @fixture --reporter=list,json --output /workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191207Z/test-results-0
+doctor ok: mode=fixture specs=1 configs=1
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Running 12 tests using 1 worker
+
+  ✓   1 e2e/quote-comparison.spec.ts:217:3 › client quote comparison decisions › (a) keeps the domestic Xometry variants attributed to one provider @fixture (7.0s)
+  ✓   2 e2e/quote-comparison.spec.ts:244:3 › client quote comparison decisions › (b) keeps the table row and chart point selection on the same offer @fixture (8.4s)
+  ✓   3 e2e/quote-comparison.spec.ts:268:3 › client quote comparison decisions › (c) plots offers as points only, with no line or area series @fixture (6.9s)
+  ✓   4 e2e/quote-comparison.spec.ts:288:3 › client quote comparison decisions › (d) US-only hides foreign and unknown origins; all sourcing labels them truthfully @fixture (8.4s)
+  ✓   5 e2e/quote-comparison.spec.ts:320:3 › client quote comparison decisions › (e) shows a missing lead time as unavailable and never ranks it fastest @fixture (6.9s)
+  ✓   6 e2e/quote-comparison.spec.ts:344:3 › client quote comparison decisions › (e) selected-offer summary shows a missing lead time as not available @fixture (6.6s)
+  ✓   7 e2e/quote-comparison.spec.ts:361:3 › client quote comparison decisions › (f) never lists the stale offer and never lets the expired offer be selected @fixture (15.8s)
+  ✓   8 e2e/quote-comparison.spec.ts:410:3 › client quote comparison decisions › (g) opens vendor quote links over https without opener access @fixture (10.3s)
+  ✓   9 e2e/quote-comparison.spec.ts:442:3 › client quote comparison decisions › (h) has no order, checkout, or payment control in the decision panel apart from the excluded Q21 handoff @fixture (8.2s)
+  ✓  10 e2e/quote-comparison.spec.ts:465:3 › client quote comparison decisions › (i) selects a quote and reaches its vendor link with the keyboard alone @fixture (12.0s)
+  ✓  11 e2e/quote-comparison.spec.ts:509:3 › client quote comparison after the stored choice lapses › shows no substitute as selected and lets the client choose again @fixture (9.0s)
+  ✓  12 e2e/quote-comparison.spec.ts:531:3 › client quote comparison on a phone › fits the viewport and selects a quote by tap @fixture (8.2s)
+
+  12 passed (2.2m)
+tests: passed=12 failed=0 skipped=0 expectedFail=0 flaky=0
+verdict: PASS
+evidence: /workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191207Z

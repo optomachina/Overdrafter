@@ -1,0 +1,32 @@
+== npx vitest run (full) Fri Oct 16 22:05:10 MST 2026
+AssertionError: expected undefined to be defined
+ ❯ worker/src/providerSessionProbe.test.ts:658:17
+    656| 
+    657|   it("loads the secret through gcloud, probes only the loopback fixtur…
+    658|     expect(tsx).toBeDefined();
+       |                 ^
+    659|     hits.length = 0;
+    660|     offHostHits.length = 0;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/50]⎯
+
+ FAIL  worker/src/providerSessionProbe.test.ts > probe CLI wrapper under tsx > fails closed on a fixture URL that is not plain loopback http, before reading any secret
+TypeError: The "file" argument must be of type string. Received undefined
+ ❯ runCli worker/src/providerSessionProbe.test.ts:628:38
+    626|     );
+    627|     try {
+    628|       const result = await promisify(execFile)(
+       |                                      ^
+    629|         tsx as string,
+    630|         [cli, "fictiv", "--secret", "fictiv-storage-state", "--project…
+ ❯ worker/src/providerSessionProbe.test.ts:677:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/50]⎯
+
+
+ Test Files  43 failed | 580 passed | 2 skipped (625)
+      Tests  11 failed | 11800 passed | 19 skipped (11830)
+   Start at  22:05:11
+   Duration  182.23s (transform 26.02s, setup 0ms, collect 155.39s, tests 521.91s, environment 193.20s, prepare 66.26s)
+
+exit=1

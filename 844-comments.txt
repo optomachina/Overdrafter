@@ -1,0 +1,205 @@
+=== 6230789127 vercel[bot] 2026-10-17T06:40:26Z https://github.com/optomachina/Overdrafter/pull/844#issuecomment-6230789127
+[vc]: #TN4bXjv1YLO8mwosa6q2ALLBDZj+lXtLiMRAyEu4uqw=:eyJpc01vbm9yZXBvIjp0cnVlLCJ0eXBlIjoiZ2l0aHViIiwicHJvamVjdHMiOlt7Im5hbWUiOiJvdmVyZHJhZnRlciIsInByb2plY3RJZCI6InByal9kOTZka2R1OUtNeFFxaTF0eEJmaXZ2ZkZDUEI4IiwiaW5zcGVjdG9yVXJsIjoiaHR0cHM6Ly92ZXJjZWwuY29tL29wdG9tYWNoaW5hcy1wcm9qZWN0cy9vdmVyZHJhZnRlci85NFZqZE1heHI1UmN4cXkxYlBHVGVOR1daZFZyIiwicHJldmlld1VybCI6Im92ZXJkcmFmdGVyLWdpdC1id2lsc29uLW92ZC05MDMtamEtYjhmZTIxLW9wdG9tYWNoaW5hcy1wcm9qZWN0cy52ZXJjZWwuYXBwIiwibmV4dENvbW1pdFN0YXR1cyI6IkRFUExPWUVEIiwibGl2ZUZlZWRiYWNrIjp7InJlc29sdmVkIjowLCJ1bnJlc29sdmVkIjowLCJ0b3RhbCI6MCwibGluayI6Im92ZXJkcmFmdGVyLWdpdC1id2lsc29uLW92ZC05MDMtamEtYjhmZTIxLW9wdG9tYWNoaW5hcy1wcm9qZWN0cy52ZXJjZWwuYXBwIn0sInJvb3REaXJlY3RvcnkiOm51bGx9XX0=
+The latest updates on your projects. Learn more about [Vercel for GitHub](https://vercel.link/github-learn-more).
+
+| Project | Deployment | Actions | Updated |
+| :--- | :----- | :------ | :------ |
+| <a href="https://vercel.com/optomachinas-projects/overdrafter"><sup><img src="https://vercel.com/api/www/avatar?projectId=prj_d96dkdu9KMxQqi1txBfivvfFCPB8&teamId=team_ysdL74PxeIBSvktxB7s7FoC6&s=32" width="16" height="16" align="middle" alt="" /></sup></a> [overdrafter](https://vercel.com/optomachinas-projects/overdrafter) | ![Ready](https://vercel.com/static/status/ready.svg) [Ready](https://vercel.com/optomachinas-projects/overdrafter/94VjdMaxr5Rcxqy1bPGTeNGWZdVr) | [Preview](https://overdrafter-git-bwilson-ovd-903-ja-b8fe21-optomachinas-projects.vercel.app) | <relative-time datetime="2026-10-17T06:41:06.952Z">Oct 17, 2026 6:41am UTC</relative-time> |
+
+
+
+=== 6230789904 linear-code[bot] 2026-10-17T06:40:31Z https://github.com/optomachina/Overdrafter/pull/844#issuecomment-6230789904
+<!-- linear-linkback -->
+<p><a href="https://linear.app/overdrafter/issue/OVD-903">OVD-903</a></p>
+
+=== 6230792583 coderabbitai[bot] 2026-10-17T06:40:50Z https://github.com/optomachina/Overdrafter/pull/844#issuecomment-6230792583
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+<a href="https://app.coderabbit.ai/change-stack/optomachina/Overdrafter/pull/844?cs_source=review_comment"><picture><source media="(prefers-color-scheme: dark)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui-dark.svg?v=3"><source media="(prefers-color-scheme: light)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg?v=3"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg?v=3" alt="Review in Change Stack →" height="32"></picture></a>
+
+<!-- review_stack_entry_end -->
+<!-- This is an auto-generated comment: review in progress by coderabbit.ai -->
+
+> [!NOTE]
+> Currently processing new changes in this PR. This may take a few minutes, please wait...
+> 
+> <details>
+> <summary><strong>⚙️ Run configuration</strong></summary>
+> <dl>
+> <dd>
+> 
+> - **Configuration used**: defaults
+> - **Review profile**: CHILL
+> - **Plan**: Advanced
+> - **Run ID**: `b0f48a8d-6f31-4ded-be7d-5a5940bfe668`
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> <details>
+> <summary><strong>📥 Commits</strong></summary>
+> <dl>
+> <dd>
+> 
+> Reviewing files that changed from the base of the PR and between 5f36b3e43c6fd9a7b4f4d834bc2669bfa2f25bdd and 7a195469beacf7d09d3c15f4711d62637e6848d8.
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> <details>
+> <summary><strong>⛔ Files ignored due to path filters: 13</strong></summary>
+> <dl>
+> <dd>
+> 
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/card-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/card-430.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-failed-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-failed-430.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-available-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-available-430.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-pwa-safari-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-ios-pwa-safari-430.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-loading-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-loading-430.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-unavailable-desktop-375.png` is excluded by `!**/*.png`
+> * `docs/design/jarvis-pwa/screenshots/ovd-903/more-unavailable-desktop-430.png` is excluded by `!**/*.png`
+> * `src/features/jarvis/ar/preview-assets/plate-thumb.png` is excluded by `!**/*.png`
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> <details>
+> <summary><strong>📒 Files selected for processing: 13</strong></summary>
+> <dl>
+> <dd>
+> 
+> * `server/design-graph/cad-agent.test.ts`
+> * `server/design-graph/cad-agent.ts`
+> * `src/App.tsx`
+> * `src/components/jarvis/ArMoreAction.test.tsx`
+> * `src/components/jarvis/ArMoreAction.tsx`
+> * `src/features/jarvis/ar/ViewInArAction.test.tsx`
+> * `src/features/jarvis/ar/ar-support.test.ts`
+> * `src/features/jarvis/ar/ar-support.ts`
+> * `src/features/jarvis/ar/ar.css`
+> * `src/features/jarvis/ar/preview-assets/README.md`
+> * `src/features/jarvis/core/conversation-service.test.ts`
+> * `src/pages/JarvisArPreview.test.tsx`
+> * `src/pages/JarvisArPreview.tsx`
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> ```ascii
+> +-----------------------------------------------------------------+
+> | This PR is a classic: 'small change' with 'large consequences'. |
+> +-----------------------------------------------------------------+
+>   \
+>    \     /)/)
+>         ( '')
+>         /  |
+>       o(___)
+> ```
+
+<!-- end of auto-generated comment: review in progress by coderabbit.ai -->
+
+<!-- finishing_touch_checkbox_start -->
+
+<details>
+<summary><strong>✨ Finishing Touches</strong></summary>
+<dl>
+<dd>
+
+<details open>
+<summary><strong>📝 Generate docstrings</strong></summary>
+<dl>
+<dd>
+
+- [ ] <!-- {"checkboxId":"3e1879ae-f29b-4d0d-8e06-d12b7ba33d98"} --> Commit to this branch
+- [ ] <!-- {"checkboxId":"7962f53c-55bc-4827-bfbf-6a18da830691"} --> Create a new PR
+
+</dd>
+</dl>
+</details>
+<details open>
+<summary><strong>🧪 Generate unit tests (beta)</strong></summary>
+<dl>
+<dd>
+
+- [ ] <!-- {"checkboxId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "radioGroupId": "utg-output-choice-group-unknown_comment_id"} --> Commit to this branch
+- [ ] <!-- {"checkboxId": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "radioGroupId": "utg-output-choice-group-unknown_comment_id"} --> Create a new PR
+
+</dd>
+</dl>
+</details>
+
+</dd>
+</dl>
+</details>
+
+<!-- finishing_touch_checkbox_end -->
+
+<!-- autopilot:start -->
+- [ ] <!-- {"checkboxId":"2708ad07-9f24-4260-9c11-7dc76a49f2e3"} --> <strong title="Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts">Autofix</strong> · Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts
+<!-- autopilot:end -->
+<!-- tips_start -->
+
+
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=optomachina/Overdrafter&utm_content=844)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary><strong>❤️ Share</strong></summary>
+<dl>
+<dd>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</dd>
+</dl>
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->
+
+=== 6230796558 optomachina 2026-10-17T06:41:19Z https://github.com/optomachina/Overdrafter/pull/844#issuecomment-6230796558
+Codex review @ 7a195469: CHANGES REQUIRED
+
+Blocking findings:
+
+- **P2 — [ArMoreAction.tsx:38](src/components/jarvis/ArMoreAction.tsx:38): Focus escapes the modal after retry.** Keyboard activation of TRY AGAIN changes status to ready and removes the focused button. Focus falls to the document body; subsequent Tab and Escape events never reach the dialog handler, allowing navigation behind the open modal. Restore focus inside the sheet when its focused content disappears, or use a dialog primitive that handles this. Add a test that focuses TRY AGAIN, activates retry, and verifies focus containment and Escape afterward.
+
+Non-blocking:
+
+- [ArMoreAction.test.tsx:7](src/components/jarvis/ArMoreAction.test.tsx:7) covers close paths and ready-state wrapping, but should also cover loading, unavailable, Safari fallback, and failure-state focus behavior.
+
+Other checks: filename validation rejects lexical traversal before publishing artifacts; absent/null/empty USDZ remains skipped; STEP/GLB/PNG ordering and checkpoints are unchanged. The import-boundary test is unchanged and respected. Sheet dimensions, text sizes, targets, visible copy, and accent usage meet the stated rules. No out-of-scope implementation found.
+
+Tests could not start: Vite’s temporary config write failed with `EROFS` in the read-only workspace. No files were modified.
+
+
+
+=== 6230810273 sonarqubecloud[bot] 2026-10-17T06:42:40Z https://github.com/optomachina/Overdrafter/pull/844#issuecomment-6230810273
+## [![Quality Gate Failed](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/checks/QualityGateBadge/qg-failed-20px.png 'Quality Gate Failed')](https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=844) **Quality Gate failed**  
+Failed conditions  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/failed-16px.png '') [B Reliability Rating on New Code](https://sonarcloud.io/project/issues?id=optomachina_Overdrafter&pullRequest=844&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true) (required ≥ A)  
+  
+<!-- sqra:qg_revision=15893481a0d5579ab61b643817469708c9c24aad2bb307062a951286ba11c452 -->
+<!-- sqra-placement-anchor -->
+[See analysis details on SonarQube Cloud](https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=844)
+
+##   
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/light_bulb-16px.png '') Catch issues before they fail your Quality Gate with our IDE extension ![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/sonarlint-16px.png '') [SonarQube for IDE](https://www.sonarsource.com/products/sonarlint/features/connected-mode/?referrer=pull-request)
+
+
+

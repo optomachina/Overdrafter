@@ -1,0 +1,57 @@
+=== 560cbf2b0c4c1557f774f471f7d1c3583a5ff28b
+SonarCloud	completed	success	github-advanced-security	https://github.com/optomachina/Overdrafter/runs/117336262611
+SonarCloud Code Analysis	completed	success	sonarqubecloud	https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=844
+Vercel Preview Comments	completed	success	vercel	https://vercel.com/github
+browser-test	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103472
+build	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103651
+ci	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117338843992
+extraction-gate	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103618
+free-quote-sql-qualification / free-quote-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103693
+lint	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103609
+migration-immutability	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103729
+ovd420-recovery-egress-network	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103608
+ovd591-qualification / capability-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103677
+ovd591-retention-qualification / retention-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103652
+proof-check	completed	cancelled	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843290/job/117335846152
+proof-check	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843394/job/117335848474
+provider-go-live	completed	cancelled	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843260/job/117335846146
+provider-go-live	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843433/job/117335849094
+rls-deny-coverage	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103821
+secret-scan	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843368/job/117335846461
+security-definer-lint	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843374/job/117335846640
+test	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336337568
+typecheck	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103606
+verify	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843388/job/117337544265
+verify (run journeys at head)	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843388/job/117335846381
+verify-worker	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39011843419/job/117336103622
+-- statuses
+success
+CodeRabbit	success	Review rate limited
+Vercel	success	Deployment has completed
+=== e00c20f52fd7d84c59eb8ae2799144e8f3a0086e
+SonarCloud	completed	success	github-advanced-security	https://github.com/optomachina/Overdrafter/runs/117342014271
+SonarCloud Code Analysis	completed	success	sonarqubecloud	https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=836
+browser-test	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344292164
+build	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344295854
+ci	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117346826357
+extraction-gate	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344293037
+free-quote-sql-qualification / free-quote-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344273191
+lint	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344303815
+migration-immutability	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344273815
+ovd420-recovery-egress-network	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344298745
+ovd591-qualification / capability-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344299423
+ovd591-retention-qualification / retention-sql	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344293197
+proof-check	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781798/job/117341571746
+provider-go-live	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781797/job/117341571606
+rls-deny-coverage	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344273020
+secret-scan	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781800/job/117341571592
+security-definer-lint	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781826/job/117341571895
+test	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344272436
+typecheck	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344295886
+verify	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781831/job/117343174167
+verify (run journeys at head)	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781831/job/117341572489
+verify-worker	completed	success	github-actions	https://github.com/optomachina/Overdrafter/actions/runs/39013781835/job/117344297158
+-- statuses
+failure
+Vercel	failure	Deployment rate limited — retry in 24 hours.
+CodeRabbit	success	Review rate limited

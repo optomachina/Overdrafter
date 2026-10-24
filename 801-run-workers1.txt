@@ -1,0 +1,66 @@
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191422Z/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/client-shell.spec.ts e2e/part-reload.spec.ts e2e/quote-comparison.spec.ts e2e/journeys/jarvis-front-door.spec.ts e2e/engineering-admin-route.spec.ts --grep @fixture --reporter=list,json --output /workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191422Z/test-results-0 --workers=1
+command: PLAYWRIGHT_JSON_OUTPUT_NAME=/workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191422Z/playwright-report-1.json npx playwright test --config e2e/admin-operations.config.ts e2e/admin-operations.spec.ts --grep @fixture --reporter=list,json --output /workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191422Z/test-results-1 --workers=1
+doctor ok: mode=fixture specs=6 configs=2
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Running 33 tests using 1 worker
+
+  ✓   1 e2e/client-shell.spec.ts:99:3 › authenticated client shell contract › keeps one application frame across every launch client route @fixture (12.0s)
+  ✓   2 e2e/client-shell.spec.ts:112:3 › authenticated client shell contract › exits fixture mode without leaving fixture controls over the live app @fixture (5.7s)
+  ✓   3 e2e/client-shell.spec.ts:131:3 › authenticated client shell contract › collapses without remounting or moving navigation icons and keeps overlays above content @fixture (7.5s)
+  ✓   4 e2e/client-shell.spec.ts:176:3 › authenticated client shell contract › uses one desktop workspace without a detached inspector @fixture (5.7s)
+  ✓   5 e2e/client-shell.spec.ts:204:5 › authenticated client shell contract › keeps the part evidence and quote comparison in a stable desktop hierarchy @fixture (6.4s)
+  ✓   6 e2e/client-shell.spec.ts:275:5 › authenticated client shell contract › contains rendered CAD and drawing evidence in the desktop preview @fixture (5.0s)
+  ✓   7 e2e/client-shell.spec.ts:204:5 › authenticated client shell contract › keeps the part evidence and quote comparison in a stable tablet hierarchy @fixture (4.0s)
+  ✓   8 e2e/client-shell.spec.ts:275:5 › authenticated client shell contract › contains rendered CAD and drawing evidence in the tablet preview @fixture (3.9s)
+  ✓   9 e2e/client-shell.spec.ts:204:5 › authenticated client shell contract › keeps the part evidence and quote comparison in a stable phone hierarchy @fixture (3.9s)
+  ✓  10 e2e/client-shell.spec.ts:275:5 › authenticated client shell contract › contains rendered CAD and drawing evidence in the phone preview @fixture (2.9s)
+  ✓  11 e2e/client-shell.spec.ts:301:3 › authenticated client shell contract › uses a phone navigation sheet without horizontal overflow @fixture (5.9s)
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:3895493) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  12 e2e/engineering-admin-route.spec.ts:91:3 › hosted engineering admin route › flag off compiles the route out; quote routes load no engineering code @fixture (15.8s)
+  ✓  13 e2e/engineering-admin-route.spec.ts:117:3 › hosted engineering admin route › flag on keeps engineering code out of the entry chunk and hides the page from signed out visitors @fixture (12.5s)
+  ✓  14 e2e/engineering-admin-route.spec.ts:152:3 › hosted engineering admin route › a signed in user reaches the inbox only when the server allowlist admits them @fixture (9.2s)
+  ✓  15 e2e/journeys/jarvis-front-door.spec.ts:41:5 › Jarvis front door on a 375x812 phone › boot guard: fixture loads and the client shell mounts @fixture (3.9s)
+  ✓  16 e2e/journeys/jarvis-front-door.spec.ts:47:5 › Jarvis front door on a 375x812 phone › OVD-805 guard: no public Jarvis link on / yet @fixture (2.0s)
+  ✘  17 e2e/journeys/jarvis-front-door.spec.ts:55:5 › Jarvis front door on a 375x812 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link @fixture (7.8s)
+  ✓  18 e2e/journeys/jarvis-front-door.spec.ts:41:5 › Jarvis front door on a 430x932 phone › boot guard: fixture loads and the client shell mounts @fixture (4.0s)
+  ✓  19 e2e/journeys/jarvis-front-door.spec.ts:47:5 › Jarvis front door on a 430x932 phone › OVD-805 guard: no public Jarvis link on / yet @fixture (1.7s)
+  ✘  20 e2e/journeys/jarvis-front-door.spec.ts:55:5 › Jarvis front door on a 430x932 phone › public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link @fixture (6.9s)
+  ✓  21 e2e/part-reload.spec.ts:9:3 › part page reload with a persisted session › draws the shell instead of the boot screen and loads no part data before auth verifies @fixture (2.3s)
+  ✓  22 e2e/quote-comparison.spec.ts:217:3 › client quote comparison decisions › (a) keeps the domestic Xometry variants attributed to one provider @fixture (4.5s)
+  ✓  23 e2e/quote-comparison.spec.ts:244:3 › client quote comparison decisions › (b) keeps the table row and chart point selection on the same offer @fixture (5.2s)
+  ✓  24 e2e/quote-comparison.spec.ts:268:3 › client quote comparison decisions › (c) plots offers as points only, with no line or area series @fixture (4.1s)
+  ✓  25 e2e/quote-comparison.spec.ts:288:3 › client quote comparison decisions › (d) US-only hides foreign and unknown origins; all sourcing labels them truthfully @fixture (6.0s)
+  ✓  26 e2e/quote-comparison.spec.ts:320:3 › client quote comparison decisions › (e) shows a missing lead time as unavailable and never ranks it fastest @fixture (4.8s)
+  ✓  27 e2e/quote-comparison.spec.ts:344:3 › client quote comparison decisions › (e) selected-offer summary shows a missing lead time as not available @fixture (6.2s)
+  ✓  28 e2e/quote-comparison.spec.ts:361:3 › client quote comparison decisions › (f) never lists the stale offer and never lets the expired offer be selected @fixture (13.6s)
+  ✓  29 e2e/quote-comparison.spec.ts:410:3 › client quote comparison decisions › (g) opens vendor quote links over https without opener access @fixture (8.9s)
+  ✓  30 e2e/quote-comparison.spec.ts:442:3 › client quote comparison decisions › (h) has no order, checkout, or payment control in the decision panel apart from the excluded Q21 handoff @fixture (7.6s)
+  ✓  31 e2e/quote-comparison.spec.ts:465:3 › client quote comparison decisions › (i) selects a quote and reaches its vendor link with the keyboard alone @fixture (11.5s)
+  ✓  32 e2e/quote-comparison.spec.ts:509:3 › client quote comparison after the stored choice lapses › shows no substitute as selected and lets the client choose again @fixture (5.4s)
+  ✓  33 e2e/quote-comparison.spec.ts:531:3 › client quote comparison on a phone › fits the viewport and selects a quote by tap @fixture (6.0s)
+
+  33 passed (4.0m)
+
+Running 6 tests using 1 worker
+
+[WebServer] Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+[WebServer]   npx update-browserslist-db@latest
+[WebServer]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+  ✓  1 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 320 (4.8s)
+  ✓  2 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 390 (2.1s)
+  ✓  3 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 768 (1.8s)
+  ✓  4 e2e/admin-operations.spec.ts:24:3 › @fixture actual admin operations keyboard and width 1280 (2.0s)
+  ✓  5 e2e/admin-operations.spec.ts:112:1 › @fixture non-platform session makes no operations request (1.0s)
+  ✓  6 e2e/admin-operations.spec.ts:128:1 › @fixture supplier settings: set a cap, see it persist, set unlimited, switch the supplier off (5.7s)
+
+  6 passed (20.7s)
+tests: passed=37 failed=0 skipped=0 expectedFail=2 flaky=0
+verdict: PASS
+evidence: /workspace/qa-batch/wt801/artifacts/verify-overdrafter/20261016T191422Z

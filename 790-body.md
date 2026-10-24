@@ -1,0 +1,76 @@
+Implements [OVD-810](https://linear.app/overdrafter/issue/OVD-810): Jarvis slice 1 graph control commands. Only **pause and cancel** are accepted. They're idempotent, owner-only, and applied at safe checkpoints. Scope follows the architect comment on the issue.
+
+Branched off `main`, which includes OVD-801 (#779). I then merged in the latest `main`, which brought #781, #785 and #787 (OVD-802). This PR doesn't need anything that hasn't merged. It uses an in-memory command store until the OVD-797 `jarvis_control_commands` draft is approved. There's **no DB change** and nothing in `supabase/migrations/`.
+
+## What
+- `DesignGraph.control(runId, {kind, payload?, idempotencyKey}, actor)` in `server/design-graph/control/`. It has the state machine, command validation and authorization, the in-memory idempotency store, and a STEP validator.
+- **Authorization:** only the run owner, or an admin at AAL2, can control a run. Ownership is recorded at `submit(request, {ownerId})` and read from the run. A denied request returns 403 with no state change and no event.
+- **Idempotency:** a repeated `(run_id, idempotency_key)` returns the original response, and two concurrent identical commands have one effect. Reusing a key for a different command kind returns 409.
+- **States:** `running -> pausing -> paused`, and `running|pausing|paused -> cancelling -> cancelled`. Commands are applied only at node boundaries or at `ctx.checkpoint()`. `StubCadAgent` checkpoints between its STEP, GLB and PNG outputs, so a command never lands in the middle of a write.
+- **Cancel:** keeps partial artifacts and lists them in `control_applied{kept}`. It releases the claim, and no artifacts are produced after it.
+- **Terminal runs:** a command on a finished run emits `control_rejected{reason:terminal}`. `resume` and `steer` return `not_yet` (501) and change nothing (OVD-812 enables them).
+- New validated events: `control_requested`, `control_applied` and `control_rejected`. They're mirrored in the Jarvis core types (`src/features/jarvis/core/types.ts`) and rendered as one line each in the shared thread (`render.ts`).
+- OVD-802's real `CadAgent` now calls `ctx.checkpoint()` before it files the worker job and between artifact emits.
+
+## Proof
+Head `d73642da`. `npx vitest run server/design-graph --maxWorkers=2`: 5 files, 32 tests pass and 3 are skipped (P-1 to P-3 from OVD-802 need build123d).
+
+```
+C-1 pause during the CAD node applies at the next checkpoint; the run stays paused with artifacts so far
+C-2 cancel from running keeps partial artifacts, releases the claim, and publishes nothing after
+C-2 cancel from paused applies at once, keeps the paused run's artifacts, and releases the claim
+C-2 cancel before the run starts applies at the intake boundary with nothing kept
+C-2 cancel while waiting on a concept decision drops the decision and ends the run
+C-3 a repeated (run_id, key) has one effect and returns the original response
+C-3 two concurrent identical commands have one effect
+C-4 only the owner, or an admin at AAL2, may control a run; denials change nothing
+C-4 the owner may control at AAL1, and a run with no recorded owner is admin-AAL2 only
+C-5 control on a completed or cancelled run is a no-op that emits control_rejected{terminal}
+C-6 cancel issued mid-STEP-write waits for the checkpoint and the STEP stays valid
+C-6 the STEP validator accepts a whole file and rejects truncated or malformed ones
+C-7 resume and steer return not_yet with no state change and no queued command
+C-0 malformed commands and unknown runs are refused without effect
+C-0 transition table and control event validation
+C-proof prints the event log of a 4-inch plate run paused then cancelled
+```
+
+Event log of a 4" plate run, paused and then cancelled (from `plate-pause-cancel.test.ts`):
+```
+#00 status intake/started: Reading request
+#01 status intake/completed: Routed to cad agent
+#02 status concept_picks/started: Choosing concept
+#03 status concept_picks/completed: Concept chosen
+#04 status domain_agent/started: Running cad agent
+#05 status domain_agent/info: Modeling 101.6 mm square plate in 6061-T6 aluminum
+#06 artifact step stub://design-graph/run-1/plate-101.6mm.step
+#07 artifact glb stub://design-graph/run-1/plate-101.6mm.glb
+#08 control_requested kind=pause actor=owner-1 key=pause-1 at=domain_agent
+#09 control_applied kind=pause state=paused at=domain_agent/agent
+#10 control_requested kind=cancel actor=owner-1 key=cancel-1 at=domain_agent
+#11 control_applied kind=cancel state=cancelled at=domain_agent/agent kept=[step,glb]
+final state=cancelled claim=released kept=[{"kind":"step","uri":"stub://design-graph/run-1/plate-101.6mm.step"},{"kind":"glb","uri":"stub://design-graph/run-1/plate-101.6mm.glb"}]
+```
+
+Checks:
+- `bash scripts/preflight.sh lint`: PASS
+- `bash scripts/preflight.sh typecheck`: PASS
+- `npx vitest run --maxWorkers=2`: 11471 tests pass. 3 fail, all in `scripts/qualify-ovd417-four-migration-suffix.test.mjs`, the known failure that only passes with docker.
+
+## Review
+- `a37f9ff7`: APPROVED, no major findings (https://github.com/optomachina/Overdrafter/pull/790#issuecomment-6210231787).
+- `d73642da` (current head): APPROVED, no major findings (https://github.com/optomachina/Overdrafter/pull/790#issuecomment-6210525006). Its minor findings are left for follow-up. The main one: the Jarvis port should pass `ownerId` when it submits a run.
+
+
+<!-- This is an auto-generated comment: release notes by coderabbit.ai -->
+
+## Summary by CodeRabbit
+
+* **New Features**
+  * Runs can now be paused or cancelled, with status updates as commands are requested, applied, or rejected.
+  * Pausing takes effect at safe checkpoints; cancelling preserves artifacts already produced.
+  * Run controls include owner-based authorization and support for safe retries without duplicating commands.
+  * STEP files can be checked for basic structural validity.
+* **Bug Fixes**
+  * Cancelling a run now interrupts pending decisions and releases its worker claim when execution finishes.
+
+<!-- end of auto-generated comment: release notes by coderabbit.ai -->

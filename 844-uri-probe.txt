@@ -1,0 +1,173 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt844
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=./plate.glb
+PROBE reject step "./plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=a/../plate.glb
+PROBE reject step "a/../plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=plate.glb/..
+PROBE reject step "plate.glb/.." -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=../../../../etc/passwd
+PROBE reject step "../../../../etc/passwd" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=/tmp/jd-fake/plate.glb
+PROBE reject step "/tmp/jd-fake/plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=sub/../../x
+PROBE reject step "sub/../../x" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=./
+PROBE reject step "./" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=../
+PROBE reject step "../" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects step=/
+PROBE reject step "/" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=./plate.glb
+PROBE reject glb "./plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=a/../plate.glb
+PROBE reject glb "a/../plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=plate.glb/..
+PROBE reject glb "plate.glb/.." -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=../../../../etc/passwd
+PROBE reject glb "../../../../etc/passwd" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=/tmp/jd-fake/plate.glb
+PROBE reject glb "/tmp/jd-fake/plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=sub/../../x
+PROBE reject glb "sub/../../x" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=./
+PROBE reject glb "./" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=../
+PROBE reject glb "../" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects glb=/
+PROBE reject glb "/" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=./plate.glb
+PROBE reject usdz "./plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=a/../plate.glb
+PROBE reject usdz "a/../plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=plate.glb/..
+PROBE reject usdz "plate.glb/.." -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=../../../../etc/passwd
+PROBE reject usdz "../../../../etc/passwd" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=/tmp/jd-fake/plate.glb
+PROBE reject usdz "/tmp/jd-fake/plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=sub/../../x
+PROBE reject usdz "sub/../../x" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=./
+PROBE reject usdz "./" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=../
+PROBE reject usdz "../" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects usdz=/
+PROBE reject usdz "/" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=./plate.glb
+PROBE reject iso "./plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=a/../plate.glb
+PROBE reject iso "a/../plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=plate.glb/..
+PROBE reject iso "plate.glb/.." -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=../../../../etc/passwd
+PROBE reject iso "../../../../etc/passwd" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=/tmp/jd-fake/plate.glb
+PROBE reject iso "/tmp/jd-fake/plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=sub/../../x
+PROBE reject iso "sub/../../x" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=./
+PROBE reject iso "./" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=../
+PROBE reject iso "../" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects iso=/
+PROBE reject iso "/" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=./plate.glb
+PROBE reject top "./plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=a/../plate.glb
+PROBE reject top "a/../plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=plate.glb/..
+PROBE reject top "plate.glb/.." -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=../../../../etc/passwd
+PROBE reject top "../../../../etc/passwd" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=/tmp/jd-fake/plate.glb
+PROBE reject top "/tmp/jd-fake/plate.glb" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=sub/../../x
+PROBE reject top "sub/../../x" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=./
+PROBE reject top "./" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=../
+PROBE reject top "../" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > rejects top=/
+PROBE reject top "/" -> failed artifacts=0 msg=cad agent failed: worker output failed verification (artifact file must stay inside the run folder)
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > accepts normal glb name plate.glb
+PROBE accept glb "plate.glb" -> completed uri=file:///tmp/jd-fake/plate.glb
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > accepts normal glb name plate v2.glb
+PROBE accept glb "plate v2.glb" -> completed uri=file:///tmp/jd-fake/plate%20v2.glb
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > accepts normal glb name ..plate.glb
+PROBE accept glb "..plate.glb" -> completed uri=file:///tmp/jd-fake/..plate.glb
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > accepts normal glb name plate..glb
+PROBE accept glb "plate..glb" -> completed uri=file:///tmp/jd-fake/plate..glb
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > accepts normal glb name my-plate_01.glb
+PROBE accept glb "my-plate_01.glb" -> completed uri=file:///tmp/jd-fake/my-plate_01.glb
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > usdz undefined skipped
+PROBE usdz undefined -> completed kinds=step,glb,png,png
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > usdz null skipped
+PROBE usdz null -> completed kinds=step,glb,png,png
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > usdz  skipped
+PROBE usdz "" -> completed kinds=step,glb,png,png
+
+stdout | server/design-graph/qa844-probe.test.ts > QA844 probe uri() > usdz plate.usdz published
+PROBE usdz plate.usdz -> completed kinds=step,glb,usdz,png,png
+
+ ✓ server/design-graph/qa844-probe.test.ts (63 tests | 9 skipped) 41ms
+
+ Test Files  1 passed (1)
+      Tests  54 passed | 9 skipped (63)
+   Start at  23:43:50
+   Duration  734ms (transform 283ms, setup 0ms, collect 319ms, tests 41ms, environment 0ms, prepare 101ms)
+
+exit 0

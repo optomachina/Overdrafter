@@ -1,0 +1,11 @@
+
+ ✓ scripts/spend-ledger.test.mjs (44 tests) 38ms
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  01:55:49
+   Duration  534ms (transform 52ms, setup 0ms, collect 56ms, tests 38ms, environment 0ms, prepare 206ms)
+
+[vitest exit 0]
+[typecheck exit 0]
+[lint exit 0]

@@ -1,0 +1,13 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt846-r3
+
+ ✓ scripts/jev-client.test.mjs (38 tests) 80ms
+ ✓ scripts/jev-agent-decisions-eval.test.mjs (25 tests) 86ms
+ ✓ scripts/jev-pr-screen.test.mjs (47 tests) 315ms
+ ✓ scripts/lib/sensitive-paths.test.mjs (30 tests) 833ms
+
+ Test Files  4 passed (4)
+      Tests  140 passed (140)
+   Start at  09:41:31
+   Duration  1.38s (transform 187ms, setup 0ms, collect 400ms, tests 1.31s, environment 1ms, prepare 778ms)
+

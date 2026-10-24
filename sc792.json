@@ -1,0 +1,449 @@
+{
+  "version": 1,
+  "sha": "47541a4b32094b52868943e0a74f42310ac1e872",
+  "base_sha": "ad3476c3d907b94f077189c7344c8a863edbc125",
+  "status": "ok",
+  "classes": [
+    "migration",
+    "rls",
+    "definer",
+    "provider",
+    "secrets",
+    "ci"
+  ],
+  "sensitive_count": 15,
+  "multi_class": true,
+  "files": [
+    {
+      "path": ".github/workflows/ovd829-pending-pgtap.yml",
+      "status": "added",
+      "classes": [
+        "ci"
+      ],
+      "category": null,
+      "reasons": [
+        "ci:path:.github/workflows/**"
+      ]
+    },
+    {
+      "path": "docs/business/business-model.md",
+      "status": "modified",
+      "classes": [],
+      "category": "docs",
+      "reasons": [
+        "docs:path:docs/**"
+      ]
+    },
+    {
+      "path": "docs/migration-drafts/ovd-678-provider-daily-quote-cap.sql",
+      "status": "modified",
+      "classes": [
+        "migration",
+        "rls",
+        "definer"
+      ],
+      "category": null,
+      "reasons": [
+        "migration:path:docs/migration-drafts/**",
+        "rls:sql:row level security",
+        "definer:sql:security definer"
+      ]
+    },
+    {
+      "path": "docs/migration-drafts/ovd-828-s1.rollback.sql",
+      "status": "added",
+      "classes": [
+        "migration",
+        "definer"
+      ],
+      "category": null,
+      "reasons": [
+        "migration:path:docs/migration-drafts/**",
+        "definer:sql:security definer"
+      ]
+    },
+    {
+      "path": "docs/migration-drafts/ovd-828-s1.sql",
+      "status": "added",
+      "classes": [
+        "migration",
+        "rls",
+        "definer"
+      ],
+      "category": null,
+      "reasons": [
+        "migration:path:docs/migration-drafts/**",
+        "rls:sql:row level security",
+        "definer:sql:security definer"
+      ]
+    },
+    {
+      "path": "docs/migration-drafts/provider-fanout-guards.sql",
+      "status": "modified",
+      "classes": [
+        "migration",
+        "definer"
+      ],
+      "category": null,
+      "reasons": [
+        "migration:path:docs/migration-drafts/**",
+        "definer:sql:security definer"
+      ]
+    },
+    {
+      "path": "docs/release/ovd-206-window-kit.md",
+      "status": "modified",
+      "classes": [],
+      "category": "docs",
+      "reasons": [
+        "docs:path:docs/**"
+      ]
+    },
+    {
+      "path": "docs/workflows/geomiq-live-readiness.md",
+      "status": "modified",
+      "classes": [],
+      "category": "docs",
+      "reasons": [
+        "docs:path:docs/**"
+      ]
+    },
+    {
+      "path": "docs/workflows/ovd678-rmfg-live-readiness.md",
+      "status": "modified",
+      "classes": [],
+      "category": "docs",
+      "reasons": [
+        "docs:path:docs/**"
+      ]
+    },
+    {
+      "path": "e2e/admin-operations.spec.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:e2e/**"
+      ]
+    },
+    {
+      "path": "e2e/admin-operations.vite.config.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:e2e/**"
+      ]
+    },
+    {
+      "path": "src/components/admin/ProviderKillSwitchCard.test.tsx",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "src/components/admin/ProviderKillSwitchCard.tsx",
+      "status": "modified",
+      "classes": [],
+      "category": "frontend_ui",
+      "reasons": [
+        "frontend_ui:path:src/components/**"
+      ]
+    },
+    {
+      "path": "src/features/quotes/api/provider-kill-switch-api.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "src/features/quotes/api/provider-kill-switch-api.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "frontend_ui",
+      "reasons": [
+        "frontend_ui:path:src/features/**"
+      ]
+    },
+    {
+      "path": "src/features/quotes/provider-fanout.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "src/features/quotes/provider-fanout.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "frontend_ui",
+      "reasons": [
+        "frontend_ui:path:src/features/**"
+      ]
+    },
+    {
+      "path": "supabase/tests/pending/ovd829_provider_settings.sql.pending",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/.env.example",
+      "status": "modified",
+      "classes": [
+        "secrets"
+      ],
+      "category": null,
+      "reasons": [
+        "secrets:path:**/.env*"
+      ]
+    },
+    {
+      "path": "worker/src/adapters/rmfg.test.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path:worker/src/adapters/**"
+      ]
+    },
+    {
+      "path": "worker/src/adapters/rmfg.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path:worker/src/adapters/**"
+      ]
+    },
+    {
+      "path": "worker/src/adapters/rmfgHttpTransport.test.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path:worker/src/adapters/**"
+      ]
+    },
+    {
+      "path": "worker/src/adapters/rmfgHttpTransport.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path:worker/src/adapters/**"
+      ]
+    },
+    {
+      "path": "worker/src/adapters/weergProductionPortal.test.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path:worker/src/adapters/**"
+      ]
+    },
+    {
+      "path": "worker/src/config.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/dispatchRouting.test.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path_keyword:dispatch"
+      ]
+    },
+    {
+      "path": "worker/src/dispatchRouting.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path_keyword:dispatch"
+      ]
+    },
+    {
+      "path": "worker/src/fictivDispatchBinding.test.ts",
+      "status": "modified",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path_keyword:dispatch"
+      ]
+    },
+    {
+      "path": "worker/src/fixtureHeal/fixtureHeal.handler.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/index.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/jev/operationalTask.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/providerKillSwitch.genericRoute.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/providerKillSwitch.handler.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/providerKillSwitch.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/providerKillSwitch.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/providerSettings.test.ts",
+      "status": "added",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/providerSettings.ts",
+      "status": "added",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/providerTaskPipeline.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/tools/operatorKillSwitchGate.test.ts",
+      "status": "modified",
+      "classes": [],
+      "category": "tests",
+      "reasons": [
+        "tests:path:**/*.test.{ts,tsx,mjs}"
+      ]
+    },
+    {
+      "path": "worker/src/tools/operatorKillSwitchGate.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/tools/vendorWorkflowSmoke.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/tools/xometryQuantitySweep.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/src/types.ts",
+      "status": "modified",
+      "classes": [],
+      "category": null,
+      "reasons": []
+    },
+    {
+      "path": "worker/test-support/providerDispatchReservation.ts",
+      "status": "added",
+      "classes": [
+        "provider"
+      ],
+      "category": null,
+      "reasons": [
+        "provider:path_keyword:dispatch"
+      ]
+    }
+  ],
+  "unclassified": [
+    "supabase/tests/pending/ovd829_provider_settings.sql.pending",
+    "worker/src/config.ts",
+    "worker/src/index.ts",
+    "worker/src/providerKillSwitch.ts",
+    "worker/src/providerSettings.ts",
+    "worker/src/providerTaskPipeline.ts",
+    "worker/src/tools/operatorKillSwitchGate.ts",
+    "worker/src/tools/vendorWorkflowSmoke.ts",
+    "worker/src/tools/xometryQuantitySweep.ts",
+    "worker/src/types.ts"
+  ],
+  "errors": []
+}

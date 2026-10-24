@@ -1,0 +1,115 @@
+=== 6232963696 optomachina 2026-10-17T10:44:21Z upd=2026-10-17T10:44:21Z
+QA: PASS on 7b5da3078ac64b12287a97ed1cdf6dd61bcf13fd
+Both causes of the QA FAIL at 097d9c0a are fixed and all three OVD-934 ACs hold on re-run: the new test (new head re-screens, one marker written on the new SHA, old marker untouched, next screen is a hit) passes and fails under 4 local mutations, and rows carry cache_hit, head_sha and tokens (real Jev row: 632/56; null on a hit). The delta is these 3 files only. Every check is green at this SHA (CI run 39024588330) and the Sonar gate is OK with 0 issues.
+
+Findings:
+- low: [follow-up, tracking] The default CLI now writes a jev-screen success commit status to GitHub as optomachina on every accepted screen. It is not a required check (branch protection requires ci and provider-go-live only, and qa-handoff gate.mjs counts only required checks), but any all-green helper over commit statuses, including the OVD-845 gate, must exclude jev-screen. (scripts/jev-pr-screen.mjs:353)
+- low: [follow-up, tracking] The new marker module is not on the sensitive-path list (docs/sensitive-paths.json covers scripts/jev-pr-screen* only); tracked as OVD-939 C2. (scripts/lib/jev-screen-marker.mjs:1)
+- low: [follow-up, tracking] The #743 duplicate came from screen.py, which does not read or write the marker, so dedupe across both callers (issue fix item 1) holds only after screen.py is retired; tracked as OVD-940. (scripts/jev-pr-screen.mjs:22)
+- low: [follow-up, real] When an injected marker writer throws or returns a free-text reason, the warning echoes it after sanitizeToken, which redacts only TYPESAFE_API_KEY (probe P5). The real GitHub writer returns fixed reason codes, so no token reaches logs today; keep reasons to fixed codes. (scripts/jev-pr-screen.mjs:332)
+
+Local evidence (QA box): `/workspace/qa-batch/846-r2.log`, `/workspace/qa-batch/846-r2-probes.out`, `/workspace/qa-batch/846-r2-real-rows.jsonl`, `/workspace/qa-batch/846-r2-jev.jsonl`
+
+Proof re-run: vitest 4 files 133/133 + gh-spy run of jev-pr-screen.test.mjs (40/40, 0 gh calls) + 4 mutations of the new test + full vitest (same 50 env-only failing files as base main) + typecheck + lint on the Mac mini clone, eslint on changed files, validate-pr-body, sensitive-paths:report, node 846-probes.mjs 40/40, one real-row Jev screen, CI runs 39024588330 and 39024588300, at 7b5da3078ac64b12287a97ed1cdf6dd61bcf13fd
+families: builder=jev reviewers=none cross_family=false qa_catch_after_review=false
+
+**OverDrafter verdict: PASS_NOTES** for `7b5da3078ac64b12287a97ed1cdf6dd61bcf13fd` by 68639ff6-bbc0-436d-86d5-f6de3ddb9054 (grok).
+
+```overdrafter-verdict
+{
+  "schema": "overdrafter.verdict/v1",
+  "role": "verifier",
+  "verdict": "PASS_NOTES",
+  "sha": "7b5da3078ac64b12287a97ed1cdf6dd61bcf13fd",
+  "patch_id": "bfe283cec546e8c7b579ed18a8eeebc2644070ba",
+  "diff_id": "4c36e2bf1799c304cb0c97c43d8c969997492a53ccfb44e67a32ed3dbcddf4f1",
+  "verifier": {
+    "id": "68639ff6-bbc0-436d-86d5-f6de3ddb9054",
+    "model_family": "grok",
+    "github_login": "optomachina"
+  },
+  "evidence": [
+    {
+      "kind": "test",
+      "url": "https://github.com/optomachina/Overdrafter/actions/runs/39024588330"
+    },
+    {
+      "kind": "verify-run",
+      "url": "https://github.com/optomachina/Overdrafter/actions/runs/39024588300"
+    },
+    {
+      "kind": "log",
+      "url": "https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=846"
+    }
+  ],
+  "notes": [
+    "low: [follow-up, tracking] The default CLI now writes a jev-screen success commit status to GitHub as optomachina on every accepted screen. It is not a required check (branch protection requires ci and provider-go-live only, and qa-handoff gate.mjs counts only required checks), but any all-green helper over commit statuses, including the OVD-845 gate, must exclude jev-screen. (scripts/jev-pr-screen.mjs:353)",
+    "low: [follow-up, tracking] The new marker module is not on the sensitive-path list (docs/sensitive-paths.json covers scripts/jev-pr-screen* only); tracked as OVD-939 C2. (scripts/lib/jev-screen-marker.mjs:1)",
+    "low: [follow-up, tracking] The #743 duplicate came from screen.py, which does not read or write the marker, so dedupe across both callers (issue fix item 1) holds only after screen.py is retired; tracked as OVD-940. (scripts/jev-pr-screen.mjs:22)",
+    "low: [follow-up, real] When an injected marker writer throws or returns a free-text reason, the warning echoes it after sanitizeToken, which redacts only TYPESAFE_API_KEY (probe P5). The real GitHub writer returns fixed reason codes, so no token reaches logs today; keep reasons to fixed codes. (scripts/jev-pr-screen.mjs:332)"
+  ],
+  "readiness": {
+    "conflicts": 0,
+    "open_threads": 0,
+    "checks": "green"
+  },
+  "timestamp": "2026-10-17T10:44:20Z"
+}
+```
+
+_Do not edit this comment. Edited verdict comments are invalid; post a new comment instead._
+
+=== 6236230870 optomachina 2026-10-17T15:59:55Z upd=2026-10-17T15:59:55Z
+## Architect review (Codex review mode, gpt-6-astra) at 7b5da3078ac64b12287a97ed1cdf6dd61bcf13fd
+
+**Verdict: CHANGES_REQUIRED**
+
+Scope: full PR diff `d88d5df8..7b5da307`. Non-Codex build: 3 Cursor Agent commits plus 3 `Built-by: Jev` commits.
+
+**Findings**
+1. **[high] `scripts/lib/jev-screen-marker.mjs:153-156`: a truncated status list can still count as a cache hit.** `fetchStatuses` reads only `statuses?per_page=100` and never checks for a next page or a full page of 100. If a stronger marker is on page 2, `highestMarker` (170-173) never sees it. Codex reproduced this: a low marker on page 1 and a risky marker on page 2 gave `cache_hit=true`, `final=low`, and zero Jev calls. Fix: return a MISS when the response is paginated or exactly 100 long, or page through completely.
+2. **[medium] `scripts/lib/jev-screen-marker.mjs:119-128`: duplicate or malformed marker fields are accepted.** In `descriptionFields`, the last duplicate key wins and malformed tokens are dropped silently. Codex reproduced it: appending `tier=low jev=low` to a matching risky marker produced a low hit. Markers are trusted only by author login, and every bot and host shares that login. Fix: reject the whole description on any duplicate key or malformed token.
+3. **[low/policy]** `scripts/lib/jev-screen-marker.mjs` is the new cache in front of the Jev gate, but no glob in `docs/sensitive-paths.json` covers it. `scripts/jev-pr-screen*` does match the screener itself. Suggested follow-up: add it to infra_ci.
+
+**Checks**
+- Test changes, diffed explicitly: `scripts/jev-pr-screen.test.mjs` has 463 lines added and 26 removed, and goes from 21 to 44 `it(` blocks.
+  - Most removals are mechanical (adding `log: tempLog` and `caller`).
+  - The "optOut" case now uses sha `d2`, so dedupe doesn't turn it into a cache hit. That's legitimate.
+  - "replays the committed log to itself" was deleted because the log leaves the repo. That's acceptable, but it is lost coverage.
+  - No assertion was weakened to hide breakage.
+- Sensitive paths (current main): `scripts/jev-pr-screen.mjs` and `scripts/jev-pr-screen.test.mjs` are **infra_ci**.
+- Migrations/DB: none. This PR changes the review-sizing gate itself; both findings are fail-open paths in that gate.
+- Policy was checked against current main, which includes #843 (953666ce: Jev-first triage and pool rotation). That makes the Jev screen's integrity more important, not less.
+
+**Host:** mac-mini (`codex-safe review` on codex-cli 0.162.1, `model_reasoning_effort=xhigh`, `forced_login_method=chatgpt`, read-only, stdin closed, fresh worktree at the head SHA).
+
+**Pilot note:** OVD-912 routing: Codex reviewing a non-GPT build (Cursor agent + Jev) counts as the independent review.
+
+**Tier note:** HIGH. The PR touches an infra_ci sensitive path and changes the review gate. Blaine's card is still required.
+
+=== 6236585252 sonarqubecloud[bot] 2026-10-17T16:25:03Z upd=2026-10-17T16:25:03Z
+## [![Quality Gate Passed](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/checks/QualityGateBadge/qg-passed-20px.png 'Quality Gate Passed')](https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=846) **Quality Gate passed**  
+Issues  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0 New issues](https://sonarcloud.io/project/issues?id=optomachina_Overdrafter&pullRequest=846&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true)  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/accepted-16px.png '') [0 Accepted issues](https://sonarcloud.io/project/issues?id=optomachina_Overdrafter&pullRequest=846&issueStatuses=ACCEPTED)
+
+Measures  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0 Security Hotspots](https://sonarcloud.io/project/security_hotspots?id=optomachina_Overdrafter&pullRequest=846&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true)  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0.0% Coverage on New Code](https://sonarcloud.io/component_measures?id=optomachina_Overdrafter&pullRequest=846&metric=new_coverage&view=list)  
+![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0.0% Duplication on New Code](https://sonarcloud.io/component_measures?id=optomachina_Overdrafter&pullRequest=846&metric=new_duplicated_lines_density&view=list)  
+  
+<!-- sqra-placement-anchor -->
+[See analysis details on SonarQube Cloud](https://sonarcloud.io/dashboard?id=optomachina_Overdrafter&pullRequest=846)
+
+
+=== 6236829771 optomachina 2026-10-17T16:39:21Z upd=2026-10-17T16:39:21Z
+Architect fixes pushed. New head: `8bab4a7cc81233eb563efe36ae3de43d5ff73876` (fixes in `9bd44c60`, then `origin/main` merged in; no rebase or force-push).
+
+1. **[high] Pagination:** `readMarker` reads every page of commit statuses and picks the strongest valid marker (highest tier, then the newest); a failing, oversized or endless page list is a miss.
+2. **[medium] Strict markers:** a duplicate, unknown or malformed field (bad `q` hash, non-numeric or out-of-range `c`/`p`, unknown tier, extra junk), or a status for another commit, rejects the whole marker as a miss.
+3. **[low] Sensitive path:** `scripts/lib/jev-screen-marker*` is infra_ci in `docs/sensitive-paths.json` and the AGENTS.md mirror, and pinned in `sensitive-paths.test.mjs`.
+
+Targeted vitest 198/198 passed (`jev-pr-screen` 47, with 0 real `gh` requests). Hosted CI: 23/23 passed. SonarCloud gate: OK with 0 issues. Still a draft.
+
+Built-by: Jev
+

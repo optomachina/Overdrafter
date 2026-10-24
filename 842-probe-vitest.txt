@@ -1,0 +1,24 @@
+== A: env -u CI -u GITHUB_ACTIONS OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1
+ ✓ scripts/qualify-ovd417-four-migration-suffix.test.mjs (9 tests | 3 skipped) 48ms
+      Tests  6 passed | 3 skipped (9)
+== B: env -u GITHUB_ACTIONS CI=true OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1
+   × OVD-417 local qualification harness > rejects routing override before qualification 55ms
+   × OVD-417 local qualification harness > rejects duplicate database before qualification 14ms
+   × OVD-417 local qualification harness > rejects non-empty evidence before qualification 15ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification
++ OVD-417 qualification stopped: required tool is unavailable: docker
+ FAIL  scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification
++ OVD-417 qualification stopped: required tool is unavailable: docker
+== C: env -u CI GITHUB_ACTIONS=true OVD_PREFLIGHT_DOCKER_UNAVAILABLE=1
+ ✓ scripts/qualify-ovd417-four-migration-suffix.test.mjs (9 tests | 3 skipped) 54ms
+      Tests  6 passed | 3 skipped (9)
+== D: env -u CI -u GITHUB_ACTIONS -u OVD_PREFLIGHT_DOCKER_UNAVAILABLE
+   × OVD-417 local qualification harness > rejects routing override before qualification 31ms
+   × OVD-417 local qualification harness > rejects duplicate database before qualification 11ms
+   × OVD-417 local qualification harness > rejects non-empty evidence before qualification 14ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects routing override before qualification
++ OVD-417 qualification stopped: required tool is unavailable: docker
+ FAIL  scripts/qualify-ovd417-four-migration-suffix.test.mjs > OVD-417 local qualification harness > rejects duplicate database before qualification
++ OVD-417 qualification stopped: required tool is unavailable: docker

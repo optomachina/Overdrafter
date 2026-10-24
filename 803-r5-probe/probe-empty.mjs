@@ -1,0 +1,12 @@
+import { execFileSync } from "node:child_process"; import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+const mod = await import(path.resolve(process.argv[2]));
+const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+Object.assign(env, { GIT_AUTHOR_NAME: "qa", GIT_AUTHOR_EMAIL: "qa@x", GIT_COMMITTER_NAME: "qa", GIT_COMMITTER_EMAIL: "qa@x" });
+const repo = fs.mkdtempSync(path.join(os.tmpdir(), "qa803e-"));
+const g = (...a) => execFileSync("git", ["-C", repo, ...a], { env, encoding: "utf8" }).trim();
+const commit = (f, c, m) => { fs.writeFileSync(path.join(repo, f), c); g("add", f); g("commit", "-q", "-m", m); return g("rev-parse", "HEAD"); };
+g("init", "-q", "-b", "main"); g("config", "commit.gpgsign", "false"); commit("f", "1\n2\n", "init");
+g("checkout", "-q", "-b", "pr1"); const h = commit("f", "1\n2\nX\n", "pr"); g("checkout", "-q", "main");
+commit("f", "1\n2\nX\n", "same change landed independently"); g("commit", "-q", "--allow-empty", "-m", "empty squash of pr1"); const m = g("rev-parse", "HEAD");
+const r = mod.readBack({ repo, mergeSha: m, verifiedHead: h, mainRef: "main" });
+console.log(`INFO empty squash (PR change already on main): tree_match=${r.tree_match} reason=${r.reason}`);

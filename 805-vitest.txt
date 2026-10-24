@@ -1,0 +1,31 @@
+
+ RUN  v3.2.4 /workspace/qa-batch/wt805
+
+ ✓ scripts/qa-handoff/qa-handoff-workflow.test.mjs (10 tests) 10ms
+ ✓ scripts/qa-handoff/sanitize-log.test.mjs (7 tests) 8ms
+ ✓ scripts/qa-handoff/qa-handoff.test.mjs (40 tests) 188ms
+ ✓ scripts/qa-handoff/step-summary.test.mjs (83 tests) 183ms
+ ✓ scripts/qa-handoff/entrypoint.test.mjs (16 tests) 991ms
+ ✓ scripts/test-lane-contract.test.mjs (18 tests) 8484ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from null  558ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/catalog-parity-diff.node-test.mjs  509ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/prepare-sourcing-schema-restore.node-test.mjs  520ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/native/runner-containment/closed-journal.node-test.mjs  526ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/migration-timestamp.node-test.mjs  520ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/stripe-catalog-setup.node-test.mjs  509ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/verify-migration-lineage.node-test.mjs  507ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/provider-permissions-verify.node-test.mjs  577ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from tools/guardrails/proposed/guard-migrations.node-test.mjs  583ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/window2-packet.node-test.mjs  505ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/lint-rls-new-tables.node-test.mjs  511ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/sensitive-paths-report.node-test.mjs  500ms
+   ✓ explicit test execution lanes > runs every portable suite and propagates failure from scripts/check-migration-immutability.node-test.mjs  496ms
+   ✓ explicit test execution lanes > keeps database and live-provider suites out of default discovery  555ms
+   ✓ explicit test execution lanes > admits quote integration without admitting live-provider tests  544ms
+   ✓ explicit test execution lanes > requires the live flag independently of quote integration  555ms
+
+ Test Files  6 passed (6)
+      Tests  174 passed (174)
+   Start at  19:21:43
+   Duration  8.87s (transform 133ms, setup 0ms, collect 385ms, tests 9.86s, environment 1ms, prepare 389ms)
+
