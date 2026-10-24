@@ -1,0 +1,26 @@
+{
+  "observedUtc": "2026-09-08T18:35:33Z",
+  "scope": "Codex remote task observability",
+  "host": "Workstation",
+  "threadId": "01a07d88-4a3e-7733-b406-bcb7daa4dab1",
+  "dispatchAccepted": true,
+  "duplicateNativeDispatch": false,
+  "statusReads": [
+    {
+      "outcome": "No readable thread match from wait_threads"
+    },
+    {
+      "outcome": "No readable thread match from wait_threads"
+    },
+    {
+      "outcome": "Workstation listed in unavailableHosts",
+      "reason": "thread_list_unavailable"
+    }
+  ],
+  "nativeAssemblyOutcome": "unknown",
+  "currentDocumentCount": null,
+  "cleanupAfterAssemblyAttempt": "unknown",
+  "resultReceiptAvailable": false,
+  "qualification": "incomplete",
+  "nextStep": "Recover the existing task and its receipt before any further native dispatch."
+}

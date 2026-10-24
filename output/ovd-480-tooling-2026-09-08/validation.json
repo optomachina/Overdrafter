@@ -1,0 +1,71 @@
+{
+  "kind": "local_source_and_remote_receipt_consistency",
+  "passed": true,
+  "checks": [
+    {
+      "name": "overall_passed",
+      "passed": true
+    },
+    {
+      "name": "scope_retained",
+      "passed": true
+    },
+    {
+      "name": "exact_source:SharedFilePredicates.cs",
+      "passed": true
+    },
+    {
+      "name": "exact_source:FileAdmissionCases.cs",
+      "passed": true
+    },
+    {
+      "name": "exact_source:qualify.ps1",
+      "passed": true
+    },
+    {
+      "name": "source_set",
+      "passed": true
+    },
+    {
+      "name": "compile:exit",
+      "passed": true
+    },
+    {
+      "name": "test:exit",
+      "passed": true
+    },
+    {
+      "name": "raw_stdout_matches_parsed_cases",
+      "passed": true
+    },
+    {
+      "name": "exact_case_set",
+      "passed": true
+    },
+    {
+      "name": "case:positive_control",
+      "passed": true
+    },
+    {
+      "name": "case:missing_part",
+      "passed": true
+    },
+    {
+      "name": "case:changed_bytes",
+      "passed": true
+    },
+    {
+      "name": "case:outside_root",
+      "passed": true
+    },
+    {
+      "name": "case:prefix_sibling",
+      "passed": true
+    },
+    {
+      "name": "controls_and_adverse_setup",
+      "passed": true
+    }
+  ],
+  "limits": "No independent Windows byte hashing or second native execution; source code hashes are computed on the coordinator."
+}

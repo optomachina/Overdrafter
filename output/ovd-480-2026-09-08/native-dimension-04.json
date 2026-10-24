@@ -1,0 +1,276 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-NATIVE-DIM-001",
+  "attempt": "native-dimension-04",
+  "observedUtc": "2026-09-08T18:08:01.8521118Z",
+  "outcome": "one_part_native_dimension_save_reopen_passed",
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "evidence": {
+    "source": "sanitized_remote_executor_receipt_in_existing_linear_progress_comment",
+    "commentId": "00cfc28c-f0dc-4b41-8f87-81b372d8d19b",
+    "rawWindowsOutputReceivedByCoordinator": false,
+    "nativeFilesDownloadedOrIndependentlyHashedByCoordinator": false,
+    "coordinatorNumericalCheckScope": [
+      "depth",
+      "volume",
+      "surface_area"
+    ],
+    "centerLimit": "Only approximate components are present in the receipt; the center predicate is executor-reported, not independently recomputed."
+  },
+  "runtime": {
+    "machine": "Workstation",
+    "solidworks": "2022 SP5",
+    "version": "30.5.0.0049",
+    "interopVersion": "30.5.0.49",
+    "windowsHomeAccepted": true,
+    "processId": 5968,
+    "sessionId": 1,
+    "cimStartUtc": "2026-09-06T02:17:35.6279620Z",
+    "dotNetStartTicks": "639242578556279623",
+    "executableSha256": "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc",
+    "identityBeforeAfterMatched": true
+  },
+  "helper": {
+    "processId": 19824,
+    "apartment": "STA",
+    "architecture": "x64",
+    "compileExitCode": 0,
+    "exitCode": 0,
+    "exitCodeKnown": true,
+    "elapsedSeconds": 12.964,
+    "parentDeadlineSeconds": 180,
+    "automaticRetries": 0,
+    "firstFailure": null,
+    "releaseErrors": []
+  },
+  "input": {
+    "bytes": 25332,
+    "sha256": "6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d",
+    "provenance": "user_authorized_recovered_blank_part",
+    "factoryTemplateOriginClaimed": false,
+    "originalUnchanged": true
+  },
+  "blankInspection": {
+    "configurations": 1,
+    "activeSketch": false,
+    "featureCount": 23,
+    "solidBodies": 0,
+    "sheetBodies": 0,
+    "externalReferences": 0,
+    "auxiliaryReferences": 0,
+    "equations": 0,
+    "childrenInspected": true,
+    "unclassifiedChildren": false,
+    "admissionScope": "Exact recovered source hash and observed configuration; includes fixture-specific container classifications."
+  },
+  "binding": {
+    "featureName": "OVD_QualificationExtrusion",
+    "observedFeatureType": "Extrusion",
+    "definitionInterface": "IExtrudeFeatureData2",
+    "ownership": "Exact returned feature, unique name/type in sole owned private document",
+    "plane": "Observed origin and positive-Z normal, selected by retained native identity",
+    "sketchName": "Sketch1",
+    "sketchType": "ProfileFeature",
+    "circleRadiusM": 0.01,
+    "sketchFullyConstrainedClaimed": false
+  },
+  "phases": [
+    {
+      "isBase": true,
+      "isThin": false,
+      "isBossDiagnostic": false,
+      "bothDirections": false,
+      "fromType": 0,
+      "reverseDirection": false,
+      "rebuild": true,
+      "featureErrorCode": 0,
+      "featureWarning": false,
+      "solidBodies": 1,
+      "sheetBodies": 0,
+      "massPropertyValuesFinite": 12,
+      "centerPredicate": {
+        "outcome": "pass",
+        "evidence": "remote_executor_report",
+        "exactComponentsAvailableLocally": false
+      },
+      "name": "baseline_5mm",
+      "depthM": 0.005,
+      "forwardEndCondition": 0,
+      "volumeM3": 0.0000015707963267948969,
+      "areaM2": 0.000942477796076938,
+      "approximateCenterM": [
+        0,
+        0,
+        0.0025
+      ]
+    },
+    {
+      "isBase": true,
+      "isThin": false,
+      "isBossDiagnostic": false,
+      "bothDirections": false,
+      "fromType": 0,
+      "reverseDirection": false,
+      "rebuild": true,
+      "featureErrorCode": 0,
+      "featureWarning": false,
+      "solidBodies": 1,
+      "sheetBodies": 0,
+      "massPropertyValuesFinite": 12,
+      "centerPredicate": {
+        "outcome": "pass",
+        "evidence": "remote_executor_report",
+        "exactComponentsAvailableLocally": false
+      },
+      "name": "candidate_before_edit_5mm",
+      "depthM": 0.005,
+      "forwardEndCondition": 0,
+      "volumeM3": 0.0000015707963267948969,
+      "areaM2": 0.000942477796076938,
+      "approximateCenterM": [
+        0,
+        0,
+        0.0025
+      ]
+    },
+    {
+      "isBase": true,
+      "isThin": false,
+      "isBossDiagnostic": false,
+      "bothDirections": false,
+      "fromType": 0,
+      "reverseDirection": false,
+      "rebuild": true,
+      "featureErrorCode": 0,
+      "featureWarning": false,
+      "solidBodies": 1,
+      "sheetBodies": 0,
+      "massPropertyValuesFinite": 12,
+      "centerPredicate": {
+        "outcome": "pass",
+        "evidence": "remote_executor_report",
+        "exactComponentsAvailableLocally": false
+      },
+      "name": "candidate_8mm",
+      "depthM": 0.008,
+      "forwardEndCondition": 0,
+      "volumeM3": 0.000002513274122871835,
+      "areaM2": 0.0011309733552923257,
+      "approximateCenterM": [
+        0,
+        0,
+        0.004
+      ]
+    },
+    {
+      "isBase": true,
+      "isThin": false,
+      "isBossDiagnostic": false,
+      "bothDirections": false,
+      "fromType": 0,
+      "reverseDirection": false,
+      "rebuild": true,
+      "featureErrorCode": 0,
+      "featureWarning": false,
+      "solidBodies": 1,
+      "sheetBodies": 0,
+      "massPropertyValuesFinite": 12,
+      "centerPredicate": {
+        "outcome": "pass",
+        "evidence": "remote_executor_report",
+        "exactComponentsAvailableLocally": false
+      },
+      "name": "reopened_candidate_8mm",
+      "depthM": 0.008,
+      "forwardEndCondition": 0,
+      "volumeM3": 0.000002513274122871835,
+      "areaM2": 0.0011309733552923257,
+      "approximateCenterM": [
+        0,
+        0,
+        0.004
+      ]
+    }
+  ],
+  "tolerances": {
+    "depthM": 1e-10,
+    "volumeM3": 1e-10,
+    "areaM2": 1e-9,
+    "centerM": 1e-8
+  },
+  "save": {
+    "baseline": {
+      "returned": true,
+      "errors": 0,
+      "warnings": 0,
+      "exactPath": true,
+      "cleanBeforeClose": true
+    },
+    "candidate": {
+      "returned": true,
+      "errors": 0,
+      "warnings": 0,
+      "exactPath": true,
+      "cleanBeforeClose": true
+    }
+  },
+  "change": {
+    "accessSelections": true,
+    "forwardDepthM": 0.008,
+    "modifyDefinition": true,
+    "definitionReacquired": true,
+    "baselineCopiedByteExactly": true,
+    "candidateReverifiedAtBaselineDepth": true
+  },
+  "reopen": {
+    "silent": true,
+    "readOnly": true,
+    "readOnlyStateVerified": true,
+    "configurationAndUniqueFeatureVerified": true,
+    "rebuildChangesDiscarded": true,
+    "savedCandidateHashUnchanged": true
+  },
+  "files": {
+    "remotePackageRoot": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-04-e8d2937cf8104a5385ed184c02e92009/",
+    "baseline": {
+      "filename": "baseline-5mm.SLDPRT",
+      "bytes": 56144,
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+      "finalHashUnchanged": true
+    },
+    "candidate": {
+      "filename": "candidate-8mm.SLDPRT",
+      "bytes": 56171,
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+      "finalHashUnchanged": true
+    }
+  },
+  "cleanup": {
+    "initialDocumentCount": 0,
+    "finalDocumentCount": 0,
+    "originalApplicationRetained": true,
+    "extraApplicationProcesses": 0,
+    "originalOpticalOrCustomerFilesOpened": false,
+    "recoveryOriginalWritten": false
+  },
+  "sourceHashes": {
+    "fixtureCs": "313248ef9fcc6bb63dbb01e26901f478f3dde7de9655c1cbd0f821315c9d38f9",
+    "identityGuardCs": "c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8",
+    "ownedCleanupCs": "dde90497e3ebb94198042ce6fad22da56d1ef8e6e9283341218ebd92d08b17e4",
+    "parentPs1": "19f7f99c8b3c9df7c180161ce3730c2fdec25f480a21f7e252e78c935f1d6f41",
+    "executable": "c012f91e90bdf916aeb883c541fb7e1a2fc33d9b86dc071f16e3d007ede39597",
+    "resultJson": "268a34d03b750c5a5816ba37b0cbd286f95071de2a8be25858f74aeff317397d",
+    "stderrJsonl": "390b3bb6054aa03c63edd41c0172691c53fcbddd246c5109a001fc098e23d16c",
+    "stdout": "d92f275b2eb44e89d88adb7c5f62d79d867f448db4f793f646f642c1567c7890"
+  },
+  "limitations": [
+    "Synthetic single part and one configuration only",
+    "Test density 1 is not material evidence",
+    "No assembly operation or dependency-closure qualification",
+    "No qualified worker isolation, lease recovery or external publication",
+    "Box modeler failure remains unresolved",
+    "Not a statistical reliability result"
+  ],
+  "receipt": "- Native first-solid fixture result: PASS, exactly ONE native-dimension-04 run; no retry. Compile UTC 2026-09-08T18:07:45.4252747Z exit 0/no diagnostics. Parent UTC 18:08:01.8521118Z, helper UTC 18:08:02.3633126Z, x64 STA PID 19824, actual helper exit 0/known true, elapsed 12.964 seconds within owned-helper 180-second deadline. Every recorded check passed; no first failure, terminal exception or release error. Original singleton SW PID 5968/session 1/CIM start 2026-09-06T02:17:35.6279620Z/product+file 30.5.0.0049/executable SHA256 6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc preserved; separate same-provider .NET start ticks 639242578556279623 matched exactly before/after. Initial and final document counts 0.\n  Corrected mandatory semantics to IsBase2()=true, IExtrudeFeatureData2.IsThinFeature()=false, BothDirections=false, blind forward end condition 0 and finite expected depth, with exact returned feature ownership and unique recorded Name OVD_QualificationExtrusion / observed Type Extrusion. IsBossFeature() observed false throughout, diagnostic only; no base-versus-boss exclusivity claim. Within valid private ownership/scope, collected all flags, rebuild, native error, body counts and available geometry before aggregate acceptance; diagnostic errors empty. Immutable recovered local part hash 6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d verified and copied into fresh private package; no factory provenance claim. Scoped 23-feature/child allowlist including six previously reviewed container/light types passed, with one configuration, no active sketch, zero initial solid/sheet/external/auxiliary/equation counts. Actual origin/+Z plane selected by retained identity; radius 0.010 m circle in identity-bound Sketch1/ProfileFeature, unchanged 23-argument FeatureExtrusion3 at 0.005 m. No fully-constrained sketch claim.\n  All four phases (baseline 5 mm, candidate before edit 5 mm, candidate 8 mm, read-only reopen 8 mm) passed semantics/native/geometry: IsBase true, IsThin false, IsBoss diagnostic false, BothDirections false, FromType 0, ReverseDirection false, rebuild true, feature error 0/no warning, one solid/zero sheets, all 12 mass-property values finite. At 5 mm: depth 0.005 m, volume 1.5707963267948969e-6 m3, area 0.000942477796076938 m2, center approximately (0,0,0.0025) m. At 8 mm and reopen: depth 0.008 m, volume 2.513274122871835e-6 m3, area 0.0011309733552923257 m2, center approximately (0,0,0.004) m. Absolute tolerances depth 1e-10 m, volume 1e-10 m3, area 1e-9 m2, center 1e-8 m. Test density 1 only, no material claim.\n  Save3 baseline and candidate each returned true/errors 0/warnings 0, exact path and clean state verified before own-document close. Closed baseline hashed, exact byte copy made and reverified at 5 mm; AccessSelections true, SetDepth(true,0.008), ModifyDefinition true, reacquired definition and verified 8 mm, saved/closed/hashed. Reopened candidate Silent|ReadOnly, read-only state/unique feature/configuration/8 mm checks passed; closed verification document without saving its rebuild. Final hashes verified unchanged baseline, saved candidate and original recovery. No original optical/customer files opened or mutated, no recovery writes, no extra SW, no OS/security/license/registry/add-in/PDM changes.\n  Native package C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-04-e8d2937cf8104a5385ed184c02e92009/: baseline-5mm.SLDPRT 56144 bytes SHA256 e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa; candidate-8mm.SLDPRT 56171 bytes SHA256 b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898. Independent post-run shared-read hashes matched both.\n  Evidence outputs/ovd-480-readonly-identity/native-dimension-04/: Fixture.cs SHA256 313248ef9fcc6bb63dbb01e26901f478f3dde7de9655c1cbd0f821315c9d38f9; IdentityGuard.cs c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; OwnedCleanup.cs dde90497e3ebb94198042ce6fad22da56d1ef8e6e9283341218ebd92d08b17e4; parent.ps1 19f7f99c8b3c9df7c180161ce3730c2fdec25f480a21f7e252e78c935f1d6f41; EXE c012f91e90bdf916aeb883c541fb7e1a2fc33d9b86dc071f16e3d007ede39597; result.json 268a34d03b750c5a5816ba37b0cbd286f95071de2a8be25858f74aeff317397d; flushed JSONL typed.stderr.txt 390b3bb6054aa03c63edd41c0172691c53fcbddd246c5109a001fc098e23d16c; stdout d92f275b2eb44e89d88adb7c5f62d79d867f448db4f793f646f642c1567c7890; compile-result.json/settings.json/hashes.json retained. One-part native dimension/save/reopen proof passed; assembly behavior and full worker qualification remain unverified. Experimental Windows Home acceptance and all earlier history preserved. Stopped after this one authorized run."
+}

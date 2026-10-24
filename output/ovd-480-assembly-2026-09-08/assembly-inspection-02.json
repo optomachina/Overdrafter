@@ -1,0 +1,122 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-ASSEMBLY-INSPECT-001",
+  "attempt": "assembly-inspection-02",
+  "observedUtc": "2026-09-08T18:44:46.3873797Z",
+  "outcome": "assembly_saved_reopen_warning_rejected_cleanup_incomplete",
+  "helper": {
+    "pid": 2420,
+    "exitCode": 2,
+    "exitCodeKnown": true,
+    "elapsedSeconds": 19.516,
+    "deadlineSeconds": 180,
+    "compileExitCode": 0
+  },
+  "blankInspectionPassed": true,
+  "partVerificationPassed": true,
+  "componentInsertionPassed": true,
+  "initialAssemblyRebuildPassed": true,
+  "initialOccurrences": [
+    {
+      "name": "baseline-5mm-1",
+      "path": "parts/baseline-5mm.SLDPRT",
+      "configuration": "Default",
+      "underlyingConfiguration": "Default",
+      "virtual": false,
+      "suppressionState": 2,
+      "fixed": true,
+      "readOnly": true,
+      "transform": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "candidate-8mm-1",
+      "path": "parts/candidate-8mm.SLDPRT",
+      "configuration": "Default",
+      "underlyingConfiguration": "Default",
+      "virtual": false,
+      "suppressionState": 2,
+      "fixed": true,
+      "readOnly": true,
+      "transform": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0.04,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "initialDependencies": [
+    "parts/baseline-5mm.SLDPRT",
+    "parts/candidate-8mm.SLDPRT"
+  ],
+  "packagePath": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7",
+  "assemblyConfiguration": "Default",
+  "save": {
+    "returned": true,
+    "errors": 0,
+    "warnings": 0,
+    "exactPath": true,
+    "clean": true,
+    "closedSessionCount": 0,
+    "file": "synthetic-assembly.SLDASM",
+    "bytes": 59987,
+    "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+  },
+  "reopen": {
+    "returnedDocument": true,
+    "errors": 0,
+    "warnings": 32,
+    "warningName": "swFileLoadWarning_NeedsRegen",
+    "options": 67,
+    "callerAccepted": false,
+    "phase": "reopen_assembly_open",
+    "occurrences": null,
+    "transforms": null,
+    "referenceClosure": null,
+    "readOnlyState": null
+  },
+  "cleanup": {
+    "failed": true,
+    "reason": "part_closed_before_referencing_assembly_after_caller_assignment_failed",
+    "finalDocumentCount": null,
+    "originalApplicationPreserved": true,
+    "postRunInputAndSavedAssemblyHashesMatched": true
+  },
+  "partialManifest": {
+    "sha256": "219d1b838fbf078afbef07a273f193a2f4b27708e394940e34789fb281a6e93d",
+    "fullSuccess": false
+  },
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "evidence": "Sanitized executor receipt; initial observations must not be copied into unevaluated reopen fields.",
+  "receipt": "- Synthetic assembly correction result: ONE assembly-inspection-02 run; PARTIAL SUCCESS through native assembly save, then caller warning rejection and incomplete failure cleanup. No retry. Only source change from native01: LiveSectionFolder admitted in the exact hash-pinned template blank-feature allowlist; child traversal/all other gates and proven resolver + NoInlining Run/delayed typed allocations preserved. Compile UTC 2026-09-08T18:44:38.5378456Z exit 0/no diagnostics. Parent UTC 18:44:46.3873797Z/helper 18:44:46.9722912Z; x64 STA owned helper PID 2420, actual exit 2/known true, elapsed 19.516 s under 180-second deadline, no timeout/kill. SW singleton PID 5968/session 1/CIM start 2026-09-06T02:17:35.6279620Z/product+file 30.5.0.0049/executable SHA256 6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc and separately pinned .NET ticks 639242578556279623 matched parent before/recheck/after; original present/no extra. API identity passed; initial document count 0.\n  PASS blank assembly: observed configuration Default, same 22 traversed feature/child types including LiveSectionFolder, zero components/dependencies/equations, no unknown modeling/cycles. Original/private input checks passed. Both private parts opened Silent|ReadOnly with one actual configuration Default each; native04 5/8 mm semantics/rebuild/body-count/finite-volume-area-center checks passed, empty CAD dependencies, read-only retained after verification. AddComponent5 returned two exact private references/configurations. Selection identity, floating before exact Transform2 assignment, then fixing and transform readback passed. Full initial assembly rebuild and GetComponents(true)/GetComponents(false) same two-identity set passed.\n  ACTUAL initial observations after rebuild: baseline-5mm-1 -> parts/baseline-5mm.SLDPRT, ReferencedConfiguration Default, underlying configuration Default, nonvirtual, suppression state 2, fixed true, underlying exact-path model non-null/read-only true; all16 transform entries [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0]. candidate-8mm-1 -> parts/candidate-8mm.SLDPRT, ReferencedConfiguration Default, underlying configuration Default, nonvirtual, state 2, fixed true, underlying exact-path model non-null/read-only true; transform [1,0,0,0,1,0,0,0,1,0.04,0,0,1,0,0,0]. Rotation/scale tolerance 1e-10, translation 1e-8 m; unused last3 entries diagnostic. Raw assembly dependency pairs EXACTLY [\"baseline-5mm\", PACKAGE/parts/baseline-5mm.SLDPRT, \"candidate-8mm\", PACKAGE/parts/candidate-8mm.SLDPRT], where PACKAGE is the absolute package below; no appended imported-source path, malformed/broken/unexpected path, duplicate or extra loaded document. All resolved/model paths equal these absolute private paths. Observed CAD closure only, not global filesystem/network or all auxiliary dependency isolation.\n  SaveAs3 current-version0/Silent1 returned true/errors0/warnings0, exact assembly path/clean state. First ClosePrivate closed assembly then both read-only parts (part verification rebuild dirtiness discarded), verified count0. Saved synthetic-assembly.SLDASM 59987 bytes SHA256 90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a. Original/private template and part hashes unchanged after first close. Re-preloaded both private parts read-only, reverified configurations/native geometry and empty dependencies.\n  REOPEN: OpenDoc6 saved assembly options67 (Silent1|ReadOnly2|OverrideDefaultLoadLightweight64) returned NON-NULL, errors0, warnings32. Installed metadata independently decodes 32 as swFileLoadWarning_NeedsRegen. FirstFailureStage reopen_assembly_open, local InvalidOperationException 0x80131509 because unchanged caller demanded warnings==0; NOT native open failure. Caller rejected before returned assembly assignment to Asm, path/read-only checks, full rebuild or reopened occurrence/dependency inspection. Therefore actual AFTER-REOPEN transform arrays, occurrence configurations/states/read-only/reference closure are NOT EVALUATED; do not reuse initial observations as persistence proof. No warning-policy bypass/rebuild retry performed.\n  CLEANUP ISSUE: returned reopened document was already added to owned Docs, but Asm remained null because the OpenPrivate predicate threw before caller assignment. Thus failure cleanup ordered the baseline part before the reopened assembly. It verified a known three-document private set, called CloseDoc on baseline-5mm.SLDPRT (dirty true from verification rebuild), then still observed that same part identity in GetDocuments and stopped at failure_cleanup_closed_identity, local 0x80131509. This source ordering defect explains why assembly-first cleanup was not reached; do not claim all docs closed. Final document count is UNKNOWN/not recorded; baseline remained observed after close attempt, reopened assembly/other part were not explicitly closed afterward. No subsequent native probe or cleanup retry. ReleaseErrors=[]; main catch overwrote status to assembly_failed but separate CleanupFailure retained. Parent process identity check succeeded independently. NOT EVALUATED: reopened inspection, final close/count0, native final-hash stage, full-success manifest.\n  PACKAGE=C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7. Relative files: synthetic-assembly.SLDASM 59987 bytes/hash90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a; template/Assembly.asmdot 18811 bytes/hash765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec; parts/baseline-5mm.SLDPRT 56144 bytes/hashe4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa; parts/candidate-8mm.SLDPRT 56171 bytes/hashb08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898. Independent compatible-shared-read post-run checks matched saved assembly and all source/private input hashes. No original/recovery/customer document opened or written. Source template and native04 part lineage unchanged.\n  Separate stable UTF-8 assembly-manifest.partial.json SHA256 219d1b838fbf078afbef07a273f193a2f4b27708e394940e34789fb281a6e93d records all available native observations, exact initial arrays/configurations/dependency pairs, null reopened observations/final count, input/output digests, lineage/runtime and limitations. Post-run file-only artifact, not native full-success manifest or production snapshot/release authority. No global settings/security/license/add-in/install changes, no adverse-case fixtures.\n  Evidence outputs/ovd-480-readonly-identity/assembly-inspection-02/: Assembly.cs SHA256 831da0dc6280ca4bc51921d5d6de77557ec8a7c71c7f2e0e6132040f420f7c7f; PartVerification.cs b155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908; IdentityGuard.cs c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps1 98362ba0c964ead69ca13dc5bf059f321cd6d61720c9f8d0a7f6568b7144cee1; EXE ec9ea1dbfc28df9b9b41111f763a8c869955cfe40182aab373319e088ed3b84e; result.json 20c54df969e329906e794187db2e68f98094bdcba5802b411f1f331f44b90fea; flushed JSONL fcad3f8ea02b7187e28c456203b4532ac048de5e1bf59edee90ba48e090cc488; stdout c84d753bb856fba1dd40fd2aaec79702d6cc11da254f9a1d71572f008cb53bb4; post-run-files.json aa7dbb8fbc9c0dd92233c4813e2c147c087f6abc4a25535af7b48c7c288e8326; compile/settings/hashes retained. All prior receipts and experimental Home acceptance preserved. Stopped after one run."
+}

@@ -1,0 +1,39 @@
+{
+  "issue": "OVD-480",
+  "qualification": "incomplete",
+  "scope": "parent preflight and owned-helper timeout mechanics",
+  "cases": [
+    {
+      "name": "wrong_executable_hash",
+      "observedUtc": "2026-09-08T16:34:56.9902014Z",
+      "result": "stale_identity",
+      "helperStarted": false,
+      "comCalls": 0,
+      "passed": true
+    },
+    {
+      "name": "owned_helper_timeout",
+      "observedUtc": "2026-09-08T16:34:57.1674154Z",
+      "result": "timeout_30s",
+      "elapsedSeconds": 30.013,
+      "helperPid": 16752,
+      "helperExited": true,
+      "helperExitCode": -1,
+      "comCalls": 0,
+      "passed": true
+    }
+  ],
+  "originalCadProcessRetained": true,
+  "cadProcessCountBefore": 1,
+  "cadProcessCountAfter": 1,
+  "remoteDirectory": "outputs/ovd-480-readonly-identity/guard-faults-01",
+  "sourceHashes": {
+    "dummy": "c1a6d2bf950f220904e73247c8a06f30cbbb902f8993d05d446905f9f0e0295f",
+    "parent": "a9881ea0dc487bca66e9764d14167ce26af634ef480bb496181b530116e395a1"
+  },
+  "limitations": [
+    "Dummy helper performed no CAD calls; these tests do not demonstrate interrupted CAD effect recovery.",
+    "This probe does not establish filesystem/tenant isolation.",
+    "Remote executor receipt is the coordinator's evidence; raw Windows output unavailable."
+  ]
+}

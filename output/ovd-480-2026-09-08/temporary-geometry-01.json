@@ -1,0 +1,79 @@
+{
+  "issue": "OVD-480",
+  "experiment": "temporary_native_boxes",
+  "attempt": "temporary-boxes-01",
+  "observationUtc": "2026-09-08T16:30:56.3916796Z",
+  "runtime": {
+    "cadVersion": "30.5.0.0049",
+    "apiRevision": "30.5.0",
+    "pid": 5968,
+    "sessionId": 1,
+    "apartment": "STA"
+  },
+  "acceptedLimitation": {
+    "windowsHome": true,
+    "decision": "Yes, continue past that obstacle. If it works it works.",
+    "scope": "experimental prototype"
+  },
+  "expected": [
+    {
+      "thicknessMm": 5,
+      "volumeM3": 0.00003,
+      "areaM2": 0.0136,
+      "centerM": [
+        0,
+        0,
+        0.0025
+      ]
+    },
+    {
+      "thicknessMm": 8,
+      "volumeM3": 0.000048,
+      "areaM2": 0.01456,
+      "centerM": [
+        0,
+        0,
+        0.004
+      ]
+    }
+  ],
+  "absoluteTolerance": {
+    "volumeM3": 1e-10,
+    "areaM2": 1e-9,
+    "centerM": 1e-8
+  },
+  "result": {
+    "status": "failed",
+    "hresult": "0x8002000D",
+    "stage": "temporary_box_5mm",
+    "exactSubcall": "unrecorded",
+    "measurements": [],
+    "predicates": "not_evaluated",
+    "secondBoxAttempted": false
+  },
+  "helper": {
+    "compileExitCode": 0,
+    "exitCode": 2,
+    "elapsedSeconds": 0.274,
+    "sourceSha256": "16342690834213716d2c032465259feabc6f468281b0ca293279eebcef805761",
+    "exeSha256": "1ef086d6713f2d2958861162e050cb3a4daf9d9a62fc9f78289ca50024a6d6f6",
+    "remoteDirectory": "outputs/ovd-480-readonly-identity/temporary-boxes-01"
+  },
+  "session": {
+    "documentCountBefore": 15,
+    "documentCountAfter": 15,
+    "originalProcessIdentityRetained": true,
+    "extraCadProcesses": 0
+  },
+  "evidence": {
+    "kind": "remote_executor_report",
+    "linearCommentId": "00cfc28c-f0dc-4b41-8f87-81b372d8d19b",
+    "rawCommandOutputAvailableToCoordinator": false
+  },
+  "qualification": "incomplete",
+  "limitations": [
+    "Two separate temporary bodies would not demonstrate a parametric dimension edit.",
+    "No native document or save/reopen cycle attempted.",
+    "Template cleanliness and worker isolation remain unverified."
+  ]
+}

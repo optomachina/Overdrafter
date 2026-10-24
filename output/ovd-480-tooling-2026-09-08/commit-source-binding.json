@@ -1,0 +1,22 @@
+{
+  "kind": "committed_source_to_executor_receipt_binding",
+  "commit": "07adbef37696537d097486118c2431a6c5176edb",
+  "files": [
+    {
+      "path": "scripts/native/file-admission/SharedFilePredicates.cs",
+      "sha256": "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7"
+    },
+    {
+      "path": "scripts/native/file-admission/FileAdmissionCases.cs",
+      "sha256": "5d49f7076adfa7fe29025732de284d6d235436b6f2b76acaf5ac88004aaf02b4"
+    },
+    {
+      "path": "scripts/native/file-admission/qualify.ps1",
+      "sha256": "15a8079003677f8db34a36f96079a16e1f104ac121518471449640780c6ca277"
+    }
+  ],
+  "allSourceDigestsMatch": true,
+  "originalReceiptSourceCommit": null,
+  "localParsedReceiptSHA256": "e397481b264cac72c74556bcbe6e31556f9a8efdc8d15827e1244bd4e230c585",
+  "limits": "Maps committed source bytes to reported executed source hashes. Does not independently reproduce execution, qualify worker isolation or alter the original null-commit receipt."
+}

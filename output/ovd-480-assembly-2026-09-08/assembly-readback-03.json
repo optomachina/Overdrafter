@@ -1,0 +1,198 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-ASSEMBLY-INSPECT-001",
+  "attempt": "assembly-readback-03",
+  "observedUtc": "2026-09-08T18:55:33.0594671Z",
+  "outcome": "verified_after_rebuild_with_load_warning_preserved",
+  "helper": {
+    "pid": 13632,
+    "exitCode": 0,
+    "exitCodeKnown": true,
+    "compileExitCode": 0,
+    "elapsedSeconds": 9.609,
+    "deadlineSeconds": 180,
+    "automaticRetries": 0
+  },
+  "recovery": {
+    "initialDocumentCount": 3,
+    "allKnownPrivate": true,
+    "allReadOnly": true,
+    "configurations": [
+      "Default"
+    ],
+    "closedAssemblyFirst": true,
+    "countAfterAssemblyClose": 1,
+    "baselineAutomaticallyUnloaded": true,
+    "finalDocumentCount": 0,
+    "filesUnchanged": true
+  },
+  "reopen": {
+    "returnedDocument": true,
+    "errors": 0,
+    "warnings": 32,
+    "warningName": "swFileLoadWarning_NeedsRegen",
+    "options": 67,
+    "readOnly": true,
+    "configuration": "Default",
+    "roleRetainedBeforeAdmission": true,
+    "allowedWarningMask": 32,
+    "fullActiveConfigurationRebuild": true,
+    "assemblyRebuildCalls": 1
+  },
+  "occurrences": [
+    {
+      "name": "baseline-5mm-1",
+      "path": "parts/baseline-5mm.SLDPRT",
+      "configuration": "Default",
+      "underlyingConfiguration": "Default",
+      "virtual": false,
+      "suppressionState": 2,
+      "fixed": true,
+      "readOnly": true,
+      "transform": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "observationPhase": "fresh_readback_after_rebuild"
+    },
+    {
+      "name": "candidate-8mm-1",
+      "path": "parts/candidate-8mm.SLDPRT",
+      "configuration": "Default",
+      "underlyingConfiguration": "Default",
+      "virtual": false,
+      "suppressionState": 2,
+      "fixed": true,
+      "readOnly": true,
+      "transform": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0.04,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "observationPhase": "fresh_readback_after_rebuild"
+    }
+  ],
+  "dependencies": [
+    "parts/baseline-5mm.SLDPRT",
+    "parts/candidate-8mm.SLDPRT"
+  ],
+  "partDependencies": {
+    "parts/baseline-5mm.SLDPRT": [],
+    "parts/candidate-8mm.SLDPRT": []
+  },
+  "partMeasurements": [
+    {
+      "path": "parts/baseline-5mm.SLDPRT",
+      "depthM": 0.005,
+      "volumeM3": 0.0000015707963267948969,
+      "areaM2": 0.000942477796076938,
+      "centerEvidence": "executor_reported_approximate"
+    },
+    {
+      "path": "parts/candidate-8mm.SLDPRT",
+      "depthM": 0.008,
+      "volumeM3": 0.000002513274122871835,
+      "areaM2": 0.0011309733552923257,
+      "centerEvidence": "executor_reported_approximate"
+    }
+  ],
+  "cleanup": {
+    "closedAssemblyFirst": true,
+    "remainingCounts": [
+      2,
+      1,
+      0
+    ],
+    "finalDocumentCount": 0,
+    "originalApplicationPreserved": true,
+    "extraApplicationProcesses": 0,
+    "sourceAndPrivateHashesUnchanged": true,
+    "primaryError": null,
+    "cleanupError": null,
+    "releaseErrors": []
+  },
+  "nativeFileSaves": 0,
+  "nativeGeometryEdits": 0,
+  "packagePath": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7",
+  "files": {
+    "assembly": {
+      "path": "synthetic-assembly.SLDASM",
+      "bytes": 59987,
+      "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+    },
+    "baseline": {
+      "path": "parts/baseline-5mm.SLDPRT",
+      "bytes": 56144,
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+    },
+    "candidate": {
+      "path": "parts/candidate-8mm.SLDPRT",
+      "bytes": 56171,
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+    },
+    "template": {
+      "path": "template/Assembly.asmdot",
+      "bytes": 18811,
+      "sha256": "765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec"
+    }
+  },
+  "manifest": {
+    "filename": "assembly-readback-manifest.json",
+    "bytes": 20677,
+    "sha256": "997cb9b1b7a4afb08d934872a61eea2835a7f909e09f611c5874e8ce766855a0",
+    "note": "Manifest-stage snapshot precedes its completion; final result.json reports pass."
+  },
+  "sourceHashes": {
+    "assemblyCs": "52aed1c98aa36e181ff368a465a7057c885687263999949f6a9c3c10492e0439",
+    "partVerificationCs": "b155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908",
+    "identityGuardCs": "c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8",
+    "parentPs1": "98362ba0c964ead69ca13dc5bf059f321cd6d61720c9f8d0a7f6568b7144cee1",
+    "executable": "5ea1e39cdfc4e3bb060df4f08bc5feb02dbb6f589c6493931c75e1f8ab51e1db",
+    "resultJson": "bfa79d66a94fc40beadcb5cd05d8bdd9e9273096c0096fe22777fd1022659170",
+    "jsonl": "7aabe6573c48c8d3c54bc67bf5648a4c1be0148004d62ac6fd5cd5dee00b1b87",
+    "stdout": "82919d6b31967f73c1655fe035fd83523a9f419f118d3be92810aa65e7000fba"
+  },
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "evidence": {
+    "source": "sanitized_remote_executor_receipt",
+    "newReopenedObservationsReported": true,
+    "coordinatorIndependentlyRanCad": false,
+    "coordinatorHasNativeFiles": false
+  },
+  "limitations": [
+    "One flat two-component assembly and one configuration",
+    "No mates, subassemblies or component-operation qualification",
+    "CAD dependency closure only, not filesystem/network isolation or every support file",
+    "Warning32 remains in load evidence",
+    "Centers are executor-reported approximate values"
+  ],
+  "receipt": "- Saved assembly readback result: PASS — verified after rebuild with warning32 preserved, ONE assembly-readback-03 recovery/readback run; no geometry recreation/edit/save or native retry. Compile UTC 2026-09-08T18:55:23.5696737Z exit0/no diagnostics; parent18:55:33.0594671Z/helper18:55:33.6915591Z, x64STA PID13632, actual exit0/knowntrue, elapsed9.609s under180s owned-helper deadline. All final check slots pass, no primary/cleanup/release error. Original singleton SW PID5968/session1/CIMstart2026-09-06T02:17:35.6279620Z/.NETticks639242578556279623/version30.5.0.0049/exeSHA2566384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc matched before/recheck/after. API PID5968/revision30.5.0; installed interops30.5.0.49, working resolver/NoInlining/delayed allocations retained.\n  Recovery found EXACTLY3 known package documents, all configuration Default/read-onlytrue: baseline part dirtyfalse, candidate part dirtytrue, assembly dirtytrue. Pinned exact path/type/identity/input hashes. Actual assembly-first close left1 document (baseline automatically unloaded); skipped absent baseline, closed remaining candidate, verifiedcount0 and unchanged files. Caller now retains non-null opened assembly role before warning admission and orders cleanup by actual document type; primary and cleanup outcomes remain separate.\n  Fresh part preloads Silent|ReadOnly3 passed exact paths/Default configs/empty dependencies and repeated native04 geometry. Both IsBase=true, thin=false, BothDirections=false, blind0, FromType0, ReverseDirectionfalse, IsBoss diagnosticfalse (not mandatory), rebuildtrue/error0,1solid/0sheets, finite measurements. Baseline depth.005m/volume1.5707963267948969e-6m3/area.000942477796076938m2/center approximately(0,0,.0025)m; candidate depth.008m/volume2.513274122871835e-6m3/area.0011309733552923257m2/center approximately(0,0,.004)m. Test density1 only.\n  Assembly OpenDoc6 options67 returned non-null/errors0/raw warnings32 (NeedsRegen), role immediately retained; actual path/type2/configuration Default/read-onlytrue verified. Warning policy admits only0 or32. Activated retained assembly and called ForceRebuild3(false) ONCE for assembly, returnedtrue; warning preserved without resaving. Top-level/recursive GetComponents arrays contained the same exact two identities, regardless of order.\n  ACTUAL REOPENED observations: baseline-5mm-1 -> parts/baseline-5mm.SLDPRT, reference/underlying configuration Default, suppression2, nonvirtual, fixedtrue, exact non-null underlying part/read-onlytrue, transform [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0]. candidate-8mm-1 -> parts/candidate-8mm.SLDPRT, reference/underlying Default, suppression2, nonvirtual, fixedtrue, exact non-null part/read-onlytrue, transform [1,0,0,0,1,0,0,0,1,0.04,0,0,1,0,0,0]. These are new readback observations matching assembly02; metres, rotation/scale tolerance1e-10, translation1e-8m, last3unused diagnostic. All resolved GetPathName/ModelPath values are PACKAGE plus those exact relative paths.\n  Raw GetDependencies(true,false,false,true,true) pairs: [\"baseline-5mm\", PACKAGE/parts/baseline-5mm.SLDPRT, \"candidate-8mm\", PACKAGE/parts/candidate-8mm.SLDPRT]. Both part lists empty. Full normalized separator-aware private containment/exact expected files, no malformed/broken/imported/extra paths, loaded document set exactly assembly+2 read-only parts passed. CAD closure only, not global filesystem/network or all auxiliary dependency isolation.\n  Final assembly-first CloseDoc then baseline then candidate verified remaining counts2,1,0; all read-only, verification rebuild dirtiness discarded, no saves. Finalcount0, source/private input and saved assembly hashes unchanged, originalSW preserved/noextra. PACKAGE=C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7. synthetic-assembly.SLDASM59987bytes/SHA25690f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a; parts/baseline-5mm.SLDPRT56144bytes/e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa; parts/candidate-8mm.SLDPRT56171bytes/b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898; template/Assembly.asmdot18811bytes/765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec. Original standard template and native04 source part digests also preserved.\n  Evidence outputs/ovd-480-readonly-identity/assembly-readback-03/: stable UTF-8 assembly-readback-manifest.json20677bytes/SHA256997cb9b1b7a4afb08d934872a61eea2835a7f909e09f611c5874e8ce766855a0 includes actual configurations/occurrences/dependencies/units/warning/rebuild, runtime/toolchain/lineage/checks and limitations (its own manifest-stage snapshot precedes completion; result.json records pass). Assembly.cs52aed1c98aa36e181ff368a465a7057c885687263999949f6a9c3c10492e0439; PartVerification.csb155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908; IdentityGuard.csc3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps198362ba0c964ead69ca13dc5bf059f321cd6d61720c9f8d0a7f6568b7144cee1; EXE5ea1e39cdfc4e3bb060df4f08bc5feb02dbb6f589c6493931c75e1f8ab51e1db; result.jsonbfa79d66a94fc40beadcb5cd05d8bdd9e9273096c0096fe22777fd1022659170; flushed JSONL7aabe6573c48c8d3c54bc67bf5648a4c1be0148004d62ac6fd5cd5dee00b1b87; stdout82919d6b31967f73c1655fe035fd83523a9f419f118d3be92810aa65e7000fba. Compile/settings/hashes retained. No original recovery/customer opens/writes, insertion/fixing/transform edits, Save3/SaveAs3, global settings/security/license/add-in changes or adverse fixtures. Historical warning/failures and experimental Home acceptance preserved; synthetic proof only, no production snapshot/release authority."
+}

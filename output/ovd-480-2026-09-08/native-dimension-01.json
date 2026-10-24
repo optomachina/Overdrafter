@@ -1,0 +1,42 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-NATIVE-DIM-001",
+  "attempt": "native-dimension-01",
+  "observedUtc": "2026-09-08T17:45:03.3132035Z",
+  "outcome": "caller_blank_acceptance_failed",
+  "nativeGeometryAttempted": false,
+  "featureDepthEdited": false,
+  "blankObservations": {
+    "solidBodies": 0,
+    "sheetBodies": 0,
+    "externalReferences": 0,
+    "auxiliaryReferences": 0,
+    "equations": 0,
+    "configurationCount": 1,
+    "activeSketch": false
+  },
+  "unclassifiedFeatureTypes": [
+    "DocsFolder",
+    "NotesAreaFtrFolder",
+    "EnvFolder",
+    "AmbientLight",
+    "DirectionLight",
+    "InkMarkupFolder"
+  ],
+  "helper": {
+    "compileExitCode": 0,
+    "exitCode": 2,
+    "exitCodeKnown": true,
+    "elapsedSeconds": 2.212
+  },
+  "partialArtifact": {
+    "path": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-01-61d292c4db7148e199dd9c078ba2ebeb/baseline-5mm.SLDPRT",
+    "isActual5mmFixture": false,
+    "sha256": "6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d"
+  },
+  "finalDocumentCount": 1,
+  "onlyOwnPrivateCopyOpen": true,
+  "recoveryOriginalUnchanged": true,
+  "qualification": "incomplete",
+  "receipt": "- Native dimension fixture result: ONE native fixture run STOPPED at caller blank-acceptance predicate before any modeling. Compile UTC2026-09-08T17:44:33.9507453Z exit0/no diagnostics; run preflight UTC17:45:03.3132035Z/helper17:45:03.818862Z, x64 STA ownedhelperPID1312, actual Process.ExitCode captured2/knowntrue, elapsed2.212seconds under180seconddeadline; no timeout/retry. Exact originalSW singleton PID5968/session1/CIMstart2026-09-06T02:17:35.6279620Z/product+file30.5.0.0049/hash6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc and separately .NETticks639242578556279623 preserved before/after. Guard predicate tests/typedinterop30.5.0.49/APIidentity/currentrevision/installedblind0+sketchplane0 enums passed; fresh documentcount0 passed. Recoveryinput25332bytes/hash6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d verified, copied byte-for-byte into unique private package; only exact copy opened via OpenDoc6 Silent, errors0/warnings0, soleownedpath verified, oneconfiguration/noactivesketch passed.\n  Blank inspection observed0solid/0sheetbodies,0externalrefs,0auxiliaryrefs,0equations; retained-reference bounded feature traversal returned23types: CommentsFolder,FavoriteFolder,HistoryFolder,SelectionSetFolder,SensorFolder,DocsFolder,DetailCabinet,NotesAreaFtrFolder,NotesAreaFtrFolder,SurfaceBodyFolder,SolidBodyFolder,EnvFolder,AmbientLight,DirectionLight,DirectionLight,DirectionLight,InkMarkupFolder,EqnFolder,MaterialFolder,RefPlane,RefPlane,RefPlane,OriginProfileFeature. No existing modeling sketch/macro/import type was observed. FirstFailureStage=blank_acceptance, local InvalidOperationException0x80131509; this is NOT a native geometry HRESULT. Conservative reviewed allowlist lacked DocsFolder,NotesAreaFtrFolder,EnvFolder,AmbientLight,DirectionLight,InkMarkupFolder, so unknown-feature condition stopped modeling as instructed. Their presence does not prove geometric nonblankness or unsafe content; accepting those types requires review, not automatic removal/bypass. Recovery provenance is user-authorized local recoveredpart, not claimedfactorytemplate.\n  Check outcomes: PASS STA/process+interop/API/enum/inputhash/freshpackage/initialempty/exactcopy/OpenDoc6/soleownedpath/oneconfiguration/noactivesketch/featurebound/zero bodies+refs+equations; FAIL blank_acceptance due above unclassified types. NOT EVALUATED plane transforms/+Z selection, sketch/circle/boss construction, baseline5mm geometry/depth/rebuild/errorcode, Save3_5mm, closebaseline/hashclosednativebaseline, candidatecopy/rebind5mm, AccessSelections/SetDepth8mm/ModifyDefinition,8mmgeometry/save, readonlyreopenverification, final lifecyclehashes/empty-session predicate. No FeatureExtrusion3/CreateBodyFromBox3, selection/modeling/rebuild/save/close call executed. Underconstraint status not evaluated because no circle exists.\n  Exact partial baseline file C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-01-61d292c4db7148e199dd9c078ba2ebeb/baseline-5mm.SLDPRT is ONLY an unmodeled25332bytecopy, not a5mmfixture. Corresponding candidate-8mm.SLDPRT does not exist. Recoveryoriginal remains at outputs/ovd-480-native-fixtures/session-recovery-20260908T173457Z-c3883fd14eb94f4f85c2137b9d91d043/untitled-part.SLDPRT. Post-run compatible-share readonly file checks at17:45:49.5260550Z confirmed BOTH baselinecopy and recoveryoriginal hash6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d/25332bytes. Initial default-share checksum attempt on openbaseline failed; compatible FileShare.ReadWrite|Delete read succeeded, no native retry or handle manipulation.\n  Cleanup released owned document/feature/math/application RCWs with ReleaseErrors=[]; native documents were not closed on this pre-modeling failure, so final count1 (only this privatecopy remains open), before0. OriginalSW unchanged/noextra; no user originals opened/modified, no recoveryoriginal mutation, no optical-file touches, no OS/security/license/registration/add-in/PDM change. Failure retained and execution stopped. Artifacts outputs/ovd-480-readonly-identity/native-dimension-01/: Fixture.cs SHA256b5a7ac2347693e454af626fa3619a5ea01f39331400b51ca9792ae80e69fff57; IdentityGuard.csc3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps119f7f99c8b3c9df7c180161ce3730c2fdec25f480a21f7e252e78c935f1d6f41; TemporaryBoxes.exeb0d2844123901c67194996c3ca837567a06b1e41997939947425aa6d562bcfcd; result.json5391bd9c8bd2d21b029244f8fd4eef1d18bd12f07e77608e96f295b8765e8d64; typed.stderr.txt(flushed journal)2e818bb1f3e7f1c4e4193f3aa2b7d6dc4340d72472227238ac24fe70dbcea896; typed.stdout.json46b6fd887f034512db6b7da820a2956954cd537a076ede8dc39cf0bd196c1f7d; settings.json,compile-result.json,partial-files.json,hashes.json retained. Previous history/Homeacceptance preserved; dimension/file-lifecycle proof and fullworkerqualification remain unverified."
+}

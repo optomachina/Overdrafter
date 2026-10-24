@@ -1,0 +1,104 @@
+{
+  "caseId": "OVD480-NATIVE-DIM-001",
+  "kind": "experimental_qualification_specification",
+  "releaseEligible": false,
+  "input": {
+    "kind": "private_copy_of_user_authorized_recovered_part",
+    "sha256": "6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d",
+    "bytes": 25332,
+    "factoryTemplateOriginClaimed": false
+  },
+  "runtime": {
+    "machine": "Workstation",
+    "solidworks": "2022 SP5",
+    "fileVersion": "30.5.0.0049",
+    "interopVersion": "30.5.0.49",
+    "windowsHomeAccepted": true
+  },
+  "preconditions": [
+    "Exact application identity and empty session",
+    "Private input copy hash matches recovered source",
+    "One configuration; blank geometry; no active sketch",
+    "Standard datums and passive folders only",
+    "No existing modeling features, external references, equations or macro features",
+    "Observed reference plane at origin with positive Z normal"
+  ],
+  "geometry": {
+    "diameter": {
+      "value": 20,
+      "unit": "mm"
+    },
+    "initialDepth": {
+      "value": 5,
+      "unit": "mm"
+    },
+    "candidateDepth": {
+      "value": 8,
+      "unit": "mm"
+    }
+  },
+  "change": {
+    "operation": "set_extrusion_forward_depth",
+    "binding": "Own uniquely named extrusion, verified type, lineage, configuration and prior depth",
+    "value": 0.008,
+    "unit": "m"
+  },
+  "stages": [
+    {
+      "name": "baseline_5mm",
+      "depthM": 0.005,
+      "volumeM3": 0.0000015707963267948969,
+      "areaM2": 0.000942477796076938,
+      "centerM": [
+        0,
+        0,
+        0.0025
+      ]
+    },
+    {
+      "name": "candidate_8mm",
+      "depthM": 0.008,
+      "volumeM3": 0.000002513274122871835,
+      "areaM2": 0.0011309733552923257,
+      "centerM": [
+        0,
+        0,
+        0.004
+      ]
+    },
+    {
+      "name": "reopened_candidate_8mm",
+      "depthM": 0.008,
+      "volumeM3": 0.000002513274122871835,
+      "areaM2": 0.0011309733552923257,
+      "centerM": [
+        0,
+        0,
+        0.004
+      ]
+    }
+  ],
+  "tolerances": {
+    "depthM": 1e-10,
+    "volumeM3": 1e-10,
+    "areaM2": 1e-9,
+    "centerM": 1e-8
+  },
+  "mandatoryChecks": [
+    "Native rebuild succeeds",
+    "Feature error code zero",
+    "Exactly one solid and zero sheet bodies",
+    "Mass properties array has at least12 finite values",
+    "Depth, volume, area and center within declared tolerances",
+    "Save succeeds with zero errors and warnings, correct path and clean document",
+    "Reopened candidate matches all native and geometric predicates",
+    "Original recovery and baseline files retain exact hashes",
+    "Final document count zero and original application process retained"
+  ],
+  "limitations": [
+    "Synthetic single-part proof only",
+    "Density1 is a calculation input, not material evidence",
+    "Circle not claimed fully constrained",
+    "No assembly operations, persistent topology qualification, worker isolation or release approval"
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-ASSEMBLY-INSPECT-001",
+  "attempt": "assembly-inspection-01",
+  "observedUtc": "2026-09-08T18:39:27.7747818Z",
+  "outcome": "caller_blank_assembly_allowlist_failed",
+  "loaderCorrection": {
+    "outcome": "pass",
+    "method": "AssemblyResolve installed before NoInlining typed Run; typed static allocations moved into Run",
+    "nonCadExitCode": 0,
+    "nonCadElapsedSeconds": 0.316
+  },
+  "helper": {
+    "pid": 16392,
+    "exitCode": 2,
+    "exitCodeKnown": true,
+    "compileExitCode": 0,
+    "elapsedSeconds": 2.125,
+    "deadlineSeconds": 180,
+    "automaticRetries": 0
+  },
+  "native": {
+    "apiPid": 5968,
+    "revision": "30.5.0",
+    "initialDocumentCount": 0,
+    "newAssemblyReturned": true,
+    "type": 2,
+    "activeConfiguration": "Default",
+    "componentCount": 0,
+    "cadDependencies": [],
+    "equationCount": 0,
+    "featureCount": 22,
+    "unclassifiedFeatureType": "LiveSectionFolder",
+    "unclassifiedFeatureName": "Live Section Planes",
+    "partOpenAttempted": false,
+    "componentInsertAttempted": false,
+    "saveAttempted": false,
+    "reopenAttempted": false
+  },
+  "observedOccurrences": null,
+  "observedTransforms": null,
+  "savedAssemblyExists": false,
+  "cleanup": {
+    "finalDocumentCount": 0,
+    "originalApplicationPreserved": true,
+    "releaseErrors": [],
+    "originalAndPrivateInputsUnchanged": true
+  },
+  "partialManifest": {
+    "filename": "assembly-manifest.partial.json",
+    "sha256": "4cfad6bfdbaf9468d8bf300274e63a155d68df74485574afb4d3d1b804172a08",
+    "isSuccessfulAssemblyManifest": false
+  },
+  "evidence": {
+    "source": "remote_executor_receipt",
+    "remotePackage": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-01-7d648fe4c1744849894268c834e7d393/",
+    "rawNativeExecutionIndependentlyReproduced": false
+  },
+  "qualification": "incomplete",
+  "receipt": "- Synthetic assembly inspection result: ONE assembly-inspection-01 native run STOPPED at caller blank-assembly allowlist; no automatic native retry. Loader correction succeeded. Native04 has no side-by-side interops: its Main installs AssemblyResolve to the exact installed api/redist libraries before a NoInlining typed Run. Failed assembly-template-preflight-01 had typed Main and no resolver. Restored that bootstrap; a permitted non-CAD loader validation then identified early typed static collection/array initialization in the new helper (.cctor FileNotFoundException). Moved those allocations into NoInlining Run after resolver installation. Retained failed non-CAD loader logs; successful --loader-only validation UTC 2026-09-08T18:38:12.5810212Z, exit 0, 0.316 s, STA, both installed 30.5.0.49 interops resolved from C:/Program Files/SOLIDWORKS 2022/SOLIDWORKS/api/redist/, no COM. No dependency copies/download/install/registration/global changes. Initial compile CS0819 multi-var declaration corrected before execution; all compile diagnostics retained. Final compile UTC 18:39:10.9081755Z exit 0/no diagnostics.\n  Native parent UTC 2026-09-08T18:39:27.7747818Z/helper 18:39:28.3927861Z, owned x64 STA helper PID 16392, actual exit 2/known true, elapsed 2.125 s under 180-second owned-process deadline. No timeout or process termination. Exact singleton SW PID 5968/session 1/CIM start 2026-09-06T02:17:35.6279620Z/product+file 30.5.0.0049/executable SHA256 6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc matched before/recheck/after; separate pinned .NET ticks 639242578556279623 matched exactly. Existing GetActiveObject only; typed API PID 5968/revision 30.5.0; initial document count 0.\n  PASS original/private input digests and unique package, NewDocument(private template,0,0,0) returned owned assembly, type 2, one observed active configuration EXACT name Default, zero components, GetDependencies(true,false,false,true,true) empty, zero equations, bounded retained-identity feature/child traversal with no true cycle. Observed 22 feature types: CommentsFolder, FavoriteFolder, HistoryFolder, SelectionSetFolder, SensorFolder, LiveSectionFolder, DocsFolder, DetailCabinet, NotesAreaFtrFolder, NotesAreaFtrFolder, EnvFolder, AmbientLight, DirectionLight, DirectionLight, DirectionLight, InkMarkupFolder, EqnFolder, RefPlane, RefPlane, RefPlane, OriginProfileFeature, MateGroup. Only LiveSectionFolder / observed name Live Section Planes was missing from caller allowlist. FirstFailureStage blank_assembly, local System.InvalidOperationException HRESULT 0x80131509, not a native NewDocument error. Post-run read-only documentation review confirms LiveSectionFolder appears under Folder Features in official [GetTypeName2 table](https://help.solidworks.com/2013/English/Api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.IFeature~GetTypeName2.html). Thus this is a too-narrow caller classification, not evidence of unknown modeling or corrupt template. No allowance change or native retry performed after stop.\n  NOT EVALUATED: part OpenDoc6/read-only/configuration/native04 geometry/dependencies, AddComponent5, occurrence selection/floating/Transform2/fixing, initial assembly rebuild/inspection/closure, SaveAs3, saved assembly hash, reopen, persistence checks. Actual part configuration names, occurrence Name2/reference/resolution/fixed/virtual states and transform arrays are UNKNOWN; no invented Default for parts. Intended but UNEXECUTED matrices: 5 mm [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0]; 8 mm [1,0,0,0,1,0,0,0,1,0.04,0,0,1,0,0,0]. These are inputs only, not observations. Installed reflection recorded full method signatures including NewDocument, AddComponent5, void FixComponent/UnfixComponent, Select4(Boolean,SelectData,Boolean), Transform2 MathTransform, GetComponents(Boolean), SaveAs3(String,Int32,Int32,Object,Object,ref Int32,ref Int32), GetDependencies(five Boolean). Verified enums Silent 1, ReadOnly 2, OverrideDefaultLoadLightweight 64, CurrentSelectedConfig 0, NoRebuildActivation 1, CurrentSaveVersion 0, SilentSave 1, resolved states 2 or 3.\n  Failure cleanup reverified exact identity and sole returned unsaved assembly, observed title Assem3/path empty/dirty false; CloseDoc only this known identity, then verified count 0. ReleaseErrors empty; original SW present/no extra. No part or original/recovery/customer document was opened, no SaveAs3, no mates, no optical/recovery writes, no OS/security/license/add-in/settings changes.\n  Exact package C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/assembly-inspection-01-7d648fe4c1744849894268c834e7d393/: template/Assembly.asmdot 18811 bytes SHA256 765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec; parts/baseline-5mm.SLDPRT 56144 bytes SHA256 e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa; parts/candidate-8mm.SLDPRT 56171 bytes SHA256 b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898. Independent post-run shared-read hashes confirm all three private copies and all three source files unchanged. Source template is C:/ProgramData/SOLIDWORKS/SOLIDWORKS 2022/templates/Assembly.asmdot; source parts remain native-dimension-04-e8d2937cf8104a5385ed184c02e92009/. synthetic-assembly.SLDASM absent (save never reached).\n  Separate stable UTF-8 partial manifest assembly-manifest.partial.json SHA256 4cfad6bfdbaf9468d8bf300274e63a155d68df74485574afb4d3d1b804172a08 records exact relative paths/digests, observed Default assembly configuration, feature classifications, empty observed assembly dependencies, null unevaluated occurrence/part fields, runtime/toolchain, lineage, phase checks and cleanup. Created after run from preserved observations/file reads, no native call. Full successful manifest stage remains not_evaluated; partial artifact does not imply saved assembly proof, global filesystem/network or all auxiliary reference isolation, production snapshot or release authority.\n  Helper evidence C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-readonly-identity/assembly-inspection-01/: Assembly.cs SHA256 d13433acb3f5a9e0e43b3c1f00733c06a08d9e41e0c0b01d7a4c76fa4d70cf35; PartVerification.cs b155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908; unchanged IdentityGuard.cs c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps1 98362ba0c964ead69ca13dc5bf059f321cd6d61720c9f8d0a7f6568b7144cee1; TemporaryBoxes.exe d2e0e7e2275bf634beddbb31c36f62965819e4b4881ddbb50a45c1e3c028d545; result.json c83321b8f8add8f11bf1d972cd311ac00920a28127883b29acddf024f87f1785; flushed JSONL typed.stderr.txt 40da8e171b4cb98bcd94013d2aae70610968e96ea3c4bc0e7e8d91cd7592717e; stdout d48313fc4769eac8faca70dbf65819e1df810bbb380e26e4f902cc0a9a3e6172; post-run-inputs.json 256fc9e868f2439273631f15d22ee3bee14b96e28e1d46538132c2b0d86a7e5d. All compile/loader diagnostics, settings and hashes.json retained. Stopped; previous receipts and experimental Windows Home acceptance preserved."
+}

@@ -1,0 +1,65 @@
+{
+  "status": "complete",
+  "prs": [
+    {
+      "number": 462,
+      "url": "https://github.com/optomachina/Overdrafter/pull/462",
+      "state": "MERGED",
+      "headRefOid": "9fb41264dccb0c7e0775b12cce0435097fb39a74",
+      "mergedAt": "2026-09-08T21:06:11Z",
+      "mergeCommit": {
+        "oid": "a33e966d6ee2cdcf2200540bfbc32c18783b0f5a"
+      }
+    },
+    {
+      "number": 464,
+      "url": "https://github.com/optomachina/Overdrafter/pull/464",
+      "state": "MERGED",
+      "headRefOid": "dc9701b924e0627a10265b31e88b484135d971a9",
+      "mergedAt": "2026-09-08T21:14:19Z",
+      "mergeCommit": {
+        "oid": "259839a9f0ef0f2629b31cc8bc2d4005b1439e8a"
+      }
+    },
+    {
+      "number": 465,
+      "url": "https://github.com/optomachina/Overdrafter/pull/465",
+      "state": "MERGED",
+      "headRefOid": "bc3a678d1409d208805214b1189303a92e62698b",
+      "mergedAt": "2026-09-08T21:21:50Z",
+      "mergeCommit": {
+        "oid": "8d5f85e4288e58a95cd7073a83afeff2fb0e98fa"
+      }
+    },
+    {
+      "number": 467,
+      "url": "https://github.com/optomachina/Overdrafter/pull/467",
+      "state": "MERGED",
+      "headRefOid": "d0e1c2a68f75fe36047763d0cbcfab52847e079b",
+      "mergedAt": "2026-09-08T21:29:27Z",
+      "mergeCommit": {
+        "oid": "ebf104375cffe626e7a2fc6dbf61b2c6cb4a75bf"
+      }
+    },
+    {
+      "number": 468,
+      "url": "https://github.com/optomachina/Overdrafter/pull/468",
+      "state": "MERGED",
+      "headRefOid": "28db0236b7e69711c7b5de764c256389838f9c9c",
+      "mergedAt": "2026-09-08T21:37:50Z",
+      "mergeCommit": {
+        "oid": "22214335b56ba977013a76eab42fe3139e7e99dc"
+      }
+    }
+  ],
+  "requiredHostedChecksPassedOnEveryExactHead": true,
+  "codeRabbit": "Completed foundation review; three findings and documentation nit fixed. Follow-up and other requested reviews rate-limited; local/independent reviews and thread absence/resolution recorded truthfully.",
+  "linear": {
+    "OVD-476": "Done",
+    "OVD-472": "Done",
+    "OVD-470": "Done",
+    "OVD-480": "In Progress"
+  },
+  "evidencePreserved": true,
+  "fullNativeQualificationComplete": false
+}

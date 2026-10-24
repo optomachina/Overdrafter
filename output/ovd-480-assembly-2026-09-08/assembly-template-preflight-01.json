@@ -1,0 +1,33 @@
+{
+  "issue": "OVD-480",
+  "relatedIssue": "OVD-473",
+  "stage": "assembly-template-preflight-01",
+  "observedUtc": "2026-09-08T18:24:49.4490039Z",
+  "outcome": "partial_interop_loader_failure_before_main",
+  "compileExitCode": 0,
+  "helper": {
+    "pid": 19824,
+    "exitCode": -532462766,
+    "exitCodeHex": "0xE0434352",
+    "exitCodeKnown": true,
+    "elapsedSeconds": 21.531,
+    "deadlineSeconds": 30,
+    "comCalls": 0,
+    "mainBodyExecuted": false
+  },
+  "nativeApiIdentityObserved": false,
+  "documentCount": null,
+  "configuredTemplate": null,
+  "standardTemplate": {
+    "path": "C:/ProgramData/SOLIDWORKS/SOLIDWORKS 2022/templates/Assembly.asmdot",
+    "bytes": 18811,
+    "sha256": "765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec",
+    "provenance": "observed_local_file",
+    "factoryOriginClaimed": false
+  },
+  "partSourceHashesMatched": true,
+  "originalApplicationPreserved": true,
+  "documentMutationAttempted": false,
+  "qualification": "incomplete",
+  "receipt": "- Assembly template preflight result: PARTIAL; exactly one read-only helper execution, no native retry or document mutation. Installed metadata reflection verified System.String ISldWorks.GetUserPreferenceStringValue(Int32), swUserPreferenceStringValue_e.swDefaultTemplateAssembly=9, installed interop version 30.5.0.49. Compile passed UTC 2026-09-08T18:24:42.8749813Z (initial CS0104 Environment ambiguity corrected to System.Environment before execution). Parent UTC 18:24:49.4490039Z, owned x64/STA-declared helper PID 19824, actual exit -532462766 (0xE0434352), known true, elapsed 21.531 seconds under parent-owned 30-second deadline; no timeout/termination. Helper failed before Main could execute its body: unhandled System.IO.FileNotFoundException loading SolidWorks.Interop.sldworks Version=30.5.0.49 or dependency. Therefore no COM bind/API PID/revision/document-count/preference call occurred; configured template path and current document count remain UNKNOWN, not assumed zero. No document create/open/save/close, no template loaded, no OS/registry/license change.\n  Parent guards PASS before, immediate recheck and after: singleton SW PID 5968/session 1/CIM start 2026-09-06T02:17:35.6279620Z, product/file 30.5.0.0049, executable SHA256 6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc; separate pinned .NET start ticks 639242578556279623 (UTC 2026-09-06T02:17:35.6279623Z) matched exactly, original present/no extra SolidWorks. Version-specific CLSID matched. Native04 IdentityGuard.cs reused unchanged, but helper-side guards/STA runtime observation/API identity checks NOT EVALUATED because assembly resolution failed.\n  Independent shared-read filesystem metadata succeeded: C:/ProgramData/SOLIDWORKS/SOLIDWORKS 2022/templates/Assembly.asmdot exists, 18811 bytes, modified UTC 2025-04-25T06:56:51.3986284Z, SHA256 765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec. Observed local provenance only, no factory attestation claim or factory-origin blocker. Configured-template metadata unavailable because preference call was not reached; no broad scan.\n  Exact native04 package C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-04-e8d2937cf8104a5385ed184c02e92009/: baseline-5mm.SLDPRT 56144 bytes SHA256 e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa and candidate-8mm.SLDPRT 56171 bytes SHA256 b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898 both exactly match expected saved artifacts.\n  Evidence C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-readonly-identity/assembly-template-preflight-01/: Preflight.cs, unchanged IdentityGuard.cs, parent.ps1 (30-second deadline and explicit pinned ticks/session), TemporaryBoxes.exe, compile-result.json, result.json, typed.stdout.json (empty), typed.stderr.txt (loader failure), file-metadata.json and hashes.json. Stopped after one attempt; prior evidence and experimental Windows Home acceptance preserved. No assembly mutation recipe executed."
+}

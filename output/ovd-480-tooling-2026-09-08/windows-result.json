@@ -1,0 +1,116 @@
+{
+  "outcome": "passed",
+  "fileOnly": true,
+  "nativeCalls": 0,
+  "qualification": "incomplete",
+  "sourceCommit": null,
+  "startedUtc": "2026-09-08T20:05:38.0185859Z",
+  "sourceHashes": [
+    {
+      "sha256": "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+      "name": "SharedFilePredicates.cs"
+    },
+    {
+      "sha256": "5d49f7076adfa7fe29025732de284d6d235436b6f2b76acaf5ac88004aaf02b4",
+      "name": "FileAdmissionCases.cs"
+    },
+    {
+      "sha256": "15a8079003677f8db34a36f96079a16e1f104ac121518471449640780c6ca277",
+      "name": "qualify.ps1"
+    }
+  ],
+  "finishedUtc": "2026-09-08T20:05:38.7127640Z",
+  "binarySha256": "0d935190936ba9bba768a6232f3407e94d9f937811b228d83a482d29371e8308",
+  "compiler": {
+    "path": "C:\\WINDOWS\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+    "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+    "version": "4.8.9221.0 built by: NET481REL1LAST_25H2"
+  },
+  "compile": {
+    "pid": 21852,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.2055318,
+    "error": null,
+    "stdout": "",
+    "stderr": ""
+  },
+  "test": {
+    "pid": 20132,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.16255,
+    "error": null,
+    "stdout": "{\"outcome\":\"passed\",\"fileOnly\":true,\"nativeCalls\":0,\"sourceOriginalHashesUnchanged\":true,\"cases\":[{\"name\":\"positive_control\",\"observed\":\"eligible\",\"reason\":null,\"expectedPassed\":true,\"admissionContentReads\":1,\"setupHashReads\":1,\"nativeCalls\":0,\"error\":null},{\"name\":\"missing_part\",\"observed\":\"rejected\",\"reason\":\"missing_required_file\",\"expectedPassed\":true,\"admissionContentReads\":0,\"setupHashReads\":0,\"nativeCalls\":0,\"error\":null},{\"name\":\"changed_bytes\",\"observed\":\"rejected\",\"reason\":\"digest_mismatch\",\"expectedPassed\":true,\"admissionContentReads\":1,\"setupHashReads\":1,\"nativeCalls\":0,\"error\":null},{\"name\":\"outside_root\",\"observed\":\"rejected\",\"reason\":\"outside_allowed_root\",\"expectedPassed\":true,\"admissionContentReads\":0,\"setupHashReads\":1,\"nativeCalls\":0,\"error\":null},{\"name\":\"prefix_sibling\",\"observed\":\"rejected\",\"reason\":\"outside_allowed_root\",\"expectedPassed\":true,\"admissionContentReads\":0,\"setupHashReads\":1,\"nativeCalls\":0,\"error\":null}],\"sourceSetupHashReads\":1,\"integrityHashReads\":4,\"initialSetupByteReadbacks\":5,\"sameSizeSingleByteMutation\":true,\"naiveSiblingPrefix\":true,\"limits\":\"Synthetic lexical file predicates only; reparse points, races, native integration and isolation remain unproven.\"}\r\n",
+    "stderr": ""
+  },
+  "cases": {
+    "outcome": "passed",
+    "fileOnly": true,
+    "nativeCalls": 0,
+    "sourceOriginalHashesUnchanged": true,
+    "cases": [
+      {
+        "name": "positive_control",
+        "observed": "eligible",
+        "reason": null,
+        "expectedPassed": true,
+        "admissionContentReads": 1,
+        "setupHashReads": 1,
+        "nativeCalls": 0,
+        "error": null
+      },
+      {
+        "name": "missing_part",
+        "observed": "rejected",
+        "reason": "missing_required_file",
+        "expectedPassed": true,
+        "admissionContentReads": 0,
+        "setupHashReads": 0,
+        "nativeCalls": 0,
+        "error": null
+      },
+      {
+        "name": "changed_bytes",
+        "observed": "rejected",
+        "reason": "digest_mismatch",
+        "expectedPassed": true,
+        "admissionContentReads": 1,
+        "setupHashReads": 1,
+        "nativeCalls": 0,
+        "error": null
+      },
+      {
+        "name": "outside_root",
+        "observed": "rejected",
+        "reason": "outside_allowed_root",
+        "expectedPassed": true,
+        "admissionContentReads": 0,
+        "setupHashReads": 1,
+        "nativeCalls": 0,
+        "error": null
+      },
+      {
+        "name": "prefix_sibling",
+        "observed": "rejected",
+        "reason": "outside_allowed_root",
+        "expectedPassed": true,
+        "admissionContentReads": 0,
+        "setupHashReads": 1,
+        "nativeCalls": 0,
+        "error": null
+      }
+    ],
+    "sourceSetupHashReads": 1,
+    "integrityHashReads": 4,
+    "initialSetupByteReadbacks": 5,
+    "sameSizeSingleByteMutation": true,
+    "naiveSiblingPrefix": true,
+    "limits": "Synthetic lexical file predicates only; reparse points, races, native integration and isolation remain unproven."
+  },
+  "error": null
+}

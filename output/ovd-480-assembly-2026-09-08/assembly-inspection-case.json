@@ -1,0 +1,112 @@
+{
+  "caseId": "OVD480-ASSEMBLY-INSPECT-001",
+  "kind": "experimental_qualification_specification",
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "scope": {
+    "assemblies": 1,
+    "uniqueParts": 2,
+    "topLevelOccurrences": 2,
+    "configurationsPerDocument": 1,
+    "mates": 0,
+    "drawings": 0
+  },
+  "inputs": [
+    {
+      "role": "assembly_template",
+      "bytes": 18811,
+      "sha256": "765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec",
+      "provenance": "observed_local_template"
+    },
+    {
+      "role": "5mm_part",
+      "bytes": 56144,
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+      "provenance": "native-dimension-04"
+    },
+    {
+      "role": "8mm_part",
+      "bytes": 56171,
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+      "provenance": "native-dimension-04"
+    }
+  ],
+  "expectedTransforms": [
+    {
+      "part": "5mm_part",
+      "rotation": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "translationM": [
+        0,
+        0,
+        0
+      ],
+      "scale": 1,
+      "fixed": true
+    },
+    {
+      "part": "8mm_part",
+      "rotation": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "translationM": [
+        0.04,
+        0,
+        0
+      ],
+      "scale": 1,
+      "fixed": true
+    }
+  ],
+  "tolerances": {
+    "rotation": 1e-10,
+    "scale": 1e-10,
+    "translationM": 1e-8
+  },
+  "checks": [
+    "private input copies match exact source hashes",
+    "assembly type, one observed configuration, zero initial components/CAD references/equations and no unexpected modeling content",
+    "preloaded exact part documents read-only with native04 geometry checked",
+    "two retained occurrence identities and actual configuration names",
+    "resolved nonvirtual components with exact paths and read-only underlying parts",
+    "top-level and recursive component inventories agree",
+    "CAD dependency paths equal exact private part inventory",
+    "all transforms and fixed states match before and after full rebuild",
+    "save true, errors zero, warnings zero, expected path, clean document",
+    "reopen saved assembly and parts read-only and repeat checks",
+    "final empty session, original application retained, immutable input/output hashes unchanged"
+  ],
+  "laterAdverseCases": [
+    "missing private part file",
+    "changed private part bytes",
+    "unexpected or outside-package dependency path"
+  ],
+  "limits": [
+    "No customer input or external publication",
+    "Observed CAD reference closure, not all filesystem/support-file dependencies",
+    "One synthetic flat assembly, no subassemblies or mates",
+    "Not a qualified worker isolation or crash recovery test"
+  ],
+  "nativeExecutionPolicy": {
+    "ownedHelperDeadlineSeconds": 180,
+    "automaticRetries": 0,
+    "globalCadTermination": false
+  }
+}

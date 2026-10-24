@@ -1,0 +1,127 @@
+{
+  "kind": "file_admission_adverse_receipt",
+  "outcome": "passed_file_checks_only",
+  "fileOnly": true,
+  "nativeCalls": 0,
+  "originalHashesUnchanged": true,
+  "originalFileCount": 7,
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "parentStartedUtc": "2026-09-08T19:07:47.1693045Z",
+  "helper": {
+    "pid": 22140,
+    "startedUtc": "2026-09-08T19:07:47.6119619Z",
+    "exitCode": 0,
+    "exitCodeKnown": true,
+    "elapsedSeconds": 0.274,
+    "deadlineSeconds": 60,
+    "timedOut": false,
+    "killed": false
+  },
+  "cases": [
+    {
+      "name": "positive_control",
+      "observed": "eligible",
+      "rawVerdict": "eligible_file_checks_only",
+      "reason": null,
+      "nativeCalls": 0,
+      "admissionContentReads": 4,
+      "fixture": "actual verified assembly02 package and exact four files"
+    },
+    {
+      "name": "missing_part",
+      "observed": "rejected",
+      "reason": "missing_required_file",
+      "nativeCalls": 0,
+      "admissionContentReads": 1,
+      "fixture": "real baseline copy with candidate omitted"
+    },
+    {
+      "name": "changed_bytes",
+      "observed": "rejected",
+      "reason": "digest_mismatch",
+      "nativeCalls": 0,
+      "admissionContentReads": 1,
+      "fixture": "candidate copy offset 128 changed from 0 to 1; original expected digest retained"
+    },
+    {
+      "name": "outside_root",
+      "observed": "rejected",
+      "reason": "outside_allowed_root",
+      "nativeCalls": 0,
+      "admissionContentReads": 0,
+      "setupDigestVerified": true
+    },
+    {
+      "name": "prefix_sibling",
+      "observed": "rejected",
+      "reason": "outside_allowed_root",
+      "nativeCalls": 0,
+      "admissionContentReads": 0,
+      "setupDigestVerified": true,
+      "naiveNormalizedPrefixMatch": true
+    }
+  ],
+  "sharedPredicates": {
+    "source": "actual assembly-readback-03 Assembly.cs",
+    "operations": [
+      "PathEqual",
+      "InPackage",
+      "Hash",
+      "MatchesFile"
+    ],
+    "checks": "containment, exact expected normalized path, existence, length and SHA-256",
+    "nativeCallerCompileOnly": true,
+    "nativeCallerExecuted": false,
+    "originalSuccessfulHelperUnchanged": true,
+    "compilations": [
+      {
+        "target": "native caller with shared predicates",
+        "atUtc": "2026-09-08T19:05:15.9125194Z",
+        "exitCode": 0,
+        "diagnostics": []
+      },
+      {
+        "target": "file harness",
+        "atUtc": "2026-09-08T19:06:52.3902522Z",
+        "exitCode": 0,
+        "diagnostics": []
+      }
+    ]
+  },
+  "contentReadAccounting": "Setup, copy, copy-mutation and before/after source hash reads are separately labeled from admission reads. Outside-root zero-read claims apply only to admission.",
+  "processObservation": {
+    "method": "process metadata only",
+    "solidworksPid": 5968,
+    "session": 1,
+    "unchanged": true,
+    "documentCountQueried": false,
+    "lastActualDocumentCount": {
+      "value": 0,
+      "source": "assembly-readback-03"
+    }
+  },
+  "testRoot": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/file-admission-01-9cdfe10acb0149d68d6c4eace4dbaf08",
+  "sourceEvidenceDirectory": "outputs/ovd-480-readonly-identity/file-admission-01/",
+  "evidenceDigests": {
+    "SharedFilePredicates.cs": "af9ecd6829796914f8522cc706b0e87f3ae0479a3238b4f65ac9907d5882ccbc",
+    "Assembly.before.cs": "52aed1c98aa36e181ff368a465a7057c885687263999949f6a9c3c10492e0439",
+    "Assembly.shared.cs": "ce4503bdcd7df3896cecb9a2dc9d961a4519ed6bd84bdc9432c705c0b97ef1cd",
+    "extraction-diff.json": "ed1c234d2f40740cdcbf0207f1d27b844a7257fc035d87bb528c4a554472f3de",
+    "FileAdmissionBatch.cs": "c41b152bde2897d791cfcd77b7473e1a5b076681c82572063e3f8b93ae82d898",
+    "executed.exe": "0d1a3ba187098bd6b52ee3a50a307d61dd5b5e807d03564f14882fedef1fd489",
+    "NativeCompileOnly.exe": "c0edb7641c9dd363b28ddd1223ea82346ee80a22c8295f5decfb9d97b5300a39",
+    "parent.ps1": "40ec0cd9e76634626e63cfb2ffc8dda54f5799e745d505483f8a983974d81b66",
+    "result.json": "1a10fad0c32d3e5e238babda9122333e935af654a58c7c4b25370b7681b10a4c",
+    "stdout": "a64f10ba5997f030528db72b246dd5ce168243c649f455ca29da0c2945857b3b",
+    "JSONL": "d8d390c5820b1bde1301a502113c67cbd3534abfe1ac4491bae191e142960b5a",
+    "test-input-hashes.json": "36a37933d21e721be881fb97d8042e022a97ddbe9dcc6f90a88d4c9d98052120"
+  },
+  "limits": [
+    "File eligibility and these four rejection fixtures only.",
+    "No native validity, complete dependency closure, execution authority, reparse-point or race resistance, or deployed native preflight integration demonstrated.",
+    "No CAD document-count query during this batch.",
+    "Local record preserves executor receipt; local validator does not independently access Windows bytes."
+  ],
+  "receipt": "- Assembly file-admission adverse result: PASS, ONE FILE-ONLY batch, zero COM/CAD calls; no native workflow repeated. Parent UTC 2026-09-08T19:07:47.1693045Z/helper19:07:47.6119619Z, owned x64 helperPID22140, actual exit0/knowntrue, elapsed0.274s under60s parent deadline, no timeout/kill. File harness references only mscorlib/System/System.Web.Extensions; NativeCompileOnly.exe was compiled but NEVER executed. Process-metadata-only before/after checks matched SW singletonPID5968/session1/CIMstart2026-09-06T02:17:35.6279620Z/.NETticks639242578556279623/version30.5.0.0049/exeSHA2566384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc. No COM document-count query; last actual count0 remains readback03.\n  Shared source extracted from actual readback03 Assembly.cs: normalized case-insensitive PathEqual; InPackage using normalized root TrimEnd plus separator; shared-read SHA256 Hash; identical short-circuit FileInfo.Length==expectedBytes && Hash==expectedHash extracted as MatchesFile. Native caller wrappers and original Inputs/recovery/final hash expressions now call the same SharedFilePredicates.cs in a fresh compile-only copy; original successful helper untouched. Optional Hash observer logs content reads, null in native caller, no admission behavior change. Extraction diff retained. Native compile UTC19:05:15.9125194Z and file compile19:06:52.3902522Z both exit0/no diagnostics. Harness orders shared containment -> exact expected normalized path -> required existence -> shared length/digest; observed verdicts derive from these predicates, test assertions separately compare expected outcomes.\n  Five observed cases: (1) actual verified assembly02 root/exact4 files => eligible_file_checks_only,4 content reads; (2) missing/ directory contains a real baseline copy but omits candidate => rejected missing_required_file,1 content read (baseline only); (3) changed/parts/candidate-8mm.SLDPRT real copy, offset128 byte0->1, unchanged expected native04 hash => rejected digest_mismatch,1 content read; (4) allowed outside-root/ but declared existing outside-data/candidate-8mm.SLDPRT => rejected outside_allowed_root,0 admission content reads; (5) allowed case/ but declared existing case-sibling/candidate-8mm.SLDPRT => rejected outside_allowed_root,0 admission content reads despite naive normalized string-prefix comparison TRUE. Outside and sibling copy digests were independently verified valid during setup, before admission; setup reads are separately labeled, not hidden in the zero-read claim. Content-read ledger records copy source reads, one-byte copy mutation read, setup hash reads, per-case hash reads and before/after original hashes. Missing and digest reasons came from actual filesystem/shared checks.\n  Fresh owned test root C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/file-admission-01-9cdfe10acb0149d68d6c4eace4dbaf08; real copies only, no hard links or verified-original edits. Negative directories are explicit file test fixtures, never qualified CAD packages. Positive uses actual assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7 rather than asserting copied assemblies have valid native references.\n  All7 original/source posthashes matched before and pinned expectations: verified assembly02 synthetic-assembly.SLDASM59987bytes/SHA25690f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a; private+native04 baseline56144bytes/e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa; private+native04 candidate56171bytes/b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898; private+standard template18811bytes/765344a41e78058019b3a50e65f37ae395cd005c2f4b3aeae68b77c830795aec. No unrelated traversal/customer/recovery access, network/settings/security/license changes, publication or supplier operations.\n  Evidence outputs/ovd-480-readonly-identity/file-admission-01/: SharedFilePredicates.cs SHA256af9ecd6829796914f8522cc706b0e87f3ae0479a3238b4f65ac9907d5882ccbc; original Assembly.before.cs52aed1c98aa36e181ff368a465a7057c885687263999949f6a9c3c10492e0439; compile-only Assembly.shared.csce4503bdcd7df3896cecb9a2dc9d961a4519ed6bd84bdc9432c705c0b97ef1cd; extraction-diff.jsoned1c234d2f40740cdcbf0207f1d27b844a7257fc035d87bb528c4a554472f3de; FileAdmissionBatch.csc41b152bde2897d791cfcd77b7473e1a5b076681c82572063e3f8b93ae82d898; executed EXE0d1a3ba187098bd6b52ee3a50a307d61dd5b5e807d03564f14882fedef1fd489; unexecuted NativeCompileOnly.exec0edb7641c9dd363b28ddd1223ea82346ee80a22c8295f5decfb9d97b5300a39; parent.ps140ec0cd9e76634626e63cfb2ffc8dda54f5799e745d505483f8a983974d81b66; result.json1a10fad0c32d3e5e238babda9122333e935af654a58c7c4b25370b7681b10a4c; stdouta64f10ba5997f030528db72b246dd5ce168243c649f455ca29da0c2945857b3b; JSONLd8d390c5820b1bde1301a502113c67cbd3534abfe1ac4491bae191e142960b5a; test-input-hashes.json36a37933d21e721be881fb97d8042e022a97ddbe9dcc6f90a88d4c9d98052120. Settings/test expectations/compile results/full hashes retained. Coverage establishes file-check eligibility and these four rejections only, not native validity, complete dependency closure, execution authority, reparse-point/race resistance or deployed native preflight integration. No native retry. Historical evidence and experimental Home acceptance preserved."
+}

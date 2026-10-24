@@ -1,0 +1,41 @@
+{
+  "issue": "OVD-480",
+  "caseId": "OVD480-NATIVE-DIM-001",
+  "attempt": "native-dimension-02",
+  "observedUtc": "2026-09-08T17:52:13.3281495Z",
+  "outcome": "caller_feature_type_predicate_failed",
+  "blankAcceptancePassed": true,
+  "plane": {
+    "name": "Front Plane",
+    "origin": [
+      0,
+      0,
+      0
+    ],
+    "normal": [
+      0,
+      0,
+      1
+    ]
+  },
+  "circleCreated": true,
+  "extrusionCallReturnedFeature": true,
+  "feature": {
+    "name": "OVD_QualificationExtrusion",
+    "observedType": "Extrusion",
+    "incorrectExpectedType": "Boss"
+  },
+  "depthAndGeometryVerified": false,
+  "saveAttempted": false,
+  "candidateFileExists": false,
+  "failedChangesDiscarded": true,
+  "finalDocumentCount": 0,
+  "recoveredOriginalUnchanged": true,
+  "helper": {
+    "compileExitCode": 0,
+    "exitCode": 2,
+    "elapsedSeconds": 5.867
+  },
+  "qualification": "incomplete",
+  "receipt": "- Native dimension fixture corrected result: ONE native-dimension-02 run reached native extrusion creation, then STOPPED at a remaining caller feature-type predicate; no dimension/file-lifecycle proof yet. Compile UTC2026-09-08T17:51:52.2495067Z exit0/no diagnostics; parentpreflight17:52:13.3281495Z/helper17:52:13.8509983Z, x64STA/PID17984, actualexit2/knowntrue, elapsed5.867seconds under180sdeadline; no retry. Exact originalSW PID5968/session1/CIMstart2026-09-06T02:17:35.6279620Z/product+file30.5.0.0049/hash6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc and .NETticks639242578556279623 remained matched/singleton. Prior sole private native01copy verified exactpath/typepart/clean/hash6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d, closed by observed title, count1->0, disk preserved. Fresh recoverycopy OpenDoc6 Silent errors0/warnings0, exactpath/oneconfiguration/noactivesketch passed.\n  Fixture-specific SIX-type admission decision applied ONLY to exact recoveredhash6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d and its singleconfiguration: DocsFolder,NotesAreaFtrFolder,EnvFolder,AmbientLight,DirectionLight,InkMarkupFolder. [2022 GetTypeName2](https://help.solidworks.com/2022/english/api/sldworksapi/solidworks.interop.sldworks~solidworks.interop.sldworks.ifeature~gettypename2.html) maps AmbientLight/DirectionLight to ILight; [2013 folder table](https://help.solidworks.com/2013/English/Api/sldworksapi/SolidWorks.Interop.sldworks.IFeature~GetTypeName2.html) documents DocsFolder. Exact EnvFolder/NotesAreaFtrFolder/InkMarkupFolder vendor-string mappings remain unverified: scoped observed/inferred container classifications, not certified unrestricted admission. Retained-reference traversal continued through subfeatures, skipped already-inspected shared identities while continuing siblings, checked active-chain/truecycles and100feature bound; no unknownchildren/cycles observed, same23types asnative01. No baselinefeature removed/changed. Blankcheck PASS:0solid/0sheet/0externalrefs/0auxiliaryrefs/0equations and no modeling/macro/import types.\n  Actual observed RefPlane index0/name Front Plane selected by retained feature pointer AFTER transformed origin[0,0,0]/normal[0,0,1] verified within1e-9; transform[1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0]. Other planes normal+Y/+X rejected. Plane selection/sketch entry/non-null ActiveSketch/circle radius0.010 atorigin/newsketch identity binding/exit/select mark0 all PASS. Actual sketch NameSketch1/TypeProfileFeature; no fully-constrained claim. FeatureExtrusion3 called with unchanged approved23args/depth0.005, returned non-null feature; unique name assignment succeeded. Observed BossBinding Name=OVD_QualificationExtrusion, GetTypeName2()='Extrusion'. Source still hard-coded literal 'Boss' in construction predicate, so FirstFailureStage=construction with local InvalidOperationException0x80131509; NOT a native Create/Modify HRESULT and not proof extrusionfailed. The actual observed 'Extrusion' type versus hard-coded 'Boss' discriminator requires caller review. No native retry or type-predicate bypass.\n  PASS: priorcleanup/identity/inputhash/copy/open/config/blank/plane/sketch/circlebinding/bossnonnull/nameassignment. FAIL: caller constructiontypepredicate only. NOT EVALUATED: GetDefinition/GetDepth/blindsemantics, ForceRebuild3/GetErrorCode2/bodytopology/volume/area/center at5mm, Save3_5mm, nativebaselinehash/candidatecopy, candidate5mmrebind, AccessSelections/SetDepth8mm/ModifyDefinition,8mmgeometry/save/reopen checks. No Save3 call/candidatefile; do not label diskfile a measured5mmfixture. Failure journal retained firstfailure before cleanup; soleknown private baseline dirty=true, authorized CloseDoc discarded only those failed unsavedchanges, finalcount0; originalstartcount1 includes priornative01copy. ReleaseErrors=[]; originalSWunchanged/noextra. final_empty check slot remainsnot_evaluated for successful lifecycle path, but failurecleanup independently verified0.\n  Exact new partialfile C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/native-dimension-02-2ec1c811420b43929d441ff7e3c3e826/baseline-5mm.SLDPRT is unchanged25332byte recoverycopy; candidate-8mm.SLDPRT absent. Compatible-share postchecks17:52:47.1614475Z confirm baseline and recoveryoriginal each hash6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d. Recoveryoriginal path/history unchanged; no optical/customerfile/OS/security/license/registry/PDM/add-in changes. Stopped after one run.\n  Artifacts outputs/ovd-480-readonly-identity/native-dimension-02/: Fixture.csSHA256a10ff65a6a913fac7eacf5e94b837c3569f4c3bcf5c4dcec47c03b69ef34b0bd; OwnedCleanup.csdde90497e3ebb94198042ce6fad22da56d1ef8e6e9283341218ebd92d08b17e4; IdentityGuard.csc3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps119f7f99c8b3c9df7c180161ce3730c2fdec25f480a21f7e252e78c935f1d6f41; EXE69c8534ccaacefd485a9c4754efb50204a931a4204a649c9e3db6c77f163dec4; result.jsonbcb72475c8a8967eff565c9a661c8a765655ea6f151a1911ab5e1d1a87b4285a; JSONLe985891c46d4c524a7dcdba05e57b2d3c4add5a730ac5d7b5ff5d585be2cee40; stdout04ba5dedb03408f2487f0a4ec38ecd4a90bfc7be2b1c7000700303048b6fd484; compile-result.json/settings.json/partial-files.json/hashes.json retained. Priorhistory/Homeacceptance preserved; one-part dimensionproof and fullworkerqualification remain unverified."
+}

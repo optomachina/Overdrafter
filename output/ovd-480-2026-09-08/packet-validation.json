@@ -1,0 +1,248 @@
+{
+  "validatedUtc": "2026-09-08T18:18:29.630478+00:00",
+  "scope": "Local consistency of reported evidence; no independent native execution or Windows file hashing",
+  "result": "pass",
+  "jsonEvidenceFilesParsed": 15,
+  "checks": [
+    {
+      "name": "all expected evidence JSON files parse",
+      "outcome": "pass"
+    },
+    {
+      "name": "native-dimension-02.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "cylinder-diagnostic-06.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "guard-tests.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "workstation-inventory.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "native-dimension-03.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "native-dimension-04.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "api-probes.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary-geometry-01.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "geometry-diagnostics.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "primitive-diagnostic-05.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "native-dimension-01.json retains incomplete qualification",
+      "outcome": "pass"
+    },
+    {
+      "name": "failed identity call remains failed despite exit zero",
+      "outcome": "pass"
+    },
+    {
+      "name": "first box failure has no successful measurements",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary-boxes-02 has no successful measurement claim",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary-boxes-03 has no successful measurement claim",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary-boxes-04 has no successful measurement claim",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary-boxes-04 unknown exit preserved",
+      "outcome": "pass"
+    },
+    {
+      "name": "skipped cylinder and failed box have no measurements",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary cylinder legacy exit remains unknown",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary cylinder analytic volumeM3",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary cylinder analytic areaM2",
+      "outcome": "pass"
+    },
+    {
+      "name": "temporary cylinder exact center components",
+      "outcome": "pass"
+    },
+    {
+      "name": "first save-close attempt did not mutate",
+      "outcome": "pass"
+    },
+    {
+      "name": "authorized save and close completed",
+      "outcome": "pass"
+    },
+    {
+      "name": "save-close legacy exit remains unknown",
+      "outcome": "pass"
+    },
+    {
+      "name": "native01 blank copy is not a 5mm fixture",
+      "outcome": "pass"
+    },
+    {
+      "name": "native02 was not measured or saved",
+      "outcome": "pass"
+    },
+    {
+      "name": "native03 was not measured or saved",
+      "outcome": "pass"
+    },
+    {
+      "name": "native04 uses exact preserved input",
+      "outcome": "pass"
+    },
+    {
+      "name": "native04 successful helper within elapsed limit",
+      "outcome": "pass"
+    },
+    {
+      "name": "all four native04 phases present",
+      "outcome": "pass"
+    },
+    {
+      "name": "baseline_5mm analytic depth/volume/area",
+      "outcome": "pass"
+    },
+    {
+      "name": "baseline_5mm executor native checks",
+      "outcome": "pass"
+    },
+    {
+      "name": "baseline_5mm center evidence remains qualified",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_before_edit_5mm analytic depth/volume/area",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_before_edit_5mm executor native checks",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_before_edit_5mm center evidence remains qualified",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_8mm analytic depth/volume/area",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_8mm executor native checks",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate_8mm center evidence remains qualified",
+      "outcome": "pass"
+    },
+    {
+      "name": "reopened_candidate_8mm analytic depth/volume/area",
+      "outcome": "pass"
+    },
+    {
+      "name": "reopened_candidate_8mm executor native checks",
+      "outcome": "pass"
+    },
+    {
+      "name": "reopened_candidate_8mm center evidence remains qualified",
+      "outcome": "pass"
+    },
+    {
+      "name": "baseline and candidate save receipts pass",
+      "outcome": "pass"
+    },
+    {
+      "name": "candidate edit and read-only reopen receipts pass",
+      "outcome": "pass"
+    },
+    {
+      "name": "native04 cleanup and originals preserved",
+      "outcome": "pass"
+    },
+    {
+      "name": "native04 is not release eligible",
+      "outcome": "pass"
+    },
+    {
+      "name": "reported native file digests well formed",
+      "outcome": "pass"
+    },
+    {
+      "name": "source digests well formed",
+      "outcome": "pass"
+    }
+  ],
+  "native04AnalyticErrors": [
+    {
+      "phase": "baseline_5mm",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    },
+    {
+      "phase": "candidate_before_edit_5mm",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    },
+    {
+      "phase": "candidate_8mm",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    },
+    {
+      "phase": "reopened_candidate_8mm",
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    }
+  ],
+  "native04CenterCheck": "Executor-reported only; exact components unavailable in sanitized receipt",
+  "qualification": "incomplete",
+  "applicationSourceChanges": false,
+  "databaseMigrations": false,
+  "fullRepositoryVerificationRun": false,
+  "fullRepositoryVerificationReason": "Evidence-only packet; native helper compilation and actual native workflow were separately executed on Workstation."
+}

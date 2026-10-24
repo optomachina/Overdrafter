@@ -1,0 +1,224 @@
+{
+  "kind": "local_receipt_consistency_validation",
+  "status": "consistent",
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "inputs": [
+    "ovd-480-assembly-2026-09-08/assembly-inspection-case.json",
+    "ovd-480-assembly-2026-09-08/assembly-template-preflight-01.json",
+    "ovd-480-assembly-2026-09-08/assembly-inspection-01.json",
+    "ovd-480-assembly-2026-09-08/assembly-inspection-02.json",
+    "ovd-480-assembly-2026-09-08/assembly-readback-03.json",
+    "ovd-480-2026-09-08/native-dimension-case.json",
+    "ovd-480-assembly-2026-09-08/file-admission-01.json"
+  ],
+  "counts": {
+    "pass": 41,
+    "fail": 0,
+    "pending": 0
+  },
+  "checks": [
+    {
+      "name": "parse:assembly-inspection-case.json",
+      "status": "pass"
+    },
+    {
+      "name": "parse:assembly-template-preflight-01.json",
+      "status": "pass"
+    },
+    {
+      "name": "parse:assembly-inspection-01.json",
+      "status": "pass"
+    },
+    {
+      "name": "parse:assembly-inspection-02.json",
+      "status": "pass"
+    },
+    {
+      "name": "parse:assembly-readback-03.json",
+      "status": "pass"
+    },
+    {
+      "name": "parse:native-dimension-case.json",
+      "status": "pass"
+    },
+    {
+      "name": "qualification_remains_incomplete",
+      "status": "pass"
+    },
+    {
+      "name": "no_release_eligibility",
+      "status": "pass"
+    },
+    {
+      "name": "case_identity_matches",
+      "status": "pass"
+    },
+    {
+      "name": "preflight_unevaluated_fields_remain_unknown",
+      "status": "pass"
+    },
+    {
+      "name": "first_attempt_preserves_unexecuted_phases",
+      "status": "pass"
+    },
+    {
+      "name": "second_attempt_reopen_remains_unevaluated",
+      "status": "pass"
+    },
+    {
+      "name": "historical_failed_cleanup_remains_unknown",
+      "status": "pass"
+    },
+    {
+      "name": "later_recovery_does_not_rewrite_history",
+      "status": "pass"
+    },
+    {
+      "name": "save_success_precedes_warning_rejection",
+      "status": "pass"
+    },
+    {
+      "name": "load_warning_32_preserved_in_both_attempts",
+      "status": "pass"
+    },
+    {
+      "name": "readback_pass_is_after_readonly_full_rebuild",
+      "status": "pass"
+    },
+    {
+      "name": "initial_and_readback_occurrence_sets_match",
+      "status": "pass"
+    },
+    {
+      "name": "observed_configurations_match",
+      "status": "pass"
+    },
+    {
+      "name": "reference_sets_match_exact_private_inventory",
+      "status": "pass"
+    },
+    {
+      "name": "transform_spec_covers_both_parts",
+      "status": "pass"
+    },
+    {
+      "name": "transform:initial:5mm_part",
+      "status": "pass"
+    },
+    {
+      "name": "transform:initial:8mm_part",
+      "status": "pass"
+    },
+    {
+      "name": "transform:readback:5mm_part",
+      "status": "pass"
+    },
+    {
+      "name": "transform:readback:8mm_part",
+      "status": "pass"
+    },
+    {
+      "name": "analytic_recipe_units",
+      "status": "pass"
+    },
+    {
+      "name": "analytic_depth_volume_area:parts/baseline-5mm.SLDPRT",
+      "status": "pass"
+    },
+    {
+      "name": "analytic_depth_volume_area:parts/candidate-8mm.SLDPRT",
+      "status": "pass"
+    },
+    {
+      "name": "center_evidence_remains_executor_reported",
+      "status": "pass"
+    },
+    {
+      "name": "structured_digest_syntax",
+      "status": "pass"
+    },
+    {
+      "name": "reported_file_identities_unchanged_across_records",
+      "status": "pass"
+    },
+    {
+      "name": "manifest_stage_finalization_caveat_preserved",
+      "status": "pass"
+    },
+    {
+      "name": "remote_evidence_not_local_native_proof",
+      "status": "pass"
+    },
+    {
+      "name": "parse:file-admission-01.json",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission_scope_and_completion",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission_exact_case_set",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission:positive_control",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission:missing_part",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission:changed_bytes",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission:outside_root",
+      "status": "pass"
+    },
+    {
+      "name": "file_admission:prefix_sibling",
+      "status": "pass"
+    }
+  ],
+  "analyticRecomputation": [
+    {
+      "path": "parts/baseline-5mm.SLDPRT",
+      "expected": {
+        "depthM": 0.005,
+        "volumeM3": 1.5707963267948969e-06,
+        "areaM2": 0.000942477796076938
+      },
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    },
+    {
+      "path": "parts/candidate-8mm.SLDPRT",
+      "expected": {
+        "depthM": 0.008,
+        "volumeM3": 2.513274122871835e-06,
+        "areaM2": 0.0011309733552923257
+      },
+      "absoluteErrors": {
+        "depthM": 0.0,
+        "volumeM3": 0.0,
+        "areaM2": 0.0
+      }
+    }
+  ],
+  "provenanceLimits": [
+    "No CAD calls, native execution, Windows file access, or independent Windows byte/hash verification.",
+    "Checks compare local sanitized executor records; matching digest strings establish reported identity consistency only.",
+    "Depth, volume and area are recalculated from exact reported values and the declared cylinder recipe; centers remain executor-reported approximate acceptance.",
+    "Transforms check rotation, translation and scale against specification; the final three array entries remain diagnostic.",
+    "Readback is verified after a full active-configuration rebuild, with load warning 32 preserved and no save; this is not warning-free persisted rebuild state.",
+    "Later recovery and final zero document count do not replace the failed earlier cleanup's unknown count or unevaluated reopen fields.",
+    "The native manifest's own stage snapshot precedes finalization; final result.json completion is executor-reported, not proven by this local validator.",
+    "One synthetic flat assembly and file-only admission fixtures do not qualify worker isolation, arbitrary assemblies, interrupted CAD recovery, or release authority."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "issue": "OVD-480",
+  "stage": "save-close-02",
+  "observationUtc": "2026-09-08T17:35:59.8462966Z",
+  "saveOutcome": "verified_preserved",
+  "saveErrors": 0,
+  "saveWarnings": 0,
+  "closeOutcome": "verified_empty",
+  "closeReturned": true,
+  "documentCountBefore": 15,
+  "documentCountAfter": 0,
+  "originalFilesUnchanged": 14,
+  "originalCadProcessRetained": true,
+  "recoveredPart": {
+    "path": "C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/session-recovery-20260908T173457Z-c3883fd14eb94f4f85c2137b9d91d043/untitled-part.SLDPRT",
+    "bytes": 25332,
+    "sha256": "6e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d",
+    "blankSuitability": "unknown"
+  },
+  "helper": {
+    "compileExitCode": 0,
+    "elapsedSeconds": 3.951,
+    "exitCode": null
+  },
+  "receipt": "- Authorized save-close retry result: SUCCESS, verified empty session. Corrected only optional original-file checksum collection to FileStream Open/Read/FileShare.ReadWrite|Delete, per-file unavailable/error capture and independent after-identity checks; retained required exact identity/document/path/clean/writable guards and previous failed-01 evidence. Fresh save-close-02 compile UTC2026-09-08T17:35:43.8795206Z exit0/no diagnostics; one native batch preflight UTC17:35:59.8462966Z, owned x64 STA helperPID2588 observed17:36:00.4819749Z, 60seconddeadline/elapsed3.951seconds, HelperExited=true; observed exitcode remains explicitly unknown/null after WaitForExit+Refresh. Original singletonSW PID5968/session1/CIMstart2026-09-06T02:17:35.6279620Z/product+file30.5.0.0049/executableSHA2566384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc unchanged; parent/required CIM recheck and separate .NETticks639242578556279623 matched exactly throughout and afterward. Typed API PID5968/revision30.5.0; retained-identity traversal verified exact14mappedpaths/types plus1pathlesspart,15documents, all clean/read-write and14backingfiles existing/nonzero/filesystem-writable.\n  Recovery part required activation; only that part activated with installed NoRebuildActivation1, then selections cleared. Unique destination absent before save; SaveAs3 currentversion0/Silent1 invoked ONCE with no Copy/SaveReferenced options, returnedtrue/errors0/warnings0/decodedwarnings[]. Actual document path matched destination, GetSaveFlag=false, fileexists/nonzero25332bytes/SHA2566e7b80222f6c8f3f632f1a7c49d3482b705cf0f6b99a4f7d73ab32eb66731e7d. SaveOutcome=verified_preserved. Exact NEW recovered task file: C:/Users/blain/Documents/Codex/2026-09-06/create-a-new-assembly-in-solidworks/outputs/ovd-480-native-fixtures/session-recovery-20260908T173457Z-c3883fd14eb94f4f85c2137b9d91d043/untitled-part.SLDPRT. Optional structure/feature/body/external-reference inspection was not performed; suitability as empty blank/template remains UNKNOWN.\n  Re-traversed all15 after save and verified exact original14 plus recoveredpart, all pathed/clean/read-write; original14 hashes matched before close. CloseAllDocuments(false) called ONCE, returnedtrue; GetDocumentCount afterClose0 and final0, CloseOutcome=verified_empty. All14 original hashes available under compatible shared reads and unchanged in both helper and independent parent before/after comparisons; no unknown hash was treated as equality. Original files were not rewritten. Native save/close outcomes recorded independently from checksum diagnostics; no later diagnostic/cleanup errors, ReleaseErrors=[]. Original SolidWorks remains sole process with same identity; no forcedclose/ExitApp/process termination/PDM/OS/security/license/registration/add-in changes. No further run/modeling/template operation. User save+close authorization completed, previous qualification limitations and experimental Home acceptance preserved. Empty session established now; parametric fixture create/edit/save-reopen still unverified.\n  Relative artifacts outputs/ovd-480-readonly-identity/save-close-02/: SaveClose.cs SHA256351174a875eb1e0621f5dc019d343bc5cad231e5f5c19c36250e93bad42529af; IdentityGuard.cs c3a504e2562fc525da057a4d8f2b268edd27777de156b6420e8ec4127622d8f8; parent.ps1 8d5e588a50a4e56fc9a537d03f0b4146c5f0c0e237e0c58b44fdfba308b644a2; TemporaryBoxes.exe d0e78b6cd2c52ad73f774dcfff3603b5187765faac6ebe249208bbc9b4666280; result.json94913c3c430f9a423af23bd4d2d0578a06238aa40ec906c421f27177a99c55b1; typed.stderr.txt(flushed stage/effect journal)de8756c95f88e0f32a4cce7f31ba6ac7a3cdffbe6e97c0431bbe48b87a0a5366; typed.stdout.json5f1b772726f21c2b309334a2ae49d701a4e0514cb6574ba28b1122376cba1e41; settings.json/compile-result.json/hashes.json retained. Original paths remain local/private; receipt contains only generated recovery filename.",
+  "evidence": "Sanitized remote executor receipt; raw Windows output unavailable to coordinator."
+}

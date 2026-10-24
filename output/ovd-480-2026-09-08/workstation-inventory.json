@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "issue": "OVD-480",
+  "target": "WORKSTATION",
+  "cadTarget": "SolidWorks 2022",
+  "observationUtc": "2026-09-08T15:16:59.2689174Z",
+  "evidenceSource": {
+    "kind": "remote_executor_report",
+    "taskId": "01a07d88-4a3e-7733-b406-bcb7daa4dab1",
+    "hostId": "remote-control:env_e_6a9a64d0df6883258ff8c71bd3bd1bf6",
+    "returnChannel": "existing Linear rolling progress comment",
+    "commentId": "00cfc28c-f0dc-4b41-8f87-81b372d8d19b",
+    "rawCommandOutputAvailableToCoordinator": false
+  },
+  "windows": {
+    "edition": "Windows 11 Home",
+    "displayVersion": "25H2",
+    "version": "10.0.26200",
+    "build": "26200.9278"
+  },
+  "solidworks": {
+    "installedProductText": "SOLIDWORKS 2022 SP05",
+    "productVersion": "30.5.0.0049",
+    "fileVersion": "30.5.0.0049",
+    "executableSha256": "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc",
+    "registeredProgId": "SldWorks.Application.30",
+    "registeredClsid": "{2f315be3-b0e2-4c87-b9f3-efa160fd4b66}",
+    "interopAssemblyVersion": "30.5.0.49",
+    "productEdition": "unknown",
+    "activationAndEntitlement": "unknown",
+    "comActivationAttempted": false
+  },
+  "processObservation": {
+    "powershellSessionId": 1,
+    "solidworks": [
+      {
+        "pid": 5968,
+        "sessionId": 1,
+        "responding": true
+      }
+    ],
+    "sameExecutionIdentityAndSession": true,
+    "interactiveDesktopReadiness": "unverified",
+    "separateWorkerAccountOrVm": "unverified"
+  },
+  "developmentTools": {
+    "dotnetSdk": "9.0.101",
+    "cscFileVersion": "4.1200.24.57207"
+  },
+  "qualification": {
+    "state": "incomplete",
+    "nativeOperationsAttempted": 0,
+    "authoritativeWriteIsolation": "unverified",
+    "licenseEligibility": "unverified",
+    "saveReopen": "not_run",
+    "faultRecovery": "not_run",
+    "teardown": "not_run",
+    "customerExecutionAdmitted": false
+  },
+  "limitations": [
+    "Observed via remote executor's sanitized Linear receipt; remote task reader returned no raw command output.",
+    "Process identifiers and responding state are time-specific observations.",
+    "Registration and installed binaries do not prove COM activation, licensed execution, CAD correctness or isolation."
+  ]
+}
