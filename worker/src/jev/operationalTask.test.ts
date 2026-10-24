@@ -621,7 +621,8 @@ describe("actual worker operational advisory seam", () => {
       count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? 1 : 0,
       nth: () => ({ innerText: async () => source, getAttribute: async () => null,
         locator: (selector: string) => selector.includes("disabled") ? { count: async () => 0 }
-          : { first: () => ({ innerText: async () => "Fastest - Lead Time: 5 business days" }) } }),
+          : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0,
+            first: () => ({ innerText: async () => "Fastest - Lead Time: 5 business days" }) } }),
     }) } as unknown as Page;
     // Method-level composition fixture: the actual collector emits authentic originals to
     // the registry callback while the original simulation supplies authoritative output.
