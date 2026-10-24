@@ -1,0 +1,23 @@
+{
+  "state": "failed_atomic_replacement",
+  "threadId": "01a07a44-62bd-7110-b7e0-00fda07b8b4a",
+  "hostId": "remote-control:env_e_6a9a64d0df6883258ff8c71bd3bd1bf6",
+  "sourceHead": "b8e799660419cf0880e8798c28e01de33324d923",
+  "scope": "Only synthetic state/boundary/DPAPI storage scripts; no actual pairing, HTTPS, CAD, lab/site/customer-file changes",
+  "runtime": "Windows PowerShell Desktop5.1.26100.9278 x64",
+  "boundaryAssertions": 16,
+  "boundaryExit": 0,
+  "storageExecutedOnce": true,
+  "storagePassed": false,
+  "storageFinalCount": null,
+  "wrapperExit": 0,
+  "wrapperExitIsEvidenceOfSuccess": false,
+  "failure": {
+    "function": "Save-CompanionStore",
+    "file": "CompanionStore.ps1",
+    "line": 128,
+    "type": "System.Management.Automation.MethodInvocationException"
+  },
+  "remoteEvidence": "outputs/ovd-500-storage-qualification-b2911a12/evidence-b8e7996",
+  "retainedSyntheticWorker": "c17ff385-5021-4d40-82ef-ca44af1114b2"
+}

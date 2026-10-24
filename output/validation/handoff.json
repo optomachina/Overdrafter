@@ -1,0 +1,21 @@
+{
+  "issue": "OVD-500",
+  "pr": 488,
+  "state": "merged",
+  "mergeCommit": "48fa340981c545c1ae5e5783f59629367c3ef9ef",
+  "reviewedHead": "0b99ec9dc8d641b78a724026cb8815d78bfbd092",
+  "nativeSource": "ad157d96f510f4427690d89abe95831208570914",
+  "windowsAssertions": {
+    "state": 290,
+    "boundary": 17,
+    "storage": 10
+  },
+  "hostedRun": 34471364148,
+  "hostedAttempt": 2,
+  "hostedConclusion": "success",
+  "openQualityIssues": 0,
+  "allReviewThreadsResolved": true,
+  "linearStatus": "Done",
+  "productionActivated": false,
+  "next": "HTTPS, native dispatch and eight-hour qualification remain later integration work."
+}

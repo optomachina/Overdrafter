@@ -1,0 +1,95 @@
+{
+  "issue": "OVD-500",
+  "state": "windows_storage_qualified_review_pending",
+  "branch": "codex/ovd-500-worker-companion",
+  "base": "421e5173f2b8faeeaccbe95f1ebcba46c9399706",
+  "rollingComment": "79c20d69-8f2f-467e-9005-54a3abc57a49",
+  "stateTests": {
+    "assertions": 289,
+    "passed": true,
+    "log": "output/validation/companion-state.log",
+    "runtime": "PowerShell Core 7.6.6 on Mac",
+    "extraCoverage": "Empty-array/string coercion in PowerShell state and receipt fields denied"
+  },
+  "files": [
+    "scripts/native/worker-companion/CompanionState.ps1",
+    "scripts/native/worker-companion/test-state.ps1",
+    "scripts/native/worker-companion/README.md"
+  ],
+  "next": [
+    "Review CodeRabbit after included capacity resets, inspect final hosted checks",
+    "Land reviewed companion source; HTTPS/owner controls/native integration still required",
+    "Continue native qualification, coordinator and connected workspace"
+  ],
+  "windowsQualified": false,
+  "dpapiQualified": true,
+  "networkActions": 0,
+  "nativeActions": 0,
+  "productionChanged": false,
+  "testHarnessCorrection": "Fixed callback variable shadowing in the in-memory fault fixture; owned test process terminated, then all 251 assertions passed.",
+  "head": "baaa0ef22f1df1bd2ff24e4ecc7882bf20c75f65",
+  "pr": "https://github.com/optomachina/Overdrafter/pull/488",
+  "watcherSession": 18796,
+  "watcherLog": "output/validation/hosted-main-checks.log",
+  "boundaryTests": {
+    "passed": true,
+    "assertions": 19,
+    "log": "output/validation/companion-boundaries-final.log"
+  },
+  "fullVerify": {
+    "passed": true,
+    "files": 337,
+    "testsPassed": 4146,
+    "skipped": 1,
+    "log": "output/validation/verify.log"
+  },
+  "localReview": "Final static review no actionable defects; reviewer could not rerun PowerShell, integrator did",
+  "windowsQualification": {
+    "state": "same_user_storage_passed",
+    "threadId": "01a07a44-62bd-7110-b7e0-00fda07b8b4a",
+    "hostId": "remote-control:env_e_6a9a64d0df6883258ff8c71bd3bd1bf6",
+    "scope": "Only synthetic state/boundary/DPAPI storage scripts; no actual pairing, HTTPS, CAD, lab/site/customer-file changes",
+    "runtime": "Windows PowerShell Desktop5.1.26100.9278 x64",
+    "boundaryAssertions": 16,
+    "boundaryExit": 0,
+    "storageExecutedOnce": true,
+    "storagePassed": true,
+    "storageFinalCount": 10,
+    "qualifiedSource": "8ddef356d4d05c3418a0ed103c646310bc7516eb",
+    "directExit": 0,
+    "evidence": "outputs/ovd-500-storage-qualification-b2911a12/evidence-8ddef35",
+    "sourceManifestSha256": "1166f0cce8a7cf02e87a5a83cab2736f5b068d0ddcadb70e66d2c9875e830360",
+    "rebase": "All PowerShell files unchanged across rebase; README records evidence.",
+    "sourceHead": "8ddef356d4d05c3418a0ed103c646310bc7516eb"
+  },
+  "coderabbit": {
+    "state": "rate_limited",
+    "requestedAtUtc": "2026-09-10T09:49:51Z",
+    "requestUrl": "https://github.com/optomachina/Overdrafter/pull/488#issuecomment-5616617232",
+    "head": "baaa0ef22f1df1bd2ff24e4ecc7882bf20c75f65",
+    "fullReviewCompleted": false,
+    "reportedAtUtc": "2026-09-10T09:50:06Z",
+    "availableAroundUtc": "2026-09-10T10:50:00Z",
+    "replyUrl": "https://github.com/optomachina/Overdrafter/pull/488#issuecomment-5616619267"
+  },
+  "historicalFailedStorageAttempt": {
+    "sourceHead": "b8e799660419cf0880e8798c28e01de33324d923",
+    "wrapperExit": 0,
+    "wrapperExitIsEvidenceOfSuccess": false,
+    "failure": {
+      "function": "Save-CompanionStore",
+      "file": "CompanionStore.ps1",
+      "line": 128,
+      "type": "System.Management.Automation.MethodInvocationException"
+    },
+    "remoteEvidence": "outputs/ovd-500-storage-qualification-b2911a12/evidence-b8e7996",
+    "retainedSyntheticWorker": "c17ff385-5021-4d40-82ef-ca44af1114b2"
+  },
+  "hostedChecks": {
+    "head": "baaa0ef22f1df1bd2ff24e4ecc7882bf20c75f65",
+    "allPassed": true,
+    "sonarOpenIssues": 0,
+    "observedAtUtc": "2026-09-10T09:30:00Z",
+    "reviewStillPending": true
+  }
+}
