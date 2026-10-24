@@ -1,0 +1,270 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e691]:
+      - complementary [ref=e692]:
+        - generic [ref=e693]:
+          - button "OverDrafter home" [ref=e695] [cursor=pointer]:
+            - img [ref=e696]
+            - img
+          - generic [ref=e700]:
+            - generic [ref=e701]:
+              - generic [ref=e702]:
+                - button [disabled] [ref=e703]:
+                  - img [ref=e704]
+                - button "Close sidebar" [expanded] [ref=e708] [cursor=pointer]:
+                  - img [ref=e709]
+              - generic [ref=e712]:
+                - generic [ref=e713]:
+                  - paragraph [ref=e714]: Review
+                  - paragraph [ref=e715]: FX-200 rev B
+                - button "Back to part" [ref=e716] [cursor=pointer]:
+                  - img [ref=e717]
+                  - text: Back to part
+            - separator "Resize sidebar" [ref=e719]
+      - generic [ref=e721]:
+        - banner [ref=e722]:
+          - button "OverDrafter" [ref=e724] [cursor=pointer]:
+            - generic [ref=e725]: OverDrafter
+        - main [ref=e726]:
+          - generic [ref=e727]:
+            - generic [ref=e728]:
+              - generic [ref=e729]:
+                - paragraph [ref=e730]: Review
+                - heading "FX-200 rev B" [level=1] [ref=e731]
+                - paragraph [ref=e732]: Confirm the selected quote and capture shipping, billing, and PO handoff details before OverDrafter follow-up.
+                - generic [ref=e733]:
+                  - generic [ref=e734]: Manufacturing quote
+                  - generic [ref=e735]: Qty 25
+                  - generic [ref=e736]: Quote qty 25 / 50
+                  - generic [ref=e737]: Need by Apr 2, 2026
+              - generic [ref=e738]:
+                - button "Back to edit" [ref=e739] [cursor=pointer]:
+                  - img
+                  - text: Back to edit
+                - button "Review handoff" [ref=e740] [cursor=pointer]:
+                  - text: Review handoff
+                  - img
+            - generic [ref=e742]:
+              - generic [ref=e743]:
+                - paragraph [ref=e744]: Selected option
+                - generic [ref=e745]:
+                  - paragraph [ref=e746]: Xometry
+                  - generic [ref=e747]:
+                    - generic [ref=e748]: Qty 25
+                    - generic [ref=e749]: Unknown
+                  - paragraph [ref=e750]: 2026-03-23
+              - generic [ref=e751]:
+                - generic [ref=e752]:
+                  - paragraph [ref=e753]: Price
+                  - paragraph [ref=e754]: $360.00
+                  - paragraph [ref=e755]: 2026-03-23
+                - generic [ref=e756]:
+                  - paragraph [ref=e757]: Request context
+                  - paragraph [ref=e758]: Published part ready for checkout review.
+            - generic [ref=e759]:
+              - generic [ref=e760]:
+                - generic [ref=e761]:
+                  - paragraph [ref=e762]: Procurement handoff
+                  - heading "Capture the details needed for manual follow-up" [level=2] [ref=e763]
+                  - paragraph [ref=e764]: This part review captures shipping, billing, and PO context for OverDrafter follow-up. It does not place an order or collect payment inside the app.
+                - generic [ref=e765]: 4 details still needed
+              - generic [ref=e766]:
+                - generic [ref=e767]:
+                  - generic [ref=e768]:
+                    - paragraph [ref=e769]: Shipping plan
+                    - generic [ref=e770]:
+                      - button "Standard shipping Use the normal shipping path unless we confirm a change." [pressed] [ref=e771] [cursor=pointer]:
+                        - paragraph [ref=e772]: Standard shipping
+                        - paragraph [ref=e773]: Use the normal shipping path unless we confirm a change.
+                      - button "Review expediting Flag this handoff for lead-time follow-up before release." [ref=e774] [cursor=pointer]:
+                        - paragraph [ref=e775]: Review expediting
+                        - paragraph [ref=e776]: Flag this handoff for lead-time follow-up before release.
+                      - button "Use my account Route carrier selection through the buyer's shipping account." [ref=e777] [cursor=pointer]:
+                        - paragraph [ref=e778]: Use my account
+                        - paragraph [ref=e779]: Route carrier selection through the buyer's shipping account.
+                  - generic [ref=e780]:
+                    - paragraph [ref=e781]: Billing path
+                    - generic [ref=e782]:
+                      - button "PO required Collect or confirm a purchase order before release." [ref=e783] [cursor=pointer]:
+                        - paragraph [ref=e784]: PO required
+                        - paragraph [ref=e785]: Collect or confirm a purchase order before release.
+                      - button "Invoice after approval Treat procurement as manual follow-up with invoice coordination." [ref=e786] [cursor=pointer]:
+                        - paragraph [ref=e787]: Invoice after approval
+                        - paragraph [ref=e788]: Treat procurement as manual follow-up with invoice coordination.
+                      - button "Confirm before charge Do not advance procurement until the buyer confirms next steps." [pressed] [ref=e789] [cursor=pointer]:
+                        - paragraph [ref=e790]: Confirm before charge
+                        - paragraph [ref=e791]: Do not advance procurement until the buyer confirms next steps.
+                  - generic [ref=e792]:
+                    - generic [ref=e793]:
+                      - text: Ship-to contact
+                      - textbox "Ship-to contact" [ref=e794]:
+                        - /placeholder: Receiving contact or team
+                    - generic [ref=e795]:
+                      - text: Ship-to location
+                      - textbox "Ship-to location" [ref=e796]:
+                        - /placeholder: City, state, or facility
+                    - generic [ref=e797]:
+                      - text: Billing contact name
+                      - textbox "Billing contact name" [ref=e798]:
+                        - /placeholder: Name for procurement follow-up
+                    - generic [ref=e799]:
+                      - text: Billing contact email
+                      - textbox "Billing contact email" [ref=e800]:
+                        - /placeholder: buyer@company.com
+                  - generic [ref=e801]:
+                    - generic [ref=e802]:
+                      - text: PO reference
+                      - textbox "PO reference" [ref=e803]:
+                        - /placeholder: PO number or internal reference
+                    - generic [ref=e804]:
+                      - text: Special instructions
+                      - textbox "Special instructions" [ref=e805]:
+                        - /placeholder: Packaging notes, carrier instructions, approval checkpoints, or handoff context.
+                - generic [ref=e806]:
+                  - generic [ref=e808]:
+                    - paragraph [ref=e809]: Handoff summary
+                    - paragraph [ref=e810]: More detail is needed before release
+                  - generic [ref=e811]:
+                    - generic [ref=e812]:
+                      - paragraph [ref=e813]: Shipping
+                      - paragraph [ref=e814]: Standard shipping
+                    - generic [ref=e815]:
+                      - paragraph [ref=e816]: Ship to
+                      - paragraph [ref=e817]: Add a ship-to contact and location.
+                    - generic [ref=e818]:
+                      - paragraph [ref=e819]: Billing
+                      - paragraph [ref=e820]: Confirm before charge
+                    - generic [ref=e821]:
+                      - paragraph [ref=e822]: Billing contact
+                      - paragraph [ref=e823]: Add a billing contact name and email.
+                    - generic [ref=e824]:
+                      - paragraph [ref=e825]: PO
+                      - paragraph [ref=e826]: No PO reference captured yet.
+                    - generic [ref=e827]:
+                      - paragraph [ref=e828]: Notes
+                      - paragraph [ref=e829]: No special instructions captured yet.
+                  - generic [ref=e830]:
+                    - paragraph [ref=e831]: Still needed
+                    - list [ref=e832]:
+                      - listitem [ref=e833]: ship-to contact
+                      - listitem [ref=e834]: ship-to location
+                      - listitem [ref=e835]: billing contact name
+                      - listitem [ref=e836]: billing contact email
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e500] [cursor=pointer]:
+    - img [ref=e267]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
+  - generic [ref=e681]: $0.00

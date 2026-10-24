@@ -1,0 +1,202 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - button:
+            - generic:
+              - img
+              - img
+            - generic: OverDrafter
+          - button [expanded]:
+            - img
+        - navigation:
+          - link:
+            - /url: /parts
+            - generic:
+              - img
+            - generic: Parts
+          - link:
+            - /url: /quotes
+            - generic:
+              - img
+            - generic: Quotes
+          - link:
+            - /url: /search
+            - generic:
+              - img
+            - generic: Search
+      - generic:
+        - banner:
+          - heading [level=1]: Search
+          - generic:
+            - button
+            - button:
+              - img
+              - generic: Upload
+            - button [expanded]:
+              - generic:
+                - generic: DC
+              - generic:
+                - paragraph: Demo Client
+                - paragraph: Client
+              - generic:
+                - img
+        - generic:
+          - main:
+            - generic:
+              - generic:
+                - generic: Global search
+                - generic:
+                  - img
+                  - searchbox
+              - generic:
+                - paragraph: Search the working record
+                - paragraph: Explicit dimensions and units are interpreted from your query. No geometry is inferred from filenames or placeholder projections.
+  - button [ref=e70] [cursor=pointer]:
+    - img [ref=e67]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - menu "Open account menu" [active] [ref=e71]:
+    - menuitem "Notifications" [ref=e72]:
+      - img [ref=e73]
+      - generic [ref=e77]: Notifications
+    - menuitem "Settings" [ref=e78]:
+      - img [ref=e79]
+      - generic [ref=e82]: Settings
+    - menuitem "Archive" [ref=e83]:
+      - img [ref=e84]
+      - generic [ref=e87]: Archive
+    - menuitem "Help" [ref=e88]:
+      - img [ref=e89]
+      - generic [ref=e92]: Help
+      - img [ref=e93]
+    - separator [ref=e95]
+    - menuitem "Dark mode" [ref=e96]:
+      - img [ref=e97]
+      - generic [ref=e99]: Dark mode
+    - menuitem "Extraction" [ref=e100]:
+      - img [ref=e101]
+      - generic [ref=e108]: Extraction
+    - menuitem "Fixtures" [ref=e109]:
+      - img [ref=e110]
+      - generic [ref=e112]: Fixtures
+    - menuitem "Diagnostics" [ref=e113]:
+      - img [ref=e114]
+      - generic [ref=e123]: Diagnostics
+    - menuitem "Log out" [ref=e124]:
+      - img [ref=e125]
+      - generic [ref=e128]: Log out

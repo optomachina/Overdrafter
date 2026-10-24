@@ -1,0 +1,521 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button "OverDrafter home" [ref=e443] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button "Close sidebar" [expanded] [ref=e444] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation "Primary" [ref=e445]:
+          - link "Parts" [ref=e446] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e22]
+            - generic [ref=e25]: Parts
+          - link "Quotes" [ref=e447] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link "Search" [ref=e448] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading "FX-200 rev B" [level=1] [ref=e449]
+          - button "Open account menu" [ref=e450] [cursor=pointer]:
+            - generic [ref=e44]: DC
+            - generic [ref=e45]:
+              - paragraph [ref=e46]: Demo Client
+              - paragraph [ref=e47]: Client
+            - generic:
+              - img
+        - main [ref=e49]:
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]:
+                - generic [ref=e54]:
+                  - paragraph [ref=e55]: Production plate with finish callout
+                  - generic [ref=e58]:
+                    - link "Production Plates" [ref=e451] [cursor=pointer]:
+                      - /url: /projects/00000000-0000-4000-8000-000000000022
+                    - generic [ref=e60]: /
+                    - generic [ref=e61]: FX-200 rev B
+                - generic [ref=e62]:
+                  - button "Quote" [disabled]
+                  - button "Download CAD file" [ref=e452] [cursor=pointer]:
+                    - img
+                  - button "Upload part files" [ref=e453] [cursor=pointer]:
+                    - img
+                  - button "Share part" [ref=e454] [cursor=pointer]:
+                    - img
+                  - button "More part actions" [ref=e455] [cursor=pointer]:
+                    - img
+              - generic [ref=e68]:
+                - region "Part preview" [ref=e456]:
+                  - generic [ref=e70]:
+                    - generic [ref=e71]:
+                      - heading "Part preview" [level=2] [ref=e457]
+                      - tablist [ref=e74]:
+                        - tab "CAD" [selected] [ref=e458] [cursor=pointer]:
+                          - img [ref=e76]
+                          - text: CAD
+                        - tab "Drawing" [ref=e459] [cursor=pointer]:
+                          - img [ref=e80]
+                          - text: Drawing
+                    - tabpanel "CAD" [ref=e460]:
+                      - generic [ref=e84]:
+                        - paragraph [ref=e86]: CAD preview
+                        - generic "CAD preview for fx-200-production-plate.step" [ref=e461]
+                - region "Part summary" [ref=e462]:
+                  - heading "Part summary" [level=2] [ref=e463]
+                  - generic [ref=e92]:
+                    - generic [ref=e93]:
+                      - generic [ref=e94]: Material
+                      - generic [ref=e95]: 7075 aluminum
+                    - generic [ref=e96]:
+                      - generic [ref=e97]: Finish
+                      - generic [ref=e98]: Black anodize
+                    - generic [ref=e99]:
+                      - generic [ref=e100]: Tolerance
+                      - generic [ref=e101]: ±0.005 in
+                    - generic [ref=e102]:
+                      - generic [ref=e103]: Quantity
+                      - generic [ref=e104]: 25 / 50
+            - generic [ref=e105]:
+              - heading "Part information" [level=2] [ref=e464]
+              - generic [ref=e107]:
+                - generic [ref=e108]:
+                  - generic [ref=e110]:
+                    - img [ref=e111]
+                    - generic [ref=e116]:
+                      - paragraph [ref=e117]: Waiting for drawing metadata
+                      - paragraph [ref=e118]: Upload a PDF drawing or wait for processing to begin.
+                  - status "Export control" [ref=e465]:
+                    - generic [ref=e120]:
+                      - img [ref=e121]
+                      - generic [ref=e123]:
+                        - paragraph [ref=e124]: Export-control answer needed
+                        - paragraph [ref=e125]:
+                          - text: Quotes for this part are on hold until you tell us whether its files are export-controlled. Your answer covers every file on the part.
+                          - link "Beta terms" [ref=e466] [cursor=pointer]:
+                            - /url: /legal/terms
+                        - button "Answer export-control question" [ref=e467] [cursor=pointer]
+                  - generic [ref=e130]:
+                    - generic [ref=e131]:
+                      - generic [ref=e132]: Quote Quoted
+                      - paragraph [ref=e133]: Automatic quote access
+                    - paragraph [ref=e134]: A quote response was received and is moving through review.
+                - generic [ref=e136]:
+                  - generic [ref=e137]:
+                    - generic [ref=e138]:
+                      - text: Part number
+                      - textbox "Part number" [ref=e468]: FX-200
+                    - generic [ref=e141]:
+                      - text: Revision
+                      - textbox "Revision" [ref=e469]: B
+                    - generic [ref=e144]:
+                      - text: Description
+                      - textbox "Description" [ref=e470]: Production plate with finish callout
+                    - generic [ref=e147]:
+                      - text: Material
+                      - textbox "Material" [ref=e471]:
+                        - /placeholder: e.g. 6061-T6 aluminum
+                        - text: 7075 aluminum
+                    - generic [ref=e150]:
+                      - text: Finish
+                      - textbox "Finish" [ref=e472]: Black anodize
+                    - generic [ref=e153]:
+                      - text: Threads
+                      - textbox "Threads" [ref=e473]:
+                        - /placeholder: Optional thread callouts such as 1/4-20 UNC-2B.
+                    - generic [ref=e156]:
+                      - text: Tightest tolerance (in)
+                      - textbox "Tightest tolerance (in)" [ref=e474]: "0.005"
+                    - generic [ref=e159]:
+                      - text: Process
+                      - textbox "Process" [ref=e475]: CNC Machining
+                    - generic [ref=e162]:
+                      - text: Qty
+                      - textbox "Qty" [ref=e476]: "25"
+                    - generic [ref=e164]:
+                      - text: Quote quantities
+                      - textbox "Quote quantities" [ref=e477]:
+                        - /placeholder: 10 / 25 / 50
+                        - text: 25/50
+                    - generic [ref=e166]:
+                      - text: Need by
+                      - textbox "Need by" [ref=e478]: 2026-04-02
+                    - generic [ref=e168]:
+                      - text: Notes
+                      - textbox "Notes" [ref=e479]:
+                        - /placeholder: Optional drawing callouts, schedule constraints, or packaging notes.
+                  - generic [ref=e170]:
+                    - generic [ref=e171]:
+                      - paragraph [ref=e172]: RFQ details
+                      - paragraph [ref=e173]: Shipping, certification, sourcing, and release status details stay client-safe here. Internal review-only controls remain on the estimator side.
+                    - generic [ref=e174]:
+                      - generic [ref=e175]:
+                        - generic [ref=e176]:
+                          - text: Packaging notes
+                          - textbox "Packaging notes" [ref=e480]:
+                            - /placeholder: Bagging, labeling, tray, or special handling requests.
+                        - generic [ref=e178]:
+                          - text: Shipping notes
+                          - textbox "Shipping notes" [ref=e481]:
+                            - /placeholder: Delivery constraints, dock notes, or shipment handling details.
+                      - generic [ref=e180]:
+                        - generic [ref=e181]:
+                          - text: Required certifications
+                          - textbox "Required certifications" [ref=e482]:
+                            - /placeholder: ITAR, AS9100, material certs
+                        - generic [ref=e183]:
+                          - text: Inspection level
+                          - combobox [ref=e184] [cursor=pointer]:
+                            - generic: No specific level
+                            - img [ref=e185]
+                        - generic [ref=e187]:
+                          - text: Certification notes
+                          - textbox "Certification notes" [ref=e483]:
+                            - /placeholder: Traceability or inspection expectations.
+                        - generic [ref=e189]:
+                          - checkbox "Material certification required" [ref=e484] [cursor=pointer]
+                          - generic [ref=e191]: Material certification required
+                        - generic [ref=e192]:
+                          - checkbox "Certificate of conformance required" [ref=e485] [cursor=pointer]
+                          - generic [ref=e194]: Certificate of conformance required
+                      - generic [ref=e195]:
+                        - generic [ref=e196]:
+                          - text: Sourcing preference
+                          - combobox [ref=e197] [cursor=pointer]:
+                            - generic: No preference
+                            - img [ref=e198]
+                        - generic [ref=e200]:
+                          - text: Material provisioning
+                          - combobox [ref=e201] [cursor=pointer]:
+                            - generic: No provisioning note
+                            - img [ref=e202]
+                        - generic [ref=e204]:
+                          - text: Preferred suppliers
+                          - textbox "Preferred suppliers" [ref=e486]:
+                            - /placeholder: Preferred shops or customer-nominated suppliers
+                        - generic [ref=e206]:
+                          - text: Sourcing notes
+                          - textbox "Sourcing notes" [ref=e487]:
+                            - /placeholder: Domestic preference, approved supplier context, or special sourcing instructions.
+                      - generic [ref=e208]:
+                        - generic [ref=e209]:
+                          - text: Release status
+                          - combobox [ref=e210] [cursor=pointer]:
+                            - generic: No release status
+                            - img [ref=e211]
+                        - generic [ref=e213]:
+                          - text: Release notes
+                          - textbox "Release notes" [ref=e488]:
+                            - /placeholder: Revision readiness, blockers, or release context.
+                  - generic [ref=e215]:
+                    - button "Upload revised file" [ref=e489] [cursor=pointer]:
+                      - img
+                      - text: Upload revised file
+                    - button "Save request details" [ref=e490] [cursor=pointer]
+            - region "Quote information" [ref=e491]:
+              - generic [ref=e219]:
+                - generic [ref=e220]: Action needed
+                - heading "Confirm milling or turning" [level=2] [ref=e492]
+                - paragraph [ref=e222]: The launch workflow supports CNC milling and CNC turning, but the current process is not specific enough to rank provider fit.
+                - paragraph [ref=e223]: Choose CNC milling or CNC turning in the request details.
+                - generic [ref=e224]:
+                  - paragraph [ref=e225]: Select the manufacturing process
+                  - paragraph [ref=e226]: Your selection is saved to the request and provider matching refreshes automatically.
+                  - generic [ref=e227]:
+                    - button "CNC milling" [ref=e493] [cursor=pointer]
+                    - button "CNC turning" [ref=e494] [cursor=pointer]
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - generic [ref=e232]:
+                    - generic [ref=e233]:
+                      - paragraph [ref=e234]: Quote comparison
+                      - paragraph [ref=e235]: Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost.
+                    - button "Review order" [ref=e495] [cursor=pointer]:
+                      - text: Review order
+                      - img
+                  - generic [ref=e240]:
+                    - generic [ref=e241]:
+                      - button "All sourcing" [active] [ref=e501] [cursor=pointer]:
+                        - img
+                      - generic [ref=e243]:
+                        - generic [ref=e244]:
+                          - img [ref=e245]
+                          - text: Need by date
+                        - generic [ref=e247]:
+                          - textbox "Need by date" [ref=e497]: 2026-04-02
+                          - button "Clear" [ref=e498] [cursor=pointer]
+                    - generic [ref=e251]: Showing 3 of 3 options that meet your deadline.
+                - generic [ref=e502]:
+                  - generic [ref=e503]:
+                    - generic [ref=e504]:
+                      - generic [ref=e505]:
+                        - paragraph [ref=e506]: Decision map
+                        - paragraph [ref=e507]: Delivered date × expected delivered cost
+                      - paragraph [ref=e508]: Solid points are fully quoted; hollow points are lower bounds. Drag the deadline or use arrow keys.
+                    - generic [ref=e510]:
+                      - generic [ref=e511]: "Deadline: Thu, Apr 2, 2026"
+                      - generic [ref=e512]: not confirmed
+                    - generic [ref=e513]:
+                      - group "Quote comparison by delivered date and expected delivered cost" [ref=e514]:
+                        - application [ref=e517]:
+                          - generic [ref=e521]:
+                            - generic [ref=e522]:
+                              - generic [ref=e524]: Apr 1
+                              - generic [ref=e526]: May 31
+                              - generic [ref=e528]: Jul 30
+                              - generic [ref=e530]: Nov 17
+                            - generic [ref=e531]: Delivered date
+                          - generic [ref=e532]:
+                            - generic [ref=e533]:
+                              - generic [ref=e535]: $0.00
+                              - generic [ref=e537]: $150.00
+                              - generic [ref=e539]: $300.00
+                              - generic [ref=e541]: $450.00
+                              - generic [ref=e543]: $600.00
+                            - generic [ref=e544]: Expected delivered cost
+                          - generic [ref=e546]:
+                            - img [ref=e547]:
+                              - generic "Xometry · Lowest cost. Ships Tue, Nov 3, 2026; transit not quoted, arrives later. Expected delivered cost at least $360.00; shipping, tax, fees not quoted." [ref=e548]
+                            - img [ref=e551]:
+                              - generic "Xometry · Balanced. Ships Mon, Nov 2, 2026; transit not quoted, arrives later. Expected delivered cost at least $378.00; shipping, tax, fees not quoted." [ref=e552]
+                          - img [ref=e556]:
+                            - generic "Protolabs · Fastest delivery. Ships Thu, Oct 29, 2026; transit not quoted, arrives later. Expected delivered cost at least $402.50; shipping, tax, fees not quoted." [ref=e557]
+                      - generic:
+                        - slider "Deadline":
+                          - generic [ref=e559]: Deadline Apr 2
+                  - generic [ref=e560]:
+                    - paragraph [ref=e561]: Current selection
+                    - generic [ref=e562]:
+                      - generic [ref=e563]:
+                        - term [ref=e564]: Vendor
+                        - definition [ref=e565]: Xometry
+                      - generic [ref=e566]:
+                        - term [ref=e567]: Expected delivered cost
+                        - definition [ref=e568]: ≥ $360.00
+                      - generic [ref=e569]:
+                        - term [ref=e570]: Delivered by
+                        - definition [ref=e571]: After Tue, Nov 3, 2026
+                      - generic [ref=e572]:
+                        - term [ref=e573]: Quantity
+                        - definition [ref=e574]: "25"
+                      - generic [ref=e575]:
+                        - term [ref=e576]: Sourcing
+                        - definition [ref=e577]: Unknown
+                      - generic [ref=e578]:
+                        - term [ref=e579]: Quote status
+                        - definition [ref=e580]: Previously collected · Validity not provided
+                    - group [ref=e581]:
+                      - generic "Response source facts" [ref=e582] [cursor=pointer]
+                  - generic [ref=e583]:
+                    - radiogroup "Table order" [ref=e584]:
+                      - radio "Cheapest" [checked] [ref=e585] [cursor=pointer]
+                      - radio "Fastest" [ref=e586] [cursor=pointer]
+                    - paragraph [ref=e587]: On-time options first by expected delivered cost, then options that may miss the deadline, then late.
+                  - table [ref=e590]:
+                    - rowgroup [ref=e591]:
+                      - row "Vendor Scope Unit Expected delivered cost Delivered by Source" [ref=e592]:
+                        - columnheader "Vendor" [ref=e593]
+                        - columnheader "Scope" [ref=e594]
+                        - columnheader "Unit" [ref=e595]
+                        - columnheader "Expected delivered cost" [ref=e596]
+                        - columnheader "Delivered by" [ref=e597]
+                        - columnheader "Source" [ref=e598]
+                    - rowgroup [ref=e599]:
+                      - row "Xometry Misses deadline Lowest cost Unknown $14.40 ≥ $360.00 shipping, tax, fees not quoted Exclude After Tue, Nov 3, 2026 Ships then; transit not quoted" [selected] [ref=e600] [cursor=pointer]:
+                        - cell "Xometry Misses deadline" [ref=e601]:
+                          - generic [ref=e604]:
+                            - generic [ref=e606]: Xometry
+                            - generic [ref=e608]: Misses deadline
+                        - cell "Lowest cost Unknown" [ref=e609]:
+                          - paragraph [ref=e610]: Lowest cost
+                          - generic [ref=e611]: Unknown
+                        - cell "$14.40" [ref=e612]
+                        - cell "≥ $360.00 shipping, tax, fees not quoted Exclude" [ref=e613]:
+                          - generic [ref=e614]: ≥ $360.00
+                          - generic [ref=e615]: shipping, tax, fees not quoted
+                          - button "Exclude" [ref=e616]
+                        - cell "After Tue, Nov 3, 2026 Ships then; transit not quoted" [ref=e617]:
+                          - generic [ref=e618]: After Tue, Nov 3, 2026
+                          - generic [ref=e619]: Ships then; transit not quoted
+                        - cell [ref=e620]
+                      - row "Xometry Misses deadline Balanced Unknown $15.12 ≥ $378.00 shipping, tax, fees not quoted Exclude After Mon, Nov 2, 2026 Ships then; transit not quoted" [ref=e621] [cursor=pointer]:
+                        - cell "Xometry Misses deadline" [ref=e622]:
+                          - generic [ref=e625]:
+                            - generic [ref=e627]: Xometry
+                            - generic [ref=e629]: Misses deadline
+                        - cell "Balanced Unknown" [ref=e630]:
+                          - paragraph [ref=e631]: Balanced
+                          - generic [ref=e632]: Unknown
+                        - cell "$15.12" [ref=e633]
+                        - cell "≥ $378.00 shipping, tax, fees not quoted Exclude" [ref=e634]:
+                          - generic [ref=e635]: ≥ $378.00
+                          - generic [ref=e636]: shipping, tax, fees not quoted
+                          - button "Exclude" [ref=e637]
+                        - cell "After Mon, Nov 2, 2026 Ships then; transit not quoted" [ref=e638]:
+                          - generic [ref=e639]: After Mon, Nov 2, 2026
+                          - generic [ref=e640]: Ships then; transit not quoted
+                        - cell [ref=e641]
+                      - row "Protolabs Misses deadline Fastest delivery Unknown $16.10 ≥ $402.50 shipping, tax, fees not quoted Exclude After Thu, Oct 29, 2026 Ships then; transit not quoted" [ref=e642] [cursor=pointer]:
+                        - cell "Protolabs Misses deadline" [ref=e643]:
+                          - generic [ref=e646]:
+                            - generic [ref=e648]: Protolabs
+                            - generic [ref=e650]: Misses deadline
+                        - cell "Fastest delivery Unknown" [ref=e651]:
+                          - paragraph [ref=e652]: Fastest delivery
+                          - generic [ref=e653]: Unknown
+                        - cell "$16.10" [ref=e654]
+                        - cell "≥ $402.50 shipping, tax, fees not quoted Exclude" [ref=e655]:
+                          - generic [ref=e656]: ≥ $402.50
+                          - generic [ref=e657]: shipping, tax, fees not quoted
+                          - button "Exclude" [ref=e658]
+                        - cell "After Thu, Oct 29, 2026 Ships then; transit not quoted" [ref=e659]:
+                          - generic [ref=e660]: After Thu, Oct 29, 2026
+                          - generic [ref=e661]: Ships then; transit not quoted
+                        - cell [ref=e662]
+                  - generic [ref=e664]:
+                    - generic [ref=e665]:
+                      - paragraph [ref=e666]: Best Unit Price
+                      - paragraph [ref=e667]: $14.40
+                      - paragraph [ref=e668]: Xometry USA standard
+                    - generic [ref=e669]:
+                      - paragraph [ref=e670]: Fastest Lead
+                      - paragraph [ref=e671]: 6 days
+                      - paragraph [ref=e672]: Proto Labs standard
+                    - generic [ref=e673]:
+                      - paragraph [ref=e674]: Options Quoted
+                      - paragraph [ref=e675]: "3"
+                      - paragraph [ref=e676]: 2 suppliers
+                    - generic [ref=e677]:
+                      - paragraph [ref=e678]: Price Range
+                      - paragraph [ref=e679]: $14.40–$16.10
+                      - paragraph [ref=e680]: 1.1x spread
+            - button "Activity and history" [ref=e499] [cursor=pointer]:
+              - generic [ref=e261]: Activity and history
+              - img [ref=e262]
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e500] [cursor=pointer]:
+    - img [ref=e267]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
+  - generic [ref=e681]: $0.00

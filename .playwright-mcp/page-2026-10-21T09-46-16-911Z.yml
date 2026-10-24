@@ -1,0 +1,337 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button [ref=e134] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button [expanded] [ref=e135] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation [ref=e136]:
+          - link [ref=e137] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e22]
+            - generic [ref=e25]: Parts
+          - link [ref=e138] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link [ref=e139] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading [level=1] [ref=e140]: Parts
+          - generic [ref=e41]:
+            - button [ref=e141]
+            - button [ref=e142] [cursor=pointer]:
+              - img [ref=e44]
+              - generic [ref=e46]: Upload
+            - button [ref=e143] [cursor=pointer]:
+              - generic [ref=e49]: DC
+              - generic [ref=e50]:
+                - paragraph [ref=e51]: Demo Client
+                - paragraph [ref=e52]: Client
+              - generic:
+                - img
+        - main [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]:
+                - generic [ref=e61]: Search parts
+                - generic [ref=e62]:
+                  - img
+                  - searchbox [ref=e144]
+              - group [ref=e145]:
+                - button [pressed] [ref=e146] [cursor=pointer]: All
+                - button [ref=e147] [cursor=pointer]: Parts
+                - button [ref=e148] [cursor=pointer]: Assemblies
+            - generic [ref=e149]:
+              - link "Isometric CAD sketch preview for fx-100-bracket.step FX-100 rev A Needs specification review L-bracket with tapped holes FX-100 · Rev A Qty 12 6061-T6 aluminum As machined Request Cleanup Updated Oct 21, 2026" [ref=e150] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000100
+                - img "Isometric CAD sketch preview for fx-100-bracket.step" [ref=e152]
+                - generic [ref=e153]:
+                  - generic [ref=e154]:
+                    - generic [ref=e155]: FX-100 rev A
+                    - generic [ref=e156]: Needs specification review
+                  - generic [ref=e157]: L-bracket with tapped holes
+                  - generic [ref=e158]:
+                    - generic [ref=e159]: FX-100 · Rev A
+                    - generic [ref=e160]: Qty 12
+                    - generic [ref=e161]: 6061-T6 aluminum
+                    - generic [ref=e162]: As machined
+                    - generic [ref=e163]: Request Cleanup
+                - generic [ref=e164]: Updated Oct 21, 2026
+              - link "Isometric CAD sketch preview for quoted-sample.step FX-101 rev A Request in progress SYNTHETIC DEMO BRACKET FX-101 · Rev A Qty 10 6061 Aluminum Black Anodize Synthetic quote comparison Updated Oct 21, 2026" [ref=e165] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000101
+                - img "Isometric CAD sketch preview for quoted-sample.step" [ref=e167]
+                - generic [ref=e168]:
+                  - generic [ref=e169]:
+                    - generic [ref=e170]: FX-101 rev A
+                    - generic [ref=e171]: Request in progress
+                  - generic [ref=e172]: SYNTHETIC DEMO BRACKET
+                  - generic [ref=e173]:
+                    - generic [ref=e174]: FX-101 · Rev A
+                    - generic [ref=e175]: Qty 10
+                    - generic [ref=e176]: 6061 Aluminum
+                    - generic [ref=e177]: Black Anodize
+                    - generic [ref=e178]: Synthetic quote comparison
+                - generic [ref=e179]: Updated Oct 21, 2026
+              - link "Isometric CAD sketch preview for fx-200-production-plate.step FX-200 rev B Offers available Production plate with finish callout FX-200 · Rev B Qty 25 7075 aluminum Black anodize Production Plates Updated Oct 21, 2026" [ref=e180] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000103
+                - img "Isometric CAD sketch preview for fx-200-production-plate.step" [ref=e182]
+                - generic [ref=e183]:
+                  - generic [ref=e184]:
+                    - generic [ref=e185]: FX-200 rev B
+                    - generic [ref=e186]: Offers available
+                  - generic [ref=e187]: Production plate with finish callout
+                  - generic [ref=e188]:
+                    - generic [ref=e189]: FX-200 · Rev B
+                    - generic [ref=e190]: Qty 25
+                    - generic [ref=e191]: 7075 aluminum
+                    - generic [ref=e192]: Black anodize
+                    - generic [ref=e193]: Production Plates
+                - generic [ref=e194]: Updated Oct 21, 2026
+              - link "Project group Production Plates Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e195] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000022
+                - generic [ref=e196]:
+                  - img [ref=e197]
+                  - generic [ref=e199]: Project group
+                - generic [ref=e200]:
+                  - generic [ref=e201]:
+                    - generic [ref=e202]: Production Plates
+                    - generic [ref=e203]: Project group
+                  - generic [ref=e204]: Project-backed part grouping
+                  - generic [ref=e206]: 1 parts
+                - generic [ref=e207]: Updated Mar 10, 2026
+              - link "Project group Request Cleanup Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e208] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000020
+                - generic [ref=e209]:
+                  - img [ref=e210]
+                  - generic [ref=e212]: Project group
+                - generic [ref=e213]:
+                  - generic [ref=e214]:
+                    - generic [ref=e215]: Request Cleanup
+                    - generic [ref=e216]: Project group
+                  - generic [ref=e217]: Project-backed part grouping
+                  - generic [ref=e219]: 1 parts
+                - generic [ref=e220]: Updated Mar 10, 2026
+              - link "Project group Synthetic quote comparison Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e221] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000021
+                - generic [ref=e222]:
+                  - img [ref=e223]
+                  - generic [ref=e225]: Project group
+                - generic [ref=e226]:
+                  - generic [ref=e227]:
+                    - generic [ref=e228]: Synthetic quote comparison
+                    - generic [ref=e229]: Project group
+                  - generic [ref=e230]: Project-backed part grouping
+                  - generic [ref=e232]: 1 parts
+                - generic [ref=e233]: Updated Mar 10, 2026
+  - button [ref=e75] [cursor=pointer]:
+    - img [ref=e72]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Settings" [active] [ref=e235]:
+    - generic [ref=e236]:
+      - generic [ref=e237]:
+        - heading "Settings" [level=2] [ref=e238]
+        - paragraph [ref=e239]: Account details and support entry points for the current workspace.
+      - generic [ref=e244]:
+        - generic [ref=e245]:
+          - paragraph [ref=e246]: Account
+          - generic [ref=e247]:
+            - generic [ref=e249]: DC
+            - generic [ref=e250]:
+              - paragraph [ref=e251]: Demo Client
+              - paragraph [ref=e252]: client.demo@overdrafter.local
+        - generic [ref=e253]:
+          - paragraph [ref=e254]: Details
+          - generic [ref=e255]:
+            - generic [ref=e256]:
+              - term [ref=e257]: Email
+              - definition [ref=e258]: client.demo@overdrafter.local
+            - generic [ref=e259]:
+              - term [ref=e260]: Organization
+              - definition [ref=e261]: Fixture Machine Co.
+        - generic [ref=e262]:
+          - generic [ref=e263]:
+            - paragraph [ref=e264]: Automatic quote access
+            - generic [ref=e265]: Not enabled
+          - paragraph [ref=e266]: Automatic quote collection
+          - paragraph [ref=e267]: Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.
+        - generic [ref=e268]:
+          - paragraph [ref=e270]: Company
+          - generic [ref=e271]:
+            - generic [ref=e272]:
+              - term [ref=e273]: Company name
+              - definition [ref=e274]: —
+            - generic [ref=e275]:
+              - term [ref=e276]: Phone
+              - definition [ref=e277]: —
+        - generic [ref=e278]:
+          - generic [ref=e279]:
+            - paragraph [ref=e280]: Billing Address
+            - button "Edit" [ref=e281] [cursor=pointer]
+          - generic [ref=e282]:
+            - generic [ref=e283]:
+              - term [ref=e284]: Street
+              - definition [ref=e285]: —
+            - generic [ref=e286]:
+              - term [ref=e287]: City / State / ZIP
+              - definition [ref=e288]: —
+            - generic [ref=e289]:
+              - term [ref=e290]: Country
+              - definition [ref=e291]: US
+        - generic [ref=e292]:
+          - generic [ref=e293]:
+            - paragraph [ref=e294]: Shipping Address
+            - button "Edit" [ref=e295] [cursor=pointer]
+          - generic [ref=e297]:
+            - term [ref=e298]: Same as billing
+            - definition
+          - generic [ref=e299]:
+            - paragraph [ref=e300]: "Quote shipping destination: Needs confirmation"
+            - paragraph [ref=e301]: US
+            - button "Confirm this shipping address for supplier quotes" [ref=e302] [cursor=pointer]
+        - generic [ref=e303]:
+          - paragraph [ref=e304]: Support
+          - generic [ref=e305]:
+            - button "Notifications Review browser permission, preferences, and seen state for workflow alerts." [ref=e306] [cursor=pointer]:
+              - img [ref=e307]
+              - generic [ref=e310]:
+                - paragraph [ref=e311]: Notifications
+                - paragraph [ref=e312]: Review browser permission, preferences, and seen state for workflow alerts.
+              - img [ref=e313]
+            - button "Help center Browse the support sections available from the account menu." [ref=e315] [cursor=pointer]:
+              - img [ref=e316]
+              - generic [ref=e319]:
+                - paragraph [ref=e320]: Help center
+                - paragraph [ref=e321]: Browse the support sections available from the account menu.
+              - img [ref=e322]
+            - button "Report a bug Open diagnostics and copy a structured report for support." [ref=e324] [cursor=pointer]:
+              - img [ref=e325]
+              - generic [ref=e334]:
+                - paragraph [ref=e335]: Report a bug
+                - paragraph [ref=e336]: Open diagnostics and copy a structured report for support.
+              - img [ref=e337]
+    - button "Close" [ref=e339] [cursor=pointer]:
+      - img [ref=e340]
+      - generic [ref=e343]: Close

@@ -1,0 +1,237 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button "OverDrafter home" [ref=e7] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button "Close sidebar" [expanded] [ref=e14] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation "Primary" [ref=e18]:
+          - link "Parts" [ref=e19] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e21]
+            - generic [ref=e24]: Parts
+          - link "Quotes" [ref=e25] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link "Search" [ref=e32] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading "Quotes" [level=1] [ref=e40]
+          - generic [ref=e41]:
+            - button "Choose part files to upload" [ref=e42]
+            - button "Upload" [ref=e43] [cursor=pointer]:
+              - img [ref=e44]
+              - generic [ref=e46]: Upload
+            - button "Open account menu" [ref=e47] [cursor=pointer]:
+              - generic [ref=e49]: DC
+              - generic [ref=e50]:
+                - paragraph [ref=e51]: Demo Client
+                - paragraph [ref=e52]: Client
+              - generic:
+                - img
+        - main [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]: Search quotes
+              - generic [ref=e61]:
+                - img
+                - searchbox "Search quotes" [ref=e62]
+            - generic [ref=e70]:
+              - link "FX-100 rev A MS62VJ L-bracket with tapped holes Part FX-100 Request Cleanup State Needs specification review Offers 0 Request time Unavailable Updated Oct 21, 2026" [ref=e71] [cursor=pointer]:
+                - /url: /quotes/MS62VJ
+                - generic [ref=e72]:
+                  - generic [ref=e73]:
+                    - generic [ref=e74]: FX-100 rev A
+                    - generic [ref=e75]: MS62VJ
+                  - generic [ref=e76]: L-bracket with tapped holes
+                  - generic [ref=e77]:
+                    - generic [ref=e78]: Part FX-100
+                    - generic [ref=e79]: Request Cleanup
+                - generic [ref=e80]:
+                  - generic [ref=e81]: State
+                  - generic [ref=e82]: Needs specification review
+                - generic [ref=e83]:
+                  - generic [ref=e84]:
+                    - generic [ref=e85]: Offers
+                    - generic [ref=e86]: "0"
+                  - generic [ref=e87]:
+                    - generic [ref=e88]: Request time
+                    - generic [ref=e89]: Unavailable
+                - generic [ref=e90]:
+                  - generic [ref=e91]: Updated
+                  - generic [ref=e92]: Oct 21, 2026
+              - 'link "FX-200 rev B GBSZQH Production plate with finish callout Ref QA-REF-001 Part FX-200 Production Plates State Offers available Offers 2 Request time Unavailable Updated Oct 21, 2026 Selected: Xometry USA · $360" [ref=e93] [cursor=pointer]':
+                - /url: /quotes/GBSZQH
+                - generic [ref=e94]:
+                  - generic [ref=e95]:
+                    - generic [ref=e96]: FX-200 rev B
+                    - generic [ref=e97]: GBSZQH
+                  - generic [ref=e98]: Production plate with finish callout
+                  - generic [ref=e99]:
+                    - generic [ref=e100]: Ref QA-REF-001
+                    - generic [ref=e101]: Part FX-200
+                    - generic [ref=e102]: Production Plates
+                - generic [ref=e103]:
+                  - generic [ref=e104]: State
+                  - generic [ref=e105]: Offers available
+                - generic [ref=e106]:
+                  - generic [ref=e107]:
+                    - generic [ref=e108]: Offers
+                    - generic [ref=e109]: "2"
+                  - generic [ref=e110]:
+                    - generic [ref=e111]: Request time
+                    - generic [ref=e112]: Unavailable
+                - generic [ref=e113]:
+                  - generic [ref=e114]: Updated
+                  - generic [ref=e115]: Oct 21, 2026
+                  - generic [ref=e116]: "Selected: Xometry USA · $360"
+              - 'link "FX-101 rev A 6V9VW9 SYNTHETIC DEMO BRACKET Part FX-101 Synthetic quote comparison State Request in progress Offers 16 Request time Unavailable Updated Oct 21, 2026 Selected: Xometry · $424" [ref=e117] [cursor=pointer]':
+                - /url: /quotes/6V9VW9
+                - generic [ref=e118]:
+                  - generic [ref=e119]:
+                    - generic [ref=e120]: FX-101 rev A
+                    - generic [ref=e121]: 6V9VW9
+                  - generic [ref=e122]: SYNTHETIC DEMO BRACKET
+                  - generic [ref=e123]:
+                    - generic [ref=e124]: Part FX-101
+                    - generic [ref=e125]: Synthetic quote comparison
+                - generic [ref=e126]:
+                  - generic [ref=e127]: State
+                  - generic [ref=e128]: Request in progress
+                - generic [ref=e129]:
+                  - generic [ref=e130]:
+                    - generic [ref=e131]: Offers
+                    - generic [ref=e132]: "16"
+                  - generic [ref=e133]:
+                    - generic [ref=e134]: Request time
+                    - generic [ref=e135]: Unavailable
+                - generic [ref=e136]:
+                  - generic [ref=e137]: Updated
+                  - generic [ref=e138]: Oct 21, 2026
+                  - generic [ref=e139]: "Selected: Xometry · $424"
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e65] [cursor=pointer]:
+    - img [ref=e67]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

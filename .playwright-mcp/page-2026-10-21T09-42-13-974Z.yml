@@ -1,0 +1,192 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button [ref=e129] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button [expanded] [ref=e130] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation [ref=e131]:
+          - link [ref=e132] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e21]
+            - generic [ref=e24]: Parts
+          - link [ref=e133] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e27]
+            - generic [ref=e30]: Quotes
+          - link [ref=e134] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading [level=1] [ref=e135]: Search
+          - generic [ref=e41]:
+            - button [ref=e136]
+            - button [ref=e137] [cursor=pointer]:
+              - img [ref=e44]
+              - generic [ref=e46]: Upload
+            - button [ref=e138] [cursor=pointer]:
+              - generic [ref=e49]: DC
+              - generic [ref=e50]:
+                - paragraph [ref=e51]: Demo Client
+                - paragraph [ref=e52]: Client
+              - generic:
+                - img
+        - main [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]: Global search
+              - generic [ref=e61]:
+                - img
+                - searchbox [ref=e139]
+            - generic [ref=e140]:
+              - paragraph [ref=e141]: Search the working record
+              - paragraph [ref=e142]: Explicit dimensions and units are interpreted from your query. No geometry is inferred from filenames or placeholder projections.
+  - button [ref=e70] [cursor=pointer]:
+    - img [ref=e67]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Notifications" [active] [ref=e144]:
+    - generic [ref=e145]:
+      - generic [ref=e146]:
+        - heading "Notifications" [level=2] [ref=e147]
+        - paragraph [ref=e148]: Browser permission, notification preferences, and seen state for the first web notification slice.
+      - generic [ref=e153]:
+        - generic [ref=e155]:
+          - generic [ref=e156]:
+            - paragraph [ref=e157]: Center status
+            - paragraph [ref=e158]: All caught up
+            - paragraph [ref=e159]: The first browser slice tracks durable quote-workflow transitions from this workspace and keeps seen state on this browser until server-backed notification records exist.
+          - generic [ref=e160]: 0 in center
+        - generic [ref=e162]:
+          - generic [ref=e163]:
+            - paragraph [ref=e164]: Browser permission
+            - paragraph [ref=e165]: Unavailable
+            - paragraph [ref=e166]: This browser environment does not expose the Notification API.
+          - generic [ref=e167]: Unavailable
+        - paragraph [ref=e169]: Preferences
+        - generic [ref=e170]:
+          - paragraph [ref=e172]: Recent notifications
+          - paragraph [ref=e174]: Notification preferences will appear here after a workspace role is resolved.
+    - button "Close" [ref=e175] [cursor=pointer]:
+      - img [ref=e176]
+      - generic [ref=e179]: Close

@@ -1,0 +1,284 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e743]:
+      - banner [ref=e744]:
+        - button "OverDrafter" [ref=e746] [cursor=pointer]:
+          - generic [ref=e747]: OverDrafter
+        - generic [ref=e748]:
+          - button "Sign in" [ref=e749] [cursor=pointer]
+          - button "Sign up for free" [ref=e750] [cursor=pointer]
+      - main [ref=e751]:
+        - generic [ref=e752]:
+          - generic [ref=e753]:
+            - paragraph [ref=e754]: Manufacturing workspace
+            - heading "CAD In Parts Out" [level=1] [ref=e755]:
+              - text: CAD In
+              - text: Parts Out
+            - paragraph [ref=e756]: Organize CAD files and drawings, review provider recommendations, and compare quote results. Automatic vendor collection is available only through the free, invitation-only Founding Beta.
+            - generic [ref=e757]:
+              - button "Create account" [ref=e758] [cursor=pointer]
+              - button "Log in" [ref=e759] [cursor=pointer]
+            - paragraph [ref=e760]: OverDrafter signup is free. Official RFQ links may still require vendor sign-in or vendor-issued guest access.
+          - region "Multiple quotes. One obvious tradeoff." [ref=e761]:
+            - generic [ref=e762]:
+              - paragraph [ref=e763]: Quote comparison
+              - heading "Multiple quotes. One obvious tradeoff." [level=2] [ref=e764]
+              - paragraph [ref=e765]: Price runs vertically. Lead time runs horizontally. The strongest options move toward the lower-left, so the field makes sense before you choose.
+            - generic [ref=e766]:
+              - generic [ref=e767]:
+                - generic [ref=e768]:
+                  - paragraph [ref=e769]: Illustrative beta comparison · sample data
+                  - paragraph [ref=e770]: FLT-BRACKET-01 · 25 pcs
+                  - paragraph [ref=e771]: 6 illustrative CNC milling offers
+                - paragraph [ref=e772]: Sample prices · not live quotes
+              - generic [ref=e773]:
+                - generic [ref=e774]:
+                  - generic [ref=e775]:
+                    - img [ref=e776]
+                    - text: Lower-left means faster and less expensive
+                  - group "Quote comparison by ready-to-ship working days and quoted total" [ref=e780]:
+                    - application [ref=e783]:
+                      - generic [ref=e787]:
+                        - generic [ref=e788]:
+                          - generic [ref=e790]: 0d
+                          - generic [ref=e792]: 5d
+                          - generic [ref=e794]: 10d
+                          - generic [ref=e796]: 18d
+                        - generic [ref=e797]: Ready-to-ship lead time (working days)
+                      - generic [ref=e798]:
+                        - generic [ref=e799]:
+                          - generic [ref=e801]: $0.00
+                          - generic [ref=e803]: $200.00
+                          - generic [ref=e805]: $400.00
+                          - generic [ref=e807]: $600.00
+                          - generic [ref=e809]: $800.00
+                        - generic [ref=e810]: Quoted total
+                      - img [ref=e814]
+                      - img [ref=e819]
+                      - img [ref=e824]
+                      - img [ref=e829]
+                      - img [ref=e834]
+                      - img [ref=e839]
+                - complementary [ref=e841]:
+                  - generic [ref=e842]:
+                    - paragraph [ref=e843]: Selected example
+                    - generic [ref=e844]:
+                      - img [ref=e845]
+                      - text: Selected
+                  - heading "Mesa Precision" [level=3] [ref=e847]
+                  - paragraph [ref=e848]: Standard · Best fit
+                  - generic [ref=e849]:
+                    - generic [ref=e850]:
+                      - generic [ref=e851]: Sample total
+                      - generic [ref=e852]: $525.00
+                    - generic [ref=e853]:
+                      - generic [ref=e854]: Sample lead time
+                      - generic [ref=e855]: 9 working days
+                  - generic [ref=e856]:
+                    - paragraph [ref=e857]:
+                      - img [ref=e858]
+                      - text: $165.00 less than the fastest example
+                    - paragraph [ref=e860]:
+                      - img [ref=e861]
+                      - text: 7 days faster than the lowest example
+                  - paragraph [ref=e863]: Illustrative quote data. These are not live offers.
+                  - button "Compare your quotes" [ref=e864] [cursor=pointer]
+              - generic [ref=e865]:
+                - button "Select Northline Manufacturing example" [ref=e866] [cursor=pointer]:
+                  - generic [ref=e867]: Northline Manufacturing
+                  - generic [ref=e868]: $445.00 · 16d
+                - button "Select Apex CNC example" [ref=e869] [cursor=pointer]:
+                  - generic [ref=e870]: Apex CNC
+                  - generic [ref=e871]: $487.00 · 12d
+                - button "Select Mesa Precision example" [pressed] [ref=e872] [cursor=pointer]:
+                  - generic [ref=e873]: Mesa Precision
+                  - generic [ref=e874]: $525.00 · 9d
+                - button "Select ForgeWorks example" [ref=e875] [cursor=pointer]:
+                  - generic [ref=e876]: ForgeWorks
+                  - generic [ref=e877]: $558.00 · 11d
+                - button "Select Axis Manufacturing example" [ref=e878] [cursor=pointer]:
+                  - generic [ref=e879]: Axis Manufacturing
+                  - generic [ref=e880]: $610.00 · 7d
+                - button "Select Summit Prototype example" [ref=e881] [cursor=pointer]:
+                  - generic [ref=e882]: Summit Prototype
+                  - generic [ref=e883]: $690.00 · 5d
+          - generic [ref=e884]:
+            - paragraph [ref=e886]: How it works
+            - generic [ref=e888]:
+              - article [ref=e889]:
+                - paragraph [ref=e890]: 01 / UPLOAD
+                - heading "Drop your part package." [level=2] [ref=e891]
+                - paragraph [ref=e892]: Upload STEP files and PDF drawings together. Matching filenames keep CAD and drawing files paired from the start.
+                - generic [ref=e893]:
+                  - generic [ref=e894]:
+                    - generic [ref=e895]: FLT-BRACKET-01.step
+                    - generic [ref=e896]:
+                      - generic [ref=e897]: STEP · 1.4 MB
+                      - generic [ref=e898]: CAD
+                  - generic [ref=e899]:
+                    - generic [ref=e900]: FLT-BRACKET-01.pdf
+                    - generic [ref=e901]:
+                      - generic [ref=e902]: Drawing · 0.3 MB
+                      - generic [ref=e903]: Drawing
+                - generic [ref=e904]: Matched · 1 CAD/PDF pair
+              - article [ref=e905]:
+                - paragraph [ref=e906]: 02 / EXTRACT
+                - heading "Specs pulled from your drawing." [level=2] [ref=e907]
+                - paragraph [ref=e908]: Material, finish, tolerances, revision, and thread callouts are extracted from the drawing. Review and correct the result before quoting.
+                - generic [ref=e909]:
+                  - generic [ref=e910]:
+                    - generic [ref=e911]: Material
+                    - generic [ref=e912]: 6061-T6 Aluminum
+                  - generic [ref=e913]:
+                    - generic [ref=e914]: Finish
+                    - generic [ref=e915]: Clear Anodize Type II
+                  - generic [ref=e916]:
+                    - generic [ref=e917]: Tolerance
+                    - generic [ref=e918]: ±0.005 in
+                  - generic [ref=e919]:
+                    - generic [ref=e920]: Quantity
+                    - generic [ref=e921]: 25 pcs
+                  - generic [ref=e922]:
+                    - generic [ref=e923]: Revision
+                    - generic [ref=e924]: Rev C
+                - paragraph [ref=e925]: "Source: example drawing · FLT-BRACKET-01.pdf"
+              - article [ref=e926]:
+                - paragraph [ref=e927]: 03 / SOURCE
+                - heading "Start with useful supplier direction." [level=2] [ref=e928]
+                - paragraph [ref=e929]: Reviewed capability data ranks suitable providers and links to official RFQ paths. Organizations enrolled in the free, invitation-only Founding Beta can collect supported live quotes automatically.
+                - generic [ref=e930]:
+                  - generic [ref=e931]:
+                    - generic [ref=e932]: Provider matches ready
+                    - generic [ref=e933]: Reviewed capabilities
+                  - generic [ref=e934]:
+                    - generic [ref=e935]: Live offer received
+                    - generic [ref=e936]: Founding Beta collection
+              - article [ref=e937]:
+                - paragraph [ref=e938]: 04 / SELECT
+                - heading "Compare and choose the best fit." [level=2] [ref=e939]
+                - paragraph [ref=e940]: Published options keep price, lead time, process, and certification together. Your selection stays recorded with the project.
+                - generic [ref=e941]:
+                  - generic [ref=e942]:
+                    - generic [ref=e943]: Selected example
+                    - generic [ref=e944]: Mesa Precision
+                  - generic [ref=e945]:
+                    - generic [ref=e946]: Illustrative decision record
+                    - generic [ref=e947]: $525.00 · 9 working days
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e948] [cursor=pointer]:
+    - img [ref=e72]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
+  - generic [ref=e949]: $0.00

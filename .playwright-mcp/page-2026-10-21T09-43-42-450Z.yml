@@ -1,0 +1,233 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e5]:
+      - complementary [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - img [ref=e10]
+            - generic [ref=e13]:
+              - paragraph [ref=e14]: OverDrafter
+              - paragraph [ref=e15]: Curated CNC Quotes
+          - button [ref=e16] [cursor=pointer]:
+            - img
+        - navigation [ref=e18]:
+          - link "Projects" [ref=e19] [cursor=pointer]:
+            - /url: /
+            - img [ref=e20]
+            - text: Projects
+          - link "New Job" [ref=e25] [cursor=pointer]:
+            - /url: /jobs/new
+            - img [ref=e26]
+            - text: New Job
+        - generic [ref=e30]:
+          - img [ref=e32]
+          - generic [ref=e35]:
+            - paragraph [ref=e36]: client.demo@overdrafter.local
+            - paragraph [ref=e37]: Client
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - generic [ref=e40]:
+            - generic [ref=e41]:
+              - heading "FX-200 Production Plate" [level=1] [ref=e42]
+              - paragraph [ref=e43]: Published for client review.
+            - link "Back to dashboard" [ref=e45] [cursor=pointer]:
+              - /url: /
+              - img
+              - text: Back to dashboard
+        - main [ref=e46]:
+          - generic [ref=e47]:
+            - generic [ref=e48]:
+              - paragraph [ref=e49]: Published
+              - paragraph [ref=e50]: 3/10/2026
+            - generic [ref=e51]:
+              - paragraph [ref=e52]: Options
+              - paragraph [ref=e53]: "3"
+            - generic [ref=e54]:
+              - paragraph [ref=e55]: Best Price
+              - paragraph [ref=e56]: $360.00
+            - generic [ref=e57]:
+              - paragraph [ref=e58]: Status
+              - paragraph [ref=e60]: Awaiting selection
+          - generic [ref=e61]:
+            - generic [ref=e62]: Manufacturing quote
+            - generic [ref=e63]: Qty 25
+            - generic [ref=e64]: Quote qty 25 / 50
+            - generic [ref=e65]: Need by Apr 2, 2026
+          - generic [ref=e66]:
+            - generic [ref=e67]:
+              - generic [ref=e68]:
+                - button "All" [ref=e69] [cursor=pointer]
+                - button "Qty 25" [ref=e70] [cursor=pointer]
+                - button "Qty 50" [ref=e71] [cursor=pointer]
+              - generic [ref=e72]:
+                - generic [ref=e73]:
+                  - generic [ref=e74]:
+                    - generic [ref=e75]:
+                      - generic [ref=e76]:
+                        - generic [ref=e77]: Lowest Cost
+                        - generic [ref=e78]: Qty 25
+                      - heading "Lowest cost" [level=3] [ref=e79]
+                    - generic [ref=e80]:
+                      - paragraph [ref=e81]: $360.00
+                      - paragraph [ref=e82]: 9 business days
+                  - generic [ref=e83]:
+                    - paragraph [ref=e84]: Lowest landed cost.
+                    - button "Select this option" [ref=e85] [cursor=pointer]:
+                      - img
+                      - text: Select this option
+                - generic [ref=e86]:
+                  - generic [ref=e87]:
+                    - generic [ref=e88]:
+                      - generic [ref=e89]:
+                        - generic [ref=e90]: Fastest Delivery
+                        - generic [ref=e91]: Qty 25
+                      - heading "Fastest delivery" [level=3] [ref=e92]
+                    - generic [ref=e93]:
+                      - paragraph [ref=e94]: $402.50
+                      - paragraph [ref=e95]: 6 business days
+                  - generic [ref=e96]:
+                    - paragraph [ref=e97]: Fastest delivery lane.
+                    - button "Select this option" [ref=e98] [cursor=pointer]:
+                      - img
+                      - text: Select this option
+                - generic [ref=e99]:
+                  - generic [ref=e100]:
+                    - generic [ref=e101]:
+                      - generic [ref=e102]:
+                        - generic [ref=e103]: Balanced
+                        - generic [ref=e104]: Qty 25
+                      - heading "Balanced" [level=3] [ref=e105]
+                    - generic [ref=e106]:
+                      - paragraph [ref=e107]: $378.00
+                      - paragraph [ref=e108]: 8 business days
+                  - generic [ref=e109]:
+                    - paragraph [ref=e110]: Balanced cost and lead time.
+                    - button "Select this option" [ref=e111] [cursor=pointer]:
+                      - img
+                      - text: Select this option
+            - generic [ref=e112]:
+              - generic [ref=e113]:
+                - heading "Decision notes" [level=3] [ref=e115]
+                - textbox "Optional delivery, commercial, or approval notes for this selection." [ref=e117]
+              - generic [ref=e118]:
+                - heading "What happens next" [level=3] [ref=e120]
+                - generic [ref=e121]:
+                  - paragraph [ref=e122]: Your selection is recorded against this published package.
+                  - paragraph [ref=e123]: The estimating team will confirm the underlying quote lane and continue the downstream order workflow.
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e125] [cursor=pointer]:
+    - img [ref=e127]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

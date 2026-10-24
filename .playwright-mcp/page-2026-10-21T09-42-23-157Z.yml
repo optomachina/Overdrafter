@@ -1,0 +1,423 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button [ref=e329] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button [expanded] [ref=e330] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation [ref=e331]:
+          - link [ref=e332] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e22]
+            - generic [ref=e25]: Parts
+          - link [ref=e333] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link [ref=e334] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading [level=1] [ref=e335]: FX-200 rev B
+          - button [ref=e336] [cursor=pointer]:
+            - generic [ref=e44]: DC
+            - generic [ref=e45]:
+              - paragraph [ref=e46]: Demo Client
+              - paragraph [ref=e47]: Client
+            - generic:
+              - img
+        - main [ref=e49]:
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]:
+                - generic [ref=e54]:
+                  - paragraph [ref=e55]: Production plate with finish callout
+                  - generic [ref=e58]:
+                    - link [ref=e337] [cursor=pointer]:
+                      - /url: /projects/00000000-0000-4000-8000-000000000022
+                      - text: Production Plates
+                    - generic [ref=e60]: /
+                    - generic [ref=e61]: FX-200 rev B
+                - generic [ref=e62]:
+                  - button [disabled]: Quote
+                  - button [ref=e338] [cursor=pointer]:
+                    - img
+                  - button [ref=e339] [cursor=pointer]:
+                    - img
+                  - button [ref=e340] [cursor=pointer]:
+                    - img
+                  - button [ref=e341] [cursor=pointer]:
+                    - img
+              - generic [ref=e68]:
+                - region [ref=e342]:
+                  - generic [ref=e70]:
+                    - generic [ref=e71]:
+                      - heading [level=2] [ref=e343]: Part preview
+                      - tablist [ref=e74]:
+                        - tab [selected] [ref=e344] [cursor=pointer]:
+                          - img [ref=e76]
+                          - text: CAD
+                        - tab [ref=e345] [cursor=pointer]:
+                          - img [ref=e80]
+                          - text: Drawing
+                    - tabpanel [ref=e346]:
+                      - paragraph [ref=e86]: CAD preview
+                - region [ref=e349]:
+                  - heading [level=2] [ref=e350]: Part summary
+                  - generic [ref=e92]:
+                    - generic [ref=e93]:
+                      - generic [ref=e94]: Material
+                      - generic [ref=e95]: 7075 aluminum
+                    - generic [ref=e96]:
+                      - generic [ref=e97]: Finish
+                      - generic [ref=e98]: Black anodize
+                    - generic [ref=e99]:
+                      - generic [ref=e100]: Tolerance
+                      - generic [ref=e101]: ±0.005 in
+                    - generic [ref=e102]:
+                      - generic [ref=e103]: Quantity
+                      - generic [ref=e104]: 25 / 50
+            - generic [ref=e105]:
+              - heading [level=2] [ref=e351]: Part information
+              - generic [ref=e107]:
+                - generic [ref=e108]:
+                  - generic [ref=e110]:
+                    - img [ref=e111]
+                    - generic [ref=e116]:
+                      - paragraph [ref=e117]: Waiting for drawing metadata
+                      - paragraph [ref=e118]: Upload a PDF drawing or wait for processing to begin.
+                  - status [ref=e352]:
+                    - generic [ref=e120]:
+                      - img [ref=e121]
+                      - generic [ref=e123]:
+                        - paragraph [ref=e124]: Export-control answer needed
+                        - paragraph [ref=e125]:
+                          - text: Quotes for this part are on hold until you tell us whether its files are export-controlled. Your answer covers every file on the part.
+                          - link [ref=e353] [cursor=pointer]:
+                            - /url: /legal/terms
+                            - text: Beta terms
+                        - button [ref=e354] [cursor=pointer]: Answer export-control question
+                  - generic [ref=e130]:
+                    - generic [ref=e131]:
+                      - generic [ref=e132]: Quote Quoted
+                      - paragraph [ref=e133]: Automatic quote access
+                    - paragraph [ref=e134]: A quote response was received and is moving through review.
+                - generic [ref=e136]:
+                  - generic [ref=e137]:
+                    - generic [ref=e138]:
+                      - text: Part number
+                      - textbox [ref=e355]: FX-200
+                    - generic [ref=e141]:
+                      - text: Revision
+                      - textbox [ref=e356]: B
+                    - generic [ref=e144]:
+                      - text: Description
+                      - textbox [ref=e357]: Production plate with finish callout
+                    - generic [ref=e147]:
+                      - text: Material
+                      - textbox [ref=e358]:
+                        - /placeholder: e.g. 6061-T6 aluminum
+                        - text: 7075 aluminum
+                    - generic [ref=e150]:
+                      - text: Finish
+                      - textbox [ref=e359]: Black anodize
+                    - generic [ref=e153]:
+                      - text: Threads
+                      - textbox [ref=e360]:
+                        - /placeholder: Optional thread callouts such as 1/4-20 UNC-2B.
+                    - generic [ref=e156]:
+                      - text: Tightest tolerance (in)
+                      - textbox [ref=e361]: "0.005"
+                    - generic [ref=e159]:
+                      - text: Process
+                      - textbox [ref=e362]: CNC Machining
+                    - generic [ref=e162]:
+                      - text: Qty
+                      - textbox [ref=e363]: "25"
+                    - generic [ref=e164]:
+                      - text: Quote quantities
+                      - textbox [ref=e364]:
+                        - /placeholder: 10 / 25 / 50
+                        - text: 25/50
+                    - generic [ref=e166]:
+                      - text: Need by
+                      - textbox [ref=e365]: 2026-04-02
+                    - generic [ref=e168]:
+                      - text: Notes
+                      - textbox [ref=e366]:
+                        - /placeholder: Optional drawing callouts, schedule constraints, or packaging notes.
+                  - generic [ref=e170]:
+                    - generic [ref=e171]:
+                      - paragraph [ref=e172]: RFQ details
+                      - paragraph [ref=e173]: Shipping, certification, sourcing, and release status details stay client-safe here. Internal review-only controls remain on the estimator side.
+                    - generic [ref=e174]:
+                      - generic [ref=e175]:
+                        - generic [ref=e176]:
+                          - text: Packaging notes
+                          - textbox [ref=e367]:
+                            - /placeholder: Bagging, labeling, tray, or special handling requests.
+                        - generic [ref=e178]:
+                          - text: Shipping notes
+                          - textbox [ref=e368]:
+                            - /placeholder: Delivery constraints, dock notes, or shipment handling details.
+                      - generic [ref=e180]:
+                        - generic [ref=e181]:
+                          - text: Required certifications
+                          - textbox [ref=e369]:
+                            - /placeholder: ITAR, AS9100, material certs
+                        - generic [ref=e183]:
+                          - text: Inspection level
+                          - combobox [ref=e184] [cursor=pointer]:
+                            - generic: No specific level
+                            - img [ref=e185]
+                        - generic [ref=e187]:
+                          - text: Certification notes
+                          - textbox [ref=e370]:
+                            - /placeholder: Traceability or inspection expectations.
+                        - generic [ref=e189]:
+                          - checkbox [ref=e371] [cursor=pointer]
+                          - generic [ref=e191]: Material certification required
+                        - generic [ref=e192]:
+                          - checkbox [ref=e372] [cursor=pointer]
+                          - generic [ref=e194]: Certificate of conformance required
+                      - generic [ref=e195]:
+                        - generic [ref=e196]:
+                          - text: Sourcing preference
+                          - combobox [ref=e197] [cursor=pointer]:
+                            - generic: No preference
+                            - img [ref=e198]
+                        - generic [ref=e200]:
+                          - text: Material provisioning
+                          - combobox [ref=e201] [cursor=pointer]:
+                            - generic: No provisioning note
+                            - img [ref=e202]
+                        - generic [ref=e204]:
+                          - text: Preferred suppliers
+                          - textbox [ref=e373]:
+                            - /placeholder: Preferred shops or customer-nominated suppliers
+                        - generic [ref=e206]:
+                          - text: Sourcing notes
+                          - textbox [ref=e374]:
+                            - /placeholder: Domestic preference, approved supplier context, or special sourcing instructions.
+                      - generic [ref=e208]:
+                        - generic [ref=e209]:
+                          - text: Release status
+                          - combobox [ref=e210] [cursor=pointer]:
+                            - generic: No release status
+                            - img [ref=e211]
+                        - generic [ref=e213]:
+                          - text: Release notes
+                          - textbox [ref=e375]:
+                            - /placeholder: Revision readiness, blockers, or release context.
+                  - generic [ref=e215]:
+                    - button [ref=e376] [cursor=pointer]:
+                      - img
+                      - text: Upload revised file
+                    - button [ref=e377] [cursor=pointer]: Save request details
+            - region [ref=e378]:
+              - generic [ref=e219]:
+                - generic [ref=e220]: Action needed
+                - heading [level=2] [ref=e379]: Confirm milling or turning
+                - paragraph [ref=e222]: The launch workflow supports CNC milling and CNC turning, but the current process is not specific enough to rank provider fit.
+                - paragraph [ref=e223]: Choose CNC milling or CNC turning in the request details.
+                - generic [ref=e224]:
+                  - paragraph [ref=e225]: Select the manufacturing process
+                  - paragraph [ref=e226]: Your selection is saved to the request and provider matching refreshes automatically.
+                  - generic [ref=e227]:
+                    - button [ref=e380] [cursor=pointer]: CNC milling
+                    - button [ref=e381] [cursor=pointer]: CNC turning
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - generic [ref=e232]:
+                    - generic [ref=e233]:
+                      - paragraph [ref=e234]: Quote comparison
+                      - paragraph [ref=e235]: Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost.
+                    - button [ref=e382] [cursor=pointer]:
+                      - text: Review order
+                      - img
+                  - generic [ref=e240]:
+                    - generic [ref=e241]:
+                      - button [pressed] [ref=e383] [cursor=pointer]:
+                        - img
+                      - generic [ref=e243]:
+                        - generic [ref=e244]:
+                          - img [ref=e245]
+                          - text: Need by date
+                        - generic [ref=e247]:
+                          - textbox [ref=e384]: 2026-04-02
+                          - button [ref=e385] [cursor=pointer]: Clear
+                    - generic [ref=e251]: Showing 3 of 3 options that meet your deadline.
+                - generic [ref=e252]:
+                  - img [ref=e253]
+                  - paragraph [ref=e257]: No quote options yet
+                  - paragraph [ref=e258]: No options have verified US sourcing. Switch to All sourcing to include international and unknown-origin variants.
+            - button [ref=e386] [cursor=pointer]:
+              - generic [ref=e261]: Activity and history
+              - img [ref=e262]
+  - button [ref=e270] [cursor=pointer]:
+    - img [ref=e267]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Notifications" [active] [ref=e388]:
+    - generic [ref=e389]:
+      - generic [ref=e390]:
+        - heading "Notifications" [level=2] [ref=e391]
+        - paragraph [ref=e392]: Browser permission, notification preferences, and seen state for the first web notification slice.
+      - generic [ref=e397]:
+        - generic [ref=e399]:
+          - generic [ref=e400]:
+            - paragraph [ref=e401]: Center status
+            - paragraph [ref=e402]: All caught up
+            - paragraph [ref=e403]: The first browser slice tracks durable quote-workflow transitions from this workspace and keeps seen state on this browser until server-backed notification records exist.
+          - generic [ref=e404]: 0 in center
+        - generic [ref=e405]:
+          - generic [ref=e406]:
+            - generic [ref=e407]:
+              - paragraph [ref=e408]: Browser permission
+              - paragraph [ref=e409]: Not requested
+              - paragraph [ref=e410]: Request browser permission here, then opt individual notification types into browser delivery.
+            - generic [ref=e411]: Not requested
+          - button "Allow browser notifications" [ref=e412] [cursor=pointer]
+        - generic [ref=e413]:
+          - paragraph [ref=e414]: Preferences
+          - generic [ref=e416]:
+            - generic [ref=e418]:
+              - heading "Quote package ready" [level=3] [ref=e419]
+              - paragraph [ref=e420]: Notify me when curated quote options are published to a project or part I can access.
+            - generic [ref=e421]:
+              - generic [ref=e422]:
+                - generic [ref=e423]:
+                  - generic [ref=e424]: In-app center
+                  - generic [ref=e425]: Show these updates in the web notification center.
+                - switch "Quote package ready In-app center" [checked] [ref=e426] [cursor=pointer]
+              - generic [ref=e427]:
+                - generic [ref=e428]:
+                  - generic [ref=e429]: Browser alerts
+                  - generic [ref=e430]: Requires browser permission before deliveries can be enabled.
+                - switch "Quote package ready Browser alerts" [disabled] [ref=e431]
+        - generic [ref=e432]:
+          - paragraph [ref=e434]: Recent notifications
+          - paragraph [ref=e436]: No matching notification records are visible yet for this workspace.
+    - button "Close" [ref=e437] [cursor=pointer]:
+      - img [ref=e438]
+      - generic [ref=e441]: Close

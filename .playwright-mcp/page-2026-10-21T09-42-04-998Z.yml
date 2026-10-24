@@ -1,0 +1,262 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button [ref=e126] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button [expanded] [ref=e127] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation [ref=e128]:
+          - link [ref=e129] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e21]
+            - generic [ref=e24]: Parts
+          - link [ref=e130] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link [ref=e131] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading [level=1] [ref=e132]: Quotes
+          - generic [ref=e41]:
+            - button [ref=e133]
+            - button [ref=e134] [cursor=pointer]:
+              - img [ref=e44]
+              - generic [ref=e46]: Upload
+            - button [ref=e135] [cursor=pointer]:
+              - generic [ref=e49]: DC
+              - generic [ref=e50]:
+                - paragraph [ref=e51]: Demo Client
+                - paragraph [ref=e52]: Client
+              - generic:
+                - img
+        - main [ref=e54]:
+          - generic [ref=e55]:
+            - generic [ref=e56]:
+              - generic [ref=e57]: Search quotes
+              - generic [ref=e58]:
+                - img
+                - searchbox [ref=e136]
+            - generic [ref=e137]:
+              - link "FX-100 rev A MS62VJ L-bracket with tapped holes Part FX-100 Request Cleanup State Needs specification review Offers 0 Request time Unavailable Updated Oct 21, 2026" [ref=e138] [cursor=pointer]:
+                - /url: /quotes/MS62VJ
+                - generic [ref=e139]:
+                  - generic [ref=e140]:
+                    - generic [ref=e141]: FX-100 rev A
+                    - generic [ref=e142]: MS62VJ
+                  - generic [ref=e143]: L-bracket with tapped holes
+                  - generic [ref=e144]:
+                    - generic [ref=e145]: Part FX-100
+                    - generic [ref=e146]: Request Cleanup
+                - generic [ref=e147]:
+                  - generic [ref=e148]: State
+                  - generic [ref=e149]: Needs specification review
+                - generic [ref=e150]:
+                  - generic [ref=e151]:
+                    - generic [ref=e152]: Offers
+                    - generic [ref=e153]: "0"
+                  - generic [ref=e154]:
+                    - generic [ref=e155]: Request time
+                    - generic [ref=e156]: Unavailable
+                - generic [ref=e157]:
+                  - generic [ref=e158]: Updated
+                  - generic [ref=e159]: Oct 21, 2026
+              - 'link "FX-200 rev B GBSZQH Production plate with finish callout Ref QA-REF-001 Part FX-200 Production Plates State Offers available Offers 2 Request time Unavailable Updated Oct 21, 2026 Selected: Xometry USA · $360" [ref=e160] [cursor=pointer]':
+                - /url: /quotes/GBSZQH
+                - generic [ref=e161]:
+                  - generic [ref=e162]:
+                    - generic [ref=e163]: FX-200 rev B
+                    - generic [ref=e164]: GBSZQH
+                  - generic [ref=e165]: Production plate with finish callout
+                  - generic [ref=e166]:
+                    - generic [ref=e167]: Ref QA-REF-001
+                    - generic [ref=e168]: Part FX-200
+                    - generic [ref=e169]: Production Plates
+                - generic [ref=e170]:
+                  - generic [ref=e171]: State
+                  - generic [ref=e172]: Offers available
+                - generic [ref=e173]:
+                  - generic [ref=e174]:
+                    - generic [ref=e175]: Offers
+                    - generic [ref=e176]: "2"
+                  - generic [ref=e177]:
+                    - generic [ref=e178]: Request time
+                    - generic [ref=e179]: Unavailable
+                - generic [ref=e180]:
+                  - generic [ref=e181]: Updated
+                  - generic [ref=e182]: Oct 21, 2026
+                  - generic [ref=e183]: "Selected: Xometry USA · $360"
+              - 'link "FX-101 rev A 6V9VW9 SYNTHETIC DEMO BRACKET Part FX-101 Synthetic quote comparison State Request in progress Offers 16 Request time Unavailable Updated Oct 21, 2026 Selected: Xometry · $424" [ref=e184] [cursor=pointer]':
+                - /url: /quotes/6V9VW9
+                - generic [ref=e185]:
+                  - generic [ref=e186]:
+                    - generic [ref=e187]: FX-101 rev A
+                    - generic [ref=e188]: 6V9VW9
+                  - generic [ref=e189]: SYNTHETIC DEMO BRACKET
+                  - generic [ref=e190]:
+                    - generic [ref=e191]: Part FX-101
+                    - generic [ref=e192]: Synthetic quote comparison
+                - generic [ref=e193]:
+                  - generic [ref=e194]: State
+                  - generic [ref=e195]: Request in progress
+                - generic [ref=e196]:
+                  - generic [ref=e197]:
+                    - generic [ref=e198]: Offers
+                    - generic [ref=e199]: "16"
+                  - generic [ref=e200]:
+                    - generic [ref=e201]: Request time
+                    - generic [ref=e202]: Unavailable
+                - generic [ref=e203]:
+                  - generic [ref=e204]: Updated
+                  - generic [ref=e205]: Oct 21, 2026
+                  - generic [ref=e206]: "Selected: Xometry · $424"
+  - button [ref=e67] [cursor=pointer]:
+    - img [ref=e64]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Notifications" [active] [ref=e208]:
+    - generic [ref=e209]:
+      - generic [ref=e210]:
+        - heading "Notifications" [level=2] [ref=e211]
+        - paragraph [ref=e212]: Browser permission, notification preferences, and seen state for the first web notification slice.
+      - generic [ref=e217]:
+        - generic [ref=e219]:
+          - generic [ref=e220]:
+            - paragraph [ref=e221]: Center status
+            - paragraph [ref=e222]: All caught up
+            - paragraph [ref=e223]: The first browser slice tracks durable quote-workflow transitions from this workspace and keeps seen state on this browser until server-backed notification records exist.
+          - generic [ref=e224]: 0 in center
+        - generic [ref=e226]:
+          - generic [ref=e227]:
+            - paragraph [ref=e228]: Browser permission
+            - paragraph [ref=e229]: Unavailable
+            - paragraph [ref=e230]: This browser environment does not expose the Notification API.
+          - generic [ref=e231]: Unavailable
+        - paragraph [ref=e233]: Preferences
+        - generic [ref=e234]:
+          - paragraph [ref=e236]: Recent notifications
+          - paragraph [ref=e238]: Notification preferences will appear here after a workspace role is resolved.
+    - button "Close" [ref=e239] [cursor=pointer]:
+      - img [ref=e240]
+      - generic [ref=e243]: Close

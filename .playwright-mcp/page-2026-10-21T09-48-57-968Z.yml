@@ -1,0 +1,189 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e5]:
+      - complementary [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic:
+              - button "OverDrafter home" [ref=e9] [cursor=pointer]:
+                - img [ref=e10]
+                - img
+              - generic:
+                - button [disabled]:
+                  - img
+                - button [disabled]:
+                  - img
+          - generic [ref=e14]:
+            - generic [ref=e15]:
+              - generic [ref=e16]:
+                - button [disabled] [ref=e17]:
+                  - img [ref=e18]
+                - button "Close sidebar" [expanded] [ref=e22] [cursor=pointer]:
+                  - img [ref=e23]
+              - generic [ref=e26]:
+                - generic [ref=e28]:
+                  - img [ref=e30]
+                  - generic [ref=e33]:
+                    - paragraph [ref=e34]: Internal workspace
+                    - paragraph [ref=e35]: Internal Estimator
+                - generic [ref=e36]:
+                  - button "Dashboard" [ref=e37] [cursor=pointer]:
+                    - generic [ref=e38]:
+                      - img
+                    - text: Dashboard
+                  - button "New Job" [ref=e39] [cursor=pointer]:
+                    - generic [ref=e40]:
+                      - img
+                    - text: New Job
+              - button "Open account menu" [ref=e42] [cursor=pointer]:
+                - generic [ref=e44]: DE
+                - generic [ref=e45]:
+                  - paragraph [ref=e46]: Demo Estimator
+                  - paragraph [ref=e47]: Estimator
+                - generic:
+                  - img
+            - separator "Resize sidebar" [ref=e48]
+      - generic [ref=e50]:
+        - banner [ref=e51]:
+          - button "OverDrafter" [ref=e53] [cursor=pointer]:
+            - generic [ref=e54]: OverDrafter
+        - main [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]:
+                - heading "Operations Dashboard" [level=1] [ref=e59]
+                - paragraph [ref=e60]: Review extracted specs, launch vendor quote runs, and publish curated options with versioned pricing.
+              - link "Create Job" [ref=e61] [cursor=pointer]:
+                - /url: /jobs/new
+                - img
+                - text: Create Job
+            - generic [ref=e62]:
+              - generic [ref=e63]:
+                - paragraph [ref=e64]: Total jobs
+                - paragraph [ref=e65]: "0"
+              - generic [ref=e66]:
+                - paragraph [ref=e67]: In review
+                - paragraph [ref=e68]: "0"
+              - generic [ref=e69]:
+                - paragraph [ref=e70]: Active quote runs
+                - paragraph [ref=e71]: "0"
+              - generic [ref=e72]:
+                - paragraph [ref=e73]: Published packages
+                - paragraph [ref=e74]: "0"
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e76] [cursor=pointer]:
+    - img [ref=e78]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

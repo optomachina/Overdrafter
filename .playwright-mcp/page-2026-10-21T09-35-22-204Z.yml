@@ -1,0 +1,259 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T":
+      - list:
+        - listitem [ref=e36]:
+          - img [ref=e38]
+          - generic [ref=e41]: Signed in successfully.
+    - generic [ref=e42]:
+      - complementary [ref=e43]:
+        - generic [ref=e44]:
+          - button "OverDrafter home" [ref=e45] [cursor=pointer]:
+            - generic [ref=e46]:
+              - img [ref=e47]
+              - img
+            - generic [ref=e51]: OverDrafter
+          - button "Close sidebar" [expanded] [ref=e52] [cursor=pointer]:
+            - img [ref=e53]
+        - navigation "Primary" [ref=e56]:
+          - link "Parts" [ref=e57] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e60]
+            - generic [ref=e63]: Parts
+          - link "Quotes" [ref=e64] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e66]
+            - generic [ref=e69]: Quotes
+          - link "Search" [ref=e70] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e72]
+            - generic [ref=e75]: Search
+      - generic [ref=e76]:
+        - banner [ref=e77]:
+          - heading "Parts" [level=1] [ref=e78]
+          - generic [ref=e79]:
+            - button "Choose part files to upload" [ref=e80]
+            - button "Upload" [ref=e81] [cursor=pointer]:
+              - img [ref=e82]
+              - generic [ref=e84]: Upload
+            - button "Open account menu" [ref=e85] [cursor=pointer]:
+              - generic [ref=e87]: DC
+              - generic [ref=e88]:
+                - paragraph [ref=e89]: Demo Client
+                - paragraph [ref=e90]: Client
+              - generic:
+                - img
+        - main [ref=e92]:
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e95]:
+                - generic [ref=e96]: Search parts
+                - generic [ref=e97]:
+                  - img
+                  - searchbox "Search parts" [ref=e98]
+              - group "Part type" [ref=e99]:
+                - button "All" [pressed] [ref=e100] [cursor=pointer]
+                - button "Parts" [ref=e101] [cursor=pointer]
+                - button "Assemblies" [ref=e102] [cursor=pointer]
+            - generic [ref=e103]:
+              - link "Generating isometric preview for fx-100-bracket.step FX-100 rev A Needs specification review L-bracket with tapped holes FX-100 · Rev A Qty 12 6061-T6 aluminum As machined Request Cleanup Updated Mar 10, 2026" [ref=e104] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000100
+                - img "Generating isometric preview for fx-100-bracket.step" [ref=e106]:
+                  - img [ref=e108]
+                - generic [ref=e110]:
+                  - generic [ref=e111]:
+                    - generic [ref=e112]: FX-100 rev A
+                    - generic [ref=e113]: Needs specification review
+                  - generic [ref=e114]: L-bracket with tapped holes
+                  - generic [ref=e115]:
+                    - generic [ref=e116]: FX-100 · Rev A
+                    - generic [ref=e117]: Qty 12
+                    - generic [ref=e118]: 6061-T6 aluminum
+                    - generic [ref=e119]: As machined
+                    - generic [ref=e120]: Request Cleanup
+                - generic [ref=e121]: Updated Mar 10, 2026
+              - link "Generating isometric preview for quoted-sample.step FX-101 rev A Request in progress SYNTHETIC DEMO BRACKET FX-101 · Rev A Qty 10 6061 Aluminum Black Anodize Synthetic quote comparison Updated Oct 21, 2026" [ref=e122] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000101
+                - img "Generating isometric preview for quoted-sample.step" [ref=e124]:
+                  - img [ref=e126]
+                - generic [ref=e128]:
+                  - generic [ref=e129]:
+                    - generic [ref=e130]: FX-101 rev A
+                    - generic [ref=e131]: Request in progress
+                  - generic [ref=e132]: SYNTHETIC DEMO BRACKET
+                  - generic [ref=e133]:
+                    - generic [ref=e134]: FX-101 · Rev A
+                    - generic [ref=e135]: Qty 10
+                    - generic [ref=e136]: 6061 Aluminum
+                    - generic [ref=e137]: Black Anodize
+                    - generic [ref=e138]: Synthetic quote comparison
+                - generic [ref=e139]: Updated Oct 21, 2026
+              - link "Generating isometric preview for fx-200-production-plate.step FX-200 rev B Offers available Production plate with finish callout FX-200 · Rev B Qty 25 7075 aluminum Black anodize Production Plates Updated Oct 21, 2026" [ref=e140] [cursor=pointer]:
+                - /url: /parts/00000000-0000-4000-8000-000000000103
+                - img "Generating isometric preview for fx-200-production-plate.step" [ref=e142]:
+                  - img [ref=e144]
+                - generic [ref=e146]:
+                  - generic [ref=e147]:
+                    - generic [ref=e148]: FX-200 rev B
+                    - generic [ref=e149]: Offers available
+                  - generic [ref=e150]: Production plate with finish callout
+                  - generic [ref=e151]:
+                    - generic [ref=e152]: FX-200 · Rev B
+                    - generic [ref=e153]: Qty 25
+                    - generic [ref=e154]: 7075 aluminum
+                    - generic [ref=e155]: Black anodize
+                    - generic [ref=e156]: Production Plates
+                - generic [ref=e157]: Updated Oct 21, 2026
+              - link "Project group Production Plates Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e158] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000022
+                - generic [ref=e159]:
+                  - img [ref=e160]
+                  - generic [ref=e162]: Project group
+                - generic [ref=e163]:
+                  - generic [ref=e164]:
+                    - generic [ref=e165]: Production Plates
+                    - generic [ref=e166]: Project group
+                  - generic [ref=e167]: Project-backed part grouping
+                  - generic [ref=e169]: 1 parts
+                - generic [ref=e170]: Updated Mar 10, 2026
+              - link "Project group Request Cleanup Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e171] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000020
+                - generic [ref=e172]:
+                  - img [ref=e173]
+                  - generic [ref=e175]: Project group
+                - generic [ref=e176]:
+                  - generic [ref=e177]:
+                    - generic [ref=e178]: Request Cleanup
+                    - generic [ref=e179]: Project group
+                  - generic [ref=e180]: Project-backed part grouping
+                  - generic [ref=e182]: 1 parts
+                - generic [ref=e183]: Updated Mar 10, 2026
+              - link "Project group Synthetic quote comparison Project group Project-backed part grouping 1 parts Updated Mar 10, 2026" [ref=e184] [cursor=pointer]:
+                - /url: /projects/00000000-0000-4000-8000-000000000021
+                - generic [ref=e185]:
+                  - img [ref=e186]
+                  - generic [ref=e188]: Project group
+                - generic [ref=e189]:
+                  - generic [ref=e190]:
+                    - generic [ref=e191]: Synthetic quote comparison
+                    - generic [ref=e192]: Project group
+                  - generic [ref=e193]: Project-backed part grouping
+                  - generic [ref=e195]: 1 parts
+                - generic [ref=e196]: Updated Mar 10, 2026
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e198] [cursor=pointer]:
+    - img [ref=e6]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
+  - generic [ref=e199]: $0.00

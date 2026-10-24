@@ -1,0 +1,293 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - button:
+            - generic:
+              - img
+              - img
+            - generic: OverDrafter
+          - button [expanded]:
+            - img
+        - navigation:
+          - link:
+            - /url: /parts
+            - generic:
+              - img
+            - generic: Parts
+          - link:
+            - /url: /quotes
+            - generic:
+              - img
+            - generic: Quotes
+          - link:
+            - /url: /search
+            - generic:
+              - img
+            - generic: Search
+      - generic:
+        - banner:
+          - heading [level=1]: Parts
+          - generic:
+            - button
+            - button:
+              - img
+              - generic: Upload
+            - button:
+              - generic:
+                - generic: DC
+              - generic:
+                - paragraph: Demo Client
+                - paragraph: Client
+              - generic:
+                - img
+        - generic:
+          - main:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: Search parts
+                  - generic:
+                    - img
+                    - searchbox
+                - group:
+                  - button [pressed]: All
+                  - button: Parts
+                  - button: Assemblies
+              - generic:
+                - link "Isometric CAD sketch preview for fx-100-bracket.step FX-100 rev A Needs specification review L-bracket with tapped holes FX-100 · Rev A Qty 12 6061-T6 aluminum As machined Request Cleanup Updated Oct 21, 2026":
+                  - /url: /parts/00000000-0000-4000-8000-000000000100
+                  - generic:
+                    - img "Isometric CAD sketch preview for fx-100-bracket.step"
+                  - generic:
+                    - generic:
+                      - generic: FX-100 rev A
+                      - generic: Needs specification review
+                    - generic: L-bracket with tapped holes
+                    - generic:
+                      - generic: FX-100 · Rev A
+                      - generic: Qty 12
+                      - generic: 6061-T6 aluminum
+                      - generic: As machined
+                      - generic: Request Cleanup
+                  - generic: Updated Oct 21, 2026
+                - link "Isometric CAD sketch preview for quoted-sample.step FX-101 rev A Request in progress SYNTHETIC DEMO BRACKET FX-101 · Rev A Qty 10 6061 Aluminum Black Anodize Synthetic quote comparison Updated Oct 21, 2026":
+                  - /url: /parts/00000000-0000-4000-8000-000000000101
+                  - generic:
+                    - img "Isometric CAD sketch preview for quoted-sample.step"
+                  - generic:
+                    - generic:
+                      - generic: FX-101 rev A
+                      - generic: Request in progress
+                    - generic: SYNTHETIC DEMO BRACKET
+                    - generic:
+                      - generic: FX-101 · Rev A
+                      - generic: Qty 10
+                      - generic: 6061 Aluminum
+                      - generic: Black Anodize
+                      - generic: Synthetic quote comparison
+                  - generic: Updated Oct 21, 2026
+                - link "Isometric CAD sketch preview for fx-200-production-plate.step FX-200 rev B Offers available Production plate with finish callout FX-200 · Rev B Qty 25 7075 aluminum Black anodize Production Plates Updated Oct 21, 2026":
+                  - /url: /parts/00000000-0000-4000-8000-000000000103
+                  - generic:
+                    - img "Isometric CAD sketch preview for fx-200-production-plate.step"
+                  - generic:
+                    - generic:
+                      - generic: FX-200 rev B
+                      - generic: Offers available
+                    - generic: Production plate with finish callout
+                    - generic:
+                      - generic: FX-200 · Rev B
+                      - generic: Qty 25
+                      - generic: 7075 aluminum
+                      - generic: Black anodize
+                      - generic: Production Plates
+                  - generic: Updated Oct 21, 2026
+                - link "Project group Production Plates Project group Project-backed part grouping 1 parts Updated Mar 10, 2026":
+                  - /url: /projects/00000000-0000-4000-8000-000000000022
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Production Plates
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+                - link "Project group Request Cleanup Project group Project-backed part grouping 1 parts Updated Mar 10, 2026":
+                  - /url: /projects/00000000-0000-4000-8000-000000000020
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Request Cleanup
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+                - link "Project group Synthetic quote comparison Project group Project-backed part grouping 1 parts Updated Mar 10, 2026":
+                  - /url: /projects/00000000-0000-4000-8000-000000000021
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Synthetic quote comparison
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+  - button [ref=e75] [cursor=pointer]:
+    - img [ref=e72]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Are any files on this part export-controlled?" [ref=e346]:
+    - generic [ref=e347]:
+      - heading "Are any files on this part export-controlled?" [level=2] [ref=e348]
+      - paragraph [ref=e349]: "Your answer covers every file on this part: files already uploaded and any you add later. The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99), CUI, or distribution-limited technical data. Answer before uploading."
+    - group "Export-control classification" [ref=e350]:
+      - generic [ref=e351]: Export-control classification
+      - generic [ref=e352] [cursor=pointer]:
+        - radio "Not export-controlled EAR99 or not subject to the EAR, and not ITAR. No CUI or distribution-limited technical data." [active] [ref=e353]
+        - generic [ref=e354]:
+          - generic [ref=e355]: Not export-controlled
+          - generic [ref=e356]: EAR99 or not subject to the EAR, and not ITAR. No CUI or distribution-limited technical data.
+      - generic [ref=e357] [cursor=pointer]:
+        - radio "Export-controlled ITAR, an EAR classification other than EAR99, CUI, or a limiting distribution statement." [ref=e358]
+        - generic [ref=e359]:
+          - generic [ref=e360]: Export-controlled
+          - generic [ref=e361]: ITAR, an EAR classification other than EAR99, CUI, or a limiting distribution statement.
+      - generic [ref=e362] [cursor=pointer]:
+        - radio "I'm not sure You have not confirmed the classification of these files." [ref=e363]
+        - generic [ref=e364]:
+          - generic [ref=e365]: I'm not sure
+          - generic [ref=e366]: You have not confirmed the classification of these files.
+    - paragraph [ref=e367]:
+      - text: Files that carry export-control markings are held for review after upload.
+      - link "Beta terms" [ref=e368] [cursor=pointer]:
+        - /url: /legal/terms
+    - generic [ref=e369]:
+      - button "Cancel" [ref=e370] [cursor=pointer]
+      - button "Continue upload" [disabled]
+    - button "Close" [ref=e371] [cursor=pointer]:
+      - img [ref=e372]
+      - generic [ref=e375]: Close

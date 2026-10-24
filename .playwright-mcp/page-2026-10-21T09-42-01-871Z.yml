@@ -1,0 +1,272 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - button:
+            - generic:
+              - img
+              - img
+            - generic: OverDrafter
+          - button [expanded]:
+            - img
+        - navigation:
+          - link:
+            - /url: /parts
+            - generic:
+              - img
+            - generic: Parts
+          - link:
+            - /url: /quotes
+            - generic:
+              - img
+            - generic: Quotes
+          - link:
+            - /url: /search
+            - generic:
+              - img
+            - generic: Search
+      - generic:
+        - banner:
+          - heading [level=1]: Quotes
+          - generic:
+            - button
+            - button:
+              - img
+              - generic: Upload
+            - button [expanded]:
+              - generic:
+                - generic: DC
+              - generic:
+                - paragraph: Demo Client
+                - paragraph: Client
+              - generic:
+                - img
+        - generic:
+          - main:
+            - generic:
+              - generic:
+                - generic: Search quotes
+                - generic:
+                  - img
+                  - searchbox
+              - generic:
+                - link:
+                  - /url: /quotes/MS62VJ
+                  - generic:
+                    - generic:
+                      - generic: FX-100 rev A
+                      - generic: MS62VJ
+                    - generic: L-bracket with tapped holes
+                    - generic:
+                      - generic: Part FX-100
+                      - generic: Request Cleanup
+                  - generic:
+                    - generic: State
+                    - generic: Needs specification review
+                  - generic:
+                    - generic:
+                      - generic: Offers
+                      - generic: "0"
+                    - generic:
+                      - generic: Request time
+                      - generic: Unavailable
+                  - generic:
+                    - generic: Updated
+                    - generic: Oct 21, 2026
+                - link:
+                  - /url: /quotes/GBSZQH
+                  - generic:
+                    - generic:
+                      - generic: FX-200 rev B
+                      - generic: GBSZQH
+                    - generic: Production plate with finish callout
+                    - generic:
+                      - generic: Ref QA-REF-001
+                      - generic: Part FX-200
+                      - generic: Production Plates
+                  - generic:
+                    - generic: State
+                    - generic: Offers available
+                  - generic:
+                    - generic:
+                      - generic: Offers
+                      - generic: "2"
+                    - generic:
+                      - generic: Request time
+                      - generic: Unavailable
+                  - generic:
+                    - generic: Updated
+                    - generic: Oct 21, 2026
+                    - generic: "Selected: Xometry USA · $360"
+                - link:
+                  - /url: /quotes/6V9VW9
+                  - generic:
+                    - generic:
+                      - generic: FX-101 rev A
+                      - generic: 6V9VW9
+                    - generic: SYNTHETIC DEMO BRACKET
+                    - generic:
+                      - generic: Part FX-101
+                      - generic: Synthetic quote comparison
+                  - generic:
+                    - generic: State
+                    - generic: Request in progress
+                  - generic:
+                    - generic:
+                      - generic: Offers
+                      - generic: "16"
+                    - generic:
+                      - generic: Request time
+                      - generic: Unavailable
+                  - generic:
+                    - generic: Updated
+                    - generic: Oct 21, 2026
+                    - generic: "Selected: Xometry · $424"
+  - button [ref=e67] [cursor=pointer]:
+    - img [ref=e64]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - menu "Open account menu" [active] [ref=e68]:
+    - menuitem "Notifications" [ref=e69]:
+      - img [ref=e70]
+      - generic [ref=e74]: Notifications
+    - menuitem "Settings" [ref=e75]:
+      - img [ref=e76]
+      - generic [ref=e79]: Settings
+    - menuitem "Archive" [ref=e80]:
+      - img [ref=e81]
+      - generic [ref=e84]: Archive
+    - menuitem "Help" [ref=e85]:
+      - img [ref=e86]
+      - generic [ref=e89]: Help
+      - img [ref=e90]
+    - separator [ref=e92]
+    - menuitem "Dark mode" [ref=e93]:
+      - img [ref=e94]
+      - generic [ref=e96]: Dark mode
+    - menuitem "Extraction" [ref=e97]:
+      - img [ref=e98]
+      - generic [ref=e105]: Extraction
+    - menuitem "Fixtures" [ref=e106]:
+      - img [ref=e107]
+      - generic [ref=e109]: Fixtures
+    - menuitem "Diagnostics" [ref=e110]:
+      - img [ref=e111]
+      - generic [ref=e120]: Diagnostics
+    - menuitem "Log out" [ref=e121]:
+      - img [ref=e122]
+      - generic [ref=e125]: Log out

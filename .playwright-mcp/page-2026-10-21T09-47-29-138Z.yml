@@ -1,0 +1,352 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - generic:
+        - generic:
+          - banner:
+            - generic:
+              - button:
+                - generic: OverDrafter
+            - generic:
+              - button: Sign in
+              - button: Sign up for free
+          - main:
+            - generic:
+              - generic:
+                - paragraph: Manufacturing workspace
+                - heading [level=1]: CAD In Parts Out
+                - paragraph: Organize CAD files and drawings, review provider recommendations, and compare quote results. Automatic vendor collection is available only through the free, invitation-only Founding Beta.
+                - generic:
+                  - button: Create account
+                  - button: Log in
+                - paragraph: OverDrafter signup is free. Official RFQ links may still require vendor sign-in or vendor-issued guest access.
+              - region "Multiple quotes. One obvious tradeoff.":
+                - generic:
+                  - paragraph: Quote comparison
+                  - heading [level=2]: Multiple quotes. One obvious tradeoff.
+                  - paragraph: Price runs vertically. Lead time runs horizontally. The strongest options move toward the lower-left, so the field makes sense before you choose.
+                - generic:
+                  - generic:
+                    - generic:
+                      - paragraph: Illustrative beta comparison · sample data
+                      - paragraph: FLT-BRACKET-01 · 25 pcs
+                      - paragraph: 6 illustrative CNC milling offers
+                    - paragraph: Sample prices · not live quotes
+                  - generic:
+                    - generic:
+                      - generic:
+                        - img
+                        - text: Lower-left means faster and less expensive
+                      - generic:
+                        - group:
+                          - generic:
+                            - generic:
+                              - application:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic: 0d
+                                    - generic:
+                                      - generic: 5d
+                                    - generic:
+                                      - generic: 10d
+                                    - generic:
+                                      - generic: 18d
+                                  - generic: Ready-to-ship lead time (working days)
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic: $0.00
+                                    - generic:
+                                      - generic: $200.00
+                                    - generic:
+                                      - generic: $400.00
+                                    - generic:
+                                      - generic: $600.00
+                                    - generic:
+                                      - generic: $800.00
+                                  - generic: Quoted total
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - img
+                    - complementary:
+                      - generic:
+                        - paragraph: Selected example
+                        - generic:
+                          - img
+                          - text: Selected
+                      - heading "Mesa Precision" [level=3]
+                      - paragraph: Standard · Best fit
+                      - generic:
+                        - generic:
+                          - generic: Sample total
+                          - generic: $525.00
+                        - generic:
+                          - generic: Sample lead time
+                          - generic: 9 working days
+                      - generic:
+                        - paragraph:
+                          - img
+                          - text: $165.00 less than the fastest example
+                        - paragraph:
+                          - img
+                          - text: 7 days faster than the lowest example
+                      - paragraph: Illustrative quote data. These are not live offers.
+                      - button "Compare your quotes"
+                  - generic:
+                    - button:
+                      - generic: Northline Manufacturing
+                      - generic: $445.00 · 16d
+                    - button:
+                      - generic: Apex CNC
+                      - generic: $487.00 · 12d
+                    - button [pressed]:
+                      - generic: Mesa Precision
+                      - generic: $525.00 · 9d
+                    - button:
+                      - generic: ForgeWorks
+                      - generic: $558.00 · 11d
+                    - button:
+                      - generic: Axis Manufacturing
+                      - generic: $610.00 · 7d
+                    - button:
+                      - generic: Summit Prototype
+                      - generic: $690.00 · 5d
+              - generic:
+                - generic:
+                  - paragraph: How it works
+                - generic:
+                  - article:
+                    - paragraph: 01 / UPLOAD
+                    - heading [level=2]: Drop your part package.
+                    - paragraph: Upload STEP files and PDF drawings together. Matching filenames keep CAD and drawing files paired from the start.
+                    - generic:
+                      - generic:
+                        - generic: FLT-BRACKET-01.step
+                        - generic:
+                          - generic: STEP · 1.4 MB
+                          - generic: CAD
+                      - generic:
+                        - generic: FLT-BRACKET-01.pdf
+                        - generic:
+                          - generic: Drawing · 0.3 MB
+                          - generic: Drawing
+                    - generic: Matched · 1 CAD/PDF pair
+                  - article:
+                    - paragraph: 02 / EXTRACT
+                    - heading [level=2]: Specs pulled from your drawing.
+                    - paragraph: Material, finish, tolerances, revision, and thread callouts are extracted from the drawing. Review and correct the result before quoting.
+                    - generic:
+                      - generic:
+                        - generic: Material
+                        - generic: 6061-T6 Aluminum
+                      - generic:
+                        - generic: Finish
+                        - generic: Clear Anodize Type II
+                      - generic:
+                        - generic: Tolerance
+                        - generic: ±0.005 in
+                      - generic:
+                        - generic: Quantity
+                        - generic: 25 pcs
+                      - generic:
+                        - generic: Revision
+                        - generic: Rev C
+                    - paragraph: "Source: example drawing · FLT-BRACKET-01.pdf"
+                  - article:
+                    - paragraph: 03 / SOURCE
+                    - heading [level=2]: Start with useful supplier direction.
+                    - paragraph: Reviewed capability data ranks suitable providers and links to official RFQ paths. Organizations enrolled in the free, invitation-only Founding Beta can collect supported live quotes automatically.
+                    - generic:
+                      - generic:
+                        - generic: Provider matches ready
+                        - generic: Reviewed capabilities
+                      - generic:
+                        - generic: Live offer received
+                        - generic: Founding Beta collection
+                  - article:
+                    - paragraph: 04 / SELECT
+                    - heading [level=2]: Compare and choose the best fit.
+                    - paragraph: Published options keep price, lead time, process, and certification together. Your selection stays recorded with the project.
+                    - generic:
+                      - generic:
+                        - generic: Selected example
+                        - generic: Mesa Precision
+                      - generic:
+                        - generic: Illustrative decision record
+                        - generic: $525.00 · 9 working days
+  - button [ref=e4] [cursor=pointer]:
+    - img [ref=e6]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - dialog "Log in" [ref=e10]:
+    - heading "Log in" [level=2] [ref=e11]
+    - paragraph [ref=e12]: Log in to OverDrafter to access uploads, quote reviews, and published packages.
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - paragraph [ref=e15]: Welcome back
+        - heading [level=2] [ref=e16]: Log in to OverDrafter
+        - paragraph [ref=e17]: Access uploads, quote reviews, and published packages from the same account.
+      - generic [ref=e18]:
+        - button "Log in" [active] [ref=e19] [cursor=pointer]
+        - button "Sign up" [ref=e20] [cursor=pointer]
+      - generic [ref=e21]:
+        - button "Continue with Google" [ref=e22] [cursor=pointer]:
+          - img
+          - text: Continue with Google
+        - button "Continue with Microsoft" [ref=e23] [cursor=pointer]:
+          - img
+          - text: Continue with Microsoft
+        - button "Continue with Apple" [ref=e24] [cursor=pointer]:
+          - img
+          - text: Continue with Apple
+      - generic [ref=e26]: Or with email
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - text: Email
+          - textbox "Email" [ref=e29]:
+            - /placeholder: your@company.com
+        - generic [ref=e30]:
+          - text: Password
+          - textbox "Password" [ref=e31]:
+            - /placeholder: ••••••••
+        - button "Log in" [ref=e32] [cursor=pointer]
+      - button "Forgot password?" [ref=e33] [cursor=pointer]
+      - paragraph [ref=e34]:
+        - text: Need an account?
+        - button "Sign up" [ref=e35] [cursor=pointer]
+  - generic: $0.00

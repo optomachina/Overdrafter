@@ -1,0 +1,378 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - button "OverDrafter home" [ref=e7] [cursor=pointer]:
+            - generic [ref=e8]:
+              - img [ref=e9]
+              - img
+            - generic [ref=e13]: OverDrafter
+          - button "Close sidebar" [expanded] [ref=e14] [cursor=pointer]:
+            - img [ref=e15]
+        - navigation "Primary" [ref=e18]:
+          - link "Parts" [ref=e19] [cursor=pointer]:
+            - /url: /parts
+            - img [ref=e22]
+            - generic [ref=e25]: Parts
+          - link "Quotes" [ref=e26] [cursor=pointer]:
+            - /url: /quotes
+            - img [ref=e28]
+            - generic [ref=e31]: Quotes
+          - link "Search" [ref=e32] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e34]
+            - generic [ref=e37]: Search
+      - generic [ref=e38]:
+        - banner [ref=e39]:
+          - heading "FX-100 rev A" [level=1] [ref=e40]
+          - button "Open account menu" [ref=e42] [cursor=pointer]:
+            - generic [ref=e44]: DC
+            - generic [ref=e45]:
+              - paragraph [ref=e46]: Demo Client
+              - paragraph [ref=e47]: Client
+            - generic:
+              - img
+        - main [ref=e52]:
+          - generic [ref=e54]:
+            - generic [ref=e55]:
+              - generic [ref=e56]:
+                - generic [ref=e57]:
+                  - paragraph [ref=e58]: L-bracket with tapped holes
+                  - generic [ref=e61]:
+                    - link "Request Cleanup" [ref=e62] [cursor=pointer]:
+                      - /url: /projects/00000000-0000-4000-8000-000000000020
+                    - generic [ref=e63]: /
+                    - generic [ref=e64]: FX-100 rev A
+                - generic [ref=e65]:
+                  - button "Quote" [disabled]
+                  - button "Download CAD file" [ref=e66] [cursor=pointer]:
+                    - img
+                  - button "Upload part files" [ref=e67] [cursor=pointer]:
+                    - img
+                  - button "Share part" [ref=e68] [cursor=pointer]:
+                    - img
+                  - button "More part actions" [ref=e69] [cursor=pointer]:
+                    - img
+              - generic [ref=e71]:
+                - region "Part preview" [ref=e72]:
+                  - generic [ref=e73]:
+                    - generic [ref=e74]:
+                      - heading "Part preview" [level=2] [ref=e76]
+                      - tablist [ref=e77]:
+                        - tab "CAD" [selected] [ref=e78] [cursor=pointer]:
+                          - img [ref=e79]
+                          - text: CAD
+                        - tab "Drawing" [ref=e82] [cursor=pointer]:
+                          - img [ref=e83]
+                          - text: Drawing
+                    - tabpanel "CAD" [ref=e86]:
+                      - generic [ref=e87]:
+                        - paragraph [ref=e89]: CAD preview
+                        - generic "CAD preview for fx-100-bracket.step" [ref=e91]
+                - region "Part summary" [ref=e93]:
+                  - heading "Part summary" [level=2] [ref=e94]
+                  - generic [ref=e95]:
+                    - generic [ref=e96]:
+                      - generic [ref=e97]: Material
+                      - generic [ref=e98]: 6061-T6 aluminum
+                    - generic [ref=e99]:
+                      - generic [ref=e100]: Finish
+                      - generic [ref=e101]: As machined
+                    - generic [ref=e102]:
+                      - generic [ref=e103]: Tolerance
+                      - generic [ref=e104]: ±0.005 in
+                    - generic [ref=e105]:
+                      - generic [ref=e106]: Quantity
+                      - generic [ref=e107]: 12 / 24
+            - generic [ref=e108]:
+              - heading "Part information" [level=2] [ref=e109]
+              - generic [ref=e110]:
+                - generic [ref=e111]:
+                  - generic [ref=e113]:
+                    - img [ref=e114]
+                    - generic [ref=e119]:
+                      - paragraph [ref=e120]: Waiting for drawing metadata
+                      - paragraph [ref=e121]: Upload a PDF drawing or wait for processing to begin.
+                  - status "Export control" [ref=e266]:
+                    - generic [ref=e267]:
+                      - img [ref=e268]
+                      - generic [ref=e270]:
+                        - paragraph [ref=e271]: Export-control answer needed
+                        - paragraph [ref=e272]:
+                          - text: Quotes for this part are on hold until you tell us whether its files are export-controlled. Your answer covers every file on the part.
+                          - link "Beta terms" [ref=e273] [cursor=pointer]:
+                            - /url: /legal/terms
+                        - button "Answer export-control question" [ref=e274] [cursor=pointer]
+                  - generic [ref=e124]:
+                    - generic [ref=e125]:
+                      - generic [ref=e126]: Quote Not requested
+                      - paragraph [ref=e127]: Automatic quote access
+                    - paragraph [ref=e128]: Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.
+                - generic [ref=e130]:
+                  - generic [ref=e131]:
+                    - generic [ref=e132]:
+                      - text: Part number
+                      - textbox "Part number" [ref=e134]: FX-100
+                    - generic [ref=e135]:
+                      - text: Revision
+                      - textbox "Revision" [ref=e137]: A
+                    - generic [ref=e138]:
+                      - text: Description
+                      - textbox "Description" [ref=e140]: L-bracket with tapped holes
+                    - generic [ref=e141]:
+                      - text: Material
+                      - textbox "Material" [ref=e143]:
+                        - /placeholder: e.g. 6061-T6 aluminum
+                        - text: 6061-T6 aluminum
+                    - generic [ref=e144]:
+                      - text: Finish
+                      - textbox "Finish" [ref=e146]: As machined
+                    - generic [ref=e147]:
+                      - text: Threads
+                      - textbox "Threads" [ref=e149]:
+                        - /placeholder: Optional thread callouts such as 1/4-20 UNC-2B.
+                    - generic [ref=e150]:
+                      - text: Tightest tolerance (in)
+                      - textbox "Tightest tolerance (in)" [ref=e152]: "0.005"
+                    - generic [ref=e153]:
+                      - text: Process
+                      - textbox "Process" [ref=e155]: CNC Machining
+                    - generic [ref=e156]:
+                      - text: Qty
+                      - textbox "Qty" [ref=e157]: "12"
+                    - generic [ref=e158]:
+                      - text: Quote quantities
+                      - textbox "Quote quantities" [ref=e159]:
+                        - /placeholder: 10 / 25 / 50
+                        - text: 12/24
+                    - generic [ref=e160]:
+                      - text: Need by
+                      - textbox "Need by" [ref=e161]: 2026-03-24
+                    - generic [ref=e162]:
+                      - text: Notes
+                      - textbox "Notes" [ref=e163]:
+                        - /placeholder: Optional drawing callouts, schedule constraints, or packaging notes.
+                  - generic [ref=e164]:
+                    - generic [ref=e165]:
+                      - paragraph [ref=e166]: RFQ details
+                      - paragraph [ref=e167]: Shipping, certification, sourcing, and release status details stay client-safe here. Internal review-only controls remain on the estimator side.
+                    - generic [ref=e168]:
+                      - generic [ref=e169]:
+                        - generic [ref=e170]:
+                          - text: Packaging notes
+                          - textbox "Packaging notes" [ref=e171]:
+                            - /placeholder: Bagging, labeling, tray, or special handling requests.
+                        - generic [ref=e172]:
+                          - text: Shipping notes
+                          - textbox "Shipping notes" [ref=e173]:
+                            - /placeholder: Delivery constraints, dock notes, or shipment handling details.
+                      - generic [ref=e174]:
+                        - generic [ref=e175]:
+                          - text: Required certifications
+                          - textbox "Required certifications" [ref=e176]:
+                            - /placeholder: ITAR, AS9100, material certs
+                        - generic [ref=e177]:
+                          - text: Inspection level
+                          - combobox [ref=e178] [cursor=pointer]:
+                            - generic: No specific level
+                            - img [ref=e179]
+                        - generic [ref=e181]:
+                          - text: Certification notes
+                          - textbox "Certification notes" [ref=e182]:
+                            - /placeholder: Traceability or inspection expectations.
+                        - generic [ref=e183]:
+                          - checkbox "Material certification required" [ref=e184] [cursor=pointer]
+                          - generic [ref=e185]: Material certification required
+                        - generic [ref=e186]:
+                          - checkbox "Certificate of conformance required" [ref=e187] [cursor=pointer]
+                          - generic [ref=e188]: Certificate of conformance required
+                      - generic [ref=e189]:
+                        - generic [ref=e190]:
+                          - text: Sourcing preference
+                          - combobox [ref=e191] [cursor=pointer]:
+                            - generic: No preference
+                            - img [ref=e192]
+                        - generic [ref=e194]:
+                          - text: Material provisioning
+                          - combobox [ref=e195] [cursor=pointer]:
+                            - generic: No provisioning note
+                            - img [ref=e196]
+                        - generic [ref=e198]:
+                          - text: Preferred suppliers
+                          - textbox "Preferred suppliers" [ref=e199]:
+                            - /placeholder: Preferred shops or customer-nominated suppliers
+                        - generic [ref=e200]:
+                          - text: Sourcing notes
+                          - textbox "Sourcing notes" [ref=e201]:
+                            - /placeholder: Domestic preference, approved supplier context, or special sourcing instructions.
+                      - generic [ref=e202]:
+                        - generic [ref=e203]:
+                          - text: Release status
+                          - combobox [ref=e204] [cursor=pointer]:
+                            - generic: No release status
+                            - img [ref=e205]
+                        - generic [ref=e207]:
+                          - text: Release notes
+                          - textbox "Release notes" [ref=e208]:
+                            - /placeholder: Revision readiness, blockers, or release context.
+                  - generic [ref=e209]:
+                    - button "Upload revised file" [ref=e210] [cursor=pointer]:
+                      - img
+                      - text: Upload revised file
+                    - button "Save request details" [ref=e211] [cursor=pointer]
+            - region "Quote information" [ref=e212]:
+              - generic [ref=e213]:
+                - generic [ref=e214]: Action needed
+                - heading "Confirm milling or turning" [level=2] [ref=e215]
+                - paragraph [ref=e216]: The launch workflow supports CNC milling and CNC turning, but the current process is not specific enough to rank provider fit.
+                - paragraph [ref=e217]: Choose CNC milling or CNC turning in the request details.
+                - generic [ref=e218]:
+                  - paragraph [ref=e219]: Select the manufacturing process
+                  - paragraph [ref=e220]: Your selection is saved to the request and provider matching refreshes automatically.
+                  - generic [ref=e221]:
+                    - button "CNC milling" [ref=e222] [cursor=pointer]
+                    - button "CNC turning" [ref=e223] [cursor=pointer]
+              - generic [ref=e224]:
+                - generic [ref=e225]:
+                  - generic [ref=e226]:
+                    - generic [ref=e227]:
+                      - paragraph [ref=e228]: Quote comparison
+                      - paragraph [ref=e229]: Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost.
+                    - button "Review order" [disabled]:
+                      - text: Review order
+                      - img
+                  - generic [ref=e238]:
+                    - button "US-only sourcing" [pressed] [ref=e239] [cursor=pointer]:
+                      - img
+                    - generic [ref=e240]:
+                      - generic [ref=e241]:
+                        - img [ref=e242]
+                        - text: Need by date
+                      - generic [ref=e244]:
+                        - textbox "Need by date" [ref=e245]: 2026-03-24
+                        - button "Clear" [ref=e246] [cursor=pointer]
+                - generic [ref=e247]:
+                  - img [ref=e248]
+                  - paragraph [ref=e252]: No quote options yet
+                  - paragraph [ref=e253]: No quote options are available yet.
+            - button "Activity and history" [ref=e255] [cursor=pointer]:
+              - generic [ref=e256]: Activity and history
+              - img [ref=e257]
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e260] [cursor=pointer]:
+    - img [ref=e262]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

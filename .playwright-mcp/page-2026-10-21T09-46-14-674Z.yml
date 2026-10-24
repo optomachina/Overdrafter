@@ -1,0 +1,292 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - button:
+            - generic:
+              - img
+              - img
+            - generic: OverDrafter
+          - button [expanded]:
+            - img
+        - navigation:
+          - link:
+            - /url: /parts
+            - generic:
+              - img
+            - generic: Parts
+          - link:
+            - /url: /quotes
+            - generic:
+              - img
+            - generic: Quotes
+          - link:
+            - /url: /search
+            - generic:
+              - img
+            - generic: Search
+      - generic:
+        - banner:
+          - heading [level=1]: Parts
+          - generic:
+            - button
+            - button:
+              - img
+              - generic: Upload
+            - button [expanded]:
+              - generic:
+                - generic: DC
+              - generic:
+                - paragraph: Demo Client
+                - paragraph: Client
+              - generic:
+                - img
+        - generic:
+          - main:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: Search parts
+                  - generic:
+                    - img
+                    - searchbox
+                - group:
+                  - button [pressed]: All
+                  - button: Parts
+                  - button: Assemblies
+              - generic:
+                - link:
+                  - /url: /parts/00000000-0000-4000-8000-000000000100
+                  - generic:
+                    - img
+                  - generic:
+                    - generic:
+                      - generic: FX-100 rev A
+                      - generic: Needs specification review
+                    - generic: L-bracket with tapped holes
+                    - generic:
+                      - generic: FX-100 · Rev A
+                      - generic: Qty 12
+                      - generic: 6061-T6 aluminum
+                      - generic: As machined
+                      - generic: Request Cleanup
+                  - generic: Updated Oct 21, 2026
+                - link:
+                  - /url: /parts/00000000-0000-4000-8000-000000000101
+                  - generic:
+                    - img
+                  - generic:
+                    - generic:
+                      - generic: FX-101 rev A
+                      - generic: Request in progress
+                    - generic: SYNTHETIC DEMO BRACKET
+                    - generic:
+                      - generic: FX-101 · Rev A
+                      - generic: Qty 10
+                      - generic: 6061 Aluminum
+                      - generic: Black Anodize
+                      - generic: Synthetic quote comparison
+                  - generic: Updated Oct 21, 2026
+                - link:
+                  - /url: /parts/00000000-0000-4000-8000-000000000103
+                  - generic:
+                    - img
+                  - generic:
+                    - generic:
+                      - generic: FX-200 rev B
+                      - generic: Offers available
+                    - generic: Production plate with finish callout
+                    - generic:
+                      - generic: FX-200 · Rev B
+                      - generic: Qty 25
+                      - generic: 7075 aluminum
+                      - generic: Black anodize
+                      - generic: Production Plates
+                  - generic: Updated Oct 21, 2026
+                - link:
+                  - /url: /projects/00000000-0000-4000-8000-000000000022
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Production Plates
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+                - link:
+                  - /url: /projects/00000000-0000-4000-8000-000000000020
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Request Cleanup
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+                - link:
+                  - /url: /projects/00000000-0000-4000-8000-000000000021
+                  - generic:
+                    - img
+                    - generic: Project group
+                  - generic:
+                    - generic:
+                      - generic: Synthetic quote comparison
+                      - generic: Project group
+                    - generic: Project-backed part grouping
+                    - generic:
+                      - generic: 1 parts
+                  - generic: Updated Mar 10, 2026
+  - button [ref=e75] [cursor=pointer]:
+    - img [ref=e72]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - button [disabled]:
+        - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button:
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button:
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+              - button
+          - generic:
+            - generic:
+              - generic:
+                - checkbox
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox [checked]
+                - img
+              - generic: Block page interactions
+          - button:
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button:
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link:
+                - /url: https://agentation.dev/mcp
+                - text: Learn more
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox:
+              - /placeholder: Webhook URL
+  - menu "Open account menu" [active] [ref=e76]:
+    - menuitem "Notifications" [ref=e77]:
+      - img [ref=e78]
+      - generic [ref=e82]: Notifications
+    - menuitem "Settings" [ref=e83]:
+      - img [ref=e84]
+      - generic [ref=e87]: Settings
+    - menuitem "Archive" [ref=e88]:
+      - img [ref=e89]
+      - generic [ref=e92]: Archive
+    - menuitem "Help" [ref=e93]:
+      - img [ref=e94]
+      - generic [ref=e97]: Help
+      - img [ref=e98]
+    - separator [ref=e100]
+    - menuitem "Dark mode" [ref=e101]:
+      - img [ref=e102]
+      - generic [ref=e104]: Dark mode
+    - menuitem "Extraction" [ref=e105]:
+      - img [ref=e106]
+      - generic [ref=e113]: Extraction
+    - menuitem "Fixtures" [ref=e114]:
+      - img [ref=e115]
+      - generic [ref=e117]: Fixtures
+    - menuitem "Diagnostics" [ref=e118]:
+      - img [ref=e119]
+      - generic [ref=e128]: Diagnostics
+    - menuitem "Log out" [ref=e129]:
+      - img [ref=e130]
+      - generic [ref=e133]: Log out
