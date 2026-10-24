@@ -616,10 +616,21 @@ describe("SendCutSend reviewed evaluation manifest", () => {
   });
 });
 
+describe("parseSmokeArgs RMFG quantities", () => {
+  it.each([["1,5"], ["5"]])("rejects RMFG quantity list %s at parse time before staging (OVD-1057)", (list) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", list,
+      "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]))
+      .toThrow(/RMFG quotes only quantity 1/);
+  });
+});
+
 describe("runQuote", () => {
   it("refuses RMFG at any quantity but 1 before constructing a registry (OVD-1057)", async () => {
-    const args = parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", "5",
-      "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]);
+    const args = {
+      ...parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", "1",
+        "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]),
+      quantities: [5],
+    };
     const buildRegistry = vi.fn(() => ({}));
     await expect(runQuote({} as WorkerConfig, args, "rmfg", 5, {
       authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },

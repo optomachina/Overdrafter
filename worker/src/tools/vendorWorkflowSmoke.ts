@@ -615,6 +615,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
 
   const skippedOshcut = requestedVendors?.includes("oshcut") && !vendors.includes("oshcut");
   const oshcutPackage = skippedOshcut ? null : parseOshcutPackageMetadata(argv, vendors);
+  if (vendors.includes("rmfg") && quantities.some((quantity) => quantity !== 1)) {
+    throw new Error("RMFG quotes only quantity 1; pass --quantities 1 when --vendor includes rmfg.");
+  }
   if (vendors.includes("oshcut")) {
     assertExactOshcutPackageMetadata(oshcutPackage);
     for (const quantity of quantities) {
