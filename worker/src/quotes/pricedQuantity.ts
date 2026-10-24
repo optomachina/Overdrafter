@@ -2,6 +2,9 @@
 // Adapters report what they observed; admitPrice decides whether that is a
 // publishable PricedQuantity. Nothing defaults to quantity 1, unit and total
 // are never inferred from unlabeled amounts, and all math is integer cents.
+// The quantity must also be read back from the page's quantity control after
+// pricing (pageQuantity, with the text it was read from) and agree with both
+// the requested quantity and the quantity the price card states.
 // See /workspace/plans/xometry-quantity-replan.md sections 1, 2a, 3 and Decisions.
 
 export type Money = { cents: number; currency: "USD" };
@@ -40,10 +43,14 @@ export type ObservedAmount<Label extends string> = {
   label?: Label;
 };
 
+export type PageQuantity = { value: number; sourceText: string };
+
 export type AdmitPriceInput = {
   requestedQuantity: number | null | undefined;
-  /** The quantity the page showed for this price. */
+  /** The quantity the price card states for this price. */
   quantity: number | null | undefined;
+  /** The quantity read from the page's quantity control after pricing, and the exact text span it was read from. */
+  pageQuantity: PageQuantity | null | undefined;
   unit?: ObservedAmount<"each" | "per_part"> | null;
   total?: ObservedAmount<"total" | "subtotal"> | null;
 };
@@ -53,6 +60,16 @@ export const PRICE_TOLERANCE_CENTS_PER_PIECE = 1;
 
 const isQuantity = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+const groupedDigits = (value: number) => String(value).replace(/\B(?=(\d{3})+$)/g, ",?");
+
+/**
+ * True when sourceText contains value as a standalone number token: no digit or
+ * digit-plus-separator on either side, so "10" does not match 1 and "1.5" does
+ * not match 1 or 5. Thousands commas are optional ("1,000" or "1000").
+ */
+const sourceShowsQuantity = (sourceText: string, value: number) =>
+  new RegExp(`(?<!\\d|\\d[.,])${groupedDigits(value)}(?!\\d|[.,]\\d)`).test(sourceText);
 
 const refuse = (reason: PriceVerdictReason, detail: PriceVerdictDetail): PriceVerdict => ({
   ok: false,
@@ -64,17 +81,24 @@ const usd = (cents: number): Money => ({ cents, currency: "USD" });
 
 export function admitPrice(input: AdmitPriceInput): PriceVerdict {
   const { requestedQuantity, quantity } = input;
+  const pageQuantity = input.pageQuantity?.value;
+  const pageSourceText = input.pageQuantity?.sourceText ?? "";
   const unit = input.unit ?? null;
   const total = input.total ?? null;
 
-  if (!isQuantity(requestedQuantity) || !isQuantity(quantity)) {
+  const pageQuantityValid = isQuantity(pageQuantity);
+  const pageQuantitySourceValid =
+    pageQuantityValid && pageSourceText.trim() !== "" && sourceShowsQuantity(pageSourceText, pageQuantity);
+  if (!isQuantity(requestedQuantity) || !isQuantity(quantity) || !pageQuantityValid || !pageQuantitySourceValid) {
     return refuse("qty_missing", {
       requestedQuantityValid: isQuantity(requestedQuantity),
       quantityValid: isQuantity(quantity),
+      pageQuantityValid,
+      pageQuantitySourceValid,
     });
   }
-  if (quantity !== requestedQuantity) {
-    return refuse("qty_mismatch", { quantity, requestedQuantity });
+  if (quantity !== requestedQuantity || pageQuantity !== requestedQuantity) {
+    return refuse("qty_mismatch", { quantity, requestedQuantity, pageQuantity });
   }
 
   const observed = { unitObserved: unit !== null, totalObserved: total !== null };
