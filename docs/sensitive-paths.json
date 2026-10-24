@@ -6,7 +6,7 @@
     "migrations": { "label": "Migrations", "description": "Supabase migrations" },
     "auth": { "label": "Auth, permissions, sessions", "description": "auth, RLS, permission and session paths" },
     "payments": { "label": "Payments, pricing, billing", "description": "payment, billing, Stripe, pricing, invoice and checkout paths" },
-    "provider_dispatch": { "label": "Provider dispatch", "description": "dispatch, worker adapters, provider admission and upload" },
+    "provider_dispatch": { "label": "Provider dispatch", "description": "any provider, adapter or dispatch path, worker adapters, provider admission and upload" },
     "secrets": { "label": "Secrets and env", "description": "secrets, credentials, keys, tokens, vaults and env files" },
     "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, the scripts CI runs, agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md, GEMINI.md in any directory), the agent contract and agent configuration (WORKFLOW.md and its Symphony scripts, Codex and Claude config, settings, hooks and MCP servers), git hook directories, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
     "deps": { "label": "Dependencies", "description": "package manifests and lockfiles" }
@@ -45,6 +45,8 @@
     { "glob": "**/*provider*{admission,upload}*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider/{admission,upload}*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider*/**/*{admission,upload}*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*provider*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*adapter*{,/**}", "class": "provider_dispatch" },
 
     { "glob": "**/*secret*{,/**}", "class": "secrets" },
     { "glob": "**/*credential*{,/**}", "class": "secrets" },
@@ -145,6 +147,7 @@
     { "glob": "scripts/{hooks,git-hooks,githooks}/**", "class": "infra_ci" },
     { "glob": "**/{lefthook,.lefthook}*", "class": "infra_ci" },
     { "glob": "**/.pre-commit-config.yaml", "class": "infra_ci" },
+    { "glob": "scripts/qa-handoff/**", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
