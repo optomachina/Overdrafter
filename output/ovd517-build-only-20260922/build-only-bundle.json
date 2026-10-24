@@ -1,0 +1,38 @@
+{
+  "record": {
+    "contractId": "ovd419-digest-v1",
+    "schemaVersion": 1,
+    "commit": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+    "image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:197e36e9aabfff75ed169df0c0853d0194ce316400f30af8acd49029e5133b0e",
+    "worktreeClean": true,
+    "buildVersion": "7da20710b25a6a30d0f9ac59e88e00f685defc67"
+  },
+  "buildEvidence": {
+    "source": {
+      "commit": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+      "worktreeClean": true,
+      "archiveSha256": "378fc502865916d397c81f3ef0f34123e04cd1bd4924b64c7d489a294d1d2eb8",
+      "manifestSha256": "175e368362d0ba50a551ccc0b06bd206d75eff5bf8dcac6c85320ed0123af208"
+    },
+    "build": {
+      "id": "4123f15f-8248-4e9e-8a91-f88714e0ae4e",
+      "status": "SUCCESS",
+      "sourceCommit": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+      "sourceArchiveSha256": "378fc502865916d397c81f3ef0f34123e04cd1bd4924b64c7d489a294d1d2eb8",
+      "sourceManifestSha256": "175e368362d0ba50a551ccc0b06bd206d75eff5bf8dcac6c85320ed0123af208",
+      "exactImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:197e36e9aabfff75ed169df0c0853d0194ce316400f30af8acd49029e5133b0e",
+      "tagEntryCount": 1,
+      "tagResolvedManifestDigest": "sha256:197e36e9aabfff75ed169df0c0853d0194ce316400f30af8acd49029e5133b0e",
+      "deployStepCount": 0
+    },
+    "runtime": {
+      "image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:197e36e9aabfff75ed169df0c0853d0194ce316400f30af8acd49029e5133b0e",
+      "buildVersion": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+      "platform": "linux/amd64",
+      "network": "none",
+      "workerEntrypointStarted": false,
+      "requiredRuntimeAssetsPresent": true,
+      "criticalFileHashesMatched": true
+    }
+  }
+}

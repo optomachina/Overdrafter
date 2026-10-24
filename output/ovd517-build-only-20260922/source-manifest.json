@@ -1,0 +1,807 @@
+{
+  "schema": "ovd419-minimal-source-v2",
+  "sourceSha": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+  "repositoryTree": "e73355333ce8165af36c29d1831f5ab571522aba",
+  "workerTree": "b9acaeae26f8cf924d9708fed0650b7fb72ad0e7",
+  "selection": "Six Docker inputs, including scripts/install-camoufox.mjs, and tsconfig-included src TypeScript/JSON; no fixtures",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "mode": "100644",
+      "gitBlob": "71a254df6f4687b658f6f757713fbb1fec9e2914",
+      "bytes": 48,
+      "sha256": "7b224aefe3a51647bd2eed5c4c20384009dce962150d2d537c8fb8e595306497"
+    },
+    {
+      "path": "Dockerfile",
+      "mode": "100644",
+      "gitBlob": "a1c5e07d0b4d31a5d221db19fb22a4d2d11e3644",
+      "bytes": 2759,
+      "sha256": "dd23d44e075b478469e6d8be629092dcafc6f3fe6d5284255f0b51f94eb40d1b"
+    },
+    {
+      "path": "package-lock.json",
+      "mode": "100644",
+      "gitBlob": "2d13b7bb6840a5f0f3c3818be113cf5b7b60265b",
+      "bytes": 90004,
+      "sha256": "4452eeb2e2b7f98905aef5f2f9bb05cdaecbe9f8a5bf7561f8f85edd784c6685"
+    },
+    {
+      "path": "package.json",
+      "mode": "100644",
+      "gitBlob": "7edd076a0f913ff137eac97c969ae324204053b4",
+      "bytes": 2259,
+      "sha256": "046bc8211b7c7afb836f4a77fa2f5b9eaf350a6165a0b7df369e0b50f5df7b2d"
+    },
+    {
+      "path": "scripts/install-camoufox.mjs",
+      "mode": "100644",
+      "gitBlob": "fae6f4291c6d0de5a3b193003d9a76a1f20f1bdc",
+      "bytes": 6910,
+      "sha256": "571e798114b4cee8d3d1de35c2e6c232a103b6c6d1d1c77cd9bb4401749d08a0"
+    },
+    {
+      "path": "src/adapters/base.ts",
+      "mode": "100644",
+      "gitBlob": "dc63149899f83d74f00ebed012f3fd26b54435d5",
+      "bytes": 1089,
+      "sha256": "0dca374e9b8d3d72d20eb6a73e96e19f08199d5ef20f81c83412e3b639f1c721"
+    },
+    {
+      "path": "src/adapters/emachineShopEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "d014e3397fdd1dffd14944b8a76f5bf1918e454b",
+      "bytes": 1091,
+      "sha256": "3ffa35717892e7c9532ab67aa9cd7694a254931611b4ca6fc00363bf9c0bd5e9"
+    },
+    {
+      "path": "src/adapters/evidenceBackedEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "ed1fb668c4d4182427ffb6e416e6cb420bb817de",
+      "bytes": 11844,
+      "sha256": "f11a818679319361654e995936d4015d7958e767e651953517fef0de42bfcdf4"
+    },
+    {
+      "path": "src/adapters/extendedVendorWorkflows.ts",
+      "mode": "100644",
+      "gitBlob": "10628dc0d0c954a6f494210472575094b2870dfa",
+      "bytes": 6009,
+      "sha256": "40eb0ff516ed555d5bfb5ee22afbd4dae04217c7ec5014c3a156951fda475ee8"
+    },
+    {
+      "path": "src/adapters/fabworks.ts",
+      "mode": "100644",
+      "gitBlob": "9b2d571a0330dbc2a162ea14b695510760190cbd",
+      "bytes": 17486,
+      "sha256": "d964d8b6230b63356e1c1d44c8d5b632b72686e1d3d43e8f6a3f5f573a9f2e30"
+    },
+    {
+      "path": "src/adapters/fictiv.ts",
+      "mode": "100644",
+      "gitBlob": "80cc227018c6c3fcb3a154a2243efe78b041bc13",
+      "bytes": 47602,
+      "sha256": "67e6af804af9db4386949f737a39065e720fdede90361dd22c7468155fcf1882"
+    },
+    {
+      "path": "src/adapters/fictivConstraints.ts",
+      "mode": "100644",
+      "gitBlob": "3c6cb5522554bfebf49d1e2ed59455e2da5b4201",
+      "bytes": 8747,
+      "sha256": "04e9640fb69258ac1af5da5ea6bf48fd1583ec034df752694a16836fcb1e906a"
+    },
+    {
+      "path": "src/adapters/geomiqEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "2227cdbb909244fc39a970ff1db420cf1189e1fa",
+      "bytes": 911,
+      "sha256": "6398618498bed69e91e3bbd7cfa8568e11835e63a838895515487abec87209cb"
+    },
+    {
+      "path": "src/adapters/geomiqPortal.ts",
+      "mode": "100644",
+      "gitBlob": "61b5df921cdba49fb05e7aa612cf6186fe6dc531",
+      "bytes": 6147,
+      "sha256": "43f543f4a2a1e7f7beefa3fd4e236fd050cc60c01716b8faec7cdcf0e0c9ce5f"
+    },
+    {
+      "path": "src/adapters/index.ts",
+      "mode": "100644",
+      "gitBlob": "d42610710fc555fb2b793a8b11cfb6738407de81",
+      "bytes": 7166,
+      "sha256": "e2a70798b4e48c4ad3df57639a6901314461635cae8cf9f1e3c85faf79547b84"
+    },
+    {
+      "path": "src/adapters/oshcut.ts",
+      "mode": "100644",
+      "gitBlob": "82e12431ea74061fadeb1e22b5d18d936f59cd54",
+      "bytes": 11187,
+      "sha256": "e881b089398eb1309f77f39f90986cf8917c014990d9c9182d3f870f7d2b40bb"
+    },
+    {
+      "path": "src/adapters/persistentProfileLock.ts",
+      "mode": "100644",
+      "gitBlob": "b6eac511bd7a4bcf8b4600e2624fb41d6fc0f8cb",
+      "bytes": 8969,
+      "sha256": "1f5791019855c936c5f604f9b7861a6cce3131fe86e097bb59f88f586eda8232"
+    },
+    {
+      "path": "src/adapters/ponokoEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "651f0d3da2a8239f748fd853a121217677705792",
+      "bytes": 1797,
+      "sha256": "85135b15d9202e60d08e293faf57c06627aee8562dc98a51f9e50ae834ad4630"
+    },
+    {
+      "path": "src/adapters/portalWorkflow.ts",
+      "mode": "100644",
+      "gitBlob": "76aea45edc2b2735c66485300b4f71af78aa2077",
+      "bytes": 13989,
+      "sha256": "bb1c8f568e7b107a838c8b47532f67a0080a0dfa65ed32a2a032664c0387041e"
+    },
+    {
+      "path": "src/adapters/protolabs.ts",
+      "mode": "100644",
+      "gitBlob": "333a915837aa71a74da78d648a26e7a7a0390110",
+      "bytes": 1579,
+      "sha256": "6b5ca1b7f3ae1595f60e368a9272d5a221e4ff468e41cb9d7ba231fd8a35a795"
+    },
+    {
+      "path": "src/adapters/protolabsEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "2e2168b9c2af9cad5db6001c8c2fc36079218b89",
+      "bytes": 1344,
+      "sha256": "a5880c2b303d6919d8851f0184e77f254a9a2cc31fe1d98ebb50078ecdf36895"
+    },
+    {
+      "path": "src/adapters/protolabsNetworkEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "0f78ae2c51dd546604b31c0fee5459ac40340b29",
+      "bytes": 1041,
+      "sha256": "67cc9de4f7314f235f5d6a9760b20c1bc435a9f0b75982b19e9ad4fa8ce4effb"
+    },
+    {
+      "path": "src/adapters/providerAdapterContract.ts",
+      "mode": "100644",
+      "gitBlob": "a5416cb2cf547625bdfdc675e1f43b2239ea6847",
+      "bytes": 12930,
+      "sha256": "6d34027a02b8d19b199f62ac882147e6c8aefb56c75a6511aecef72603257986"
+    },
+    {
+      "path": "src/adapters/providerPortalKernel.ts",
+      "mode": "100644",
+      "gitBlob": "676ca7ad5ccfd0a1a608fdf3370cc6983dc7815c",
+      "bytes": 45110,
+      "sha256": "6bf7e7f2fdf3bf4c44dc1a125dcdddaaa7e6b826a5b689e16cc09cf7e14ce0c7"
+    },
+    {
+      "path": "src/adapters/quickpartsEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "04ba78e2ad4daec10b0964abc21a794e7532d14e",
+      "bytes": 1610,
+      "sha256": "5947b44962b8329cc3c4b5027309beb4c0ba6d27a968d03a7911299d4c3bb416"
+    },
+    {
+      "path": "src/adapters/quickpartsPortal.ts",
+      "mode": "100644",
+      "gitBlob": "806aedeb42b21e02996e80f05a45886a95b0fb00",
+      "bytes": 5597,
+      "sha256": "74521c1cf5eab118ad55da8a5ba4b3fd17aab0d64cce0572eb8a1e4ee3fb6dda"
+    },
+    {
+      "path": "src/adapters/rapiddirectEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "861d727436ef85596ce5b272f0045483df327eea",
+      "bytes": 1069,
+      "sha256": "ab2a609cd8da0a672ae0f6c5c2f941bb0abaf86c6d95a2ac24f8fc3021e9905a"
+    },
+    {
+      "path": "src/adapters/sendcutsend.ts",
+      "mode": "100644",
+      "gitBlob": "224e6eb1217d0d8caf76ef1d406b5cb0377fef1c",
+      "bytes": 26014,
+      "sha256": "2ea1be05ca08e7080da9614eebcc72de74c8c46c15a9c2d916e936503d72215f"
+    },
+    {
+      "path": "src/adapters/sendcutsendEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "0899427b13a3078e178207ba72488b3f15ab2c4d",
+      "bytes": 18915,
+      "sha256": "f7e2cd78fe067a70deddf2daf480485ec35e330002ff4644ee17271e47962930"
+    },
+    {
+      "path": "src/adapters/weergEnvelope.ts",
+      "mode": "100644",
+      "gitBlob": "5bcc868b3c069ff687a947fe660c2da5847ed75b",
+      "bytes": 1295,
+      "sha256": "8a5cb779bff4475c826505af37d683e907cc929c20245aad585ae6eb3bc51831"
+    },
+    {
+      "path": "src/adapters/weergPortal.ts",
+      "mode": "100644",
+      "gitBlob": "fa5a2ab9e539acd593d096db176ba31a71770fb2",
+      "bytes": 4275,
+      "sha256": "0245509aae9a810339499b274a71b94c2af3b7a1c98a6d852a76dcf90ebe7859"
+    },
+    {
+      "path": "src/adapters/xometry.ts",
+      "mode": "100644",
+      "gitBlob": "93d93aecc3ff331ebc706082bc9396770deac9cc",
+      "bytes": 101464,
+      "sha256": "d40776dbb450932b8245a41fa8530352d3d2f8e2104deaf7f369f7d1665c3710"
+    },
+    {
+      "path": "src/adapters/xometryConstraints.ts",
+      "mode": "100644",
+      "gitBlob": "fd2461f9a2dd12d9082a79052c256a85f203f447",
+      "bytes": 12474,
+      "sha256": "4f75f809043ec5518bdad90ce652e54226190dda6235462daaab4ee090fa6496"
+    },
+    {
+      "path": "src/adapters/xometryOffers.ts",
+      "mode": "100644",
+      "gitBlob": "7fca67021a597a0b85b23e47970e7e19ee6b6c39",
+      "bytes": 12392,
+      "sha256": "abf8216ceca59d4ced1ba039ab75861b263123bb694de8a4625535fb798334ec"
+    },
+    {
+      "path": "src/autoApprove.ts",
+      "mode": "100644",
+      "gitBlob": "b0f9e23a51562602f67211eeed65f111c98b163e",
+      "bytes": 596,
+      "sha256": "552ae31f3034dee2f234f9a7beaf453af4b7fc9b97fcb183a558459906270422"
+    },
+    {
+      "path": "src/benchmarks/manufacturingCorpusPurposePermissions.ts",
+      "mode": "100644",
+      "gitBlob": "da811a4243402ddf590a2f6c91c6da5b3d715851",
+      "bytes": 6966,
+      "sha256": "e7c2c7a8e5886879358c6bc3ca80fa1d1d1862a3f26be9b9cff509c7cb460fa3"
+    },
+    {
+      "path": "src/benchmarks/manufacturingCorpusRightsAuthorization.ts",
+      "mode": "100644",
+      "gitBlob": "5684ae94762a3106a00de49c2f916c5e1378f1d3",
+      "bytes": 7190,
+      "sha256": "5cac9a4d14a5b61dff1cb4a2d33e1ef7469856b7e22296b083f457dc3bcf7db6"
+    },
+    {
+      "path": "src/benchmarks/manufacturingCorpusVocabulary.ts",
+      "mode": "100644",
+      "gitBlob": "a09e7e74574fe976856462f6f0f4de5839ccb259",
+      "bytes": 6561,
+      "sha256": "7c9b777af0f96fa13c4b4d1bf399ebd3fceffad0de5a56af2c0133f4152ba77f"
+    },
+    {
+      "path": "src/browserCleanup.ts",
+      "mode": "100644",
+      "gitBlob": "bacbf7c30a52b5a2430ba1b25a3027f90adfabd6",
+      "bytes": 1325,
+      "sha256": "f630e10692ac9e83755d99f2b56cc54144cffb9278b66081a99841e4bf36dd70"
+    },
+    {
+      "path": "src/cadPreview.ts",
+      "mode": "100644",
+      "gitBlob": "aa567bfab84e4b8d04cf342138cd2b1e814e2af9",
+      "bytes": 14199,
+      "sha256": "ca3968b18e4ad62f74f5b57088dda9269544ae563b9874b462dc59ada48e2de3"
+    },
+    {
+      "path": "src/cadPreviewPersistence.ts",
+      "mode": "100644",
+      "gitBlob": "8ef8caebcc0e6f262c1d190ac87fe88ba4ea8cd8",
+      "bytes": 5002,
+      "sha256": "1c04edc12c5f940e3283578f5da54f4c40e2b7ed0dbd56e5bc945b1456237563"
+    },
+    {
+      "path": "src/camoufoxAssets.ts",
+      "mode": "100644",
+      "gitBlob": "5baf5fbbd6540e6f6657b49c192a0374aecfb50d",
+      "bytes": 2291,
+      "sha256": "db8ee290d2d0da90818e0c45c750fc014da5d473adef93abaf830b499c00d033"
+    },
+    {
+      "path": "src/camoufoxPersistentContext.ts",
+      "mode": "100644",
+      "gitBlob": "077ab2bf518c926c32f3470475a8eed32acd3f73",
+      "bytes": 4685,
+      "sha256": "54b1f848bfd4469f1248de8c42071c61f50f46af11f74c344eebab2e2c5173d7"
+    },
+    {
+      "path": "src/camoufoxProfileIdentity.ts",
+      "mode": "100644",
+      "gitBlob": "4e371781c681a958d41744c523d8f491bfb6882d",
+      "bytes": 5347,
+      "sha256": "4c3ee73d2dcd04c547897c48b59bb7f3c7a2ded13c8f87f873eea89abc876fde"
+    },
+    {
+      "path": "src/config.ts",
+      "mode": "100644",
+      "gitBlob": "5c2fb1d7b0850df44fbe7102e72478534f6ce90a",
+      "bytes": 11241,
+      "sha256": "e945447ec600211d88a16b270626812b590916b62374faf0ee499d93f2598522"
+    },
+    {
+      "path": "src/env.ts",
+      "mode": "100644",
+      "gitBlob": "9281eae4393df65c8c10c6714e9767801031b810",
+      "bytes": 805,
+      "sha256": "9006844b593e4544c58e2806a9f11354cfebfca2faea22c55e3273a809a0416c"
+    },
+    {
+      "path": "src/errorSummary.ts",
+      "mode": "100644",
+      "gitBlob": "3a80061f47a12efd724849c9ba4c26a33923e1fe",
+      "bytes": 2021,
+      "sha256": "af5b151ffe73754ad9646d071cc97874e908eefde668e47c961c2660d42b31ba"
+    },
+    {
+      "path": "src/extractedValue.ts",
+      "mode": "100644",
+      "gitBlob": "1a02ca6c9e7a7f38a74489fd764644cb0cc8da13",
+      "bytes": 4103,
+      "sha256": "fb292f3745e300f9c67025317e378b5ede19994a18f102fe0049bba6f0aa2c86"
+    },
+    {
+      "path": "src/extraction/callModel.ts",
+      "mode": "100644",
+      "gitBlob": "bc6406a27e12609822da44b75354daa30975c5bf",
+      "bytes": 7171,
+      "sha256": "513a9b470a647ecad3d3f242d7c518bc0674d95aadc1ea7c448139fce3c18c1e"
+    },
+    {
+      "path": "src/extraction/debugLab.ts",
+      "mode": "100644",
+      "gitBlob": "6109c3098b4b5ebe28b25bd8b2d81fa235f8d7b1",
+      "bytes": 18887,
+      "sha256": "bc8caeb8a3c7900903a7c8e9f56319b493eb4cbe0e56e420d58d64456dfcf7c4"
+    },
+    {
+      "path": "src/extraction/geometryProjection.ts",
+      "mode": "100644",
+      "gitBlob": "3d8c19f5dc5ae7a8bfe872add47145b5963421b9",
+      "bytes": 4613,
+      "sha256": "817d4b5501d2b9840f55034b9ac207092732a561cf949abd9d0901a34730bf0a"
+    },
+    {
+      "path": "src/extraction/hybridExtraction.ts",
+      "mode": "100644",
+      "gitBlob": "dc4f3093c5b77c75ebabf150f440f9fa70a383f1",
+      "bytes": 14651,
+      "sha256": "8720c23e4688b52a5b4114bf782a23b9ea9b5267ff3d6c5a9854527ac5961f4c"
+    },
+    {
+      "path": "src/extraction/modelFallback.ts",
+      "mode": "100644",
+      "gitBlob": "cfa074dd12b5662dc299347fb15c566f6853f09f",
+      "bytes": 13822,
+      "sha256": "93910dcab82defb9430f925a359af8d4043e8b8576d81259843fb86f44686f23"
+    },
+    {
+      "path": "src/extraction/modelProvider.ts",
+      "mode": "100644",
+      "gitBlob": "be6b906a517ae143589615fe8caac96acb52a715",
+      "bytes": 14747,
+      "sha256": "5b267dc40b3aab12e9cc90d35f199c98df27cc7aa8a69bf0d1cb7f160cbc35d9"
+    },
+    {
+      "path": "src/extraction/modelRegistry.ts",
+      "mode": "100644",
+      "gitBlob": "a162d4d1ec43c0c8f0aceee27e701db6f22127ec",
+      "bytes": 5124,
+      "sha256": "28142a89dcc6b8b08e18caf09160226f7a439f4166c6f4119b271119b732dcb9"
+    },
+    {
+      "path": "src/extraction/pdfDrawing.ts",
+      "mode": "100644",
+      "gitBlob": "5d1993fd879e306339e047a98b943fedc068239e",
+      "bytes": 41831,
+      "sha256": "028d058d25485aaf2704c937b7103e93dd1ced1bb45938f774615f92745d1537"
+    },
+    {
+      "path": "src/extraction/policy.ts",
+      "mode": "100644",
+      "gitBlob": "1d0e3050dde4e6f32af446056861118fcfbcc755",
+      "bytes": 3692,
+      "sha256": "c0394a594302dcbc7cfd3581a430ccfd3883457dda36b80758320d01b791f3e1"
+    },
+    {
+      "path": "src/extraction/schema.ts",
+      "mode": "100644",
+      "gitBlob": "f78a8e78f41b99a9adcd23abd7eb0d8503b17a3a",
+      "bytes": 1600,
+      "sha256": "4edd7ac34eda41a6171b0c08a525911ac32968e318b48e24b11a1201be1be81e"
+    },
+    {
+      "path": "src/extraction/sharedResult.ts",
+      "mode": "100644",
+      "gitBlob": "4e6674facbd7bc2a8f9eddd1a53a7407e7f6cf3e",
+      "bytes": 2938,
+      "sha256": "06a4d99d1c81b18ef03aee557a8cbdb636f937ccd5e16ac769f450d2b17dac11"
+    },
+    {
+      "path": "src/extraction/stepGeometryMetadata.ts",
+      "mode": "100644",
+      "gitBlob": "7d568bd3cbfb1250eed31e83c36332b9d31cf096",
+      "bytes": 32255,
+      "sha256": "e8197687c9ba2c574c9e5692b57060dfb0c1ba861d70710a24cf535a3075e818"
+    },
+    {
+      "path": "src/extractionObservability.ts",
+      "mode": "100644",
+      "gitBlob": "130633158f7ba6f497870d169ef0eda8d4c2d6eb",
+      "bytes": 1963,
+      "sha256": "eb7bedd3520138746c4a2c34e32f2bdb46d2a16a738a4b2b50107aa900ed7181"
+    },
+    {
+      "path": "src/files.ts",
+      "mode": "100644",
+      "gitBlob": "4599ab270c7f033aa8f2c60792b5b72d9b9d7bdb",
+      "bytes": 3875,
+      "sha256": "aa79ef4b52ff67c6108d6e1b631f235109526fc5e3fe7e5e92b62e2bf070bd35"
+    },
+    {
+      "path": "src/generated/provider-catalog.ts",
+      "mode": "100644",
+      "gitBlob": "09df056fc09ca7ece0f643618a05a23a58a1c42a",
+      "bytes": 14590,
+      "sha256": "f530cdf66f120c805be2b6aeed7a74320a4dfa3e55ed9398d53df70670538a1b"
+    },
+    {
+      "path": "src/httpServer.ts",
+      "mode": "100644",
+      "gitBlob": "a07148f029db033e4278335b4310f022fef99dec",
+      "bytes": 13278,
+      "sha256": "6c5821520aa3daaf5a88f126678851ea18c7b797e5c46c7128d91213033da7a9"
+    },
+    {
+      "path": "src/index.ts",
+      "mode": "100644",
+      "gitBlob": "2f0eb230582ed871a02eed8717fb54dfbcbbec28",
+      "bytes": 59721,
+      "sha256": "cc5d45d7cab301614b3d3b0f4c17f8000546dbeb0373148f8a9e2f9ce079be13"
+    },
+    {
+      "path": "src/liveEvaluationFiles.ts",
+      "mode": "100644",
+      "gitBlob": "fcdd5365d9e2cf3da41b66c389e14d3779109df5",
+      "bytes": 5827,
+      "sha256": "2188a344feadc5b81afcb086e1559f259659da5c55830b0fe060c69bc6be8ac9"
+    },
+    {
+      "path": "src/occt-import-js.d.ts",
+      "mode": "100644",
+      "gitBlob": "0bab7a3de26a0d10c17634ec36747ad420afc413",
+      "bytes": 814,
+      "sha256": "543a4f775d349a173a2692d193e534636b0169aac1dba4e74ab859e14b77d425"
+    },
+    {
+      "path": "src/openclawGate.ts",
+      "mode": "100644",
+      "gitBlob": "642bb7fe5c45b1d94e3e324f939e477fcceedd13",
+      "bytes": 10098,
+      "sha256": "a589dbfd4241a9d9e8746cd8bd52b742e84e7cad115d07dc9e923848df54831f"
+    },
+    {
+      "path": "src/ovd410RecoveryPhase.ts",
+      "mode": "100644",
+      "gitBlob": "cf20dea3e088c78d772cc5c493a65d5e8753504f",
+      "bytes": 4366,
+      "sha256": "e110596fa52c984d80301fcbae50af66e3107d41eb03b1854b77b6757c6ec794"
+    },
+    {
+      "path": "src/partContext.ts",
+      "mode": "100644",
+      "gitBlob": "610087a3797a7aeb5087bbafeab8029bc6d0a736",
+      "bytes": 2115,
+      "sha256": "035f40ee58fdf59d4459d1738caa9502929e07ecde0b1f4c5040f44abcb52707"
+    },
+    {
+      "path": "src/pricingCurve.ts",
+      "mode": "100644",
+      "gitBlob": "5f98094f266c9c8aa643cbc8186fbaedd1215f3d",
+      "bytes": 9414,
+      "sha256": "e31828b789e473d5c9c66544be3810488023b4886f77b53470ca2e2fb91d6e01"
+    },
+    {
+      "path": "src/providerUploadCapability.ts",
+      "mode": "100644",
+      "gitBlob": "85ee5eab6dec35ed0bbec4aaa4689c74a9516e28",
+      "bytes": 15654,
+      "sha256": "44284fad673b9d3dc10ed3ee9a40c657c06715da9520d6f8019b9422dd917559"
+    },
+    {
+      "path": "src/providerUploadCapabilityTypes.ts",
+      "mode": "100644",
+      "gitBlob": "e68737c043081dc5b7f76ed744fe1e22eb9bff5a",
+      "bytes": 2568,
+      "sha256": "f2d3b1583258353eb09f2db7d1f7bfcb8b17a5a219b58837b58d2ce250c23385"
+    },
+    {
+      "path": "src/quantityPricing.ts",
+      "mode": "100644",
+      "gitBlob": "251ee24b2438af39c69ade85b249be353a9ea1f7",
+      "bytes": 2049,
+      "sha256": "f1aa60c6294adf9af2f5277508c5e0edd8ccfc082309bfdc442ec97ddb0a2561"
+    },
+    {
+      "path": "src/queue.ts",
+      "mode": "100644",
+      "gitBlob": "95aa688a3c942cc7f457cc99b964f4928a06e670",
+      "bytes": 4467,
+      "sha256": "016c6a177dc129fea3ff06b3a700bd2f847813cb9c26a3a53dd3e7e4569985d9"
+    },
+    {
+      "path": "src/quoteRunStatus.ts",
+      "mode": "100644",
+      "gitBlob": "24069c9b0fc0eaacb8465fcdbea42bd60d2c6316",
+      "bytes": 1794,
+      "sha256": "db3fe100baa3108b5e8630e9e759becdfed5796c32350005d5d07a46ee55d0a0"
+    },
+    {
+      "path": "src/quoteScope.ts",
+      "mode": "100644",
+      "gitBlob": "442718c42ae5722b5bf36ceb50f1139f79dc581e",
+      "bytes": 2234,
+      "sha256": "dd8f04d7a3ab318e9d2e241ad0392eebec4533d56dd2853c21dfbd464ec13632"
+    },
+    {
+      "path": "src/repair/suggestLocatorUpdate.ts",
+      "mode": "100644",
+      "gitBlob": "f250cb89ddfec772d64a16b0120169103203580e",
+      "bytes": 1608,
+      "sha256": "352286154322d69ba8ebb21a226a4aae25dc70542b8ea795512bbd5d1aaf25a8"
+    },
+    {
+      "path": "src/runtimeEnvironment.ts",
+      "mode": "100644",
+      "gitBlob": "cbe4c8bb0affb51e0024d7bafe4df59b35d31b41",
+      "bytes": 813,
+      "sha256": "9706c2fa301f9c24466bce4c454a2562a8e96dd5bbbeec2d06a118ebabf4d9e2"
+    },
+    {
+      "path": "src/runtimeSecrets.ts",
+      "mode": "100644",
+      "gitBlob": "ecb0b5f450abd2557f52762fa0ac32d192d058cf",
+      "bytes": 7786,
+      "sha256": "020fd7ce718baf4aca19fbf7cddb1a712bfefc2df00d71f08107492c0d8d5a05"
+    },
+    {
+      "path": "src/scoring.ts",
+      "mode": "100644",
+      "gitBlob": "15a54617724aae33ec42f63c1dd4894d17be1724",
+      "bytes": 5241,
+      "sha256": "96c67f611d1bcd9e88b2744fb8c5e56df3275f9696476916288ebed6bfc6fc8f"
+    },
+    {
+      "path": "src/scoringIntegration.ts",
+      "mode": "100644",
+      "gitBlob": "3e55459d23ff8594bf36312ec80a90dc0cd7a1ee",
+      "bytes": 6057,
+      "sha256": "caf01d8bb674fac3876c10195257c18272fb5037f9610b668c5fb606f8db2f14"
+    },
+    {
+      "path": "src/spendGuard.ts",
+      "mode": "100644",
+      "gitBlob": "a6664012ef40d4f82703a562d87fa6b5e79e6729",
+      "bytes": 5557,
+      "sha256": "60c8547d087c5f56e1cb7688bcefd3252b28b02658dc4c280d1377bcadf2c6d1"
+    },
+    {
+      "path": "src/tools/_vendorQuoteInputBuilders.ts",
+      "mode": "100644",
+      "gitBlob": "557598f4e685f7ebe1eb173c080e3ee9d6738e7a",
+      "bytes": 4020,
+      "sha256": "242499ed015606652a269a6d27edfe8fe4ddd202b404719fd42019e60306ac45"
+    },
+    {
+      "path": "src/tools/cleanupDmriflesDemoData.ts",
+      "mode": "100644",
+      "gitBlob": "820273207991065d2aa7b817e301499f496f346c",
+      "bytes": 13890,
+      "sha256": "586abaec99c67b5df8ef600b585472defc4e8aa98282f9c9608f47d5c939d91b"
+    },
+    {
+      "path": "src/tools/exportXometryProfile.ts",
+      "mode": "100644",
+      "gitBlob": "f0fbfd104a9d5b6f659c1ef2e513350b82e55e78",
+      "bytes": 1374,
+      "sha256": "983f689f593982d9582469197002a079aa4ad9de55510ab12d9cc6c76cf90d77"
+    },
+    {
+      "path": "src/tools/extractDrawingSmoke.ts",
+      "mode": "100644",
+      "gitBlob": "1e75f5907cf04fc131497fefabf014bbda755465",
+      "bytes": 5143,
+      "sha256": "0b27e7be29ab1331d09ad10e6408535b7881f12327e7b9b981c0723e0b1522b5"
+    },
+    {
+      "path": "src/tools/extractEval.ts",
+      "mode": "100644",
+      "gitBlob": "cbf27b3fbec301793582cebe6c33dc6a06588de6",
+      "bytes": 25494,
+      "sha256": "cc077a94c6f4c3295583acd55d95377aa2248dcc59ef5e88cc37c09e3d8eae26"
+    },
+    {
+      "path": "src/tools/extractEvalCosts.ts",
+      "mode": "100644",
+      "gitBlob": "230b05ab1d23bb8f7047830b6e44978d397b7c60",
+      "bytes": 358,
+      "sha256": "becc04af141acf9eb334e419d7701031b027b7e7e929973e8040a31a4b2fa3ae"
+    },
+    {
+      "path": "src/tools/extractEvalGate.ts",
+      "mode": "100644",
+      "gitBlob": "10c483e819ce7f5c50bd0cd939ef7c72a553f83f",
+      "bytes": 10796,
+      "sha256": "9817065b6067a7b927a83f650ca2da5426567b535cce19f6aa93c28c4080e18b"
+    },
+    {
+      "path": "src/tools/extractEvalProviders.ts",
+      "mode": "100644",
+      "gitBlob": "a0adea64fa560b9c21b4a675bbc3e0d623c1fdd6",
+      "bytes": 2264,
+      "sha256": "ffe78b5b4c6f8acb65f202001d191dfca4a1abdfe67b0f2614a5dd0a1ba1c8be"
+    },
+    {
+      "path": "src/tools/fictivAuth.ts",
+      "mode": "100644",
+      "gitBlob": "8a88d736d20a25c10a18dcc51c4a3963e5448200",
+      "bytes": 2306,
+      "sha256": "ced7717968ff37a3f35f4734c8f76e26cc4a5aa095313e0b427f2d0c6dde7479"
+    },
+    {
+      "path": "src/tools/fictivQuantitySweep.ts",
+      "mode": "100644",
+      "gitBlob": "2b3fabcaee920eb570ee4368d2f61dd866d3a254",
+      "bytes": 8193,
+      "sha256": "3e48c4cf8cdda339765d347e232c0190d91fedb63556f2634456176f90f31e0d"
+    },
+    {
+      "path": "src/tools/importDmriflesQuotes.ts",
+      "mode": "100644",
+      "gitBlob": "39c397400cdc3ff9347a6f46176640a2b32fb259",
+      "bytes": 65813,
+      "sha256": "ce575437234e8b16eb15aaed29540e718e8ed9949bd73bf452aa0268589e1cf3"
+    },
+    {
+      "path": "src/tools/importSpreadsheetQuotes.ts",
+      "mode": "100644",
+      "gitBlob": "e245c88849bf35ccdb471e362ba3724b2a96ad58",
+      "bytes": 52978,
+      "sha256": "32f2501c4986d643321b4762d3e2df0aff6de9b5ff9f988eeba3329817914a9b"
+    },
+    {
+      "path": "src/tools/openCamoufoxInteractive.ts",
+      "mode": "100644",
+      "gitBlob": "8a1b1e5623ef5969a0e59103c70b211969db0988",
+      "bytes": 2859,
+      "sha256": "dd2e037277b39950351e89b2b4efb06dd116322954941314f53a822d3fb9dac5"
+    },
+    {
+      "path": "src/tools/probeXometryProfileAuth.ts",
+      "mode": "100644",
+      "gitBlob": "e9a7269403d08cd63efb67b3874735863edbdb5c",
+      "bytes": 6654,
+      "sha256": "1294fa118f060df60f10d9f85f59b9f956bf33cd1b5c6bcd35b66a911b426410"
+    },
+    {
+      "path": "src/tools/validateOpenclawGate.ts",
+      "mode": "100644",
+      "gitBlob": "285a14ac6abdf77f42019acca04cecbadd020b06",
+      "bytes": 3486,
+      "sha256": "c16de2886ebe2ac17e579fba1de83924389c0e5b6fd03cc9d86391ef3bbc77d0"
+    },
+    {
+      "path": "src/tools/vendorAuth.ts",
+      "mode": "100644",
+      "gitBlob": "fae5bf0a0e92fbe28081ee9c46d6cbd128cdaaeb",
+      "bytes": 5207,
+      "sha256": "8c4b5fc0541769259c2fa6ec1e4124be8ee75355255b0ff3544dd0e22198b186"
+    },
+    {
+      "path": "src/tools/vendorWorkflowSmoke.ts",
+      "mode": "100644",
+      "gitBlob": "1240daa251fe6b4d76b286e65a1e62de6eb10867",
+      "bytes": 50120,
+      "sha256": "6a191e7443b7b12e2ad0465b93da74eb31ae9bc1736e40ef0496e2f7980763a2"
+    },
+    {
+      "path": "src/tools/xometryAuth.ts",
+      "mode": "100644",
+      "gitBlob": "8473a807683a8b1609c8440d773ba5e8cc045f46",
+      "bytes": 15035,
+      "sha256": "16b70b62e3038f71a26da6e7799f272348a99d5e9d5c82e237638c285c59dacc"
+    },
+    {
+      "path": "src/tools/xometryQuantitySweep.ts",
+      "mode": "100644",
+      "gitBlob": "d78d5fdf3a9ca118e609abe9222cd7333924539a",
+      "bytes": 13796,
+      "sha256": "8f59bdb7ca20b79fcc41b54f226e491e61e0ffa3508605c51710ab82cf71ce3b"
+    },
+    {
+      "path": "src/types.ts",
+      "mode": "100644",
+      "gitBlob": "4e9e09f9abe34b90117e5d99bacb30906197b9a8",
+      "bytes": 13795,
+      "sha256": "9fc6d7e3f3ef02a6ec3c090cab52f28df2530586f6fa20edfc9abda6f5c4cee4"
+    },
+    {
+      "path": "src/types/dotenv-modules.d.ts",
+      "mode": "100644",
+      "gitBlob": "ed96fadf8d5b6e150bb8ea0f7f0cd13bcbb92b9d",
+      "bytes": 421,
+      "sha256": "8471c0eb1c68238e12702ceb3783bd245cb01ea60b483c6263c7562595c59db6"
+    },
+    {
+      "path": "src/types/importer-modules.d.ts",
+      "mode": "100644",
+      "gitBlob": "de229779a704942a41311415ac9999a8ec46b7e0",
+      "bytes": 531,
+      "sha256": "9cb0e3810dd15bb27eef31f123d602fc3c137bf622dfb5896eae1011d1a4220c"
+    },
+    {
+      "path": "src/vendorQuoteOffer.ts",
+      "mode": "100644",
+      "gitBlob": "b42d891323f61adeabc6397721b74d7df050120a",
+      "bytes": 5825,
+      "sha256": "09ca0bc3970389410c77ee3f232814639560e478c7b9c354588a916d08862aa1"
+    },
+    {
+      "path": "src/vendorQuoteOfferPersistence.ts",
+      "mode": "100644",
+      "gitBlob": "10a574b76e91fae9fd67693bd55948f6357d160e",
+      "bytes": 1426,
+      "sha256": "b8b79861767ee82638a5f9d5778a6556e2e567e04e2e03831734926a075eaa17"
+    },
+    {
+      "path": "src/vendorTaskRetry.ts",
+      "mode": "100644",
+      "gitBlob": "4549575a4459a73f8571e5fe5144566882d6cb5b",
+      "bytes": 2972,
+      "sha256": "5482ef09817b597f1375e76fb70bc8ce8705e8708282ba2d73798ff1ed884fa3"
+    },
+    {
+      "path": "src/xometryAuthProbe.ts",
+      "mode": "100644",
+      "gitBlob": "ea78fe2009a32295eb3fecef7e0a6c7bbd758f55",
+      "bytes": 22764,
+      "sha256": "ce3b6f08e1fc5980481abab96e7abcc4d66175247b173782b4550323fb18ded7"
+    },
+    {
+      "path": "src/xometryAuthRecovery.ts",
+      "mode": "100644",
+      "gitBlob": "16bc25c9fbb1d873cec7addf3e62e731259a7c03",
+      "bytes": 1695,
+      "sha256": "c8dedf3b7817ac3dea43ac41eff8cee6b76368a46d77a3279dcf4cd2c7d78143"
+    },
+    {
+      "path": "src/xometryDispatchPreflight.ts",
+      "mode": "100644",
+      "gitBlob": "359dec6caceb5d5a001ec9e5fd3ed5367041cdf2",
+      "bytes": 5036,
+      "sha256": "af6da9e4030b1b3e918125cc11e5446eda5c0c44dc61a0f67ae4a786c9dfb588"
+    },
+    {
+      "path": "src/xometryProfileExport.ts",
+      "mode": "100644",
+      "gitBlob": "75770f72a02c11bc1729c0c6e0a39a95bdc20cf6",
+      "bytes": 1233,
+      "sha256": "5f9e09dd2778533ee45d467679a34f91e092d346b16c8e6f9708d52ab5177b50"
+    },
+    {
+      "path": "src/xometryProfileSnapshot.ts",
+      "mode": "100644",
+      "gitBlob": "d9e5f53617219382bb0d22f1429f6338dcdb2782",
+      "bytes": 19893,
+      "sha256": "b86efcb2d10040ccbf5d8622bf6a90ed906c40967cfe821ef25d76aa46bd2b30"
+    },
+    {
+      "path": "tsconfig.json",
+      "mode": "100644",
+      "gitBlob": "d0dfbd91177e6f596ec51fa06cd5959813610deb",
+      "bytes": 406,
+      "sha256": "0cc8e81713e0199bf8b35d02eba0a14a5d84000d7aad786bd9ca9b46267d3120"
+    }
+  ]
+}

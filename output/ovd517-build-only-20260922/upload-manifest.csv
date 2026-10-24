@@ -1,0 +1,2 @@
+Source,Destination,Start,End,Md5,Source Size,Bytes Transferred,Result,Description
+file://worker-source.tar.gz,gs://overdrafter-worker-9133_cloudbuild/ovd517/build-only/20260923T003324Z-7da20710b25a/worker-source.tar.gz,2026-09-23T00:39:23.940951Z,2026-09-23T00:39:23.941150Z,NipbRTChuFyFX1+VNcmeUQ==,306509,306509,OK,

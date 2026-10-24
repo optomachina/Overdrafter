@@ -1,0 +1,13 @@
+{
+  "sourceSha": "7da20710b25a6a30d0f9ac59e88e00f685defc67",
+  "repositoryTree": "e73355333ce8165af36c29d1831f5ab571522aba",
+  "workerTree": "b9acaeae26f8cf924d9708fed0650b7fb72ad0e7",
+  "sourceFiles": 114,
+  "archiveBytes": 306509,
+  "archiveSha256": "378fc502865916d397c81f3ef0f34123e04cd1bd4924b64c7d489a294d1d2eb8",
+  "archiveMd5Base64": "NipbRTChuFyFX1+VNcmeUQ==",
+  "manifestSha256": "175e368362d0ba50a551ccc0b06bd206d75eff5bf8dcac6c85320ed0123af208",
+  "criticalFileCount": 107,
+  "expectedCriticalFilesSha256": "7d94d3e94c05c7403c21fd885c63e96e8feac01b92b3258d7df0671b61dec371",
+  "excludedTrackedWorkerFiles": 97
+}

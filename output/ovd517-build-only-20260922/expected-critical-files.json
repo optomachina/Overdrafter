@@ -1,0 +1,537 @@
+[
+  {
+    "path": "dist/adapters/base.js",
+    "bytes": 872,
+    "sha256": "899a96dad1bee3f641853b2ebc4d368f7218bdcdaf7835c9efba6e53d0a56367"
+  },
+  {
+    "path": "dist/adapters/emachineShopEnvelope.js",
+    "bytes": 965,
+    "sha256": "87a8430ce3e918aa4eb51cb8005343693291a8264170cd5cbcd7ab4384c6207f"
+  },
+  {
+    "path": "dist/adapters/evidenceBackedEnvelope.js",
+    "bytes": 8497,
+    "sha256": "f00764c0f229385e01e2b076c874a92805c800f1db102cebbc91d6ea94920c19"
+  },
+  {
+    "path": "dist/adapters/extendedVendorWorkflows.js",
+    "bytes": 5979,
+    "sha256": "5158386bb4661ec5aa8a703394c1f20cb1c381354101eb569791c8915247da54"
+  },
+  {
+    "path": "dist/adapters/fabworks.js",
+    "bytes": 16161,
+    "sha256": "ad3f2ec2f0eb9d51bb8719ba29cfb99de67b0b5bcf1bd33d2be37211a6fcdb4b"
+  },
+  {
+    "path": "dist/adapters/fictiv.js",
+    "bytes": 44863,
+    "sha256": "ecce6422f706f38b302c77473c573401b71826a10d8e97878bebc93b75352630"
+  },
+  {
+    "path": "dist/adapters/fictivConstraints.js",
+    "bytes": 9361,
+    "sha256": "ce2b161a4e1a683cf8484f296240c5347c2a0ac29df6f3ed3e7d4033f2c0162a"
+  },
+  {
+    "path": "dist/adapters/geomiqEnvelope.js",
+    "bytes": 809,
+    "sha256": "f9bfe3aa003e5e7393c7c128fa5759943537949bb0eb29d87b5020251f8b8452"
+  },
+  {
+    "path": "dist/adapters/geomiqPortal.js",
+    "bytes": 5990,
+    "sha256": "092c7a6ab6f1438a426987ce55bb87c4880cc3ce5181e1707c2aa26f329e9782"
+  },
+  {
+    "path": "dist/adapters/index.js",
+    "bytes": 5239,
+    "sha256": "b9340b665aaf396814df77739e20e864fa941f32bc7f90a4fb387d2b84037ecb"
+  },
+  {
+    "path": "dist/adapters/oshcut.js",
+    "bytes": 9956,
+    "sha256": "16f6e8563471272e272a6c72e4f4f2405d50c4a5e7ef5adec24c3c828a520588"
+  },
+  {
+    "path": "dist/adapters/persistentProfileLock.js",
+    "bytes": 7028,
+    "sha256": "de16c2486c1e494c9b1e6b7d4d84a7906fcb3c3e15f5c008641b7c9efb294d4d"
+  },
+  {
+    "path": "dist/adapters/ponokoEnvelope.js",
+    "bytes": 1556,
+    "sha256": "0a4d6d5c82b0c22e5c277f3872671cc44396ab124bfc486f4c7560fc39cb65a7"
+  },
+  {
+    "path": "dist/adapters/portalWorkflow.js",
+    "bytes": 13054,
+    "sha256": "f6a2b6cf829e4c31121dd68419bafa6e934543b1d7ac3feede76851ef5663865"
+  },
+  {
+    "path": "dist/adapters/protolabs.js",
+    "bytes": 1580,
+    "sha256": "d978673271145b1497ddb90e97bc142f8ad46d71ed5b5eb65e692df36989757b"
+  },
+  {
+    "path": "dist/adapters/protolabsEnvelope.js",
+    "bytes": 1069,
+    "sha256": "1ccd69a60f27b69be5e2f24469fc073fec4f7b71f992e3b72446d0936f6ad4a0"
+  },
+  {
+    "path": "dist/adapters/protolabsNetworkEnvelope.js",
+    "bytes": 929,
+    "sha256": "7d417b3495a44458fd0a6a89efd7eaa54d69c08566d689b4d45f363fcd78647d"
+  },
+  {
+    "path": "dist/adapters/providerAdapterContract.js",
+    "bytes": 10948,
+    "sha256": "d0526565a9af1524ad6dad7d90a5521a970d2805c8cfd856e4edf19500eedd52"
+  },
+  {
+    "path": "dist/adapters/providerPortalKernel.js",
+    "bytes": 38069,
+    "sha256": "fef1d5b67dec01e8ed0bc7d44e7d5421469db144d8ff461cef43596b914b852e"
+  },
+  {
+    "path": "dist/adapters/quickpartsEnvelope.js",
+    "bytes": 1124,
+    "sha256": "b9bb30c935783ea022eb99aa7fda4aa2140904af1c5120bcf262b1ab49dc14c1"
+  },
+  {
+    "path": "dist/adapters/quickpartsPortal.js",
+    "bytes": 5656,
+    "sha256": "19bf7133b918316076224062be46730a3f8b99bd90c28ab87507ef9b00a1f6a4"
+  },
+  {
+    "path": "dist/adapters/rapiddirectEnvelope.js",
+    "bytes": 849,
+    "sha256": "42659750a892073a50d10e63899cd8cca0704cbeb728831a3f2f044a592cee2d"
+  },
+  {
+    "path": "dist/adapters/sendcutsend.js",
+    "bytes": 24240,
+    "sha256": "48f64ce600359bbdcfca518a44448b9e1813bfda6b6726a2269c1ee4e8bb59cf"
+  },
+  {
+    "path": "dist/adapters/sendcutsendEnvelope.js",
+    "bytes": 16721,
+    "sha256": "aeee656c65a262f51b9e7a3b9646121284fec895c9d4bf8aede8199b59352462"
+  },
+  {
+    "path": "dist/adapters/weergEnvelope.js",
+    "bytes": 1038,
+    "sha256": "d73e95cb581bbedb7cae9c72de96762e0796428a4611d1cd0061e381b343fa71"
+  },
+  {
+    "path": "dist/adapters/weergPortal.js",
+    "bytes": 4137,
+    "sha256": "a3a20570e8847257d4c5f45a54f861c90c491740fa54a84afc623de978ed9dea"
+  },
+  {
+    "path": "dist/adapters/xometry.js",
+    "bytes": 101069,
+    "sha256": "e1a5ba74886534db3b874459b887079c0995b2c65f6908c96551fa4b5d80f650"
+  },
+  {
+    "path": "dist/adapters/xometryConstraints.js",
+    "bytes": 13438,
+    "sha256": "ac32016615d100d6f17ef44332281e4a72d6d54af02cbe8d42e4c8669ebe0808"
+  },
+  {
+    "path": "dist/adapters/xometryOffers.js",
+    "bytes": 12443,
+    "sha256": "10b7601b5088d264e6b0eb41f7d193ab9331abd94b55f64c5a6ecd8c185f7d04"
+  },
+  {
+    "path": "dist/autoApprove.js",
+    "bytes": 510,
+    "sha256": "acbebed6895f12949ea14f8bd89982975692cfd31b77c72ab7b7aa372f2497b6"
+  },
+  {
+    "path": "dist/benchmarks/manufacturingCorpusPurposePermissions.js",
+    "bytes": 6313,
+    "sha256": "6b49ce5bdb992b0c3787df1918e2bc256bda47543a0f47bd057066f0cd3a0f8e"
+  },
+  {
+    "path": "dist/benchmarks/manufacturingCorpusRightsAuthorization.js",
+    "bytes": 7107,
+    "sha256": "668be9595d5ef82e5dd64a60452f16275e0d68230984f0fd1efdfe676dd43059"
+  },
+  {
+    "path": "dist/benchmarks/manufacturingCorpusVocabulary.js",
+    "bytes": 5551,
+    "sha256": "c1cd91ddc625d88cacca6580395eb5995117256666786fabd6cb0b03fe4565a9"
+  },
+  {
+    "path": "dist/browserCleanup.js",
+    "bytes": 1128,
+    "sha256": "b83ff51d41dccd01cf01d8b80f88fb56223e41d46a5ac1f029818ae46fc336cc"
+  },
+  {
+    "path": "dist/cadPreview.js",
+    "bytes": 13191,
+    "sha256": "4fe82c6d9410d14848b8a6dedb6a682679c0ee000f3eaab7e6b6be8fc743e975"
+  },
+  {
+    "path": "dist/cadPreviewPersistence.js",
+    "bytes": 4331,
+    "sha256": "94ad5296f3f3f41e12165b05a031b1b6ee84cec6cff3142b49ead3d37470bbc9"
+  },
+  {
+    "path": "dist/camoufoxAssets.js",
+    "bytes": 2489,
+    "sha256": "ca8e33a1fadfa0563797f47cd0ff55042ff7b31f5d6d393bd30df174df221a78"
+  },
+  {
+    "path": "dist/camoufoxPersistentContext.js",
+    "bytes": 4190,
+    "sha256": "c81eee45428a71d6008093c95c9a8e2b7e4b381b72a81ab18714e6d2f6a5a428"
+  },
+  {
+    "path": "dist/camoufoxProfileIdentity.js",
+    "bytes": 4667,
+    "sha256": "165e72d2ca9870f77be0df638d591f49b5c8a3774f4adbd1cad9edda72f329de"
+  },
+  {
+    "path": "dist/config.js",
+    "bytes": 11167,
+    "sha256": "3d010be46009818c607e6c5d9af9d30006c28525641a0ba189ac65c14205a93f"
+  },
+  {
+    "path": "dist/env.js",
+    "bytes": 798,
+    "sha256": "1307a8eeb04f5cd49833a86fe47362f7b920ff2bebb12348cedaceb986dcbcee"
+  },
+  {
+    "path": "dist/errorSummary.js",
+    "bytes": 2075,
+    "sha256": "0b48a58f54d2aaaa19eac7d61cc3f97e4812e14afe8063edf793133bb4236bbf"
+  },
+  {
+    "path": "dist/extractedValue.js",
+    "bytes": 2949,
+    "sha256": "7056d84493122f338ef8e3191b9af1ba50f23f3a1663b69ed3c436f8aeb4cbcc"
+  },
+  {
+    "path": "dist/extraction/callModel.js",
+    "bytes": 5838,
+    "sha256": "7cccdfdc1b0f942a4ddeb52da75d861db8e4c51dfcfb6fc1305689785e91b338"
+  },
+  {
+    "path": "dist/extraction/debugLab.js",
+    "bytes": 17094,
+    "sha256": "b804467783558298ad0cc1a9c77cf35e3cd1b7b16022f905968a033a17276b87"
+  },
+  {
+    "path": "dist/extraction/geometryProjection.js",
+    "bytes": 3820,
+    "sha256": "547fddb0f7fdbb4c2b073034d8bd4ff44d6eecd72ab0145a0628ef04314e8f85"
+  },
+  {
+    "path": "dist/extraction/hybridExtraction.js",
+    "bytes": 13871,
+    "sha256": "fa2dd202b7f9efff8dc0399a2653f70864ee6b8c92ea0a358d8033e2daf03b11"
+  },
+  {
+    "path": "dist/extraction/modelFallback.js",
+    "bytes": 12162,
+    "sha256": "dda73ab68599aa271ef5df68df87d8d55ace89f8fd7b4c5c7dbfd14f75d6ffcb"
+  },
+  {
+    "path": "dist/extraction/modelProvider.js",
+    "bytes": 13082,
+    "sha256": "46e14a7871f1b4ac67efb7bb597b39c5ce66ca73448f1d57bddc3eb40ab812ed"
+  },
+  {
+    "path": "dist/extraction/modelRegistry.js",
+    "bytes": 4552,
+    "sha256": "371e7f24961c8d66e78382e0eb7e86406f572d7b2bfa1bce7d66cc8e9e0b0e23"
+  },
+  {
+    "path": "dist/extraction/pdfDrawing.js",
+    "bytes": 40177,
+    "sha256": "b66d0350c3a4642a979c87dca6e2d01dad6c06d0e8a8c047782811bc4d8af849"
+  },
+  {
+    "path": "dist/extraction/policy.js",
+    "bytes": 3261,
+    "sha256": "b5bf1c8706b859c775c8e3839ed69e79cdcba182f5893cf00b66eb3b11650e50"
+  },
+  {
+    "path": "dist/extraction/schema.js",
+    "bytes": 1477,
+    "sha256": "fdcbe5389991681c9e3798132e1d6ea595654f3d5e6b7cee655633dc47f90fbe"
+  },
+  {
+    "path": "dist/extraction/sharedResult.js",
+    "bytes": 2666,
+    "sha256": "318b31e0769d9f55070747a9451d8bc3531fa1fb737ae1874d11b9df4155f49e"
+  },
+  {
+    "path": "dist/extraction/stepGeometryMetadata.js",
+    "bytes": 26214,
+    "sha256": "f5dc0f91b64a017df42b2227019bd66c57a944f02d82e90e9774251a3127fa16"
+  },
+  {
+    "path": "dist/extractionObservability.js",
+    "bytes": 1626,
+    "sha256": "4e72bae33ae6f2482b9391ef2519901f5d3d10a40263a61dbac6d4f1a3e93524"
+  },
+  {
+    "path": "dist/files.js",
+    "bytes": 3527,
+    "sha256": "0b72271708074c781f644d6e7f770a2301d75741d85a5d487b54ce3a7dfb76f2"
+  },
+  {
+    "path": "dist/generated/provider-catalog.js",
+    "bytes": 14716,
+    "sha256": "c6838a4c4d384801885b7e998ef0c7e0541b876b2419fa338e777cf2e67826d7"
+  },
+  {
+    "path": "dist/httpServer.js",
+    "bytes": 11768,
+    "sha256": "2eff1dea5cb996812c983b88472c72592b046d5f3d2232af58368b28a33eab75"
+  },
+  {
+    "path": "dist/index.js",
+    "bytes": 62005,
+    "sha256": "8f376f2f1532a3cf07487e0bf43795482080e4f03ce93bce2f3304bacb1f2ca7"
+  },
+  {
+    "path": "dist/liveEvaluationFiles.js",
+    "bytes": 5243,
+    "sha256": "820361de8e31b4f69f4f43b3d0616350381ec35221a2c3c13ebba0bec2ee7dae"
+  },
+  {
+    "path": "dist/openclawGate.js",
+    "bytes": 8419,
+    "sha256": "3479b52f9cb53003eb1153770c3a279cdb7817f0fcfc068e2a16fe1197c14ca6"
+  },
+  {
+    "path": "dist/ovd410RecoveryPhase.js",
+    "bytes": 4193,
+    "sha256": "ac9a5ab69f9d81cf8c9e8b1e3422b1c57ac6cbc9378cff34e6cbd25eb508beab"
+  },
+  {
+    "path": "dist/partContext.js",
+    "bytes": 1820,
+    "sha256": "fc6accc5821cd52d62bc9ca738b60ceb706a11e881cc5306c1efe5021bb1619b"
+  },
+  {
+    "path": "dist/pricingCurve.js",
+    "bytes": 7733,
+    "sha256": "0c4f1bdda0ad6ee923102a4cbb7b4f743923fb37d97481db15ff2b282cda1401"
+  },
+  {
+    "path": "dist/providerUploadCapability.js",
+    "bytes": 13858,
+    "sha256": "2f69b94fed1df9cbf2a0536311b8229101c45bdc2b601ce5446d4327df453333"
+  },
+  {
+    "path": "dist/providerUploadCapabilityTypes.js",
+    "bytes": 11,
+    "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+  },
+  {
+    "path": "dist/quantityPricing.js",
+    "bytes": 2015,
+    "sha256": "4aae7f1a5f8a3126c5a7919bbf0a2062ea07cc69aa9eb2bb5c65137988c71f6b"
+  },
+  {
+    "path": "dist/queue.js",
+    "bytes": 4063,
+    "sha256": "a47d18b92a0498eeb3152e0bd8bbadf10a3f0b342aa873f4c5d054e2a39e1e23"
+  },
+  {
+    "path": "dist/quoteRunStatus.js",
+    "bytes": 1369,
+    "sha256": "98b356aec2063e2aa6daba0eba321cddc683d3bd699e51e05575e5a9361d4afa"
+  },
+  {
+    "path": "dist/quoteScope.js",
+    "bytes": 1919,
+    "sha256": "37cfe35f93408336735b728d6533273947f140df8b03c44a3097dcad660dba57"
+  },
+  {
+    "path": "dist/repair/suggestLocatorUpdate.js",
+    "bytes": 1412,
+    "sha256": "e7871d5b7a93b0bfa918ef5a2e94bdbb55a4549d92640febf53479a47a476cf3"
+  },
+  {
+    "path": "dist/runtimeEnvironment.js",
+    "bytes": 673,
+    "sha256": "ecfe445d4e61d3c27b4e1c80a630b24bf68c975d3564d93c3fbd396d3b7b7cd5"
+  },
+  {
+    "path": "dist/runtimeSecrets.js",
+    "bytes": 7478,
+    "sha256": "3499f874c74959cf96aa9410687315b026df1d75c881cff07c7b70ba4a0518d0"
+  },
+  {
+    "path": "dist/scoring.js",
+    "bytes": 4531,
+    "sha256": "d45829ec9048437fb0862094b5f477d6700e83dbf21f02b5d058b482ed4b430d"
+  },
+  {
+    "path": "dist/scoringIntegration.js",
+    "bytes": 6095,
+    "sha256": "7a8b764f641d2d671d7e1c18430b09a348853d6295fab20b3b36491c0d5e6a0e"
+  },
+  {
+    "path": "dist/spendGuard.js",
+    "bytes": 4301,
+    "sha256": "ca7d9ca6185112679249cfede271a8a389381642af92ec23d9bb80355d823575"
+  },
+  {
+    "path": "dist/tools/_vendorQuoteInputBuilders.js",
+    "bytes": 2948,
+    "sha256": "d98fbc65e5427821d52e1310f0ed0afc02eb681659a529d76b9c198d21c2b792"
+  },
+  {
+    "path": "dist/tools/cleanupDmriflesDemoData.js",
+    "bytes": 12318,
+    "sha256": "7ae593dc9d4b3ccf13305e753247429dfe14fe07bf0f3f33808b8959911dd2bc"
+  },
+  {
+    "path": "dist/tools/exportXometryProfile.js",
+    "bytes": 1301,
+    "sha256": "673fc3a865bf0ccf1f09e229054a519e7c2889223b89aa0ebbd8bf1be9874bca"
+  },
+  {
+    "path": "dist/tools/extractDrawingSmoke.js",
+    "bytes": 5269,
+    "sha256": "b53da6b769ee9f3dad513e3d4a749fb257446b23cad4ca41ace02367d02c018e"
+  },
+  {
+    "path": "dist/tools/extractEval.js",
+    "bytes": 25758,
+    "sha256": "e5155451f56887194844ca4ce33a243edf55a8e99f261b92778fe9800ed57511"
+  },
+  {
+    "path": "dist/tools/extractEvalCosts.js",
+    "bytes": 331,
+    "sha256": "751c7cb8fc3ad1089944ed69810271a5befd0de0a6a4a129c2cd6981a4c909a4"
+  },
+  {
+    "path": "dist/tools/extractEvalGate.js",
+    "bytes": 9809,
+    "sha256": "55ab81a81209f44598d1b86191b008639bbafc98d185401ad92d237097b43a85"
+  },
+  {
+    "path": "dist/tools/extractEvalProviders.js",
+    "bytes": 1726,
+    "sha256": "12648856d8ec2698a04a6fec941401d56faf28f708b11da05ad4db60b4602f55"
+  },
+  {
+    "path": "dist/tools/fictivAuth.js",
+    "bytes": 2408,
+    "sha256": "aa0703b00ae26bf0e73b233bad5619e14d069c7306011c94af99b3c2c6423111"
+  },
+  {
+    "path": "dist/tools/fictivQuantitySweep.js",
+    "bytes": 7632,
+    "sha256": "a35e72e803fd293fc3cfbdcf7660c852a41f551d10e3f4205b1f7610e943fd85"
+  },
+  {
+    "path": "dist/tools/importDmriflesQuotes.js",
+    "bytes": 61749,
+    "sha256": "a1804ea32689d9764f2916c272efee56737bf43cff53fc25ab129397807becc1"
+  },
+  {
+    "path": "dist/tools/importSpreadsheetQuotes.js",
+    "bytes": 50690,
+    "sha256": "7fc22fb105888ee4cdafbbe91a5b225c92d5b66b237c15a7b8cf7f06c7420761"
+  },
+  {
+    "path": "dist/tools/openCamoufoxInteractive.js",
+    "bytes": 2862,
+    "sha256": "bc096c99c79ac32c22c228135497fd39f6735c6b9756cc9f15079ad363f1a31d"
+  },
+  {
+    "path": "dist/tools/probeXometryProfileAuth.js",
+    "bytes": 6030,
+    "sha256": "31bbb7f0c781dbe7779ca26800fdbdf39d3dbeb213862284c9a338aa64d33c03"
+  },
+  {
+    "path": "dist/tools/validateOpenclawGate.js",
+    "bytes": 3412,
+    "sha256": "7005ff379ec859a731c7286a9036068cf9ba06c1884fb5ff7e2eeccf948370de"
+  },
+  {
+    "path": "dist/tools/vendorAuth.js",
+    "bytes": 5120,
+    "sha256": "4564565517089fe37151fdccee894ad3b9376b840e1f914fe2a8dc89cb182fee"
+  },
+  {
+    "path": "dist/tools/vendorWorkflowSmoke.js",
+    "bytes": 45597,
+    "sha256": "2ac6b2a996a70035766f4d0ed2837dfabb08ad55990e96b1feac59ca7ed163e3"
+  },
+  {
+    "path": "dist/tools/xometryAuth.js",
+    "bytes": 14795,
+    "sha256": "05b23dd38f5d26b157d32bcd5c6a7eb406c4851275b145e2e96791365d2b9f2a"
+  },
+  {
+    "path": "dist/tools/xometryQuantitySweep.js",
+    "bytes": 13462,
+    "sha256": "3572451e747c480e96a4869cecacc07ff9f5d7260837127d6e7b6f2b9f4c16db"
+  },
+  {
+    "path": "dist/types.js",
+    "bytes": 767,
+    "sha256": "44a02b06678c8a0ecfc45b3e94491efb03b4b961112fb3fbf048dfc542411ee8"
+  },
+  {
+    "path": "dist/vendorQuoteOffer.js",
+    "bytes": 5696,
+    "sha256": "4e47ec3de1891dc9118a604746455dabc4336c18e672ef555340b8ced9333c1c"
+  },
+  {
+    "path": "dist/vendorQuoteOfferPersistence.js",
+    "bytes": 838,
+    "sha256": "fe40d5b65d47c09be8929837ea2f24734269fb33b035b4102e9daa26d5fa0452"
+  },
+  {
+    "path": "dist/vendorTaskRetry.js",
+    "bytes": 3066,
+    "sha256": "f39e5436313bbe374345ce3e78822df954a2d7e656958313455b330e608c319b"
+  },
+  {
+    "path": "dist/xometryAuthProbe.js",
+    "bytes": 20272,
+    "sha256": "eeed19e6028dbee099f787db28f05fbffb5ac5c766030758f480a47dc712feef"
+  },
+  {
+    "path": "dist/xometryAuthRecovery.js",
+    "bytes": 1004,
+    "sha256": "e4bc14eec9694c2ac3aed577a3484fde7960c313800afe8e61293fa139384809"
+  },
+  {
+    "path": "dist/xometryDispatchPreflight.js",
+    "bytes": 4068,
+    "sha256": "9095b6882364ab05959f27ed91b2c14185a83851edecc429fd5fd6dacb1b84dc"
+  },
+  {
+    "path": "dist/xometryProfileExport.js",
+    "bytes": 642,
+    "sha256": "6ad6f73e8ff9e05cd80da04a6f3129c9065fb317f24f7999be3342b2030ec145"
+  },
+  {
+    "path": "dist/xometryProfileSnapshot.js",
+    "bytes": 18338,
+    "sha256": "06c2ca5722db72bb96c0f976acb92d4baaceb4681c7ac70f7de33ccab9684ab1"
+  },
+  {
+    "path": "package-lock.json",
+    "bytes": 90004,
+    "sha256": "4452eeb2e2b7f98905aef5f2f9bb05cdaecbe9f8a5bf7561f8f85edd784c6685"
+  },
+  {
+    "path": "package.json",
+    "bytes": 2259,
+    "sha256": "046bc8211b7c7afb836f4a77fa2f5b9eaf350a6165a0b7df369e0b50f5df7b2d"
+  }
+]
