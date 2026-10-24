@@ -102,7 +102,11 @@ function quotePage(options: PageOptions = {}): string {
           <button class="select-target" entity="primary-finish"><p data-testid="configurator-preselected"><span title="As Machined">As Machined</span></p></button>\`;
         // The new part first prices with the default material, as the app does once analysis ends.
         setTimeout(() => showPrice(30), 300);
-        document.querySelector("#configurator input#quantity_initial").addEventListener("input", () => saveDraft("quantity"));
+        document.querySelector("#configurator input#quantity_initial").addEventListener("input", () => {
+          saveDraft("quantity");
+          document.getElementById("row-price").innerHTML = '<span class="quote-status-field">Updating part</span>';
+          setTimeout(() => showPrice(30), 500);
+        });
         const search = document.querySelector(".g-input-dropdown .dropdown");
         const options = document.getElementById("options-material-input-dropdown");
         document.getElementById("material-label").addEventListener("click", () => {

@@ -167,6 +167,10 @@ async function assertNoInterstitial(reader: ProviderPortalReadCapability, provid
  */
 async function assertSignedIn(reader: ProviderPortalReadCapability, providerMutationPossible: boolean): Promise<void> {
   await assertNoInterstitial(reader, providerMutationPossible);
+  await assertSessionMarkers(reader, providerMutationPossible);
+}
+
+async function assertSessionMarkers(reader: ProviderPortalReadCapability, providerMutationPossible: boolean): Promise<void> {
   if (await reader.count(L.signedOut) > 0 || await reader.count(L.signedIn) === 0) {
     stop("login_required", "geomiq_session_anonymous", providerMutationPossible);
   }
@@ -175,21 +179,54 @@ async function assertSignedIn(reader: ProviderPortalReadCapability, providerMuta
 type GeomiqRow = { status: string | null; material: string | null; unit: string | null; subtotal: string | null };
 
 /**
- * After upload: the session is signed in and exactly one part is selected,
- * and it is the uploaded file. Runs before every configuration write and
- * every price read, so a restored or switched selection is never edited or priced.
+ * Revalidate identity and session after awaited field reads, immediately before
+ * using their result. Optional fields can take seconds to return when absent.
  */
-async function readUploadedRow(reader: ProviderPortalReadCapability, names: Set<string>): Promise<GeomiqRow> {
+async function assertUploadedPart(reader: ProviderPortalReadCapability, names: Set<string>): Promise<void> {
   await assertSignedIn(reader, true);
   if (await reader.count(L.selectedPartRow) !== 1) stop("selector_drift", "geomiq_selected_part_not_unique", true);
   const rowLines = ((await reader.readText(L.selectedPartRow)) ?? "").split("\n").map((line) => line.trim().toLowerCase());
   if (!rowLines.some((line) => names.has(line))) stop("selector_drift", "geomiq_selected_part_not_uploaded_file", true);
+  await assertSessionMarkers(reader, true);
+}
+
+async function readUploadedRow(reader: ProviderPortalReadCapability, names: Set<string>): Promise<GeomiqRow> {
+  await assertUploadedPart(reader, names);
   const read = async (selector: string) => (await reader.readText(selector))?.trim() || null;
-  return { status: await read(L.rowStatus), material: await read(L.rowMaterial), unit: await read(L.rowUnitPrice), subtotal: await read(L.rowSubtotal) };
+  const status = await read(L.rowStatus);
+  if (status === "Manual quote needed") {
+    // Manual quotes have no price fields. Stop every pricing wait before reading
+    // those absent fields, but recheck identity/session after the awaited status.
+    await assertUploadedPart(reader, names);
+    stop("manual_review", "geomiq_manual_quote_needed", true);
+  }
+  const row = { status, material: await read(L.rowMaterial), unit: await read(L.rowUnitPrice), subtotal: await read(L.rowSubtotal) };
+  await assertUploadedPart(reader, names);
+  return row;
 }
 
 const isLoading = (row: GeomiqRow) => row.status !== null && LOADING_STATUSES.has(row.status);
 const priceOf = (row: GeomiqRow) => `${row.unit ?? ""}|${row.subtotal ?? ""}`;
+
+/** Drain upload pricing first; after quantity, require a distinct requote before idle counts. */
+async function waitForIdleRow(reader: ProviderPortalReadCapability, names: Set<string>, baselinePrice?: string): Promise<GeomiqRow> {
+  const deadline = Date.now() + ROW_IDLE_BUDGET_MS;
+  let previous: GeomiqRow | null = null;
+  let requoteSeen = baselinePrice === undefined;
+  for (;;) {
+    const row = await readUploadedRow(reader, names);
+    const priced = row.unit !== null && row.subtotal !== null;
+    if (isLoading(row) || (priced && priceOf(row) !== baselinePrice)) requoteSeen = true;
+    const idle = requoteSeen && priced && !isLoading(row);
+    if (idle && previous && priceOf(row) === priceOf(previous)) return row;
+    previous = idle ? row : null;
+    if (Date.now() > deadline) {
+      stop("selector_drift", !requoteSeen ? "geomiq_quantity_requote_not_observed"
+        : baselinePrice === undefined ? "geomiq_row_not_idle_before_quantity" : "geomiq_row_not_idle_before_material", true);
+    }
+    await sleep(idle ? PAGE_STABLE_MS : CONFIGURE_POLL_MS);
+  }
+}
 
 /**
  * Requote evidence from `configure`, keyed by the run's input, for its
@@ -246,19 +283,11 @@ async function configureUploadedPart(
     await sleep(CONFIGURE_POLL_MS);
   }
   if (await reader.count(L.quantity) !== 1) stop("selector_drift", "geomiq_quantity_not_unique", true);
-  await readUploadedRow(reader, names);
+  const quantityBaseline = priceOf(await waitForIdleRow(reader, names));
   if (!(await configuration.fill("quantity", String(input.requestedQuantity)))) stop("selector_drift", "geomiq_quantity_control_missing", true);
 
-  // Idle means no loading status and the same price across two reads PAGE_STABLE_MS apart.
-  const idleDeadline = Date.now() + ROW_IDLE_BUDGET_MS;
-  let idle: GeomiqRow | null = null;
-  for (;;) {
-    const row = await readUploadedRow(reader, names);
-    if (!isLoading(row) && idle && priceOf(row) === priceOf(idle)) break;
-    idle = isLoading(row) ? null : row;
-    if (Date.now() > idleDeadline) stop("selector_drift", "geomiq_row_not_idle_before_material", true);
-    await sleep(idle ? PAGE_STABLE_MS : CONFIGURE_POLL_MS);
-  }
+  // Unchanged samples before a delayed quantity requote starts are not completion evidence.
+  await waitForIdleRow(reader, names, quantityBaseline);
 
   // A portal-default material would quote the wrong part, so every step must land.
   if (!(await configuration.click("materialTrigger"))) stop("selector_drift", "geomiq_material_control_missing", true);
@@ -301,7 +330,6 @@ async function readSettledRow(reader: ProviderPortalReadCapability, input: Vendo
   for (;;) {
     const row = await readUploadedRow(reader, names);
     const { status, material, unit, subtotal } = row;
-    if (status === "Manual quote needed") stop("manual_review", "geomiq_manual_quote_needed", true);
     if (status === "Unable to quote") stop("unsupported", "geomiq_unable_to_quote", true);
     const priced = unit !== null && subtotal !== null;
     if (isLoading(row) || !priced || (evidence && priceOf(row) !== evidence.baselinePrice)
@@ -355,6 +383,7 @@ export async function extractGeomiqProductionOffers(
     stop("selector_drift", "geomiq_price_quantity_mismatch", true);
   }
   const lead = leadBusinessDays(await reader.readText(L.rowLeadTime));
+  await assertUploadedPart(reader, uploadedPartNames(input));
   const base = {
     providerOptionId: "subtotal", providerOptionIdSource: "provider_label" as const, providerLabel: "Subtotal",
     quoteRef: null, quoteUrl: null, quantity,
