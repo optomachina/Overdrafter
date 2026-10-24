@@ -8,7 +8,7 @@ import { stageLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import { parseSmokeArgs, runQuote } from "../tools/vendorWorkflowSmoke.js";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index.js";
-import { buildQuickpartsOfflinePortalDefinition } from "./quickpartsPortal.js";
+import { buildQuickpartsProductionPortalDefinition } from "./quickpartsPortal.js";
 import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
 import { createWeergPortalDefinition } from "./weergPortal.js";
 import { buildExpectedProviderPortalApproval } from "./providerPortalKernel.js";
@@ -18,13 +18,24 @@ import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows.js";
 const directories: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
-const definitions = [
-  buildQuickpartsOfflinePortalDefinition(),
+// Quickparts evaluates through its production definition and reaches the provider (OVD-1059).
+const offlineDefinitions = [
   createWeergPortalDefinition(),
   buildGeomiqPortalDefinition(),
 ];
+const definitions = [buildQuickpartsProductionPortalDefinition(), ...offlineDefinitions];
+
+async function stagedSyntheticCad() {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "provider-registry-")));
+  directories.push(dir);
+  const cadPath = path.join(dir, "synthetic.step");
+  await fs.writeFile(cadPath, "synthetic offline fixture, not a customer CAD file");
+  const staged = await stageLiveEvaluationFiles({ cadPath, drawingPath: null, confirmedNonExportControlled: true });
+  return { cadPath, staged };
+}
 
 function isolatedConfig(): WorkerConfig {
   return {
@@ -37,13 +48,9 @@ function isolatedConfig(): WorkerConfig {
 }
 
 describe("local provider registry integration", () => {
-  it.each(definitions)("reports $provider preflight through the real CLI registry without session access", async (definition) => {
+  it.each(offlineDefinitions)("reports $provider preflight through the real CLI registry without session access", async (definition) => {
     const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("Unexpected browser launch"));
-    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "provider-registry-")));
-    directories.push(dir);
-    const cadPath = path.join(dir, "synthetic.step");
-    await fs.writeFile(cadPath, "synthetic offline fixture, not a customer CAD file");
-    const staged = await stageLiveEvaluationFiles({ cadPath, drawingPath: null, confirmedNonExportControlled: true });
+    const { cadPath, staged } = await stagedSyntheticCad();
     const args = parseSmokeArgs(["--vendor", definition.provider, "--cad", cadPath, "--confirm-non-export-controlled"]);
     const approval = buildExpectedProviderPortalApproval(definition, {
       requestedQuantity: 1,
@@ -67,6 +74,30 @@ describe("local provider registry integration", () => {
       });
       expect(rejected.errorPayload).toMatchObject({ reason: "exact_provider_approval_mismatch", providerInteractionAttempted: false });
       expect(rejected.offers).toEqual([]);
+      expect(launch).not.toHaveBeenCalled();
+    } finally {
+      await staged.cleanup();
+    }
+  });
+
+  it("stops an approved Quickparts evaluation at the kill switch before session access or launch", async () => {
+    // No credentials, so the real settings port can never reach a database.
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("Unexpected browser launch"));
+    const definition = buildQuickpartsProductionPortalDefinition();
+    const { cadPath, staged } = await stagedSyntheticCad();
+    const args = parseSmokeArgs(["--vendor", "quickparts", "--cad", cadPath, "--confirm-non-export-controlled"]);
+    const approval = buildExpectedProviderPortalApproval(definition, {
+      requestedQuantity: 1,
+      liveEvaluationAuthorization: staged.authorization,
+      providerPortalExecutionScope: { cadPath, drawingPath: null, requestedQuantities: [1] },
+    } as VendorQuoteAdapterInput)!;
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    try {
+      await expect(runQuote(isolatedConfig(), args, "quickparts", 1, staged, undefined, null, approval, killSwitchReader))
+        .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
+      expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
       expect(launch).not.toHaveBeenCalled();
     } finally {
       await staged.cleanup();
