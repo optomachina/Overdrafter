@@ -2874,9 +2874,11 @@ async function detectManualReview(page: Page, bodyText: string) {
  * whatever marks it carries, so the page keeps waiting. A card that shows text
  * but no price and timing is withdrawn only by its own unavailability text, or
  * by a line in the price panel, outside every card, that says with a tier as
- * its subject that the tier is unavailable ("Fastest is not available for
- * this part.") when one of the card's rendered lines is exactly that tier
- * name, as its header slot shows it. A disabled mark on such a card, around it
+ * its subject and without a condition that the tier is unavailable ("Fastest
+ * is not available for this part.") when one of the card's rendered lines is
+ * exactly that tier name, as its header slot shows it. A statement with a
+ * condition ("Fastest is not available for quantities over 50.") withdraws
+ * nothing, as it need not apply to the requested quantity. A disabled mark on such a card, around it
  * or in it withdraws nothing: it can be a tier still loading, so the page
  * keeps waiting for it. A card that shows its price and timing counts as
  * priced, unless a mark (disabled, aria-disabled/data-disabled "true",
@@ -2914,7 +2916,8 @@ async function detectManualReview(page: Page, bodyText: string) {
  * part card shows, as it may still be changing: loading, saving or
  * re-pricing text anywhere in the part card, cards included ("Loading...",
  * "Refreshing prices", "Fetching new price...", "Saving...", "Please wait"),
- * except on a line that names a CAD or drawing file (the part's file name);
+ * read once each CAD or drawing file name (the part's file name) is cut out of
+ * its line, so "Fetching new price for bracket.step..." still counts;
  * aria-busy on the part card or an element around it; a busy region, progress
  * indicator, spinning icon, active spinner, or spinner, skeleton or shimmer
  * placeholder the page shows in the part card; an element in the panel
@@ -2958,13 +2961,14 @@ export function xometryPriceTiersSettled(): boolean {
     for (let element = partCard; element; element = element.parentElement) {
       if (element.getAttribute("aria-busy")?.toLowerCase() === "true") return false;
     }
-    // Loading, saving or re-pricing text anywhere in the part card, on a line
-    // that names no file, as the collector refuses it.
+    // Loading, saving or re-pricing text anywhere in the part card, once each
+    // file name is cut out of its line, as the collector refuses it.
     for (const line of ((partCard as HTMLElement | null)?.innerText ?? "").split(/\r?\n/)) {
-      if (
-        /\b(?:loading|refreshing|updating|(?:re)?calculating|re-?pricing|fetching|saving|please\s+wait)\b/i.test(line)
-        && !/\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/i.test(line)
-      ) {
+      const status = line.replaceAll(
+        /[\w\-+~#()]*(?:\.[\w\-+~#()]+)*\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi,
+        " ",
+      );
+      if (/\b(?:loading|refreshing|updating|(?:re)?calculating|re-?pricing|fetching|saving|please\s+wait)\b/i.test(status)) {
         return false;
       }
     }
@@ -3045,7 +3049,13 @@ export function xometryPriceTiersSettled(): boolean {
       // Any other panel line (a "Show more options" control, say) is one the
       // collector refuses, so the page is not taken as settled.
       if (!statement) return false;
-      statedUnavailable.push(statement[1].toLowerCase());
+      // A statement with a condition ("Fastest is not available for
+      // quantities over 50.") withdraws nothing, as the collector never
+      // withdraws a card on it: only "for this part", "for this quote", "at
+      // this time" or "right now" may follow.
+      const unconditional = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)(?: (?:for this (?:part|quote)|at this time|right now))? ?[.!]?$/i
+        .exec(line);
+      if (unconditional) statedUnavailable.push(unconditional[1].toLowerCase());
     }
     let availableCardCount = 0;
     for (const [index, card] of shownCards.entries()) {

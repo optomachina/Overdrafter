@@ -5507,13 +5507,47 @@ describe("XometryAdapter", () => {
         }
       });
 
-      it("names a tier only as a whole word, so a longer word holding another tier's name withdraws nothing more", async () => {
+      it("names a tier only as a whole word, so a longer word holding another tier's name names no second tier", async () => {
         const fixture = await loadCurrentQuotePage((document) => {
           unpriceCard(2)(document);
           addToPanel("<div>Fastest is not available for Standardized parts.</div>")(document);
         });
 
-        expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers.slice(0, 2));
+        // One tier named; the line's condition still keeps it from withdrawing the card.
+        expect(await driftOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          namedTierCards: 1,
+          namedPricedTierCards: 0,
+        });
+      });
+
+      // A condition ("for quantities over 50") need not apply to the requested
+      // quantity, so it never withdraws even an unpriced card: Fastest is then
+      // a tier still being priced, never a tier the page withdrew.
+      it.each([
+        "Fastest is not available for quantities over 50.",
+        "The Fastest tier is not available to ship internationally.",
+      ])("never withdraws the unpriced Fastest card on %j at quantity 1, so two tiers are never published", async (line) => {
+        const mutate = (document: Document) => {
+          unpriceCard(2)(document);
+          addToPanel(`<div>${line}</div>`)(document);
+        };
+        const fixture = await loadCurrentQuotePage(mutate);
+
+        await expect(collectXometryOffers(fixturePage(fixture), 1)).rejects.toBeInstanceOf(VendorAutomationError);
+        const failure = await quoteCurrentPage({ mutate }).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(VendorAutomationError);
+      });
+
+      it("still withdraws the unpriced Fastest card on an unconditional panel line at quantity 1", async () => {
+        for (const line of ["Fastest is not available.", "Fastest is unavailable at this time.", "The Fastest option is not offered for this quote."]) {
+          const fixture = await loadCurrentQuotePage((document) => {
+            unpriceCard(2)(document);
+            addToPanel(`<div>${line}</div>`)(document);
+          });
+
+          expect(offerSummary(await collectXometryOffers(fixturePage(fixture), 1))).toEqual(expectedTierOffers.slice(0, 2));
+        }
       });
 
       it("fails an unavailability line that also shows timing as uncovered content", async () => {
@@ -6267,6 +6301,25 @@ describe("XometryAdapter", () => {
           pendingCause: "pricing_in_progress",
         });
         expect(await expectAdapterPending(mutate)).toMatchObject({ reason: "xometry_price_pending" });
+      });
+
+      // A file name is cut out of its line, not taken as the whole line's
+      // exemption: the status beside it still says the price is changing.
+      it.each([
+        "Fetching new price for bracket.step...",
+        "Loading loading-dock-bracket.step",
+        "Recalculating part.v2.STEP",
+      ])("is pending, never a publish of possibly stale cards, when the loading line %j also names a file", async (line) => {
+        for (const mutate of [
+          (document: Document) => addToPartCard(document, `<div>${line}</div>`),
+          addToCard(1, `<div>${line}</div>`),
+        ]) {
+          expect(await pendingOf(await loadCurrentQuotePage(mutate))).toMatchObject({
+            reason: "xometry_price_pending",
+            pendingCause: "pricing_in_progress",
+          });
+          expect(await expectAdapterPending(mutate)).toMatchObject({ reason: "xometry_price_pending" });
+        }
       });
 
       it("is pending while the order summary says it is updating the quote", async () => {
@@ -7053,6 +7106,33 @@ describe("XometryAdapter", () => {
         ["a price panel without its heading", (document: Document) => panelHeading(document).remove()],
       ])("keeps waiting, as the collector refuses it, on priced cards beside %s", async (_case, mutate) => {
         expect(settledOnDocument(await mutatedDocument(mutate))).toBe(false);
+      });
+
+      it.each([
+        "Fetching new price for bracket.step...",
+        "Loading loading-dock-bracket.step",
+      ])("keeps waiting, as the collector refuses it, when the loading line %j also names a file", async (line) => {
+        expect(settledOnDocument(await mutatedDocument((document) => addToPartCard(document, `<div>${line}</div>`)))).toBe(false);
+        expect(settledOnDocument(await mutatedDocument((document) => {
+          const title = document.querySelector('[data-testid="part-card-title"] > span');
+          if (!title) throw new Error("fixture lost its part title");
+          title.textContent = line;
+        }))).toBe(false);
+      });
+
+      it("keeps waiting at quantity 1 on an unpriced card a panel line withdraws only on a condition", async () => {
+        for (const line of ["Fastest is not available for quantities over 50.", "The Fastest tier is not available to ship internationally."]) {
+          const mutate = (document: Document) => {
+            unpriceCard(2)(document);
+            addToPanel(`<div>${line}</div>`)(document);
+          };
+
+          expect(settledOnDocument(await mutatedDocument(mutate))).toBe(false);
+          expect(await driftOf(await loadCurrentQuotePage(mutate))).toMatchObject({
+            ambiguity: "availability_ambiguous",
+            namedPricedTierCards: 0,
+          });
+        }
       });
 
       it("settles on priced cards when only the part's file name holds a loading word", async () => {

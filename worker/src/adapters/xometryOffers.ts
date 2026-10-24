@@ -831,11 +831,18 @@ const PANEL_AMOUNT_TEXT = /(?:[$€£¥]|\bUSD\b)[^\S\r\n]*\d|\d[^\S\r\n]*USD\b/
  */
 const PART_CARD_LOADING_TEXT = /\b(?:loading|refreshing|updating|(?:re)?calculating|re-?pricing|fetching|saving|please\s+wait)\b/i;
 /**
- * A line that names a CAD or drawing file, as the part card's title names
- * the part's file ("loading-dock-bracket.step"). A file name is not a status,
- * so such a line is never read as loading text.
+ * A CAD or drawing file name, as the part card's title names the part's file
+ * ("loading-dock-bracket.step"). A file name is not a status, so it is cut
+ * out of a line before the line is read as loading text; the rest of the line
+ * still is ("Fetching new price for bracket.step...").
  */
-const FILE_NAME_TEXT = /\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/i;
+const FILE_NAME_TEXT = /[\w\-+~#()]*(?:\.[\w\-+~#()]+)*\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi;
+/**
+ * What may follow "<tier> is not available" in a price-panel line that
+ * withdraws the tier (statesTierUnavailable): nothing but "for this part",
+ * "for this quote", "at this time" or "right now", and a closing period.
+ */
+const UNCONDITIONAL_UNAVAILABILITY_TAIL = String.raw`(?:\s+(?:for\s+this\s+(?:part|quote)|at\s+this\s+time|right\s+now))?\s*[.!]?$`;
 /**
  * OVD-1052: an element that encloses the part card, or the part card itself,
  * marked aria-busy (in any case): the page is still changing what it holds.
@@ -974,11 +981,11 @@ async function readCardContent(card: Locator) {
 
 /**
  * OVD-1052: whether a part card's rendered text says the page is still
- * loading, saving or re-pricing (PART_CARD_LOADING_TEXT), on a line that does
- * not name a file (FILE_NAME_TEXT).
+ * loading, saving or re-pricing (PART_CARD_LOADING_TEXT) on any line, once
+ * each file name (FILE_NAME_TEXT) is cut out of it.
  */
 function showsLoadingText(text: string) {
-  return text.split(/\r?\n/).some((line) => PART_CARD_LOADING_TEXT.test(line) && !FILE_NAME_TEXT.test(line));
+  return text.split(/\r?\n/).some((line) => PART_CARD_LOADING_TEXT.test(line.replaceAll(FILE_NAME_TEXT, " ")));
 }
 
 /**
@@ -1219,15 +1226,21 @@ function namesTier(line: string, label: string) {
 }
 
 /**
- * Whether a line says, with the tier as its subject, that the tier is
- * unavailable: "[The] <tier>[ tier | option] is [currently] unavailable | not
- * available | not offered ...", in any case. A line that only mentions the
- * tier's name ("Standard finish not available for this material") does not.
+ * Whether a line says, with the tier as its subject and without a condition,
+ * that the tier is unavailable for this part: "[The] <tier>[ tier | option]
+ * is [currently] unavailable | not available | not offered[ for this part |
+ * for this quote | at this time | right now][.]", the whole line, in any case.
+ * A line that only mentions the tier's name ("Standard finish not available
+ * for this material") does not. Nor does a line that adds a condition
+ * ("Fastest is not available for quantities over 50."): whether it applies to
+ * the requested quantity or configuration is not established, so it never
+ * withdraws a card.
  */
 function statesTierUnavailable(line: string, label: string) {
   const name = escapeRegExp(collapseInlineSpace(label).trim()).replaceAll(" ", String.raw`\s+`);
   return new RegExp(
-    String.raw`^(?:the\s+)?${name}(?:\s+(?:tier|option))?\s+is\s+(?:currently\s+)?(?:unavailable|not\s+available|not\s+offered)\b`,
+    String.raw`^(?:the\s+)?${name}(?:\s+(?:tier|option))?\s+is\s+(?:currently\s+)?(?:unavailable|not\s+available|not\s+offered)`
+      + UNCONDITIONAL_UNAVAILABILITY_TAIL,
     "i",
   ).test(line);
 }
@@ -1256,13 +1269,15 @@ function statesTierUnavailable(line: string, label: string) {
  *   line ("Show more options", "Choose a tier").
  * - A line in the price panel, outside the cards, that says something is
  *   unavailable withdraws a card only when it names exactly one card's tier,
- *   as a whole word, says that tier is unavailable as its subject ("Fastest is
- *   not available for this part."), and that card shows no price and timing
- *   (showsPriceAndTiming) unless a marker already withdrew it. A
- *   card that shows its price and timing is a tier the page still quotes, so a
- *   line that would withdraw it carries a condition that need not apply
- *   ("Fastest is not available for quantities over 50."):
- *   availability_ambiguous. Any other unavailability line in the panel
+ *   as a whole word, says that tier is unavailable as its subject and without
+ *   a condition (statesTierUnavailable: "Fastest is not available for this
+ *   part."), and that card shows no price and timing (showsPriceAndTiming)
+ *   unless a marker already withdrew it. A line with a condition ("Fastest is
+ *   not available for quantities over 50.") need not apply to the requested
+ *   quantity, so it never withdraws a card, priced or not:
+ *   availability_ambiguous. A card that shows its price and timing is a tier
+ *   the page still quotes, so a line that would withdraw it is
+ *   availability_ambiguous too. Any other unavailability line in the panel
  *   ("Standard finish not available for this material", "Standard and Fastest
  *   are not available") is availability_ambiguous too. So is every
  *   unavailability line elsewhere in the part card: it sits beside the part's
