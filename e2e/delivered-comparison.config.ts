@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 
 // OVD-571 fixture lane: the real ClientQuoteDecisionPanel with synthetic quotes only.
 export default defineConfig({
+  forbidOnly: !!process.env.CI,
   testDir: ".", testMatch: "delivered-comparison.spec.ts", workers: 1,
   use: {
     baseURL: "http://127.0.0.1:4175", headless: true,
