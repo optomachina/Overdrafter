@@ -1,0 +1,82 @@
+{
+  "schema": "provider-locator-pack.v1",
+  "provider": "geomiq",
+  "revision": "geomiq-production-locators.v0-unreviewed",
+  "kernelRevision": "provider-portal-kernel.v1",
+  "envelopeRevision": "geomiq-quote-envelope.v1",
+  "routes": {
+    "publicUrl": "https://app.geomiq.com/",
+    "loginUrl": "https://app.geomiq.com/",
+    "uploadUrl": "https://app.geomiq.com/"
+  },
+  "allowedHosts": [
+    "app.geomiq.com",
+    "geomiq.com"
+  ],
+  "selectors": {
+    "cadUpload": "input[data-ovd-unreviewed-geomiq-upload]"
+  },
+  "flow": [
+    {
+      "op": "goto",
+      "route": "uploadUrl"
+    },
+    {
+      "op": "upload",
+      "selector": "cadUpload"
+    },
+    {
+      "op": "readOfferCards"
+    }
+  ],
+  "terminalSignals": {
+    "login": [
+      {
+        "pattern": "\\b(?:log ?in|sign[ -]?in|session expired)\\b",
+        "flags": "i"
+      }
+    ],
+    "captcha": [
+      {
+        "pattern": "captcha|verify you are human|security check",
+        "flags": "i"
+      }
+    ],
+    "manualReview": [
+      {
+        "pattern": "manual review|engineering review|requires review",
+        "flags": "i"
+      }
+    ],
+    "configurationRequired": [
+      {
+        "pattern": "select material|configure (?:your )?part",
+        "flags": "i"
+      }
+    ],
+    "unavailable": [
+      {
+        "pattern": "service unavailable|maintenance",
+        "flags": "i"
+      }
+    ]
+  },
+  "evidence": {
+    "capturedAt": null,
+    "issue": "OVD-687",
+    "captureSha256": null,
+    "note": "Placeholder locators, not an observation of the live portal."
+  },
+  "offerCards": {
+    "card": "[data-ovd-unreviewed-geomiq-option]",
+    "optionIdAttribute": "data-option-id",
+    "fields": {
+      "label": "[data-label]",
+      "quantity": "[data-quantity]",
+      "unitPrice": "[data-unit-price]",
+      "totalPrice": "[data-total-price]",
+      "currency": "[data-currency]",
+      "leadBusinessDays": "[data-lead-business-days]"
+    }
+  }
+}

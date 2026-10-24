@@ -10,6 +10,7 @@ import {
   readProviderManifests,
   renderCatalog,
 } from "./provider-manifest.mjs";
+import { readLocatorPacks, validateLocatorPack, renderLocatorPackBundle, LOCATOR_PACK_BUNDLE_RELATIVE_PATH } from "./provider-check-locator-packs.mjs";
 import { syncProviderRegistry } from "./provider-registry.mjs";
 
 async function lstatIfPresent(targetPath) {
@@ -79,6 +80,27 @@ export async function syncProviderCatalogs({
   };
 }
 
+/**
+ * OVD-814: renders the worker's locator-pack bundle. Generation only validates
+ * the pack files; code-envelope checks belong to provider:check, so this also
+ * works in manifest-only fixtures. A tree with no `locators.v<N>.json` and no
+ * bundle yet has nothing to generate, so its output list stays unchanged.
+ */
+async function syncLocatorPackBundle(rootDir, dryRun) {
+  const packs = (await readLocatorPacks(rootDir)).flatMap(({ revisions }) =>
+    revisions.map((entry) => ({ ...entry, pack: validateLocatorPack(entry.pack, entry) })));
+  const outputPath = await assertSafeGeneratedOutput(rootDir, LOCATOR_PACK_BUNDLE_RELATIVE_PATH, "generated locator packs");
+  if (packs.length === 0 && !(await lstatIfPresent(outputPath))) {
+    return [];
+  }
+  const output = { relativePath: LOCATOR_PACK_BUNDLE_RELATIVE_PATH, contents: renderLocatorPackBundle(packs) };
+  if (!dryRun) {
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, output.contents, "utf8");
+  }
+  return [output];
+}
+
 export async function syncProviderIntegrations({
   rootDir,
   dryRun = false,
@@ -90,11 +112,12 @@ export async function syncProviderIntegrations({
     dryRun,
     assertSafeGeneratedOutput,
   });
+  const locatorPacks = await syncLocatorPackBundle(rootDir, dryRun);
   return {
     providerCount: catalogs.providerCount,
     dryRun,
-    outputs: [...catalogs.outputs, ...registry.outputs],
-    rendered: [...catalogs.rendered, ...registry.rendered],
+    outputs: [...catalogs.outputs, ...registry.outputs, ...locatorPacks.map((output) => output.relativePath)],
+    rendered: [...catalogs.rendered, ...registry.rendered, ...locatorPacks],
     liveAdapters: registry.liveAdapters,
   };
 }

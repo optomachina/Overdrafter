@@ -1,3 +1,5 @@
+import { hydratePriceCellLocators, locatorPackLabel, hydratePortalLocators, loadLocatorPack, type LocatorPack, type PortalLocators } from "../fixtureHeal/locatorPack.js";
+import { formatProviderEnvelopeRevision } from "../providerDispatchEnvelope.js";
 import { refuseOshcutPortalAutomation } from "./oshcutPortalDisabled.js";
 import { VendorAutomationError } from "../types.js";
 import {
@@ -138,8 +140,9 @@ export async function extractOshcutProductionOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
   priceWaitMs: number = OSHCUT_PRICE_WAIT_MS,
+  locators: { revision: string; singlePrice: string; extendedPrice: string } = OSHCUT_PRODUCTION_LOCATORS,
 ): Promise<ProviderPortalOfferCandidate[]> {
-  const { singlePrice, extendedPrice } = OSHCUT_PRODUCTION_LOCATORS;
+  const { singlePrice, extendedPrice } = locators;
   let texts: { single: string; extended: string } | null = null;
   let pending = false;
   await within(priceWaitMs, async () => {
@@ -182,7 +185,7 @@ export async function extractOshcutProductionOffers(
     validUntil: null, validityDurationDays: null, validitySource: null, validityTerms: null,
     rawPayload: {
       adapterRevision: OSHCUT_PRODUCTION_ADAPTER_REVISION,
-      locatorRevision: OSHCUT_PRODUCTION_LOCATORS.revision,
+      locatorRevision: locators.revision,
     },
   }];
 }
@@ -198,6 +201,7 @@ export async function configureOshcutCart(
   configuration: ProviderPortalConfigurationCapability,
   input: Parameters<typeof resolveOshcutThicknessLabel>[0],
   controlWaitMs: number = OSHCUT_CONTROL_WAIT_MS,
+  materialLabel: string = OSHCUT_PRODUCTION_MATERIAL_LABEL,
 ): Promise<void> {
   refuseOshcutPortalAutomation();
   const thickness = resolveOshcutThicknessLabel(input);
@@ -212,7 +216,7 @@ export async function configureOshcutCart(
   if (!(await within(controlWaitMs, () => configuration.click("openMaterial")))) {
     throw drift("oshcut_material_control_missing");
   }
-  if (!(await within(controlWaitMs, () => configuration.click("materialFilter", OSHCUT_PRODUCTION_MATERIAL_LABEL)))) {
+  if (!(await within(controlWaitMs, () => configuration.click("materialFilter", materialLabel)))) {
     throw drift("oshcut_material_option_missing");
   }
   if (!(await within(controlWaitMs, () => configuration.click("thicknessFilter", thickness)))) {
@@ -222,8 +226,12 @@ export async function configureOshcutCart(
 
 /** Exact origin first, then CAPTCHA, then the logged-out header control or "session expired". */
 export function classifyOshcutPortalState(snapshot: ProviderPortalSnapshot) {
-  if (!isAllowedProviderUrl(snapshot.url, OSHCUT_ALLOWED_HOSTS)) return "unexpected_origin" as const;
-  const state = classifyProviderPortalSnapshot(snapshot, OSHCUT_TERMINAL_SIGNALS);
+  return classifyOshcutPortalStateWithLocators(snapshot, seedOshcutPortalLocators());
+}
+
+function classifyOshcutPortalStateWithLocators(snapshot: ProviderPortalSnapshot, portal: PortalLocators) {
+  if (!isAllowedProviderUrl(snapshot.url, portal.allowedHosts)) return "unexpected_origin" as const;
+  const state = classifyProviderPortalSnapshot(snapshot, portal.terminalSignals);
   if (state === "captcha") return state;
   if (OSHCUT_SIGN_IN_CONTROL.test(snapshot.bodyText) || /\bsession expired\b/i.test(snapshot.bodyText)) {
     return "login_required" as const;
@@ -235,7 +243,27 @@ export type OshcutProductionPortalOptions = {
   /** Test seams; production uses the reviewed defaults. */
   controlWaitMs?: number;
   priceWaitMs?: number;
+  locatorPack?: LocatorPack | null;
 };
+
+/** The code seed and fallback (OVD-796 D7) for the bundled OSH Cut locator pack. */
+function seedOshcutPortalLocators(): PortalLocators {
+  return {
+    routes: {
+      publicUrl: "https://app.oshcut.com/cart",
+      loginUrl: "https://app.oshcut.com/cart",
+      uploadUrl: "https://app.oshcut.com/cart",
+    },
+    allowedHosts: OSHCUT_ALLOWED_HOSTS,
+    selectors: {
+      cadUpload: OSHCUT_PRODUCTION_SELECTORS.cadUpload,
+      quantity: OSHCUT_PRODUCTION_SELECTORS.quantity,
+      configuration: { ...OSHCUT_PRODUCTION_SELECTORS.configuration },
+      cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS },
+    },
+    terminalSignals: OSHCUT_TERMINAL_SIGNALS,
+  };
+}
 
 /**
  * Dormant OVD-677 production definition: OVD-1022 unconditionally blocks
@@ -248,10 +276,16 @@ export type OshcutProductionPortalOptions = {
  * flat-sheet laser cutting in Aluminum 6061-T6 at a reviewed thickness, one
  * CAD file, no drawing, quantities 1–10,000; anything else, and every
  * non-ready portal state, ends in a finite terminal state. Offers are USD only.
+ * Locators come from the bundled pack (OVD-814); `locatorPack: null` forces the seed.
  */
 export function buildOshcutProductionPortalDefinition(
   options: OshcutProductionPortalOptions = {},
 ): ProviderPortalDefinition {
+  const pack = options.locatorPack === undefined
+    ? loadLocatorPack("oshcut", { envelopeRevision: formatProviderEnvelopeRevision(OSHCUT_DISPATCH_ENVELOPE) }) : options.locatorPack;
+  const portal = pack ? hydratePortalLocators(pack) : seedOshcutPortalLocators();
+  const locators = pack ? hydratePriceCellLocators(pack) ?? OSHCUT_PRODUCTION_LOCATORS : OSHCUT_PRODUCTION_LOCATORS;
+  const materialLabel = pack ? locatorPackLabel(pack, "material", "aluminum-6061-t6") ?? OSHCUT_PRODUCTION_MATERIAL_LABEL : OSHCUT_PRODUCTION_MATERIAL_LABEL;
   const controlWaitMs = options.controlWaitMs ?? OSHCUT_CONTROL_WAIT_MS;
   const priceWaitMs = options.priceWaitMs ?? OSHCUT_PRICE_WAIT_MS;
   return {
@@ -264,21 +298,9 @@ export function buildOshcutProductionPortalDefinition(
     // `/login` only redirects to `/cart`; sign-in is a header modal, so the
     // session is judged on the cart page itself. Upload lands on
     // `/cart/O-<uuid>` (and `/cart/O-<uuid>/P-<uuid>`), all on the same host.
-    routes: {
-      publicUrl: "https://app.oshcut.com/cart",
-      loginUrl: "https://app.oshcut.com/cart",
-      uploadUrl: "https://app.oshcut.com/cart",
-    },
-    allowedHosts: OSHCUT_ALLOWED_HOSTS,
-    selectors: {
-      cadUpload: OSHCUT_PRODUCTION_SELECTORS.cadUpload,
-      quantity: OSHCUT_PRODUCTION_SELECTORS.quantity,
-      quantityAwaitMs: controlWaitMs,
-      configuration: { ...OSHCUT_PRODUCTION_SELECTORS.configuration },
-      cleanupRow: OSHCUT_CART_ROW, cleanupRowFileName: OSHCUT_CART_FILE_NAME, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS },
-    },
+    ...portal,
+    selectors: { ...portal.selectors, quantityAwaitMs: controlWaitMs },
     supportedFileExtensions: [...OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions],
-    terminalSignals: OSHCUT_TERMINAL_SIGNALS,
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     productionDispatch: { envelope: { ...OSHCUT_DISPATCH_ENVELOPE } },
     hooks: {
@@ -286,7 +308,7 @@ export function buildOshcutProductionPortalDefinition(
       // Check rows, not prices: unconfigured and unpriced parts count too.
       beforeUpload: async (reader) => {
         refuseOshcutPortalAutomation();
-        if (await reader.count(OSHCUT_CART_ROW) !== 0) {
+        if (await reader.count(portal.selectors.cleanupRow ?? OSHCUT_CART_ROW) !== 0) {
           throw new VendorAutomationError("OSH Cut cart not empty; manual attention required.", "unexpected_ui_state", {
             vendor: "oshcut",
             terminalState: "manual_review",
@@ -298,9 +320,9 @@ export function buildOshcutProductionPortalDefinition(
       // The kernel has already refused files outside the envelope and any
       // drawing, and re-checked the authorization, before this hook runs.
       assessEligibility: assessOshcutProductionEligibility,
-      configure: (configuration, input) => configureOshcutCart(configuration, input, controlWaitMs),
-      classifyPortalState: classifyOshcutPortalState,
-      extractOffers: (reader, input) => extractOshcutProductionOffers(reader, input.requestedQuantity, priceWaitMs),
+      configure: (configuration, input) => configureOshcutCart(configuration, input, controlWaitMs, materialLabel),
+      classifyPortalState: (snapshot) => classifyOshcutPortalStateWithLocators(snapshot, portal),
+      extractOffers: (reader, input) => extractOshcutProductionOffers(reader, input.requestedQuantity, priceWaitMs, locators),
       // Standing rule: the uploaded test part leaves the cart once captured.
       cleanup: cleanupOshcutCart,
     },

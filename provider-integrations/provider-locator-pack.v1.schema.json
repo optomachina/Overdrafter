@@ -1,0 +1,741 @@
+{
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "provider-locator-pack.v1"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^([a-z][a-z0-9]*)-(?:[a-z0-9]+-)*locators\\.v(0|[1-9]\\d{0,5})(?:-[a-z0-9]+)*$",
+      "description": "Provider prefix and numeric revision must match directory and locators.v<N>.json."
+    },
+    "kernelRevision": {
+      "const": "provider-portal-kernel.v1"
+    },
+    "envelopeRevision": {
+      "type": "string",
+      "pattern": "^([a-z0-9]+(?:-[a-z0-9]+)*)\\.v([1-9]\\d{0,8})$"
+    },
+    "routes": {
+      "type": "object",
+      "properties": {
+        "publicUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^/@:?#]+(?:[/?#]|$)",
+          "description": "HTTPS, no credentials or explicit port, hostname in allowedHosts."
+        },
+        "loginUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^/@:?#]+(?:[/?#]|$)",
+          "description": "HTTPS, no credentials or explicit port, hostname in allowedHosts."
+        },
+        "uploadUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^/@:?#]+(?:[/?#]|$)",
+          "description": "HTTPS, no credentials or explicit port, hostname in allowedHosts."
+        }
+      },
+      "required": [
+        "publicUrl",
+        "loginUrl",
+        "uploadUrl"
+      ],
+      "additionalProperties": false
+    },
+    "allowedHosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+      },
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true
+    },
+    "offHostAllowlist": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+      },
+      "uniqueItems": true,
+      "description": "Must be disjoint from allowedHosts."
+    },
+    "selectors": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][A-Za-z0-9]{0,63}$": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "cadUpload"
+      ]
+    },
+    "labels": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!priceKinds$)[a-z][A-Za-z0-9]{0,63}$": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9.-]{0,63}$": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "priceKinds": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][A-Za-z0-9]{0,63}$": {
+              "enum": [
+                "unit",
+                "total"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "flow": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "goto"
+              },
+              "route": {
+                "enum": [
+                  "publicUrl",
+                  "loginUrl",
+                  "uploadUrl"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "route"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "upload"
+              },
+              "selector": {
+                "enum": [
+                  "cadUpload",
+                  "drawingUpload"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "selector"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "fill"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^(\\$(qty|material|thickness)|labels\\.[a-z][A-Za-z0-9]{0,63}\\[([a-z0-9][a-z0-9.-]{0,63}|\\$material|\\$thickness)\\])$",
+                "description": "Label map and literal key must exist; dynamic keys require an existing map."
+              }
+            },
+            "required": [
+              "op",
+              "selector",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "select"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^(\\$(qty|material|thickness)|labels\\.[a-z][A-Za-z0-9]{0,63}\\[([a-z0-9][a-z0-9.-]{0,63}|\\$material|\\$thickness)\\])$",
+                "description": "Label map and literal key must exist; dynamic keys require an existing map."
+              }
+            },
+            "required": [
+              "op",
+              "selector",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "click"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^(\\$(qty|material|thickness)|labels\\.[a-z][A-Za-z0-9]{0,63}\\[([a-z0-9][a-z0-9.-]{0,63}|\\$material|\\$thickness)\\])$",
+                "description": "Label map and literal key must exist; dynamic keys require an existing map."
+              }
+            },
+            "required": [
+              "op",
+              "selector"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "chooseByLabel"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^(\\$(qty|material|thickness)|labels\\.[a-z][A-Za-z0-9]{0,63}\\[([a-z0-9][a-z0-9.-]{0,63}|\\$material|\\$thickness)\\])$",
+                "description": "Label map and literal key must exist; dynamic keys require an existing map."
+              },
+              "within": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              }
+            },
+            "required": [
+              "op",
+              "selector",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "waitPrice"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "notShape": {
+                "const": "dash"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 120000
+              }
+            },
+            "required": [
+              "op",
+              "selector",
+              "timeoutMs"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "readPrice"
+              },
+              "unit": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              }
+            },
+            "required": [
+              "op",
+              "unit",
+              "total"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "readOfferCards"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "readEcho"
+              },
+              "material": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "thickness": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "quantity": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "minItems": 1,
+      "description": "Exactly one cadUpload upload and one readPrice/readOfferCards. References must exist. Configuration uses the first fill/select/click/chooseByLabel per non-upload/non-quantity selector, with chooseByLabel mapped to click. Conflicting operations and checkout/order/purchase/payment/cart configuration selectors are rejected."
+    },
+    "offerCards": {
+      "type": "object",
+      "properties": {
+        "card": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+        },
+        "optionIdAttribute": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "fields": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            },
+            "quantity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            },
+            "unitPrice": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            },
+            "totalPrice": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            },
+            "currency": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            },
+            "leadBusinessDays": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+            }
+          },
+          "required": [
+            "label",
+            "quantity",
+            "unitPrice",
+            "totalPrice",
+            "currency",
+            "leadBusinessDays"
+          ],
+          "additionalProperties": false
+        },
+        "priceFormat": {
+          "enum": [
+            "plain",
+            "display"
+          ]
+        },
+        "fieldJoin": {
+          "enum": [
+            " ",
+            " >> "
+          ]
+        }
+      },
+      "required": [
+        "card",
+        "optionIdAttribute",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "cleanup": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "reportOnly",
+            "delete",
+            "archive",
+            "expire"
+          ]
+        },
+        "row": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+          "description": "References an existing selectors key."
+        },
+        "rowFileName": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+          "description": "References an existing selectors key."
+        },
+        "rules": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][A-Za-z0-9]{0,63}$": {
+              "type": "object",
+              "properties": {
+                "selector": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                  "description": "References an existing selectors key."
+                },
+                "scope": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                  "description": "References an existing selectors key."
+                },
+                "uploadedRows": {
+                  "type": "boolean"
+                },
+                "reportOnly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "selector"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "click"
+              },
+              "selector": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                "description": "References an existing selectors key."
+              },
+              "scope": {
+                "const": "$itemId"
+              }
+            },
+            "required": [
+              "op",
+              "selector"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "verify": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+          "description": "References an existing selectors key."
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "description": "reportOnly requires reportOnly=true on every rule and forbids steps; enforced by both validators."
+    },
+    "terminalSignals": {
+      "type": "object",
+      "properties": {
+        "login": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Must compile as a JavaScript RegExp."
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^i?m?s?u?$"
+              }
+            },
+            "required": [
+              "pattern",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        },
+        "captcha": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Must compile as a JavaScript RegExp."
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^i?m?s?u?$"
+              }
+            },
+            "required": [
+              "pattern",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        },
+        "manualReview": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Must compile as a JavaScript RegExp."
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^i?m?s?u?$"
+              }
+            },
+            "required": [
+              "pattern",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        },
+        "configurationRequired": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Must compile as a JavaScript RegExp."
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^i?m?s?u?$"
+              }
+            },
+            "required": [
+              "pattern",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        },
+        "unavailable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Must compile as a JavaScript RegExp."
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^i?m?s?u?$"
+              }
+            },
+            "required": [
+              "pattern",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "login",
+        "captcha",
+        "manualReview",
+        "configurationRequired",
+        "unavailable"
+      ],
+      "additionalProperties": false
+    },
+    "fingerprint": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!mask$)[a-z][A-Za-z0-9]{0,31}$": {
+          "type": "object",
+          "properties": {
+            "readySelector": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+              "description": "References an existing selectors key."
+            }
+          },
+          "required": [
+            "readySelector"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "mask": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+            "description": "References an existing selectors key."
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "capturedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+        },
+        "issue": {
+          "type": "string",
+          "pattern": "^OVD-[1-9][0-9]*$"
+        },
+        "captureSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "capturedAt",
+        "issue",
+        "captureSha256"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "provider",
+    "revision",
+    "kernelRevision",
+    "envelopeRevision",
+    "routes",
+    "allowedHosts",
+    "selectors",
+    "flow",
+    "terminalSignals",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "title": "ProviderLocatorPackV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

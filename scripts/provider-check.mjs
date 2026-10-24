@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import ts from "typescript";
+import { assertLocatorPacks, readLocatorPackSchema, LOCATOR_PACK_BUNDLE_RELATIVE_PATH } from "./provider-check-locator-packs.mjs";
 
 import {
   WEB_CATALOG_RELATIVE_PATH,
@@ -165,6 +166,7 @@ function assertManifestKeysMatch(manifestKeys, vendorKeys) {
 }
 
 function generatedOutputKind(relativePath) {
+  if (relativePath === LOCATOR_PACK_BUNDLE_RELATIVE_PATH) return "generated locator packs";
   if (
     relativePath === WORKER_REGISTRY_RELATIVE_PATH
     || relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH
@@ -221,6 +223,7 @@ export async function checkProviderIntegrations({
   checkConsumers = true,
 }) {
   await readProviderSchema(rootDir);
+  await readLocatorPackSchema(rootDir);
   const registry = await readRegistryContract(rootDir);
   const manifests = await readProviderManifests(rootDir, { today });
   manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
@@ -236,6 +239,7 @@ export async function checkProviderIntegrations({
       }
       return 0;
     });
+  const locatorPacks = await assertLocatorPacks({ rootDir, manifests });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
   await assertKillSwitchSeed(rootDir, registry, vendorKeys);
@@ -247,6 +251,7 @@ export async function checkProviderIntegrations({
   const reviewed = await assertReviewedEnvelopeCompleteness({ rootDir, today });
   const defaultDeny = await assertDefaultDenyExecuted({ rootDir, suites: await reviewedDefaultDenySuites(rootDir) });
   return {
+    locatorPacks: locatorPacks.map(({ provider, file, revision, sha256, envelopeReviewed }) => ({ provider, file, revision, sha256, envelopeReviewed })),
     providerCount: manifests.length,
     vendorKeys,
     liveAdapters: generated.liveAdapters,
@@ -255,6 +260,7 @@ export async function checkProviderIntegrations({
       WORKER_CATALOG_RELATIVE_PATH,
       WORKER_REGISTRY_RELATIVE_PATH,
       WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+      LOCATOR_PACK_BUNDLE_RELATIVE_PATH,
     ],
     registryPath: PROVIDER_REGISTRY_RELATIVE_PATH,
     registrySchemaPath: PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,

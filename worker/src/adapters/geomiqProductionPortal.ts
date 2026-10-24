@@ -1,3 +1,5 @@
+import { hydratePortalLocators, loadLocatorPack, type LocatorPack, type PortalLocators } from "../fixtureHeal/locatorPack.js";
+import { formatProviderEnvelopeRevision } from "../providerDispatchEnvelope.js";
 import { GEOMIQ_DISPATCH_ENVELOPE } from "./geomiqDispatchAuthorization.js";
 import {
   classifyProviderPortalSnapshot,
@@ -47,14 +49,8 @@ const GEOMIQ_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
   unavailable: [/service unavailable|maintenance/i],
 };
 
-export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinition {
+function seedGeomiqPortalLocators(): PortalLocators {
   return {
-    provider: "geomiq",
-    displayName: "Geomiq",
-    manifestRevision: "provider-manifest.v1",
-    envelopeRevision: "geomiq-quote-envelope.v1",
-    adapterRevision: GEOMIQ_PRODUCTION_ADAPTER_REVISION,
-    accountMode: "existing_authenticated_account",
     routes: {
       publicUrl: "https://app.geomiq.com/",
       loginUrl: "https://app.geomiq.com/",
@@ -62,8 +58,23 @@ export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinitio
     },
     allowedHosts: GEOMIQ_ALLOWED_HOSTS,
     selectors: { cadUpload: "input[data-ovd-unreviewed-geomiq-upload]" },
-    supportedFileExtensions: ["step", "stp"],
     terminalSignals: GEOMIQ_TERMINAL_SIGNALS,
+  };
+}
+
+export function buildGeomiqProductionPortalDefinition(options: { locatorPack?: LocatorPack | null } = {}): ProviderPortalDefinition {
+  const pack = options.locatorPack === undefined
+    ? loadLocatorPack("geomiq", { envelopeRevision: formatProviderEnvelopeRevision(GEOMIQ_DISPATCH_ENVELOPE) }) : options.locatorPack;
+  const portal = pack ? hydratePortalLocators(pack) : seedGeomiqPortalLocators();
+  return {
+    provider: "geomiq",
+    displayName: "Geomiq",
+    manifestRevision: "provider-manifest.v1",
+    envelopeRevision: "geomiq-quote-envelope.v1",
+    adapterRevision: GEOMIQ_PRODUCTION_ADAPTER_REVISION,
+    accountMode: "existing_authenticated_account",
+    ...portal,
+    supportedFileExtensions: ["step", "stp"],
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     productionDispatch: { envelope: { ...GEOMIQ_DISPATCH_ENVELOPE } },
     hooks: {
@@ -72,8 +83,8 @@ export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinitio
       assessEligibility: () => ({ state: "unavailable", reason: "geomiq_reviewed_portal_evidence_missing" }),
       configure: () => undefined,
       classifyPortalState: (snapshot) => {
-        if (!isAllowedProviderUrl(snapshot.url, GEOMIQ_ALLOWED_HOSTS)) return "unexpected_origin";
-        const state = classifyProviderPortalSnapshot(snapshot, GEOMIQ_TERMINAL_SIGNALS);
+        if (!isAllowedProviderUrl(snapshot.url, portal.allowedHosts)) return "unexpected_origin";
+        const state = classifyProviderPortalSnapshot(snapshot, portal.terminalSignals);
         return state === "ready" ? "selector_drift" : state;
       },
       extractOffers: () => [],

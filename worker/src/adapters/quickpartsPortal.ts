@@ -1,5 +1,6 @@
+import { hydratePortalLocators, hydrateUsdOfferCardLocators, loadLocatorPack, type LocatorPack } from "../fixtureHeal/locatorPack.js";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
-import { QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope.js";
+import { formatProviderEnvelopeRevision, QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope.js";
 import {
   classifyProviderPortalSnapshot,
   isAllowedProviderUrl,
@@ -73,8 +74,9 @@ export async function extractQuickpartsSyntheticOffers(
 export async function extractQuickpartsProductionOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
+  locators: UsdOfferCardLocators = QUICKPARTS_PRODUCTION_LOCATORS,
 ): Promise<ProviderPortalOfferCandidate[]> {
-  return extractUsdOfferCards(reader, expectedQuantity, QUICKPARTS_PRODUCTION_LOCATORS, {
+  return extractUsdOfferCards(reader, expectedQuantity, locators, {
     adapterRevision: QUICKPARTS_PRODUCTION_ADAPTER_REVISION,
   });
 }
@@ -128,6 +130,12 @@ export function buildQuickpartsOfflinePortalDefinition(): ProviderPortalDefiniti
   };
 }
 
+/** The code seed and fallback (OVD-796 D7) for the bundled Quickparts locator pack. */
+function seedQuickpartsPortalLocators() {
+  const { routes, allowedHosts, terminalSignals } = quickpartsDefinitionBase();
+  return { routes, allowedHosts, terminalSignals, selectors: { ...QUICKPARTS_PRODUCTION_SELECTORS } };
+}
+
 /**
  * OVD-674 production definition. It is default-off: the production registry
  * builds it only for a worker listing `quickparts` in WORKER_LIVE_ADAPTERS,
@@ -135,12 +143,17 @@ export function buildQuickpartsOfflinePortalDefinition(): ProviderPortalDefiniti
  * authorization for `quickparts-quote-envelope.v1` bound to the staged CAD
  * bytes. Instant quotes cover one CAD file without a drawing; anything else,
  * and every non-ready portal state, ends in a finite terminal state.
+ * Locators come from the bundled pack (OVD-814); `locatorPack: null` forces the seed.
  */
-export function buildQuickpartsProductionPortalDefinition(): ProviderPortalDefinition {
+export function buildQuickpartsProductionPortalDefinition(options: { locatorPack?: LocatorPack | null } = {}): ProviderPortalDefinition {
+  const pack = options.locatorPack === undefined
+    ? loadLocatorPack("quickparts", { envelopeRevision: formatProviderEnvelopeRevision(QUICKPARTS_DISPATCH_ENVELOPE) }) : options.locatorPack;
+  const portal = pack ? hydratePortalLocators(pack) : seedQuickpartsPortalLocators();
+  const locators = pack ? hydrateUsdOfferCardLocators(pack) ?? QUICKPARTS_PRODUCTION_LOCATORS : QUICKPARTS_PRODUCTION_LOCATORS;
   return {
     ...quickpartsDefinitionBase(),
     adapterRevision: QUICKPARTS_PRODUCTION_ADAPTER_REVISION,
-    selectors: { ...QUICKPARTS_PRODUCTION_SELECTORS },
+    ...portal,
     productionDispatch: { envelope: { ...QUICKPARTS_DISPATCH_ENVELOPE } },
     hooks: {
       // The kernel has already refused files outside the instant-file envelope
@@ -151,10 +164,10 @@ export function buildQuickpartsProductionPortalDefinition(): ProviderPortalDefin
           : { state: "unsupported", reason: "quantity_outside_envelope" },
       configure: () => undefined,
       classifyPortalState: (snapshot) => {
-        if (!isAllowedProviderUrl(snapshot.url, HOSTS)) return "unexpected_origin";
-        return classifyProviderPortalSnapshot(snapshot, QUICKPARTS_TERMINAL_SIGNALS);
+        if (!isAllowedProviderUrl(snapshot.url, portal.allowedHosts)) return "unexpected_origin";
+        return classifyProviderPortalSnapshot(snapshot, portal.terminalSignals);
       },
-      extractOffers: (reader, input) => extractQuickpartsProductionOffers(reader, input.requestedQuantity),
+      extractOffers: (reader, input) => extractQuickpartsProductionOffers(reader, input.requestedQuantity, locators),
     },
   };
 }

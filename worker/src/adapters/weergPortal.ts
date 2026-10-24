@@ -1,5 +1,6 @@
+import { hydrateOfferCardLocators, locatorPackLabel, type OfferCardLocators, hydratePortalLocators, loadLocatorPack, type LocatorPack, type PortalLocators } from "../fixtureHeal/locatorPack.js";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
-import { WEERG_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope.js";
+import { formatProviderEnvelopeRevision, WEERG_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope.js";
 import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types.js";
 import type { LocalEvidenceCurrency } from "./localEvaluationResult.js";
 import {
@@ -29,11 +30,16 @@ const WEERG_TERMINAL_SIGNALS: ProviderPortalDefinition["terminalSignals"] = {
 
 /**
  * Exact origin first, then CAPTCHA over mixed session-expired text, then the
- * declared terminal signals (OVD-432 v4 priorities).
+ * declared terminal signals (OVD-432 v4 priorities). The production
+ * definition passes its locator pack's hosts and signals (OVD-814).
  */
-function classifyWeergSnapshot(snapshot: ProviderPortalSnapshot): ProviderPortalState {
-  if (!isAllowedProviderUrl(snapshot.url, WEERG_ALLOWED_HOSTS)) return "unexpected_origin";
-  const state = classifyProviderPortalSnapshot(snapshot, WEERG_TERMINAL_SIGNALS);
+function classifyWeergSnapshot(
+  snapshot: ProviderPortalSnapshot,
+  allowedHosts: readonly string[] = WEERG_ALLOWED_HOSTS,
+  terminalSignals: ProviderPortalDefinition["terminalSignals"] = WEERG_TERMINAL_SIGNALS,
+): ProviderPortalState {
+  if (!isAllowedProviderUrl(snapshot.url, allowedHosts)) return "unexpected_origin";
+  const state = classifyProviderPortalSnapshot(snapshot, terminalSignals);
   if (state === "captcha") return state;
   if (/\bsession expired\b/i.test(snapshot.bodyText)) return "login_required";
   return state;
@@ -207,8 +213,8 @@ function anchoredCurrency(text: string | null): LocalEvidenceCurrency | null {
 export async function extractWeergProductionOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
+  locators: OfferCardLocators = WEERG_PRODUCTION_LOCATORS,
 ): Promise<ProviderPortalNativeOfferCandidate[]> {
-  const locators = WEERG_PRODUCTION_LOCATORS;
   const count = await reader.count(locators.card);
   if (!Number.isSafeInteger(count) || count < 1 || count > 20) return [];
   const offers: ProviderPortalNativeOfferCandidate[] = [];
@@ -260,24 +266,9 @@ export async function extractWeergProductionOffers(
   return offers;
 }
 
-/**
- * OVD-675 production definition. It is default-off: the production registry
- * builds it only for a worker listing `weerg` in WORKER_LIVE_ADAPTERS, and the
- * kernel launches only behind a current generic provider-dispatch
- * authorization for `weerg-quote-envelope.v1` bound to the staged STEP bytes.
- * The envelope covers one STEP file, no drawing, aluminium 6082 and quantities
- * 1–10,000; anything else, and every non-ready portal state, ends in a finite
- * terminal state. Offers are native money: the adapter records EUR as
- * non-comparable evidence and never converts or relabels it as USD.
- */
-export function buildWeergProductionPortalDefinition(): ProviderPortalDefinition {
+/** The code seed and fallback (OVD-796 D7) for the bundled Weerg locator pack. */
+function seedWeergPortalLocators(): PortalLocators {
   return {
-    provider: "weerg",
-    displayName: "Weerg",
-    manifestRevision: "weerg-manifest.v1",
-    envelopeRevision: WEERG_ENVELOPE_REVISION,
-    adapterRevision: WEERG_PRODUCTION_ADAPTER_REVISION,
-    accountMode: "existing_authenticated_account",
     routes: {
       publicUrl: "https://www.weerg.com/",
       loginUrl: "https://www.weerg.com/",
@@ -289,8 +280,36 @@ export function buildWeergProductionPortalDefinition(): ProviderPortalDefinition
       quantity: WEERG_PRODUCTION_SELECTORS.quantity,
       configuration: { ...WEERG_PRODUCTION_SELECTORS.configuration },
     },
-    supportedFileExtensions: ["step", "stp"],
     terminalSignals: WEERG_TERMINAL_SIGNALS,
+  };
+}
+
+/**
+ * OVD-675 production definition. It is default-off: the production registry
+ * builds it only for a worker listing `weerg` in WORKER_LIVE_ADAPTERS, and the
+ * kernel launches only behind a current generic provider-dispatch
+ * authorization for `weerg-quote-envelope.v1` bound to the staged STEP bytes.
+ * The envelope covers one STEP file, no drawing, aluminium 6082 and quantities
+ * 1–10,000; anything else, and every non-ready portal state, ends in a finite
+ * terminal state. Offers are native money: the adapter records EUR as
+ * non-comparable evidence and never converts or relabels it as USD.
+ * Locators come from the bundled pack (OVD-814); `locatorPack: null` forces the seed.
+ */
+export function buildWeergProductionPortalDefinition(options: { locatorPack?: LocatorPack | null } = {}): ProviderPortalDefinition {
+  const pack = options.locatorPack === undefined
+    ? loadLocatorPack("weerg", { envelopeRevision: formatProviderEnvelopeRevision(WEERG_DISPATCH_ENVELOPE) }) : options.locatorPack;
+  const portal = pack ? hydratePortalLocators(pack) : seedWeergPortalLocators();
+  const locators = pack ? hydrateOfferCardLocators(pack) ?? WEERG_PRODUCTION_LOCATORS : WEERG_PRODUCTION_LOCATORS;
+  const materialLabel = pack ? locatorPackLabel(pack, "material", "aluminium-6082") ?? WEERG_PRODUCTION_MATERIAL_OPTION : WEERG_PRODUCTION_MATERIAL_OPTION;
+  return {
+    provider: "weerg",
+    displayName: "Weerg",
+    manifestRevision: "weerg-manifest.v1",
+    envelopeRevision: WEERG_ENVELOPE_REVISION,
+    adapterRevision: WEERG_PRODUCTION_ADAPTER_REVISION,
+    accountMode: "existing_authenticated_account",
+    ...portal,
+    supportedFileExtensions: ["step", "stp"],
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     productionDispatch: { envelope: { ...WEERG_DISPATCH_ENVELOPE } },
     hooks: {
@@ -309,7 +328,7 @@ export function buildWeergProductionPortalDefinition(): ProviderPortalDefinition
       // A quote for a portal-default material would be a quote for the wrong
       // part, so a missing material control stops the attempt.
       configure: async (configuration) => {
-        if (!(await configuration.select("material", WEERG_PRODUCTION_MATERIAL_OPTION))) {
+        if (!(await configuration.select("material", materialLabel))) {
           throw new VendorAutomationError("Weerg material control is missing.", "selector_failure", {
             vendor: "weerg",
             terminalState: "selector_drift",
@@ -318,8 +337,8 @@ export function buildWeergProductionPortalDefinition(): ProviderPortalDefinition
           });
         }
       },
-      classifyPortalState: classifyWeergSnapshot,
-      extractOffers: (reader, input) => extractWeergProductionOffers(reader, input.requestedQuantity),
+      classifyPortalState: (snapshot) => classifyWeergSnapshot(snapshot, portal.allowedHosts, portal.terminalSignals),
+      extractOffers: (reader, input) => extractWeergProductionOffers(reader, input.requestedQuantity, locators),
     },
   };
 }

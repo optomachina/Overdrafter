@@ -76,6 +76,14 @@ Real provider pages always load telemetry, so the kernel classifies every reques
 
 A provider whose portal genuinely needs an off-host host (for example a JS CDN) lists it in the registry entry's optional `offHostAllowlist`: exact lowercase hostnames, sorted, no wildcards. Subresource requests to an allowlisted host are continued; navigations and payload-bearing requests to it are still violations. A definition may set `offHostAllowlist` directly; otherwise the registry's value applies. Every provider starts with no allowlist, and an allowlist entry never changes `liveAdapter` or `egress`.
 
+#### Locator packs (OVD-814)
+
+Versioned locator data lives at `provider-integrations/<key>/locators.v<N>.json`, with the closed contract in `provider-integrations/provider-locator-pack.v1.schema.json`. The flow vocabulary is `goto`, `upload`, `fill`, `select`, `click`, `chooseByLabel`, `waitPrice`, `readPrice`, `readOfferCards`, and `readEcho`. Hooks remain TypeScript; this is not a generic flow interpreter.
+
+`npm run provider:sync` bundles the highest revision for each provider into `worker/src/generated/providerLocatorPacks.ts`, so the worker image needs no runtime access to the integration directory. `npm run provider:check` validates the schema, references, host/route boundaries, signals, file/revision consistency, manifest domains, the active revision's reviewed dispatch-envelope binding, canonical SHA-256, and generated bundle freshness. Runtime resolution revalidates unknown bundle data and rejects hash, envelope, and active-revision conflicts. Providers without a reviewed envelope are reported as `envelopeReviewed: false`.
+
+Code locator tables remain the seed and fallback (D7); missing packs use them, and rejected packs emit one structured warning per provider per process. To change an active pack, add `locators.v<N+1>.json`; never edit an active pack in place. Configuration selectors are derived from validated flow steps; no pack grants execution authority.
+
 ### Evaluation evidence
 
 Standalone evaluation remains operator-invoked and local. Evidence may include provider key, manifest/envelope/adapter revisions, exact file hashes, account mode, timestamps, terminal state, normalized offers with non-sensitive stable offer/option identifiers, and scrubbed artifact references. It must not contain CAD/drawing bytes, cookies, tokens, credentials, provider-account or customer identifiers, raw unsanitized screenshots/HTML, or persisted customer offers.

@@ -1,0 +1,98 @@
+{
+  "schema": "provider-locator-pack.v1",
+  "provider": "weerg",
+  "revision": "weerg-production-locators.v1",
+  "kernelRevision": "provider-portal-kernel.v1",
+  "envelopeRevision": "weerg-quote-envelope.v1",
+  "routes": {
+    "publicUrl": "https://www.weerg.com/",
+    "loginUrl": "https://www.weerg.com/",
+    "uploadUrl": "https://www.weerg.com/en/global/quotation-tool/upload"
+  },
+  "allowedHosts": [
+    "www.weerg.com"
+  ],
+  "selectors": {
+    "cadUpload": "input[type='file']",
+    "quantity": "input[name='quantity' i], input[aria-label='Quantity' i]",
+    "material": "select[name='material' i]"
+  },
+  "flow": [
+    {
+      "op": "goto",
+      "route": "uploadUrl"
+    },
+    {
+      "op": "upload",
+      "selector": "cadUpload"
+    },
+    {
+      "op": "fill",
+      "selector": "quantity",
+      "value": "$qty"
+    },
+    {
+      "op": "select",
+      "selector": "material",
+      "value": "labels.material[aluminium-6082]"
+    },
+    {
+      "op": "readOfferCards"
+    }
+  ],
+  "terminalSignals": {
+    "login": [
+      {
+        "pattern": "\\b(?:login|sign in|session expired)\\b",
+        "flags": "i"
+      }
+    ],
+    "captcha": [
+      {
+        "pattern": "\\b(?:captcha|verify you are human)\\b",
+        "flags": "i"
+      }
+    ],
+    "manualReview": [
+      {
+        "pattern": "\\b(?:manual review|engineering review)\\b",
+        "flags": "i"
+      }
+    ],
+    "configurationRequired": [
+      {
+        "pattern": "\\b(?:select material|configure part)\\b",
+        "flags": "i"
+      }
+    ],
+    "unavailable": [
+      {
+        "pattern": "\\b(?:unavailable|maintenance)\\b",
+        "flags": "i"
+      }
+    ]
+  },
+  "evidence": {
+    "capturedAt": null,
+    "issue": "OVD-675",
+    "captureSha256": null,
+    "note": "Reviewable locator contract; the live DOM has not been captured."
+  },
+  "labels": {
+    "material": {
+      "aluminium-6082": "aluminium-6082"
+    }
+  },
+  "offerCards": {
+    "card": "[data-weerg-quote-option-id]",
+    "optionIdAttribute": "data-weerg-quote-option-id",
+    "fields": {
+      "label": "[data-weerg-quote-option-label]",
+      "quantity": "[data-weerg-quote-option-quantity]",
+      "unitPrice": "[data-weerg-quote-option-unit-price]",
+      "totalPrice": "[data-weerg-quote-option-total-price]",
+      "currency": "[data-weerg-quote-option-currency]",
+      "leadBusinessDays": "[data-weerg-quote-option-lead-days]"
+    }
+  }
+}

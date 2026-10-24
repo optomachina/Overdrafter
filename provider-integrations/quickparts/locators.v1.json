@@ -1,0 +1,90 @@
+{
+  "schema": "provider-locator-pack.v1",
+  "provider": "quickparts",
+  "revision": "quickparts-production-locators.v1",
+  "kernelRevision": "provider-portal-kernel.v1",
+  "envelopeRevision": "quickparts-quote-envelope.v1",
+  "routes": {
+    "publicUrl": "https://quickparts.com/",
+    "loginUrl": "https://quickquote.quickparts.com/#/login",
+    "uploadUrl": "https://quickquote.quickparts.com/"
+  },
+  "allowedHosts": [
+    "quickparts.com",
+    "quickquote.quickparts.com"
+  ],
+  "selectors": {
+    "cadUpload": "input[type='file']",
+    "quantity": "input[name='quantity' i], input[aria-label='Quantity' i]"
+  },
+  "flow": [
+    {
+      "op": "goto",
+      "route": "uploadUrl"
+    },
+    {
+      "op": "upload",
+      "selector": "cadUpload"
+    },
+    {
+      "op": "fill",
+      "selector": "quantity",
+      "value": "$qty"
+    },
+    {
+      "op": "readOfferCards"
+    }
+  ],
+  "terminalSignals": {
+    "login": [
+      {
+        "pattern": "login|sign[ -]?in",
+        "flags": "i"
+      }
+    ],
+    "captcha": [
+      {
+        "pattern": "captcha|verify you are human",
+        "flags": "i"
+      }
+    ],
+    "manualReview": [
+      {
+        "pattern": "manual review|engineering review|quote request received",
+        "flags": "i"
+      }
+    ],
+    "configurationRequired": [
+      {
+        "pattern": "select material|configure your part",
+        "flags": "i"
+      }
+    ],
+    "unavailable": [
+      {
+        "pattern": "service unavailable|maintenance",
+        "flags": "i"
+      }
+    ]
+  },
+  "evidence": {
+    "capturedAt": null,
+    "issue": "OVD-674",
+    "captureSha256": null,
+    "note": "Reviewable locator contract; the live DOM has not been captured."
+  },
+  "offerCards": {
+    "card": "[data-quote-option-id]",
+    "optionIdAttribute": "data-quote-option-id",
+    "fields": {
+      "label": "[data-quote-option-label]",
+      "quantity": "[data-quote-option-quantity]",
+      "unitPrice": "[data-quote-option-unit-price]",
+      "totalPrice": "[data-quote-option-total-price]",
+      "currency": "[data-quote-option-currency]",
+      "leadBusinessDays": "[data-quote-option-lead-days]"
+    },
+    "priceFormat": "display",
+    "fieldJoin": " >> "
+  }
+}

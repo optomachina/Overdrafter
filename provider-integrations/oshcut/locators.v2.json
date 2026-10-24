@@ -1,0 +1,129 @@
+{
+  "schema": "provider-locator-pack.v1",
+  "provider": "oshcut",
+  "revision": "oshcut-production-locators.v2",
+  "kernelRevision": "provider-portal-kernel.v1",
+  "envelopeRevision": "oshcut-quote-envelope.v1",
+  "routes": {
+    "publicUrl": "https://app.oshcut.com/cart",
+    "loginUrl": "https://app.oshcut.com/cart",
+    "uploadUrl": "https://app.oshcut.com/cart"
+  },
+  "allowedHosts": [
+    "app.oshcut.com"
+  ],
+  "selectors": {
+    "cadUpload": "input[type='file']",
+    "quantity": ".cartQuantity input.input",
+    "openMaterial": "span.error.link:text-is('Select material')",
+    "materialFilter": ".Slideover .filterItem",
+    "thicknessFilter": ".Slideover .filterItem",
+    "unitPrice": ".cartSinglePrice",
+    "extendedPrice": ".cartExtendedPrice",
+    "cartRow": ":has(> .cartInformationArea)",
+    "cartRowFileName": ".cartInformationArea"
+  },
+  "flow": [
+    {
+      "op": "goto",
+      "route": "uploadUrl"
+    },
+    {
+      "op": "upload",
+      "selector": "cadUpload"
+    },
+    {
+      "op": "fill",
+      "selector": "quantity",
+      "value": "$qty"
+    },
+    {
+      "op": "click",
+      "selector": "openMaterial"
+    },
+    {
+      "op": "chooseByLabel",
+      "selector": "materialFilter",
+      "label": "labels.material[aluminum-6061-t6]"
+    },
+    {
+      "op": "chooseByLabel",
+      "selector": "thicknessFilter",
+      "label": "$thickness"
+    },
+    {
+      "op": "waitPrice",
+      "selector": "unitPrice",
+      "notShape": "dash",
+      "timeoutMs": 30000
+    },
+    {
+      "op": "readPrice",
+      "unit": "unitPrice",
+      "total": "extendedPrice"
+    }
+  ],
+  "terminalSignals": {
+    "login": [
+      {
+        "pattern": "\\b(?:log ?in|sign[ -]?in|session expired)\\b",
+        "flags": "i"
+      }
+    ],
+    "captcha": [
+      {
+        "pattern": "captcha|verify you are human|security check",
+        "flags": "i"
+      }
+    ],
+    "manualReview": [
+      {
+        "pattern": "manual review|engineering review|requires review",
+        "flags": "i"
+      }
+    ],
+    "configurationRequired": [
+      {
+        "pattern": "^[ \\t\\u00a0]*select material[ \\t\\u00a0]*$",
+        "flags": "im"
+      },
+      {
+        "pattern": "configure (?:your )?part",
+        "flags": "i"
+      }
+    ],
+    "unavailable": [
+      {
+        "pattern": "service unavailable|maintenance",
+        "flags": "i"
+      }
+    ]
+  },
+  "evidence": {
+    "capturedAt": "2026-10-15",
+    "issue": "OVD-677",
+    "captureSha256": null,
+    "note": "Dormant: OVD-1022 blocks OSH Cut portal automation."
+  },
+  "labels": {
+    "material": {
+      "aluminum-6061-t6": "6061 T6 Aluminum"
+    },
+    "priceKinds": {
+      "unitPrice": "unit",
+      "extendedPrice": "total"
+    }
+  },
+  "cleanup": {
+    "mode": "reportOnly",
+    "row": "cartRow",
+    "rowFileName": "cartRowFileName",
+    "rules": {
+      "partRow": {
+        "selector": "cartRow",
+        "uploadedRows": true,
+        "reportOnly": true
+      }
+    }
+  }
+}
