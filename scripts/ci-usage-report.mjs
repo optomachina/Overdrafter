@@ -79,7 +79,7 @@ export function workflowRunsEndpoint(repo, day) {
 }
 
 export function runJobsEndpoint(repo, runId) {
-  return `repos/${repo}/actions/runs/${runId}/jobs?per_page=100`;
+  return `repos/${repo}/actions/runs/${runId}/jobs?per_page=100&filter=all`;
 }
 
 /** `gh api` GET. No `--method`, so the call stays read-only. */

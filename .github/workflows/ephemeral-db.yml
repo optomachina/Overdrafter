@@ -27,9 +27,9 @@ name: Ephemeral DB
 # so the red X matches today's per-issue workflows and does not block a merge.
 # The per-issue workflows can be retired once that stage has proven itself.
 #
-# The rollback step uses the base copy of the script once that copy accepts
-# --rollback. The pull request that adds the flag has no such base copy, so
-# that one run uses the head script and records checkerSource head.
+# The rollback step is pinned to the prepared base copy of the script and
+# fails closed until --rollback is supported on base. It never falls back to
+# the head script when the base copy lacks the flag.
 #
 # The script runs from the base commit (HEAD^1), so a PR cannot edit it to skip
 # itself. When the base has no copy yet (the PR that introduces it), the head
@@ -146,19 +146,10 @@ jobs:
       - name: Roll back draft families (DM-1R)
         run: |
           set -euo pipefail
-          script="$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs"
-          source="$CHECKER_SOURCE"
-          # Match the flag handler. Do not import the script: importing it runs main.
-          if ! grep -q 'arg === "--rollback"' "$script"; then
-            script="scripts/ephemeral-db-apply.mjs"
-            source=head
-            echo "CHECKER_SOURCE=head" >> "$GITHUB_ENV"
-            echo "Base copy does not accept --rollback; this run uses the head script"
-          fi
-          node "$script" \
+          node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs" \
             --root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
             --db-url "$DB_URL" --psql docker \
-            --work-dir "$RUNNER_TEMP/ephemeral-db-rollback" --checker-source "$source" \
+            --work-dir "$RUNNER_TEMP/ephemeral-db-rollback" --checker-source "$CHECKER_SOURCE" \
             --report "$RUNNER_TEMP/ephemeral-db-rollback-report.json" --rollback
 
       - name: Upload report

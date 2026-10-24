@@ -83,6 +83,6 @@ describe("ci usage attribution", () => {
     expect(args).not.toContain("--method");
     expect(RUN_JQ.startsWith(".workflow_runs[]")).toBe(true);
     expect(JOB_JQ.startsWith(".jobs[]")).toBe(true);
-    expect(runJobsEndpoint("optomachina/Overdrafter", 42)).toBe("repos/optomachina/Overdrafter/actions/runs/42/jobs?per_page=100");
+    expect(runJobsEndpoint("optomachina/Overdrafter", 42)).toBe("repos/optomachina/Overdrafter/actions/runs/42/jobs?per_page=100&filter=all");
   });
 });
