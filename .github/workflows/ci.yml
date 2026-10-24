@@ -265,7 +265,7 @@ jobs:
       - name: Test admin operations browser workflows
         if: ${{ matrix.lane == 'synthetic' }}
         env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: admin-operations-results/report.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: admin-operations-results/report.json
         run: node ./node_modules/playwright/cli.js test --config e2e/admin-operations.config.ts --output=admin-operations-results --reporter=line,json
 
       - name: Retain admin operations browser evidence
@@ -280,7 +280,7 @@ jobs:
       - name: Test Free quote confirmation and replay in browser
         if: ${{ matrix.lane == 'synthetic' }}
         env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: quote-confirmation-results/report.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: quote-confirmation-results/report.json
         run: npm run e2e:quote-confirmation -- --output=quote-confirmation-results --reporter=line,json
 
       - name: Retain Free quote confirmation browser evidence
