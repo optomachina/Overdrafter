@@ -4611,6 +4611,8 @@ describe("XometryAdapter", () => {
     async function quoteCurrentPage(options: {
       mutate?: (document: Document) => void;
       cadFileName?: string;
+      /** The staged CAD file's local basename, when it differs from cadFileName (its originalName). */
+      cadLocalFileName?: string;
       /** Also resolve the fallback price/lead/review selectors against the fixture DOM. */
       resolveFallbackSelectors?: boolean;
       /** The body text the page shows from the price-tier settle wait onward. */
@@ -4661,7 +4663,7 @@ describe("XometryAdapter", () => {
         ...(options.cadFileName ? { stagedCadFile: {
           ...baseInput.stagedCadFile!,
           originalName: options.cadFileName,
-          localPath: path.join(workerTempDir, options.cadFileName),
+          localPath: path.join(workerTempDir, options.cadLocalFileName ?? options.cadFileName),
         } } : {}),
         requirement: { ...baseInput.requirement, finish: "as machined", quantity: 1, quote_quantities: [1] },
       });
@@ -6350,6 +6352,29 @@ describe("XometryAdapter", () => {
           priceTiersSettled: true, pricingInProgress: false, fileNames: [fileName],
         }))).toEqual(expectedTierOffers);
         const { result } = await quoteCurrentPage({ mutate, cadFileName: fileName });
+        expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(expectedTierOffers.map(({ id }) => id));
+      });
+
+      it("publishes the three tiers when the staged originalName, unlike the sanitized local basename, holds a calculating word", async () => {
+        const originalName = "Calculating Fixture Plate (rev B).step";
+        const localFileName = "calculating-fixture-plate-rev-b.step";
+        const mutate = (document: Document) => {
+          const title = document.querySelector('[data-testid="part-card-title"] > span');
+          if (!title) throw new Error("fixture lost its part title");
+          title.textContent = originalName;
+        };
+        const fixture = await loadCurrentQuotePage(mutate);
+        // Cutting out only the local basename leaves "Calculating" behind: the wait would stay pending.
+        expect(settledOnDocument(fixture.document, [localFileName])).toBe(false);
+        expect(settledOnDocument(fixture.document, [localFileName, originalName])).toBe(true);
+        // The original name is cut out exactly, so status text around it still holds the wait.
+        const busy = await loadCurrentQuotePage((document) => {
+          mutate(document);
+          addToPartCard(document, "<div>Calculating price...</div>");
+        });
+        expect(settledOnDocument(busy.document, [localFileName, originalName])).toBe(false);
+
+        const { result } = await quoteCurrentPage({ mutate, cadFileName: originalName, cadLocalFileName: localFileName });
         expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(expectedTierOffers.map(({ id }) => id));
       });
 
