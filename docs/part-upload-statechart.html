@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Part upload statechart</title>
+<style>
+  :root {
+    --bg: #ffffff; --ink: #1c1c1c; --muted: #555; --line: #333;
+    --ok-bg: #f3f3f3; --ok-bd: #8a8a8a;
+    --risk-bg: #fdeaea; --risk-bd: #c0392b;
+    --safe-bg: #e8f6ea; --safe-bd: #2e8b3d;
+    --fix-bg: #e6f1fb; --fix-bd: #2a6fb5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161616; --ink: #eee; --muted: #aaa; --line: #bbb;
+      --ok-bg: #262626; --ok-bd: #777;
+      --risk-bg: #3a1c1c; --risk-bd: #e0675a;
+      --safe-bg: #1b3020; --safe-bd: #58b86a;
+      --fix-bg: #1a2a3d; --fix-bd: #6aa8e6;
+    }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; text-align: center; margin: 8px 0 4px; font-weight: 600; }
+  p.sub { text-align: center; color: var(--muted); margin: 0 0 12px; }
+  .key { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .key span { padding: 3px 10px; border: 2px solid; border-radius: 6px; font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  svg { display: block; margin: 0 auto; min-width: 1000px; }
+  svg text { fill: var(--ink); font-size: 12.5px; }
+  .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+  .elabel { font-size: 11.5px; fill: var(--ink); }
+  .elabel-bg { fill: var(--bg); }
+  .ok { fill: var(--ok-bg); stroke: var(--ok-bd); }
+  .risk { fill: var(--risk-bg); stroke: var(--risk-bd); }
+  .safe { fill: var(--safe-bg); stroke: var(--safe-bd); }
+  .fix { fill: var(--fix-bg); stroke: var(--fix-bd); }
+  .node { stroke-width: 1.8; }
+  .k-ok { background: var(--ok-bg); border-color: var(--ok-bd); }
+  .k-safe { background: var(--safe-bg); border-color: var(--safe-bd); }
+  .k-risk { background: var(--risk-bg); border-color: var(--risk-bd); }
+  .k-fix { background: var(--fix-bg); border-color: var(--fix-bd); }
+  .notes { max-width: 760px; margin: 16px auto 0; color: var(--muted); font-size: 13px; }
+  .notes li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>What you see after uploading a part model</h1>
+  <p class="sub">Derived from <code>PromptComposer.tsx</code>, <code>file-validation.ts</code>, <code>uploads-api.ts</code>, <code>export-control.ts</code></p>
+  <div class="key" aria-label="Key">
+    <span class="k-ok">Works</span>
+    <span class="k-safe">Safe stop (nothing uploaded)</span>
+    <span class="k-risk">Risk spotted in code</span>
+    <span class="k-fix">Possible fix (proposal)</span>
+  </div>
+  <div class="scroll"><svg id="chart" role="img" aria-label="Part upload statechart"></svg></div>
+  <ul class="notes">
+    <li>Red is a reading of the code, not a verified bug. TLA+ checking has not been run on this model.</li>
+    <li>The server-side steps after extraction starts are not modelled.</li>
+    <li>Not modelled: signed-out redirect, manual quote evidence upload.</li>
+  </ul>
+</main>
+<script>
+(function () {
+  var W = 190, H = 46;
+  // id, x (center), y (center), text, kind, optional shape
+  var nodes = [
+    ["start", 550, 20, "", "start"],
+    ["add", 550, 75, "Customer picks or drops\npart files (CAD + drawing)", "ok"],
+    ["check", 550, 165, "Files are checked", "choice"],
+    ["rej", 200, 255, "File rejected with a message;\nvalid files stay", "safe"],
+    ["dup", 900, 255, "Duplicate chip is dropped", "ok"],
+    ["staged", 550, 255, "Valid files wait in the composer\nas chips", "ok"],
+    ["send", 550, 345, "Access is checked", "ok"],
+    ["noacc", 200, 435, "Stops with a message", "safe"],
+    ["exp", 550, 435, "Export-control question", "ok"],
+    ["blocked", 900, 525, "Nothing leaves the browser;\nyou can answer again", "safe"],
+    ["group", 550, 525, "Files are grouped into parts\n(project made if more than one)", "ok"],
+    ["draft", 550, 620, "A draft job is made for the part\n(parts go one at a time)", "ok"],
+    ["each", 550, 710, "What happens to each file?", "choice"],
+    ["skip", 150, 810, "Skipped with a toast", "ok"],
+    ["reuse", 400, 810, "Reused from your workspace", "ok"],
+    ["up", 650, 810, "Uploaded to storage", "ok"],
+    ["fail", 910, 810, "Upload stops. Drafts and\nfiles already sent remain", "risk"],
+    ["extract", 400, 925, "Extraction is requested;\npreview and fields appear", "ok"],
+    ["fixn", 910, 925, "Show a retry, and clean up\nthe empty draft", "fix"]
+  ];
+  var N = {};
+  nodes.forEach(function (n) { N[n[0]] = { x: n[1], y: n[2], t: n[3], k: n[4] }; });
+  function half(n) { return n.k === "choice" ? 16 : n.k === "start" ? 7 : H / 2; }
+  // from, to, label, label position (fraction along the final vertical leg)
+  var edges = [
+    ["start", "add", ""],
+    ["add", "check", "you add files"],
+    ["check", "rej", "unsupported type,\nempty, or over 200 MB"],
+    ["check", "dup", "same file twice"],
+    ["check", "staged", "supported and\nunder 200 MB"],
+    ["staged", "send", "you press Send"],
+    ["send", "noacc", "no beta access"],
+    ["send", "exp", "access ok"],
+    ["exp", "blocked", "controlled, unsure,\nor dismissed"],
+    ["exp", "group", "not export-controlled"],
+    ["group", "draft", "files are hashed"],
+    ["draft", "each", "files are prepared"],
+    ["each", "skip", "already on this part,\nor repeated in batch"],
+    ["each", "reuse", "already in your\nworkspace"],
+    ["each", "up", "new file"],
+    ["each", "fail", "storage or server\nerror"],
+    ["reuse", "extract", "all files handled"],
+    ["fail", "fixn", "with a fix"]
+  ];
+  // skip and up also feed extraction
+  var extra = [["skip", "extract", ""], ["up", "extract", ""]];
+  var svg = document.getElementById("chart");
+  var NS = "http://www.w3.org/2000/svg";
+  svg.setAttribute("viewBox", "0 0 1100 990");
+  var defs = document.createElementNS(NS, "defs");
+  defs.innerHTML = '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/></marker>';
+  svg.appendChild(defs);
+  function el(name, attrs, parent) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    (parent || svg).appendChild(e);
+    return e;
+  }
+  function lines(text, x, y, parent, cls) {
+    var ls = text.split("\n");
+    var t = el("text", { "text-anchor": "middle", class: cls || "" }, parent);
+    ls.forEach(function (l, i) {
+      var s = el("tspan", { x: x, y: y + (i - (ls.length - 1) / 2) * 15 + 4 }, t);
+      s.textContent = l;
+    });
+    return ls.length;
+  }
+  function drawEdge(a, b, label, showLabel) {
+    var A = N[a], B = N[b];
+    var x1 = A.x, y1 = A.y + half(A);
+    var x2 = B.x, y2 = B.y - half(B);
+    var midY = y1 + (y2 - y1) / 2;
+    var d;
+    if (x1 === x2) d = "M" + x1 + "," + y1 + " V" + y2;
+    else d = "M" + x1 + "," + y1 + " V" + midY + " H" + x2 + " V" + y2;
+    el("path", { d: d, class: "edge", "marker-end": "url(#arr)" });
+    if (label && showLabel !== false) {
+      var ls = label.split("\n");
+      var branch = x1 !== x2;
+      var lx = branch ? (x1 + x2) / 2 : x2;
+      var ly = branch ? midY - ls.length * 8 - 4 : (y1 + y2) / 2;
+      var w = Math.max.apply(null, ls.map(function (s) { return s.length; })) * 6 + 10;
+      var h = ls.length * 15 + 4;
+      el("rect", { x: lx - w / 2, y: ly - h / 2, width: w, height: h, class: "elabel-bg" });
+      lines(label, lx, ly, null, "elabel");
+    }
+  }
+  edges.forEach(function (e) { drawEdge(e[0], e[1], e[2]); });
+  extra.forEach(function (e) { drawEdge(e[0], e[1], e[2]); });
+  Object.keys(N).forEach(function (id) {
+    var n = N[id];
+    if (n.k === "start") {
+      el("circle", { cx: n.x, cy: n.y, r: 7, fill: "var(--line)" });
+    } else if (n.k === "choice") {
+      el("path", { d: "M" + (n.x - 16) + "," + n.y + " L" + n.x + "," + (n.y - 16) + " L" + (n.x + 16) + "," + n.y + " L" + n.x + "," + (n.y + 16) + " z", class: "node ok" });
+      var t = el("text", { x: n.x + 26, y: n.y + 4, "text-anchor": "start" });
+      t.textContent = n.t;
+    } else {
+      el("rect", { x: n.x - W / 2, y: n.y - H / 2, width: W, height: H, rx: 6, class: "node " + n.k });
+      lines(n.t, n.x, n.y);
+    }
+  });
+})();
+</script>
+</body>
+</html>
