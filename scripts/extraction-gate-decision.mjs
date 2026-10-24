@@ -6,8 +6,8 @@
  * line counts as `error`. Mode is `enforce` only when set exactly; anything
  * else is `report`, which never fails on the line. Enforce fails closed on fail and error.
  * A run with no checked-in corpus is a skip, not a failure. Mode governs only
- * the parsed line: a failed extraction-gate job (crash or infra step) fails in
- * every mode, mirroring the `failure` check in ci.yml's dependency step.
+ * the parsed line: any non-empty, non-success extraction-gate job result fails
+ * in every mode, mirroring the success requirement in ci.yml's dependency step.
  *
  * Usage (CI): EXTRACTION_GATE_MODE=<mode> EXTRACTION_GATE_OUTPUT=<text>
  *   EXTRACTION_GATE_CORPUS=<true|false> EXTRACTION_GATE_JOB_RESULT=<result>
@@ -50,7 +50,7 @@ export function decideExtractionGate({ mode, output, corpusPresent, jobResult } 
   let level;
   let exitCode = 0;
   let message;
-  if (jobResult === "failure") {
+  if (jobResult && jobResult !== "success") {
     level = "error";
     exitCode = 1;
     message = "Extraction gate job failed; ci fails in every mode.";
