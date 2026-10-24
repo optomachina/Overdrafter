@@ -2,7 +2,7 @@ name: Set up root Node.js dependencies
 description: >-
   Install Node.js 20 with the npm download cache keyed on package-lock.json, then
   run npm ci for the root package without dependency lifecycle scripts, as
-  browser-test already does. Shared by the lint, typecheck, test and build jobs in
+  browser-test already does. Shared by the lint, typecheck, test, unit and build jobs in
   ci.yml. The worker jobs keep their own steps because they use
   worker/package-lock.json.
 
