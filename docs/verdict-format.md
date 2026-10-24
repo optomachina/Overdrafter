@@ -3,8 +3,9 @@
 The independent verifier and the model reviewers (Opus, Grok, Codex) report a
 typed verdict on a pull request in one shared envelope,
 `overdrafter.verdict/v1`. This document describes the format and the tools that
-emit and parse it. The merge gate that consumes it is OVD-845. This format
-doesn't gate anything on its own.
+emit and parse it. The merge gate that consumes it is `ovd-merge-gate`
+(OVD-845, [below](#ovd-845-merge-gate-ovd-merge-gate)). This format doesn't
+gate anything on its own.
 
 - `scripts/verdict-schema.mjs` is the single source of truth. It exports the
   JSON Schema object, `validateVerdict`, `parseVerdictComments`,
@@ -34,7 +35,7 @@ Field names follow the OVD-845 §6 schema. This format adds the following:
 
 | Field | Rule |
 | --- | --- |
-| `role` | `verifier` or `reviewer`. **Only `verifier` verdicts are gate input.** `reviewer` verdicts are advisory. |
+| `role` | `verifier` or `reviewer`. `parseVerdictComments` returns only the `verifier` verdict as `verdict`; `reviewer` verdicts come back in `reviews`. **Both roles are `ovd-merge-gate` input:** it needs a verifier PASS and at least one reviewer PASS (see below). |
 | `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `line` is an integer ≥ 1 or `null` for a file-level finding. |
 | `notes` | Strings prefixed with a severity: `high: `, `medium: `, `low: ` or `info: `. `PASS_NOTES` needs at least one note. Under OVD-845, a `PASS_NOTES` verdict with a `high:` note (`hasHighNote`) can't be merged. |
 | `verifier.model_family` | Lower-case family token (`opus`, `grok`, `codex`, ...). |
@@ -230,29 +231,97 @@ line and end with a closing fence line. It ignores other text and fences in
 other languages. A gate must treat any `conflicts` entry, or any rejected block
 that may belong to the current head, as `verdict_schema_error`.
 
-## OVD-845 responsibilities
+## OVD-845 merge gate (`ovd-merge-gate`)
 
-This format and its parser deliberately leave the following to the OVD-845
-gate. The gate must do each of them; none is enforced here.
+The "OVD-845 responsibilities" this format and its parser leave to the gate
+are implemented by `scripts/ovd-merge-gate.mjs` and
+`.github/workflows/ovd-merge-gate.yml` (OVD-959, PR-G1). The workflow runs
+only default-branch code (`pull_request_target`, `issue_comment` created,
+edited and deleted, `workflow_dispatch` with `pr`, and `merge_group`), fetches
+the PR head and base as data, and writes one check run named
+`ovd-merge-gate` on the head from a job named `ovd-merge-gate-writer`. On
+`merge_group` it writes `success` on the merge group commit (the queue
+no-op). It re-reads the head right before writing and writes nothing for a
+head that moved.
 
-- **Independence.** The parser only checks that `verifier.github_login`
-  matches the comment author. It does not check the login against the PR
-  author or against the authors and committers of the PR's commits
-  (`verifier_not_independent`), against an allowlist of verifier identities,
-  or `verifier.model_family` against the implementer's model family. OVD-845
-  owns all of these checks.
-- **Corroboration.** The `corroborated` field on findings is self-reported by
-  whoever emitted the verdict and covers only the findings inside that one
-  verdict. Consumers must not trust it: recompute it with `tagCorroborated`
-  over the findings they use. Corroboration across separate reviewer comments
-  (for example an Opus review and a Grok review posted separately) is not
-  computed anywhere in this format; if OVD-845 needs it, it must collect the
-  findings from every valid `reviews` entry and run `tagCorroborated` over the
-  combined list.
-- **Staleness.** The parser doesn't compare `sha` with the live PR head.
-  OVD-845 does, using the PR commits API, and applies the rebase rule above
-  with a `diff_id` it recomputes itself (see "`diff_id`, and why `patch_id` is
-  advisory only"). An equal `patch_id` alone never allows reuse.
+`evaluate()` is pure and reads everything for one head SHA. The gate passes
+only when all of these hold:
+
+- **(a) Verifier.** The latest trusted `role: verifier` PASS (or PASS_NOTES
+  with no `high:` note) bound to the head has `readiness.checks: green`.
+  Bound means `sha` is the head, or `diff_id` equals the head `diff_id` the
+  gate recomputes itself with `computeDiffId` over base...head (the current
+  base branch tip). `patch_id` is never used.
+- **(b) Reviewer.** At least one trusted `role: reviewer` PASS or PASS_NOTES
+  is bound to the head. Reviewer verdicts are gate input here.
+- **(c) No outstanding FAIL, no disagreement.** Over the union of every
+  verdict bound to the head SHA or the head `diff_id`, any FAIL stands and a
+  PASS next to it is `verdict_conflict`. A later same-role verdict at the
+  same SHA supersedes a FAIL only with `supersedes: <FAIL comment id>`,
+  `reason: infra` and a `ci-run`/`verify-run` the FAIL did not cite. A FAIL
+  with any finding or a `high:` note is a product FAIL and needs a new head.
+  Any `high` finding or `high:` note on a bound verdict, from either role,
+  blocks.
+- **(d) Trusted authors.** Only comments by `TRUSTED_VERIFIERS` count, a
+  constant in the default-branch script (stage A: `["optomachina"]`), never a
+  repo variable or env value. `verifier.github_login` must equal the comment
+  author (parser rule). Blocks from untrusted authors, author-mismatched
+  blocks and other authors' malformed blocks are ignored and listed in the
+  summary's `ignored`.
+- **(e) Edited, deleted or malformed trusted verdicts.** A trusted verdict
+  comment that may be for the head (its `sha` or `diff_id` matches, or cannot
+  be read) fails the gate until a fresher trusted verdict of that role is
+  posted: `edited_verdict` when it was edited, or deleted (seen on the
+  `issue_comment` deleted event and carried forward through the gate's own
+  check runs on the head), and `verdict_schema_error` when its block is
+  unparseable, fails the schema or lacks comment timestamps.
+- **(f) Sensitive changes.** The default-branch copy of the sensitive-class
+  detector (`scripts/sensitive-class-detect.mjs` over
+  `docs/sensitive-paths.json`) classifies the PR files. Any `.github/**`
+  path, in any spelling, adds `infra_ci`. Any class, including the detector's
+  fail-closed `unclassified`, needs a valid `overdrafter.approval/v1` record
+  (`scripts/approval-record.mjs`) bound to the head SHA or head `diff_id`,
+  posted by `TRUSTED_APPROVERS` in a comment that was never edited;
+  otherwise `approval_missing:<class>` for each class.
+- **(g) Independence.** Stage A (`IDENTITY = "shared-account"`, today):
+  every agent posts as `optomachina`, so verifier ≠ author and verifier ≠
+  merger are **not enforced**; every summary says `identity: shared-account
+  (not enforced)`. Stage B (`IDENTITY = "app"`, PR-G5): only
+  `overdrafter-verifier[bot]` counts, `optomachina` verdicts are ignored as
+  `verifier_is_merger`, and a verdict from the PR author or any commit author
+  or committer is `verifier_not_independent`.
+
+**Fail closed.** A missing, unparseable, error, unknown or partial input is
+never a pass: no live head or a moved head (`missing_input`, `stale_sha`), a
+`diff_id` that cannot be computed (`error`), unreadable comments, commits or
+earlier gate check runs (`missing_input`), and any sensitive-class result
+whose `status` is not exactly `ok`, that is missing, for another SHA, or does
+not cover every changed file (`classifier_error`, and `automerge:
+needs_blaine`). The advisory `jev-screen` status is never read, counted or
+required.
+
+**Output.** The check-run text holds the JSON summary: `gate`, `sha`,
+`diff_id`, `mode`, `identity`, `identity_note`, `verifier_comment_id`,
+`reviewer_comment_ids`, `approval_comment_id`, `automerge`
+(`needs_blaine` for any class or a classifier error, otherwise
+`needs_release`; `eligible` waits for OVD-841), `sensitive_classes`,
+`reasons` (`{ code, detail }`), `warnings`, `ignored` and
+`deleted_verdicts`. `MODE = "report"` writes `success`, or `neutral` with
+the title `REPORT: would block: <codes>`. In enforce mode (PR-G3) the
+conclusion is only `success` or `failure`.
+
+**Corroboration.** The `corroborated` field on findings is self-reported and
+covers only the findings inside one verdict. The gate does not read it: any
+`high` finding blocks whether or not it is corroborated. A consumer that needs
+corroboration across separate reviewer comments must run `tagCorroborated`
+over the combined findings itself.
+
+**CLI.** From a clean default-branch checkout, with `GITHUB_TOKEN` or
+`GH_TOKEN` set: `node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S
+--json` prints the summary and exits 0 for `gate: pass`, 1 for fail and 2 on
+usage errors. It fetches `refs/pull/N/head` and the base branch into
+`refs/ovd-merge-gate/*` first (`--no-fetch` reads `origin/<base>` instead).
+The land helper and merge read-back consume it in PR-G2.
 
 ## Corroboration
 
@@ -260,7 +329,7 @@ gate. The gate must do each of them; none is enforced here.
 a finding when another model family raised a finding on the same file at a line
 within `lineTolerance`. File-level findings (`line: null`) only match other
 file-level findings. When one family repeats a finding, that isn't
-corroboration. The emitted field is advisory; see OVD-845 responsibilities.
+corroboration. The emitted field is advisory; see the OVD-845 merge gate section.
 
 ## Tests
 
