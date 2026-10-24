@@ -750,6 +750,19 @@ describe("SendCutSend saved session filter", () => {
     expect(filtered.droppedCookieDomains).toEqual(["alpha.example", "zeta.example"]);
   });
 
+  it("orders dropped domains by locale, not by UTF-16 code unit", () => {
+    const filtered = filterSendCutSendStorageState({
+      cookies: [
+        { name: "f", value: "v", domain: ".f.example" },
+        { name: "e", value: "v", domain: ".\u00e9.example" },
+        { name: "d", value: "v", domain: ".e.example" },
+      ],
+      origins: [],
+    });
+    // A plain .sort() would place "\u00e9.example" after "f.example".
+    expect(filtered.droppedCookieDomains).toEqual(["e.example", "\u00e9.example", "f.example"]);
+  });
+
   it("returns an empty state for malformed input", () => {
     expect(filterSendCutSendStorageState(null)).toEqual({
       state: { cookies: [], origins: [] },
