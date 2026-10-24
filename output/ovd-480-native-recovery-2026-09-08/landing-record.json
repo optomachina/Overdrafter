@@ -1,0 +1,16 @@
+{
+  "pr": "https://github.com/optomachina/Overdrafter/pull/470",
+  "state": "MERGED",
+  "method": "squash",
+  "head": "7ee9b2b1ecebe5e46a4bdb69a118541bbab14aa8",
+  "mergeCommit": "094b928d954f4ab14bebcde71d0d57bdc29980e8",
+  "mergedAt": "2026-09-09T00:32:49Z",
+  "mainReadback": "094b928d954f4ab14bebcde71d0d57bdc29980e8",
+  "treeEqualsReviewedHead": true,
+  "issueStatusAfterMerge": "In Progress",
+  "qualification": "incomplete",
+  "liveSourceHead": "d99d777249fa9333ff4dad9d4cc3a2025d5c9102",
+  "runtimeCommitLabel": null,
+  "currentHeadValidation": "scoped source review, inert reporting tests and all hosted checks passed",
+  "postMergeNativeActions": 0
+}

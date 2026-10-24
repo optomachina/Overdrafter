@@ -1,0 +1,120 @@
+{
+  "utc": "2026-09-08T23:42:26.2724048Z",
+  "liveStarted": false,
+  "holdReason": "Root readiness correction requested before live",
+  "sources": {
+    "session-lifecycle/lifecycle.ps1": "04e90a3366038b24119d45f125db796fb3e47bef49a857cdd1630e29dadf6c27",
+    "session-lifecycle/NativeSessionProbe.cs": "61b913d8546aa5b48346b2c2f285ee3138514b28d96e477ab91c96fbed18ed73",
+    "file-admission/OwnedProcess.ps1": "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e"
+  },
+  "off": {
+    "pid": 7456,
+    "exitCode": 1,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.41476369999999996,
+    "error": null,
+    "stdout": "",
+    "stderr": "Default-off: explicit -Execute and expected old identity required.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-Q-606a9cfe\\session-lifecycle\\lifecycle.ps1:18 char:22\r\n+ ... $Execute) { throw 'Default-off: explicit -Execute and expected old id ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.\r\n \r\n"
+  },
+  "stale": {
+    "pid": 16780,
+    "exitCode": 2,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.5728864,
+    "error": null,
+    "stdout": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-Q-606a9cfe\\stale\\session-6b90c0511cfa4c938d0028d4337db6a5\\lifecycle-result.json\r\n",
+    "stderr": ""
+  },
+  "staleReceipt": {
+    "utc": "2026-09-08T23:41:55.4072955Z",
+    "outcome": "failed",
+    "stage": "preflight",
+    "caller": {
+      "execute": true,
+      "expectedOldPid": 5968,
+      "expectedOldTicks": "639242578556279624"
+    },
+    "oldOwned": false,
+    "nativeStartAttempted": false,
+    "nativeStarted": false,
+    "nativeExit": null,
+    "recovery_required": true,
+    "error": "old session changed",
+    "observations": [],
+    "qualification": "incomplete",
+    "sourceCommit": null,
+    "sourceHashes": [],
+    "compiler": null,
+    "compile": null,
+    "binarySha256": null,
+    "old": {
+      "pid": 5968,
+      "ticks": "639242578556279623",
+      "session": 1,
+      "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe"
+    }
+  },
+  "staleReceiptSHA256": "9e2d5749ba6cc292a08157794f968d50e1038edc118f855ef2d81b66f3a9176f",
+  "fixtures": [
+    {
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+      "name": "baseline-5mm.SLDPRT",
+      "bytes": 56144
+    },
+    {
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+      "name": "candidate-8mm.SLDPRT",
+      "bytes": 56171
+    }
+  ],
+  "policy": "RemoteSigned",
+  "scopes": [
+    {
+      "policy": "Undefined",
+      "scope": "MachinePolicy"
+    },
+    {
+      "policy": "Undefined",
+      "scope": "UserPolicy"
+    },
+    {
+      "policy": "Undefined",
+      "scope": "Process"
+    },
+    {
+      "policy": "RemoteSigned",
+      "scope": "CurrentUser"
+    },
+    {
+      "policy": "RemoteSigned",
+      "scope": "LocalMachine"
+    }
+  ],
+  "nativeAfter": {
+    "utc": "2026-09-08T23:41:55.7391798Z",
+    "cim": [
+      {
+        "creationUTC": "2026-09-06T02:17:35.6279620Z",
+        "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe",
+        "pid": 5968,
+        "session": 1
+      }
+    ],
+    "dotnet": [
+      {
+        "pid": 5968,
+        "session": 1,
+        "ticks": "639242578556279623",
+        "startUTC": "2026-09-06T02:17:35.6279623Z",
+        "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe",
+        "version": "30.5.0.0049",
+        "product": "30.5.0.0049",
+        "sha256": "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc"
+      }
+    ]
+  }
+}

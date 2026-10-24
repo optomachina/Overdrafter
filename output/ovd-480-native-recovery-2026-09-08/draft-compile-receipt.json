@@ -1,0 +1,21 @@
+{
+  "outcome": "compiled_only",
+  "nativeLifecycleExecuted": false,
+  "source": "remote executor receipt",
+  "compiler": {
+    "pid": 24464,
+    "exitCode": 0,
+    "elapsedSeconds": 0.2840977,
+    "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00"
+  },
+  "binarySha256": "54e077e7af0648f00d51beeb45b8ef5b252fc695667cd519678e4c61af5e62ac",
+  "sourceHashes": {
+    "lifecycle.ps1": "3779f28c627d9fca05a3fbaaf13af851daf9977afd1a2ef87f4b1ad9379b5eea",
+    "NativeSessionProbe.cs": "f298a3699696456d7dc6a2513f47d1043fb60da141cde5e4c7bbb802bb0ce4b9"
+  },
+  "review": {
+    "finding": "final observation error could retain successful outcome",
+    "disposition": "fix before native run"
+  },
+  "rawWindowsEvidence": "C:/Users/blain/AppData/Local/Temp/OVD480-L-d51e0459"
+}

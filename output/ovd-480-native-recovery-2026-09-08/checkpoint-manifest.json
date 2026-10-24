@@ -1,0 +1,123 @@
+{
+  "kind": "ovd480_owned_empty_native_lifecycle_checkpoint",
+  "createdAt": "2026-09-09T00:08:13.061223+00:00",
+  "pr": "https://github.com/optomachina/Overdrafter/pull/470",
+  "files": [
+    {
+      "file": "complete-receipt.json",
+      "bytes": 28836,
+      "sha256": "c837074fcf02b747c320af8c638cd0d5738177134333b12ff78b840a4d976810"
+    },
+    {
+      "file": "readiness-source-packet.json",
+      "bytes": 24702,
+      "sha256": "2b3cc1b48aa96ff4725c2b5cae6dd8b49561cd4d690cd04a9d1b313ea2ea6dd4"
+    },
+    {
+      "file": "native-lifecycle-validation.json",
+      "bytes": 6049,
+      "sha256": "36faa1b9df3d0f05095ec291c41ecbf8c5eaa6e2c342d7e5153e2b55215d64f7"
+    },
+    {
+      "file": "local-verify.log",
+      "bytes": 196955,
+      "sha256": "a3a9979f227fe1a7af6897a937396179568f6639b9e064deb43f282fd3adf51e"
+    },
+    {
+      "file": "codex-review.log",
+      "bytes": 89541,
+      "sha256": "1aae11c0b0929fb73d322f31f12fa4e7c090433c8f633de8cc88bad94a669567"
+    },
+    {
+      "file": "codex-review-readiness.log",
+      "bytes": 88267,
+      "sha256": "9aa89084a12054f94b78d60ba038dfdf5098736a722f9666c8318c3df06c1528"
+    },
+    {
+      "file": "sonar-final-issues.json",
+      "bytes": 165,
+      "sha256": "bd5ffd42633f61ec96f7c97607987808dc670616f3adee47ea593cce85eb5660"
+    },
+    {
+      "file": "sonar-native-files.json",
+      "bytes": 487,
+      "sha256": "4da23be9c19d3fb653935e504bb1c48b905dac917665195772354f01478c3bfa"
+    },
+    {
+      "file": "sonar-csharp-files.json",
+      "bytes": 237,
+      "sha256": "03f807397836509a07cdfac0b6983d958a953eb22e267a13e791bcfe22cb4e70"
+    },
+    {
+      "file": "rolling-comment-before-archive.md",
+      "bytes": 99568,
+      "sha256": "0dd8c5c63502069371d44d10649d49fd15d3bfcb3cd542f826c7da536f15dfb1"
+    },
+    {
+      "file": "reporting-initial-incomplete-receipt.json",
+      "bytes": 1461,
+      "sha256": "97159d5666a87f83eef7592366a5d1edd4e218225377bd2fe7583c48334ef0d4"
+    },
+    {
+      "file": "reporting-repair-complete-receipt.json",
+      "bytes": 3207,
+      "sha256": "88fc3322d0e09039820c9c5800af288a329321c672c1f35794021152e960e21b"
+    },
+    {
+      "file": "reporting-validation.json",
+      "bytes": 3921,
+      "sha256": "d0b5b9c5559c2768e04d107e2ba119401d2e1a298289d404eab83033271f5e76"
+    },
+    {
+      "file": "recovery-reporting-source.json",
+      "bytes": 18225,
+      "sha256": "0e410a980e3eed14605860349f4efed2abd23136d6ee09aee2f055e6732a9a71"
+    },
+    {
+      "file": "reporting-correction.patch",
+      "bytes": 2476,
+      "sha256": "56e4a60b78b599ca71906cff8dec503614711a54a96f89d9e5f4d342f49efbc9"
+    },
+    {
+      "file": "reporting-review.md",
+      "bytes": 957,
+      "sha256": "e7342529d682afe1b6938937d8be5455afa808b786948123412d406bddfdfda4"
+    },
+    {
+      "file": "sonar-reporting-fix-issues.json",
+      "bytes": 165,
+      "sha256": "bd5ffd42633f61ec96f7c97607987808dc670616f3adee47ea593cce85eb5660"
+    },
+    {
+      "file": "final-head-checks.json",
+      "bytes": 3760,
+      "sha256": "c1b8602ac33d4364b009c35ad29ca40e6ec2f2159f646c14552481d8b656a9f9"
+    },
+    {
+      "file": "landing-review-readback.json",
+      "bytes": 5230,
+      "sha256": "096906550ed90187c6c547ec106a43dce99222ea3ed7a0c211b27260fe3a8fab"
+    },
+    {
+      "file": "landing-record.json",
+      "bytes": 661,
+      "sha256": "c6766f115b6d225478905852a0fe1c568f4a4385f659be7d979dc99ab636ab5b"
+    },
+    {
+      "file": "next-recovery-case.md",
+      "bytes": 3604,
+      "sha256": "2c6948353fed2b7fe2071ea17e158ccf63393bcb2c22e9431c5788ec3c4c0526"
+    }
+  ],
+  "outcome": "empty_native_lifecycle_passed",
+  "fullQualification": "incomplete",
+  "runtimeCommitLabel": null,
+  "limits": [
+    "Source Git correlation is established after execution; runtime sourceCommit is null.",
+    "Native observations remain Windows executor reports; local independent review verifies packet bytes, source hashes and receipt consistency.",
+    "Forced native interruption, interrupted-save recovery, sandbox isolation and licensed worker capacity remain unqualified."
+  ],
+  "finalReviewedHead": "7ee9b2b1ecebe5e46a4bdb69a118541bbab14aa8",
+  "mergeCommit": "094b928d954f4ab14bebcde71d0d57bdc29980e8",
+  "liveReviewedHead": "d99d777249fa9333ff4dad9d4cc3a2025d5c9102"
+}

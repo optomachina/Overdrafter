@@ -1,0 +1,162 @@
+﻿{
+    "utc":  "2026-09-08T23:51:20.3757727Z",
+    "nativeAfter":  {
+                        "dotnet":  [
+
+                                   ],
+                        "cim":  [
+
+                                ]
+                    },
+    "fixtures":  [
+                     {
+                         "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                         "name":  "baseline-5mm.SLDPRT",
+                         "bytes":  56144
+                     },
+                     {
+                         "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                         "name":  "candidate-8mm.SLDPRT",
+                         "bytes":  56171
+                     }
+                 ],
+    "policy":  "RemoteSigned",
+    "scopes":  [
+                   {
+                       "policy":  "Undefined",
+                       "scope":  "MachinePolicy"
+                   },
+                   {
+                       "policy":  "Undefined",
+                       "scope":  "UserPolicy"
+                   },
+                   {
+                       "policy":  "Undefined",
+                       "scope":  "Process"
+                   },
+                   {
+                       "policy":  "RemoteSigned",
+                       "scope":  "CurrentUser"
+                   },
+                   {
+                       "policy":  "RemoteSigned",
+                       "scope":  "LocalMachine"
+                   }
+               ],
+    "allSourceHashesUnchanged":  true,
+    "sourceHashes":  {
+                         "session-lifecycle/lifecycle.ps1":  "57449bd7d477380131aa94966a143a84090a6f6e7ce161d323766473b1febbc2",
+                         "session-lifecycle/NativeSessionProbe.cs":  "011575d4a97dd879230a95e3fe61ed3e3853d029af0a3397fc18603348dc9009",
+                         "file-admission/OwnedProcess.ps1":  "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e"
+                     },
+    "wrappers":  {
+                     "live":  {
+                                  "pid":  21052,
+                                  "exitCode":  0,
+                                  "timedOut":  false,
+                                  "terminationRequested":  false,
+                                  "terminated":  false,
+                                  "elapsedSeconds":  16.2196468,
+                                  "error":  null,
+                                  "stdout":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-Q-db84289d\\live\\session-69f2ffaab30f48538ded1051f75ceaea\\lifecycle-result.json\r\n",
+                                  "stderr":  ""
+                              },
+                     "off":  {
+                                 "pid":  16432,
+                                 "exitCode":  1,
+                                 "timedOut":  false,
+                                 "terminationRequested":  false,
+                                 "terminated":  false,
+                                 "elapsedSeconds":  0.3372534,
+                                 "error":  null,
+                                 "stdout":  "",
+                                 "stderr":  "Default-off: explicit -Execute and expected old identity required.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-Q-db84289d\\session-lifecycle\\lifecycle.ps1:18 char:22\r\n+ ... $Execute) { throw \u0027Default-off: explicit -Execute and expected old id ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.\r\n \r\n"
+                             },
+                     "stale":  {
+                                   "pid":  4136,
+                                   "exitCode":  2,
+                                   "timedOut":  false,
+                                   "terminationRequested":  false,
+                                   "terminated":  false,
+                                   "elapsedSeconds":  0.55930079999999993,
+                                   "error":  null,
+                                   "stdout":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-Q-db84289d\\stale\\session-031d62c5c2784abbb72c65ac75427bb7\\lifecycle-result.json\r\n",
+                                   "stderr":  ""
+                               }
+                 },
+    "rawLifecycleReceipts":  {
+                                 "live":  "{\r\n    \"utc\":  \"2026-09-08T23:50:14.6507459Z\",\r\n    \"outcome\":  \"passed\",\r\n    \"stage\":  \"wait_owned_exit\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  5968,\r\n                   \"expectedOldTicks\":  \"639242578556279623\"\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  true,\r\n    \"nativeStarted\":  true,\r\n    \"nativeExit\":  0,\r\n    \"recovery_required\":  false,\r\n    \"error\":  null,\r\n    \"observations\":  [\r\n                         {\r\n                             \"pid\":  23808,\r\n                             \"exitCode\":  0,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.2039189,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:15.4085122Z\\\",\\\"helperPid\\\":23808,\\\"outcome\\\":\\\"passed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"inspected_empty\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:15.4085122Z\\\",\\\"helperPid\\\":23808,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:15.4085122Z\\\",\\\"helperPid\\\":23808,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"inspected_empty\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  6104,\r\n                             \"exitCode\":  0,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.6893497,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:15.6077869Z\\\",\\\"helperPid\\\":6104,\\\"outcome\\\":\\\"passed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_returned\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:15.6077869Z\\\",\\\"helperPid\\\":6104,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:15.6077869Z\\\",\\\"helperPid\\\":6104,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"before_final_empty_identity_check\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:15.6077869Z\\\",\\\"helperPid\\\":6104,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_request\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:15.6077869Z\\\",\\\"helperPid\\\":6104,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5968,\\\"expectedTicks\\\":\\\"639242578556279623\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_returned\\\",\\\"apiPid\\\":5968,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  21164,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.12403249999999999,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:19.6315963Z\\\",\\\"helperPid\\\":21164,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:19.6315963Z\\\",\\\"helperPid\\\":21164,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  24088,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.1286041,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:20.7957904Z\\\",\\\"helperPid\\\":24088,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:20.7957904Z\\\",\\\"helperPid\\\":24088,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  4700,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.1192741,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:21.9386305Z\\\",\\\"helperPid\\\":4700,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:21.9386305Z\\\",\\\"helperPid\\\":4700,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  11704,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.12525319999999998,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:23.0967651Z\\\",\\\"helperPid\\\":11704,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:23.0967651Z\\\",\\\"helperPid\\\":11704,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  24288,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.1307325,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:24.2425490Z\\\",\\\"helperPid\\\":24288,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:24.2425490Z\\\",\\\"helperPid\\\":24288,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  22276,\r\n                             \"exitCode\":  3,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.1221124,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:25.3888005Z\\\",\\\"helperPid\\\":22276,\\\"outcome\\\":\\\"not_ready\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\",\\\"error\\\":\\\"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))\\\",\\\"hresult\\\":\\\"0x800401E3\\\"}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:25.3888005Z\\\",\\\"helperPid\\\":22276,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  6060,\r\n                             \"exitCode\":  0,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  1.9851014,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:26.5492684Z\\\",\\\"helperPid\\\":6060,\\\"outcome\\\":\\\"passed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"inspected_empty\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:26.5492684Z\\\",\\\"helperPid\\\":6060,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:26.5492684Z\\\",\\\"helperPid\\\":6060,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"inspect\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"inspected_empty\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\"\r\n                         },\r\n                         {\r\n                             \"pid\":  21920,\r\n                             \"exitCode\":  0,\r\n                             \"timedOut\":  false,\r\n                             \"terminationRequested\":  false,\r\n                             \"terminated\":  false,\r\n                             \"elapsedSeconds\":  0.6456117,\r\n                             \"error\":  null,\r\n                             \"stdout\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:28.5566139Z\\\",\\\"helperPid\\\":21920,\\\"outcome\\\":\\\"passed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_returned\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\",\r\n                             \"stderr\":  \"{\\\"utc\\\":\\\"2026-09-08T23:50:28.5566139Z\\\",\\\"helperPid\\\":21920,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"bind_existing\\\"}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:28.5566139Z\\\",\\\"helperPid\\\":21920,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":false,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"before_final_empty_identity_check\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:28.5566139Z\\\",\\\"helperPid\\\":21920,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_request\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n{\\\"utc\\\":\\\"2026-09-08T23:50:28.5566139Z\\\",\\\"helperPid\\\":21920,\\\"outcome\\\":\\\"failed\\\",\\\"exitAppRequested\\\":true,\\\"mode\\\":\\\"graceful-close-empty\\\",\\\"expectedPid\\\":5880,\\\"expectedTicks\\\":\\\"639245082192450086\\\",\\\"session\\\":1,\\\"stage\\\":\\\"exit_app_returned\\\",\\\"apiPid\\\":5880,\\\"revision\\\":\\\"30.5.0\\\",\\\"startupCompleted\\\":true,\\\"documentCount\\\":0}\\r\\n\"\r\n                         }\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  null,\r\n    \"sourceHashes\":  [\r\n                         {\r\n                             \"sha256\":  \"57449bd7d477380131aa94966a143a84090a6f6e7ce161d323766473b1febbc2\",\r\n                             \"name\":  \"lifecycle.ps1\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"011575d4a97dd879230a95e3fe61ed3e3853d029af0a3397fc18603348dc9009\",\r\n                             \"name\":  \"NativeSessionProbe.cs\"\r\n                         },\r\n                         {\r\n                             \"sha256\":  \"d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e\",\r\n                             \"name\":  \"OwnedProcess.ps1\"\r\n                         }\r\n                     ],\r\n    \"compiler\":  {\r\n                     \"path\":  \"C:\\\\WINDOWS\\\\Microsoft.NET\\\\Framework64\\\\v4.0.30319\\\\csc.exe\",\r\n                     \"sha256\":  \"46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00\",\r\n                     \"version\":  \"4.8.9221.0 built by: NET481REL1LAST_25H2\"\r\n                 },\r\n    \"compile\":  {\r\n                    \"pid\":  5344,\r\n                    \"exitCode\":  0,\r\n                    \"timedOut\":  false,\r\n                    \"terminationRequested\":  false,\r\n                    \"terminated\":  false,\r\n                    \"elapsedSeconds\":  0.2439004,\r\n                    \"error\":  null,\r\n                    \"stdout\":  \"\",\r\n                    \"stderr\":  \"\"\r\n                },\r\n    \"binarySha256\":  \"c222e12dc34e7ae630b9fc36a37f9cb899c6ce67d2d6aa8e853410a109458bd6\",\r\n    \"old\":  {\r\n                \"pid\":  5968,\r\n                \"ticks\":  \"639242578556279623\",\r\n                \"session\":  1,\r\n                \"path\":  \"C:\\\\Program Files\\\\SOLIDWORKS 2022\\\\SOLIDWORKS\\\\SLDWORKS.exe\"\r\n            },\r\n    \"oldExit\":  0,\r\n    \"nativePid\":  5880,\r\n    \"native\":  {\r\n                   \"pid\":  5880,\r\n                   \"ticks\":  \"639245082192450086\",\r\n                   \"session\":  1,\r\n                   \"path\":  \"C:\\\\Program Files\\\\SOLIDWORKS 2022\\\\SOLIDWORKS\\\\SLDWORKS.exe\"\r\n               },\r\n    \"nativeHasExited\":  true\r\n}\r\n",
+                                 "stale":  "{\r\n    \"utc\":  \"2026-09-08T23:49:53.0336894Z\",\r\n    \"outcome\":  \"failed\",\r\n    \"stage\":  \"preflight\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  5968,\r\n                   \"expectedOldTicks\":  \"639242578556279624\"\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  false,\r\n    \"nativeStarted\":  false,\r\n    \"nativeExit\":  null,\r\n    \"recovery_required\":  true,\r\n    \"error\":  \"old session changed\",\r\n    \"observations\":  [\r\n\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  null,\r\n    \"sourceHashes\":  [\r\n\r\n                     ],\r\n    \"compiler\":  null,\r\n    \"compile\":  null,\r\n    \"binarySha256\":  null,\r\n    \"old\":  {\r\n                \"pid\":  5968,\r\n                \"ticks\":  \"639242578556279623\",\r\n                \"session\":  1,\r\n                \"path\":  \"C:\\\\Program Files\\\\SOLIDWORKS 2022\\\\SOLIDWORKS\\\\SLDWORKS.exe\"\r\n            }\r\n}\r\n"
+                             },
+    "rawLifecycleReceiptSHA256":  {
+                                      "live":  "f2f829a19ca3dafdc4003b935c997586f9f8cd6468b159f3eb8a9262b23141dd",
+                                      "stale":  "139cad19e08442a3892e99d3f87636661d55d93b6f851ee2589c4a7ecff1e430"
+                                  },
+    "beforeLive":  {
+                       "utc":  "2026-09-08T23:50:14.2578676Z",
+                       "cim":  [
+                                   {
+                                       "creationUTC":  "2026-09-06T02:17:35.6279620Z",
+                                       "path":  "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe",
+                                       "pid":  5968,
+                                       "session":  1
+                                   }
+                               ],
+                       "dotnet":  [
+                                      {
+                                          "pid":  5968,
+                                          "session":  1,
+                                          "ticks":  "639242578556279623",
+                                          "startUTC":  "2026-09-06T02:17:35.6279623Z",
+                                          "path":  "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe",
+                                          "version":  "30.5.0.0049",
+                                          "product":  "30.5.0.0049",
+                                          "sha256":  "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc"
+                                      }
+                                  ]
+                   },
+    "readiness":  {
+                      "utc":  "2026-09-08T23:49:16.4297328Z",
+                      "version":  "5.1.26100.9278",
+                      "x64":  true,
+                      "parses":  [
+                                     {
+                                         "name":  "session-lifecycle/lifecycle.ps1",
+                                         "errors":  [
+
+                                                    ],
+                                         "count":  0
+                                     },
+                                     {
+                                         "name":  "file-admission/OwnedProcess.ps1",
+                                         "errors":  [
+
+                                                    ],
+                                         "count":  0
+                                     }
+                                 ],
+                      "policy":  "RemoteSigned",
+                      "scopes":  [
+                                     {
+                                         "policy":  "Undefined",
+                                         "scope":  "MachinePolicy"
+                                     },
+                                     {
+                                         "policy":  "Undefined",
+                                         "scope":  "UserPolicy"
+                                     },
+                                     {
+                                         "policy":  "Undefined",
+                                         "scope":  "Process"
+                                     },
+                                     {
+                                         "policy":  "RemoteSigned",
+                                         "scope":  "CurrentUser"
+                                     },
+                                     {
+                                         "policy":  "RemoteSigned",
+                                         "scope":  "LocalMachine"
+                                     }
+                                 ]
+                  }
+}

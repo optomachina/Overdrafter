@@ -1,0 +1,181 @@
+{
+  "kind": "independent_local_native_lifecycle_evidence_validation",
+  "status": "consistent",
+  "counts": {
+    "passed": 31,
+    "failed": 0
+  },
+  "qualification": "incomplete",
+  "releaseEligible": false,
+  "localGitSourceCorrelation": "d99d777249fa9333ff4dad9d4cc3a2025d5c9102",
+  "runtimeCommitLabel": null,
+  "completeReceipt": {
+    "bytes": 28836,
+    "sha256": "c837074fcf02b747c320af8c638cd0d5738177134333b12ff78b840a4d976810"
+  },
+  "checks": [
+    {
+      "name": "complete_packet_original_byte_count_and_digest",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "embedded_receipt_hashes_with_utf8_bom",
+      "passed": true,
+      "provenance": "independent_reconstruction_hash"
+    },
+    {
+      "name": "source_names_and_reported_hashes_agree",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "source_packet_bytes:session-lifecycle/lifecycle.ps1",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "local_file_and_git_blob:session-lifecycle/lifecycle.ps1",
+      "passed": true,
+      "provenance": "independent_local_git_blob_hash"
+    },
+    {
+      "name": "source_packet_bytes:session-lifecycle/NativeSessionProbe.cs",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "local_file_and_git_blob:session-lifecycle/NativeSessionProbe.cs",
+      "passed": true,
+      "provenance": "independent_local_git_blob_hash"
+    },
+    {
+      "name": "source_packet_bytes:file-admission/OwnedProcess.ps1",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "local_file_and_git_blob:file-admission/OwnedProcess.ps1",
+      "passed": true,
+      "provenance": "independent_local_git_blob_hash"
+    },
+    {
+      "name": "runtime_commit_label_stays_unknown",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "copied_execution_sources_match",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "compiler_pin_and_success",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "binary_digest_is_well_formed_claim",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "default_off_denies_without_lifecycle_receipt",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "stale_identity_rejects_before_compiler_and_api",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "held_run_remains_not_started",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "original_identity_matches_fresh_observation",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "live_wrapper_and_native_exits_are_successful",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "new_native_identity_is_distinct_and_retained",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "ten_helpers_have_matching_terminal_receipts",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "exactly_six_not_ready_then_ready_and_close",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "not_ready_preserves_unknown_api_and_document_state",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "successful_api_binding_and_empty_state",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "old_and_new_probe_identity_sequences_match",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "only_two_empty_session_graceful_exit_requests",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "no_observed_forced_termination_or_timeout",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "native_sources_have_no_forced_kill_or_file_open_calls",
+      "passed": true,
+      "provenance": "bounded_source_pattern_check_not_general_effect_proof"
+    },
+    {
+      "name": "final_independent_native_inventories_empty",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "fixture_identities_preserved_across_reported_observations",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "effective_policy_and_scopes_unchanged",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "qualification_remains_incomplete",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    }
+  ],
+  "limits": [
+    "The complete local receipt bytes and local source/Git blobs were independently hashed; Windows native binaries, fixtures, process observations and policy were not independently remeasured.",
+    "Inner lifecycle digests match reconstruction with the UTF-8 BOM used by the reported Windows files; this is not separate access to their original Windows paths.",
+    "Runtime sourceCommit remains null; matching Git blobs provide later local source correlation, not runtime Git attestation.",
+    "No-effects denial means no native compiler/API/start/close effects shown by the bounded receipt and source path; wrappers and stale-attempt diagnostic files still exist.",
+    "Intermediate stderr journal records retain provisional outcome failed; terminal stdout and actual helper exit classify passed versus not_ready.",
+    "Normal ExitApp requests and zero native exit codes establish this reported empty-session lifecycle only; forced-kill recovery, interrupted CAD saves, isolation and production release remain unproven."
+  ]
+}

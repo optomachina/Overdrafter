@@ -1,0 +1,28 @@
+{
+  "outcome": "validation_incomplete",
+  "sourceCommit": null,
+  "sourceSha256": "16455a39ae4896973857c588f40417d7636660e7535c33c88255804da970a9df",
+  "scope": "Inert only; no native action; no Linear edits",
+  "batchCount": 1,
+  "outerBoundMs": 90000,
+  "completedBeforeFailure": [
+    "AST parse",
+    "four Add-Failure combinations with repeated errors",
+    "existing true recovery preserved",
+    "close marker ordering",
+    "caller binding ordering"
+  ],
+  "denialChildrenRun": 0,
+  "failure": "Get-FileHash unavailable in x64 Windows PowerShell validation child; no retry under single-batch limit",
+  "outer": {
+    "pid": 22872,
+    "exitCode": 1,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.5355134,
+    "error": null,
+    "stdout": "",
+    "stderr": "Get-FileHash : The term 'Get-FileHash' is not recognized as the name of a cmdlet, function, script file, or operable \r\nprogram. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-R-04fca526\\validate.ps1:31 char:5\r\n+ if((Get-FileHash $helper).Hash.ToLowerInvariant() -ne 'd4d08e782b492c ...\r\n+     ~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (Get-FileHash:String) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : CommandNotFoundException\r\n \r\n"
+  }
+}

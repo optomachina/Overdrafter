@@ -1,0 +1,51 @@
+{
+  "outcome": "passed",
+  "scope": "two inert rejection cases only; no new native qualification",
+  "sourceCommit": null,
+  "outerBoundMs": 90000,
+  "outer": {
+    "pid": 24248,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 1.1735162,
+    "error": null,
+    "stdout": "",
+    "stderr": ""
+  },
+  "validation": {
+    "outcome": "passed",
+    "sourceCommit": null,
+    "scope": "inert reporting validation only; no native qualification",
+    "sourceSha256": "16455a39ae4896973857c588f40417d7636660e7535c33c88255804da970a9df",
+    "powershell": "5.1.26100.9278",
+    "x64": true,
+    "priorMatrixReceipt": "OVD480-R-04fca526/receipt.json",
+    "rejectionCases": 2,
+    "defaultOff": {
+      "pid": 24284,
+      "exitCode": 1,
+      "timedOut": false,
+      "terminationRequested": false,
+      "terminated": false,
+      "elapsedSeconds": 0.3516458,
+      "error": null,
+      "stdout": "",
+      "stderr": "Default-off: explicit -Execute and expected old identity required.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-R2-db611c1b\\lifecycle.ps1:18 char:22\r\n+ ... $Execute) { throw 'Default-off: explicit -Execute and expected old id ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.\r\n \r\n"
+    },
+    "invalidBinding": {
+      "pid": 23312,
+      "exitCode": 2,
+      "timedOut": false,
+      "terminationRequested": false,
+      "terminated": false,
+      "elapsedSeconds": 0.3654866,
+      "error": null,
+      "stdout": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD480-R2-db611c1b\\deny\\session-7dd1b1c3122f4ed6bfeca5d9553c65fa\\lifecycle-result.json\r\n",
+      "stderr": ""
+    },
+    "rawDenialReceipt": "{\r\n    \"utc\":  \"2026-09-09T00:28:26.1223250Z\",\r\n    \"outcome\":  \"failed\",\r\n    \"stage\":  \"preflight\",\r\n    \"caller\":  {\r\n                   \"execute\":  true,\r\n                   \"expectedOldPid\":  0,\r\n                   \"expectedOldTicks\":  \"1\"\r\n               },\r\n    \"oldOwned\":  false,\r\n    \"nativeStartAttempted\":  false,\r\n    \"nativeCloseAttempted\":  false,\r\n    \"nativeStarted\":  false,\r\n    \"nativeExit\":  null,\r\n    \"recovery_required\":  false,\r\n    \"error\":  \"PID zero requires empty expected ticks.\",\r\n    \"observations\":  [\r\n\r\n                     ],\r\n    \"qualification\":  \"incomplete\",\r\n    \"sourceCommit\":  null,\r\n    \"sourceHashes\":  [\r\n\r\n                     ],\r\n    \"compiler\":  null,\r\n    \"compile\":  null,\r\n    \"binarySha256\":  null\r\n}\r\n"
+  },
+  "harnessRepair": "Only hashing replaced with .NET SHA256 over File.ReadAllBytes; prior matrix not rerun. Original failure was Get-FileHash resolution at validator line 31. A separate direct PS5.1 diagnostic resolved that command; underlying launch-context difference not conclusively determined. No module-path or policy changes."
+}

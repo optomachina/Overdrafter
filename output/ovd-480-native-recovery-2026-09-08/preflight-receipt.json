@@ -1,0 +1,30 @@
+{
+  "kind": "sanitized_remote_preflight_receipt",
+  "qualification": "incomplete",
+  "process": {
+    "pid": 5968,
+    "session": 1,
+    "version": "30.5.0.0049",
+    "startTicks": "639242578556279623",
+    "sha256": "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc",
+    "documentsBefore": 0,
+    "documentsAfter": 0
+  },
+  "legacyHelper": {
+    "exitCode": 2,
+    "failure": "hardcoded historical count15 assertion rejected observed count0",
+    "timedOut": false
+  },
+  "baseline": {
+    "bytes": 56144,
+    "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+  },
+  "candidate": {
+    "bytes": 56171,
+    "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+  },
+  "evidenceSource": "existing Linear rolling comment 00cfc28c-f0dc-4b41-8f87-81b372d8d19b",
+  "nativeFilesIndependentlyHashedByCoordinator": false,
+  "rawWindowsEvidence": "outputs/ownership-preflight-0eb74e98",
+  "remaining": "Prior supervisor owns helper only; owned native lifecycle unproven"
+}

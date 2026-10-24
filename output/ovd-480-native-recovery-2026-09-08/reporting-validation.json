@@ -1,0 +1,107 @@
+{
+  "kind": "bounded_reporting_correction_evidence_review",
+  "status": "consistent",
+  "counts": {
+    "passed": 13,
+    "failed": 0
+  },
+  "packetHashes": [
+    {
+      "name": "reporting-initial-incomplete-receipt.json",
+      "bytes": 1461,
+      "sha256": "97159d5666a87f83eef7592366a5d1edd4e218225377bd2fe7583c48334ef0d4"
+    },
+    {
+      "name": "reporting-repair-complete-receipt.json",
+      "bytes": 3207,
+      "sha256": "88fc3322d0e09039820c9c5800af288a329321c672c1f35794021152e960e21b"
+    }
+  ],
+  "localSourceCorrelation": {
+    "commit": "7ee9b2b1ecebe5e46a4bdb69a118541bbab14aa8",
+    "sha256": "16455a39ae4896973857c588f40417d7636660e7535c33c88255804da970a9df"
+  },
+  "runtimeCommitLabel": null,
+  "historicalNativeValidation": {
+    "path": "native-lifecycle-validation.json",
+    "sha256": "36faa1b9df3d0f05095ec291c41ecbf8c5eaa6e2c342d7e5153e2b55215d64f7",
+    "gitCorrelation": "d99d777249fa9333ff4dad9d4cc3a2025d5c9102",
+    "passedChecks": 31,
+    "appliesToFinalHeadLiveExecution": false
+  },
+  "checks": [
+    {
+      "name": "reporting-initial-incomplete-receipt.json:raw_bytes",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "reporting-repair-complete-receipt.json:raw_bytes",
+      "passed": true,
+      "provenance": "independent_local_byte_hash"
+    },
+    {
+      "name": "source_matches_local_file_git_blob_and_both_receipts",
+      "passed": true,
+      "provenance": "independent_local_source_git_hash_plus_reported_execution_identity"
+    },
+    {
+      "name": "first_batch_remains_incomplete_before_denial_children",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "first_matrix_assertions_reported_completed_only",
+      "passed": true,
+      "provenance": "executor_reported_assertion_completion_not_independent_reexecution"
+    },
+    {
+      "name": "repair_outer_success_and_exactly_two_rejections",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "default_off_actual_exit_1",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "invalid_binding_actual_exit_2",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "invalid_binding_has_no_native_effect_flags_or_artifacts",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "wrappers_have_no_timeout_or_forced_termination",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "runtime_source_commit_remains_null",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "historical_31_check_lifecycle_binding_preserved",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    },
+    {
+      "name": "no_new_native_qualification_claim",
+      "passed": true,
+      "provenance": "local_receipt_consistency"
+    }
+  ],
+  "qualification": "incomplete",
+  "limits": [
+    "The initial matrix assertion completion is executor-reported; no independent rerun or full first-batch success is inferred.",
+    "Repair evidence covers exactly two inert rejection cases. Default-off returns no lifecycle receipt; invalid binding preserves false native-effect flags, absent compilation, empty observations and recovery_required false.",
+    "The Get-FileHash launch-context failure cause remains unconfirmed. A successful direct diagnostic does not explain the earlier failure.",
+    "Raw local packet bytes and source/Git blobs were independently hashed. Windows process observations, native/body facts and fixture effects remain executor-reported.",
+    "The historical 31-check native lifecycle validation at d99d7772 remains separate from final-source reporting checks; there is no new final-head native lifecycle or body qualification."
+  ]
+}
