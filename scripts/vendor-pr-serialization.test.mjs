@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +12,7 @@ import {
   fetchAllPages,
   isVendorPath,
   listOpenPrs,
+  main,
 } from "./vendor-pr-serialization.mjs";
 
 const at = (day) => `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`;
@@ -154,6 +159,23 @@ describe("fetchAllPages / listOpenPrs (fail closed)", () => {
     await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: bad })).rejects.toThrow(/without a string filename/);
   });
 
+  it("keeps isDraft per PR and still counts an older draft as a conflict", async () => {
+    const shared = { filename: "worker/src/adapters/index.ts" };
+    const fetchImpl = github([
+      { number: 1, draft: true, created_at: at(1), changed_files: 1, files: [shared] },
+      { number: 2, draft: false, created_at: at(2), changed_files: 1, files: [shared] },
+    ]);
+    const prs = await listOpenPrs({ repo: "o/r", token: "t", prNumber: 2, fetchImpl });
+    expect(prs.map(({ number, isDraft }) => ({ number, isDraft }))).toEqual([
+      { number: 1, isDraft: true },
+      { number: 2, isDraft: false },
+    ]);
+    const r = checkSerialization(2, prs);
+    expect(r.ok).toBe(false);
+    expect(r.conflicts).toEqual([{ number: 1, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
+    expect(checkSerialization(1, prs).warnings).toEqual([{ number: 2, isDraft: false, shared: ["worker/src/adapters/index.ts"] }]);
+  });
+
   it("requires a token and a valid repo", async () => {
     await expect(listOpenPrs({ repo: "o/r", token: "", fetchImpl: async () => ok([]) })).rejects.toThrow(/GITHUB_TOKEN/);
     await expect(listOpenPrs({ repo: "bad", token: "t", fetchImpl: async () => ok([]) })).rejects.toThrow(/repo/);
@@ -184,5 +206,87 @@ describe("checkAll", () => {
   it("passes when no pair overlaps and fails on a repeated PR number", () => {
     expect(checkAll([pr(1, ["worker/src/adapters/a.ts"]), pr(2, ["worker/src/adapters/b.ts"])]).ok).toBe(true);
     expect(() => checkAll([pr(1, ["a"]), pr(1, ["b"])])).toThrow(/repeats PR #1/);
+  });
+});
+
+describe("main (CLI output)", () => {
+  const ADAPTER = "worker/src/adapters/index.ts";
+  const setup = (prs) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "vendor-ser-"));
+    const prsJson = path.join(dir, "prs.json");
+    writeFileSync(prsJson, JSON.stringify(prs));
+    const summaryFile = path.join(dir, "summary.md");
+    const lines = [];
+    const log = (line) => lines.push(line);
+    const summary = () => {
+      try {
+        return readFileSync(summaryFile, "utf8");
+      } catch {
+        return "";
+      }
+    };
+    return { prsJson, summaryFile, lines, log, summary };
+  };
+
+  it("logs a --pr conflict with PR numbers and counts only; paths go to the step summary", async () => {
+    const t = setup([pr(1, [ADAPTER, "worker/src/tools/vendorAuth.ts"], true), pr(2, [ADAPTER, "worker/src/tools/vendorAuth.ts"])]);
+    const code = await main(["--pr", "2", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log });
+    expect(code).toBe(1);
+    const out = t.lines.join("\n");
+    expect(out).toContain("::error::Older open PR #1 (draft) changes 2 of the same vendor-adapter files.");
+    expect(out).not.toMatch(/worker\/|adapters|vendorAuth|\.ts\b/);
+    expect(t.summary()).toContain(ADAPTER);
+    expect(t.summary()).toContain("worker/src/tools/vendorAuth.ts");
+  });
+
+  it("logs no paths for a newer-PR warning", async () => {
+    const t = setup([pr(1, [ADAPTER]), pr(2, [ADAPTER])]);
+    expect(await main(["--pr", "1", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(0);
+    expect(t.lines.join("\n")).toContain("::warning::Open PR #2 is newer and waits for this PR (1 shared vendor files).");
+    expect(t.lines.join("\n")).not.toMatch(/worker\/|adapters/);
+    expect(t.summary()).toContain(ADAPTER);
+  });
+
+  it("logs --all pairs with PR numbers and counts only", async () => {
+    const t = setup([pr(1, [ADAPTER], false, at(15)), pr(2, [ADAPTER], true, at(5))]);
+    expect(await main(["--all", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(1);
+    expect(t.lines).toEqual([
+      "::error::Open PR #1 is blocked by older PR #2 (1 shared vendor files).",
+      "Vendor PR serialization failed: 1 overlapping PR pairs.",
+    ]);
+    expect(t.summary()).toContain(ADAPTER);
+  });
+
+  it("works without a step summary file", async () => {
+    const lines = [];
+    const t = setup([pr(1, [ADAPTER], true), pr(2, [ADAPTER])]);
+    expect(await main(["--pr", "2", "--prs-json", t.prsJson], { log: (l) => lines.push(l) })).toBe(1);
+    expect(lines.join("\n")).not.toContain(ADAPTER);
+  });
+
+  it("fails closed with a fixed message when the PR itself is missing (prs-json and API paths)", async () => {
+    const t = setup([pr(1, [ADAPTER])]);
+    expect(await main(["--pr", "9", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(1);
+    const one = { number: 1, draft: false, created_at: at(1), changed_files: 1, files: [{ filename: ADAPTER }] };
+    expect(await main(["--pr", "9"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl: github([one]), log: t.log })).toBe(1);
+    const fixed = "::error::Vendor PR serialization could not complete (failing closed); see the job summary for details.";
+    expect(t.lines).toEqual([fixed, fixed]);
+    expect(t.summary()).toContain("#9 is not in the open-PR list");
+  });
+
+  it("does not echo API-derived error text to the log", async () => {
+    const t = setup([]);
+    const fetchImpl = async () => {
+      throw new Error("boom from worker/src/adapters/leak.ts");
+    };
+    expect(await main(["--all"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl, log: t.log })).toBe(1);
+    expect(t.lines.join("\n")).not.toMatch(/boom|leak|adapters/);
+    expect(t.summary()).toContain("boom from worker/src/adapters/leak.ts");
+  });
+
+  it("rejects a missing --pr with usage and exit 2", async () => {
+    const lines = [];
+    expect(await main([], { log: (l) => lines.push(l) })).toBe(2);
+    expect(lines[0]).toMatch(/^usage:/);
   });
 });

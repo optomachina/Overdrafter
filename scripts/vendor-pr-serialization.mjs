@@ -10,13 +10,14 @@
  * blocked) and exits 1 while any pair exists, matching the failing --pr check on the newer PR.
  *
  * Read-only: GitHub REST API via fetch with GITHUB_TOKEN from the env (never logged). It never
- * comments, labels or merges. Fails closed: an API error, a malformed response or a hit page cap
+ * comments, labels or merges. Console output carries only PR numbers and counts; shared file paths and
+ * error details go to the file named by GITHUB_STEP_SUMMARY when it is set. Fails closed: an API error, a malformed response or a hit page cap
  * fails the check, as does the PR itself missing from the open list, a repeated PR number, a PR
  * without an integer changed_files, or a file list shorter than changed_files.
  *
  *   node scripts/vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]
  */
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
 
 import { isEntryPoint } from "./lib/entry-point.mjs";
@@ -72,7 +73,7 @@ export function assertUniquePrs(prs) {
 function toFile(prNumber, f) {
   if (typeof f?.filename !== "string") throw new Error(`PR #${prNumber} lists a file without a string filename`);
   if (f.previous_filename != null && typeof f.previous_filename !== "string") {
-    throw new Error(`PR #${prNumber} lists a non-string previous_filename for ${f.filename}`);
+    throw new Error(`PR #${prNumber} lists a file with a non-string previous_filename`);
   }
   return f.previous_filename ? { path: f.filename, previousPath: f.previous_filename } : { path: f.filename };
 }
@@ -157,60 +158,87 @@ export function checkAll(prs) {
   return { ok: pairs.length === 0, pairs };
 }
 
-function arg(name) {
-  const i = process.argv.indexOf(name);
-  return i > -1 ? process.argv[i + 1] : undefined;
+function arg(argv, name) {
+  const i = argv.indexOf(name);
+  return i > -1 ? argv[i + 1] : undefined;
 }
 
-async function main() {
-  const all = process.argv.includes("--all");
-  const pr = Number(arg("--pr"));
-  if (!all && (!Number.isInteger(pr) || pr <= 0)) {
-    console.error("usage: vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]");
-    return 2;
-  }
-  const file = arg("--prs-json");
-  const prs = file
-    ? JSON.parse(readFileSync(file, "utf8"))
-    : await listOpenPrs({
-        repo: arg("--repo") ?? process.env.GITHUB_REPOSITORY,
-        token: process.env.GITHUB_TOKEN,
-        prNumber: all ? undefined : pr,
-      });
-  if (all) {
-    const r = checkAll(prs);
-    for (const p of r.pairs) {
-      console.log(`::error::Open PR #${p.newer} is blocked by older PR #${p.older}; both change: ${p.shared.join(", ")}`);
-    }
-    console.log(r.ok ? `Vendor PR serialization passed for all ${prs.length} open PRs.` : `Vendor PR serialization failed: ${r.pairs.length} overlapping PR pairs.`);
-    return r.ok ? 0 : 1;
-  }
-  const r = checkSerialization(pr, prs);
+const draftTag = (pr) => (pr.isDraft ? " (draft)" : "");
+const fileList = (paths) => paths.map((p) => `\`${p}\``).join(", ");
+
+/**
+ * Console lines for --all carry only PR numbers and counts (this process holds GITHUB_TOKEN, so no
+ * API-derived text is logged); the shared file paths go to the step summary only.
+ */
+export function reportAll(prCount, r) {
+  const lines = r.pairs.map((p) => `::error::Open PR #${p.newer} is blocked by older PR #${p.older} (${p.shared.length} shared vendor files).`);
+  lines.push(r.ok ? `Vendor PR serialization passed for all ${prCount} open PRs.` : `Vendor PR serialization failed: ${r.pairs.length} overlapping PR pairs.`);
+  const summary = r.pairs.map((p) => `- #${p.newer} is blocked by older #${p.older}; shared: ${fileList(p.shared)}`);
+  return { code: r.ok ? 0 : 1, lines, summary };
+}
+
+/** Console lines for --pr: PR numbers and counts only; shared file paths go to the step summary. */
+export function reportPr(prNumber, r) {
   if (r.vendorFiles.length === 0) {
-    console.log(`PR #${pr} changes no vendor-adapter files; nothing to serialize.`);
-    return 0;
+    return { code: 0, lines: [`PR #${prNumber} changes no vendor-adapter files; nothing to serialize.`], summary: [] };
   }
+  const lines = [];
+  const summary = [];
   for (const w of r.warnings) {
-    const what = w.shared ? `is newer and waits for this PR; shared: ${w.shared.join(", ")}` : "also touches vendor-adapter code (no shared files)";
-    console.log(`::warning::Open PR #${w.number}${w.isDraft ? " (draft)" : ""} ${what}.`);
+    const what = w.shared ? `is newer and waits for this PR (${w.shared.length} shared vendor files)` : "also touches vendor-adapter code (no shared files)";
+    lines.push(`::warning::Open PR #${w.number}${draftTag(w)} ${what}.`);
+    if (w.shared) summary.push(`- newer #${w.number}${draftTag(w)} waits for this PR; shared: ${fileList(w.shared)}`);
   }
   for (const c of r.conflicts) {
-    console.log(`::error::Older open PR #${c.number}${c.isDraft ? " (draft)" : ""} changes the same vendor-adapter files: ${c.shared.join(", ")}`);
+    lines.push(`::error::Older open PR #${c.number}${draftTag(c)} changes ${c.shared.length} of the same vendor-adapter files.`);
+    summary.push(`- older #${c.number}${draftTag(c)} blocks this PR; shared: ${fileList(c.shared)}`);
   }
   if (!r.ok) {
-    console.log("Vendor PR serialization failed: land the older PR first, or move the shared change into one base PR.");
+    lines.push("Vendor PR serialization failed: land the older PR first, or move the shared change into one base PR.");
+    return { code: 1, lines, summary };
+  }
+  lines.push(`Vendor PR serialization passed for #${prNumber} (${r.vendorFiles.length} vendor files, ${r.warnings.length} other vendor PRs as warnings).`);
+  return { code: 0, lines, summary };
+}
+
+/**
+ * CLI body. deps: {repo, token, summaryFile, fetchImpl, log}. Never throws: any failure logs a fixed
+ * fail-closed message (no API-derived text) and returns 1; the error detail goes to summaryFile only.
+ */
+export async function main(argv, { repo, token, summaryFile, fetchImpl = globalThis.fetch, log = console.log } = {}) {
+  const writeSummary = (title, body) => {
+    if (summaryFile && body.length) appendFileSync(summaryFile, `### ${title}\n\n${body.join("\n")}\n\n`);
+  };
+  const all = argv.includes("--all");
+  const pr = Number(arg(argv, "--pr"));
+  if (!all && (!Number.isInteger(pr) || pr <= 0)) {
+    log("usage: vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]");
+    return 2;
+  }
+  try {
+    const file = arg(argv, "--prs-json");
+    const prs = file
+      ? JSON.parse(readFileSync(file, "utf8"))
+      : await listOpenPrs({ repo: arg(argv, "--repo") ?? repo, token, prNumber: all ? undefined : pr, fetchImpl });
+    const out = all ? reportAll(prs.length, checkAll(prs)) : reportPr(pr, checkSerialization(pr, prs));
+    for (const line of out.lines) log(line);
+    writeSummary("Vendor PR serialization: shared vendor-adapter files", out.summary);
+    return out.code;
+  } catch (err) {
+    log("::error::Vendor PR serialization could not complete (failing closed); see the job summary for details.");
+    try {
+      writeSummary("Vendor PR serialization error", [String(err?.message ?? err)]);
+    } catch {
+      // The fixed message above already fails the check.
+    }
     return 1;
   }
-  console.log(`Vendor PR serialization passed for #${pr} (${r.vendorFiles.length} vendor files, ${r.warnings.length} other vendor PRs as warnings).`);
-  return 0;
 }
 
 if (isEntryPoint(import.meta.url)) {
-  main().then(
-    (code) => process.exit(code),
-    (err) => {
-      console.log(`::error::Vendor PR serialization could not complete (failing closed): ${err.message}`);
-      process.exit(1);
-    },
-  );
+  main(process.argv.slice(2), {
+    repo: process.env.GITHUB_REPOSITORY,
+    token: process.env.GITHUB_TOKEN,
+    summaryFile: process.env.GITHUB_STEP_SUMMARY,
+  }).then((code) => process.exit(code));
 }
