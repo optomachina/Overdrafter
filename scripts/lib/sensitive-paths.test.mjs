@@ -131,10 +131,12 @@ describe("OVD-1072 privileged entry points and import map", () => {
   ];
 
   it.each(authPaths)("classifies %s as auth", (file) => {
+    expect(picomatchClasses(file)).toEqual(["auth"]);
     expect(classifyPaths([file], config).files[0].classes).toEqual(["auth"]);
   });
 
   it("classifies the service-role functions' import map as deps", () => {
+    expect(picomatchClasses("supabase/functions/deno.json")).toEqual(["deps"]);
     expect(classifyPaths(["supabase/functions/deno.json"], config).files[0].classes).toEqual(["deps"]);
   });
 
