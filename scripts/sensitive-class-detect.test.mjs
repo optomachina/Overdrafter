@@ -21,6 +21,7 @@ import {
   OUTPUT_CLASSES,
   OUTPUT_VERSION,
   SQL_CONTENT_CLASSES,
+  UNCLASSIFIED,
   WORKFLOW_REPO_PATH,
   classifyPath,
   classifySql,
@@ -64,7 +65,8 @@ describe("config", () => {
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
     expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer"]);
-    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES]);
+    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, "unclassified"]);
+    expect(UNCLASSIFIED).toBe("unclassified");
   });
 
   it("rejects a classes section, unknown rule keys, bad versions and SQL rules for other classes", () => {
@@ -82,6 +84,9 @@ describe("config", () => {
     const collides = structuredClone(rawConfig);
     collides.safe_categories.infra_ci = { paths: ["x/**"] };
     expect(compileConfig(collides).errors).toContain("safe_categories.infra_ci: name collides with a class");
+    const pseudo = structuredClone(rawConfig);
+    pseudo.safe_categories.unclassified = { paths: ["x/**"] };
+    expect(compileConfig(pseudo).errors).toContain("safe_categories.unclassified: name collides with a class");
   });
 
   it("compiles category and SQL globs with the shared matcher's syntax", () => {
@@ -201,12 +206,42 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     expect(existsSync(path.join(repoRoot, "src/features/quotes/AGENTS.override.md"))).toBe(true);
   });
 
+  // The agent contract: WORKFLOW.md and the Symphony launchers it starts.
+  it.each([["WORKFLOW.md"], ["scripts/symphony-ensure-branch.sh"], ["scripts/symphony-agent.sh"], ["scripts/symphony-preflight.sh"]])(
+    "agent-contract file %s is infra_ci, never a safe category",
+    (file) => {
+      expect(existsSync(path.join(repoRoot, file)), file).toBe(true);
+      expect(classifyPath(file, config)).toMatchObject({ classes: ["infra_ci"], category: null });
+    },
+  );
+
+  // Provider, adapter and dispatch paths are sensitive wherever they sit,
+  // including safe-category trees and names the old admission/upload globs
+  // missed (_, brackets, parentheses between provider and the next word).
+  it.each([
+    ["src/features/provider/_upload/Form.tsx"],
+    ["src/pages/provider/(admission)/index.tsx"],
+    ["src/features/provider/[upload]/Form.tsx"],
+    ["scripts/provider/_admission.mjs"],
+    ["worker/src/provider_/upload/x.ts"],
+    ["src/lib/quoteAdapter.ts"],
+    ["src/features/dispatch/Panel.tsx"],
+    ["src/components/ProviderBadge.tsx"],
+    ["docs/adapters/README.md"],
+  ])("provider path %s is provider_dispatch, never a safe category", async (file) => {
+    expect(classifyPath(file, config)).toMatchObject({ classes: ["provider_dispatch"], category: null });
+    const result = await detect({ files: [modified(file)], readHeadFile: noSql, config });
+    expect(result.files[0]).toMatchObject({ classes: ["provider_dispatch"], category: null });
+    expect(result).toMatchObject({ classes: ["provider_dispatch"], sensitive_count: 1, unclassified: [] });
+  });
+
   // Names 0163daf7's path keywords matched and the shared list now matches too
   // (review @ f786b942): rls after a dot, and provider admission or upload
   // split by a directory, a dot or any other character.
   it.each([
     ["src/features/q/x.rls.ts", ["auth"]],
     ["scripts/x.rls.ts", ["auth"]],
+    ["src/features/q/x,rls.ts", ["auth"]],
     ["src/features/provider/upload/Form.tsx", ["provider_dispatch"]],
     ["src/features/provider/admission/Form.tsx", ["provider_dispatch"]],
     ["src/features/provider.upload.tsx", ["provider_dispatch"]],
@@ -222,6 +257,8 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
   // Known residual (documented in the PR): 0163daf7 split camelCase words, so
   // quoteRls was rls. The shared list is case-insensitive and its fixture keeps
   // src/lib/urls.ts out, so a camelCase rls cannot be matched without urls.
+  // It matters only inside a safe category: outside one, detect gives the
+  // file the unclassified class (fail closed).
   it("does not match a camelCase rls, which would also match urls", () => {
     expect(classifyPath("src/features/quotes/quoteRls.ts", config)).toMatchObject({ classes: [], category: "frontend_ui" });
     expect(classifyPath("src/lib/urls.ts", config)).toMatchObject({ classes: [], category: null });
@@ -369,9 +406,54 @@ describe("detect", () => {
     expect(result.files.map((file) => file.classes)).toEqual([["auth"], ["schema", "migrations"]]);
   });
 
-  it("reports an unmatched file as unclassified", async () => {
-    const result = await detect({ files: [modified("worker/foo.go"), modified("README.md")], config });
-    expect(result).toMatchObject({ status: "ok", classes: [], sensitive_count: 0, unclassified: ["worker/foo.go"], multi_class: false });
+  // Fail closed: a file is non-sensitive only with a safe category and no class.
+  it.each([["vite.config.ts"], ["some/new/dir/file.xyz"], ["worker/foo.go"], ["src/lib/urls.ts"], ["scripts/rotate-token-cache.mjs"]])(
+    "an unmatched path %s is sensitive with classes [unclassified]",
+    async (file) => {
+      const result = await detect({ files: [modified(file), modified("README.md")], config });
+      expect(result.files[0]).toEqual({ path: file, status: "modified", classes: ["unclassified"], category: null, reasons: ["unclassified:no-safe-category"] });
+      expect(result).toMatchObject({ status: "ok", classes: ["unclassified"], sensitive_count: 1, unclassified: [file], multi_class: false });
+    },
+  );
+
+  it.each([
+    ["docs/guide.md", "docs"],
+    ["src/components/Button.tsx", "frontend_ui"],
+    ["src/lib/quote.test.ts", "tests"],
+    ["scripts/generate-favicons.mjs", "repo_scripts"],
+  ])("a safe-only path %s is the non-sensitive case", async (file, category) => {
+    const result = await detect({ files: [modified(file)], config });
+    expect(result.files[0]).toMatchObject({ classes: [], category });
+    expect(result).toMatchObject({ status: "ok", classes: [], sensitive_count: 0, unclassified: [], multi_class: false });
+  });
+
+  it("counts unclassified with the other classes, listed last", async () => {
+    const files = ["vite.config.ts", "src/lib/auth.ts", "some/new/dir/file.xyz", "docs/guide.md"].map(modified);
+    const result = await detect({ files, config });
+    expect(result).toMatchObject({ classes: ["auth", "unclassified"], sensitive_count: 3, multi_class: true, unclassified: ["vite.config.ts", "some/new/dir/file.xyz"] });
+  });
+
+  it("gives unclassified to a rename whose names land in different safe categories or one name in none", async () => {
+    const result = await detect({
+      files: [
+        { filename: "src/a.test.ts", previous_filename: "docs/a.test.ts", status: "renamed" },
+        { filename: "docs/b.md", previous_filename: "vite.config.ts", status: "renamed" },
+        { filename: "docs/c.md", previous_filename: "docs/old-c.md", status: "renamed" },
+      ],
+      readHeadFile: noSql,
+      config,
+    });
+    expect(result.files.map((file) => [file.classes, file.category])).toEqual([[["unclassified"], null], [["unclassified"], null], [[], "docs"]]);
+    expect(result).toMatchObject({ classes: ["unclassified"], sensitive_count: 2, unclassified: ["src/a.test.ts", "docs/b.md"] });
+  });
+
+  it("renders unclassified files as sensitive in the summary", async () => {
+    const summary = formatSummary(await detect({ files: [modified("vite.config.ts"), modified("docs/guide.md")], config }));
+    expect(summary).toContain("Classes: `unclassified`");
+    expect(summary).toContain("Sensitive files: 1 of 2");
+    expect(summary).toContain("Unclassified (sensitive, no safe category): `vite.config.ts`");
+    expect(summary).toContain("| `vite.config.ts` | modified | **unclassified** | - |");
+    expect(summary).toContain("| `docs/guide.md` | modified | - | docs |");
   });
 
   it.each([
@@ -618,7 +700,9 @@ describe("workflow", () => {
 
   // GitHub runs a run: block with no shell as `bash -e {0}`, and with
   // `shell: bash` as `bash --noprofile --norc -eo pipefail {0}`.
-  const shells = [["bash", "-e"], ["bash", "--noprofile", "--norc", "-eo", "pipefail"]];
+  // The last runs the block text itself (bash -e -c), as the harness check does.
+  const shells = [["bash", "-e"], ["bash", "--noprofile", "--norc", "-eo", "pipefail"], ["bash", "-e", "-c"]];
+  const shellCases = shells.map((shell) => [shell.join(" "), shell]);
   const writeArgs = 'import { appendFileSync, writeFileSync } from "node:fs";\nwriteFileSync(`${process.env.RUNNER_TEMP}/argv.json`, JSON.stringify(process.argv.slice(2)));\n';
   const writeResult = (status) => `${writeArgs}writeFileSync(process.argv[process.argv.indexOf("--json") + 1], JSON.stringify({ status: "${status}" }));\nappendFileSync(process.env.GITHUB_STEP_SUMMARY, "### Sensitive classes: ${status === "ok" ? "OK" : "ERROR"}\\n");\n`;
   const runStep = (shell, stub) => {
@@ -630,7 +714,7 @@ describe("workflow", () => {
     writeFileSync(script, step.run);
     const summary = path.join(dir, "summary.md");
     writeFileSync(summary, "");
-    const child = spawnSync(shell[0], [...shell.slice(1), script], {
+    const child = spawnSync(shell[0], [...shell.slice(1), shell.at(-1) === "-c" ? step.run : script], {
       cwd: work,
       encoding: "utf8",
       env: { PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary, PR_NUMBER: "7", HEAD_SHA: "headsha", REPOSITORY: "o/r", GITHUB_TOKEN: "test-token" },
@@ -652,7 +736,7 @@ describe("workflow", () => {
     expect(child.stdout).toBe("");
   });
 
-  it.each(shells)("a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (%s %s)", (...shell) => {
+  it.each(shellCases)("a detector that exits non-zero gives a warning and an ERROR summary, and the step exits 0 (%s)", (_name, shell) => {
     for (const [stub, code] of [[`${writeArgs}process.exit(3);\n`, 3], [`${writeResult("ok")}throw new Error("crash after writing");\n`, 1]]) {
       const run = runStep(shell, stub);
       expect(run.status, run.stdout).toBe(0);
@@ -665,7 +749,7 @@ describe("workflow", () => {
     }
   });
 
-  it.each(shells)("a detector that exits 0 with status ok gives no warning and keeps its summary (%s %s)", (...shell) => {
+  it.each(shellCases)("a detector that exits 0 with status ok gives no warning and keeps its summary (%s)", (_name, shell) => {
     const run = runStep(shell, writeResult("ok"));
     expect(run.status).toBe(0);
     expect(run.stdout).not.toContain("::warning");
@@ -673,21 +757,40 @@ describe("workflow", () => {
     expect(run.outExists).toBe(true);
   });
 
-  it.each(shells)("a detector that exits 0 with status error gives a warning (%s %s)", (...shell) => {
+  it.each(shellCases)("a detector that exits 0 with status error gives a warning (%s)", (_name, shell) => {
     const run = runStep(shell, writeResult("error"));
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("::warning title=Sensitive class::status is not ok");
     expect(run.summary).toBe("### Sensitive classes: ERROR\n");
   });
 
-  it.each(shells)("a detector that exits 0 without a result gives a warning and an ERROR summary (%s %s)", (...shell) => {
+  it.each(shellCases)("a detector that exits 0 without a result gives a warning and an ERROR summary (%s)", (_name, shell) => {
     const run = runStep(shell, `${writeArgs}\n`);
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("::warning title=Sensitive class::no readable result");
     expect(run.summary).toContain("### Sensitive classes: ERROR");
+    expect(run.outExists).toBe(false);
   });
 
-  it.each(shells)("a base without the detector skips with a summary (%s %s)", (...shell) => {
+  // Report mode under GitHub's default shell, with the real run: block as the -c text.
+  const truncated = `${writeArgs}writeFileSync(process.argv[process.argv.indexOf("--json") + 1], '{"version": 2, "status": "ok", "files": [');\n`;
+  it.each([
+    ["exits 3", `${writeArgs}process.exit(3);\n`, "sensitive-class-detect exited 3, so there is no result.", false],
+    ["exits 0 with truncated JSON", truncated, "sensitive-class-detect exited 0 but wrote no readable result.", false],
+    ["succeeds", writeResult("ok"), null, true],
+  ])("report mode exits 0 under bash -e -c when the detector %s", (_label, stub, errorLine, kept) => {
+    const run = runStep(["bash", "-e", "-c"], stub);
+    expect(run.status, run.stdout).toBe(0);
+    if (errorLine) {
+      expect(run.summary).toContain("### Sensitive classes: ERROR");
+      expect(run.summary).toContain(errorLine);
+    } else {
+      expect(run.summary).toBe("### Sensitive classes: OK\n");
+    }
+    expect(run.outExists).toBe(kept);
+  });
+
+  it.each(shellCases)("a base without the detector skips with a summary (%s)", (_name, shell) => {
     const run = runStep(shell, null);
     expect(run.status).toBe(0);
     expect(run.summary).toContain("### Sensitive classes: SKIPPED");
