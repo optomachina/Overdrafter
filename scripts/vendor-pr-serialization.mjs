@@ -235,10 +235,25 @@ export async function main(argv, { repo, token, summaryFile, fetchImpl = globalT
   }
 }
 
+/** Settles a main() promise into proc.exitCode; a rejection logs only a fixed message (no API data). */
+export function runCli(mainPromise, { error = console.error, proc = process } = {}) {
+  return mainPromise.then(
+    (code) => {
+      proc.exitCode = code;
+    },
+    () => {
+      error("vendor-pr-serialization failed");
+      proc.exitCode = 1;
+    },
+  );
+}
+
 if (isEntryPoint(import.meta.url)) {
-  main(process.argv.slice(2), {
-    repo: process.env.GITHUB_REPOSITORY,
-    token: process.env.GITHUB_TOKEN,
-    summaryFile: process.env.GITHUB_STEP_SUMMARY,
-  }).then((code) => process.exit(code));
+  await runCli(
+    main(process.argv.slice(2), {
+      repo: process.env.GITHUB_REPOSITORY,
+      token: process.env.GITHUB_TOKEN,
+      summaryFile: process.env.GITHUB_STEP_SUMMARY,
+    }),
+  );
 }

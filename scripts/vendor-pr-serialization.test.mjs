@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  runCli,
   MAX_FILE_PAGES,
   PER_PAGE,
   checkAll,
@@ -288,5 +289,21 @@ describe("main (CLI output)", () => {
     const lines = [];
     expect(await main([], { log: (l) => lines.push(l) })).toBe(2);
     expect(lines[0]).toMatch(/^usage:/);
+  });
+});
+
+describe("runCli", () => {
+  it("sets exitCode 1 and logs only the fixed message when main rejects", async () => {
+    const errors = [];
+    const proc = {};
+    await runCli(Promise.reject(new Error("worker/src/adapters/secret.ts detail")), { error: (m) => errors.push(m), proc });
+    expect(proc.exitCode).toBe(1);
+    expect(errors).toEqual(["vendor-pr-serialization failed"]);
+  });
+
+  it("passes main's exit code through", async () => {
+    const proc = {};
+    await runCli(Promise.resolve(2), { error: () => {}, proc });
+    expect(proc.exitCode).toBe(2);
   });
 });
