@@ -1,7 +1,9 @@
 /**
  * Jev PR screen dedupe via GitHub commit status markers.
  *
- * Marker key: (full 40-hex SHA, screener_id, question_set_hash, model, verified paths hash).
+ * Marker key: (full 40-hex SHA, screener_id, question_set_hash, model, screen state digest).
+ * The digest covers everything Jev is sent (title, notes, additions, deletions and
+ * the verified files in the order sent) plus the verified base commit.
  * A marker is a commit status with context "jev-screen" and state "success";
  * the screen result lives in the description field. There is no pending claim:
  * two overlapping screens both call Jev, and both results are valid.
@@ -22,7 +24,7 @@ import { accessSync, constants } from "node:fs";
 import { join } from "node:path";
 
 export const MARKER_CONTEXT = "jev-screen";
-export const MARKER_VERSION = "v2";
+export const MARKER_VERSION = "v3";
 export const SCREENER_ID = "mjs";
 export const ALLOWED_AUTHORS = Object.freeze(["optomachina"]);
 export const DEFAULT_OWNER = "optomachina";
@@ -49,7 +51,12 @@ const PROBABILITY_TEXT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
 /** One key=value field of a marker description. */
 const FIELD = /^([a-z]+)=([A-Za-z0-9._-]+)$/;
 /** The fields every marker carries, each exactly once and nothing else. */
-const MARKER_KEYS = Object.freeze(["tier", "jev", "c", "p", "model", "q", "screener", "f"]);
+const MARKER_KEYS = Object.freeze(["tier", "jev", "c", "p", "model", "q", "screener", "s"]);
+
+/** Rank of a tier (low < normal < risky); -1 for an unknown tier. */
+const tierRank = (tier) => MARKER_TIERS.indexOf(tier);
+/** The final tier is Jev's tier raised, never lowered, so a final tier below the Jev tier cannot come from the writer. */
+const tierConsistent = (tier, jevTier) => tierRank(tier) >= tierRank(jevTier);
 
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const errorText = (error) => String(error?.message ?? error);
@@ -82,12 +89,19 @@ export function hashQuestions(questions) {
   return createHash("sha256").update(canonicalJson(questions)).digest("hex").slice(0, 8);
 }
 
-/** Full SHA-256 of sorted verified paths; base64url fits the status limit. */
-export function hashVerifiedPaths(paths) {
-  return createHash("sha256").update(JSON.stringify([...paths].sort(compareCodeUnits))).digest("base64url");
+/**
+ * Full SHA-256 (43 base64url chars, which fits the status limit) of the exact
+ * screening state and the verified base identity. state is what Jev is sent:
+ * { title, files, additions, deletions, notes }, with files in the order sent
+ * (never sorted), so any change to what Jev would see changes the digest.
+ * base is the verified base commit SHA. Compute it once per screen and use
+ * that one value for both the marker lookup and the marker write.
+ */
+export function hashScreenState(state, base) {
+  return createHash("sha256").update(canonicalJson({ base, state })).digest("base64url");
 }
 
-const FILE_HASH = /^[A-Za-z0-9_-]{43}$/;
+const STATE_DIGEST = /^[A-Za-z0-9_-]{43}$/;
 
 /** Validate a commit SHA (must be 40 hex chars). */
 export function isValidSha(sha) {
@@ -132,11 +146,11 @@ const ceil3 = (value) => Math.ceil(value * 1000) / 1000;
 
 /**
  * Marker description:
- * "v2 tier=<final> jev=<jev tier> c=<confidence> p=<incident|na> model=<model> q=<hash> screener=<id> f=<verified-path-hash>"
+ * "v3 tier=<final> jev=<jev tier> c=<confidence> p=<incident|na> model=<model> q=<hash> screener=<id> s=<screen-state-digest>"
  */
-export function buildMarkerDescription({ tier, jevTier, confidence, pIncident = null, model, questionHash, filesHash }) {
+export function buildMarkerDescription({ tier, jevTier, confidence, pIncident = null, model, questionHash, stateHash }) {
   const p = isProbability(pIncident) ? ceil3(pIncident) : "na";
-  return `${MARKER_VERSION} tier=${tier} jev=${jevTier} c=${floor3(confidence)} p=${p} model=${model} q=${questionHash} screener=${SCREENER_ID} f=${filesHash}`;
+  return `${MARKER_VERSION} tier=${tier} jev=${jevTier} c=${floor3(confidence)} p=${p} model=${model} q=${questionHash} screener=${SCREENER_ID} s=${stateHash}`;
 }
 
 /**
@@ -161,7 +175,8 @@ const probabilityText = (text) => (PROBABILITY_TEXT.test(text) ? Number(text) : 
 
 /**
  * Parse a marker description. Returns null unless the version matches, every
- * field appears exactly once with nothing extra, and the tiers, confidence,
+ * field appears exactly once with nothing extra, the final tier is not below
+ * the Jev tier (a writer never produces that), and the tiers, confidence,
  * incident probability, model, question hash and screener are all well formed.
  */
 export function parseMarkerDescription(description) {
@@ -173,13 +188,15 @@ export function parseMarkerDescription(description) {
   const wellFormed =
     MARKER_TIERS.includes(fields.tier) &&
     MARKER_TIERS.includes(fields.jev) &&
+    tierConsistent(fields.tier, fields.jev) &&
     confidence !== null &&
     (fields.p === "na" || pIncident !== null) &&
     TOKEN.test(fields.model) &&
     QUESTION_HASH.test(fields.q) &&
-    TOKEN.test(fields.screener) && FILE_HASH.test(fields.f);
+    TOKEN.test(fields.screener) &&
+    STATE_DIGEST.test(fields.s);
   if (!wellFormed) return null;
-  return { version: MARKER_VERSION, tier: fields.tier, jevTier: fields.jev, confidence, pIncident, model: fields.model, questionHash: fields.q, screener: fields.screener, filesHash: fields.f };
+  return { version: MARKER_VERSION, tier: fields.tier, jevTier: fields.jev, confidence, pIncident, model: fields.model, questionHash: fields.q, screener: fields.screener, stateHash: fields.s };
 }
 
 /** Thrown when page 1 differs after the last page: a status was added while paging. */
@@ -233,11 +250,11 @@ const isTrustedMarkerStatus = (status, allowedAuthors) => status?.context === MA
  * it may outrank any valid marker); otherwise { marker } with the parsed
  * marker when it matches this key, or { marker: null } for another key.
  */
-function classifyTrusted(status, { sha, model, questionHash, filesHash }) {
+function classifyTrusted(status, { sha, model, questionHash, stateHash }) {
   if (status.state !== "success" || !statusForSha(status, sha)) return { rejected: true };
   const parsed = parseMarkerDescription(status.description);
   if (!parsed) return { rejected: true };
-  const matches = parsed.model === model && parsed.questionHash === questionHash && parsed.screener === SCREENER_ID && parsed.filesHash === filesHash;
+  const matches = parsed.model === model && parsed.questionHash === questionHash && parsed.screener === SCREENER_ID && parsed.stateHash === stateHash;
   return { marker: matches ? parsed : null };
 }
 
@@ -247,7 +264,7 @@ function classifyTrusted(status, { sha, model, questionHash, filesHash }) {
  * so on a tie the earlier one wins.
  */
 function strongestMarker(markers) {
-  const rank = (marker) => MARKER_TIERS.indexOf(marker.tier);
+  const rank = (marker) => tierRank(marker.tier);
   return markers.slice(1).reduce((best, current) => (rank(current) > rank(best) ? current : best), markers[0]);
 }
 
@@ -259,7 +276,7 @@ function strongestMarker(markers) {
  * any error is a miss.
  * options: { owner, repo, allowedAuthors, run } (run is the gh seam for tests).
  */
-export async function readMarker(sha, model, questionHash, filesHash, options = {}) {
+export async function readMarker(sha, model, questionHash, stateHash, options = {}) {
   const { allowedAuthors = ALLOWED_AUTHORS, ...ghOptions } = options;
   if (!isValidSha(sha)) return miss("invalid_sha");
   let statuses;
@@ -269,7 +286,7 @@ export async function readMarker(sha, model, questionHash, filesHash, options = 
     return miss(error instanceof StatusesChangedError ? "statuses_changed" : "api_error", { error: errorText(error) });
   }
   if (!statuses.some((status) => status?.context === MARKER_CONTEXT)) return miss("no_marker");
-  const trusted = statuses.filter((status) => isTrustedMarkerStatus(status, allowedAuthors)).map((status) => classifyTrusted(status, { sha, model, questionHash, filesHash }));
+  const trusted = statuses.filter((status) => isTrustedMarkerStatus(status, allowedAuthors)).map((status) => classifyTrusted(status, { sha, model, questionHash, stateHash }));
   if (trusted.some((entry) => entry.rejected)) return miss("rejected_marker");
   const valid = trusted.map((entry) => entry.marker).filter(Boolean);
   if (valid.length === 0) return miss("no_valid_marker");
@@ -278,16 +295,17 @@ export async function readMarker(sha, model, questionHash, filesHash, options = 
 
 function invalidWrite(sha, marker) {
   if (!isValidSha(sha)) return "invalid_sha";
-  const { tier, jevTier, confidence, pIncident = null, model, questionHash, filesHash } = marker ?? {};
+  const { tier, jevTier, confidence, pIncident = null, model, questionHash, stateHash } = marker ?? {};
   if (!MARKER_TIERS.includes(tier) || !MARKER_TIERS.includes(jevTier)) return "invalid_tier";
+  if (!tierConsistent(tier, jevTier)) return "invalid_tier";
   if (!isProbability(confidence) || !(pIncident === null || isProbability(pIncident))) return "invalid_probability";
-  if (!TOKEN.test(model ?? "") || !QUESTION_HASH.test(questionHash ?? "") || !FILE_HASH.test(filesHash ?? "")) return "invalid_key";
+  if (!TOKEN.test(model ?? "") || !QUESTION_HASH.test(questionHash ?? "") || !STATE_DIGEST.test(stateHash ?? "")) return "invalid_key";
   return null;
 }
 
 /**
  * Write the marker for sha: marker is { tier, jevTier, confidence, pIncident,
- * model, questionHash, filesHash }. Returns { success: true } or { success: false, reason }.
+ * model, questionHash, stateHash }. Returns { success: true } or { success: false, reason }.
  * Fail-open: never throws. options: { owner, repo, run }.
  */
 export async function writeMarker(sha, marker, options = {}) {

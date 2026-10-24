@@ -20,7 +20,10 @@
  * failures screen risky with files-incomplete before Jev or cache access.
  *
  * Dedupe: uses GitHub commit status markers (context "jev-screen") keyed by
- * (full 40-hex SHA, screener, question-set hash, model, verified-path hash). A marker is used only
+ * (full 40-hex SHA, screener, question-set hash, model, screen state digest). The digest covers
+ * the exact state sent to Jev (verified files in the order sent, title, notes, additions,
+ * deletions) and the verified base commit, so a changed title, notes, size, base or file
+ * order is a miss. A marker is used only
  * when pr is a real PR number and sha is that PR's current head SHA on GitHub.
  * Reading is fail-safe: re-screens on anything missing, mismatched or
  * untrusted. Only an accepted (confident) Jev answer is written, and writing
@@ -38,7 +41,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
-import { GITHUB_MARKER_IO, hashVerifiedPaths, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
+import { GITHUB_MARKER_IO, hashScreenState, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
 
 import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./jev-pr-screen-files.mjs";
 
@@ -306,17 +309,21 @@ function resultFromMarker(hit) {
   return { ok: true, model: hit.model, answers, latencyMs: null };
 }
 
-async function readHit(sha, io, filesHash) {
+async function readHit(sha, io, stateHash) {
   try {
-    const hit = await io.read(sha, JEV_MODEL, hashQuestions(SCREEN_QUESTIONS), filesHash);
+    const hit = await io.read(sha, JEV_MODEL, hashQuestions(SCREEN_QUESTIONS), stateHash);
     return hit?.found === true ? hit : null;
   } catch {
     return null;
   }
 }
 
-/** Write a marker only for an accepted (confident) Jev answer. Fails open with a warning. */
-async function recordMarker(pr, sha, result, { io, floor, sensitivePaths, warn }) {
+/**
+ * Write a marker only for an accepted (confident) Jev answer. Fails open with a
+ * warning. stateHash is the digest screenOne computed once and used for the
+ * lookup; it is passed in, never recomputed here.
+ */
+async function recordMarker(pr, sha, stateHash, result, { io, floor, sensitivePaths, warn }) {
   const gate = gatedChoice(result, "tier", floor);
   if (gate.status !== "accepted" || !TIERS.includes(gate.choice)) return;
   const incident = result.answers?.incident?.noul;
@@ -327,7 +334,7 @@ async function recordMarker(pr, sha, result, { io, floor, sensitivePaths, warn }
     pIncident: isProbability(incident) ? incident : null,
     model: result.model,
     questionHash: hashQuestions(SCREEN_QUESTIONS),
-    filesHash: hashVerifiedPaths(pr.files),
+    stateHash,
   };
   let written;
   try {
@@ -342,29 +349,41 @@ function incomplete(pr) {
   return { pr: { ...pr, files: null, filesProblem: FILES_INCOMPLETE }, result: { ok: false, reason: FILES_INCOMPLETE }, markerHit: false, markerTier: null };
 }
 
+/** The verified base commit SHA (lowercase) of an acquisition; anything else is incomplete. */
+function verifiedBase(acquisition) {
+  const base = acquisition?.snapshot?.base;
+  if (!isValidSha(base)) throw new Error(FILES_INCOMPLETE);
+  return base.toLowerCase();
+}
+
 /** Screen one PR: a valid marker hit skips Jev; otherwise ask Jev and write a marker. */
 async function screenOne(pr, context) {
   let verified;
   let acquisition;
+  let base = null;
   const hasPr = Number.isInteger(pr.pr) && pr.pr > 0;
   try {
     acquisition = hasPr ? await context.files(pr.pr, pr.sha) : null;
     const files = hasPr ? acquisition.paths : localDiffFiles(context.root, context.baseRef);
+    base = hasPr ? verifiedBase(acquisition) : null;
     verified = { ...pr, files };
   } catch {
     return incomplete(pr);
   }
   const sha = hasPr ? await markerSha(verified, context.io, context.warn) : null;
   if (hasPr && !sha) return incomplete(verified);
-  const hit = sha ? await readHit(sha, context.io, hashVerifiedPaths(verified.files)) : null;
-  const result = hit ? resultFromMarker(hit) : await context.ask(screenState(verified), SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+  // The screening state is built once. Its digest keys both the lookup and the write.
+  const state = screenState(verified);
+  const stateHash = sha ? hashScreenState(state, base) : null;
+  const hit = sha ? await readHit(sha, context.io, stateHash) : null;
+  const result = hit ? resultFromMarker(hit) : await context.ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
   if (sha && await markerSha(verified, context.io, context.warn) !== sha) return incomplete(verified);
   try {
     if (hasPr) await acquisition.revalidate();
   } catch {
     return incomplete(verified);
   }
-  if (!hit && sha && result?.ok) await recordMarker(verified, sha, result, context);
+  if (!hit && sha && result?.ok) await recordMarker(verified, sha, stateHash, result, context);
   return { pr: verified, result, markerHit: !!hit, markerTier: hit?.tier ?? null };
 }
 
