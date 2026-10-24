@@ -2320,6 +2320,7 @@ export type Database = {
         | "geomiq"
         | "weerg"
         | "protolabsnetwork"
+        | "emachineshop"
         | "partsbadger"
         | "fastdms"
         | "devzmanufacturing"
@@ -2523,6 +2524,7 @@ export const Constants = {
         "geomiq",
         "weerg",
         "protolabsnetwork",
+        "emachineshop",
         "partsbadger",
         "fastdms",
         "devzmanufacturing",

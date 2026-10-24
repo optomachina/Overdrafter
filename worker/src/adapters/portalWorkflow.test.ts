@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
 import {
+  buildPurchaseMetadata,
   excerptText,
   extractQuoteSignal,
   isConfigurationRequiredPageSignal,
@@ -12,6 +13,7 @@ import {
 describe("extended vendor workflows", () => {
   it("defines the hidden vendor workflow set requested for live automation", () => {
     expect(EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor)).toEqual([
+      "emachineshop",
       "oshcut",
       "fabworks",
       "ponoko",
@@ -32,6 +34,19 @@ describe("extended vendor workflows", () => {
     expect(getExtendedVendorWorkflow("geomiq")?.processFamily).toBe("multi_process");
     expect(getExtendedVendorWorkflow("weerg")?.processFamily).toBe("multi_process");
     expect(getExtendedVendorWorkflow("protolabsnetwork")?.processFamily).toBe("multi_process");
+    expect(getExtendedVendorWorkflow("emachineshop")?.processFamily).toBe("multi_process");
+  });
+
+  it("records eMachineShop checkout support without claiming unverified sharing", () => {
+    expect(getExtendedVendorWorkflow("emachineshop")?.purchaseCapabilities).toEqual({
+      checkoutFromQuote: true,
+      shareMode: "unknown",
+      recipientAccess: "unknown",
+      officialNotes: [
+        "Official documentation confirms online ordering from a generated quote.",
+        "A transferable purchaser-facing share link has not yet been verified.",
+      ],
+    });
   });
 
   it("starts hidden vendor uploads on quote surfaces instead of login routes", () => {
@@ -66,6 +81,31 @@ describe("extractQuoteSignal", () => {
     expect(extractQuoteSignal("Quote summary Total $0 Lead time 30 days")).toEqual({
       totalPriceUsd: null,
       leadTimeBusinessDays: 30,
+    });
+  });
+});
+
+describe("buildPurchaseMetadata", () => {
+  it("retains the actionable eMachineShop URL and exposes checkout only for priced quotes", () => {
+    const workflow = getExtendedVendorWorkflow("emachineshop");
+    if (!workflow) {
+      throw new Error("eMachineShop workflow was not registered");
+    }
+
+    expect(
+      buildPurchaseMetadata(workflow, "https://quote.emachineshop.com/quote/123", true),
+    ).toMatchObject({
+      actionableUrl: "https://quote.emachineshop.com/quote/123",
+      checkoutAvailable: true,
+      shareMode: "unknown",
+      recipientAccess: "unknown",
+    });
+
+    expect(
+      buildPurchaseMetadata(workflow, "https://quote.emachineshop.com/quote/123", false),
+    ).toMatchObject({
+      actionableUrl: "https://quote.emachineshop.com/quote/123",
+      checkoutAvailable: false,
     });
   });
 });

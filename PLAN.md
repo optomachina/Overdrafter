@@ -57,7 +57,8 @@ Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign i
 **Task 3: Operationalize the test path**
 - Use the worker `/health` session-age fields before each customer-visible test run.
 - Keep Protolabs and SendCutSend disabled or routed to manual follow-up until their live adapters are implemented.
-- Keep hidden extended vendor candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) out of default client fan-out until authenticated smoke runs prove the individual workflows. They are enum/capability registered for internal validation only and require explicit `WORKER_LIVE_ADAPTERS` opt-in.
+- Keep hidden extended vendor candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`, `emachineshop`) out of default client fan-out until authenticated smoke runs prove the individual workflows. They are enum/capability registered for internal validation only and require explicit `WORKER_LIVE_ADAPTERS` opt-in.
+- For portal results, retain the actionable vendor quote URL and record checkout/share access metadata. eMachineShop checkout is supported for priced eligible quotes; purchaser-facing sharing remains unverified until a live smoke run proves it.
 - For controlled demos, a local live worker is acceptable. For unattended use, OVD-202 remains required: host the live worker on a long-lived platform.
 
 **Deferred: Stripe and ordering**

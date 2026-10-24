@@ -20,6 +20,7 @@ export type VendorName =
   | "geomiq"
   | "weerg"
   | "protolabsnetwork"
+  | "emachineshop"
   | "partsbadger"
   | "fastdms"
   | "devzmanufacturing"
@@ -38,6 +39,7 @@ export const LIVE_AUTOMATION_VENDORS = [
   "geomiq",
   "weerg",
   "protolabsnetwork",
+  "emachineshop",
 ] as const;
 
 export type LiveAutomationVendorName = (typeof LIVE_AUTOMATION_VENDORS)[number];

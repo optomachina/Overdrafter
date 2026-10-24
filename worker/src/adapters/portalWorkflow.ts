@@ -22,6 +22,12 @@ export type PortalQuoteWorkflow = {
   processFamily: "sheet_metal" | "multi_process";
   supportedFileExtensions: string[];
   officialNotes: string[];
+  purchaseCapabilities?: {
+    checkoutFromQuote: boolean;
+    shareMode: "public_link" | "account" | "team" | "email_invite" | "unknown";
+    recipientAccess: "public" | "account_required" | "team_required" | "email_invite" | "unknown";
+    officialNotes: string[];
+  };
 };
 
 type ExtractedQuoteSignal = {
@@ -122,6 +128,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
             url: page.url(),
             detectedFlow: "instant_quote",
             leadTimeBusinessDays: signal.leadTimeBusinessDays,
+            purchase: buildPurchaseMetadata(this.workflow, page.url(), true),
           }),
         };
       }
@@ -141,6 +148,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
             url: page.url(),
             detectedFlow: "manual_review",
             leadTimeBusinessDays: signal.leadTimeBusinessDays,
+            purchase: buildPurchaseMetadata(this.workflow, page.url(), false),
           }),
         };
       }
@@ -163,6 +171,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
             detectedFlow: "configuration_required",
             bodyExcerpt: excerptText(bodyText),
             leadTimeBusinessDays: signal.leadTimeBusinessDays,
+            purchase: buildPurchaseMetadata(this.workflow, page.url(), false),
           }),
         };
       }
@@ -433,6 +442,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       processFamily: this.workflow.processFamily,
       supportedFileExtensions: this.workflow.supportedFileExtensions,
       officialNotes: this.workflow.officialNotes,
+      purchaseCapabilities: this.workflow.purchaseCapabilities ?? null,
       requestedQuantity: input.requestedQuantity,
       partId: input.part.id,
     };
@@ -463,6 +473,22 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       ...extra,
     };
   }
+}
+
+export function buildPurchaseMetadata(
+  workflow: PortalQuoteWorkflow,
+  actionableUrl: string,
+  priced: boolean,
+): Record<string, unknown> {
+  const capabilities = workflow.purchaseCapabilities;
+
+  return {
+    actionableUrl,
+    checkoutAvailable: priced && capabilities?.checkoutFromQuote === true,
+    shareMode: capabilities?.shareMode ?? "unknown",
+    recipientAccess: capabilities?.recipientAccess ?? "unknown",
+    officialNotes: capabilities?.officialNotes ?? [],
+  };
 }
 
 export function extractQuoteSignal(text: string): ExtractedQuoteSignal {

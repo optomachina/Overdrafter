@@ -13,6 +13,7 @@ describe("vendorAuth argument parsing", () => {
 
   it("parses all hidden vendors for sequential session bootstrap", () => {
     expect(parseAuthArgs(["all"]).vendors).toEqual([
+      "emachineshop",
       "oshcut",
       "fabworks",
       "ponoko",

@@ -42,6 +42,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ]);
 
     expect(args.vendors).toEqual([
+      "emachineshop",
       "oshcut",
       "fabworks",
       "ponoko",

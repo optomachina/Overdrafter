@@ -3,6 +3,30 @@ import type { LiveAutomationVendorName, VendorName, WorkerConfig } from "../type
 
 export const EXTENDED_VENDOR_WORKFLOWS = [
   {
+    vendor: "emachineshop",
+    displayName: "eMachineShop",
+    source: "emachineshop-live-adapter",
+    publicUrl: "https://www.emachineshop.com/",
+    loginUrl: "https://quote.emachineshop.com/",
+    uploadUrl: "https://quote.emachineshop.com/",
+    processFamily: "multi_process",
+    supportedFileExtensions: ["step", "stp", "iges", "igs", "sldprt", "stl", "dxf"],
+    officialNotes: [
+      "Official quoting documentation says supported CAD uploads can receive instant pricing.",
+      "Instant quoting covers popular materials and eligible designs; unsupported inputs fall back to manual review.",
+      "Official service pages cover CNC machining, laser and waterjet sheet fabrication, injection molding, and 3D printing.",
+    ],
+    purchaseCapabilities: {
+      checkoutFromQuote: true,
+      shareMode: "unknown",
+      recipientAccess: "unknown",
+      officialNotes: [
+        "Official documentation confirms online ordering from a generated quote.",
+        "A transferable purchaser-facing share link has not yet been verified.",
+      ],
+    },
+  },
+  {
     vendor: "oshcut",
     displayName: "OSH Cut",
     source: "oshcut-live-adapter",

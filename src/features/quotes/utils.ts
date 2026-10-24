@@ -100,6 +100,8 @@ export function formatVendorName(vendor: VendorName): string {
       return "Weerg";
     case "protolabsnetwork":
       return "Protolabs Network";
+    case "emachineshop":
+      return "eMachineShop";
     case "partsbadger":
       return "PartsBadger";
     case "fastdms":

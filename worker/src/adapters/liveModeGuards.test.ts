@@ -191,6 +191,7 @@ describe("buildAdapterRegistry", () => {
     );
 
     expect(sortAlphabetically(Object.keys(registry))).toEqual([
+      "emachineshop",
       "fabworks",
       "fictiv",
       "geomiq",
