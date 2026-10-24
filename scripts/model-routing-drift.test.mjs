@@ -109,8 +109,13 @@ describe("model routing drift", () => {
   });
 
   it("accepts the pointer sentence with or without backticks around the path", () => {
-    const unbackticked = agentsText.replace("`docs/agent-graph/model-routing.yaml`", "docs/agent-graph/model-routing.yaml");
+    // Unbacktick the pointer sentence itself, not the first mention (the infra_ci glob list also names the path).
+    const unbackticked = agentsText.replace(
+      "`docs/agent-graph/model-routing.yaml` is the source of truth",
+      "docs/agent-graph/model-routing.yaml is the source of truth",
+    );
     expect(unbackticked).not.toBe(agentsText);
+    expect(unbackticked).toContain("docs/agent-graph/model-routing.yaml is the source of truth");
     expect(findModelRoutingDrift(unbackticked, routingText)).toEqual([]);
   });
 
