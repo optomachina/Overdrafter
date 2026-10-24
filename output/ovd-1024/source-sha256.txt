@@ -1,0 +1,5 @@
+8248dc65a27d15e9d80518221b3eb96904ddfd8656cc1116b111c1f085dcefed  src/hooks/use-app-session.ts
+f4e476eb9f90c44a946bf177e5b811987bf0b17aad3bbb8cfebc70b15b6ecdaf  src/hooks/use-app-session.test.tsx
+4f3f840d47707c6f49cf23765b381fddddcb2dab7ee5dc993aaddb8f9bfc5da1  src/features/quotes/types.ts
+d706400d809fa7da3285151b53f7bf7a4d0da8c21bb89642052a4bf800545745  src/pages/InternalHome.tsx
+b134eca43b7875a4daa5bc888339e885be520543dfa866bd276c934d0a266c67  src/pages/InternalHome.test.tsx
