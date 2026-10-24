@@ -1,0 +1,44 @@
+name: Save apt package archives
+description: >-
+  Save the .deb files this job's apt-get installs left in the directory that
+  restore-apt-archives set up, under a key that ends in a digest of their names.
+  It is a normal step placed right after the job's last apt install, not a post
+  step, so a job that later fails or times out still leaves a warm cache. The
+  save is skipped when the restored cache already held the same files.
+
+inputs:
+  key-prefix:
+    description: The key-prefix output of restore-apt-archives.
+    required: true
+  matched-key:
+    description: The matched-key output of restore-apt-archives.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Compute apt cache key
+      id: key
+      shell: bash
+      env:
+        KEY_PREFIX: ${{ inputs.key-prefix }}
+      run: |
+        dir="$HOME/.cache/ovd-apt-archives"
+        # Drop files the package indexes no longer list, so superseded
+        # versions do not pile up in the cache.
+        sudo apt-get autoclean -qq
+        count="$(find "$dir" -maxdepth 1 -name '*.deb' | wc -l)"
+        # Name and size, so a file apt replaced (same name, new size) saves a
+        # new cache instead of matching the restored key.
+        digest="$(find "$dir" -maxdepth 1 -name '*.deb' -printf '%f %s\n' | LC_ALL=C sort | sha256sum | cut -c1-16)"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "key=${KEY_PREFIX}${digest}" >> "$GITHUB_OUTPUT"
+        echo "$count .deb files, cache key ${KEY_PREFIX}${digest}"
+
+    - name: Save apt package archives
+      if: ${{ steps.key.outputs.count != '0' && steps.key.outputs.key != inputs.matched-key }}
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/ovd-apt-archives/*.deb
+        key: ${{ steps.key.outputs.key }}
