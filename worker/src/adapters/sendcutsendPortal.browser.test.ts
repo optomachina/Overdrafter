@@ -14,7 +14,7 @@ import {
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { buildExpectedProviderPortalApproval, runProviderPortalKernel } from "./providerPortalKernel";
-import { buildSendCutSendSheetPortalDefinition } from "./sendcutsendPortal";
+import { buildSendCutSendSheetPortalDefinition, filterSendCutSendStorageState } from "./sendcutsendPortal";
 
 /**
  * OVD-1056 browser fixture: drives the SendCutSend sheet definition through
@@ -41,6 +41,8 @@ type WizardPageOptions = {
   disabled?: string[];
   start?: "format" | "group";
   unitPrice?: string;
+  /** Extra head markup, for example CDN stylesheets and images. */
+  head?: string;
 };
 
 /** A minimal tile-view wizard: one step at a time, footer buttons that would reach the cart. */
@@ -51,7 +53,7 @@ function wizardPage(options: WizardPageOptions = {}): string {
     disabled: options.disabled ?? [],
     unitPrice: options.unitPrice ?? "31.40",
   });
-  return `<!doctype html><html><head><meta charset="utf-8"><title>SendCutSend fixture</title></head><body>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>SendCutSend fixture</title>${options.head ?? ""}</head><body>
     <nav><a class="navbar-item">Quote</a> ${options.header ?? "<span>Account</span>"}</nav>
     <main><p>Drop up to 10 files here to get started</p><input type="file" id="cad">
     <p>Custom quote</p><p>Have something complex? We'll quote it for you.</p>
@@ -152,7 +154,9 @@ async function approvedInput(): Promise<VendorQuoteAdapterInput> {
   return authorized;
 }
 
-function config(): WorkerConfig {
+const SYNTHETIC_SESSION = { cookies: [{ name: "synthetic", value: "session", domain: "app.sendcutsend.com", path: "/" }], origins: [] };
+
+function config(storageState: unknown = SYNTHETIC_SESSION): WorkerConfig {
   return {
     workerMode: "live",
     workerLiveAdapters: ["sendcutsend"],
@@ -162,26 +166,31 @@ function config(): WorkerConfig {
     playwrightDisableSandbox: false,
     playwrightDisableDevShmUsage: false,
     vendorStorageStateJson: {
-      sendcutsend: JSON.stringify({
-        cookies: [{ name: "synthetic", value: "session", domain: "app.sendcutsend.com", path: "/" }],
-        origins: [],
-      }),
+      sendcutsend: JSON.stringify(storageState),
     },
     vendorStorageStatePaths: {},
     vendorStorageStateDir: null,
   } as unknown as WorkerConfig;
 }
 
-async function quoteAgainst(page: string) {
+type QuoteOptions = {
+  /** The /users/current body; null serves no such endpoint (a 404). */
+  currentUser?: string | null;
+  storageState?: unknown;
+};
+
+async function quoteAgainst(page: string, options: QuoteOptions = {}) {
   const observed: LocalPortalObserved = { requests: [], uploads: [] };
-  vi.spyOn(chromium, "launch").mockImplementation(async () =>
-    createLocalPortalBrowser(browser, { pages: { "app.sendcutsend.com/customer": page } }, observed));
+  const currentUser = options.currentUser === undefined ? JSON.stringify({ id: 7, guest: false }) : options.currentUser;
+  const pages: Record<string, string> = { "app.sendcutsend.com/customer": page };
+  if (currentUser !== null) pages["app.sendcutsend.com/users/current"] = currentUser;
+  vi.spyOn(chromium, "launch").mockImplementation(async () => createLocalPortalBrowser(browser, { pages }, observed));
   const definition = buildSendCutSendSheetPortalDefinition({
     processingWaitMs: 8_000, controlWaitMs: 3_000, priceWaitMs: 5_000, pollIntervalMs: 100,
     reclickAfterMs: 1_000, priceStableMs: 600, sessionSettleMs: 300, sessionWaitMs: 3_000,
   });
   const input = await approvedInput();
-  const outcome = await runProviderPortalKernel(definition, config(), input).then(
+  const outcome = await runProviderPortalKernel(definition, config(options.storageState), input).then(
     (result) => ({ result, error: null }),
     (error: unknown) => ({ result: null, error: error as { payload: Record<string, unknown> } }),
   );
@@ -247,6 +256,44 @@ describe("SendCutSend sheet definition in a browser fixture (OVD-1056)", () => {
     expect(stop).toMatchObject({ providerMutationPossible: false });
     expect(result?.state ?? error?.payload.terminalState).toBe("login_required");
     expect(result?.reason ?? error?.payload.reason).toBe("sendcutsend_signed_out");
+    expect(observed.uploads).toEqual([]);
+  }, timeout);
+  // OVD-1056 review: a rendered header without a LOGIN link is not proof of a session.
+  it.each([
+    ["a guest user", JSON.stringify({ id: 7, guest: true })],
+    ["a user without an explicit guest flag", JSON.stringify({ id: 1 })],
+    ["no current user", "null"],
+    ["a failed lookup", null],
+  ])("stops before upload when the app reports %s", async (_label, currentUser) => {
+    const { result, error, observed } = await quoteAgainst(wizardPage(), { currentUser });
+    expect(result?.state ?? error?.payload.terminalState).toBe("login_required");
+    expect(result?.reason ?? error?.payload.reason).toBe("sendcutsend_session_unconfirmed");
+    expect(result ?? error?.payload).toMatchObject({ providerMutationPossible: false });
+    expect(observed.uploads).toEqual([]);
+  }, timeout);
+
+  it("keeps CDN requests credential-free when the saved session had a parent-domain cookie", async () => {
+    const saved = filterSendCutSendStorageState({
+      cookies: [{ name: "_scs_session", value: "session", domain: ".sendcutsend.com", path: "/" }],
+      origins: [],
+    });
+    const { result, error, observed } = await quoteAgainst(wizardPage({
+      head: `<link rel="stylesheet" href="https://cdn.sendcutsend.com/app.css"><link rel="preload" as="image" href="https://cdn.sendcutsend.com/logo.png">`,
+    }), { storageState: saved.state });
+    expect(error).toBeNull();
+    expect(result).toMatchObject({ state: "offers_extracted" });
+    expect(observed.requests.some((request) => request.startsWith("GET https://cdn.sendcutsend.com/"))).toBe(true);
+  }, timeout);
+
+  it("refuses an unfiltered saved session that still holds a parent-domain cookie, before any upload", async () => {
+    const { result, error, observed } = await quoteAgainst(wizardPage(), {
+      storageState: { cookies: [{ name: "_scs_session", value: "session", domain: ".sendcutsend.com", path: "/" }], origins: [] },
+    });
+    expect(result).toBeNull();
+    expect(error?.payload).toMatchObject({
+      terminalState: "missing_session", reason: "missing_storage_state", providerInteractionAttempted: false,
+    });
+    expect(observed.requests).toEqual([]);
     expect(observed.uploads).toEqual([]);
   }, timeout);
 });

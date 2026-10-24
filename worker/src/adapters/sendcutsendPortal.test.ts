@@ -10,11 +10,14 @@ import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig 
 import {
   type ProviderPortalConfigurationCapability,
   type ProviderPortalReadCapability,
+  type ProviderPortalSessionCapability,
+  type ProviderPortalSessionCheckResult,
   runProviderPortalKernel,
 } from "./providerPortalKernel";
 import {
   assessSendCutSendSheetEligibility,
   buildSendCutSendSheetPortalDefinition,
+  checkSendCutSendCurrentUser,
   classifySendCutSendPortalState,
   configureSendCutSendSheet,
   extractSendCutSendSheetOffers,
@@ -120,7 +123,7 @@ describe("SendCutSend sheet portal definition", () => {
   it("declares exact hosts, no production dispatch and no cart or footer control", () => {
     const definition = buildSendCutSendSheetPortalDefinition();
     expect(definition.provider).toBe("sendcutsend");
-    expect(definition.allowedHosts).toEqual(["app.sendcutsend.com", "main.realtime.ably.net", "sendcutsend.com"]);
+    expect(definition.allowedHosts).toEqual(["app.sendcutsend.com", "main.realtime.ably.net"]);
     expect(definition.offHostAllowlist).toEqual(["cdn.sendcutsend.com"]);
     expect(definition.productionDispatch).toBeUndefined();
     expect(definition.selectors.quantity).toBeUndefined();
@@ -343,7 +346,7 @@ describe("SendCutSend wizard walk", () => {
       "thickness:.125",
       "quantity:1",
     ]);
-    expect(walk).toEqual({ typeSelected: true, thicknessSelected: true });
+    expect(walk).toEqual({ typeSelected: true, thicknessSelected: true, sessionConfirmed: false });
   });
 
   it("starts from whichever step the wizard opens on", async () => {
@@ -358,7 +361,7 @@ describe("SendCutSend wizard walk", () => {
     const wizard = fakeWizard({ start: "sku" });
     const walk = newSendCutSendWizardWalk();
     await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, FAST);
-    expect(walk).toEqual({ typeSelected: false, thicknessSelected: false });
+    expect(walk).toEqual({ typeSelected: false, thicknessSelected: false, sessionConfirmed: false });
     expect(wizard.calls).toEqual(["thickness:.125"]);
   });
 
@@ -390,14 +393,14 @@ describe("SendCutSend wizard walk", () => {
       "thickness:.125",
       "quantity:1",
     ]);
-    expect(walk).toEqual({ typeSelected: true, thicknessSelected: true });
+    expect(walk).toEqual({ typeSelected: true, thicknessSelected: true, sessionConfirmed: false });
   });
 
   it("never substitutes a neighbouring thickness", async () => {
     const wizard = fakeWizard({ start: "format", thicknesses: [".100", ".187"] });
     const walk = newSendCutSendWizardWalk();
     await configureSendCutSendSheet(wizard.configuration, { requestedQuantity: 1 }, walk, FAST);
-    expect(walk).toEqual({ typeSelected: true, thicknessSelected: false });
+    expect(walk).toEqual({ typeSelected: true, thicknessSelected: false, sessionConfirmed: false });
     expect(wizard.calls.some((call) => call.startsWith("thickness"))).toBe(false);
     expect(wizard.state.quantity).toBeNull();
   });
@@ -442,7 +445,7 @@ function fakeReader(texts: Record<string, string[] | string[][]>): ProviderPorta
   };
 }
 
-const walked: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: true };
+const walked: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: true, sessionConfirmed: true };
 const CRUMBS = { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "6061 T6 Aluminum"] };
 /** A repricing summary that changes on every read. */
 const ALTERNATING = Array.from({ length: 10_000 }, (_value, index) => [index % 2 === 0 ? "$31.40" : "$31.50"]);
@@ -499,7 +502,7 @@ describe("SendCutSend summary price", () => {
       .rejects.toMatchObject({ payload: { terminalState, reason, vendor: "sendcutsend" } });
   });
 
-  const typed: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: false };
+  const typed: SendCutSendWizardWalk = { typeSelected: true, thicknessSelected: false, sessionConfirmed: true };
   it.each([
     ["the thickness is disabled", typed, { ...CRUMBS, [L.disabledSkuTitles]: [".125"], [L.skuTitles]: [".100", ".125"] },
       "configuration_required", "sendcutsend_thickness_unavailable"],
@@ -508,15 +511,18 @@ describe("SendCutSend summary price", () => {
     ["a disabled .125 belongs to another type", typed,
       { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "5052 H32 Aluminum"], [L.disabledSkuTitles]: [".125"] },
       "selector_drift", "sendcutsend_material_path_incomplete"],
-    ["the walk never reached the stock", newSendCutSendWizardWalk(), {}, "selector_drift", "sendcutsend_material_path_incomplete"],
+    ["the walk never reached the stock", { ...newSendCutSendWizardWalk(), sessionConfirmed: true }, {}, "selector_drift", "sendcutsend_material_path_incomplete"],
     ["another thickness is selected", walked, { ...CRUMBS, [L.selectedSkuTitles]: [".100"], [L.skuTitles]: [".100", ".125"] },
       "selector_drift", "sendcutsend_material_path_incomplete"],
-    ["the type was not chosen this run", { typeSelected: false, thicknessSelected: false }, { ...CRUMBS, [L.selectedSkuTitles]: [".125"] },
+    ["the type was not chosen this run", { typeSelected: false, thicknessSelected: false, sessionConfirmed: true }, { ...CRUMBS, [L.selectedSkuTitles]: [".125"] },
       "selector_drift", "sendcutsend_material_path_incomplete"],
     ["the page shows another alloy", walked,
       { [L.materialCrumbs]: ["Categories", "Metals", "Aluminum", "5052 H32 Aluminum"], [L.selectedSkuTitles]: [".125"] },
       "selector_drift", "sendcutsend_material_unverified"],
     ["the page shows no material", walked, { [L.selectedSkuTitles]: [".125"] }, "selector_drift", "sendcutsend_material_unverified"],
+    // OVD-1056 review: no price is read unless the pre-upload guard confirmed a non-guest session.
+    ["the session was never confirmed", { ...walked, sessionConfirmed: false }, { ...CRUMBS, [L.selectedSkuTitles]: [".125"] },
+      "login_required", "sendcutsend_session_unconfirmed"],
     ["the session signed out after upload", walked, { ...CRUMBS, [L.selectedSkuTitles]: [".125"], [L.visibleLoginLink]: ["LOGIN"] },
       "login_required", "sendcutsend_signed_out"],
   ])("stops before reading a price when %s", async (_label, walk, texts, terminalState, reason) => {
@@ -625,19 +631,23 @@ describe("SendCutSend summary price", () => {
     const error = await Promise.resolve(definition.hooks.extractOffers(reader, await sheetInput())).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(VendorAutomationError);
     expect(error).toMatchObject({
-      payload: { reason: "sendcutsend_material_path_incomplete" },
-      artifacts: [{ label: "sendcutsend_material_path_incomplete" }],
+      payload: { reason: "sendcutsend_session_unconfirmed" },
+      artifacts: [{ label: "sendcutsend_session_unconfirmed" }],
     });
   });
 });
 
 describe("SendCutSend pre-upload guard", () => {
   const signedInPage = { [L.navbar]: ["Quote"], [L.uploadInput]: [""] };
-  const guard = (texts: Record<string, string[]>) =>
-    Promise.resolve(buildSendCutSendSheetPortalDefinition(FAST).hooks.beforeUpload?.(fakeReader(texts)));
+  const confirmed = { signedIn: true, detail: "status 200" };
+  const sessionReporting = (result: ProviderPortalSessionCheckResult) => ({ confirmSignedIn: vi.fn(async () => result) });
+  const guard = (texts: Record<string, string[]>, session: ProviderPortalSessionCapability | undefined = sessionReporting(confirmed)) =>
+    Promise.resolve(buildSendCutSendSheetPortalDefinition(FAST).hooks.beforeUpload?.(fakeReader(texts), session as ProviderPortalSessionCapability));
 
-  it("passes a rendered, signed-in page with one upload input", async () => {
-    await expect(guard(signedInPage)).resolves.toBeUndefined();
+  it("passes a rendered page with one upload input once the app confirms a non-guest user", async () => {
+    const session = sessionReporting(confirmed);
+    await expect(guard(signedInPage, session)).resolves.toBeUndefined();
+    expect(session.confirmSignedIn).toHaveBeenCalledWith(checkSendCutSendCurrentUser);
   });
 
   it.each([
@@ -649,6 +659,36 @@ describe("SendCutSend pre-upload guard", () => {
   ])("stops before upload on %s", async (_label, texts, terminalState, reason) => {
     await expect(guard(texts)).rejects.toMatchObject({ payload: { terminalState, reason, providerMutationPossible: false } });
   });
+
+  // OVD-1056 review: a navbar without a LOGIN link is not proof of a session.
+  it.each([
+    ["a guest user", { signedIn: false, detail: "guest user" }],
+    ["a user without a guest flag", { signedIn: false, detail: "status 200 without a guest flag" }],
+    ["a failed lookup", { signedIn: false, detail: "status 401" }],
+    ["an unresolved lookup", { signedIn: false, detail: "timed out" }],
+  ])("stops before upload when the app reports %s", async (_label, result) => {
+    await expect(guard(signedInPage, sessionReporting(result))).rejects.toMatchObject({
+      payload: { terminalState: "login_required", reason: "sendcutsend_session_unconfirmed", providerMutationPossible: false },
+      message: expect.stringContaining(result.detail),
+    });
+  });
+
+  it("stops before upload when no session check is available", async () => {
+    const beforeUpload = buildSendCutSendSheetPortalDefinition(FAST).hooks.beforeUpload!;
+    await expect(Promise.resolve(beforeUpload(fakeReader(signedInPage), undefined as never))).rejects.toMatchObject({
+      payload: { terminalState: "login_required", reason: "sendcutsend_session_unconfirmed" },
+    });
+  });
+
+  it("lets the offer reader run only after the guard confirmed the session", async () => {
+    const definition = buildSendCutSendSheetPortalDefinition(FAST);
+    const priced = fakeReader({ ...CRUMBS, [L.selectedSkuTitles]: [".125"], [L.unitPrice]: ["$31.40"], [L.totalPrice]: ["$31.40"] });
+    await expect(Promise.resolve(definition.hooks.beforeUpload?.(fakeReader(signedInPage), sessionReporting({ signedIn: false, detail: "guest user" }))))
+      .rejects.toMatchObject({ payload: { reason: "sendcutsend_session_unconfirmed" } });
+    await expect(Promise.resolve(definition.hooks.extractOffers(priced, await sheetInput())))
+      .rejects.toMatchObject({ payload: { terminalState: "login_required", reason: "sendcutsend_session_unconfirmed" } });
+    expect(priced.reads).not.toContain(L.unitPrice);
+  });
 });
 
 describe("SendCutSend saved session filter", () => {
@@ -657,7 +697,7 @@ describe("SendCutSend saved session filter", () => {
       cookies: [
         { name: "app", value: "v", domain: "app.sendcutsend.com" },
         { name: "rt", value: "v", domain: ".main.realtime.ably.net" },
-        { name: "cf", value: "v", domain: ".sendcutsend.com" },
+        { name: "cf", value: "v", domain: ".sendcutsend.com", path: "/" },
         { name: "w", value: "v", domain: "www.sendcutsend.com" },
         { name: "g", value: "v", domain: ".google.com" },
         { name: "i", value: "v", domain: ".intercom.io" },
@@ -669,17 +709,31 @@ describe("SendCutSend saved session filter", () => {
       ],
     });
     expect(filtered.keptCookies).toBe(3);
+    // The parent-domain cookie is rescoped to the app host, so it never reaches the CDN.
     expect(filtered.state.cookies).toEqual([
       { name: "app", value: "v", domain: "app.sendcutsend.com" },
       { name: "rt", value: "v", domain: ".main.realtime.ably.net" },
-      { name: "cf", value: "v", domain: ".sendcutsend.com" },
+      { name: "cf", value: "v", domain: "app.sendcutsend.com", path: "/" },
     ]);
-    expect(filtered.state.origins).toEqual([
-      { origin: "https://app.sendcutsend.com", localStorage: [] },
-      { origin: "https://sendcutsend.com", localStorage: [] },
-    ]);
+    expect(filtered.state.origins).toEqual([{ origin: "https://app.sendcutsend.com", localStorage: [] }]);
     expect(filtered.droppedCookieDomains).toEqual(["google.com", "intercom.io", "www.sendcutsend.com"]);
     expect(JSON.stringify(filtered.droppedCookieDomains)).not.toContain("value");
+  });
+
+  it("keeps an app-host cookie over a parent-domain cookie of the same name and path", () => {
+    const filtered = filterSendCutSendStorageState({
+      cookies: [
+        { name: "_session", value: "parent", domain: ".sendcutsend.com", path: "/" },
+        { name: "_session", value: "app", domain: "app.sendcutsend.com", path: "/" },
+        { name: "sendcutsend.com", value: "v", domain: "sendcutsend.com", path: "/x" },
+      ],
+      origins: [],
+    });
+    expect(filtered.state.cookies).toEqual([
+      { name: "_session", value: "app", domain: "app.sendcutsend.com", path: "/" },
+      { name: "sendcutsend.com", value: "v", domain: "app.sendcutsend.com", path: "/x" },
+    ]);
+    expect(filtered.droppedCookieDomains).toEqual([]);
   });
 
   it("returns an empty state for malformed input", () => {
@@ -693,5 +747,7 @@ describe("SendCutSend saved session filter", () => {
   it("uses the same host list the definition declares", () => {
     expect([...SENDCUTSEND_ALLOWED_HOSTS]).toEqual(buildSendCutSendSheetPortalDefinition().allowedHosts);
     expect(SENDCUTSEND_OFF_HOST_ALLOWLIST).not.toContain("app.sendcutsend.com");
+    // A listed parent domain would let the kernel accept cookies that ride along on CDN requests.
+    expect(SENDCUTSEND_ALLOWED_HOSTS).not.toContain("sendcutsend.com");
   });
 });

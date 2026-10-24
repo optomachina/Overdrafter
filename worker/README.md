@@ -244,7 +244,9 @@ parallel to the thin axis, identical cap profiles; tapers, pockets, steps,
 bends, holes with arcs and curves are refused). The harness reads the kill switch before
 launch and guards each quote like any provider-reaching vendor. The portal
 kernel walks the quote wizard (Sheet Cutting, Metals, Aluminum, 6061 T6
-Aluminum, `.125`) and reads the side-summary price only while signed in, with
+Aluminum, `.125`) and reads the side-summary price only while signed in (before
+upload the app's own `/users/current` must report a user with an id and an
+explicit `guest: false`; a header without a LOGIN link is not enough), with
 the dialog's material breadcrumbs ending in "Metals, Aluminum, 6061 T6
 Aluminum", once the dialog shows no loading overlay and the price reads the
 same for 2.5 seconds. It never clicks
@@ -260,7 +262,13 @@ QUOTE_VENDOR_STORAGE_STATE_DIR=/absolute/path/worker/state npm run auth:vendor -
 
 The tool keeps only the exact-host cookies (the kernel refuses a session with
 any other) and saves nothing unless SendCutSend reports a signed-in, non-guest
-user both before and after that filter. The
+user both before and after that filter. A cookie on the parent domain
+(`.sendcutsend.com`) is rescoped to `app.sendcutsend.com`, so it never rides
+along on requests to `cdn.sendcutsend.com` (the kernel ends a run on any
+off-host request that carries a cookie); a session file saved before this
+rule that still holds a parent-domain cookie is refused and must be saved
+again. A parent-domain cookie the site sets during a run still stops that run
+as `unexpected_origin`. The
 sheet lane has no production dispatch and does not change the provider
 registry.
 

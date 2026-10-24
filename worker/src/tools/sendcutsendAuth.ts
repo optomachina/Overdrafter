@@ -1,4 +1,5 @@
 import {
+  checkSendCutSendCurrentUser,
   filterSendCutSendStorageState,
   SENDCUTSEND_ALLOWED_HOSTS,
   SENDCUTSEND_QUOTE_URL,
@@ -47,11 +48,9 @@ export const SENDCUTSEND_SESSION_CHECK_TIMEOUT_MS = 15_000;
 export type SendCutSendSessionCheck = { signedIn: boolean; detail: string };
 
 /**
- * Asks the app whether a signed-in, non-guest user is present, with the same
- * headers SendCutSend's own API helper sends (JSON, CSRF meta token, client
- * GUID). It runs in the page and returns only a boolean and a status; the
- * response body never leaves the page. The fetch aborts after 10 s inside
- * the page and the whole check is raced against `timeoutMs`.
+ * Runs the shared in-page check (`checkSendCutSendCurrentUser`) on the quote
+ * page: only a boolean and a status come back, never the body. The whole
+ * check is raced against `timeoutMs`.
  */
 async function checkSignedInUser(page: SessionPage, timeoutMs: number): Promise<SendCutSendSessionCheck> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -60,28 +59,13 @@ async function checkSignedInUser(page: SessionPage, timeoutMs: number): Promise<
   });
   const check = (async () => {
     await page.goto(SENDCUTSEND_QUOTE_URL, { waitUntil: "domcontentloaded" });
-    return page.evaluate(async () => {
-      const controller = new AbortController();
-      const abort = setTimeout(() => controller.abort(), 10_000);
-      try {
-        const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
-        const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-        if (csrf) headers["X-CSRF-Token"] = csrf;
-        const clientGuid = (window as { appData?: { clientGuid?: unknown } }).appData?.clientGuid;
-        if (typeof clientGuid === "string" && clientGuid) headers["X-Client-Guid"] = clientGuid;
-        const response = await fetch("/users/current", { credentials: "same-origin", headers, signal: controller.signal });
-        if (response.status !== 200) return { signedIn: false, detail: `status ${response.status}` };
-        const user = await response.json() as { id?: unknown; guest?: unknown } | null;
-        if (!user || (typeof user.id !== "number" && typeof user.id !== "string")) {
-          return { signedIn: false, detail: "status 200 without a user" };
-        }
-        return user.guest ? { signedIn: false, detail: "guest user" } : { signedIn: true, detail: "status 200" };
-      } catch {
-        return { signedIn: false, detail: "request failed" };
-      } finally {
-        clearTimeout(abort);
-      }
-    });
+    const result: unknown = await page.evaluate(checkSendCutSendCurrentUser);
+    const record = result !== null && typeof result === "object" ? result as Record<string, unknown> : {};
+    // Only an explicit `true` counts; anything malformed is not signed in.
+    return {
+      signedIn: record.signedIn === true,
+      detail: typeof record.detail === "string" ? record.detail : "malformed session check",
+    };
   })().catch(() => ({ signedIn: false, detail: "page check failed" }));
   try {
     return await Promise.race([check, deadline]);

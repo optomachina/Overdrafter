@@ -1595,6 +1595,41 @@ describe("provider portal finite states and offers", () => {
   });
 });
 
+describe("provider portal session capability (OVD-1056)", () => {
+  async function confirmWith(evaluate: (fn: unknown) => Promise<unknown>) {
+    const fake = fakeBrowser();
+    Object.assign(fake.page, { evaluate: vi.fn(evaluate) });
+    const results: unknown[] = [];
+    const probe = async () => ({ signedIn: true, detail: "probe" });
+    const checked = definition({
+      hooks: {
+        ...definition().hooks,
+        beforeUpload: async (_reader, session) => { results.push(await session.confirmSignedIn(probe)); },
+      },
+    });
+    await runProviderPortalKernel(checked, config(), await input(), {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch(() => undefined);
+    return { results, evaluate: (fake.page as unknown as { evaluate: ReturnType<typeof vi.fn> }).evaluate, probe };
+  }
+
+  it("runs the definition's check in the page and returns only the yes/no and a short detail", async () => {
+    const { results, evaluate, probe } = await confirmWith(async () => ({ signedIn: true, detail: "status 200", body: { email: "x" } }));
+    expect(evaluate).toHaveBeenCalledWith(probe);
+    expect(results[0]).toEqual({ signedIn: true, detail: "status 200" });
+  });
+
+  it.each([
+    ["a truthy non-boolean", async () => ({ signedIn: "yes", detail: "status 200" }), { signedIn: false, detail: "status 200" }],
+    ["a malformed result", async () => null, { signedIn: false, detail: "malformed session check" }],
+    ["a thrown check", async () => { throw new Error("evaluate failed"); }, { signedIn: false, detail: "page check failed" }],
+  ])("reports not signed in for %s", async (_label, evaluate, expected) => {
+    const { results } = await confirmWith(evaluate);
+    expect(results[0]).toEqual(expected);
+  });
+});
+
 describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", () => {
   it("refuses before navigation when the switch is engaged: the page is never loaded", async () => {
     const fake = fakeBrowser();
@@ -1671,6 +1706,32 @@ describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", 
     expect(state.reads).toEqual(["before_navigation", "before_upload", "before_upload"]);
     expect(fake.setInputFiles).not.toHaveBeenCalled();
     expect(fake.fill).not.toHaveBeenCalled();
+    expect(phase.started).toBe(false);
+  });
+
+  it("engaged while the pre-upload guard waits: the switch is re-read after the guard and the CAD upload never starts", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    const { state, approved } = await switchableInput();
+    let guardCalls = 0;
+    const guarded = definition({
+      hooks: {
+        ...definition().hooks,
+        // The second call is the one right before upload; the admin flips the switch while it waits.
+        beforeUpload: async () => {
+          guardCalls += 1;
+          if (guardCalls === 2) state.engaged = true;
+        },
+      },
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(guarded, config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(guardCalls).toBe(2);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(state.reads).toEqual(["before_navigation", "before_upload", "before_upload"]);
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
     expect(phase.started).toBe(false);
   });
 

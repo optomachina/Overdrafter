@@ -8,6 +8,8 @@ import {
   type ProviderPortalEligibility,
   type ProviderPortalOfferCandidate,
   type ProviderPortalReadCapability,
+  type ProviderPortalSessionCapability,
+  type ProviderPortalSessionCheckResult,
   type ProviderPortalSnapshot,
   type ProviderPortalState,
 } from "./providerPortalKernel.js";
@@ -24,12 +26,15 @@ const SENDCUTSEND_APP_HOST = "app.sendcutsend.com";
  * Rails app itself, and Ably realtime, which the page calls on load (a token
  * POST and a WebSocket). The kernel treats either as a boundary violation
  * unless it is listed, and the operator approval names every host here. The
- * apex `sendcutsend.com` is listed because SendCutSend may keep its session
- * cookie on the parent domain, and the kernel admits a saved cookie only for
- * a listed host; the classifier still treats any page outside the app as
- * `unexpected_origin`.
+ * apex `sendcutsend.com` is deliberately absent: a saved cookie on the parent
+ * domain would ride along on every CDN request, and the kernel ends the run
+ * on any credential-bearing off-host request. The session filter rescopes
+ * such cookies to the app host instead (see `filterSendCutSendStorageState`).
  */
-export const SENDCUTSEND_ALLOWED_HOSTS = [SENDCUTSEND_APP_HOST, "main.realtime.ably.net", "sendcutsend.com"] as const;
+export const SENDCUTSEND_ALLOWED_HOSTS = [SENDCUTSEND_APP_HOST, "main.realtime.ably.net"] as const;
+
+/** The parent domain whose cookies the session filter moves onto the app host. */
+const SENDCUTSEND_PARENT_DOMAIN = "sendcutsend.com";
 
 /** SendCutSend's own CDN serves the page's stylesheets, fonts and images; body-less requests only. */
 export const SENDCUTSEND_OFF_HOST_ALLOWLIST = ["cdn.sendcutsend.com"] as const;
@@ -339,10 +344,12 @@ export function assessSendCutSendSheetEligibility(input: VendorQuoteAdapterInput
 export type SendCutSendWizardWalk = {
   typeSelected: boolean;
   thicknessSelected: boolean;
+  /** Set only by the pre-upload guard once the app confirmed a signed-in, non-guest user. */
+  sessionConfirmed: boolean;
 };
 
 export function newSendCutSendWizardWalk(): SendCutSendWizardWalk {
-  return { typeSelected: false, thicknessSelected: false };
+  return { typeSelected: false, thicknessSelected: false, sessionConfirmed: false };
 }
 
 /**
@@ -488,6 +495,9 @@ export async function extractSendCutSendSheetOffers(
   waits: SendCutSendWaits = {},
 ): Promise<ProviderPortalOfferCandidate[]> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
+  if (!walk.sessionConfirmed) {
+    throw terminal("login_required", "sendcutsend_session_unconfirmed", "the signed-in session was never confirmed");
+  }
   await assertExactStockSelected(reader, walk);
   const stableMs = waits.priceStableMs ?? SENDCUTSEND_PRICE_STABLE_MS;
   let streak: { key: string; since: number; reads: number } | null = null;
@@ -582,15 +592,61 @@ export function classifySendCutSendPortalState(snapshot: ProviderPortalSnapshot)
 }
 
 /**
+ * Asks the app whether a signed-in, non-guest user is present, with the same
+ * headers SendCutSend's own API helper sends (JSON, CSRF meta token, client
+ * GUID). It runs inside the page, so it must stay self-contained (no
+ * closures or helpers), and it returns only a boolean and a status; the
+ * response body never leaves the page. Only an id plus an explicit
+ * `guest: false` counts: a missing or null guest flag is not evidence. The
+ * fetch aborts after 10 s. Shared by the session save and the pre-upload guard.
+ */
+export async function checkSendCutSendCurrentUser(): Promise<ProviderPortalSessionCheckResult> {
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
+    const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const clientGuid = (window as { appData?: { clientGuid?: unknown } }).appData?.clientGuid;
+    if (typeof clientGuid === "string" && clientGuid) headers["X-Client-Guid"] = clientGuid;
+    const response = await fetch("/users/current", { credentials: "same-origin", headers, signal: controller.signal });
+    if (response.status !== 200) return { signedIn: false, detail: `status ${response.status}` };
+    const user: unknown = await response.json();
+    if (user === null || typeof user !== "object" || Array.isArray(user)) {
+      return { signedIn: false, detail: "status 200 without a user" };
+    }
+    const { id, guest } = user as { id?: unknown; guest?: unknown };
+    const hasId = (typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+      || (typeof id === "string" && id.trim() !== "");
+    if (!hasId) return { signedIn: false, detail: "status 200 without a user" };
+    if (guest === true) return { signedIn: false, detail: "guest user" };
+    if (guest !== false) return { signedIn: false, detail: "status 200 without a guest flag" };
+    return { signedIn: true, detail: "status 200" };
+  } catch {
+    return { signedIn: false, detail: "request failed" };
+  } finally {
+    clearTimeout(abort);
+  }
+}
+
+/**
  * Read-only guard before classification and again before upload. The header
  * resolves the session asynchronously, so it must render and then show no
  * visible sign-in link for `sessionSettleMs` (the link's text may share a
- * line with other items, so the element is checked, not the page text).
- * There must be exactly one upload input, and no wizard or summary left open
- * by an earlier part.
+ * line with other items, so the element is checked, not the page text). An
+ * absent sign-in link is not proof of a session, so the app must then
+ * confirm a signed-in, non-guest user (`checkSendCutSendCurrentUser`); only
+ * that confirmation lets the offer reader run. There must be exactly one
+ * upload input, and no wizard or summary left open by an earlier part.
  */
-async function guardBeforeUpload(reader: ProviderPortalReadCapability, waits: SendCutSendWaits = {}): Promise<void> {
+async function guardBeforeUpload(
+  reader: ProviderPortalReadCapability,
+  session: ProviderPortalSessionCapability | undefined,
+  walk: SendCutSendWizardWalk,
+  waits: SendCutSendWaits = {},
+): Promise<void> {
   const locators = SENDCUTSEND_SHEET_LOCATORS;
+  walk.sessionConfirmed = false;
   const settleMs = waits.sessionSettleMs ?? SENDCUTSEND_SESSION_SETTLE_MS;
   let quietSince: number | null = null;
   const settled = await within(waits.sessionWaitMs ?? SENDCUTSEND_SESSION_WAIT_MS, async () => {
@@ -605,6 +661,16 @@ async function guardBeforeUpload(reader: ProviderPortalReadCapability, waits: Se
   if (!settled) {
     await assertSignedIn(reader, false);
     throw terminal("selector_drift", "sendcutsend_header_missing", "the page header did not render", false);
+  }
+  const check = session ? await session.confirmSignedIn(checkSendCutSendCurrentUser)
+    : { signedIn: false, detail: "no session check" };
+  if (!check.signedIn) {
+    throw terminal(
+      "login_required",
+      "sendcutsend_session_unconfirmed",
+      `the app did not confirm a signed-in, non-guest user (${check.detail})`,
+      false,
+    );
   }
   if (await reader.count(locators.uploadInput) !== 1) {
     throw terminal("selector_drift", "sendcutsend_upload_input_ambiguous", "the upload input is missing or not unique", false);
@@ -692,7 +758,11 @@ export function buildSendCutSendSheetPortalDefinition(
     terminalSignals: SENDCUTSEND_TERMINAL_SIGNALS,
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     hooks: {
-      beforeUpload: (reader) => guardBeforeUpload(reader, options),
+      beforeUpload: async (reader, session) => {
+        await guardBeforeUpload(reader, session, walk, options);
+        // Confirmed only once every pre-upload check has passed.
+        walk.sessionConfirmed = true;
+      },
       assessEligibility: assessSendCutSendSheetEligibility,
       configure: (configuration, input) => configureSendCutSendSheet(configuration, input, walk, options),
       classifyPortalState: classifySendCutSendPortalState,
@@ -701,14 +771,16 @@ export function buildSendCutSendSheetPortalDefinition(
   };
 }
 
-type StorageStateCookie = { domain?: unknown };
+type StorageStateCookie = { domain?: unknown; name?: unknown; path?: unknown };
 type StorageStateOrigin = { origin?: unknown };
 
 /**
  * The kernel refuses a saved session that holds any cookie or origin outside
  * the definition's exact hosts, and a manual sign-in also collects cookies
  * from analytics, chat and payment scripts. Keep only the exact-host entries
- * and report the dropped cookie domains (never names or values).
+ * and report the dropped cookie domains (never names or values). A cookie
+ * on the parent domain (`.sendcutsend.com`) is kept but rescoped to the app
+ * host, so it reaches the app and never rides along on CDN requests.
  */
 export function filterSendCutSendStorageState(state: unknown): {
   state: { cookies: unknown[]; origins: unknown[] };
@@ -722,8 +794,14 @@ export function filterSendCutSendStorageState(state: unknown): {
   const cookieHost = (cookie: StorageStateCookie) => typeof cookie?.domain === "string"
     ? cookie.domain.trim().toLowerCase().replace(/^\./, "")
     : "";
-  const kept = cookies.filter((cookie) => allowed.has(cookieHost(cookie)));
-  const dropped = [...new Set(cookies.filter((cookie) => !allowed.has(cookieHost(cookie))).map(cookieHost))].sort();
+  const isParent = (cookie: StorageStateCookie) => cookieHost(cookie) === SENDCUTSEND_PARENT_DOMAIN;
+  const slot = (cookie: StorageStateCookie) => `${String(cookie?.name)}\u0000${String(cookie?.path ?? "/")}`;
+  const appSlots = new Set(cookies.filter((cookie) => cookieHost(cookie) === SENDCUTSEND_APP_HOST).map(slot));
+  // An app-host cookie of the same name and path wins over a rescoped parent one.
+  const kept = cookies.filter((cookie) => allowed.has(cookieHost(cookie)) || (isParent(cookie) && !appSlots.has(slot(cookie))))
+    .map((cookie) => isParent(cookie) ? { ...cookie, domain: SENDCUTSEND_APP_HOST } : cookie);
+  const dropped = [...new Set(cookies.filter((cookie) => !allowed.has(cookieHost(cookie)) && !isParent(cookie))
+    .map(cookieHost))].sort();
   const keptOrigins = origins.filter((entry) => {
     if (typeof entry?.origin !== "string") return false;
     try {

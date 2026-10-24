@@ -4,10 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { checkSendCutSendCurrentUser } from "../adapters/sendcutsendPortal";
 import { saveSendCutSendSession, SENDCUTSEND_SESSION_BOOTSTRAP } from "./sendcutsendAuth";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -111,5 +113,82 @@ describe("SendCutSend session save", () => {
       session({ state: { cookies: [signedIn.cookies[1]], origins: [] } }).session, target, () => undefined,
     )).rejects.toThrow(/No SendCutSend app cookie/);
     await expect(fs.stat(target)).rejects.toThrow();
+  });
+});
+
+/** Stubs the page globals the in-page evaluator reads; `respond` answers the /users/current fetch. */
+function stubPage(respond: () => Promise<Response>) {
+  const fetch = vi.fn(async (_url: string, _init?: RequestInit) => respond());
+  vi.stubGlobal("fetch", fetch);
+  vi.stubGlobal("document", { querySelector: () => ({ content: "csrf-token-value" }) });
+  vi.stubGlobal("window", { appData: { clientGuid: "client-guid" } });
+  return fetch;
+}
+
+const json = (body: unknown, status = 200) => async () => new Response(JSON.stringify(body), { status });
+
+/** A page whose evaluate runs the function it is given, as Playwright does in the browser. */
+function evaluatingPage() {
+  return {
+    goto: vi.fn(async () => undefined),
+    evaluate: (async (fn: () => Promise<unknown>) => fn()) as <T>(fn: () => Promise<T>) => Promise<T>,
+  };
+}
+
+describe("SendCutSend current-user check (the real in-page evaluator)", () => {
+  it("confirms only an id with an explicit guest: false, sending the app's own headers", async () => {
+    const fetch = stubPage(json({ id: 42, guest: false, email: "operator@example.com" }));
+    await expect(checkSendCutSendCurrentUser()).resolves.toEqual({ signedIn: true, detail: "status 200" });
+    expect(fetch).toHaveBeenCalledWith("/users/current", expect.objectContaining({
+      credentials: "same-origin",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token-value", "X-Client-Guid": "client-guid" }),
+    }));
+  });
+
+  it.each([
+    ["no guest flag", json({ id: 1 }), "status 200 without a guest flag"],
+    ["a null guest flag", json({ id: 1, guest: null }), "status 200 without a guest flag"],
+    ["a non-boolean guest flag", json({ id: 1, guest: 0 }), "status 200 without a guest flag"],
+    ["a guest user", json({ id: 1, guest: true }), "guest user"],
+    ["no id", json({ guest: false }), "status 200 without a user"],
+    ["an empty id", json({ id: " ", guest: false }), "status 200 without a user"],
+    ["a non-positive id", json({ id: 0, guest: false }), "status 200 without a user"],
+    ["a null body", json(null), "status 200 without a user"],
+    ["an array body", json([{ id: 1, guest: false }]), "status 200 without a user"],
+    ["a malformed body", async () => new Response("<html>", { status: 200 }), "request failed"],
+    ["an error status", json({ id: 1, guest: false }, 401), "status 401"],
+    ["a server error", json({ error: "boom" }, 500), "status 500"],
+    ["a network failure", async () => { throw new TypeError("network"); }, "request failed"],
+  ])("does not confirm %s", async (_label, respond, detail) => {
+    stubPage(respond as () => Promise<Response>);
+    await expect(checkSendCutSendCurrentUser()).resolves.toEqual({ signedIn: false, detail });
+  });
+
+  it("saves nothing when the real evaluator sees a user without an explicit guest flag", async () => {
+    stubPage(json({ id: 1 }));
+    const target = await outputPath();
+    const { session: headed } = session();
+    await expect(saveSendCutSendSession({ ...headed, page: evaluatingPage() }, target, () => undefined))
+      .rejects.toThrow(/did not report a signed-in user \(status 200 without a guest flag\)/);
+    await expect(fs.stat(target)).rejects.toThrow();
+  });
+
+  it("saves through the real evaluator once it confirms a non-guest user in both contexts", async () => {
+    stubPage(json({ id: 1, guest: false }));
+    const target = await outputPath();
+    const { session: headed } = session();
+    headed.browser.newContext.mockResolvedValueOnce({
+      storageState: async () => ({}), newPage: async () => evaluatingPage(), close: vi.fn(async () => undefined),
+    });
+    await saveSendCutSendSession({ ...headed, page: evaluatingPage() }, target, () => undefined);
+    expect(JSON.parse(await fs.readFile(target, "utf8")).cookies).toEqual([signedIn.cookies[0]]);
+  });
+
+  it("does not trust a check result that is not an explicit true", async () => {
+    const target = await outputPath();
+    const { session: headed } = session();
+    const truthy = { goto: vi.fn(async () => undefined), evaluate: vi.fn(async () => ({ signedIn: "yes" })) };
+    await expect(saveSendCutSendSession({ ...headed, page: truthy as never }, target, () => undefined))
+      .rejects.toThrow(/did not report a signed-in user \(malformed session check\)/);
   });
 });
