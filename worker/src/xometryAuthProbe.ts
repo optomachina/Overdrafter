@@ -738,7 +738,8 @@ export async function runBoundedXometryAuthProbe(
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
     };
-  } catch {
+  } catch (diagError) {
+    console.error("DIAG navigation_or_inspection cause:", diagError, "url-at-failure:", (() => { try { const u = new URL(page.url()); return u.hostname + u.pathname; } catch { return "?"; } })());
     throw new Error(
       "Xometry authentication probe navigation or inspection failed.",
     );
