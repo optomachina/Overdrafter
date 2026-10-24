@@ -1970,7 +1970,7 @@ async function captureCatalogOption(
   });
 }
 
-async function configureRequiredOption(
+export async function configureRequiredOption(
   page: Page,
   terms: string[],
   controlSelectors: readonly string[],
@@ -1988,7 +1988,7 @@ async function configureRequiredOption(
 // geometry or an attached drawing. Process goes first because changing it
 // reloads the material and finish catalogs.
 const AUTO_SELECTED_FIELDS = ["process", "material", "finish"] as const;
-type AutoSelectedField = (typeof AUTO_SELECTED_FIELDS)[number];
+export type AutoSelectedField = (typeof AUTO_SELECTED_FIELDS)[number];
 
 const AUTO_SELECTED_FIELD_CONTROLS = {
   process: {
@@ -2013,7 +2013,7 @@ const AUTO_SELECTED_FIELD_CONTROLS = {
  * control or option Xometry does not offer is left in place so the saved
  * summary read-back reports it as saved_requirement_mismatch.
  */
-async function overwriteAutoSelectedRequirements(
+export async function overwriteAutoSelectedRequirements(
   page: Page,
   fields: readonly AutoSelectedField[],
   terms: Record<AutoSelectedField, string[]>,
@@ -2037,7 +2037,7 @@ async function overwriteAutoSelectedRequirements(
   return selections;
 }
 
-async function saveConfiguration(
+export async function saveConfiguration(
   page: Page,
   timeoutMs: number,
   beforeSave: () => Promise<void> = async () => undefined,
@@ -2202,7 +2202,7 @@ async function readLineItemQuantities(page: Page) {
  * requested quantity. The summary `Quantity` row is never trusted for this:
  * the T1 page rendered it as a bare label with no number.
  */
-async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
+export async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
   const readback = await readLineItemQuantities(page);
   if (readback.values.length === 0 || readback.values.includes(null)) {
     return { reason: "quantity_unverified" as const, ...readback };
@@ -2219,7 +2219,7 @@ async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
  * Explicit summary quantities always take precedence, including contradictory
  * values, so callers can use the result for fail-closed verification.
  */
-async function readQuoteSummaryText(page: Page) {
+export async function readQuoteSummaryText(page: Page) {
   const bodyText = await readBodyText(page);
   const explicitQuantities = Array.from(
     bodyText.matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
@@ -2237,7 +2237,7 @@ async function readQuoteSummaryText(page: Page) {
   return bodyText;
 }
 
-async function openPartConfigurationIfNeeded(
+export async function openPartConfigurationIfNeeded(
   page: Page,
   timeoutMs: number,
 ) {
@@ -2287,7 +2287,7 @@ export function selectToleranceTier(toleranceInch: number | null) {
   };
 }
 
-async function setTolerance(page: Page, toleranceInch: number | null) {
+export async function setTolerance(page: Page, toleranceInch: number | null) {
   const selection = selectToleranceTier(toleranceInch);
   if (selection.selector === null) {
     return selection;
@@ -2599,7 +2599,7 @@ async function attachDrawingFallback(
   return null;
 }
 
-type SavedRequirementCheck = {
+export type SavedRequirementCheck = {
   quantity: number;
   processTerms: string[];
   materialTerms: string[];
@@ -2623,7 +2623,7 @@ const QUOTE_SUMMARY_FIELD_LABELS = [
   "Price and Lead Time",
 ] as const;
 
-function readQuoteSummaryField(bodyText: string, label: string) {
+export function readQuoteSummaryField(bodyText: string, label: string) {
   const summary = bodyText.replace(/\s+/g, " ").trim();
   const followingLabels = QUOTE_SUMMARY_FIELD_LABELS
     .filter((candidate) => candidate !== label)
@@ -2636,7 +2636,7 @@ function readQuoteSummaryField(bodyText: string, label: string) {
   return match?.[1]?.trim() ?? null;
 }
 
-function findExactTermMatch(text: string, terms: string[]) {
+export function findExactTermMatch(text: string, terms: string[]) {
   return (
     terms.find((term) =>
       new RegExp(
@@ -2672,7 +2672,7 @@ export function toleranceSummaryMatches(bodyText: string, tier: string | null) {
   }
 }
 
-function verifySavedRequirements(
+export function verifySavedRequirements(
   bodyText: string,
   expected: SavedRequirementCheck,
 ) {
@@ -2737,7 +2737,7 @@ function verifySavedRequirements(
  * visibly shows a value Xometry selected on its own, so the adapter can
  * overwrite it. A missing field is left to saved-requirement verification.
  */
-function autoSelectedRequirementMismatches(
+export function autoSelectedRequirementMismatches(
   bodyText: string,
   expected: SavedRequirementCheck,
 ): AutoSelectedField[] {
