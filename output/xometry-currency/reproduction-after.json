@@ -1,0 +1,13 @@
+{
+  "code": "unexpected_ui_state",
+  "payload": {
+    "vendor": "xometry",
+    "reason": "xometry_offer_currency_untrusted",
+    "containerSelector": "[data-synthetic-option]",
+    "optionIndex": 0,
+    "observedCurrencies": [
+      "CAD"
+    ],
+    "providerText": "Standard\nCAD $100.00\n5 business days"
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "contract": "quote-intelligence-review.v1",
+  "localOnly": true,
+  "dispatchAllowed": false,
+  "publicationAllowed": false,
+  "quote": {
+    "selected": null,
+    "flags": [],
+    "status": "manual_review",
+    "publicationAllowed": false
+  },
+  "catalog": {
+    "status": "clarify",
+    "option": null
+  },
+  "clarification": {
+    "templateId": "none",
+    "template": null,
+    "validationErrors": []
+  },
+  "relevance": {
+    "sourceEvidence": [
+      {
+        "id": "spec",
+        "text": "Material 6061-T6, revision C, quantity 12, clear anodized.",
+        "kind": "mandatory_spec"
+      },
+      {
+        "id": "authorization",
+        "text": "Review only; vendor submission has no authorization.",
+        "kind": "authorization"
+      },
+      {
+        "id": "unknown",
+        "text": "Customer attachment awaits classification.",
+        "kind": "unknown"
+      },
+      {
+        "id": "unrelated",
+        "text": "The office picnic is on Saturday by the lake.",
+        "kind": "optional",
+        "removableCategory": "social"
+      }
+    ],
+    "retained": [
+      {
+        "id": "spec",
+        "text": "Material 6061-T6, revision C, quantity 12, clear anodized.",
+        "kind": "mandatory_spec"
+      },
+      {
+        "id": "authorization",
+        "text": "Review only; vendor submission has no authorization.",
+        "kind": "authorization"
+      },
+      {
+        "id": "unknown",
+        "text": "Customer attachment awaits classification.",
+        "kind": "unknown"
+      },
+      {
+        "id": "unrelated",
+        "text": "The office picnic is on Saturday by the lake.",
+        "kind": "optional",
+        "removableCategory": "social"
+      }
+    ],
+    "removedIds": []
+  },
+  "audit": [
+    {
+      "questionHash": "4194e578851c061a51ac4b68ebdca33634c1072e5aca30a5c1ae87271e33401a",
+      "mode": "off",
+      "baseline": "none",
+      "proposed": null,
+      "selected": "none",
+      "reason": "off",
+      "model": null,
+      "elapsedMs": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "questionHash": "f830c222abd44c8f6a10232a16c259a1365099098ca54f4fb1c6e186d84bdc66",
+      "mode": "off",
+      "baseline": "abstain",
+      "proposed": null,
+      "selected": "abstain",
+      "reason": "off",
+      "model": null,
+      "elapsedMs": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "questionHash": "3e44673cc0be06e8f4db7cf1d956e1c3999e85549516acf0cb59c309331a2cf8",
+      "mode": "off",
+      "baseline": "clarify",
+      "proposed": null,
+      "selected": "clarify",
+      "reason": "off",
+      "model": null,
+      "elapsedMs": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "questionHash": "f3100ac5d39d60832c6283ac09368309c7162d056adbdbc434f5cec0ef02b29b",
+      "mode": "off",
+      "baseline": "keep",
+      "proposed": null,
+      "selected": "keep",
+      "reason": "off",
+      "model": null,
+      "elapsedMs": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  ]
+}
