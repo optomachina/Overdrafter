@@ -716,9 +716,9 @@ jobs:
             exit 1
           fi
 
-          # The gate legitimately skips when no corpus or provider key exists,
-          # but a real failure must block the merge.
-          if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
+          # Internal step skips still leave the job successful. Any other job
+          # result, including a timeout reported as cancelled, must block the merge.
+          if [ "$EXTRACTION_GATE_RESULT" != "success" ]; then
             exit 1
           fi
 
@@ -743,7 +743,7 @@ jobs:
       # Values: report (default; unset or anything else) or enforce. Flipping
       # the variable to enforce requires Blaine's approval. The mode governs
       # only the parsed result line (fail/error: warning in report, fail in
-      # enforce); a failed extraction-gate job fails ci above in every mode.
+      # enforce); any unsuccessful extraction-gate job fails ci above in every mode.
       - name: Decide extraction gate
         if: ${{ always() }}
         env:
