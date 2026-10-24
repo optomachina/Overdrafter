@@ -131,48 +131,51 @@ function assertIsoDate(value, label) {
   return value;
 }
 
-function assertProviderRow(row, index) {
-  const label = `providers[${index}]`;
-  const provider = requireObject(row, label);
+function assertNonEmptyString(value, label) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} is required`);
+  }
+}
+
+function assertOptionalString(value, label) {
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(`${label} must be a string`);
+  }
+}
+
+function assertEnumMember(allowed, value, label) {
+  if (!allowed.includes(value)) {
+    throw new Error(`${label} is invalid`);
+  }
+}
+
+function assertProviderIdentity(provider, label) {
   if (typeof provider.key !== "string" || !PROVIDER_KEY_PATTERN.test(provider.key)) {
     throw new Error(`${label}.key is invalid`);
   }
-  if (typeof provider.displayName !== "string" || provider.displayName.trim().length === 0) {
-    throw new Error(`${label}.displayName is required`);
-  }
+  assertNonEmptyString(provider.displayName, `${label}.displayName`);
   if (typeof provider.in_1_0 !== "boolean") {
     throw new Error(`${label}.in_1_0 must be a boolean`);
   }
-  if (!API_AVAILABILITIES.includes(provider.api_availability)) {
-    throw new Error(`${label}.api_availability is invalid`);
-  }
+  assertEnumMember(API_AVAILABILITIES, provider.api_availability, `${label}.api_availability`);
+  assertEnumMember(TOS_STANCES, provider.tos_stance, `${label}.tos_stance`);
+  assertEnumMember(PERMISSION_STATUSES, provider.permission_status, `${label}.permission_status`);
+}
+
+function assertProviderClauseAndContact(provider, label) {
   const clause = requireObject(provider.tos_automation_clause, `${label}.tos_automation_clause`);
-  if (typeof clause.quote !== "string" || clause.quote.trim().length === 0) {
-    throw new Error(`${label}.tos_automation_clause.quote is required`);
-  }
-  if (typeof clause.url !== "string" || !/^https:\/\//.test(clause.url)) {
+  assertNonEmptyString(clause.quote, `${label}.tos_automation_clause.quote`);
+  if (typeof clause.url !== "string" || !clause.url.startsWith("https://")) {
     throw new Error(`${label}.tos_automation_clause.url must be an https URL`);
   }
-  if (!TOS_STANCES.includes(provider.tos_stance)) {
-    throw new Error(`${label}.tos_stance is invalid`);
-  }
-  if (typeof provider.partner_program !== "string" || provider.partner_program.trim().length === 0) {
-    throw new Error(`${label}.partner_program is required`);
-  }
+  assertNonEmptyString(provider.partner_program, `${label}.partner_program`);
   const contact = requireObject(provider.contact, `${label}.contact`);
-  if (typeof contact.role !== "string" || contact.role.trim().length === 0) {
-    throw new Error(`${label}.contact.role is required`);
-  }
-  if (contact.published_address !== undefined && typeof contact.published_address !== "string") {
-    throw new Error(`${label}.contact.published_address must be a string`);
-  }
-  if (contact.published_url !== undefined && typeof contact.published_url !== "string") {
-    throw new Error(`${label}.contact.published_url must be a string`);
-  }
-  if (!PERMISSION_STATUSES.includes(provider.permission_status)) {
-    throw new Error(`${label}.permission_status is invalid`);
-  }
-  assertIsoDate(provider.date_checked, `${label}.date_checked`);
+  assertNonEmptyString(contact.role, `${label}.contact.role`);
+  assertOptionalString(contact.published_address, `${label}.contact.published_address`);
+  assertOptionalString(contact.published_url, `${label}.contact.published_url`);
+}
+
+function assertProviderKillSwitchPointer(provider, label) {
   const killSwitch = requireObject(provider.kill_switch_state, `${label}.kill_switch_state`);
   if (killSwitch.source !== "OVD-722") {
     throw new Error(`${label}.kill_switch_state must point at OVD-722`);
@@ -180,29 +183,44 @@ function assertProviderRow(row, index) {
   if (typeof killSwitch.pointer !== "string" || !killSwitch.pointer.includes("provider_kill_switches")) {
     throw new Error(`${label}.kill_switch_state.pointer must name the OVD-722 table`);
   }
-  if (provider.written_permission !== null) {
-    const permission = requireObject(provider.written_permission, `${label}.written_permission`);
-    if (typeof permission.recorded !== "boolean") {
-      throw new Error(`${label}.written_permission.recorded must be a boolean`);
-    }
-    if (typeof permission.reference !== "string" || permission.reference.trim().length === 0) {
-      throw new Error(`${label}.written_permission.reference is required`);
-    }
-    assertIsoDate(permission.recorded_on, `${label}.written_permission.recorded_on`);
+}
+
+function assertWrittenPermissionShape(provider, label) {
+  if (provider.written_permission === null) {
+    return;
   }
-  if (typeof provider.enabled_for_paid_automation !== "boolean") {
-    throw new Error(`${label}.enabled_for_paid_automation must be a boolean`);
+  const permission = requireObject(provider.written_permission, `${label}.written_permission`);
+  if (typeof permission.recorded !== "boolean") {
+    throw new Error(`${label}.written_permission.recorded must be a boolean`);
   }
+  assertNonEmptyString(permission.reference, `${label}.written_permission.reference`);
+  assertIsoDate(permission.recorded_on, `${label}.written_permission.recorded_on`);
+}
+
+function assertProviderReplies(provider, label) {
   if (!Array.isArray(provider.replies)) {
     throw new Error(`${label}.replies must be an array`);
   }
   for (const [replyIndex, reply] of provider.replies.entries()) {
-    requireObject(reply, `${label}.replies[${replyIndex}]`);
-    assertIsoDate(reply.on, `${label}.replies[${replyIndex}].on`);
-    if (typeof reply.summary !== "string" || reply.summary.trim().length === 0) {
-      throw new Error(`${label}.replies[${replyIndex}].summary is required`);
-    }
+    const replyLabel = `${label}.replies[${replyIndex}]`;
+    requireObject(reply, replyLabel);
+    assertIsoDate(reply.on, `${replyLabel}.on`);
+    assertNonEmptyString(reply.summary, `${replyLabel}.summary`);
   }
+}
+
+function assertProviderRow(row, index) {
+  const label = `providers[${index}]`;
+  const provider = requireObject(row, label);
+  assertProviderIdentity(provider, label);
+  assertProviderClauseAndContact(provider, label);
+  assertIsoDate(provider.date_checked, `${label}.date_checked`);
+  assertProviderKillSwitchPointer(provider, label);
+  assertWrittenPermissionShape(provider, label);
+  if (typeof provider.enabled_for_paid_automation !== "boolean") {
+    throw new Error(`${label}.enabled_for_paid_automation must be a boolean`);
+  }
+  assertProviderReplies(provider, label);
   if (typeof provider.notes !== "string") {
     throw new Error(`${label}.notes must be a string`);
   }
@@ -221,10 +239,10 @@ export function validatePermissionsMatrixDocument(document, schema) {
   assertIsoDate(matrix.checkedOn, "checkedOn");
   const killSwitch = requireObject(matrix.killSwitch, "killSwitch");
   if (killSwitch.issue !== "OVD-722" || killSwitch.rpc !== "api_admin_set_provider_kill_switch") {
-    throw new Error("killSwitch must name the OVD-722 RPC");
+    throw new Error("killSwitch must name the OVD-722 provider RPC");
   }
-  if (typeof killSwitch.cli !== "string" || !killSwitch.cli.includes("provider:kill")) {
-    throw new Error("killSwitch.cli must be the OVD-722 provider:kill command");
+  if (killSwitch.globalRpc !== "api_admin_set_global_kill_switch") {
+    throw new Error("killSwitch must name the OVD-722 global RPC");
   }
   const derivation = requireObject(matrix.derivation, "derivation");
   if (typeof derivation.enabledForPaidAutomation !== "string" || derivation.enabledForPaidAutomation.trim().length === 0) {
@@ -243,6 +261,13 @@ export function validatePermissionsMatrixDocument(document, schema) {
     return provider;
   });
   return { ...matrix, providers: rows };
+}
+
+function parseMarkdownBoolean(cell) {
+  if (cell === "true") {
+    return true;
+  }
+  return cell === "false" ? false : cell;
 }
 
 export function parseMarkdownMatrix(markdown) {
@@ -266,11 +291,11 @@ export function parseMarkdownMatrix(markdown) {
     const [key, in_1_0, api_availability, tos_stance, permission_status, enabled, date_checked, kill_switch_state] = cells;
     rows.push({
       key,
-      in_1_0: in_1_0 === "true" ? true : in_1_0 === "false" ? false : in_1_0,
+      in_1_0: parseMarkdownBoolean(in_1_0),
       api_availability,
       tos_stance,
       permission_status,
-      enabled_for_paid_automation: enabled === "true" ? true : enabled === "false" ? false : enabled,
+      enabled_for_paid_automation: parseMarkdownBoolean(enabled),
       date_checked,
       kill_switch_state,
     });
@@ -386,19 +411,27 @@ async function readJson(filePath, label) {
   }
 }
 
+const compareKeys = (left, right) => left.localeCompare(right);
+
+function extractRegistryKeys(document) {
+  if (Array.isArray(document.providers)) {
+    return document.providers.map((row) => row.key ?? row);
+  }
+  if (Array.isArray(document.keys)) {
+    return document.keys;
+  }
+  return Object.keys(document.providers ?? {});
+}
+
 export async function readOvd688RegistryOrManifestKeys(rootDir, today) {
   for (const relativePath of OVD688_REGISTRY_CANDIDATES) {
-    const absolutePath = path.join(rootDir, relativePath);
     try {
-      const document = JSON.parse(await fs.readFile(absolutePath, "utf8"));
-      const keys = Array.isArray(document.providers)
-        ? document.providers.map((row) => row.key ?? row)
-        : Array.isArray(document.keys)
-          ? document.keys
-          : Object.keys(document.providers ?? {});
-      const normalized = keys.filter((key) => typeof key === "string" && PROVIDER_KEY_PATTERN.test(key)).sort();
-      if (normalized.length > 0) {
-        return { source: relativePath, keys: normalized };
+      const document = JSON.parse(await fs.readFile(path.join(rootDir, relativePath), "utf8"));
+      const keys = extractRegistryKeys(document)
+        .filter((key) => typeof key === "string" && PROVIDER_KEY_PATTERN.test(key))
+        .sort(compareKeys);
+      if (keys.length > 0) {
+        return { source: relativePath, keys };
       }
     } catch (error) {
       if (error?.code !== "ENOENT") {
@@ -409,7 +442,7 @@ export async function readOvd688RegistryOrManifestKeys(rootDir, today) {
   const manifests = await readProviderManifests(rootDir, { today });
   return {
     source: "provider-integrations/*/manifest.v1.json",
-    keys: manifests.map(({ manifest }) => manifest.key).sort(),
+    keys: manifests.map(({ manifest }) => manifest.key).sort(compareKeys),
   };
 }
 
@@ -431,9 +464,12 @@ export function assertCeaseAndDesistPlaybook(playbook) {
   const requiredSnippets = [
     ["within 1 hour", "playbook must state the 1-hour off-switch target"],
     ["no deploy", "playbook must state that the flip needs no deploy"],
-    ["npm run provider:kill --", "playbook must use the OVD-722 CLI"],
-    ["--on --reason", "playbook must include the exact on/reason flags"],
-    ["api_admin_set_provider_kill_switch", "playbook must name the OVD-722 RPC"],
+    ["api_admin_set_provider_kill_switch(provider := '<provider_key>', engaged := true, reason :=", "playbook step one must show the exact OVD-722 flip call"],
+    ["api_admin_set_global_kill_switch", "playbook must name the OVD-722 global RPC"],
+    ["private.provider_kill_switches", "playbook must name the OVD-722 per-provider table"],
+    ["private.provider_global_kill_switch", "playbook must name the OVD-722 global table"],
+    ["cancelled_provider_disabled", "playbook must name the in-flight task end state"],
+    ["OVD-722 is not merged yet", "playbook must state the OVD-722 dependency"],
     ["provider_kill_switch_engaged", "playbook must name the OVD-722 deny code"],
     ["permission_status=cease_and_desist", "playbook must update the matrix after a C&D"],
     ["Owner: Blaine", "playbook must name Blaine as owner"],
@@ -444,10 +480,6 @@ export function assertCeaseAndDesistPlaybook(playbook) {
       throw new Error(message);
     }
   }
-  if (/npm run provider:kill -- [a-z]+ --on --reason "/.test(playbook) === false
-    && !playbook.includes("npm run provider:kill -- <provider_key> --on --reason")) {
-    throw new Error("playbook step one must show the exact provider:kill flip command");
-  }
 }
 
 export function extractPlaybookKillCommand(playbook, providerKey = "fictiv") {
@@ -455,24 +487,12 @@ export function extractPlaybookKillCommand(playbook, providerKey = "fictiv") {
     throw new Error("provider key for the playbook command is invalid");
   }
   assertCeaseAndDesistPlaybook(playbook);
+  const reason = `C&D received for ${providerKey}`;
   return {
-    command: "npm",
-    args: [
-      "run",
-      "provider:kill",
-      "--",
-      providerKey,
-      "--on",
-      "--reason",
-      `C&D received for ${providerKey}`,
-    ],
     rpc: "api_admin_set_provider_kill_switch",
-    rpcArgs: {
-      provider: providerKey,
-      engaged: true,
-      reason: `C&D received for ${providerKey}`,
-    },
+    rpcArgs: { provider: providerKey, engaged: true, reason },
     expectedDenyCode: "provider_kill_switch_engaged",
+    expectedTaskState: "cancelled_provider_disabled",
     sla: "1 hour",
     requiresDeploy: false,
   };
@@ -530,94 +550,99 @@ async function readOptionalFile(filePath) {
   }
 }
 
+async function loadAdmissionSql(rootDir) {
+  const texts = [];
+  for (const relativePath of ADMISSION_FIXTURE_RELATIVE_PATHS) {
+    const sql = await readOptionalFile(path.join(rootDir, relativePath));
+    if (sql) {
+      texts.push(sql);
+    }
+  }
+  return texts;
+}
+
+async function loadOutreachDrafts(rootDir) {
+  const drafts = {};
+  for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {
+    const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
+    if (!contents) {
+      throw new Error(`outreach draft missing: ${key}.md`);
+    }
+    drafts[key] = contents;
+  }
+  return drafts;
+}
+
+function assertLegalReview(legalReview) {
+  if (!legalReview || !/not legal advice/i.test(legalReview)) {
+    throw new Error("legal council review must exist and state it is not legal advice");
+  }
+}
+
+function assertAcceptanceTablesLinkMatrix(acceptanceTables) {
+  for (const key of [...REQUIRED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]) {
+    if (!acceptanceTables.includes(key) || !acceptanceTables.includes("permissions-matrix.md")) {
+      throw new Error(`acceptance tables must name ${key} and link the permissions matrix`);
+    }
+  }
+}
+
+async function checkRegistryAndVendors({ rootDir, today, registryKeys, providers }) {
+  const registry = registryKeys
+    ? { source: "test", keys: [...registryKeys].sort(compareKeys) }
+    : await readOvd688RegistryOrManifestKeys(rootDir, today);
+  const matrixKeys = providers.map((row) => row.key);
+  assertRegistryParity([...matrixKeys].sort(compareKeys), registry.keys);
+
+  const vendorKeys = await readCurrentVendorKeys(rootDir);
+  const unknownVendor = matrixKeys.filter((key) => !vendorKeys.includes(key));
+  if (unknownVendor.length > 0) {
+    throw new Error(`matrix keys missing from vendor_name: ${unknownVendor.join(",")}`);
+  }
+  return registry;
+}
+
+async function resolveInputs(rootDir, overrides) {
+  const read = (relativePath) => fs.readFile(path.join(rootDir, relativePath), "utf8");
+  return {
+    schema: overrides.schema ?? await readJson(path.join(rootDir, MATRIX_SCHEMA_RELATIVE_PATH), "permissions matrix schema"),
+    matrix: overrides.matrixDocument ?? await readJson(path.join(rootDir, MATRIX_JSON_RELATIVE_PATH), "permissions matrix JSON"),
+    markdown: overrides.markdown ?? await read(MATRIX_MARKDOWN_RELATIVE_PATH),
+    admissionSql: overrides.admissionSql ?? await loadAdmissionSql(rootDir),
+    playbook: overrides.playbook ?? await read(PLAYBOOK_RELATIVE_PATH),
+    legalReview: overrides.legalReview ?? await readOptionalFile(path.join(rootDir, LEGAL_REVIEW_RELATIVE_PATH)),
+    acceptanceTables: overrides.acceptanceTables ?? await read(ACCEPTANCE_TABLES_RELATIVE_PATH),
+    drafts: overrides.outreachFiles ?? await loadOutreachDrafts(rootDir),
+  };
+}
+
 export async function checkProviderPermissions({
   rootDir,
   today = new Date().toISOString().slice(0, 10),
-  matrixDocument,
-  markdown,
-  schema,
-  admissionSql,
-  registryKeys,
-  outreachFiles,
-  playbook,
-  legalReview,
-  acceptanceTables,
+  ...overrides
 } = {}) {
   if (typeof rootDir !== "string" || rootDir.trim().length === 0) {
     throw new Error("rootDir is required");
   }
-  const resolvedSchema = schema ?? await readJson(
-    path.join(rootDir, MATRIX_SCHEMA_RELATIVE_PATH),
-    "permissions matrix schema",
-  );
-  const resolvedMatrix = matrixDocument ?? await readJson(
-    path.join(rootDir, MATRIX_JSON_RELATIVE_PATH),
-    "permissions matrix JSON",
-  );
-  const document = validatePermissionsMatrixDocument(resolvedMatrix, resolvedSchema);
-  const resolvedMarkdown = markdown ?? await fs.readFile(
-    path.join(rootDir, MATRIX_MARKDOWN_RELATIVE_PATH),
-    "utf8",
-  );
-  assertMarkdownAgreesWithJson(parseMarkdownMatrix(resolvedMarkdown), document.providers);
+  const inputs = await resolveInputs(rootDir, overrides);
+  const document = validatePermissionsMatrixDocument(inputs.matrix, inputs.schema);
+  assertMarkdownAgreesWithJson(parseMarkdownMatrix(inputs.markdown), document.providers);
   assertRequiredProviderCoverage(document.providers);
   assertEnabledDerivation(document.providers, today);
   assertPaidAutomationGate(document.providers);
 
-  const registry = registryKeys
-    ? { source: "test", keys: [...registryKeys].sort() }
-    : await readOvd688RegistryOrManifestKeys(rootDir, today);
-  assertRegistryParity(document.providers.map((row) => row.key).sort(), registry.keys);
-
-  const vendorKeys = await readCurrentVendorKeys(rootDir);
-  const unknownVendor = document.providers.map((row) => row.key).filter((key) => !vendorKeys.includes(key));
-  if (unknownVendor.length > 0) {
-    throw new Error(`matrix keys missing from vendor_name: ${unknownVendor.join(",")}`);
-  }
-
-  let resolvedAdmissionSql = admissionSql;
-  if (!resolvedAdmissionSql) {
-    resolvedAdmissionSql = [];
-    for (const relativePath of ADMISSION_FIXTURE_RELATIVE_PATHS) {
-      const sql = await readOptionalFile(path.join(rootDir, relativePath));
-      if (sql) {
-        resolvedAdmissionSql.push(sql);
-      }
-    }
-  }
-  assertNoAdmittedProviderIsProhibitedOrCd(
-    document.providers,
-    parseAdmissionPolicyFixtures(resolvedAdmissionSql),
-  );
-
-  const resolvedPlaybook = playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8");
-  assertCeaseAndDesistPlaybook(resolvedPlaybook);
-
-  const resolvedLegal = legalReview ?? await readOptionalFile(path.join(rootDir, LEGAL_REVIEW_RELATIVE_PATH));
-  if (!resolvedLegal || !/not legal advice/i.test(resolvedLegal)) {
-    throw new Error("legal council review must exist and state it is not legal advice");
-  }
-
-  const resolvedAcceptance = acceptanceTables
-    ?? await fs.readFile(path.join(rootDir, ACCEPTANCE_TABLES_RELATIVE_PATH), "utf8");
-  for (const key of [...REQUIRED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]) {
-    if (!resolvedAcceptance.includes(key) || !resolvedAcceptance.includes("permissions-matrix.md")) {
-      throw new Error(`acceptance tables must name ${key} and link the permissions matrix`);
-    }
-  }
-
-  const drafts = outreachFiles ?? {};
-  if (!outreachFiles) {
-    for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {
-      const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
-      if (!contents) {
-        throw new Error(`outreach draft missing: ${key}.md`);
-      }
-      drafts[key] = contents;
-    }
-  }
+  const registry = await checkRegistryAndVendors({
+    rootDir,
+    today,
+    registryKeys: overrides.registryKeys,
+    providers: document.providers,
+  });
+  assertNoAdmittedProviderIsProhibitedOrCd(document.providers, parseAdmissionPolicyFixtures(inputs.admissionSql));
+  assertCeaseAndDesistPlaybook(inputs.playbook);
+  assertLegalReview(inputs.legalReview);
+  assertAcceptanceTablesLinkMatrix(inputs.acceptanceTables);
   for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {
-    assertOutreachDraft(drafts[key], key);
+    assertOutreachDraft(inputs.drafts[key], key);
   }
 
   return {

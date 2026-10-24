@@ -37,6 +37,9 @@ jobs:
           git fetch origin main --depth=1
           npm run verify:migration-lineage -- --against-base
 
+      - name: Verify provider permissions matrix
+        run: npm run provider:permissions
+
       - name: Lint
         run: bash scripts/preflight.sh lint
 

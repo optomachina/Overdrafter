@@ -21,10 +21,10 @@
     "killSwitch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["issue", "cli", "rpc", "note"],
+      "required": ["issue", "rpc", "globalRpc", "note"],
       "properties": {
         "issue": { "const": "OVD-722" },
-        "cli": { "type": "string", "minLength": 1 },
+        "globalRpc": { "const": "api_admin_set_global_kill_switch" },
         "rpc": { "const": "api_admin_set_provider_kill_switch" },
         "note": { "type": "string", "minLength": 1 }
       }

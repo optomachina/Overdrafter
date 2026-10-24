@@ -18,7 +18,7 @@ Fictiv requires prior written consent, so it stays false until that consent is r
 
 ## Kill switch pointer
 
-Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on|--off --reason "..."`. RPC: `api_admin_set_provider_kill_switch`. See the [cease-and-desist playbook](../runbooks/provider-cease-and-desist.md).
+Runtime off-switch: **OVD-722**. RPCs: `api_admin_set_provider_kill_switch(provider, engaged, reason)` and `api_admin_set_global_kill_switch(engaged, reason)`. **OVD-722 is not merged yet, so these are the planned interface.** See the [cease-and-desist playbook](../runbooks/provider-cease-and-desist.md).
 
 ## Summary
 

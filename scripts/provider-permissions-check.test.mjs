@@ -93,7 +93,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     expect(result.ok).toBe(true);
     expect(result.providerCount).toBe(9);
     expect(result.enabledKeys).toEqual(["rmfg"]);
-    expect(result.registrySource).toContain("manifest.v1.json");
+    expect(result.registrySource).toContain("provider-registry.v1.json");
   });
 
   it("covers every 1.0 key plus Protolabs marked not in 1.0", async () => {
@@ -331,6 +331,16 @@ describe("OVD-724 provider permissions matrix lint", () => {
     expect(packageJson.scripts.verify).toContain("provider:permissions");
   });
 
+  it("runs in the required CI lint job", async () => {
+    const workflow = await fs.readFile(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    expect(workflow).toContain("run: npm run provider:permissions");
+  });
+
+  it("never calls .sort() without a comparator", async () => {
+    const source = await fs.readFile(path.join(repoRoot, "scripts/provider-permissions-check.mjs"), "utf8");
+    expect(source).not.toMatch(/\.sort\(\s*\)/);
+  });
+
   it("still validates fixture copies of the committed docs", async () => {
     const { temporaryRoot } = await writeTempRepo();
     const result = await checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" });
@@ -344,15 +354,15 @@ describe("OVD-724 cease-and-desist playbook uses the OVD-722 switch", () => {
     assertCeaseAndDesistPlaybook(playbook);
     expect(playbook).toMatch(/within 1 hour/);
     expect(playbook).toMatch(/no deploy/);
-    expect(playbook).toContain("npm run provider:kill -- <provider_key> --on --reason");
-    expect(playbook).toContain("api_admin_set_provider_kill_switch");
+    expect(playbook).toContain("api_admin_set_provider_kill_switch(provider := '<provider_key>', engaged := true");
+    expect(playbook).toContain("api_admin_set_global_kill_switch");
+    expect(playbook).toContain("OVD-722 is not merged yet");
     const command = extractPlaybookKillCommand(playbook, "fictiv");
     expect(command).toEqual({
-      command: "npm",
-      args: ["run", "provider:kill", "--", "fictiv", "--on", "--reason", "C&D received for fictiv"],
       rpc: "api_admin_set_provider_kill_switch",
       rpcArgs: { provider: "fictiv", engaged: true, reason: "C&D received for fictiv" },
       expectedDenyCode: "provider_kill_switch_engaged",
+      expectedTaskState: "cancelled_provider_disabled",
       sla: "1 hour",
       requiresDeploy: false,
     });
@@ -367,7 +377,7 @@ describe("OVD-724 cease-and-desist playbook uses the OVD-722 switch", () => {
     const ovd722Present = await fs.access(ovd722Kill).then(() => true).catch(() => false);
     if (ovd722Present) {
       const source = await fs.readFile(ovd722Kill, "utf8");
-      expect(source).toMatch(/provider:kill|api_admin_set_provider_kill_switch/);
+      expect(source).toMatch(/api_admin_set_provider_kill_switch/);
     }
   });
 });

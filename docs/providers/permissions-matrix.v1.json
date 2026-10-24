@@ -5,8 +5,8 @@
   "checkedOn": "2026-10-11",
   "killSwitch": {
     "issue": "OVD-722",
-    "cli": "npm run provider:kill -- <key>|--all --on|--off --reason \"...\"",
     "rpc": "api_admin_set_provider_kill_switch",
+    "globalRpc": "api_admin_set_global_kill_switch",
     "note": "Runtime engaged/disengaged state lives in OVD-722. This matrix only points at that switch and never copies it."
   },
   "derivation": {
@@ -33,7 +33,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for xometry; flip with npm run provider:kill -- xometry --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for xometry; flip with api_admin_set_provider_kill_switch('xometry', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -60,7 +60,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for fictiv; flip with npm run provider:kill -- fictiv --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for fictiv; flip with api_admin_set_provider_kill_switch('fictiv', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -86,7 +86,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for quickparts; flip with npm run provider:kill -- quickparts --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for quickparts; flip with api_admin_set_provider_kill_switch('quickparts', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -112,7 +112,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for weerg; flip with npm run provider:kill -- weerg --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for weerg; flip with api_admin_set_provider_kill_switch('weerg', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -138,7 +138,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for geomiq; flip with npm run provider:kill -- geomiq --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for geomiq; flip with api_admin_set_provider_kill_switch('geomiq', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -164,7 +164,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for rmfg; flip with npm run provider:kill -- rmfg --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for rmfg; flip with api_admin_set_provider_kill_switch('rmfg', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": true,
@@ -190,7 +190,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for oshcut; flip with npm run provider:kill -- oshcut --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for oshcut; flip with api_admin_set_provider_kill_switch('oshcut', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -216,7 +216,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for sendcutsend; flip with npm run provider:kill -- sendcutsend --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for sendcutsend; flip with api_admin_set_provider_kill_switch('sendcutsend', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
@@ -243,7 +243,7 @@
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
-        "pointer": "private.provider_kill_switches row for protolabs; flip with npm run provider:kill -- protolabs --on|--off --reason \"...\""
+        "pointer": "private.provider_kill_switches row for protolabs; flip with api_admin_set_provider_kill_switch('protolabs', engaged, reason)"
       },
       "written_permission": null,
       "enabled_for_paid_automation": false,
