@@ -18,13 +18,14 @@ import { secretForms, sessionStateAccepted, signedInEvidence, type VendorSession
  *   one, as in the portal kernel.
  * - Script navigation of the main frame to another host is aborted, popups
  *   never load, and a state-changing request (POST and the like) from any
- *   frame or worker to an origin that is not reviewed is aborted. A
+ *   frame to an origin that is not reviewed is aborted. Workers are disabled
+ *   before any page script runs because socket routing only covers frames. A
  *   WebSocket to anything but a reviewed wss origin is refused. Once the
  *   password is typed, any navigation of a child frame to such an origin,
  *   and any request to one whose URL carries the password, is aborted too.
- *   Playwright cannot hold a server redirect, so a reviewed host that
- *   redirects a submission to another host is detected afterwards and stops
- *   the attempt; nothing is saved.
+ *   Document redirects are refused so the worker policy cannot be skipped.
+ *   Other server redirects bypass routing; a submission redirected to an
+ *   unreviewed host is detected afterwards and stops without saving.
  * - A visible CAPTCHA (in any frame), a second-factor prompt, an unknown page,
  *   a sign-up form, or a rejected login is a stop. Nothing is solved,
  *   bypassed or resubmitted, and no stealth or anti-detection measure is used.
@@ -266,6 +267,7 @@ async function guardedPage(
   let blockedSubmissionHost: string | null = null;
   let submitted = false;
   let passwordForms: string[] = [];
+  let documentGuardFailed = false;
 
   context.on("page", (popup) => {
     if (popup !== page) void popup.close().catch(() => undefined);
@@ -299,9 +301,31 @@ async function guardedPage(
       await route.abort("blockedbyclient");
       return;
     }
+    if (navigation) {
+      // Frame socket routing does not cover workers. A browser-enforced CSP
+      // refuses dedicated/shared/service workers (including blob/data URLs)
+      // before any script runs, and is inherited by about:blank/srcdoc frames.
+      // Never follow redirects in the fetch transport or let an unguarded
+      // redirect destination load. Refuse if the policy cannot be installed.
+      try {
+        const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
+        try {
+          if (response.status() >= 300 && response.status() < 400) throw new Error("document_redirect");
+          const headers = response.headers();
+          headers["content-security-policy"] = [headers["content-security-policy"], "worker-src 'none'"].filter(Boolean).join(", ");
+          await route.fulfill({ status: response.status(), headers, body: await response.body() });
+        } finally {
+          await response.dispose();
+        }
+      } catch {
+        documentGuardFailed = true;
+        await route.abort("blockedbyclient").catch(() => undefined);
+      }
+      return;
+    }
     await route.fallback();
   });
-  // Every frame's and worker's sockets: only a reviewed wss origin connects, before and after typing.
+  // Frame sockets only; workers are refused before page scripts run.
   await context.routeWebSocket("**/*", async (socket) => {
     if (isAllowedProviderWebSocketUrl(socket.url(), submissionHosts(profile))) {
       socket.connectToServer();
@@ -329,6 +353,7 @@ async function guardedPage(
   };
   /** Every stop a page can show before anything is typed or clicked; an unreadable page is a stop too. */
   const assertSafePage = async () => {
+    if (documentGuardFailed) throw new LoginStop("unknown_page", "worker_policy_unavailable", hostOf(page.url()));
     if (refusedNavigationHost) throw new LoginStop("unknown_page", "off_host_navigation", refusedNavigationHost);
     if (redirectedSubmissionHost) throw new LoginStop("unknown_page", "submission_redirected_off_host", redirectedSubmissionHost);
     if (!allowed(page.url())) throw new LoginStop("unknown_page", "off_host_page", hostOf(page.url()));

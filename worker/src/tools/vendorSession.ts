@@ -121,7 +121,7 @@ export function sessionStateAccepted(state: ProviderPortalState): boolean {
 const NOT_SIGNED_IN_TEXT = [
   /\b(log ?in|sign ?in|sign ?up|register|create (an |your )?account|forgot (your )?password)\b/i,
   /\b(loading|please wait|something went wrong|error|not found|try again|oops|access denied|forbidden|session expired)\b/i,
-  /\b(two[- ]factor|two[- ]step|verification code|authenticator|enter the code|security code|verify your (email|account))\b/i,
+  /\b(two[- ]factor|two[- ]step|verification code|authenticator|enter the code|security code|verify your (email|account)|approve (the |this )?(sign[- ]?in|log[- ]?in|request))\b/i,
 ];
 const MIN_SIGNED_IN_TEXT = 40;
 
@@ -145,8 +145,8 @@ export async function signedInEvidence(
 const SIGNED_OUT_TEXT = /\b(log ?in|sign ?in|session expired)\b/i;
 /** A second-factor prompt or an error page; either can carry a log out control. */
 const STOP_TEXT = [
+  NOT_SIGNED_IN_TEXT[1],
   NOT_SIGNED_IN_TEXT[2],
-  /\b(something went wrong|access denied|forbidden)\b/i,
 ];
 
 /**

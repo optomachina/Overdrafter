@@ -214,10 +214,14 @@ describe("signed-in evidence without a log out control", () => {
   });
 
   it("never takes a log out control on a second-factor or error page as signed in", async () => {
+    const { definition, landingUrl: url } = resolveVendorSessionProfile("quickparts");
     const withLogout = (bodyText: string) => settledPageVerdict({ url, bodyText, passwordInputCount: 0 }, definition, { logoutControl: true });
     await expect(withLogout("Enter the verification code we sent to your phone. Log out")).resolves.toBe("indeterminate");
     await expect(withLogout("Approve the request in your authenticator app. Log out")).resolves.toBe("indeterminate");
     await expect(withLogout("Something went wrong. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("Approve the sign-in request on your phone to continue. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("An error occurred. Please try again. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("Loading… Please wait. Log out")).resolves.toBe("indeterminate");
     await expect(withLogout("Upload a part. Log out")).resolves.toBe("signed_in");
   });
 
@@ -353,6 +357,25 @@ describe("session:refresh", () => {
       expect(outcome.refreshed).toBe(false);
     }
     expect(await fs.readFile(sessionStatePath(stateDir, "quickparts"), "utf8")).toBe(before);
+  });
+
+  it.each([
+    "Approve the sign-in request on your phone to continue",
+    "An error occurred. Please try again",
+    "Loading… Please wait",
+  ])("leaves storage unchanged for a logout page saying %s", async (bodyText) => {
+    await writeState("quickparts", quickpartsState);
+    const file = sessionStatePath(stateDir, "quickparts");
+    const before = await fs.readFile(file, "utf8");
+    const probe: SessionProbe = async (options) => {
+      const verdict = await options.settledPageVerdict!({ url: profile.landingUrl, bodyText, passwordInputCount: 0 }, { logoutControl: true });
+      if (verdict !== "signed_in") return evidence("error", "settled_page_indeterminate");
+      await options.onAuthenticated?.({ ...quickpartsState, cookies: [cookie("rotated", "quickquote.quickparts.com")] });
+      return evidence("authenticated", "authenticated_marker_found");
+    };
+    const result = await refreshVendorSession(profile, stateDir, { probe, env: {} });
+    expect(result).toMatchObject({ state: "check_failed", reason: "settled_page_indeterminate", refreshed: false });
+    expect(await fs.readFile(file, "utf8")).toBe(before);
   });
 
   it("skips the provider entirely when a readable kill switch is engaged or unreadable", async () => {

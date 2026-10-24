@@ -49,6 +49,13 @@ beforeAll(async () => {
       return send(200, `<!doctype html><title>Fixture app</title><body><h1>Enter the verification code we sent to your phone</h1>
         <input name="code" autocomplete="one-time-code"><a href="/logout">Log out</a></body>`);
     }
+    const stopPages: Record<string, string> = {
+      "/approval": "Approve the sign-in request on your phone to continue",
+      "/error": "An error occurred. Please try again",
+      "/loading": "Loading… Please wait",
+    };
+    const stopText = stopPages[url];
+    if (stopText) return send(200, `<!doctype html><body><h1>${stopText}</h1><a href="/logout">Log out</a></body>`, { "set-cookie": "rot=2; Path=/; HttpOnly" });
     if (url === "/plain") return send(200, `<!doctype html><title>Fixture app</title><body><h1>${CONTENT}</h1></body>`);
     return send(404, "");
   });
@@ -137,6 +144,14 @@ describe("session tools through the GET-only probe", () => {
     await writeSession([sessionCookie]);
     await expect(checkVendorSession(loopbackProfile("/public"), stateDir, deps))
       .resolves.toMatchObject({ state: "check_failed", reason: "unconfirmable_public_landing" });
+  }, TIMEOUT_MS);
+
+  it.each(["/approval", "/error", "/loading"])("does not refresh storage on %s even with a logout control", async (landingPath) => {
+    await writeSession([sessionCookie]);
+    const before = await fs.readFile(sessionStatePath(stateDir, "quickparts"), "utf8");
+    const result = await refreshVendorSession(loopbackProfile(landingPath), stateDir, { ...deps, env: {} });
+    expect(result).toMatchObject({ state: "check_failed", reason: "settled_page_indeterminate", refreshed: false });
+    expect(await fs.readFile(sessionStatePath(stateDir, "quickparts"), "utf8")).toBe(before);
   }, TIMEOUT_MS);
 
   it("reports login_required for an expired session and leaves the file alone", async () => {

