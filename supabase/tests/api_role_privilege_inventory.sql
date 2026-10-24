@@ -154,6 +154,7 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.user_is_project_owner(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602');
 
 -- Q35 (owner decision): anon still holds TRUNCATE on these public tables.
+-- public.project_jobs left the list with 20261020151109_project_jobs_rpc_write_path.sql.
 create temporary table api_priv_anon_truncate_debt (rel text primary key) on commit drop;
 insert into api_priv_anon_truncate_debt (rel) values
   ('public.approved_part_requirements'),
@@ -172,7 +173,6 @@ insert into api_priv_anon_truncate_debt (rel) values
   ('public.payments'),
   ('public.pricing_policies'),
   ('public.project_invites'),
-  ('public.project_jobs'),
   ('public.project_memberships'),
   ('public.projects'),
   ('public.published_quote_options'),
