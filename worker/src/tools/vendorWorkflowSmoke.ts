@@ -73,6 +73,11 @@ const LIVE_EVALUATION_VENDORS = [
   "sendcutsend",
   ...EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor),
 ] as const satisfies readonly LiveAutomationVendorName[];
+/** OVD-1057: API providers that run only when named, never as part of `--vendor all`. */
+const NAMED_ONLY_EVALUATION_VENDORS = ["rmfg"] as const satisfies readonly LiveAutomationVendorName[];
+
+/** Operator-stated RMFG sheet stock; the adapter picks the one current catalog entry that matches it. */
+type RmfgStockMetadata = { grade: string; thicknessIn: number };
 
 type SmokeArgs = {
   vendors: LiveAutomationVendorName[];
@@ -82,6 +87,7 @@ type SmokeArgs = {
   confirmedNonExportControlled: boolean;
   fabworksPackage?: FabworksPackageMetadata | null;
   oshcutPackage?: OshcutPackageMetadata | null;
+  rmfgStock?: RmfgStockMetadata | null;
   sendCutSendManifestPath?: string | null;
   approvalFilePath?: string | null;
   approvalFileSha256?: string | null;
@@ -175,8 +181,9 @@ function usage() {
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
     "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
     "SendCutSend additionally requires a complete reviewed digest-bound manifest and performs local envelope evaluation only.",
+    "RMFG runs only when named and requires the stated stock, for example: --rmfg-grade 6061-T6 --rmfg-thickness-in 0.125",
     "",
-    `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
+    `Live evaluation vendors: ${[...LIVE_EVALUATION_VENDORS, ...NAMED_ONLY_EVALUATION_VENDORS].join(", ")}`,
     "",
     "Provider-interacting evaluation vendors require an authenticated session. SendCutSend performs local admission only. This command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
   ].join("\n");
@@ -240,7 +247,7 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
     return [...LIVE_EVALUATION_VENDORS];
   }
 
-  const liveAutomationVendors = new Set<string>(LIVE_EVALUATION_VENDORS);
+  const liveAutomationVendors = new Set<string>([...LIVE_EVALUATION_VENDORS, ...NAMED_ONLY_EVALUATION_VENDORS]);
   const supportedVendors: LiveAutomationVendorName[] = [];
   for (const vendor of requestedVendors) {
     if (!liveAutomationVendors.has(vendor)) {
@@ -366,6 +373,25 @@ function parseOshcutPackageMetadata(
   }
 
   return OSHCUT_PACKAGE_METADATA;
+}
+
+function parseRmfgStock(argv: string[], vendors: LiveAutomationVendorName[]): RmfgStockMetadata | null {
+  const grade = readFlag(argv, "--rmfg-grade")?.trim() ?? null;
+  const thickness = readFlag(argv, "--rmfg-thickness-in")?.trim() ?? null;
+  if (!vendors.includes("rmfg")) {
+    if (grade !== null || thickness !== null) {
+      throw new Error("RMFG stock may only be supplied when --vendor includes rmfg.");
+    }
+    return null;
+  }
+  const thicknessIn = thickness !== null && /^(?:\d+|\d*\.\d+)$/.test(thickness) ? Number(thickness) : Number.NaN;
+  if (!grade || !/^\d{4}[- ]?[A-Za-z]\d*$/.test(grade) || !(thicknessIn > 0 && thicknessIn <= 1)) {
+    throw new Error(
+      "RMFG evaluation requires the stated sheet stock: --rmfg-grade <alloy-temper, e.g. 6061-T6> " +
+      "--rmfg-thickness-in <inches, e.g. 0.125>.",
+    );
+  }
+  return { grade, thicknessIn };
 }
 
 function assertExactOshcutPackageMetadata(
@@ -589,6 +615,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
 
   const skippedOshcut = requestedVendors?.includes("oshcut") && !vendors.includes("oshcut");
   const oshcutPackage = skippedOshcut ? null : parseOshcutPackageMetadata(argv, vendors);
+  if (vendors.includes("rmfg") && quantities.some((quantity) => quantity !== 1)) {
+    throw new Error("RMFG quotes only quantity 1; pass --quantities 1 when --vendor includes rmfg.");
+  }
   if (vendors.includes("oshcut")) {
     assertExactOshcutPackageMetadata(oshcutPackage);
     for (const quantity of quantities) {
@@ -604,6 +633,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
     fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
     oshcutPackage,
+    rmfgStock: parseRmfgStock(argv, vendors),
     sendCutSendManifestPath: sendCutSendManifestPath
       ? path.resolve(sendCutSendManifestPath)
       : null,
@@ -721,6 +751,7 @@ function makeInput(input: {
   authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
   oshcutPackage: OshcutPackageMetadata | null;
+  rmfgStock: RmfgStockMetadata | null;
   sendCutSendManifest: SendCutSendEvaluationManifest | null;
   providerPortalApproval: ProviderPortalApprovalDescriptor | null;
   requestedQuantities: number[];
@@ -735,6 +766,7 @@ function makeInput(input: {
     authorization,
     fabworksPackage,
     oshcutPackage,
+    rmfgStock,
     sendCutSendManifest,
     providerPortalApproval,
     requestedQuantities,
@@ -763,6 +795,13 @@ function makeInput(input: {
       process: oshcutPackage.process,
       geometryFamily: oshcutPackage.geometryFamily,
     };
+  } else if (vendor === "rmfg") {
+    if (!rmfgStock) {
+      throw new Error("RMFG adapter invocation denied: the stated sheet stock is missing.");
+    }
+    material = rmfgStock.grade;
+    finish = "As cut";
+    specSnapshot = { process: "sheet_metal_laser_cutting", rmfgStock: { ...rmfgStock } };
   } else if (vendor === "sendcutsend") {
     if (!sendCutSendManifest) {
       throw new Error("SendCutSend adapter invocation denied: reviewed manifest is unavailable.");
@@ -942,6 +981,8 @@ const SAFE_EVALUATION_PAYLOAD_KEYS = new Set([
   "fabworksState",
   "oshcutState",
   "sendCutSendState",
+  "rmfgState",
+  "rmfgEvidence",
   "eligibilityReason",
 ]);
 
@@ -1227,6 +1268,8 @@ function adapterContractDefinition(
     allowedHosts = ["app.fictiv.com"];
   } else if (vendor === "sendcutsend") {
     allowedHosts = ["app.sendcutsend.com"];
+  } else if (vendor === "rmfg") {
+    allowedHosts = ["api.rmfg.com"];
   } else {
     throw new Error(`Provider adapter contract is unavailable for ${vendor}.`);
   }
@@ -1424,6 +1467,9 @@ async function assertQuoteAdmission(
   sendCutSendManifest: SendCutSendEvaluationManifest | null,
 ): Promise<void> {
   assertFabworksPackageMetadata(args, vendor);
+  if (vendor === "rmfg" && (!args.rmfgStock || quantity !== 1)) {
+    throw new Error("RMFG adapter invocation denied: it quotes only quantity 1 on the stated sheet stock.");
+  }
   if (vendor === "oshcut") {
     assertExactOshcutPackageMetadata(args.oshcutPackage);
     assertOshcutQuantity(quantity);
@@ -1515,6 +1561,7 @@ export async function runQuote(
         authorization: stagedFiles.authorization,
         fabworksPackage: args.fabworksPackage ?? null,
         oshcutPackage: args.oshcutPackage ?? null,
+        rmfgStock: args.rmfgStock ?? null,
         sendCutSendManifest,
         providerPortalApproval,
         requestedQuantities: args.quantities,
