@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
@@ -9,6 +10,24 @@ import { describe, expect, it, vi } from "vitest";
 
 const configPath = fileURLToPath(new URL("../playwright.config.ts", import.meta.url));
 const setupPath = fileURLToPath(new URL("../e2e/global-setup.mjs", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
+// Discover by imports, not config names, so future Playwright lanes join the contract.
+function findPlaywrightConfigs() {
+  return execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\0")
+    .filter(file => /\.[cm]?[jt]sx?$/.test(file))
+    .filter(file => {
+      const source = readFileSync(path.join(repoRoot, file), "utf8");
+      if (!source.includes("@playwright/test")) return false;
+      return ts.createSourceFile(file, source, ts.ScriptTarget.Latest).statements.some(statement => {
+        if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== "@playwright/test") return false;
+        const bindings = statement.importClause?.namedBindings;
+        return bindings && ts.isNamedImports(bindings)
+          && bindings.elements.some(binding => (binding.propertyName ?? binding.name).text === "defineConfig");
+      });
+    });
+}
 
 /** Evaluate real lane modules with explicit environment and inert dependencies. */
 function loadModule(sourcePath, env, dependencies) {
@@ -42,6 +61,18 @@ function loadSetup(env, ensureAuthStates, warmFixtureRoutes = vi.fn().mockResolv
 }
 
 describe("Playwright execution lane configuration", () => {
+  it.each([{}, { CI: "true" }])("forbids focused tests only in CI across all tracked configs for %j", env => {
+    const configs = findPlaywrightConfigs();
+    expect(configs.length).toBeGreaterThan(0);
+    for (const file of configs) {
+      const config = loadModule(path.join(repoRoot, file), env, {
+        "@playwright/test": { defineConfig: value => value },
+        "node:url": { fileURLToPath },
+      });
+      expect(config.forbidOnly, file).toBe(!!env.CI);
+    }
+  });
+
   it.each([{}, { CI: "true" }])("retains sandboxed auth-setup launches for %j", async env => {
     const page = {
       goto: vi.fn(),
