@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -26,7 +26,16 @@ const portableSuites = [
   "scripts/check-migration-immutability.node-test.mjs",
   "scripts/check-secret-paths.node-test.mjs",
   "scripts/check-migration-function-collisions.node-test.mjs",
+  "scripts/ovd510-boundary-recovery.node-test.mjs",
+  "scripts/ovd510-immutable-source.node-test.mjs",
 ];
+
+// Operator-run historical build replay, not a portable Node 20 suite. Preserve
+// its assertions: it needs Node 22 type stripping and the pinned revision's npm
+// cache. The exact command/prerequisites live in scripts/fixtures/compiled-worker-scope.md.
+const manuallyRunNodeSuites = {
+  "scripts/check-compiled-worker-scope.node-test.mjs": "scripts/fixtures/compiled-worker-scope.md",
+};
 
 function portableCommand() {
   const command = packageJson.scripts["test:portable-node"];
@@ -51,6 +60,34 @@ function listTestFiles(flags = {}) {
 }
 
 describe("explicit test execution lanes", () => {
+  it("references every tracked Node test in a runner or a documented manual lane", () => {
+    const tracked = execFileSync("git", ["ls-files", "-z"], {
+      cwd: repoRoot, encoding: "utf8",
+    }).split("\0").filter(Boolean);
+    const suites = tracked.filter((path) => path.endsWith(".node-test.mjs"));
+    const references = new Set();
+    for (const path of tracked) {
+      const manifest = /(^|\/)package\.json$/.test(path);
+      if (!manifest && !/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)
+        && path !== "scripts/preflight.sh") continue;
+      const source = readFileSync(join(repoRoot, path), "utf8");
+      const commands = manifest ? Object.values(JSON.parse(source).scripts ?? {}).join("\n") : source;
+      // Match explicit file tokens, not substring hits or commented-out commands.
+      const active = commands.replace(/(^|\s)#.*$/gm, "");
+      for (const [suite] of active.matchAll(/[\w./-]+\.node-test\.mjs(?=$|[\s'";|&])/g)) {
+        references.add(posix.normalize(manifest ? posix.join(posix.dirname(path), suite) : suite));
+      }
+    }
+    for (const [suite, instructions] of Object.entries(manuallyRunNodeSuites)) {
+      expect(suites, `stale manual exception: ${suite}`).toContain(suite);
+      expect(references.has(suite), `remove the now-wired manual exception: ${suite}`).toBe(false);
+      expect(readFileSync(join(repoRoot, instructions), "utf8")).toContain(`node --test ${suite}`);
+    }
+    expect(suites.filter((suite) => !references.has(suite) && !Object.hasOwn(manuallyRunNodeSuites, suite)),
+      "Unwired tracked Node tests: add an explicit runner reference or a reasoned manual-lane exception",
+    ).toEqual([]);
+  });
+
   it("requires the portable Node allowlist in root verification and the CI test job", () => {
     portableCommand();
     expect(packageJson.scripts.verify.split("&&").map((step) => step.trim()))

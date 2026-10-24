@@ -3,6 +3,12 @@
 Run from the repository root (Node 22 with type stripping and an already populated
 npm cache):
 
+This is an explicit manual-lane exception in `scripts/test-lane-contract.test.mjs`.
+It is not in `test:portable-node`: CI's Node 20 rejects `--experimental-strip-types`.
+OVD-1071 reproduced that failure on Linux; the test remains intact because its
+same-version stale-artifact check has no demonstrated equivalent replacement.
+Automating it requires a Node 22 lane with the pinned revision and dependency cache.
+
 ```sh
 node scripts/check-compiled-worker-scope.mjs \
   8d8d243513b928a59bd9d63858732dad50498f09 \
