@@ -1,0 +1,277 @@
+{
+    "outcome":  "passed",
+    "before":  {
+                   "dotnet":  [
+
+                              ],
+                   "cim":  [
+
+                           ]
+               },
+    "after":  {
+                  "dotnet":  [
+
+                             ],
+                  "cim":  [
+
+                          ]
+              },
+    "sources":  [
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\lifecycle.ps1",
+                        "sha256":  "26524849d2cfb03789c1db542162f8ae51d84aac5e93ff9651bb0a8a11b4ead8",
+                        "bytes":  15502
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\NativeSessionProbe.cs",
+                        "sha256":  "0db29544e4cdb2b0ed348d85cbe13253e6a17d828cab9c215a3d363a93eb506d",
+                        "bytes":  6950
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\PreparedCylinder.cs",
+                        "sha256":  "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+                        "bytes":  14120
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\InterruptionCase.ps1",
+                        "sha256":  "0f9d64facf55c9561e8d7d27894a942abf5b7b849263adb0d8d81c9039d48ece",
+                        "bytes":  9498
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\AssemblyRecovery.cs",
+                        "sha256":  "a53d21ab187a66ceb8922243e9756263e97af1737ad569fb72618d430a594340",
+                        "bytes":  4218
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\file-admission\\SharedFilePredicates.cs",
+                        "sha256":  "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+                        "bytes":  1533
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\file-admission\\OwnedProcess.ps1",
+                        "sha256":  "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+                        "bytes":  4835
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\prepared-dimension\\PreparedDimensionProbe.cs",
+                        "sha256":  "35b0dfec75346156f30d601f50e4dff9595f7726af43d31c9b6332002a1f2901",
+                        "bytes":  8195
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\prepared-dimension\\PreparedPackage.cs",
+                        "sha256":  "00e0cdb2aaf2d2a8293408f26a5965ca1163647c307cf28bbfc1c70143fb484c",
+                        "bytes":  13309
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\prepared-dimension\\PartGeometry.cs",
+                        "sha256":  "a9f9b688feca2a7008cf23a2ff5abe6bd1b9a3fbd28264d26c0335c69f538def",
+                        "bytes":  6262
+                    }
+                ],
+    "ast":  [
+                {
+                    "errors":  [
+
+                               ],
+                    "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\file-admission\\OwnedProcess.ps1"
+                },
+                {
+                    "errors":  [
+
+                               ],
+                    "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\InterruptionCase.ps1"
+                },
+                {
+                    "errors":  [
+
+                               ],
+                    "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\lifecycle.ps1"
+                }
+            ],
+    "tests":  [
+                  {
+                      "error":  "Fixture paths require -InterruptReadonly.",
+                      "name":  "assembly_without_interruption",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Interruption requires PID zero and both pinned synthetic source paths.",
+                      "name":  "nonzero_pid_interruption",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "PID zero requires empty expected ticks.",
+                      "name":  "stale_ticks_pid_zero",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Cannot find path \u0027C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\missing.SLDASM\u0027 because it does not exist.",
+                      "name":  "missing_assembly",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Synthetic fixture digest mismatch.",
+                      "name":  "wrong_hash_assembly",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Cannot find path \u0027C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\missing.SLDPRT\u0027 because it does not exist.",
+                      "name":  "missing_companion",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Synthetic fixture digest mismatch.",
+                      "name":  "changed_companion",
+                      "passed":  true
+                  },
+                  {
+                      "attempts":  [
+                                       {
+                                           "id":  "75f2e5f9fbef47699014089a29ebdd7b",
+                                           "role":  "interrupted",
+                                           "directory":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted",
+                                           "input":  {
+                                                         "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\synthetic-assembly.SLDASM",
+                                                         "bytes":  59987,
+                                                         "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                     },
+                                           "inputs":  [
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\synthetic-assembly.SLDASM",
+                                                              "bytes":  59987,
+                                                              "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                          },
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\parts\\baseline-5mm.SLDPRT",
+                                                              "bytes":  56144,
+                                                              "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                                                          },
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\parts\\candidate-8mm.SLDPRT",
+                                                              "bytes":  56171,
+                                                              "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                                                          }
+                                                      ],
+                                           "inputManifestSha256":  "37e5075b62ef83e8e01423386cfdb7ff67eac11c2df955f2aa327343a4b9ddf5",
+                                           "outcome":  "not_started",
+                                           "native":  null,
+                                           "terminationRequested":  false,
+                                           "exitCode":  null,
+                                           "resultSha256":  null,
+                                           "inputsAfter":  [
+                                                               {
+                                                                   "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\synthetic-assembly.SLDASM",
+                                                                   "bytes":  59987,
+                                                                   "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                               },
+                                                               {
+                                                                   "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\parts\\baseline-5mm.SLDPRT",
+                                                                   "bytes":  56144,
+                                                                   "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                                                               },
+                                                               {
+                                                                   "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\parts\\candidate-8mm.SLDPRT",
+                                                                   "bytes":  56171,
+                                                                   "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                                                               }
+                                                           ],
+                                           "inputAfter":  {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\interrupted\\synthetic-assembly.SLDASM",
+                                                              "bytes":  59987,
+                                                              "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                          }
+                                       },
+                                       {
+                                           "id":  "44d004ffc23e4689b64c1a60d0b9c32c",
+                                           "role":  "recovery",
+                                           "directory":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery",
+                                           "input":  {
+                                                         "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\synthetic-assembly.SLDASM",
+                                                         "bytes":  59987,
+                                                         "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                     },
+                                           "inputs":  [
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\synthetic-assembly.SLDASM",
+                                                              "bytes":  59987,
+                                                              "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                          },
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\parts\\baseline-5mm.SLDPRT",
+                                                              "bytes":  56144,
+                                                              "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                                                          },
+                                                          {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\parts\\candidate-8mm.SLDPRT",
+                                                              "bytes":  56171,
+                                                              "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                                                          }
+                                                      ],
+                                           "inputManifestSha256":  "e7cc36a2a5234f890410f6c94f2c4d9c8e1f8ae5290e96fd6e89c3607688e15e",
+                                           "outcome":  "not_started",
+                                           "native":  null,
+                                           "terminationRequested":  false,
+                                           "exitCode":  null,
+                                           "resultSha256":  null,
+                                           "inputsAfter":  [
+                                                               {
+                                                                   "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\synthetic-assembly.SLDASM",
+                                                                   "bytes":  59987,
+                                                                   "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                               },
+                                                               {
+                                                                   "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\parts\\baseline-5mm.SLDPRT",
+                                                                   "bytes":  56144,
+                                                                   "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                                                               }
+                                                           ],
+                                           "inputAfter":  {
+                                                              "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\valid\\recovery\\synthetic-assembly.SLDASM",
+                                                              "bytes":  59987,
+                                                              "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                                                          }
+                                       }
+                                   ],
+                      "name":  "valid_distinct_complete_packages",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Attempt input manifest changed.",
+                      "name":  "modified_manifest",
+                      "passed":  true
+                  },
+                  {
+                      "error":  "Synthetic fixture digest mismatch.",
+                      "name":  "private_companion_modified",
+                      "passed":  true
+                  },
+                  {
+                      "passed":  true,
+                      "name":  "actual_driver_default_off",
+                      "child":  {
+                                    "pid":  24896,
+                                    "exitCode":  1,
+                                    "timedOut":  false,
+                                    "terminationRequested":  false,
+                                    "terminated":  false,
+                                    "elapsedSeconds":  0.4039852,
+                                    "error":  null,
+                                    "stdout":  "",
+                                    "stderr":  "Default-off: explicit -Execute and expected old identity required.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\AR-C-flaeX3\\session-lifecycle\\lifecycle.ps1:22 char:22\r\n+ ... $Execute) { throw \u0027Default-off: explicit -Execute and expected old id ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.\r\n \r\n"
+                                }
+                  }
+              ],
+    "compile":  {
+                    "pid":  24668,
+                    "exitCode":  0,
+                    "timedOut":  false,
+                    "terminationRequested":  false,
+                    "terminated":  false,
+                    "elapsedSeconds":  0.262275,
+                    "error":  null,
+                    "stdout":  "",
+                    "stderr":  ""
+                },
+    "error":  null,
+    "binarySha256":  "4f813b702af0e08b908af064501a0f0ed083d344ec1afdcad6d3f4a5f5d2d476"
+}

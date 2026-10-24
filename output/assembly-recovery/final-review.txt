@@ -1,0 +1,1621 @@
+2026-09-10T03:46:16.135840Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-10T03:46:16.135927Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-09-10T03:46:16.156603Z  WARN codex_core::agents_md: project doc exceeds remaining budget; truncating path=file:///Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter/AGENTS.md remaining_bytes=32768
+2026-09-10T03:46:16.705564Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-10T03:46:16.705594Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 01a0896c-5fa1-72c3-84d4-cab42620a69e
+--------
+user
+changes against 'origin/main'
+warning: Under-development features enabled: chronicle. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /Users/blainewilson/.codex/config.toml.
+2026-09-10T03:46:17.161755Z  WARN codex_core::agents_md: project doc exceeds remaining budget; truncating path=file:///Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter/AGENTS.md remaining_bytes=32768
+warning: Under-development features enabled: chronicle. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /Users/blainewilson/.codex/config.toml.
+exec
+/bin/zsh -lc "git diff --stat cba6aaa3a8e8f5d1027e20731c363b07956fac65; rg -n 'assembly|recovery' /Users/blainewilson/.codex/memories/MEMORY.md | head -8; cat /Users/blainewilson/.codex/RTK.md" in /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+ succeeded in 0ms:
+ docs/solidworks-2022-feasibility.md                | 48 +++++++++++++
+ .../native/session-lifecycle/AssemblyRecovery.cs   | 81 ++++++++++++++++++++++
+ .../native/session-lifecycle/InterruptionCase.ps1  | 51 +++++++++++---
+ .../native/session-lifecycle/NativeSessionProbe.cs | 18 +++--
+ scripts/native/session-lifecycle/README.md         | 30 ++++++++
+ scripts/native/session-lifecycle/lifecycle.ps1     | 17 +++--
+ 6 files changed, 226 insertions(+), 19 deletions(-)
+22:- `ForceRebuild3` applies to the active configuration and specified assembly depth; verification must cover affected supported configurations and required dependency depth. [Task 1] [skysight memory]
+439:- Thorlabs, Kinematic Mirror Mounts with Two Adjusters, Solidworks-MCP-Server, Parametric CAD Bench, 3D Component Disassembly
+742:- OVD-401, OVD-402, OVD-404, OVD-378, OVD-380, OVD-381, OVD-410, provider-neutral-preflight, SendCutSend, OSH Cut, Fabworks, recovery-state classifier, foreground PID/PGID lock
+744:## Task 2: OVD-420 recovery-egress control and safe handoff, partial
+748:- rollout_summaries/2026-08-22T07-52-54-Z1p4-ovd_420_recovery_egress_pr_handoff.md (cwd=/Users/blainewilson/Documents/GitHub/Overdrafter, rollout_path=/Users/blainewilson/.codex/archived_sessions/rollout-2026-08-22T00-52-54-01a02875-5b4d-7993-a735-744d8b248bfe.jsonl, updated_at=2026-08-25T07:25:30+00:00, thread_id=01a02875-5b4d-7993-a735-744d8b248bfe, published/handoff pending final CI confirmation)
+752:- OVD-407, OVD-420, default-deny, recovery-egress, HAProxy, dnsmasq, iptables, synthetic_services_not_listening, PR #386, f316b63
+820:## Task 9: Provider-kit landing, notification migration boundary, and Supabase credential recovery, observed
+919:- Never treat issue text alone as authority to remove provider authorization, disclosure, upload, anti-bot, or order-prevention gates. Compare `PRD.md`, `PLAN.md`, `ARCHITECTURE.md`, `ACCEPTANCE_CRITERIA.md`, `TEST_STRATEGY.md`, and the beta runbook first. The safe OVD-407 split was provider-free OVD-420 recovery egress versus live Xometry OVD-410 proof. [Task 2]
+# RTK — selective terminal output filtering
+
+Use RTK for supported commands with verbose human-readable output, such as build, test, lint, and routine git status summaries. Prefer narrow native command options first; do not produce extra output just to compress it.
+
+Use native commands or `rtk proxy <command>` when exact output matters: source and instruction files, patches under review, JSON/CSV or other machine-readable output, pipelines, hashes, counts, and commands whose flags RTK does not support. Do not use lossy filters as input to parsers or as the sole evidence for a precise claim.
+
+For mutations, use the underlying command directly or `rtk proxy` unless that RTK handler is known to preserve the requested semantics. Verify the resulting state. Do not rerun a mutation merely to recover fuller output.
+
+If filtered diagnostics are insufficient, inspect a saved raw log or rerun only a safe read-only check without filtering. Preserve exit codes and report failed checks accurately. Do not enable `--skip-env`, ultra-compact mode, custom filters, or automatic shell rewriting by default.
+
+`rtk gain` and `rtk gain --history` report estimated terminal-output reduction, not total session savings or account usage. A tracking database error does not establish that the underlying command failed; verify its result separately.
+
+Useful checks: `rtk --version`, `rtk gain`, `rtk gain --history`.
+
+2026-09-10T03:46:25.432450Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a0896c-5fa1-72c3-84d4-cab42620a69e turn_id=01a0896c-6285-7ef0-b6a4-0e4b0b43e658 item_id="exec-009a3c01-e901-41b8-bd4d-34e9b0852c78"
+2026-09-10T03:46:29.523035Z  WARN codex_app_server::extensions: dropping extension warning after waiting for a thread subscriber thread_id=01a0896c-6371-7163-a12d-ff4364d49768 timeout_secs=10
+exec
+/bin/zsh -lc "head -2 README.md; find scripts docs -name 'AGENTS*'; cat docs/code-review.md; git diff cba6aaa3a8e8f5d1027e20731c363b07956fac65" in /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+ succeeded in 0ms:
+# OverDrafter — Part to Quote
+
+# Code Review Policy
+
+Last updated: March 20, 2026
+
+Use this document with `AGENTS.md` when reviewing changes locally with Codex CLI or in GitHub via Codex review.
+
+## Priorities
+
+Reviewers should prioritize:
+
+1. security, privacy, auth, and data-loss regressions
+2. broken schema, API, or workflow contracts
+3. missing validation or unsafe handling of external input
+4. risky dependency additions or expanded permissions
+5. critical-path testing gaps
+
+## Review stance
+
+- Treat Codex review as advisory input for a human reviewer.
+- Prefer a few high-signal findings over style-only noise.
+- Preserve current product behavior unless the task explicitly changes it.
+- Prefer minimal fixes over broad refactors when addressing review findings.
+- Treat undocumented behavior changes as findings until the matching docs are updated.
+
+## Targeted TSDoc expectations
+
+- Flag missing TSDoc when shared or exported utilities, worker orchestration helpers, CLI or repo scripts, or non-obvious domain helpers are easy to misuse without written intent.
+- Do not require boilerplate docstrings for routine React components, trivial formatters, or obvious local helpers whose behavior is clear from the signature and surrounding code.
+- Treat generic docstring-coverage warnings as non-authoritative unless they match this repo policy or a concrete reviewer concern.
+
+## Local and GitHub usage
+
+- Before opening a PR, run local verification and use Codex CLI `/review` against the working tree, commit, or base branch.
+- Before handing a PR off for review, make sure the PR description reflects the actual change. `npm run validate:pr-body` remains available as an optional helper if you want the structured template flow.
+- On GitHub, native automatic Codex review is the baseline PR review layer when enabled for the repository.
+- `@codex review` is an optional follow-up path when maintainers want a fresh pass after updates.
+- Codex review does not replace `npm run verify`, CI, or human approval.
+- This repo does not use API-key Codex Actions for PR review or CI diagnosis.
+diff --git a/docs/solidworks-2022-feasibility.md b/docs/solidworks-2022-feasibility.md
+index a635c992..cd0670eb 100644
+--- a/docs/solidworks-2022-feasibility.md
++++ b/docs/solidworks-2022-feasibility.md
+@@ -373,6 +373,54 @@ idle read-only verification and fresh-session verification of an immutable
+ input. Shared-profile interference, interrupted native saves, recovery dialogs,
+ broader prepared assemblies and worker scheduling remain outside this claim.
+ 
++## Prepared assembly read-only recovery
++
++On September 9, 2026 (Phoenix; September 10 UTC), one controlled recovery case
++passed on Workstation with executable source
++`7783ce2de30c8ffc5461e4996bc1c1bc3e399495`. The existing lifecycle driver accepts
++an explicit `-AssemblyPath` alongside its read-only interruption opt-in and
++both pinned part paths. It creates two complete private copies of the exact
++synthetic assembly and its 5/8 mm cylinder parts, with distinct immutable input
++manifests. The original single-part manifest baseline field remains compatible.
++
++The assembly adapter reuses the prepared-dimension package/geometry readers
++without dispatching their editing entry point. Both sessions verified all three
++loaded private paths, native document identities, sole Default configurations,
++read-only state, the two fixed resolved occurrences, exact reference closure,
++both cylinder geometries and unchanged placements. Rebuilds occurred only in
++memory. The first retained process, PID 6036, was interrupted after its helper
++completed and its checkpoint was flushed; its observed exit was -1. A distinct
++fresh process, PID 23440, verified the other private package, closed all three
++documents and exited normally with code 0. The outer invocation completed in
++44.817 seconds with exit 0 and no timeout or supervisor termination.
++
++All three originals and all six private files retained their hashes. Both final
++native inventories were empty and execution policy was unchanged. The complete
++packet is 870,991 bytes, SHA256
++`50eef159066de873dae9ede1db0f8799a7237572be0970cb274cea5a5aa76d62`,
++with 51 raw records and 58 artifact inventory entries. Local reconstruction
++passed 206 evidence assertions, including original bytes, all ten executed
++source hashes against Git, manifests, checkpoint, attempt results, individual
++measurements and supervisor observations. Original Windows evidence remains
++under `AR-L-9cYayV`; decoded evidence and its validator are preserved under
++`engineering-assembly-recovery/Overdrafter/output/assembly-recovery/` in the
++coordinator's worktrees.
++
++The corrected sources also compiled on the pinned Windows compiler. Thirteen
++inert checks passed: explicit admission denials, wrong/missing assembly or
++companion files, separate complete copies, changed manifests/private files,
++and legacy single-part manifest compatibility. These use the actual default-off
++driver and extracted source functions in an inert harness; they do not simulate
++native CAD. Their complete six-record packet is 47,381 bytes, SHA256
++`2c7f3c09c2f6dafbfb8bd90f6a89a532696e6226d7b4b1732219aad51616a1c7`.
++
++This is one controlled idle read-only assembly interruption followed by fresh
++verification. The evidence is executor-reported native observation with
++independent byte/consistency checks, not an independent CAD re-execution.
++Interrupted saves, arbitrary assemblies, mates, drawings, lease recovery,
++Windows-profile isolation and legitimate worker deployment remain unqualified.
++Full OVD-480 therefore remains in progress.
++
+ ## Failure history and limits
+ 
+ - A late-bound identity call failed; a typed C# identity call succeeded.
+diff --git a/scripts/native/session-lifecycle/AssemblyRecovery.cs b/scripts/native/session-lifecycle/AssemblyRecovery.cs
+new file mode 100644
+index 00000000..ea9771bf
+--- /dev/null
++++ b/scripts/native/session-lifecycle/AssemblyRecovery.cs
+@@ -0,0 +1,81 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using SolidWorks.Interop.sldworks;
++
++// Read-only adapter over the qualified prepared-package measurements. Compiled with
++// /main:NativeSessionProbe: the dimension-editing entry point is never dispatched.
++partial class PreparedDimensionProbe
++{
++    internal static Dictionary<string, object> InspectRecovery(ISldWorks application, string path,
++        bool open, bool close, int pid, long ticks, int session)
++    {
++        Report.Clear(); Checks.Clear(); ReleaseErrors.Clear();
++        Report["outcome"] = "failed"; Report["checks"] = Checks; Report["releaseErrors"] = ReleaseErrors;
++        Report["verified"] = false; Report["readOnly"] = false;
++        ExpectedPid = pid; ExpectedTicks = ticks; ExpectedSession = session; Sw = application;
++        try {
++            Need(Path.IsPathRooted(path), "absolute_assembly_path");
++            AssemblyPath = Path.GetFullPath(path); Package = Path.GetDirectoryName(AssemblyPath);
++            Need(Package.Length <= 140 && Path.GetFileName(AssemblyPath) == "synthetic-assembly.SLDASM", "prepared_assembly_path");
++            Parts = new[] { Path.Combine(Package, "parts", "baseline-5mm.SLDPRT"),
++                Path.Combine(Package, "parts", "candidate-8mm.SLDPRT") };
++            Report["path"] = AssemblyPath;
++            Documents = new List<IModelDoc2>(); PartDocs = new IModelDoc2[2];
++            NativeIdentity(); CheckInitialFiles();
++            if (open) {
++                Need(Sw.GetDocumentCount() == 0, "initial_empty_ready");
++                LoadPackage(.005, true, "recovery");
++            } else {
++                BindRecoveryDocuments();
++                MeasurePart(PartDocs[0], .005, "recovery_geometry_0");
++                MeasurePart(PartDocs[1], .008, "recovery_geometry_1");
++                InspectAssembly("recovery");
++            }
++            Scope();
++            foreach (IModelDoc2 model in Documents) Need(model.IsOpenedReadOnly(), "all_documents_readonly");
++            Report["readOnly"] = true;
++            if (close) ClosePackage();
++            CheckInitialFiles(); NativeIdentity();
++            int expectedCount = 3; if (close) expectedCount = 0;
++            Report["documentCountAfter"] = Sw.GetDocumentCount();
++            Need((int)Report["documentCountAfter"] == expectedCount, "final_recovery_document_count");
++            Report["outcome"] = "passed"; Report["verified"] = true;
++        } catch (Exception error) {
++            Report["error"] = error.Message;
++            throw;
++        } finally {
++            // Release this helper's RCWs only. Failure never closes or saves documents.
++            ReleaseOwned(); Sw = null;
++            if (ReleaseErrors.Count != 0) {
++                Report["outcome"] = "failed"; Report["verified"] = false;
++                throw new InvalidOperationException("Assembly recovery reference cleanup failed.");
++            }
++        }
++        return Report;
++    }
++
++    internal static Dictionary<string, object> RecoveryReport { get { return Report; } }
++
++    // Reacquire by exact loaded private paths, then compare native object identity
++    // and reference closure. Never reopen an unknown or missing document here.
++    static void BindRecoveryDocuments()
++    {
++        Documents = Loaded(); Need(Documents.Count == 3, "existing_three_documents");
++        AssemblyDoc = null;
++        foreach (IModelDoc2 model in Documents) {
++            string path = model.GetPathName();
++            Need(model.IsOpenedReadOnly() && Config(model) == "Default", "existing_readonly_default");
++            if (PathEqual(path, AssemblyPath)) {
++                Need(AssemblyDoc == null && model.GetType() == 2, "unique_existing_assembly"); AssemblyDoc = model;
++            } else {
++                int index = -1;
++                if (PathEqual(path, Parts[0])) index = 0; else if (PathEqual(path, Parts[1])) index = 1;
++                Need(index >= 0 && model.GetType() == 1, "known_existing_part");
++                Need(PartDocs[index] == null, "unique_existing_part"); PartDocs[index] = model;
++            }
++        }
++        Need(AssemblyDoc != null && PartDocs[0] != null && PartDocs[1] != null, "complete_existing_closure");
++        Scope();
++    }
++}
+diff --git a/scripts/native/session-lifecycle/InterruptionCase.ps1 b/scripts/native/session-lifecycle/InterruptionCase.ps1
+index 53ee3d21..96fbd49e 100644
+--- a/scripts/native/session-lifecycle/InterruptionCase.ps1
++++ b/scripts/native/session-lifecycle/InterruptionCase.ps1
+@@ -1,5 +1,5 @@
+ # Internal extension loaded only by the explicit lifecycle driver. No commands run on load.
+-# One pinned synthetic file, one retained native interruption, one fresh read-only recovery.
++# A pinned synthetic part or exact three-file prepared assembly, one retained native interruption, one fresh read-only recovery.
+ 
+ function Get-FixtureIdentity([string]$Path, [long]$Bytes, [string]$Digest) {
+     if ([string]::IsNullOrWhiteSpace($Path) -or $Path -notmatch '^[A-Za-z]:\\' -or $Path -match '["\r\n]') {
+@@ -27,23 +27,49 @@ function Prepare-InterruptionInputs {
+     $r.sourcesBefore = @(
+         (Get-FixtureIdentity $BaselinePath 56144 'e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa'),
+         (Get-FixtureIdentity $CandidatePath 56171 'b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898'))
++    $names = @('baseline-5mm.SLDPRT')
++    $inputs = @($r.sourcesBefore[0])
++    $qualification = 'single_synthetic_part_only'
++    if ($AssemblyPath) {
++        $assembly = Get-FixtureIdentity $AssemblyPath 59987 '90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a'
++        $r.sourcesBefore = @($assembly) + $r.sourcesBefore
++        $inputs = $r.sourcesBefore
++        $names = @('synthetic-assembly.SLDASM', 'parts\baseline-5mm.SLDPRT', 'parts\candidate-8mm.SLDPRT')
++        $qualification = 'prepared_three_file_assembly_only'
++    }
+     $r.attempts = @()
+     foreach ($label in @('interrupted', 'recovery')) {
+         $directory = Join-Path $folder $label
+         New-Item -ItemType Directory -Path $directory -ErrorAction Stop | Out-Null
+-        $copy = Join-Path $directory 'baseline-5mm.SLDPRT'
+-        [IO.File]::Copy($r.sourcesBefore[0].path, $copy, $false)
+-        $fixtureIdentity = Get-FixtureIdentity $copy 56144 $r.sourcesBefore[0].sha256
++        if ($AssemblyPath) { New-Item -ItemType Directory -Path (Join-Path $directory 'parts') -ErrorAction Stop | Out-Null }
++        $copies = @()
++        for ($index = 0; $index -lt $inputs.Count; $index++) {
++            $copy = Join-Path $directory $names[$index]
++            [IO.File]::Copy($inputs[$index].path, $copy, $false)
++            $copies += Get-FixtureIdentity $copy $inputs[$index].bytes $inputs[$index].sha256
++        }
++        $fixtureIdentity = $copies[0]
+         $manifest = [ordered]@{ id = [Guid]::NewGuid().ToString('N'); role = $label; input = $fixtureIdentity;
+-            baseline = $r.sourcesBefore[0]; qualification = 'single_synthetic_part_only' }
++            baseline = $r.sourcesBefore[0]; sources = $inputs; inputs = $copies; qualification = $qualification }
+         $manifestHash = Write-ImmutableRecord (Join-Path $directory 'input.json') $manifest
+         $r.attempts += [ordered]@{ id = $manifest.id; role = $label; directory = $directory; input = $fixtureIdentity;
+-            inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
++            inputs = $copies; inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
+             terminationRequested = $false; exitCode = $null; resultSha256 = $null }
+     }
+     Save-Receipt
+ }
+ 
++# Rehash every private dependency and the immutable input manifest, not just the top file.
++function Assert-AttemptInputs($Attempt) {
++    $Attempt.inputsAfter = @()
++    foreach ($inputFile in $Attempt.inputs) {
++        $Attempt.inputsAfter += Get-FixtureIdentity $inputFile.path $inputFile.bytes $inputFile.sha256
++    }
++    $Attempt.inputAfter = $Attempt.inputsAfter[0]
++    if ((Get-FileHash -LiteralPath (Join-Path $Attempt.directory 'input.json') -Algorithm SHA256).Hash.ToLowerInvariant() -cne
++        $Attempt.inputManifestSha256) { throw 'Attempt input manifest changed.' }
++}
++
+ function Assert-OriginalFixtures {
+     $r.sourcesAfter = @()
+     foreach ($source in $r.sourcesBefore) {
+@@ -58,7 +84,9 @@ function Invoke-FixtureProbe([string]$Mode, $Attempt, [string]$Label) {
+     if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne $r.binarySha256) {
+         throw 'probe binary drift'
+     }
++    Assert-AttemptInputs $Attempt
+     $r.stage = $Label; Save-Receipt
++    if ($AssemblyPath) { $Mode = $Mode.Replace('fixture-', 'assembly-') }
+     $arguments = @($Mode, [string]$Attempt.native.pid, $Attempt.native.ticks,
+         [string]$Attempt.native.session, $Attempt.input.path)
+     $obs = Invoke-OwnedProcess $helper $arguments 30000 (Join-Path $folder $Label)
+@@ -66,7 +94,8 @@ function Invoke-FixtureProbe([string]$Mode, $Attempt, [string]$Label) {
+     if ($obs.timedOut -or $obs.error -or $obs.exitCode -ne 0) { throw ('Fixture helper failed: ' + $Label) }
+     $data = $obs.stdout | ConvertFrom-Json
+     $count = 1
+-    if ($Mode -eq 'fixture-close') { $count = 0 }
++    if ($AssemblyPath) { $count = 3 }
++    if ($Mode -eq 'fixture-close' -or $Mode -eq 'assembly-close') { $count = 0 }
+     if ($data.outcome -ne 'passed' -or $data.apiPid -ne $Attempt.native.pid -or
+         $data.expectedTicks -cne $Attempt.native.ticks -or $data.startupCompleted -ne $true -or
+         $data.exitAppRequested -ne $false -or $data.documentCount -ne $count -or
+@@ -105,7 +134,7 @@ function Interrupt-FixtureAttempt($Attempt) {
+     $Attempt.exitCode = $native.ExitCode
+     if ($Attempt.exitCode -eq 0) { throw 'Native exited normally; interruption not established.' }
+     Assert-NoNative 'Native process remains after interruption.'
+-    $Attempt.inputAfter = Get-FixtureIdentity $Attempt.input.path $Attempt.input.bytes $Attempt.input.sha256
++    Assert-AttemptInputs $Attempt
+     Assert-OriginalFixtures
+     $Attempt.outcome = 'interrupted'
+     $Attempt.resultSha256 = Write-ImmutableRecord (Join-Path $Attempt.directory 'attempt-result.json') $Attempt
+@@ -123,11 +152,13 @@ function Invoke-InterruptionCase {
+         $active.closeObservation = Invoke-FixtureProbe 'fixture-close' $active 'recovery-close-fixture'
+         Close-OwnedNative 'recovery-close-native'
+         $active.exitCode = $r.nativeExit
+-        $active.inputAfter = Get-FixtureIdentity $active.input.path $active.input.bytes $active.input.sha256
++        Assert-AttemptInputs $active
+         Assert-OriginalFixtures
+         $active.outcome = 'verified_readonly_recovery'
+         $active.resultSha256 = Write-ImmutableRecord (Join-Path $active.directory 'attempt-result.json') $active
+-        $r.interruptionRecovery = 'passed_single_readonly_fixture'; Save-Receipt
++        $r.interruptionRecovery = 'passed_single_readonly_fixture'
++        if ($AssemblyPath) { $r.interruptionRecovery = 'passed_readonly_assembly_closure' }
++        Save-Receipt
+     } catch {
+         if ($active.outcome -eq 'running') { $active.outcome = 'failed' }
+         $active.error = $_.Exception.Message
+diff --git a/scripts/native/session-lifecycle/NativeSessionProbe.cs b/scripts/native/session-lifecycle/NativeSessionProbe.cs
+index b1733fd2..c83fd261 100644
+--- a/scripts/native/session-lifecycle/NativeSessionProbe.cs
++++ b/scripts/native/session-lifecycle/NativeSessionProbe.cs
+@@ -53,7 +53,8 @@ class NativeSessionProbe {
+   R["outcome"] = "failed"; R["exitAppRequested"] = false;
+   try {
+    Need(args.Length == 4 || args.Length == 5, "arguments");
+-   bool fixture = args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
++   bool assembly = args[0] == "assembly-open" || args[0] == "assembly-inspect" || args[0] == "assembly-close";
++   bool fixture = assembly || args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
+    Need(fixture ? args.Length == 5 : args.Length == 4, "mode_arguments");
+    Need(fixture || args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
+    int pid = Int32.Parse(args[1]); long ticks = Int64.Parse(args[2]); int session = Int32.Parse(args[3]);
+@@ -87,13 +88,22 @@ class NativeSessionProbe {
+    if (fixturePath != null) {
+     Record("fixture_inspection");
+     try {
+-     PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
++     bool assembly = mode.StartsWith("assembly-", StringComparison.Ordinal);
++     if (assembly) {
++      PreparedDimensionProbe.InspectRecovery(sw,fixturePath,mode == "assembly-open",mode == "assembly-close",pid,ticks,session);
++     } else PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
+       Guard(pid,ticks,session);
+       Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "fixture_api_identity");
+      });
+      R["documentCount"] = sw.GetDocumentCount();
+-     Need((int)R["documentCount"] == (mode == "fixture-close" ? 0 : 1), "fixture_final_document_count");
+-    } finally { R["fixture"] = PreparedCylinder.LastReport; Record("fixture_observed"); }
++     int expectedCount = 1; if (assembly) expectedCount = 3;
++     if (mode == "fixture-close" || mode == "assembly-close") expectedCount = 0;
++     Need((int)R["documentCount"] == expectedCount, "fixture_final_document_count");
++    } finally {
++     if (mode.StartsWith("assembly-", StringComparison.Ordinal)) R["fixture"] = PreparedDimensionProbe.RecoveryReport;
++     else R["fixture"] = PreparedCylinder.LastReport;
++     Record("fixture_observed");
++    }
+     return;
+    }
+    int docs = sw.GetDocumentCount(); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");
+diff --git a/scripts/native/session-lifecycle/README.md b/scripts/native/session-lifecycle/README.md
+index 8ced4e2b..4e53c452 100644
+--- a/scripts/native/session-lifecycle/README.md
++++ b/scripts/native/session-lifecycle/README.md
+@@ -97,6 +97,36 @@ generally qualified worker.
+ 
+ ## Qualification limits
+ 
++### Prepared assembly recovery option
++
++Add `-AssemblyPath <exact synthetic-assembly.SLDASM>` to the explicit
++`-InterruptReadonly` invocation to select the three-file assembly case. Both
++existing part arguments remain required. The top-level file must match the
++59,987-byte pinned synthetic baseline; all three input hashes are checked
++before native launch. Each attempt receives a complete private package with
++the two parts under `parts/`, a unique identity and an immutable input manifest.
++
++The `AssemblyRecovery.cs` adapter reuses the unchanged prepared-dimension
++reader methods. The build explicitly selects `/main:NativeSessionProbe`;
++neither the dimension-editing entry point nor its edit/save methods is invoked
++by an assembly recovery mode. Opening preloads both private parts read-only,
++then opens the assembly read-only. Inspection checks the actual loaded paths
++and native object identities, sole Default configurations, two fixed resolved
++occurrences, exact dependency closure, 5/8 mm cylinder geometry and component
++placements. Rebuilds are in memory; the reader never saves these files.
++
++The interrupted and fresh recovery processes each undergo these same checks.
++Every private dependency and input manifest is rehashed around the case;
++original file identities are retained and rechecked. The interrupted result is
++preserved separately. A passing case reports
++`passed_readonly_assembly_closure`, while general qualification remains
++`incomplete`. This adds no claim about interrupted saves, arbitrary assemblies,
++mate solving, drawings, licensing or isolated worker deployment. Windows
++compilation and thirteen inert checks passed for source `7783ce2d`, followed by
++one passing native case with 206 independently checked evidence assertions. See
++the feasibility document for exact packet/source identities and the limits of
++that demonstration.
++
+ Only the specifically recorded empty-session and read-only fixture cases have
+ execution evidence. The
+ existing Windows profile and application startup configuration are shared.
+diff --git a/scripts/native/session-lifecycle/lifecycle.ps1 b/scripts/native/session-lifecycle/lifecycle.ps1
+index 8d442d02..25ef97ef 100644
+--- a/scripts/native/session-lifecycle/lifecycle.ps1
++++ b/scripts/native/session-lifecycle/lifecycle.ps1
+@@ -16,7 +16,8 @@ param(
+     [string]$SourceCommit,
+     [switch]$InterruptReadonly,
+     [string]$BaselinePath,
+-    [string]$CandidatePath
++    [string]$CandidatePath,
++    [string]$AssemblyPath
+ )
+ if (-not $Execute) { throw 'Default-off: explicit -Execute and expected old identity required.' }
+ Set-StrictMode -Version Latest
+@@ -32,7 +33,7 @@ $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.In
+ $helper = Join-Path $folder 'NativeSessionProbe.exe'
+ $r = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); outcome = 'in_progress'; stage = 'preflight';
+     caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks;
+-        interruptReadonly = $InterruptReadonly.IsPresent };
++        interruptReadonly = $InterruptReadonly.IsPresent; assemblyRecovery = [bool]$AssemblyPath };
+     oldOwned = $false; nativeStartAttempted = $false; nativeCloseAttempted = $false; nativeStarted = $false; nativeExit = $null;
+     recovery_required = $false; error = $null; observations = @(); qualification = 'incomplete';
+     sourceCommit = $null; sourceHashes = @(); compiler = $null; compile = $null; binarySha256 = $null }
+@@ -75,7 +76,7 @@ function Assert-Identity($Process, $Identity) {
+ function Assert-CallerBinding {
+     if ($InterruptReadonly -and ($ExpectedOldPid -ne 0 -or [string]::IsNullOrWhiteSpace($BaselinePath) -or
+         [string]::IsNullOrWhiteSpace($CandidatePath))) { throw 'Interruption requires PID zero and both pinned synthetic source paths.' }
+-    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath)) { throw 'Fixture paths require -InterruptReadonly.' }
++    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath -or $AssemblyPath)) { throw 'Fixture paths require -InterruptReadonly.' }
+     if ($ExpectedOldPid -eq 0) {
+         if ($ExpectedOldTicks -cne '') { throw 'PID zero requires empty expected ticks.' }
+         Assert-NoNative 'PID zero requires no existing native process.'
+@@ -89,6 +90,10 @@ function Assert-CallerBinding {
+ function Copy-LifecycleSources {
+     $sources = @((Join-Path $PSScriptRoot 'lifecycle.ps1'), (Join-Path $PSScriptRoot 'NativeSessionProbe.cs'),
+         (Join-Path $PSScriptRoot 'PreparedCylinder.cs'), (Join-Path $PSScriptRoot 'InterruptionCase.ps1'),
++        (Join-Path $PSScriptRoot 'AssemblyRecovery.cs'),
++        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedDimensionProbe.cs'),
++        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedPackage.cs'),
++        (Join-Path $PSScriptRoot '../prepared-dimension/PartGeometry.cs'),
+         (Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'),
+         (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'))
+     foreach ($source in $sources) {
+@@ -108,10 +113,12 @@ function Build-LifecycleProbe {
+         sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() }
+     if (-not $r.compiler.version.StartsWith('4.8.9221.0') -or
+         $r.compiler.sha256 -ne '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Installed compiler pin mismatch.' }
+-    $arguments = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
++    $arguments = @('/nologo', '/target:exe', '/main:NativeSessionProbe', '/platform:x64', '/optimize+', '/reference:System.dll',
+         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop),
+         ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'),
+-        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'))
++        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'),
++        (Join-Path $folder 'AssemblyRecovery.cs'), (Join-Path $folder 'PreparedDimensionProbe.cs'),
++        (Join-Path $folder 'PreparedPackage.cs'), (Join-Path $folder 'PartGeometry.cs'))
+     $r.stage = 'compile_probe'; Save-Receipt
+     $r.compile = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder 'compile')
+     Save-Receipt
+
+2026-09-10T03:46:32.444139Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a0896c-5fa1-72c3-84d4-cab42620a69e turn_id=01a0896c-6285-7ef0-b6a4-0e4b0b43e658 item_id="exec-d104b91d-b44f-4f5d-8852-3a3a92025aba"
+exec
+/bin/zsh -lc 'cat scripts/native/prepared-dimension/{PreparedPackage.cs,PartGeometry.cs,PreparedDimensionProbe.cs}' in /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+ succeeded in 0ms:
+using System;
+using System.Collections.Generic;
+using System.IO;
+using SolidWorks.Interop.sldworks;
+
+partial class PreparedDimensionProbe
+{
+    static readonly string[] InputHashes = {
+        "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+        "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+        "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898" };
+    static void CheckInitialFiles()
+    {
+        string[] paths = { AssemblyPath, Parts[0], Parts[1] };
+        long[] lengths = { 59987, 56144, 56171 };
+        for (int i = 0; i < paths.Length; i++)
+            Need(InPackage(paths[i]) && new FileInfo(paths[i]).Length == lengths[i] &&
+                Hash(paths[i]) == InputHashes[i], "exact_private_input_" + i);
+    }
+    static List<IModelDoc2> Loaded()
+    {
+        object raw = Call<object>("GetDocuments", () => Sw.GetDocuments());
+        object[] values = raw as object[]; Need(raw == null || values != null, "document_array");
+        var result = new List<IModelDoc2>();
+        if (values != null) foreach (object value in values) { Owned.Add(value); result.Add((IModelDoc2)value); }
+        Need(Sw.GetDocumentCount() == result.Count, "document_count");
+        return result;
+    }
+    static void Scope()
+    {
+        NativeIdentity(); var actual = Loaded(); Need(actual.Count == Documents.Count, "known_document_count");
+        foreach (IModelDoc2 model in actual) {
+            bool known = false;
+            foreach (IModelDoc2 expected in Documents) if (Same(model, expected)) { known = true; break; }
+            string path = model.GetPathName();
+            Need(known && InPackage(path) && (PathEqual(path, AssemblyPath) ||
+                PathEqual(path, Parts[0]) || PathEqual(path, Parts[1])), "known_private_document_identity");
+        }
+    }
+    static string[] Strings(object raw)
+    {
+        if (raw == null) return new string[0];
+        Array array = raw as Array; Need(array != null && array.Rank == 1, "string_array");
+        var values = new List<string>();
+        foreach (object value in array) { Need(value is string, "string_array_item"); values.Add((string)value); }
+        return values.ToArray();
+    }
+    static string Config(IModelDoc2 model)
+    {
+        Need(model.GetConfigurationCount() == 1, "one_configuration");
+        string[] names = Strings(Call<object>("GetConfigurationNames", () => model.GetConfigurationNames()));
+        var manager = Own<IConfigurationManager>("ConfigurationManager", () => model.ConfigurationManager);
+        var active = Own<IConfiguration>("ActiveConfiguration", () => manager.ActiveConfiguration);
+        Need(names.Length == 1 && names[0] == "Default" && active != null && active.Name == "Default", "default_configuration");
+        return active.Name;
+    }
+    static void Dependencies(IModelDoc2 model, string[] expected, string phase)
+    {
+        var extension = Own<IModelDocExtension>("Extension", () => model.Extension);
+        string[] raw = Strings(Call<object>("GetDependencies", () => extension.GetDependencies(true, false, false, true, true)));
+        Report[phase + "Dependencies"] = raw; Need(raw.Length % 2 == 0, "dependency_pairs");
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < raw.Length; i += 2) {
+            Need(!String.IsNullOrWhiteSpace(raw[i]) && !String.IsNullOrWhiteSpace(raw[i + 1]) &&
+                raw[i].IndexOf('|') < 0 && raw[i + 1].IndexOf('|') < 0, "dependency_pair_valid");
+            string path = Path.GetFullPath(raw[i + 1]);
+            Need(InPackage(path) && File.Exists(path) && paths.Add(path), "unique_private_dependency");
+        }
+        Need(paths.Count == expected.Length, "dependency_count");
+        foreach (string path in expected) Need(paths.Contains(Path.GetFullPath(path)), "exact_dependency");
+    }
+    static IModelDoc2 OpenPrivate(string path, int type, bool readOnly, string phase)
+    {
+        Scope(); int errors = 0, warnings = 0;
+        int options = 1; if (readOnly) options |= 2; if (type == 2) options |= 64;
+        IModelDoc2 model = Own<IModelDoc2>("OpenDoc6", () => Sw.OpenDoc6(path, type, options, "Default", ref errors, ref warnings));
+        if (model != null) { Documents.Add(model); if (type == 2) AssemblyDoc = model; }
+        Report[phase + "Open"] = new { path = path, options = options, errors = errors, warnings = warnings, returned = model != null };
+        bool warningsAccepted = warnings == 0;
+        if (type == 2) warningsAccepted = (warnings & ~32) == 0;
+        Need(model != null && errors == 0 && warningsAccepted, phase + "_open");
+        Need(PathEqual(model.GetPathName(), path) && model.GetType() == type &&
+            model.IsOpenedReadOnly() == readOnly && Config(model) == "Default", phase + "_admission");
+        Scope(); return model;
+    }
+    static void LoadPackage(double baselineDepth, bool assemblyReadOnly, string phase)
+    {
+        Need(Documents.Count == 0, "empty_before_package");
+        for (int i = 0; i < 2; i++) {
+            PartDocs[i] = OpenPrivate(Parts[i], 1, true, phase + "_part_" + i);
+            double height = .008; if (i == 0) height = baselineDepth;
+            MeasurePart(PartDocs[i], height, phase + "_geometry_" + i);
+            Need(PartDocs[i].IsOpenedReadOnly(), "preloaded_part_readonly");
+        }
+        AssemblyDoc = OpenPrivate(AssemblyPath, 2, assemblyReadOnly, phase + "_assembly");
+        // Actual loaded identities and component paths must pass before any dimension edit.
+        InspectAssembly(phase);
+    }
+    static List<IComponent2> Components(bool top)
+    {
+        object raw = Call<object>("GetComponents", () => ((IAssemblyDoc)AssemblyDoc).GetComponents(top));
+        object[] values = raw as object[]; Need(values != null && values.Length == 2, "two_components");
+        var result = new List<IComponent2>();
+        foreach (object value in values) { Owned.Add(value); result.Add((IComponent2)value); }
+        return result;
+    }
+    static void ActivateAssembly()
+    {
+        Scope(); int error = 0;
+        object activated = Own<object>("ActivateDoc3", () => Sw.ActivateDoc3(AssemblyDoc.GetTitle(), false, 1, ref error));
+        Need(error == 0 && Same(activated, AssemblyDoc), "assembly_activation");
+        Need(Same(Own<object>("ActiveDoc", () => Sw.ActiveDoc), AssemblyDoc), "active_assembly_identity");
+    }
+    static double[] InspectTransform(IComponent2 component, int index)
+    {
+        var transform = Own<IMathTransform>("Transform2", () => component.Transform2);
+        Need(transform != null, "transform_present");
+        double[] values = Call<object>("ArrayData", () => transform.ArrayData) as double[];
+        Need(values != null && values.Length == 16, "transform_length");
+        double x = 0; if (index == 1) x = .040;
+        double[] expected = { 1, 0, 0, 0, 1, 0, 0, 0, 1, x, 0, 0, 1, 0, 0, 0 };
+        for (int i = 0; i < 16; i++) {
+            Need(Finite(values[i]), "finite_transform");
+            if (i >= 13) continue; // SOLIDWORKS' final three slots are unused diagnostics.
+            double tolerance = 1e-10; if (i >= 9 && i <= 11) tolerance = 1e-8;
+            Need(Math.Abs(values[i] - expected[i]) <= tolerance, "unchanged_fixed_transform");
+        }
+        return values;
+    }
+    static void InspectAssembly(string phase)
+    {
+        ActivateAssembly(); Need(Call("assembly.ForceRebuild3", () => AssemblyDoc.ForceRebuild3(false)), "assembly_rebuild");
+        Need(Config(AssemblyDoc) == "Default", "assembly_configuration");
+        var top = Components(true); var recursive = Components(false);
+        Need(!Same(top[0], top[1]), "distinct_occurrences");
+        foreach (IComponent2 component in top) {
+            int matches = 0; foreach (IComponent2 other in recursive) if (Same(component, other)) matches++;
+            Need(matches == 1, "same_top_recursive_components");
+        }
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase); var rows = new List<object>();
+        Report[phase + "Occurrences"] = rows;
+        foreach (IComponent2 component in top) {
+            string path = component.GetPathName(); int index = -1;
+            if (PathEqual(path, Parts[0])) index = 0; else if (PathEqual(path, Parts[1])) index = 1;
+            Need(index >= 0 && InPackage(path) && found.Add(Path.GetFullPath(path)), "actual_private_component_path");
+            var model = Own<IModelDoc2>("GetModelDoc2", () => component.GetModelDoc2());
+            int suppression = component.GetSuppression2();
+            string expectedName = "baseline-5mm-1"; if (index == 1) expectedName = "candidate-8mm-1";
+            Need(model != null && Same(model, PartDocs[index]) && PathEqual(model.GetPathName(), Parts[index]) &&
+                model.IsOpenedReadOnly() && Config(model) == "Default" && component.ReferencedConfiguration == "Default" &&
+                !component.IsVirtual && component.IsFixed() && (suppression == 2 || suppression == 3) &&
+                component.Name2 == expectedName, "component_identity_configuration_state");
+            rows.Add(new { name = component.Name2, path = path, modelPath = model.GetPathName(), configuration = "Default",
+                fixedState = component.IsFixed(), suppression = suppression, readOnly = model.IsOpenedReadOnly(), transform = InspectTransform(component, index) });
+            Dependencies(model, new string[0], phase + "_part_" + index);
+        }
+        Dependencies(AssemblyDoc, Parts, phase + "_assembly");
+        Scope(); Need(Documents.Count == 3 && found.Count == 2, "private_three_document_closure");
+    }
+    static void SaveDocument(IModelDoc2 model, string path, string phase)
+    {
+        Scope(); Need(PathEqual(model.GetPathName(), path) && !model.IsOpenedReadOnly(), "exact_writable_save_target");
+        int errors = 0, warnings = 0;
+        bool saved = Call("Save3", () => model.Save3(1, ref errors, ref warnings));
+        Report[phase] = new { saved = saved, errors = errors, warnings = warnings, path = model.GetPathName(), dirty = model.GetSaveFlag() };
+        Need(saved && errors == 0 && warnings == 0 && !model.GetSaveFlag() && PathEqual(model.GetPathName(), path), phase);
+    }
+    static void ClosePackage()
+    {
+        Scope(); string[] ordered = { AssemblyPath, Parts[0], Parts[1] };
+        foreach (string path in ordered) {
+            var actual = Loaded(); IModelDoc2 target = null;
+            foreach (IModelDoc2 model in actual) if (PathEqual(model.GetPathName(), path)) target = model;
+            if (target == null) continue; // Closing the assembly can unload a referenced part.
+            Scope(); string title = target.GetTitle(); int titleMatches = 0;
+            foreach (IModelDoc2 model in actual) if (model.GetTitle() == title) titleMatches++;
+            Need(titleMatches == 1, "unique_close_title");
+            Call("CloseDoc", () => { Sw.CloseDoc(title); return true; });
+            var remaining = Loaded();
+            foreach (IModelDoc2 model in remaining) {
+                Need(!Same(model, target), "closed_exact_document");
+                bool known = false; foreach (IModelDoc2 prior in Documents) if (Same(model, prior)) known = true;
+                Need(known, "remaining_known_document");
+            }
+            Documents = remaining;
+        }
+        Need(Sw.GetDocumentCount() == 0 && Documents.Count == 0, "closed_package_empty");
+        AssemblyDoc = null; PartDocs = new IModelDoc2[2]; ReleaseOwned();
+        Need(ReleaseErrors.Count == 0, "document_references_released");
+    }
+    static void ExecutePackage()
+    {
+        LoadPackage(.005, true, "before"); ClosePackage(); CheckInitialFiles();
+        IModelDoc2 target = OpenPrivate(Parts[0], 1, false, "edit_target");
+        var before = MeasurePart(target, .005, "before_dimension");
+        EditPart(target); MeasurePart(target, TargetDepth, "after_edit");
+        SaveDocument(target, Parts[0], "part_save"); ClosePackage();
+        string editedHash = Hash(Parts[0]); Need(editedHash != InputHashes[1], "changed_target_file");
+        target = OpenPrivate(Parts[0], 1, true, "saved_part_reopen");
+        var after = MeasurePart(target, TargetDepth, "after_dimension"); ClosePackage();
+        Need(Hash(Parts[0]) == editedHash && Hash(Parts[1]) == InputHashes[2], "part_reopen_preserved");
+        LoadPackage(TargetDepth, false, "updated");
+        ActivateAssembly(); SaveDocument(AssemblyDoc, AssemblyPath, "assembly_save"); ClosePackage();
+        string savedAssemblyHash = Hash(AssemblyPath);
+        Need(Hash(Parts[0]) == editedHash && Hash(Parts[1]) == InputHashes[2], "assembly_save_preserved_parts");
+        LoadPackage(TargetDepth, true, "final_reopen"); ClosePackage();
+        Need(Hash(AssemblyPath) == savedAssemblyHash && Hash(Parts[0]) == editedHash &&
+            Hash(Parts[1]) == InputHashes[2], "final_readonly_reopen_preserved");
+        Report["measurements"] = new { beforeDepthMm = before["depthMm"], afterDepthMm = after["depthMm"],
+            beforeVolumeMm3 = before["volumeMm3"], afterVolumeMm3 = after["volumeMm3"] };
+        Report["verifiedChecks"] = new[] { "native_integrity", "dimension", "assembly_references", "component_placements", "save_reopen" };
+    }
+}
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using SolidWorks.Interop.sldworks;
+
+partial class PreparedDimensionProbe
+{
+    const string FeatureName = "OVD_QualificationExtrusion";
+    static bool Finite(double value) { return !Double.IsNaN(value) && !Double.IsInfinity(value); }
+
+    // The bounded cycle-aware walk preserves repeated feature identities without
+    // mistaking a repeated subfeature reference for a true traversal cycle.
+    static void WalkFeatures(IFeature first, bool subchain, List<IFeature> found,
+        HashSet<long> seen, HashSet<long> active)
+    {
+        var chain = new HashSet<long>();
+        IFeature feature = first;
+        while (feature != null) {
+            IntPtr pin = Marshal.GetIUnknownForObject(feature);
+            long identity;
+            try { identity = pin.ToInt64(); } finally { Marshal.Release(pin); }
+            Need(chain.Add(identity) && !active.Contains(identity), "feature_cycle");
+            if (seen.Add(identity)) {
+                Need(found.Count < 100, "feature_bound"); found.Add(feature); active.Add(identity);
+                IFeature child = Own<IFeature>("GetFirstSubFeature", () => feature.GetFirstSubFeature());
+                if (child != null) WalkFeatures(child, true, found, seen, active);
+                active.Remove(identity);
+            }
+            IFeature prior = feature;
+            if (subchain) feature = Own<IFeature>("GetNextSubFeature", () => prior.GetNextSubFeature());
+            else feature = Own<IFeature>("GetNextFeature", () => prior.GetNextFeature());
+        }
+    }
+    static IFeature BindFeature(IModelDoc2 model)
+    {
+        var features = new List<IFeature>();
+        WalkFeatures(Own<IFeature>("FirstFeature", () => model.FirstFeature()), false, features,
+            new HashSet<long>(), new HashSet<long>());
+        IFeature found = null; int matches = 0;
+        foreach (IFeature feature in features) {
+            if (feature.Name == FeatureName && feature.GetTypeName2() == "Extrusion") { found = feature; matches++; }
+        }
+        Need(matches == 1, "unique_driving_extrusion");
+        return found;
+    }
+    static object[] Bodies(IModelDoc2 model, int kind)
+    {
+        object raw = Call<object>("GetBodies2", () => ((IPartDoc)model).GetBodies2(kind, false));
+        if (raw == null) return new object[0];
+        object[] values = raw as object[]; Need(values != null, "body_array");
+        foreach (object value in values) if (value != null && Marshal.IsComObject(value)) Owned.Add(value);
+        return values;
+    }
+    static Dictionary<string, object> MeasurePart(IModelDoc2 model, double height, string phase)
+    {
+        Scope(); Need(model.GetType() == 1 && Config(model) == "Default", phase + "_part_context");
+        Dependencies(model, new string[0], phase);
+        Need(Own<object>("GetActiveSketch", () => model.GetActiveSketch()) == null, "no_active_sketch");
+        IFeature feature = BindFeature(model);
+        var data = Own<IExtrudeFeatureData2>("GetDefinition", () => feature.GetDefinition());
+        Need(data != null, "extrusion_definition");
+        double depth = data.GetDepth(true);
+        var values = new Dictionary<string, object> {
+            {"depthM", depth}, {"isBase", feature.IsBase2()}, {"isBossDiagnostic", data.IsBossFeature()},
+            {"thin", data.IsThinFeature()}, {"bothDirections", data.BothDirections},
+            {"endCondition", data.GetEndCondition(true)}, {"fromType", data.FromType}, {"reverse", data.ReverseDirection}
+        };
+        Report[phase] = values;
+        Need((bool)values["isBase"] && !(bool)values["thin"] && !(bool)values["bothDirections"] &&
+            (int)values["endCondition"] == 0 && (int)values["fromType"] == 0 && !(bool)values["reverse"] &&
+            Finite(depth) && Math.Abs(depth - height) <= 1e-10, phase + "_extrusion_semantics");
+        Scope(); bool rebuild = Call("part.ForceRebuild3", () => model.ForceRebuild3(false));
+        bool warning = false; int error = feature.GetErrorCode2(out warning);
+        values["rebuild"] = rebuild; values["featureError"] = error; values["featureWarning"] = warning;
+        Need(rebuild && error == 0 && !warning, phase + "_native_rebuild");
+        object[] solids = Bodies(model, 0), sheets = Bodies(model, 1);
+        Need(solids.Length == 1 && solids[0] != null && sheets.Length == 0, phase + "_body_counts");
+        double[] mass = Call<object>("GetMassProperties", () => ((IBody2)solids[0]).GetMassProperties(1.0)) as double[];
+        values["massProperties"] = mass; values["testDensity"] = 1;
+        Need(mass != null && mass.Length >= 12, "mass_array");
+        foreach (double value in mass) Need(Finite(value), "finite_mass_properties");
+        double volume = Math.PI * .010 * .010 * height, area = 2 * Math.PI * .010 * (.010 + height);
+        Need(Math.Abs(mass[3] - volume) <= 1e-10 && Math.Abs(mass[4] - area) <= 1e-9 &&
+            Math.Abs(mass[0]) <= 1e-8 && Math.Abs(mass[1]) <= 1e-8 && Math.Abs(mass[2] - height / 2) <= 1e-8,
+            phase + "_cylinder_geometry");
+        values["volumeMm3"] = mass[3] * 1e9; values["depthMm"] = depth * 1000;
+        Scope(); return values;
+    }
+    static void EditPart(IModelDoc2 model)
+    {
+        Scope(); Need(Documents.Count == 1 && PathEqual(model.GetPathName(), Parts[0]) &&
+            !model.IsOpenedReadOnly(), "sole_private_writable_target");
+        IFeature feature = BindFeature(model);
+        var data = Own<IExtrudeFeatureData2>("edit.GetDefinition", () => feature.GetDefinition());
+        Need(data != null, "edit_extrusion_definition");
+        bool access = false, modified = false;
+        try {
+            Scope(); access = Call("AccessSelections", () => data.AccessSelections(model, null)); Need(access, "edit_selection_access");
+            Scope(); Call("SetDepth", () => { data.SetDepth(true, TargetDepth); return true; });
+            Scope(); modified = Call("ModifyDefinition", () => feature.ModifyDefinition(data, model, null));
+            Need(modified, "dimension_modified");
+        } finally {
+            if (access && !modified) Call("ReleaseSelectionAccess", () => { data.ReleaseSelectionAccess(); return true; });
+        }
+    }
+}
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Web.Script.Serialization;
+using SolidWorks.Interop.sldworks;
+
+// Narrow extraction of native04 editing and the corrected assembly readback.
+// The supervisor owns the native process. Binding the ROT never grants ownership.
+partial class PreparedDimensionProbe
+{
+    const string NativeExe = @"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe";
+    const string NativeHash = "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc";
+    static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 4000000 };
+    static readonly Dictionary<string, object> Report = new Dictionary<string, object>();
+    static readonly Dictionary<string, object> Checks = new Dictionary<string, object>();
+    static readonly List<object> Owned = new List<object>();
+    static readonly List<string> ReleaseErrors = new List<string>();
+    static int ExpectedPid, ExpectedSession;
+    static long ExpectedTicks;
+    static ISldWorks Sw;
+    static IModelDoc2 AssemblyDoc;
+    static List<IModelDoc2> Documents;
+    static IModelDoc2[] PartDocs;
+    static string Package, AssemblyPath;
+    static string[] Parts;
+    static double TargetDepth;
+
+    static void Need(bool condition, string stage)
+    {
+        Checks[stage] = condition;
+        if (!condition) throw new InvalidOperationException(stage);
+    }
+    static T Call<T>(string stage, Func<T> operation)
+    {
+        Report["stage"] = stage;
+        Console.Error.WriteLine(Json.Serialize(new { utc = DateTime.UtcNow.ToString("o"), stage = stage, phase = "before" }));
+        Console.Error.Flush();
+        T value = operation();
+        Console.Error.WriteLine(Json.Serialize(new { stage = stage, phase = "returned" }));
+        Console.Error.Flush();
+        return value;
+    }
+    static T Own<T>(string stage, Func<object> operation) where T : class
+    {
+        object value = Call(stage, operation);
+        if (value != null && Marshal.IsComObject(value)) Owned.Add(value);
+        return (T)value;
+    }
+    static bool Same(object first, object second)
+    {
+        if (first == null || second == null) return false;
+        IntPtr a = Marshal.GetIUnknownForObject(first), b = Marshal.GetIUnknownForObject(second);
+        try { return a == b; } finally { Marshal.Release(a); Marshal.Release(b); }
+    }
+    static string Hash(string path)
+    {
+        using (var stream = File.OpenRead(path)) using (var hash = SHA256.Create())
+            return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+    }
+    static bool PathEqual(string first, string second)
+    {
+        return !String.IsNullOrEmpty(first) && !String.IsNullOrEmpty(second) &&
+            String.Equals(Path.GetFullPath(first), Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase);
+    }
+    static bool InPackage(string path)
+    {
+        return Path.GetFullPath(path).StartsWith(Package.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
+    }
+    static void NativeIdentity()
+    {
+        Process[] all = Process.GetProcessesByName("SLDWORKS");
+        try {
+            Need(all.Length == 1, "native_singleton");
+            Process process = all[0];
+            Need(process.Id == ExpectedPid && process.SessionId == ExpectedSession &&
+                ExpectedSession == Process.GetCurrentProcess().SessionId &&
+                process.StartTime.ToUniversalTime().Ticks == ExpectedTicks, "native_identity");
+            Need(PathEqual(process.MainModule.FileName, NativeExe), "native_executable_path");
+            var version = process.MainModule.FileVersionInfo;
+            Need(version.FileVersion == "30.5.0.0049" && version.ProductVersion == "30.5.0.0049" &&
+                Hash(NativeExe) == NativeHash, "native_binary");
+        } finally { foreach (Process process in all) process.Dispose(); }
+        if (Sw != null) Need(Sw.GetProcessID() == ExpectedPid && Sw.RevisionNumber() == "30.5.0", "native_api_identity");
+    }
+    static void ReleaseOwned()
+    {
+        for (int i = Owned.Count - 1; i >= 0; i--) {
+            try { Marshal.ReleaseComObject(Owned[i]); }
+            catch (Exception error) { ReleaseErrors.Add(error.Message); }
+        }
+        Owned.Clear();
+    }
+
+    [STAThread] static int Main(string[] args)
+    {
+        AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs error) {
+            string name = new AssemblyName(error.Name).Name;
+            if (name == "SolidWorks.Interop.sldworks")
+                return Assembly.LoadFrom(@"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll");
+            return null;
+        };
+        Report["outcome"] = "failed"; Report["checks"] = Checks; Report["releaseErrors"] = ReleaseErrors;
+        Report["helperPid"] = Process.GetCurrentProcess().Id;
+        try {
+            Need(args.Length == 4, "arguments");
+            ExpectedPid = Int32.Parse(args[0], CultureInfo.InvariantCulture);
+            ExpectedTicks = Int64.Parse(args[1], CultureInfo.InvariantCulture);
+            ExpectedSession = Int32.Parse(args[2], CultureInfo.InvariantCulture);
+            Need(System.Environment.Is64BitProcess && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "x64_STA");
+            NativeIdentity(); Run(args[3]); Report["outcome"] = "passed";
+        } catch (Exception error) {
+            Report["error"] = error.Message; Report["hresult"] = "0x" + error.HResult.ToString("X8");
+        }
+        if (ReleaseErrors.Count != 0) Report["outcome"] = "failed";
+        Console.WriteLine(Json.Serialize(Report));
+        return (string)Report["outcome"] == "passed" ? 0 : 2;
+    }
+
+    // Keep interop loading after the resolver, matching the demonstrated bootstrap.
+    [MethodImpl(MethodImplOptions.NoInlining)] static void Run(string settingsPath)
+    {
+        Need(typeof(ISldWorks).Assembly.GetName().Version.ToString() == "30.5.0.49" &&
+            typeof(ISldWorks).GUID == new Guid("83A33D22-27C5-11CE-BFD4-00400513BB57"), "interop_identity");
+        var settings = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settingsPath));
+        Package = Path.GetFullPath((string)settings["candidateRoot"]);
+        Need(Path.IsPathRooted(Package) && Package.Length <= 140, "private_package_path");
+        TargetDepth = Convert.ToDouble(settings["depthMm"], CultureInfo.InvariantCulture) / 1000;
+        Need(Finite(TargetDepth) && TargetDepth >= .006 && TargetDepth <= .010, "depth_range");
+        foreach (string key in new[] { "jobId", "attemptId", "requestSha256", "contextSha256", "depthMm" }) Report[key] = settings[key];
+        Report["candidateRoot"] = Package; Report["nativePid"] = ExpectedPid;
+        Report["nativeStartTicks"] = ExpectedTicks.ToString(CultureInfo.InvariantCulture);
+        Parts = new[] { Path.Combine(Package, "parts", "baseline-5mm.SLDPRT"), Path.Combine(Package, "parts", "candidate-8mm.SLDPRT") };
+        AssemblyPath = Path.Combine(Package, "synthetic-assembly.SLDASM");
+        Documents = new List<IModelDoc2>(); PartDocs = new IModelDoc2[2];
+        CheckInitialFiles();
+        object application = null;
+        try {
+            application = Call<object>("bind_existing", () => Marshal.GetActiveObject("SldWorks.Application.30"));
+            Sw = (ISldWorks)application; NativeIdentity();
+            Need(Sw.StartupProcessCompleted && Sw.GetDocumentCount() == 0, "initial_empty_ready");
+            ExecutePackage(); NativeIdentity(); Need(Sw.GetDocumentCount() == 0, "final_empty");
+        } finally {
+            // No automatic CloseDoc, ExitApp, retry, or forced native cleanup on failure.
+            ReleaseOwned(); Sw = null;
+            if (application != null) {
+                try { Marshal.ReleaseComObject(application); }
+                catch (Exception error) { ReleaseErrors.Add(error.Message); }
+            }
+        }
+    }
+}
+
+2026-09-10T03:46:36.114510Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a0896c-5fa1-72c3-84d4-cab42620a69e turn_id=01a0896c-6285-7ef0-b6a4-0e4b0b43e658 item_id="exec-67ea5be8-2490-41b9-a738-9e274f948bf4"
+exec
+/bin/zsh -lc 'cat scripts/native/session-lifecycle/{InterruptionCase.ps1,lifecycle.ps1,NativeSessionProbe.cs}' in /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+ succeeded in 0ms:
+# Internal extension loaded only by the explicit lifecycle driver. No commands run on load.
+# A pinned synthetic part or exact three-file prepared assembly, one retained native interruption, one fresh read-only recovery.
+
+function Get-FixtureIdentity([string]$Path, [long]$Bytes, [string]$Digest) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or $Path -notmatch '^[A-Za-z]:\\' -or $Path -match '["\r\n]') {
+        throw 'A trusted absolute local fixture path is required.'
+    }
+    $full = [IO.Path]::GetFullPath($Path)
+    $item = Get-Item -LiteralPath $full -ErrorAction Stop
+    if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $item.Length -ne $Bytes) { throw 'Synthetic fixture file identity mismatch.' }
+    $hash = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($hash -cne $Digest) { throw 'Synthetic fixture digest mismatch.' }
+    return [ordered]@{ path = $full; bytes = $item.Length; sha256 = $hash }
+}
+
+# CreateNew and an explicit flush preserve checkpoints/results without overwriting history.
+function Write-ImmutableRecord([string]$Path, $Value) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($Value | ConvertTo-Json -Depth 30))
+    $stream = New-Object IO.FileStream($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+    finally { $stream.Dispose() }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Prepare-InterruptionInputs {
+    $r.sourcesBefore = @(
+        (Get-FixtureIdentity $BaselinePath 56144 'e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa'),
+        (Get-FixtureIdentity $CandidatePath 56171 'b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898'))
+    $names = @('baseline-5mm.SLDPRT')
+    $inputs = @($r.sourcesBefore[0])
+    $qualification = 'single_synthetic_part_only'
+    if ($AssemblyPath) {
+        $assembly = Get-FixtureIdentity $AssemblyPath 59987 '90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a'
+        $r.sourcesBefore = @($assembly) + $r.sourcesBefore
+        $inputs = $r.sourcesBefore
+        $names = @('synthetic-assembly.SLDASM', 'parts\baseline-5mm.SLDPRT', 'parts\candidate-8mm.SLDPRT')
+        $qualification = 'prepared_three_file_assembly_only'
+    }
+    $r.attempts = @()
+    foreach ($label in @('interrupted', 'recovery')) {
+        $directory = Join-Path $folder $label
+        New-Item -ItemType Directory -Path $directory -ErrorAction Stop | Out-Null
+        if ($AssemblyPath) { New-Item -ItemType Directory -Path (Join-Path $directory 'parts') -ErrorAction Stop | Out-Null }
+        $copies = @()
+        for ($index = 0; $index -lt $inputs.Count; $index++) {
+            $copy = Join-Path $directory $names[$index]
+            [IO.File]::Copy($inputs[$index].path, $copy, $false)
+            $copies += Get-FixtureIdentity $copy $inputs[$index].bytes $inputs[$index].sha256
+        }
+        $fixtureIdentity = $copies[0]
+        $manifest = [ordered]@{ id = [Guid]::NewGuid().ToString('N'); role = $label; input = $fixtureIdentity;
+            baseline = $r.sourcesBefore[0]; sources = $inputs; inputs = $copies; qualification = $qualification }
+        $manifestHash = Write-ImmutableRecord (Join-Path $directory 'input.json') $manifest
+        $r.attempts += [ordered]@{ id = $manifest.id; role = $label; directory = $directory; input = $fixtureIdentity;
+            inputs = $copies; inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
+            terminationRequested = $false; exitCode = $null; resultSha256 = $null }
+    }
+    Save-Receipt
+}
+
+# Rehash every private dependency and the immutable input manifest, not just the top file.
+function Assert-AttemptInputs($Attempt) {
+    $Attempt.inputsAfter = @()
+    foreach ($inputFile in $Attempt.inputs) {
+        $Attempt.inputsAfter += Get-FixtureIdentity $inputFile.path $inputFile.bytes $inputFile.sha256
+    }
+    $Attempt.inputAfter = $Attempt.inputsAfter[0]
+    if ((Get-FileHash -LiteralPath (Join-Path $Attempt.directory 'input.json') -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+        $Attempt.inputManifestSha256) { throw 'Attempt input manifest changed.' }
+}
+
+function Assert-OriginalFixtures {
+    $r.sourcesAfter = @()
+    foreach ($source in $r.sourcesBefore) {
+        $r.sourcesAfter += Get-FixtureIdentity $source.path $source.bytes $source.sha256
+    }
+    Save-Receipt
+}
+
+# Each helper returns before interruption. API/file identity is rechecked by the compiled probe.
+function Invoke-FixtureProbe([string]$Mode, $Attempt, [string]$Label) {
+    Assert-Identity $native $Attempt.native
+    if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne $r.binarySha256) {
+        throw 'probe binary drift'
+    }
+    Assert-AttemptInputs $Attempt
+    $r.stage = $Label; Save-Receipt
+    if ($AssemblyPath) { $Mode = $Mode.Replace('fixture-', 'assembly-') }
+    $arguments = @($Mode, [string]$Attempt.native.pid, $Attempt.native.ticks,
+        [string]$Attempt.native.session, $Attempt.input.path)
+    $obs = Invoke-OwnedProcess $helper $arguments 30000 (Join-Path $folder $Label)
+    $r.observations += $obs; Save-Receipt
+    if ($obs.timedOut -or $obs.error -or $obs.exitCode -ne 0) { throw ('Fixture helper failed: ' + $Label) }
+    $data = $obs.stdout | ConvertFrom-Json
+    $count = 1
+    if ($AssemblyPath) { $count = 3 }
+    if ($Mode -eq 'fixture-close' -or $Mode -eq 'assembly-close') { $count = 0 }
+    if ($data.outcome -ne 'passed' -or $data.apiPid -ne $Attempt.native.pid -or
+        $data.expectedTicks -cne $Attempt.native.ticks -or $data.startupCompleted -ne $true -or
+        $data.exitAppRequested -ne $false -or $data.documentCount -ne $count -or
+        $data.fixture.verified -ne $true -or $data.fixture.readOnly -ne $true -or
+        $data.fixture.documentCountAfter -ne $count -or $data.fixture.path -ine $Attempt.input.path) {
+        throw 'Fixture helper evidence mismatch.'
+    }
+    return $data
+}
+
+function Start-FixtureAttempt($Attempt) {
+    $Attempt.outcome = 'running'; Save-Receipt
+    Start-NativeProcess ('start_' + $Attempt.role)
+    $Attempt.native = $r.native; Save-Receipt
+    if (-not $native.WaitForInputIdle(60000)) { throw 'native readiness unconfirmed' }
+    Wait-NativeReady ($Attempt.role + '-ready')
+    $Attempt.openObservation = Invoke-FixtureProbe 'fixture-open' $Attempt ($Attempt.role + '-open')
+    Save-Receipt
+}
+
+# Kill is deliberately local to this admitted case. Never look a target up by PID or name.
+# The retained object came directly from Start-NativeProcess, and helpers have already exited.
+function Interrupt-FixtureAttempt($Attempt) {
+    if (-not $InterruptReadonly -or $ExpectedOldPid -ne 0 -or -not $r.nativeStarted -or
+        $Attempt.role -ne 'interrupted' -or $Attempt.terminationRequested) { throw 'Interruption not admitted.' }
+    $observed = Invoke-FixtureProbe 'fixture-inspect' $Attempt 'before-interrupt'
+    $checkpoint = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); attempt = $Attempt.id;
+        native = $Attempt.native; inputManifestSha256 = $Attempt.inputManifestSha256;
+        binarySha256 = $r.binarySha256; sourceHashes = $r.sourceHashes; observation = $observed;
+        action = 'interrupt_retained_native_process'; interruptedSaveRecovery = $false }
+    $Attempt.checkpointSha256 = Write-ImmutableRecord (Join-Path $Attempt.directory 'pre-interrupt.json') $checkpoint
+    Assert-Identity $native $Attempt.native
+    $Attempt.terminationRequested = $true; $r.stage = 'interrupt_native'; Save-Receipt
+    $native.Kill()
+    if (-not $native.WaitForExit(30000)) { throw 'Interrupted native exit unconfirmed.' }
+    $Attempt.exitCode = $native.ExitCode
+    if ($Attempt.exitCode -eq 0) { throw 'Native exited normally; interruption not established.' }
+    Assert-NoNative 'Native process remains after interruption.'
+    Assert-AttemptInputs $Attempt
+    Assert-OriginalFixtures
+    $Attempt.outcome = 'interrupted'
+    $Attempt.resultSha256 = Write-ImmutableRecord (Join-Path $Attempt.directory 'attempt-result.json') $Attempt
+    Save-Receipt
+    $native.Dispose(); $script:native = $null; $r.nativeStarted = $false
+}
+
+function Invoke-InterruptionCase {
+    $active = $r.attempts[0]
+    try {
+        Start-FixtureAttempt $active
+        Interrupt-FixtureAttempt $active
+        $active = $r.attempts[1]
+        Start-FixtureAttempt $active
+        $active.closeObservation = Invoke-FixtureProbe 'fixture-close' $active 'recovery-close-fixture'
+        Close-OwnedNative 'recovery-close-native'
+        $active.exitCode = $r.nativeExit
+        Assert-AttemptInputs $active
+        Assert-OriginalFixtures
+        $active.outcome = 'verified_readonly_recovery'
+        $active.resultSha256 = Write-ImmutableRecord (Join-Path $active.directory 'attempt-result.json') $active
+        $r.interruptionRecovery = 'passed_single_readonly_fixture'
+        if ($AssemblyPath) { $r.interruptionRecovery = 'passed_readonly_assembly_closure' }
+        Save-Receipt
+    } catch {
+        if ($active.outcome -eq 'running') { $active.outcome = 'failed' }
+        $active.error = $_.Exception.Message
+        if ($native) {
+            try { $active.nativeHasExited = $native.HasExited; if ($active.nativeHasExited) { $active.exitCode = $native.ExitCode } }
+            catch { $active.observationError = $_.Exception.Message }
+        }
+        throw
+    }
+}
+#requires -Version 5.1
+<#
+.SYNOPSIS
+Qualifies an empty lifecycle or one explicitly opted-in synthetic read-only interruption.
+.DESCRIPTION
+Default-off. PID zero with empty ticks requires no existing native process. Otherwise
+the caller pins the existing empty session before its normal ExitApp request.
+SourceCommit is an optional provenance label, not proof of Git membership.
+#>
+[CmdletBinding()]
+param(
+    [switch]$Execute,
+    [Parameter(Mandatory = $true)][string]$OutputRoot,
+    [Parameter(Mandatory = $true)][ValidateRange(0, 2147483647)][int]$ExpectedOldPid,
+    [AllowEmptyString()][string]$ExpectedOldTicks = '',
+    [string]$SourceCommit,
+    [switch]$InterruptReadonly,
+    [string]$BaselinePath,
+    [string]$CandidatePath,
+    [string]$AssemblyPath
+)
+if (-not $Execute) { throw 'Default-off: explicit -Execute and expected old identity required.' }
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($OutputRoot) -or $OutputRoot -match '["\r\n]') { throw 'Unsupported output root.' }
+$folder = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ('session-' + [Guid]::NewGuid().ToString('N'))
+if ($folder.Length -gt 120) { throw 'Use a shorter output root; attempt directory must not exceed 120 characters.' }
+New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+$resultPath = Join-Path $folder 'lifecycle-result.json'
+$exe = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe'
+$exeHash = '6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc'
+$interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll'
+$helper = Join-Path $folder 'NativeSessionProbe.exe'
+$r = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); outcome = 'in_progress'; stage = 'preflight';
+    caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks;
+        interruptReadonly = $InterruptReadonly.IsPresent; assemblyRecovery = [bool]$AssemblyPath };
+    oldOwned = $false; nativeStartAttempted = $false; nativeCloseAttempted = $false; nativeStarted = $false; nativeExit = $null;
+    recovery_required = $false; error = $null; observations = @(); qualification = 'incomplete';
+    sourceCommit = $null; sourceHashes = @(); compiler = $null; compile = $null; binarySha256 = $null }
+$old = $null; $native = $null
+$previousDirectory = [Environment]::CurrentDirectory
+
+function Save-Receipt { $r | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $resultPath -Encoding UTF8 }
+function Add-Failure($Message) {
+    $r.outcome = 'failed'
+    if ($r.nativeStartAttempted -or $r.nativeCloseAttempted) { $r.recovery_required = $true }
+    if ($r.error) { $r.error += ' ' + $Message } else { $r.error = $Message }
+}
+# Retaining the actual OS handle prevents PID reuse from substituting another child.
+function Read-Identity($Process) {
+    $null = $Process.Handle
+    return [ordered]@{ pid = $Process.Id; ticks = $Process.StartTime.ToUniversalTime().Ticks.ToString();
+        session = $Process.SessionId; path = $Process.MainModule.FileName }
+}
+function Assert-NoNative($Reason) {
+    $all = @(Get-Process SLDWORKS -ErrorAction SilentlyContinue)
+    try { if ($all.Count -ne 0) { throw $Reason } }
+    finally { foreach ($process in $all) { $process.Dispose() } }
+}
+function Assert-NativeBinary {
+    $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+    if ($version.FileVersion -ne '30.5.0.0049' -or $version.ProductVersion -ne '30.5.0.0049' -or
+        (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $exeHash) { throw 'native binary mismatch' }
+}
+function Assert-Identity($Process, $Identity) {
+    $all = @(Get-Process SLDWORKS -ErrorAction SilentlyContinue)
+    try {
+        if ($all.Count -ne 1 -or $all[0].Id -ne $Identity.pid -or $Process.HasExited) { throw 'singleton or exit mismatch' }
+        $now = Read-Identity $Process
+        if ($now.pid -ne $Identity.pid -or $now.ticks -cne $Identity.ticks -or
+            $now.session -ne $Identity.session -or $now.session -ne [Diagnostics.Process]::GetCurrentProcess().SessionId -or
+            $now.path -ine $exe) { throw 'native identity mismatch' }
+        Assert-NativeBinary
+    } finally { foreach ($process in $all) { $process.Dispose() } }
+}
+function Assert-CallerBinding {
+    if ($InterruptReadonly -and ($ExpectedOldPid -ne 0 -or [string]::IsNullOrWhiteSpace($BaselinePath) -or
+        [string]::IsNullOrWhiteSpace($CandidatePath))) { throw 'Interruption requires PID zero and both pinned synthetic source paths.' }
+    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath -or $AssemblyPath)) { throw 'Fixture paths require -InterruptReadonly.' }
+    if ($ExpectedOldPid -eq 0) {
+        if ($ExpectedOldTicks -cne '') { throw 'PID zero requires empty expected ticks.' }
+        Assert-NoNative 'PID zero requires no existing native process.'
+        return
+    }
+    $ticks = [long]0
+    if ($ExpectedOldTicks -notmatch '^[1-9][0-9]{0,18}$' -or -not [long]::TryParse($ExpectedOldTicks, [ref]$ticks) -or
+        $ticks -gt [DateTime]::MaxValue.Ticks) { throw 'Expected old ticks must be a canonical positive DateTime tick count.' }
+}
+# Copy all executable source inputs into the fresh attempt and retain their actual hashes.
+function Copy-LifecycleSources {
+    $sources = @((Join-Path $PSScriptRoot 'lifecycle.ps1'), (Join-Path $PSScriptRoot 'NativeSessionProbe.cs'),
+        (Join-Path $PSScriptRoot 'PreparedCylinder.cs'), (Join-Path $PSScriptRoot 'InterruptionCase.ps1'),
+        (Join-Path $PSScriptRoot 'AssemblyRecovery.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedDimensionProbe.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedPackage.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PartGeometry.cs'),
+        (Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'),
+        (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'))
+    foreach ($source in $sources) {
+        $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
+        $digest = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+        Copy-Item -LiteralPath $source -Destination $destination -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest) { throw 'Source copy digest mismatch.' }
+        $r.sourceHashes += @{ name = $name; sha256 = $digest }
+    }
+    if ((Get-FileHash -LiteralPath (Join-Path $folder 'OwnedProcess.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+        'd4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e') { throw 'helper source drift' }
+}
+# Compile copied C# using the observed installed compiler, never a downloaded SDK.
+function Build-LifecycleProbe {
+    $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    $r.compiler = @{ path = $compiler; version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion;
+        sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() }
+    if (-not $r.compiler.version.StartsWith('4.8.9221.0') -or
+        $r.compiler.sha256 -ne '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Installed compiler pin mismatch.' }
+    $arguments = @('/nologo', '/target:exe', '/main:NativeSessionProbe', '/platform:x64', '/optimize+', '/reference:System.dll',
+        '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop),
+        ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'),
+        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'),
+        (Join-Path $folder 'AssemblyRecovery.cs'), (Join-Path $folder 'PreparedDimensionProbe.cs'),
+        (Join-Path $folder 'PreparedPackage.cs'), (Join-Path $folder 'PartGeometry.cs'))
+    $r.stage = 'compile_probe'; Save-Receipt
+    $r.compile = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder 'compile')
+    Save-Receipt
+    if ($r.compile.error -or $r.compile.timedOut -or $r.compile.exitCode -ne 0) { throw 'Probe compilation failed; no native action taken.' }
+    $r.binarySha256 = (Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+# Every API action independently rechecks the pinned singleton and requires zero documents.
+function Invoke-LifecycleProbe($Mode, $Process, $Identity, $Label, [bool]$AllowNotReady = $false, [int]$TimeoutMs = 30000) {
+    Assert-Identity $Process $Identity
+    if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne $r.binarySha256) { throw 'probe binary drift' }
+    # Mark a close attempt before dispatch; failed or missing helper evidence cannot prove no native effect.
+    if ($Mode -eq 'graceful-close-empty') { $r.nativeCloseAttempted = $true }
+    $r.stage = $Label; Save-Receipt
+    $obs = Invoke-OwnedProcess -Executable $helper -Arguments @($Mode, [string]$Identity.pid, $Identity.ticks, [string]$Identity.session) -TimeoutMs $TimeoutMs -LogBase (Join-Path $folder $Label)
+    $r.observations += $obs; Save-Receipt
+    if ($obs.timedOut -or $obs.error) { throw ('Probe failed: ' + $Label) }
+    $data = $obs.stdout | ConvertFrom-Json
+    if ($AllowNotReady -and $Mode -eq 'inspect' -and $obs.exitCode -eq 3 -and $data.outcome -eq 'not_ready' -and
+        $data.expectedPid -eq $Identity.pid -and $data.expectedTicks -ceq $Identity.ticks -and $data.exitAppRequested -eq $false) { return $false }
+    if ($obs.exitCode -ne 0) { throw ('Probe failed: ' + $Label) }
+    $releaseError = $data.PSObject.Properties['releaseError']
+    if ($data.outcome -ne 'passed' -or $data.apiPid -ne $Identity.pid -or $data.expectedTicks -cne $Identity.ticks -or
+        $data.startupCompleted -ne $true -or $data.documentCount -ne 0 -or
+        ($null -ne $releaseError -and $releaseError.Value)) { throw 'probe evidence mismatch' }
+    return $true
+}
+function Close-OldSession {
+    [void](Invoke-LifecycleProbe 'inspect' $old $r.old 'old-inspect')
+    [void](Invoke-LifecycleProbe 'graceful-close-empty' $old $r.old 'old-close')
+    $r.stage = 'wait_old_exit'; Save-Receipt
+    if (-not $old.WaitForExit(30000)) { throw 'old exit unconfirmed; do not start' }
+    $r.oldExit = $old.ExitCode; Save-Receipt
+    if ($r.oldExit -ne 0) { throw 'old native nonzero exit' }
+}
+# Poll only specifically classified startup-not-ready observations on the retained
+# process. Each probe timeout is capped by the remaining 60-second readiness budget;
+# the shared helper's bounded capture/cleanup waits may add up to 15 seconds.
+function Wait-NativeReady([string]$Label = 'owned-ready') {
+    $timer = [Diagnostics.Stopwatch]::StartNew(); $attempt = 0
+    while ($timer.ElapsedMilliseconds -lt 60000) {
+        $attempt++; $remaining = 60000 - $timer.ElapsedMilliseconds
+        $timeout = [int][Math]::Min(30000, $remaining)
+        if (Invoke-LifecycleProbe 'inspect' $native $r.native ($Label + '-' + $attempt) $true $timeout) { return }
+        $remaining = 60000 - $timer.ElapsedMilliseconds
+        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining)) }
+    }
+    throw 'native API readiness deadline exceeded'
+}
+# Normal ExitApp is the sole native close path; idle wait is not proof of COM readiness.
+function Complete-NativeLifecycle {
+    if (-not $native.WaitForInputIdle(60000)) { throw 'native readiness unconfirmed' }
+    Wait-NativeReady
+    Close-OwnedNative
+}
+function Close-OwnedNative([string]$Label = 'owned-close') {
+    [void](Invoke-LifecycleProbe 'graceful-close-empty' $native $r.native $Label)
+    $r.stage = 'wait_owned_exit'; Save-Receipt
+    if (-not $native.WaitForExit(30000)) { throw 'owned native exit unconfirmed' }
+    $r.nativeExit = $native.ExitCode
+    if ($r.nativeExit -ne 0) { throw 'owned native nonzero exit' }
+    Assert-NoNative 'unexpected final native process'
+}
+# The same directly started and retained object is used by the normal and interruption paths.
+function Start-NativeProcess([string]$Label = 'start_native') {
+    $r.nativeStarted = $false; $r.nativeExit = $null
+    $r.native = $null; $r.nativePid = $null
+    Assert-NoNative 'native process still present'
+    Assert-NativeBinary
+    $script:native = New-Object Diagnostics.Process
+    $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
+    $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
+    $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $r.stage = $Label; $r.nativeStartAttempted = $true; Save-Receipt
+    if (-not $native.Start()) { throw 'native start false' }
+    $r.nativeStarted = $true; $r.nativePid = $native.Id; Save-Receipt
+    $r.native = Read-Identity $native; Save-Receipt
+}
+# Observation or handle-release failure must never retain a passing outcome.
+function Complete-LifecycleObservations {
+    if ($native -and $r.nativeStarted) {
+        try {
+            $r.nativeHasExited = $native.HasExited
+            if ($r.nativeHasExited) { $r.nativeExit = $native.ExitCode }
+        } catch { $r.nativeObservationError = $_.Exception.Message; Add-Failure ('Final observation: ' + $_.Exception.Message) }
+    }
+    foreach ($process in @($old, $native)) {
+        if ($null -eq $process) { continue }
+        try { $process.Dispose() } catch { Add-Failure ('Handle disposal: ' + $_.Exception.Message) }
+    }
+}
+try {
+    Save-Receipt
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitProcess -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { throw 'Requires x64 Windows PowerShell 5.1.' }
+    if ($SourceCommit) {
+        if ($SourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw 'SourceCommit must be a lowercase commit label.' }
+        $r.sourceCommit = $SourceCommit
+    }
+    Assert-CallerBinding; Assert-NativeBinary
+    if ((Get-FileHash -LiteralPath $interop -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0' -or
+        [Reflection.AssemblyName]::GetAssemblyName($interop).Version.ToString() -ne '30.5.0.49') { throw 'interop drift' }
+    if ($ExpectedOldPid -gt 0) {
+        $old = [Diagnostics.Process]::GetProcessById($ExpectedOldPid); $r.old = Read-Identity $old
+        if ($r.old.ticks -cne $ExpectedOldTicks) { throw 'old session changed' }
+        Assert-Identity $old $r.old
+    }
+    Copy-LifecycleSources
+    . (Join-Path $folder 'OwnedProcess.ps1')
+    . (Join-Path $folder 'InterruptionCase.ps1')
+    [Environment]::CurrentDirectory = $folder
+    if ($InterruptReadonly) { Prepare-InterruptionInputs }
+    Build-LifecycleProbe
+    if ($InterruptReadonly) { Invoke-InterruptionCase }
+    else {
+        if ($null -ne $old) { Close-OldSession }
+        Start-NativeProcess
+        Complete-NativeLifecycle
+    }
+    $r.outcome = 'passed'
+} catch { Add-Failure $_.Exception.Message }
+finally {
+    Complete-LifecycleObservations
+    try { [Environment]::CurrentDirectory = $previousDirectory } catch { Add-Failure ('Working directory: ' + $_.Exception.Message) }
+    try { Save-Receipt } catch {
+        Add-Failure ('Receipt persistence: ' + $_.Exception.Message)
+        Write-Output ($r | ConvertTo-Json -Depth 20)
+    }
+    Write-Output $resultPath
+}
+if ($r.outcome -ne 'passed') { exit 2 }
+exit 0
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Web.Script.Serialization;
+
+// Experimental typed probe for one explicitly identified native session.
+// Connecting to a registered COM object does not establish process ownership;
+// the supervisor separately retains the process it directly starts.
+class NativeSessionProbe {
+ const string Exe = @"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe";
+ const string Digest = "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc";
+ static readonly Dictionary<string,object> R = new Dictionary<string,object>();
+ static void Need(bool ok, string why) { if (!ok) throw new InvalidOperationException(why); }
+ static void Record(string stage) {
+  R["stage"] = stage;
+  Console.Error.WriteLine(new JavaScriptSerializer().Serialize(R)); Console.Error.Flush();
+ }
+ // Only read-only startup observations may be retried. Identity and document
+ // failures stay terminal, and a shutdown request is never retried here.
+ static bool IsStartupPending(string[] args, Exception error) {
+  if (args.Length != 4 || args[0] != "inspect" || !R.ContainsKey("stage") || R.ContainsKey("releaseError")) return false;
+  if ((string)R["stage"] != "bind_existing") return false;
+  if (error is COMException && error.HResult == unchecked((int)0x800401E3)) return true;
+  return error is InvalidOperationException && error.Message == "startup_not_complete";
+ }
+ static void Guard(int pid, long ticks, int session) {
+  Process[] all = Process.GetProcessesByName("SLDWORKS");
+  try {
+   Need(all.Length == 1, "singleton_mismatch");
+   Process p = all[0];
+   Need(p.Id == pid && p.SessionId == session &&
+    session == Process.GetCurrentProcess().SessionId &&
+    p.StartTime.ToUniversalTime().Ticks == ticks, "process_identity_mismatch");
+   Need(String.Equals(p.MainModule.FileName, Exe, StringComparison.OrdinalIgnoreCase), "path_mismatch");
+   var v = p.MainModule.FileVersionInfo;
+   Need(v.FileVersion == "30.5.0.0049" && v.ProductVersion == "30.5.0.0049", "version_mismatch");
+   using (var f = File.OpenRead(Exe)) using (var h = SHA256.Create())
+    Need(BitConverter.ToString(h.ComputeHash(f)).Replace("-","").ToLowerInvariant() == Digest, "hash_mismatch");
+  } finally { foreach (Process p in all) p.Dispose(); }
+ }
+ [STAThread] static int Main(string[] args) {
+  AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs e) {
+   return new AssemblyName(e.Name).Name == "SolidWorks.Interop.sldworks"
+    ? Assembly.LoadFrom(@"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll") : null;
+  };
+  R["utc"] = DateTime.UtcNow.ToString("o"); R["helperPid"] = Process.GetCurrentProcess().Id;
+  R["outcome"] = "failed"; R["exitAppRequested"] = false;
+  try {
+   Need(args.Length == 4 || args.Length == 5, "arguments");
+   bool assembly = args[0] == "assembly-open" || args[0] == "assembly-inspect" || args[0] == "assembly-close";
+   bool fixture = assembly || args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
+   Need(fixture ? args.Length == 5 : args.Length == 4, "mode_arguments");
+   Need(fixture || args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
+   int pid = Int32.Parse(args[1]); long ticks = Int64.Parse(args[2]); int session = Int32.Parse(args[3]);
+   R["mode"] = args[0]; R["expectedPid"] = pid; R["expectedTicks"] = ticks.ToString(); R["session"] = session;
+   Need(Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "STA");
+   Guard(pid,ticks,session); Run(args[0],pid,ticks,session,fixture ? args[4] : null); R["outcome"] = "passed";
+  } catch (Exception e) {
+   R["error"] = e.Message; R["hresult"] = "0x"+e.HResult.ToString("X8");
+   if (IsStartupPending(args,e)) R["outcome"] = "not_ready";
+  }
+  Console.WriteLine(new JavaScriptSerializer().Serialize(R));
+  if ((string)R["outcome"] == "passed") return 0;
+  if ((string)R["outcome"] == "not_ready") return 3;
+  return 2;
+ }
+ [MethodImpl(MethodImplOptions.NoInlining)]
+ static void Run(string mode, int pid, long ticks, int session, string fixturePath) {
+  Need(typeof(SolidWorks.Interop.sldworks.ISldWorks).Assembly.GetName().Version.ToString() == "30.5.0.49" &&
+   typeof(SolidWorks.Interop.sldworks.ISldWorks).GUID == new Guid("83A33D22-27C5-11CE-BFD4-00400513BB57"), "interop");
+  object raw = null;
+  try {
+   Record("bind_existing");
+   raw = Marshal.GetActiveObject("SldWorks.Application.30");
+   var sw = (SolidWorks.Interop.sldworks.ISldWorks)raw;
+   int actual = sw.GetProcessID(); string revision = sw.RevisionNumber();
+   R["apiPid"] = actual; R["revision"] = revision;
+   Need(actual == pid && revision == "30.5.0", "api_identity_mismatch");
+   bool startupCompleted = sw.StartupProcessCompleted;
+   R["startupCompleted"] = startupCompleted;
+   Need(startupCompleted, "startup_not_complete");
+   if (fixturePath != null) {
+    Record("fixture_inspection");
+    try {
+     bool assembly = mode.StartsWith("assembly-", StringComparison.Ordinal);
+     if (assembly) {
+      PreparedDimensionProbe.InspectRecovery(sw,fixturePath,mode == "assembly-open",mode == "assembly-close",pid,ticks,session);
+     } else PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
+      Guard(pid,ticks,session);
+      Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "fixture_api_identity");
+     });
+     R["documentCount"] = sw.GetDocumentCount();
+     int expectedCount = 1; if (assembly) expectedCount = 3;
+     if (mode == "fixture-close" || mode == "assembly-close") expectedCount = 0;
+     Need((int)R["documentCount"] == expectedCount, "fixture_final_document_count");
+    } finally {
+     if (mode.StartsWith("assembly-", StringComparison.Ordinal)) R["fixture"] = PreparedDimensionProbe.RecoveryReport;
+     else R["fixture"] = PreparedCylinder.LastReport;
+     Record("fixture_observed");
+    }
+    return;
+   }
+   int docs = sw.GetDocumentCount(); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");
+   Guard(pid,ticks,session);
+   if (mode == "graceful-close-empty") {
+    Record("before_final_empty_identity_check");
+    Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "final_api_identity");
+    Need(sw.GetDocumentCount() == 0, "final_documents_not_empty");
+    R["exitAppRequested"] = true; Record("exit_app_request");
+    sw.ExitApp(); Record("exit_app_returned");
+   } else {
+    Need(sw.GetProcessID() == pid && sw.GetDocumentCount() == 0, "final_inspect_mismatch");
+    Record("inspected_empty");
+   }
+  } finally {
+   if (raw != null && Marshal.IsComObject(raw)) {
+    try { Marshal.ReleaseComObject(raw); }
+    catch (Exception e) { R["releaseError"] = e.Message; throw; }
+   }
+  }
+ }
+}
+
+2026-09-10T03:46:41.792237Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a0896c-5fa1-72c3-84d4-cab42620a69e turn_id=01a0896c-6285-7ef0-b6a4-0e4b0b43e658 item_id="exec-5b492e06-d19d-4e90-a618-77876281e6ee"
+exec
+/bin/zsh -lc "ls AGENTS* PRD.md PLAN.md package.json; test -d worker && test -d supabase && echo fingerprints-ok; git status --short; cat AGENTS.md | tail -65; find . -maxdepth 2 -name AGENTS.override.md; rg -n 'session-lifecycle|InterruptionCase|AssemblyRecovery' scripts --glob '*test*' --glob '*spec*'; command -v pwsh; command -v dotnet; git diff --check cba6aaa3a8e8f5d1027e20731c363b07956fac65" in /Users/blainewilson/.codex/worktrees/engineering-assembly-recovery/Overdrafter
+ succeeded in 0ms:
+AGENTS.md
+PLAN.md
+PRD.md
+package.json
+fingerprints-ok
+ M docs/solidworks-2022-feasibility.md
+ M scripts/native/session-lifecycle/README.md
+?? output/
+- access-control behavior is ambiguous
+- a requested shortcut bypasses a protected workflow boundary
+- two agents would need to touch the same file at the same time
+- the task's blast radius is expanding beyond original intent without explicit approval
+- mirrored instruction files disagree
+
+---
+
+## Efficiency rules
+
+Use these rules to preserve context and reduce unnecessary tool churn:
+- run one primary analysis pass
+- delegate only bounded tasks
+- require compact structured subagent outputs
+- default to low-volume git inspection first (`--name-only`, `--oneline`, `--stat`, JSON summaries)
+- pull full patch or log output only after a concrete target is identified
+- keep command output scoped to the decision at hand
+- prefer targeted verification before full-repo verification
+- use one watcher for CI or checks instead of repeated polling
+- set explicit work budgets for analysis, implementation, and verification
+- avoid redundant integration layers
+
+Speed without control is waste.
+Control without throughput is also waste.
+The target is narrow, verified motion.
+
+---
+
+## Repository routing
+
+Before structural changes:
+- read `README.md`, `ARCHITECTURE.md`, and `TEST_STRATEGY.md`
+
+For UI changes:
+- inspect existing component and layout patterns first
+
+For backend or data changes:
+- inspect schema, migrations, and authorization rules first
+
+For PR review:
+- apply the closest matching `AGENTS.override.md` file for the area touched by the diff
+
+---
+
+## Directory-local overrides
+
+If present, local override files take precedence for their directory:
+- `supabase/AGENTS.override.md`
+- `worker/AGENTS.override.md`
+- `src/features/quotes/AGENTS.override.md`
+
+If no override exists, follow this root file.
+
+---
+
+## Solo Linear workflow addendum
+
+- Treat Linear as the system of record for issue identity, external status visibility, and human-facing progress; treat the agent plan state as the execution source of truth and mirror it into the single rolling Linear comment
+- Restate acceptance criteria before implementation starts
+- Prefer the smallest safe change that satisfies the issue
+- Do not invent APIs, routes, database fields, or contracts without checking code first
+- For billing, auth, data import, PDF/file ingestion, and quote logic, include failure-state handling and logging
+- Run relevant tests before marking work complete
+- Use repeatable skills and helpers for recurring workflows
+- If recurring review feedback repeats, update this file or the nearest local instruction file
+./supabase/AGENTS.override.md
+./worker/AGENTS.override.md
+
+2026-09-10T03:46:49.564411Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a0896c-5fa1-72c3-84d4-cab42620a69e turn_id=01a0896c-6285-7ef0-b6a4-0e4b0b43e658 item_id="exec-2bf37a72-d0d9-4921-beba-ef76e6ec5c21"
+2026-09-10T03:46:55.315361Z  WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: OAuth refresh credentials for server notion are missing an authorization server issuer; authorization required
+2026-09-10T03:46:55.315447Z  WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
+codex
+No actionable regressions were identified in the assembly recovery adapter, input-integrity checks, or lifecycle integration. Diff whitespace checks passed; native compilation and execution were not independently verified because the required Windows/SOLIDWORKS environment is unavailable locally.
+2026-09-10T03:46:55.341842Z  WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response
+2026-09-10T03:46:55.344067Z  WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: OAuth refresh credentials for server notion are missing an authorization server issuer; authorization required
+No actionable regressions were identified in the assembly recovery adapter, input-integrity checks, or lifecycle integration. Diff whitespace checks passed; native compilation and execution were not independently verified because the required Windows/SOLIDWORKS environment is unavailable locally.

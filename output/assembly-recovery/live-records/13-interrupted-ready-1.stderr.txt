@@ -1,0 +1,1 @@
+{"utc":"2026-09-10T03:41:42.8917759Z","helperPid":24512,"outcome":"failed","exitAppRequested":false,"mode":"inspect","expectedPid":6036,"expectedTicks":"639246085024565483","session":1,"stage":"bind_existing"}

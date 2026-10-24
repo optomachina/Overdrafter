@@ -1,0 +1,123 @@
+{
+    "outcome":  "not_run",
+    "before":  {
+                   "files":  [
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                     "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                     "bytes":  59987
+                                 },
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                     "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                     "bytes":  56144
+                                 },
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                     "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                     "bytes":  56171
+                                 }
+                             ],
+                   "policy":  [
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "MachinePolicy"
+                                  },
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "UserPolicy"
+                                  },
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "Process"
+                                  },
+                                  {
+                                      "value":  "RemoteSigned",
+                                      "scope":  "CurrentUser"
+                                  },
+                                  {
+                                      "value":  "RemoteSigned",
+                                      "scope":  "LocalMachine"
+                                  }
+                              ],
+                   "utc":  "2026-09-10T03:41:40.6117664Z",
+                   "native":  [
+
+                              ],
+                   "cim":  [
+
+                           ]
+               },
+    "after":  null,
+    "sources":  [
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\session-lifecycle\\lifecycle.ps1",
+                        "sha256":  "26524849d2cfb03789c1db542162f8ae51d84aac5e93ff9651bb0a8a11b4ead8",
+                        "bytes":  15502
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\session-lifecycle\\NativeSessionProbe.cs",
+                        "sha256":  "0db29544e4cdb2b0ed348d85cbe13253e6a17d828cab9c215a3d363a93eb506d",
+                        "bytes":  6950
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\session-lifecycle\\PreparedCylinder.cs",
+                        "sha256":  "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+                        "bytes":  14120
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\session-lifecycle\\InterruptionCase.ps1",
+                        "sha256":  "e83099dca54a3bc90fa2fcf5b3a76e69ea52235faf678d0e2407e6463dbc5ef1",
+                        "bytes":  9529
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\session-lifecycle\\AssemblyRecovery.cs",
+                        "sha256":  "a53d21ab187a66ceb8922243e9756263e97af1737ad569fb72618d430a594340",
+                        "bytes":  4218
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\file-admission\\SharedFilePredicates.cs",
+                        "sha256":  "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+                        "bytes":  1533
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\file-admission\\OwnedProcess.ps1",
+                        "sha256":  "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+                        "bytes":  4835
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\prepared-dimension\\PreparedDimensionProbe.cs",
+                        "sha256":  "35b0dfec75346156f30d601f50e4dff9595f7726af43d31c9b6332002a1f2901",
+                        "bytes":  8195
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\prepared-dimension\\PreparedPackage.cs",
+                        "sha256":  "00e0cdb2aaf2d2a8293408f26a5965ca1163647c307cf28bbfc1c70143fb484c",
+                        "bytes":  13309
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-D-Dg6Drr\\prepared-dimension\\PartGeometry.cs",
+                        "sha256":  "a9f9b688feca2a7008cf23a2ff5abe6bd1b9a3fbd28264d26c0335c69f538def",
+                        "bytes":  6262
+                    }
+                ],
+    "pins":  [
+                 {
+                     "path":  "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe",
+                     "sha256":  "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc",
+                     "version":  "30.5.0.0049"
+                 },
+                 {
+                     "path":  "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\api\\redist\\SolidWorks.Interop.sldworks.dll",
+                     "sha256":  "9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0",
+                     "version":  "30.5.0.49"
+                 },
+                 {
+                     "path":  "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+                     "sha256":  "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+                     "version":  "4.8.9221.0 built by: NET481REL1LAST_25H2"
+                 }
+             ],
+    "outer":  null,
+    "error":  null
+}

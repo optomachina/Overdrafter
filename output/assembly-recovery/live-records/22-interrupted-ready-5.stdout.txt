@@ -1,0 +1,1 @@
+{"utc":"2026-09-10T03:41:47.4983607Z","helperPid":19228,"outcome":"passed","exitAppRequested":false,"mode":"inspect","expectedPid":6036,"expectedTicks":"639246085024565483","session":1,"stage":"inspected_empty","apiPid":6036,"revision":"30.5.0","startupCompleted":true,"documentCount":0}

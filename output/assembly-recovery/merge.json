@@ -1,0 +1,18 @@
+{
+  "mergeCommit": {
+    "oid": "d715ca802575d220c920bc2d31adb6679188bbc0"
+  },
+  "mergedAt": "2026-09-10T03:54:49Z",
+  "state": "MERGED",
+  "url": "https://github.com/optomachina/Overdrafter/pull/482",
+  "reviewedHead": "a9427f4f8a9d8610aeb35cb8f29033787927504c",
+  "verifiedMatchingFiles": [
+    "docs/solidworks-2022-feasibility.md",
+    "scripts/native/session-lifecycle/AssemblyRecovery.cs",
+    "scripts/native/session-lifecycle/InterruptionCase.ps1",
+    "scripts/native/session-lifecycle/NativeSessionProbe.cs",
+    "scripts/native/session-lifecycle/README.md",
+    "scripts/native/session-lifecycle/lifecycle.ps1"
+  ],
+  "reachableFromOriginMain": true
+}

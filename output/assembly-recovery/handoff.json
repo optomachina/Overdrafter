@@ -1,0 +1,45 @@
+{
+  "issue": "OVD-480",
+  "pr": "https://github.com/optomachina/Overdrafter/pull/482",
+  "reviewedHead": "a9427f4f8a9d8610aeb35cb8f29033787927504c",
+  "executedSource": "7783ce2de30c8ffc5461e4996bc1c1bc3e399495",
+  "nativeCase": "passed_readonly_assembly_closure",
+  "nativeRuns": 1,
+  "nativePids": {
+    "interrupted": 6036,
+    "recovery": 23440
+  },
+  "originalsUnchanged": true,
+  "privateFilesUnchanged": 6,
+  "finalNativeInventory": [],
+  "evidencePacket": {
+    "file": "live-receipt.json",
+    "bytes": 870991,
+    "sha256": "50eef159066de873dae9ede1db0f8799a7237572be0970cb274cea5a5aa76d62"
+  },
+  "evidenceAssertions": 206,
+  "inertCases": 13,
+  "repositoryVerification": "passed: 333 files, 4095 tests, 1 skipped; build, lint, types and worker checks",
+  "localReview": "passed with no actionable findings",
+  "codeRabbit": "rate limited; no review performed; no threads at last readback",
+  "hostedChecks": "all passed on final head",
+  "merge": {
+    "mergeCommit": {
+      "oid": "d715ca802575d220c920bc2d31adb6679188bbc0"
+    },
+    "mergedAt": "2026-09-10T03:54:49Z",
+    "state": "MERGED",
+    "url": "https://github.com/optomachina/Overdrafter/pull/482",
+    "reviewedHead": "a9427f4f8a9d8610aeb35cb8f29033787927504c",
+    "verifiedMatchingFiles": [
+      "docs/solidworks-2022-feasibility.md",
+      "scripts/native/session-lifecycle/AssemblyRecovery.cs",
+      "scripts/native/session-lifecycle/InterruptionCase.ps1",
+      "scripts/native/session-lifecycle/NativeSessionProbe.cs",
+      "scripts/native/session-lifecycle/README.md",
+      "scripts/native/session-lifecycle/lifecycle.ps1"
+    ],
+    "reachableFromOriginMain": true
+  },
+  "fullIssue": "remains In Progress; broader worker isolation, scheduling, entitlement and save interruption excluded"
+}

@@ -1,0 +1,281 @@
+{
+    "utc":  "2026-09-10T03:42:01.4785098Z",
+    "attempt":  "0cf2bd460272465bb5b3e709dbd00df9",
+    "native":  {
+                   "pid":  6036,
+                   "ticks":  "639246085024565483",
+                   "session":  1,
+                   "path":  "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\SLDWORKS.exe"
+               },
+    "inputManifestSha256":  "3e9194e8e24e168f415c97358b0dca9dfad7d59d5965038c94c0c792ae8c77ed",
+    "binarySha256":  "6937b283a38c725f697c3c97919729162c0c4086191277bcc7d4c14829476229",
+    "sourceHashes":  [
+                         {
+                             "sha256":  "26524849d2cfb03789c1db542162f8ae51d84aac5e93ff9651bb0a8a11b4ead8",
+                             "name":  "lifecycle.ps1"
+                         },
+                         {
+                             "sha256":  "0db29544e4cdb2b0ed348d85cbe13253e6a17d828cab9c215a3d363a93eb506d",
+                             "name":  "NativeSessionProbe.cs"
+                         },
+                         {
+                             "sha256":  "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+                             "name":  "PreparedCylinder.cs"
+                         },
+                         {
+                             "sha256":  "e83099dca54a3bc90fa2fcf5b3a76e69ea52235faf678d0e2407e6463dbc5ef1",
+                             "name":  "InterruptionCase.ps1"
+                         },
+                         {
+                             "sha256":  "a53d21ab187a66ceb8922243e9756263e97af1737ad569fb72618d430a594340",
+                             "name":  "AssemblyRecovery.cs"
+                         },
+                         {
+                             "sha256":  "35b0dfec75346156f30d601f50e4dff9595f7726af43d31c9b6332002a1f2901",
+                             "name":  "PreparedDimensionProbe.cs"
+                         },
+                         {
+                             "sha256":  "00e0cdb2aaf2d2a8293408f26a5965ca1163647c307cf28bbfc1c70143fb484c",
+                             "name":  "PreparedPackage.cs"
+                         },
+                         {
+                             "sha256":  "a9f9b688feca2a7008cf23a2ff5abe6bd1b9a3fbd28264d26c0335c69f538def",
+                             "name":  "PartGeometry.cs"
+                         },
+                         {
+                             "sha256":  "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+                             "name":  "SharedFilePredicates.cs"
+                         },
+                         {
+                             "sha256":  "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+                             "name":  "OwnedProcess.ps1"
+                         }
+                     ],
+    "observation":  {
+                        "utc":  "2026-09-10T03:41:58.3549867Z",
+                        "helperPid":  2024,
+                        "outcome":  "passed",
+                        "exitAppRequested":  false,
+                        "mode":  "assembly-inspect",
+                        "expectedPid":  6036,
+                        "expectedTicks":  "639246085024565483",
+                        "session":  1,
+                        "stage":  "fixture_observed",
+                        "apiPid":  6036,
+                        "revision":  "30.5.0",
+                        "startupCompleted":  true,
+                        "documentCount":  3,
+                        "fixture":  {
+                                        "outcome":  "passed",
+                                        "checks":  {
+                                                       "absolute_assembly_path":  true,
+                                                       "prepared_assembly_path":  true,
+                                                       "native_singleton":  true,
+                                                       "native_identity":  true,
+                                                       "native_executable_path":  true,
+                                                       "native_binary":  true,
+                                                       "native_api_identity":  true,
+                                                       "exact_private_input_0":  true,
+                                                       "exact_private_input_1":  true,
+                                                       "exact_private_input_2":  true,
+                                                       "document_array":  true,
+                                                       "document_count":  true,
+                                                       "existing_three_documents":  true,
+                                                       "one_configuration":  true,
+                                                       "string_array":  true,
+                                                       "string_array_item":  true,
+                                                       "default_configuration":  true,
+                                                       "existing_readonly_default":  true,
+                                                       "known_existing_part":  true,
+                                                       "unique_existing_part":  true,
+                                                       "unique_existing_assembly":  true,
+                                                       "complete_existing_closure":  true,
+                                                       "known_document_count":  true,
+                                                       "known_private_document_identity":  true,
+                                                       "recovery_geometry_0_part_context":  true,
+                                                       "dependency_pairs":  true,
+                                                       "dependency_count":  true,
+                                                       "no_active_sketch":  true,
+                                                       "feature_cycle":  true,
+                                                       "feature_bound":  true,
+                                                       "unique_driving_extrusion":  true,
+                                                       "extrusion_definition":  true,
+                                                       "recovery_geometry_0_extrusion_semantics":  true,
+                                                       "recovery_geometry_0_native_rebuild":  true,
+                                                       "body_array":  true,
+                                                       "recovery_geometry_0_body_counts":  true,
+                                                       "mass_array":  true,
+                                                       "finite_mass_properties":  true,
+                                                       "recovery_geometry_0_cylinder_geometry":  true,
+                                                       "recovery_geometry_1_part_context":  true,
+                                                       "recovery_geometry_1_extrusion_semantics":  true,
+                                                       "recovery_geometry_1_native_rebuild":  true,
+                                                       "recovery_geometry_1_body_counts":  true,
+                                                       "recovery_geometry_1_cylinder_geometry":  true,
+                                                       "assembly_activation":  true,
+                                                       "active_assembly_identity":  true,
+                                                       "assembly_rebuild":  true,
+                                                       "assembly_configuration":  true,
+                                                       "two_components":  true,
+                                                       "distinct_occurrences":  true,
+                                                       "same_top_recursive_components":  true,
+                                                       "actual_private_component_path":  true,
+                                                       "component_identity_configuration_state":  true,
+                                                       "transform_present":  true,
+                                                       "transform_length":  true,
+                                                       "finite_transform":  true,
+                                                       "unchanged_fixed_transform":  true,
+                                                       "dependency_pair_valid":  true,
+                                                       "unique_private_dependency":  true,
+                                                       "exact_dependency":  true,
+                                                       "private_three_document_closure":  true,
+                                                       "all_documents_readonly":  true,
+                                                       "final_recovery_document_count":  true
+                                                   },
+                                        "releaseErrors":  [
+
+                                                          ],
+                                        "verified":  true,
+                                        "readOnly":  true,
+                                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\synthetic-assembly.SLDASM",
+                                        "stage":  "GetDocuments",
+                                        "recovery_geometry_0Dependencies":  [
+
+                                                                            ],
+                                        "recovery_geometry_0":  {
+                                                                    "depthM":  0.005,
+                                                                    "isBase":  true,
+                                                                    "isBossDiagnostic":  false,
+                                                                    "thin":  false,
+                                                                    "bothDirections":  false,
+                                                                    "endCondition":  0,
+                                                                    "fromType":  0,
+                                                                    "reverse":  false,
+                                                                    "rebuild":  true,
+                                                                    "featureError":  0,
+                                                                    "featureWarning":  false,
+                                                                    "massProperties":  [
+                                                                                           -5.3193229291901513E-19,
+                                                                                           0,
+                                                                                           0.0025,
+                                                                                           1.5707963267948969E-06,
+                                                                                           0.000942477796076938,
+                                                                                           1.5707963267948969E-06,
+                                                                                           4.2542400517361793E-11,
+                                                                                           4.2542400517361793E-11,
+                                                                                           7.8539816339744847E-11,
+                                                                                           0,
+                                                                                           -7.1746481373430638E-44,
+                                                                                           7.588784500269E-44
+                                                                                       ],
+                                                                    "testDensity":  1,
+                                                                    "volumeMm3":  1570.7963267948969,
+                                                                    "depthMm":  5
+                                                                },
+                                        "recovery_geometry_1Dependencies":  [
+
+                                                                            ],
+                                        "recovery_geometry_1":  {
+                                                                    "depthM":  0.008,
+                                                                    "isBase":  true,
+                                                                    "isBossDiagnostic":  false,
+                                                                    "thin":  false,
+                                                                    "bothDirections":  false,
+                                                                    "endCondition":  0,
+                                                                    "fromType":  0,
+                                                                    "reverse":  false,
+                                                                    "rebuild":  true,
+                                                                    "featureError":  0,
+                                                                    "featureWarning":  false,
+                                                                    "massProperties":  [
+                                                                                           -5.3193229291901513E-19,
+                                                                                           0,
+                                                                                           0.004000000000000001,
+                                                                                           2.513274122871835E-06,
+                                                                                           0.0011309733552923257,
+                                                                                           2.513274122871835E-06,
+                                                                                           7.6235981727112334E-11,
+                                                                                           7.6235981727112321E-11,
+                                                                                           1.2566370614359175E-10,
+                                                                                           0,
+                                                                                           4.4000407989348748E-43,
+                                                                                           1.9427288320688643E-43
+                                                                                       ],
+                                                                    "testDensity":  1,
+                                                                    "volumeMm3":  2513.2741228718351,
+                                                                    "depthMm":  8
+                                                                },
+                                        "recoveryOccurrences":  [
+                                                                    {
+                                                                        "name":  "candidate-8mm-1",
+                                                                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\candidate-8mm.SLDPRT",
+                                                                        "modelPath":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\candidate-8mm.SLDPRT",
+                                                                        "configuration":  "Default",
+                                                                        "fixedState":  true,
+                                                                        "suppression":  2,
+                                                                        "readOnly":  true,
+                                                                        "transform":  [
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0.04,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0
+                                                                                      ]
+                                                                    },
+                                                                    {
+                                                                        "name":  "baseline-5mm-1",
+                                                                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\baseline-5mm.SLDPRT",
+                                                                        "modelPath":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\baseline-5mm.SLDPRT",
+                                                                        "configuration":  "Default",
+                                                                        "fixedState":  true,
+                                                                        "suppression":  2,
+                                                                        "readOnly":  true,
+                                                                        "transform":  [
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0,
+                                                                                          1,
+                                                                                          0,
+                                                                                          0,
+                                                                                          0
+                                                                                      ]
+                                                                    }
+                                                                ],
+                                        "recovery_part_1Dependencies":  [
+
+                                                                        ],
+                                        "recovery_part_0Dependencies":  [
+
+                                                                        ],
+                                        "recovery_assemblyDependencies":  [
+                                                                              "baseline-5mm",
+                                                                              "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\baseline-5mm.SLDPRT",
+                                                                              "candidate-8mm",
+                                                                              "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\parts\\candidate-8mm.SLDPRT"
+                                                                          ],
+                                        "documentCountAfter":  3
+                                    }
+                    },
+    "action":  "interrupt_retained_native_process",
+    "interruptedSaveRecovery":  false
+}

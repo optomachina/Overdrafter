@@ -1,0 +1,829 @@
+{
+  "scope": "byte reconstruction and executor-reported evidence consistency; no independent native execution",
+  "checks": [
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\outer.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\outer.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\outer.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\outer.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\preflight.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\preflight.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\AssemblyRecovery.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\AssemblyRecovery.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\before-interrupt.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\before-interrupt.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\before-interrupt.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\before-interrupt.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\compile.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\compile.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\compile.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\compile.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\input.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\input.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\pre-interrupt.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted\\pre-interrupt.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-open.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-open.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-1.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-1.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-1.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-1.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-2.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-2.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-2.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-2.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-3.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-3.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-3.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-3.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-4.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-4.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-4.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-4.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-5.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-5.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-5.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\interrupted-ready-5.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\InterruptionCase.ps1",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\InterruptionCase.ps1",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\lifecycle-result.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\lifecycle-result.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\lifecycle.ps1",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\lifecycle.ps1",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\NativeSessionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\NativeSessionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\OwnedProcess.ps1",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\OwnedProcess.ps1",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PartGeometry.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PartGeometry.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedCylinder.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedCylinder.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedDimensionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedDimensionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedPackage.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\PreparedPackage.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\input.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\input.json",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-fixture.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-fixture.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-fixture.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-fixture.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-native.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-native.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-native.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-close-native.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-open.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-open.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-1.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-1.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-1.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-1.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-2.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-2.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-2.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-2.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-3.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-3.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-3.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-3.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-4.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-4.stderr.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-4.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery-ready-4.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\SharedFilePredicates.cs",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\SharedFilePredicates.cs",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\supervise.ps1",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\supervise.ps1",
+      "passed": true
+    },
+    {
+      "name": "raw:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\supervisor.json",
+      "passed": true
+    },
+    {
+      "name": "unique:C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\supervisor.json",
+      "passed": true
+    },
+    {
+      "name": "one_record:lifecycle-result.json",
+      "passed": true
+    },
+    {
+      "name": "passed_bounded_recovery",
+      "passed": true
+    },
+    {
+      "name": "live_source_commit",
+      "passed": true
+    },
+    {
+      "name": "ten_git_source_hashes",
+      "passed": true
+    },
+    {
+      "name": "distinct_attempts",
+      "passed": true
+    },
+    {
+      "name": "fresh_process_identity",
+      "passed": true
+    },
+    {
+      "name": "interrupted_history_retained",
+      "passed": true
+    },
+    {
+      "name": "normal_recovery_exit",
+      "passed": true
+    },
+    {
+      "name": "originals_preserved",
+      "passed": true
+    },
+    {
+      "name": "exact_original_identities",
+      "passed": true
+    },
+    {
+      "name": "one_record:interrupted/input.json",
+      "passed": true
+    },
+    {
+      "name": "one_record:interrupted/attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "interrupted_manifest_binding",
+      "passed": true
+    },
+    {
+      "name": "interrupted_three_private_inputs",
+      "passed": true
+    },
+    {
+      "name": "interrupted_terminal_record",
+      "passed": true
+    },
+    {
+      "name": "one_record:recovery/input.json",
+      "passed": true
+    },
+    {
+      "name": "one_record:recovery/attempt-result.json",
+      "passed": true
+    },
+    {
+      "name": "recovery_manifest_binding",
+      "passed": true
+    },
+    {
+      "name": "recovery_three_private_inputs",
+      "passed": true
+    },
+    {
+      "name": "recovery_terminal_record",
+      "passed": true
+    },
+    {
+      "name": "one_record:interrupted/pre-interrupt.json",
+      "passed": true
+    },
+    {
+      "name": "immutable_checkpoint",
+      "passed": true
+    },
+    {
+      "name": "one_record:interrupted-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_identity",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_readonly_closure",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_mandatory_checks",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_occurrences",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_geometry_0",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_placement_0",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_geometry_1",
+      "passed": true
+    },
+    {
+      "name": "interrupted-open.stdout.txt_placement_1",
+      "passed": true
+    },
+    {
+      "name": "one_record:before-interrupt.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_identity",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_readonly_closure",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_mandatory_checks",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_occurrences",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_geometry_0",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_placement_0",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_geometry_1",
+      "passed": true
+    },
+    {
+      "name": "before-interrupt.stdout.txt_placement_1",
+      "passed": true
+    },
+    {
+      "name": "one_record:recovery-open.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_identity",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_readonly_closure",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_mandatory_checks",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_occurrences",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_geometry_0",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_placement_0",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_geometry_1",
+      "passed": true
+    },
+    {
+      "name": "recovery-open.stdout.txt_placement_1",
+      "passed": true
+    },
+    {
+      "name": "one_record:recovery-close-fixture.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_identity",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_readonly_closure",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_mandatory_checks",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_occurrences",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_geometry_0",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_placement_0",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_geometry_1",
+      "passed": true
+    },
+    {
+      "name": "recovery-close-fixture.stdout.txt_placement_1",
+      "passed": true
+    },
+    {
+      "name": "one_record:before-interrupt.stdout.txt",
+      "passed": true
+    },
+    {
+      "name": "checkpoint_observation_match",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:24512",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:24968",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:6516",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:24868",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:19228",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:12452",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:2024",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:22524",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:24644",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:26560",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:5804",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:16432",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:24536",
+      "passed": true
+    },
+    {
+      "name": "helper_completed:21656",
+      "passed": true
+    },
+    {
+      "name": "one_record:supervisor.json",
+      "passed": true
+    },
+    {
+      "name": "outer_normal_completion",
+      "passed": true
+    },
+    {
+      "name": "empty_native_before_after",
+      "passed": true
+    },
+    {
+      "name": "unchanged_originals_and_policy",
+      "passed": true
+    },
+    {
+      "name": "supervisor_source_binding",
+      "passed": true
+    },
+    {
+      "name": "inventory_unique",
+      "passed": true
+    },
+    {
+      "name": "all_raw_records_bound_to_inventory",
+      "passed": true
+    },
+    {
+      "name": "interrupted_all_private_artifact_hashes",
+      "passed": true
+    },
+    {
+      "name": "recovery_all_private_artifact_hashes",
+      "passed": true
+    },
+    {
+      "name": "one_record:lifecycle.ps1",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:lifecycle.ps1",
+      "passed": true
+    },
+    {
+      "name": "one_record:NativeSessionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:NativeSessionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:PreparedCylinder.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:PreparedCylinder.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:InterruptionCase.ps1",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:InterruptionCase.ps1",
+      "passed": true
+    },
+    {
+      "name": "one_record:AssemblyRecovery.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:AssemblyRecovery.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:SharedFilePredicates.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:SharedFilePredicates.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:OwnedProcess.ps1",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:OwnedProcess.ps1",
+      "passed": true
+    },
+    {
+      "name": "one_record:PreparedDimensionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:PreparedDimensionProbe.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:PreparedPackage.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:PreparedPackage.cs",
+      "passed": true
+    },
+    {
+      "name": "one_record:PartGeometry.cs",
+      "passed": true
+    },
+    {
+      "name": "executed_source_bytes:PartGeometry.cs",
+      "passed": true
+    },
+    {
+      "name": "helper_binary_inventory",
+      "passed": true
+    }
+  ]
+}

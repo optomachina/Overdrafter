@@ -1,0 +1,49 @@
+{
+    "id":  "2b542fd6885c45af8252312455b65aeb",
+    "role":  "recovery",
+    "input":  {
+                  "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\synthetic-assembly.SLDASM",
+                  "bytes":  59987,
+                  "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+              },
+    "baseline":  {
+                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                     "bytes":  59987,
+                     "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                 },
+    "sources":  [
+                    {
+                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                        "bytes":  59987,
+                        "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                        "bytes":  56144,
+                        "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                        "bytes":  56171,
+                        "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                    }
+                ],
+    "inputs":  [
+                   {
+                       "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\synthetic-assembly.SLDASM",
+                       "bytes":  59987,
+                       "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+                   },
+                   {
+                       "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\parts\\baseline-5mm.SLDPRT",
+                       "bytes":  56144,
+                       "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+                   },
+                   {
+                       "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\AR-L-9cYayV\\run\\session-ea4f0ef273d64310aeec71f9efc07e38\\recovery\\parts\\candidate-8mm.SLDPRT",
+                       "bytes":  56171,
+                       "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                   }
+               ],
+    "qualification":  "prepared_three_file_assembly_only"
+}

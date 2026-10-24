@@ -1,0 +1,7 @@
+Default-off: explicit -Execute and expected old identity required.
+At C:\Users\blain\AppData\Local\Temp\AR-D-Dg6Drr\session-lifecycle\lifecycle.ps1:22 char:22
++ ... $Execute) { throw 'Default-off: explicit -Execute and expected old id ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Default-off: ex...ntity required.:String) [], RuntimeException
+    + FullyQualifiedErrorId : Default-off: explicit -Execute and expected old identity required.
+ 
