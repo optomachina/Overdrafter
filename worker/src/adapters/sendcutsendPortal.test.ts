@@ -734,6 +734,22 @@ describe("SendCutSend saved session filter", () => {
     expect(filtered.droppedCookieDomains).toEqual([]);
   });
 
+  it("treats a missing path as / when an app-host cookie shadows a parent one", () => {
+    const filtered = filterSendCutSendStorageState({
+      cookies: [
+        { name: "_session", value: "parent", domain: ".sendcutsend.com" },
+        { name: "_session", value: "app", domain: "app.sendcutsend.com", path: "/" },
+        { name: "z", value: "v", domain: ".zeta.example" },
+        { name: "a", value: "v", domain: ".alpha.example" },
+      ],
+      origins: [],
+    });
+    expect(filtered.state.cookies).toEqual([
+      { name: "_session", value: "app", domain: "app.sendcutsend.com", path: "/" },
+    ]);
+    expect(filtered.droppedCookieDomains).toEqual(["alpha.example", "zeta.example"]);
+  });
+
   it("returns an empty state for malformed input", () => {
     expect(filterSendCutSendStorageState(null)).toEqual({
       state: { cookies: [], origins: [] },

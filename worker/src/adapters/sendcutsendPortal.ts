@@ -759,13 +759,13 @@ export function filterSendCutSendStorageState(state: unknown): {
     ? cookie.domain.trim().toLowerCase().replace(/^\./, "")
     : "";
   const isParent = (cookie: StorageStateCookie) => cookieHost(cookie) === SENDCUTSEND_PARENT_DOMAIN;
-  const slot = (cookie: StorageStateCookie) => `${String(cookie?.name)}\u0000${String(cookie?.path ?? "/")}`;
+  const slot = (cookie: StorageStateCookie) => `${String(cookie?.name)}\u0000${typeof cookie?.path === "string" ? cookie.path : "/"}`;
   const appSlots = new Set(cookies.filter((cookie) => cookieHost(cookie) === SENDCUTSEND_APP_HOST).map(slot));
   // An app-host cookie of the same name and path wins over a rescoped parent one.
   const kept = cookies.filter((cookie) => allowed.has(cookieHost(cookie)) || (isParent(cookie) && !appSlots.has(slot(cookie))))
     .map((cookie) => isParent(cookie) ? { ...cookie, domain: SENDCUTSEND_APP_HOST } : cookie);
   const dropped = [...new Set(cookies.filter((cookie) => !allowed.has(cookieHost(cookie)) && !isParent(cookie))
-    .map(cookieHost))].sort();
+    .map(cookieHost))].sort((left, right) => left.localeCompare(right));
   const keptOrigins = origins.filter((entry) => {
     if (typeof entry?.origin !== "string") return false;
     try {
