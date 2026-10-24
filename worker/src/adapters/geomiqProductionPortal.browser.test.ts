@@ -38,7 +38,14 @@ type PageOptions = {
   /** `unit` is per part; the fixture renders the subtotal from the configurator's quantity. */
   price?: { symbol: string; unit: number } | { status: string };
   uploadUrl?: string;
+  /** After upload the app restores a previous draft's selection instead of selecting the new part. */
+  restoredSelection?: boolean;
+  /** After upload the header turns anonymous while the rows stay on screen. */
+  sessionExpiresAfterUpload?: boolean;
 };
+
+/** Each configurator write is saved as `PATCH /api/drafts/<selected part>/<field>`, so tests see which draft changed. */
+const draftWrites = (observed: LocalPortalObserved) => observed.requests.filter((request) => request.includes("/api/drafts/"));
 
 function quotePage(options: PageOptions = {}): string {
   const materials = options.materials
@@ -59,10 +66,25 @@ function quotePage(options: PageOptions = {}): string {
     <script>
       const materials = ${JSON.stringify(materials)};
       const input = document.querySelector("[data-testid='main-upload-hidden-input']");
+      const price = ${JSON.stringify(price)};
+      const configuredQuantity = () => Number(document.querySelector("#configurator input#quantity_initial").value);
+      const money = (amount) => (price.symbol ?? "US$") + amount.toFixed(2);
+      const showPrice = (unit) => {
+        document.getElementById("row-price").innerHTML = '<div><p>Price per unit:</p><p> ' + money(unit) + ' </p><p>Subtotal:</p><p> ' + money(unit * configuredQuantity()) + ' </p></div>';
+      };
+      let selected = ${JSON.stringify(STEM)};
+      const saveDraft = (field) => fetch("/api/drafts/" + selected + "/" + field, { method: "PATCH", body: "{}" });
       input.addEventListener("change", async () => {
         await fetch(${JSON.stringify(options.uploadUrl ?? "/api/upload")}, { method: "PUT", body: input.files[0] });
+        if (${JSON.stringify(options.sessionExpiresAfterUpload === true)}) {
+          document.querySelector("nav").innerHTML = '<button data-testid="login-button">Login</button>';
+        }
+        if (${JSON.stringify(options.restoredSelection === true)}) {
+          selected = "previous-draft";
+          document.getElementById("rows").insertAdjacentHTML("beforeend", '<div data-testid="single-part-row" class="part-row is-selected"><p>previous-draft</p></div>');
+        }
         document.getElementById("rows").insertAdjacentHTML("beforeend", \`
-          <div data-testid="single-part-row" class="part-row is-selected">
+          <div data-testid="single-part-row" class="part-row \${selected === ${JSON.stringify(STEM)} ? "is-selected" : ""}">
             <p>${STEM}</p>
             <div><p>Service:</p><p>CNC</p></div>
             <div><p>Material:</p><p id="row-material"> Aluminium 6061 </p></div>
@@ -78,6 +100,9 @@ function quotePage(options: PageOptions = {}): string {
             <div class="options" id="options-material-input-dropdown" style="display:none"></div>
           </div>
           <button class="select-target" entity="primary-finish"><p data-testid="configurator-preselected"><span title="As Machined">As Machined</span></p></button>\`;
+        // The new part first prices with the default material, as the app does once analysis ends.
+        setTimeout(() => showPrice(30), 300);
+        document.querySelector("#configurator input#quantity_initial").addEventListener("input", () => saveDraft("quantity"));
         const search = document.querySelector(".g-input-dropdown .dropdown");
         const options = document.getElementById("options-material-input-dropdown");
         document.getElementById("material-label").addEventListener("click", () => {
@@ -96,13 +121,10 @@ function quotePage(options: PageOptions = {}): string {
               const label = button.querySelector("div").firstChild.textContent.trim();
               document.getElementById("row-material").textContent = " " + label + " ";
               document.getElementById("row-price").innerHTML = '<span class="quote-status-field">Updating part</span>';
-              const price = ${JSON.stringify(price)};
-              const quantity = Number(document.querySelector("#configurator input#quantity_initial").value);
-              const money = (amount) => price.symbol + amount.toFixed(2);
+              saveDraft("material");
               setTimeout(() => {
-                document.getElementById("row-price").innerHTML = "status" in price
-                  ? '<p class="quote-status-field">' + price.status + '</p>'
-                  : '<div><p>Price per unit:</p><p> ' + money(price.unit) + ' </p><p>Subtotal:</p><p> ' + money(price.unit * quantity) + ' </p></div>';
+                if ("status" in price) document.getElementById("row-price").innerHTML = '<p class="quote-status-field">' + price.status + '</p>';
+                else showPrice(price.unit);
               }, 500);
             });
           }
@@ -171,8 +193,8 @@ async function quoteAgainst(page: string) {
 }
 
 describe("Geomiq production portal definition in a browser fixture (OVD-1058)", () => {
-  // Priced cases take about 50 s: the fixture requotes before extraction starts, so six equal reads are needed.
-  // The page prices the part from the configurator's quantity (default 5) and lists "6061 T651" with the
+  // The page first prices the default material, then requotes on the material click; the requote is seen in
+  // configure, so three equal reads settle the price. The page prices the part from the configurator's quantity (default 5) and lists "6061 T651" with the
   // same EN number first, so this passes only if the configurator, not the row (default 7), was set to 1
   // and the exact 6061 T6 option was chosen.
   it("uploads to the app host, selects Aluminium 6061 T6 and reads the settled USD row", async () => {
@@ -184,8 +206,22 @@ describe("Geomiq production portal definition in a browser fixture (OVD-1058)", 
       rawPayload: { terminalState: "offers_extracted", providerMutationPossible: true },
     });
     expect(observed.uploads.map((upload) => upload.toString("utf8"))).toEqual([CAD_BYTES]);
+    expect(draftWrites(observed)).toEqual([
+      `PATCH https://app.geomiq.com/api/drafts/${STEM}/quantity`, `PATCH https://app.geomiq.com/api/drafts/${STEM}/material`,
+    ]);
     expectOnlyHostContacted(observed, "app.geomiq.com");
   }, 2 * timeout);
+
+  // OVD-1058 review: the uploaded row's identity and the session are verified before any configuration write.
+  it.each([
+    ["a previous draft's selection restored during upload", { restoredSelection: true }, "selector_drift", "geomiq_selected_part_not_uploaded_file"],
+    ["a session that expires after upload", { sessionExpiresAfterUpload: true }, "login_required", "geomiq_session_anonymous"],
+  ] as const)("leaves every draft unchanged on %s", async (_name, options, terminalState, reason) => {
+    const { error, observed } = await quoteAgainst(quotePage(options));
+    expect(error).toMatchObject({ payload: { terminalState, reason, providerMutationPossible: true } });
+    expect(observed.uploads).toHaveLength(1);
+    expect(draftWrites(observed)).toEqual([]);
+  }, timeout);
 
   it("records a GBP quote as native local evidence, never as USD", async () => {
     const { output, error } = await quoteAgainst(quotePage({ price: { symbol: "£", unit: 42.5 } }));
@@ -219,7 +255,7 @@ describe("Geomiq production portal definition in a browser fixture (OVD-1058)", 
     expect(observed.uploads).toEqual([]);
   }, timeout);
 
-  // The kernel reports the blocked request after the bounded configurator wait (quantityAwaitMs).
+  // Configure's first post-upload read reports the blocked request.
   it("stops at an undeclared upload host instead of sending the file there", async () => {
     const { error, observed } = await quoteAgainst(quotePage({ uploadUrl: "https://uploads.example.com/signed" }));
     expect(error).toMatchObject({ payload: { terminalState: "unexpected_origin", reason: "unexpected_request:uploads.example.com" } });

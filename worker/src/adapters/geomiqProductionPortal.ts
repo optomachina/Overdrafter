@@ -4,6 +4,7 @@ import { GEOMIQ_ENVELOPE_REVISION } from "./geomiqEnvelope.js";
 import {
   classifyProviderPortalSnapshot,
   isAllowedProviderUrl,
+  type ProviderPortalConfigurationCapability,
   type ProviderPortalDefinition,
   type ProviderPortalNativeOfferCandidate,
   type ProviderPortalOfferCandidate,
@@ -91,11 +92,16 @@ const QUANTITY_MAXIMUM = 50_000;
 const PAGE_RENDER_BUDGET_MS = 20_000;
 /** The signed-in, nothing-selected state must hold across two reads this far apart. */
 const PAGE_STABLE_MS = 1_500;
+/** The configurator renders once the new part is created and selected. */
+const CONFIGURATOR_AWAIT_MS = 60_000;
+/** Bound for the row to finish pricing the quantity before the material is changed. */
+const ROW_IDLE_BUDGET_MS = 60_000;
+/** Window after the material click in which the requote is watched for before extraction starts. */
+const REQUOTE_OBSERVE_MS = 15_000;
+const CONFIGURE_POLL_MS = 250;
 const SETTLE_POLL_MS = 3_000;
-/** Stable reads after a requote was seen (a loading status, no price, or a price change). */
+/** Equal reads one poll apart after a requote was seen; without one no price is accepted. */
 const SETTLE_STABLE_READS = 3;
-/** Stable reads when no requote was seen: the price may already be final, or still stale. */
-const SETTLE_UNOBSERVED_STABLE_READS = 6;
 const SETTLE_BUDGET_MS = 180_000;
 const LOADING_STATUSES = new Set(["Uploading file", "Analysing file", "Pricing part", "Updating part"]);
 
@@ -147,11 +153,50 @@ function uploadedPartNames(input: VendorQuoteAdapterInput): Set<string> {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Interstitials stop the run with their own state before any quote-page wait can mask them. */
-async function assertNoInterstitial(reader: ProviderPortalReadCapability): Promise<void> {
+async function assertNoInterstitial(reader: ProviderPortalReadCapability, providerMutationPossible = false): Promise<void> {
   const text = (await reader.readText("body")) ?? "";
-  if (GEOMIQ_TERMINAL_SIGNALS.captcha.some((pattern) => pattern.test(text))) stop("captcha", "geomiq_bot_challenge", false);
-  if (GEOMIQ_TERMINAL_SIGNALS.unavailable.some((pattern) => pattern.test(text))) stop("unavailable", "geomiq_portal_unavailable", false);
+  if (GEOMIQ_TERMINAL_SIGNALS.captcha.some((pattern) => pattern.test(text))) stop("captcha", "geomiq_bot_challenge", providerMutationPossible);
+  if (GEOMIQ_TERMINAL_SIGNALS.unavailable.some((pattern) => pattern.test(text))) {
+    stop("unavailable", "geomiq_portal_unavailable", providerMutationPossible);
+  }
 }
+
+/**
+ * An expired session renders as the anonymous quote page while retained rows
+ * stay on screen, so every post-upload read and write first rechecks it.
+ */
+async function assertSignedIn(reader: ProviderPortalReadCapability, providerMutationPossible: boolean): Promise<void> {
+  await assertNoInterstitial(reader, providerMutationPossible);
+  if (await reader.count(L.signedOut) > 0 || await reader.count(L.signedIn) === 0) {
+    stop("login_required", "geomiq_session_anonymous", providerMutationPossible);
+  }
+}
+
+type GeomiqRow = { status: string | null; material: string | null; unit: string | null; subtotal: string | null };
+
+/**
+ * After upload: the session is signed in and exactly one part is selected,
+ * and it is the uploaded file. Runs before every configuration write and
+ * every price read, so a restored or switched selection is never edited or priced.
+ */
+async function readUploadedRow(reader: ProviderPortalReadCapability, names: Set<string>): Promise<GeomiqRow> {
+  await assertSignedIn(reader, true);
+  if (await reader.count(L.selectedPartRow) !== 1) stop("selector_drift", "geomiq_selected_part_not_unique", true);
+  const rowLines = ((await reader.readText(L.selectedPartRow)) ?? "").split("\n").map((line) => line.trim().toLowerCase());
+  if (!rowLines.some((line) => names.has(line))) stop("selector_drift", "geomiq_selected_part_not_uploaded_file", true);
+  const read = async (selector: string) => (await reader.readText(selector))?.trim() || null;
+  return { status: await read(L.rowStatus), material: await read(L.rowMaterial), unit: await read(L.rowUnitPrice), subtotal: await read(L.rowSubtotal) };
+}
+
+const isLoading = (row: GeomiqRow) => row.status !== null && LOADING_STATUSES.has(row.status);
+const priceOf = (row: GeomiqRow) => `${row.unit ?? ""}|${row.subtotal ?? ""}`;
+
+/**
+ * Requote evidence from `configure`, keyed by the run's input, for its
+ * extraction: the row's price just before the material click and whether a
+ * loading status or a different price followed it.
+ */
+const materialRequotes = new WeakMap<VendorQuoteAdapterInput, { baselinePrice: string; seen: boolean }>();
 
 /**
  * Read-only, before upload: a signed-in quote page with one upload input, no
@@ -172,10 +217,7 @@ async function assertSignedInQuotePage(reader: ProviderPortalReadCapability): Pr
   }
   for (const check of [0, 1]) {
     if (check) await sleep(PAGE_STABLE_MS);
-    await assertNoInterstitial(reader);
-    if (await reader.count(L.signedOut) > 0 || await reader.count(L.signedIn) === 0) {
-      stop("login_required", "geomiq_session_anonymous", false);
-    }
+    await assertSignedIn(reader, false);
     if (await reader.count(L.cadUpload) !== 1) stop("selector_drift", "geomiq_upload_input_not_unique", false);
     if (await reader.count(L.selectedPartRow) > 0 || await reader.count(L.quantity) > 0) {
       stop("configuration_required", "geomiq_other_part_selected", false);
@@ -184,42 +226,99 @@ async function assertSignedInQuotePage(reader: ProviderPortalReadCapability): Pr
 }
 
 /**
+ * Configures only the uploaded part: it waits for the configurator, then
+ * rechecks the session and the selected row's identity before the quantity
+ * write and before each material step. The quantity requote must finish
+ * before the material changes, so a later loading status or price change
+ * belongs to the material save; that evidence is recorded for extraction.
+ */
+async function configureUploadedPart(
+  configuration: ProviderPortalConfigurationCapability,
+  input: VendorQuoteAdapterInput,
+  reader: ProviderPortalReadCapability,
+): Promise<void> {
+  const names = uploadedPartNames(input);
+  const configuratorDeadline = Date.now() + CONFIGURATOR_AWAIT_MS;
+  for (;;) {
+    await assertSignedIn(reader, true);
+    if (await reader.count(L.quantity) > 0 && await reader.count(L.selectedPartRow) > 0) break;
+    if (Date.now() > configuratorDeadline) stop("selector_drift", "geomiq_configurator_not_rendered", true);
+    await sleep(CONFIGURE_POLL_MS);
+  }
+  if (await reader.count(L.quantity) !== 1) stop("selector_drift", "geomiq_quantity_not_unique", true);
+  await readUploadedRow(reader, names);
+  if (!(await configuration.fill("quantity", String(input.requestedQuantity)))) stop("selector_drift", "geomiq_quantity_control_missing", true);
+
+  // Idle means no loading status and the same price across two reads PAGE_STABLE_MS apart.
+  const idleDeadline = Date.now() + ROW_IDLE_BUDGET_MS;
+  let idle: GeomiqRow | null = null;
+  for (;;) {
+    const row = await readUploadedRow(reader, names);
+    if (!isLoading(row) && idle && priceOf(row) === priceOf(idle)) break;
+    idle = isLoading(row) ? null : row;
+    if (Date.now() > idleDeadline) stop("selector_drift", "geomiq_row_not_idle_before_material", true);
+    await sleep(idle ? PAGE_STABLE_MS : CONFIGURE_POLL_MS);
+  }
+
+  // A portal-default material would quote the wrong part, so every step must land.
+  if (!(await configuration.click("materialTrigger"))) stop("selector_drift", "geomiq_material_control_missing", true);
+  await readUploadedRow(reader, names);
+  if (!(await configuration.fill("materialSearch", GEOMIQ_MATERIAL_6061_T6.label))) {
+    stop("selector_drift", "geomiq_material_search_missing", true);
+  }
+  const baselinePrice = priceOf(await readUploadedRow(reader, names));
+  if (!(await configuration.click("material6061T6"))) {
+    stop("configuration_required", "geomiq_material_6061_t6_not_offered", true);
+  }
+  const evidence = { baselinePrice, seen: false };
+  materialRequotes.set(input, evidence);
+  const observeDeadline = Date.now() + REQUOTE_OBSERVE_MS;
+  while (!evidence.seen && Date.now() <= observeDeadline) {
+    const row = await readUploadedRow(reader, names);
+    evidence.seen = isLoading(row) || priceOf(row) !== baselinePrice;
+    if (!evidence.seen) await sleep(CONFIGURE_POLL_MS);
+  }
+}
+
+/**
  * Polls the selected row until its price is settled for 6061-T6. A material
  * change relabels the row at once (the bundle's UPDATE_DRAFT commits the new
  * configuration before saving) while the previous price stays until the
  * requote marks the row "Updating part"/"Pricing part". A price counts only
- * after equal reads one poll apart, each with the 6061-T6 label and no loading
- * status: SETTLE_STABLE_READS once a requote was seen (a loading status, no
- * price, or a price change), else SETTLE_UNOBSERVED_STABLE_READS. This bounds
- * the stale-price window by time; Geomiq exposes no quote revision to bind to.
+ * after a requote was seen (in `configure`, or here as a loading status, no
+ * price, or a price other than the pre-click one) and then SETTLE_STABLE_READS
+ * equal reads one poll apart, each with the 6061-T6 label and no loading
+ * status. A label change alone, as after a failed or still-pending save, never
+ * yields a price; Geomiq exposes no quote revision to bind to.
  */
-async function readSettledRow(reader: ProviderPortalReadCapability, names: Set<string>): Promise<{ unit: string; subtotal: string }> {
+async function readSettledRow(reader: ProviderPortalReadCapability, input: VendorQuoteAdapterInput): Promise<{ unit: string; subtotal: string }> {
+  const names = uploadedPartNames(input);
+  const evidence = materialRequotes.get(input);
   const deadline = Date.now() + SETTLE_BUDGET_MS;
   let previous: string | null = null;
   let stableReads = 0;
-  let requoteSeen = false;
+  let requoteSeen = evidence?.seen ?? false;
   for (;;) {
-    if (await reader.count(L.selectedPartRow) !== 1) stop("selector_drift", "geomiq_selected_part_not_unique", true);
-    const rowLines = ((await reader.readText(L.selectedPartRow)) ?? "").split("\n").map((line) => line.trim().toLowerCase());
-    if (!rowLines.some((line) => names.has(line))) stop("selector_drift", "geomiq_selected_part_not_uploaded_file", true);
-    const status = (await reader.readText(L.rowStatus))?.trim() ?? null;
+    const row = await readUploadedRow(reader, names);
+    const { status, material, unit, subtotal } = row;
     if (status === "Manual quote needed") stop("manual_review", "geomiq_manual_quote_needed", true);
     if (status === "Unable to quote") stop("unsupported", "geomiq_unable_to_quote", true);
-    const material = (await reader.readText(L.rowMaterial))?.trim() ?? null;
-    const unit = (await reader.readText(L.rowUnitPrice))?.trim() ?? null;
-    const subtotal = (await reader.readText(L.rowSubtotal))?.trim() ?? null;
-    const settled = unit && subtotal && material === GEOMIQ_MATERIAL_6061_T6.label && !(status && LOADING_STATUSES.has(status));
-    const sample = settled ? `${unit}|${subtotal}` : null;
-    if (sample === null || (previous !== null && sample !== previous)) requoteSeen = true;
+    const priced = unit !== null && subtotal !== null;
+    if (isLoading(row) || !priced || (evidence && priceOf(row) !== evidence.baselinePrice)
+      || (previous !== null && priceOf(row) !== previous)) requoteSeen = true;
+    const settled = priced && material === GEOMIQ_MATERIAL_6061_T6.label && !isLoading(row);
+    const sample = settled ? priceOf(row) : null;
     stableReads = sample !== null && sample === previous ? stableReads + 1 : sample === null ? 0 : 1;
-    previous = sample;
-    if (settled && stableReads >= (requoteSeen ? SETTLE_STABLE_READS : SETTLE_UNOBSERVED_STABLE_READS)) return { unit, subtotal };
+    previous = priced ? priceOf(row) : null;
+    if (settled && requoteSeen && stableReads >= SETTLE_STABLE_READS) return { unit: unit!, subtotal: subtotal! };
     if (Date.now() > deadline) {
       // A priced row that never showed 6061-T6 means the material selection did not take.
       if (unit && material && material !== GEOMIQ_MATERIAL_6061_T6.label) stop("configuration_required", "geomiq_material_not_6061_t6", true);
+      // Only the label changed: the material save failed or never repriced, so the shown price is not 6061-T6's.
+      if (!requoteSeen) stop("configuration_required", "geomiq_material_requote_not_observed", true);
       stop("selector_drift", "geomiq_price_not_settled", true);
     }
-    await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
+    await sleep(SETTLE_POLL_MS);
   }
 }
 
@@ -235,7 +334,7 @@ export async function extractGeomiqProductionOffers(
   reader: ProviderPortalReadCapability,
   input: VendorQuoteAdapterInput,
 ): Promise<Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>> {
-  const { unit, subtotal } = await readSettledRow(reader, uploadedPartNames(input));
+  const { unit, subtotal } = await readSettledRow(reader, input);
   const service = (await reader.readText(L.rowService))?.trim();
   const material = (await reader.readText(L.rowMaterial))?.trim();
   const finish = (await reader.readText(L.finish))?.trim();
@@ -304,10 +403,9 @@ export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinitio
     allowedHosts: GEOMIQ_ALLOWED_HOSTS,
     selectors: {
       cadUpload: L.cadUpload,
-      quantity: L.quantity,
-      // The configurator renders once the new part is created and selected.
-      quantityAwaitMs: 60_000,
+      // Quantity is a configuration step, written only after the uploaded row is verified.
       configuration: {
+        quantity: { selector: L.quantity, operation: "fill" },
         materialTrigger: { selector: L.materialTrigger, operation: "click" },
         materialSearch: { selector: L.materialSearch, operation: "fill" },
         material6061T6: { selector: L.material6061T6, operation: "click" },
@@ -335,16 +433,7 @@ export function buildGeomiqProductionPortalDefinition(): ProviderPortalDefinitio
         }
         return { state: "eligible", reason: "geomiq_step_6061_t6_and_quantity_fit" };
       },
-      // A portal-default material would quote the wrong part, so every step must land.
-      configure: async (configuration) => {
-        if (!(await configuration.click("materialTrigger"))) stop("selector_drift", "geomiq_material_control_missing", true);
-        if (!(await configuration.fill("materialSearch", GEOMIQ_MATERIAL_6061_T6.label))) {
-          stop("selector_drift", "geomiq_material_search_missing", true);
-        }
-        if (!(await configuration.click("material6061T6"))) {
-          stop("configuration_required", "geomiq_material_6061_t6_not_offered", true);
-        }
-      },
+      configure: configureUploadedPart,
       classifyPortalState: classifyGeomiqSnapshot,
       extractOffers: extractGeomiqProductionOffers,
     },

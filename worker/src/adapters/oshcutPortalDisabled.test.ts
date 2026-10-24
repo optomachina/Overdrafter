@@ -60,7 +60,7 @@ describe("OSH Cut unconditional portal refusal (OVD-1022)", () => {
     for (const definition of definitions) {
       const page = untouched<never>();
       await expect(definition.hooks.beforeUpload!(page.value)).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
-      await expect(definition.hooks.configure(page.value, input)).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
+      await expect(definition.hooks.configure(page.value, input, page.value)).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
       await expect(definition.hooks.cleanup!(page.value, input)).rejects.toThrow(OSHCUT_PORTAL_DISABLED_MESSAGE);
       expect(page.access).not.toHaveBeenCalled();
     }

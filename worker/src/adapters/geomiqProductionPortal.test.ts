@@ -156,6 +156,7 @@ function reader(page: Page): ProviderPortalReadCapability {
 /** Synthetic settled row for the uploaded part (invented values). */
 function settledRow(overrides: Page = {}): Page {
   return {
+    [L.signedIn]: { count: 1 },
     [L.selectedPartRow]: { count: 1, text: "synthetic-geomiq-part\nService: CNC\nMaterial: Aluminium 6061 T6" },
     [L.rowService]: { text: "CNC" },
     [L.rowMaterial]: { text: "Aluminium 6061 T6" },
@@ -171,10 +172,17 @@ const extractInput = (requestedQuantity = 1) => ({
   requestedQuantity, stagedCadFile: { originalName: "synthetic-geomiq-part.step" }, requirement: { material: "6061 aluminum" },
 }) as unknown as VendorQuoteAdapterInput;
 
-/** Runs extraction on fake timers: a price is accepted only after equal reads one poll apart (three after a requote, six without). */
-async function extract(page: Page, requestedQuantity = 1, advanceMs = 20_000, timeline: Array<[atMs: number, change: Page]> = []) {
+/**
+ * Runs extraction on fake timers: a price is accepted only after a requote and three equal reads one
+ * poll apart. Unless `requote` is false, the row starts "Updating part" and settles at 1 s.
+ */
+async function extract(page: Page, requestedQuantity = 1, advanceMs = 20_000, timeline: Array<[atMs: number, change: Page]> = [], requote = true) {
   vi.useFakeTimers();
   try {
+    if (requote && !page[L.rowStatus]) {
+      page[L.rowStatus] = { text: "Updating part" };
+      timeline = [[1_000, { [L.rowStatus]: { text: null } }], ...timeline];
+    }
     for (const [atMs, change] of timeline) setTimeout(() => Object.assign(page, change), atMs);
     const outcome = extractGeomiqProductionOffers(reader(page), extractInput(requestedQuantity))
       .then((offers) => ({ offers, error: null }), (error: unknown) => ({ offers: null, error }));
@@ -239,7 +247,7 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
     const { offers, error } = await extract(page, 1, 30_000, [
       [4_000, { [L.rowStatus]: { text: "Updating part" } }],
       [8_000, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
-    ]);
+    ], false);
     expect(error).toBeNull();
     expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
   });
@@ -249,7 +257,7 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
     const page = settledRow({ [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" } });
     const { offers, error } = await extract(page, 1, 40_000, [
       [7_000, { [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
-    ]);
+    ], false);
     expect(error).toBeNull();
     expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
   });
@@ -264,18 +272,28 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
     expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
   });
 
-  it("needs six equal reads when no requote is seen", async () => {
-    vi.useFakeTimers();
-    try {
-      let settled = false;
-      const outcome = extractGeomiqProductionOffers(reader(settledRow()), extractInput()).finally(() => { settled = true; });
-      await vi.advanceTimersByTimeAsync(13_000); // five reads: t = 0, 3, 6, 9, 12 s
-      expect(settled).toBe(false);
-      await vi.advanceTimersByTimeAsync(3_000); // the sixth read
-      await expect(outcome).resolves.toHaveLength(1);
-    } finally {
-      vi.useRealTimers();
-    }
+  // OVD-1058 review: unchanged samples alone never yield a price, so a failed save cannot return the old material's price.
+  it("refuses a relabelled row whose price never requotes, however long it holds", async () => {
+    const { offers, error } = await extract(settledRow(), 1, 200_000, [], false);
+    expect(offers).toBeNull();
+    expect(error).toMatchObject({ payload: { terminalState: "configuration_required", reason: "geomiq_material_requote_not_observed", providerMutationPossible: true } });
+  });
+
+  it("accepts a requote that only starts long after the material click", async () => {
+    const page = settledRow({ [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" } });
+    const { offers, error } = await extract(page, 1, 120_000, [
+      [60_000, { [L.rowStatus]: { text: "Updating part" } }],
+      [70_000, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
+    ], false);
+    expect(error).toBeNull();
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
+  });
+
+  // OVD-1058 review: an expired session shows the anonymous page with retained rows, which must not price.
+  it("stops as login_required when the session expires while the price is polled", async () => {
+    const { offers, error } = await extract(settledRow(), 1, 20_000, [[4_000, { [L.signedIn]: { count: 0 }, [L.signedOut]: { count: 1 } }]]);
+    expect(offers).toBeNull();
+    expect(error).toMatchObject({ payload: { terminalState: "login_required", reason: "geomiq_session_anonymous", providerMutationPossible: true } });
   });
 
   it("accepts a penny of rounding per two parts between unit price and subtotal", async () => {
@@ -291,6 +309,126 @@ describe("Geomiq anchored extraction (synthetic readers)", () => {
   it("stops as selector drift when the price never settles", async () => {
     const { error } = await extract(settledRow({ [L.rowStatus]: { text: "Pricing part" } }), 1, 200_000);
     expect(error).toMatchObject({ payload: { terminalState: "selector_drift", reason: "geomiq_price_not_settled" } });
+  });
+});
+
+describe("Geomiq post-upload configuration (synthetic readers)", () => {
+  type Call = [operation: "fill" | "click", field: string, value?: string];
+  const uploaded = (overrides: Page = {}): Page => settledRow({
+    [L.quantity]: { count: 1 }, [L.rowMaterial]: { text: "Aluminium 6061" },
+    [L.rowUnitPrice]: { text: "US$10.00" }, [L.rowSubtotal]: { text: "US$10.00" }, ...overrides,
+  });
+
+  /** Runs configure then extraction for one input on fake timers; `react` lets the page answer each write. */
+  async function configureThenExtract(page: Page, react: (call: Call) => void, timeline: Array<[number, Page]> = [], advanceMs = 60_000) {
+    const calls: Call[] = [];
+    const record = (call: Call) => { calls.push(call); react(call); return Promise.resolve(true); };
+    const configuration = {
+      fill: (field: string, value: string) => record(["fill", field, value]),
+      select: async () => false,
+      click: (field: string) => record(["click", field]),
+    };
+    const input = extractInput();
+    vi.useFakeTimers();
+    try {
+      for (const [atMs, change] of timeline) setTimeout(() => Object.assign(page, change), atMs);
+      const outcome = Promise.resolve(buildGeomiqProductionPortalDefinition().hooks.configure(configuration, input, reader(page)))
+        .then(() => extractGeomiqProductionOffers(reader(page), input))
+        .then((offers) => ({ offers, error: null }), (error: unknown) => ({ offers: null, error }));
+      await vi.advanceTimersByTimeAsync(advanceMs);
+      return { ...(await outcome), calls };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  const relabel = (page: Page, requote: boolean) => (call: Call) => {
+    if (call[1] !== "material6061T6") return;
+    Object.assign(page, { [L.rowMaterial]: { text: "Aluminium 6061 T6" } }, requote ? { [L.rowStatus]: { text: "Updating part" } } : {});
+    if (requote) setTimeout(() => Object.assign(page, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }), 500);
+  };
+
+  it("writes quantity then 6061 T6 to the uploaded row and reads the requoted price", async () => {
+    const page = uploaded();
+    const { offers, error, calls } = await configureThenExtract(page, relabel(page, true));
+    expect(error).toBeNull();
+    expect(calls).toEqual([["fill", "quantity", "1"], ["click", "materialTrigger"], ["fill", "materialSearch", "Aluminium 6061 T6"], ["click", "material6061T6"]]);
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
+  });
+
+  // OVD-1058 review: a selection restored during upload must never receive our quantity or material.
+  it.each<[string, Page, string]>([
+    ["a restored draft selected instead of the upload", { [L.selectedPartRow]: { count: 1, text: "previous-draft" } }, "geomiq_selected_part_not_uploaded_file"],
+    ["two selected parts", { [L.selectedPartRow]: { count: 2, text: "synthetic-geomiq-part" } }, "geomiq_selected_part_not_unique"],
+  ])("writes nothing to %s", async (_name, overrides, reason) => {
+    const page = uploaded(overrides);
+    const { error, calls } = await configureThenExtract(page, () => undefined);
+    expect(calls).toEqual([]);
+    expect(error).toMatchObject({ payload: { terminalState: "selector_drift", reason, providerMutationPossible: true } });
+  });
+
+  it("stops before the material when the selection switches after the quantity write", async () => {
+    const page = uploaded();
+    const { error, calls } = await configureThenExtract(page, (call) => {
+      if (call[1] === "quantity") page[L.selectedPartRow] = { count: 1, text: "previous-draft" };
+    });
+    expect(calls).toEqual([["fill", "quantity", "1"]]);
+    expect(error).toMatchObject({ payload: { reason: "geomiq_selected_part_not_uploaded_file" } });
+  });
+
+  // OVD-1058 review: the session is rechecked after upload, before every write.
+  it.each<[string, Call[1], Call[]]>([
+    ["before the quantity write", "", []],
+    ["after the quantity write", "quantity", [["fill", "quantity", "1"]]],
+    ["after the material search", "materialSearch", [["fill", "quantity", "1"], ["click", "materialTrigger"], ["fill", "materialSearch", "Aluminium 6061 T6"]]],
+  ])("stops as login_required when the session expires %s", async (_name, expireAfter, expected) => {
+    const page = uploaded();
+    const expire = () => Object.assign(page, { [L.signedIn]: { count: 0 }, [L.signedOut]: { count: 1 } });
+    if (!expireAfter) expire();
+    const { error, calls } = await configureThenExtract(page, (call) => { if (call[1] === expireAfter) expire(); });
+    expect(calls).toEqual(expected);
+    expect(error).toMatchObject({ payload: { terminalState: "login_required", reason: "geomiq_session_anonymous", providerMutationPossible: true } });
+  });
+
+  it("waits for the quantity requote to finish before changing the material", async () => {
+    const page = uploaded();
+    const calls: Call[] = [];
+    const react = (call: Call) => {
+      calls.push(call);
+      if (call[1] === "quantity") page[L.rowStatus] = { text: "Updating part" };
+      relabel(page, true)(call);
+      return Promise.resolve(true);
+    };
+    const configuration = { fill: (field: string, value: string) => react(["fill", field, value]), select: async () => false, click: (field: string) => react(["click", field]) };
+    vi.useFakeTimers();
+    try {
+      const done = Promise.resolve(buildGeomiqProductionPortalDefinition().hooks.configure(configuration, extractInput(), reader(page)));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(calls).toEqual([["fill", "quantity", "1"]]);
+      page[L.rowStatus] = { text: null };
+      await vi.advanceTimersByTimeAsync(5_000);
+      await done;
+      expect(calls.map(([, field]) => field)).toEqual(["quantity", "materialTrigger", "materialSearch", "material6061T6"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses the previous price when the material save fails and only the label changes", async () => {
+    const page = uploaded();
+    const { offers, error } = await configureThenExtract(page, relabel(page, false), [], 250_000);
+    expect(offers).toBeNull();
+    expect(error).toMatchObject({ payload: { terminalState: "configuration_required", reason: "geomiq_material_requote_not_observed" } });
+  });
+
+  it("reads a requote that starts after the configure observation window", async () => {
+    const page = uploaded();
+    const { offers, error } = await configureThenExtract(page, relabel(page, false), [
+      [40_000, { [L.rowStatus]: { text: "Updating part" } }],
+      [50_000, { [L.rowStatus]: { text: null }, [L.rowUnitPrice]: { text: "US$42.50" }, [L.rowSubtotal]: { text: "US$42.50" } }],
+    ], 120_000);
+    expect(error).toBeNull();
+    expect(offers).toEqual([expect.objectContaining({ totalPriceUsd: expect.objectContaining({ value: 42.5 }) })]);
   });
 });
 
