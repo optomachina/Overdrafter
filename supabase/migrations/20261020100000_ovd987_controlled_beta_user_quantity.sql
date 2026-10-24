@@ -646,6 +646,8 @@ $$;
 
 revoke all on function private.resolve_xometry_beta_dispatch_scope_with_access(uuid, text, uuid)
   from public, anon, authenticated, service_role;
+-- Owner-only: callers are SECURITY DEFINER; no API role gets EXECUTE.
+grant execute on function private.resolve_xometry_beta_dispatch_scope_with_access(uuid, text, uuid) to postgres;
 
 -- S3: legacy request (latest 20261004100000). Changed: the created-lane quantity.
 create or replace function public.api_request_xometry_beta_dispatch(
@@ -1322,6 +1324,9 @@ $$;
 revoke all on function private.record_quote_access_admission(uuid,uuid,text,uuid),
   private.finalize_free_quote_job(uuid)
   from public, anon, authenticated, service_role;
+-- Owner-only: callers are SECURITY DEFINER; no API role gets EXECUTE.
+grant execute on function private.record_quote_access_admission(uuid,uuid,text,uuid) to postgres;
+grant execute on function private.finalize_free_quote_job(uuid) to postgres;
 
 -- S7: terminal-task reconciliation (latest 20261003011148). Changed: result
 -- and lane quantity identity.
