@@ -555,3 +555,9 @@ companion README for commands, scope and recovery limits.
 - SQL admission fixtures are simulations. Separately qualify the Windows journal,
   process identity/termination, immutable uploads and complete verification before
   activation. A passing database suite cannot establish native process isolation.
+- Run the portable runner lifecycle and static Windows source checks with
+  `node --test --test-concurrency=1 scripts/native/runner-containment/runner-lifecycle.test.mjs scripts/native/runner-containment/test-source-contract.mjs`.
+  These checks launch no synthetic child and prove neither C# compilation nor
+  Windows Job Object containment, journal durability, crash cleanup or native
+  execution. `qualify-windows-job-object.ps1` remains unconditionally disabled
+  until a later exact Workstation admission and source change.

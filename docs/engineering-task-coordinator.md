@@ -343,6 +343,18 @@ no overlapping native processes, no authoritative-file writes, retained private
 outputs, exact retry counts and truthful recovery-required status. Database and
 mock-worker tests cannot establish those Windows facts.
 
+The source-only runner containment contract lives in
+`scripts/native/runner-containment/`. Its portable lifecycle keeps launch intent,
+creation identity, creation-time Windows Job assignment, resume, terminal
+observation and empty-Job proof causally ordered. The Windows source uses a
+suspended process assigned through `PROC_THREAD_ATTRIBUTE_JOB_LIST`, retained
+process/Job handles and `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; it never treats a
+PID or process name as ownership. Its capabilities explicitly exclude file,
+network, UI and credential isolation, malware scanning, SolidWorks qualification,
+runtime qualification and production admission. Portable mocks and source scans
+are not Windows evidence. The Workstation packet remains unconditionally
+disabled pending a separate exact runtime admission.
+
 For PR #491, Sonar reported 67 `plsql:S1192` findings: 45 in the ownership
 migration and 22 in its pgTAP suite. Review confirmed explicit SQLSTATEs,
 state/check vocabulary, JSON protocol keys, digest constraints and independent
