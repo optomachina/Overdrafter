@@ -7,7 +7,7 @@
 -- the pre-OVD-987 schema; with one it refuses and changes nothing.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(126);
+select plan(127);
 
 -- ---------------------------------------------------------------- 0. rollback drill
 -- fixtures/ovd987_controlled_beta_user_quantity_rollback.inc is a byte copy of
@@ -109,6 +109,73 @@ select ok(
   and ovd987_drill.body_md5s() = (select pg_catalog.jsonb_object_agg(signature, applied_md5) from ovd987_drill.bodies),
   'rollback drill (b): the switch is off, no permit above quantity 1 exists and the bodies are this migration''s');
 insert into ovd987_drill.captured values ('audit_history', ovd987_drill.state());
+
+-- The first error must be the audit-history refusal itself. The guard block below is a
+-- byte copy of the rollback's $ovd987_rollback_guard$ block (pinned by
+-- scripts/run-supabase-policy-tests.node-test.mjs); throws_ok runs it in a subtransaction
+-- and captures the first error, which the include below cannot (its later statements
+-- overwrite LAST_ERROR_* with 25P02).
+select throws_ok($ovd987_guard_drill$
+do $ovd987_rollback_guard$
+declare
+  v_expected record;
+  v_md5 text;
+begin
+  if exists (
+    select 1 from private.commercial_rollout_control_events
+    where capability = 'controlled_beta_user_quantity'
+  ) then
+    raise exception 'OVD-987 rollback refused: immutable audit events exist for controlled_beta_user_quantity; the restored events CHECK would reject them and audit history is never deleted or rewritten. Nothing changed: keep the migration applied with the switch off, or decide on a separate schema removal'
+      using errcode = '55000';
+  end if;
+
+  if private.commercial_rollout_enabled('controlled_beta_user_quantity') then
+    raise exception 'OVD-987 rollback refused: controlled_beta_user_quantity is on; turn it off through public.api_set_commercial_rollout_control first'
+      using errcode = 'P0001';
+  end if;
+
+  if exists (
+    select 1
+    from private.xometry_beta_dispatch_permits permit
+    join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id
+    left join public.quote_requests request_row on request_row.id = permit.quote_request_id
+    left join public.work_queue task on task.id = permit.work_queue_task_id
+    left join private.quote_access_admissions admission on admission.permit_id = permit.id
+    where lane.requested_quantity <> 1
+      and (admission.state = 'reserved'
+        or request_row.status::text in ('queued', 'requesting')
+        or task.status::text in ('queued', 'running'))
+  ) then
+    raise exception 'OVD-987 rollback refused: a Xometry beta permit above quantity 1 is still in flight; drain it first'
+      using errcode = 'P0001';
+  end if;
+
+  for v_expected in
+    select * from (values
+      ('public.api_set_commercial_rollout_control(text,boolean,text,text,bigint,text)', '2a2b6b6980abb0dd113b64b3dcd57041', 'eb741ed4f0be63d3189486959cdccdac'),
+      ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '916594293cfc4e66053acf4c7414b2ba', '0d4abcf48f054aced6dd3d531a1114bb'),
+      ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '28c932e1ccf964302ffed42d9ce4bc0b', 'b633e6921485eefc211ab238bab10e43'),
+      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19', 'eb659d92aa927555f4c4fe93591fa9d1'),
+      ('private.record_quote_access_admission(uuid,uuid,text,uuid)', '7c5f710bccffddd8562974ae489e803c', '92b05edef3ec774fdb704e21efdc392d'),
+      ('private.finalize_free_quote_job(uuid)', 'b76415a18a9bb15659ec388cc4da2880', '66021f1fc65ee7fa7d5c24666c858512'),
+      ('public.api_reconcile_terminal_free_quote_tasks(uuid,integer)', 'edcca1ef0dd3cf45a7ff9c202696f185', '30208617d8ea6ec756e268d1b31ad4c9')
+    ) as expected(signature, applied_md5, previous_md5)
+  loop
+    select pg_catalog.md5(p.prosrc) into v_md5
+    from pg_catalog.pg_proc p
+    where p.oid = pg_catalog.to_regprocedure(v_expected.signature);
+    if v_md5 is null or v_md5 not in (v_expected.applied_md5, v_expected.previous_md5) then
+      raise exception 'OVD-987 rollback refused: % was replaced by a later migration (md5 %); roll that back first',
+        v_expected.signature, coalesce(v_md5, 'missing')
+        using errcode = 'P0001';
+    end if;
+  end loop;
+end;
+$ovd987_rollback_guard$
+$ovd987_guard_drill$,
+  '55000',
+  'OVD-987 rollback refused: immutable audit events exist for controlled_beta_user_quantity; the restored events CHECK would reject them and audit history is never deleted or rewritten. Nothing changed: keep the migration applied with the switch off, or decide on a separate schema removal',
+  'rollback drill (b): the first error is the audit-history refusal (SQLSTATE 55000) with its message');
 
 -- psql keeps going after the guard's exception so this file can assert that
 -- nothing changed. Every later statement of the rollback then fails with 25P02

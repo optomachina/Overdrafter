@@ -93,6 +93,12 @@ test('OVD-987 pgTAP fixture is a byte copy of the rollback it drills', () => {
     readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-987.rollback.sql', import.meta.url))));
   const suite = readFileSync(join(source, 'ovd987_controlled_beta_user_quantity.sql'), 'utf8');
   assert.equal(suite.match(/^\\ir fixtures\/ovd987_controlled_beta_user_quantity_rollback\.inc\n/gm)?.length, 2);
+  // The throws_ok refusal drill embeds the rollback's guard block; it must stay a byte copy.
+  const rollback = readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-987.rollback.sql', import.meta.url)), 'utf8');
+  const start = rollback.indexOf('do $ovd987_rollback_guard$');
+  const end = rollback.indexOf('$ovd987_rollback_guard$;', start) + '$ovd987_rollback_guard$'.length;
+  assert(start >= 0 && end > start, 'rollback guard block not found');
+  assert(suite.includes(`select throws_ok($ovd987_guard_drill$\n${rollback.slice(start, end)}\n$ovd987_guard_drill$,\n  '55000',`));
 });
 
 test('project_jobs write path pgTAP fixtures are byte copies of the migration draft and its rollback', () => {
