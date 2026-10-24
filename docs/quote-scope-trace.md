@@ -75,6 +75,43 @@ Notes on quantity: `requirement.quantity` alone does not change the lane
 scope. The lane quantity comes from `quote_quantities` (step 5), and the RPC
 sets `quantity` to its first element (step 3). They agree after a client edit.
 
+## Quantity admission for the Xometry controlled beta
+
+Migration `20261020100000_ovd987_controlled_beta_user_quantity` (OVD-987)
+changes which quantity the Xometry controlled beta admits. It does not change
+the lane, the scope snapshot or the fingerprint, which already carry the
+quantity (steps 5 to 8). It adds the rollout control
+`controlled_beta_user_quantity`, off unless an operator turns it on, and
+restates the dispatch resolver, the request function, the worker authorization
+and the three free-beta meter functions. This trace was read from source and
+from that migration; no database was run.
+
+- With the control off, the normalized quote quantities must be exactly `[1]`
+  (`xometry_beta_quantity_one_required`). With it on, they must be exactly one
+  positive integer (`xometry_beta_single_quantity_required` for several, or for
+  none after normalization). Only the lane for that quantity is created, so
+  the one-lane-per-request rule is unchanged.
+- The request function requires the created lane to carry the scope's quantity
+  (the quantity `1` while the control is off), else
+  `xometry_beta_created_lane_mismatch`.
+- The quantity is inside the fingerprint, so a request confirmed at one
+  quantity and saved at another fails with `xometry_beta_scope_changed`.
+- The worker authorization, which runs before hop 9, requires the lane's
+  quantity to equal its own snapshot quantity, and the result's
+  `requested_quantity` and the task payload's `requestedQuantity` (when the
+  payload has that key) to equal the lane's, else
+  `dispatch_lane_identity_mismatch`. The quantity the adapter browses with is
+  therefore the quantity the permit names. A lane above `1` is refused with
+  `dispatch_quantity_not_admitted` while the control is off.
+- The meter functions compare the lane's quantity with its own snapshot and the
+  result's quantity with the lane's. They never read the control, so a permit
+  issued at quantity N still settles after the control is turned off.
+
+Operator rules for the control are in
+[Commercial Rollout Controls](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity),
+and the envelope rule is in the
+[1.0 runbook](1-0-beta-runbook.md#quantity-in-controlled-beta-requests).
+
 ## Need-by date
 
 A corrected need-by date is written to `approved_part_requirements.requested_by_date`
