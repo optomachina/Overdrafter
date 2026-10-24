@@ -101,7 +101,9 @@ describe("model routing drift", () => {
   });
 
   it("detects a removed source-of-truth pointer sentence", () => {
-    const withoutPointer = agentsText.replace(/`docs\/agent-graph\/model-routing\.yaml`[^.]*\./, "");
+    // Target the pointer sentence itself: the path also appears in the infra_ci glob list.
+    const withoutPointer = agentsText.replace(/`docs\/agent-graph\/model-routing\.yaml` is the source of truth[^.]*\./, "");
+    expect(withoutPointer).not.toBe(agentsText);
     expect(findModelRoutingDrift(withoutPointer, routingText))
       .toContain("AGENTS.md must name docs/agent-graph/model-routing.yaml as the source of truth.");
   });
