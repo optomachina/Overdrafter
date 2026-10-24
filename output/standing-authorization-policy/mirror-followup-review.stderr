@@ -1,0 +1,21 @@
+2026-09-06T03:00:46.324397Z  WARN codex_core::agents_md: project doc exceeds remaining budget; truncating path=file:///Users/blainewilson/.codex/worktrees/standing-authorization-policy/Overdrafter/AGENTS.md remaining_bytes=32768
+2026-09-06T03:00:46.373875Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.381706Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.387931Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.394876Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.402722Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.409953Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.416848Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.423729Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.432758Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.439762Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.447116Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.454133Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.460010Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.466209Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.472266Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.478574Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.484918Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-06T03:00:46.824525Z  WARN codex_core::agents_md: project doc exceeds remaining budget; truncating path=file:///Users/blainewilson/.codex/worktrees/standing-authorization-policy/Overdrafter/AGENTS.md remaining_bytes=32768
+2026-09-06T03:00:53.704495Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a074a9-4872-70b3-8d7b-3e0a7c77bcbb turn_id=01a074a9-4a64-76e3-aaa5-4d3b03cfdaa4 item_id="exec-550c6d32-9f70-478b-b631-7cf502870d6b"
+2026-09-06T03:01:02.434071Z  WARN codex_analytics::reducer: dropping turn tool count update: missing turn state thread_id=01a074a9-4872-70b3-8d7b-3e0a7c77bcbb turn_id=01a074a9-4a64-76e3-aaa5-4d3b03cfdaa4 item_id="exec-9ac3a53a-e6b8-4fea-a37b-7f37c51e9454"

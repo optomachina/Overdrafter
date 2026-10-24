@@ -1,0 +1,16 @@
+{
+  "pr": "https://github.com/optomachina/Overdrafter/pull/448",
+  "head": "0a34eaecb2c43723d5140fdd4fe86f3ff408c59d",
+  "base": "7f0c310e68a1f15fa17b1a7eb33a5cb1417d3335",
+  "source_sha256": "a6ca500e9a410b7ae34d2186572be28626301912c90c74cd65f76486ef2d7e5d",
+  "reviewed_patch_sha256": "338b7f84e69c4c30eb5dbfc84582e8115cbd562962f0c9ba3975aabefe9530ff",
+  "reviewed_patch_unchanged_after_rebase": true,
+  "merge_hold": "Satisfied: parent-assigned integration slot; merge confirmed",
+  "native_codex_remote_request": "Not repeated: known unavailable; local subscription-backed review retained",
+  "coderabbit": "Original actual review complete; scoped correction acknowledged/resolved; full follow-up rate limited and disclosed",
+  "check_watch": "one gh pr checks watcher; pr448-check-watch.log",
+  "state": "MERGED",
+  "merge_sha": "b6f4632ad35ad6c9e5c6f9c7728151b2fedb2bc2",
+  "merged_at": "2026-09-06T03:08:35Z",
+  "main_ci_watcher": "Not started; release owner owns observation"
+}

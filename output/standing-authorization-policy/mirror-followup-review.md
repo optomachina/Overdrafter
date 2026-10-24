@@ -1,0 +1,1 @@
+No actionable findings in the two staged files. They remove redundant per-PR approval for standing-authorized 1.0 work while preserving exact human approval for protected operations, technical gates, and post-merge completion restrictions through AGENTS.md. No tests or external actions were performed.

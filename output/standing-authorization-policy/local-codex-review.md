@@ -1,0 +1,1 @@
+No actionable findings in the staged AGENTS.md diff. It implements the adopted standing authorization while preserving protected-action approvals, technical gates, current-head checks, review resolution, and local evidence. Review was read-only; no tests or external actions were performed.

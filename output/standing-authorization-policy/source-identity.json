@@ -1,0 +1,8 @@
+{
+  "base_sha": "134389aba914fe641e22a4242869ebd0d807f0db",
+  "branch": "docs/standing-1-0-workflow-authorization",
+  "source_file": "AGENTS.md",
+  "source_sha256": "a6ca500e9a410b7ae34d2186572be28626301912c90c74cd65f76486ef2d7e5d",
+  "patch_sha256": "338b7f84e69c4c30eb5dbfc84582e8115cbd562962f0c9ba3975aabefe9530ff",
+  "publication_hold": "Do not publish or merge before parent supplies PR447 merge SHA; no publication performed."
+}

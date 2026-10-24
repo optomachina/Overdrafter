@@ -1,0 +1,16 @@
+{
+  "base": "7f0c310e68a1f15fa17b1a7eb33a5cb1417d3335",
+  "head": "0a34eaecb2c43723d5140fdd4fe86f3ff408c59d",
+  "files": {
+    "AGENTS.md": "a6ca500e9a410b7ae34d2186572be28626301912c90c74cd65f76486ef2d7e5d",
+    "WORKFLOW.md": "3e962380c7792b26677a3f3fb00f3a255f0e924ab4d5f38950954b914fefcc02",
+    "docs/linear-free-workflow.md": "063910dc9216d813c0801ef8bb95442e8746473bf73b1ba510ad8e7327e88c1c"
+  },
+  "patch_sha256": "c61c7f0b266adf034498a6c74d80644ae6a4e24a7be46fa095e0a845e95411c7",
+  "review_finding_thread": "PRRT_kwDOQLwVsM6fot09",
+  "review_finding_resolved": true,
+  "original_coderabbit_review_head": "946cae1ae93d9c5f9fa45204e1a57be5ef7f8f70",
+  "updated_coderabbit_status": "Review rate limited; not a completed fresh review",
+  "followup_cli_review": "No actionable findings; exit0;22.5seconds",
+  "parent_followup_review": "No blocking findings; scope expansion/integration slot accepted"
+}
