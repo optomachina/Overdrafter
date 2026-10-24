@@ -659,7 +659,9 @@ describe("FILE_NAME_TEXT", () => {
   });
 
   it("runs in linear time on a long adversarial input", () => {
-    const adversarial = `${"a".repeat(50_000)}${".a".repeat(25_000)}!`;
+    const segment = `${"a".repeat(254)}.`;
+    const adversarial = segment.repeat(Math.ceil(100_000 / segment.length)).slice(0, 100_000);
+    expect(adversarial).toHaveLength(100_000);
     const started = performance.now();
     adversarial.replaceAll(FILE_NAME_TEXT, " ");
     expect(performance.now() - started).toBeLessThan(1_000);

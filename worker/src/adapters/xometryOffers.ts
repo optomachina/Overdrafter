@@ -839,7 +839,7 @@ const PART_CARD_LOADING_TEXT = /\b(?:loading|refreshing|updating|(?:re)?calculat
 // Bounded quantifiers keep this linear in the input length (no quadratic
 // backtracking on long runs of name characters). Keep in sync with the
 // in-page copy in xometry.ts.
-export const FILE_NAME_TEXT = /[\w\-+~#()]{0,255}(?:\.[\w\-+~#()]{1,255}){0,16}\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi;
+export const FILE_NAME_TEXT = /(?<![\w\-+~#().])[\w\-+~#()]{0,255}(?:\.[\w\-+~#()]{1,255}){0,16}\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi;
 /**
  * What may follow "<tier> is not available" in a price-panel line that
  * withdraws the tier (statesTierUnavailable): nothing but "for this part",

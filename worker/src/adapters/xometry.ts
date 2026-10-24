@@ -2968,7 +2968,7 @@ export function xometryPriceTiersSettled(fileNames: string[] = []): boolean {
       .reduce((remaining, fileName) => remaining.replaceAll(fileName, " "), (partCard as HTMLElement | null)?.innerText ?? "");
     for (const line of withoutFileNames.split(/\r?\n/)) {
       const status = line.replaceAll(
-        /[\w\-+~#()]{0,255}(?:\.[\w\-+~#()]{1,255}){0,16}\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi,
+        /(?<![\w\-+~#().])[\w\-+~#()]{0,255}(?:\.[\w\-+~#()]{1,255}){0,16}\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi,
         " ",
       );
       if (/\b(?:loading|refreshing|updating|(?:re)?calculating|re-?pricing|fetching|saving|please\s+wait)\b/i.test(status)) {
