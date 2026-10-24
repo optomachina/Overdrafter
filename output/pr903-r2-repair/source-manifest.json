@@ -1,0 +1,29 @@
+{
+  "verifiedAt": "2026-10-21T16:25:31.532401+00:00",
+  "baseHead": "3318eca3ce841d844180c69c2c2d52a41936a2d2",
+  "files": {
+    "e2e/quote-comparison.spec.ts": "c1ea687a6c44bb61ee9d136ead1f23c6fc1b281589d774e6cddcd6f884e33cf0",
+    "src/features/quotes/sourcing-result.ts": "f440cdeffd4d17e40616ba4d67de05d223d84b8e600967ae6582277dcc970306",
+    "src/features/quotes/use-client-home-controller.test.tsx": "22c0faec4a5080a2f9e33b5bfe625c78ff11a627919d6dd282d142a67823ed58",
+    "src/features/quotes/use-client-home-controller.ts": "822b4dc24b7f560d1176ec344b278e174eb0c41e2fa4c04e9ab1c5e2617f4455",
+    "src/pages/ClientHome.test.tsx": "460b78a146cd8db58c8c15b7cde4a6e503ddc0270a58dbff622a39b7854cf971",
+    "src/pages/ClientHome.tsx": "095d9635ca28bfda212ab01c50f47b72538efc89f4b33555be8348a1289b92a3",
+    "src/pages/ClientPart.test.tsx": "3bc37ba47c1f8096fe4658cd2d6d82ecbed33c8ead614c1351876762e7bd844b",
+    "src/pages/ClientPart.tsx": "38bb3d6461c55430c3b537a6bb0d5bae863313b7ecedeaa01f258c24a73aa664",
+    "src/pages/ClientPartReview.tsx": "dcb6efb77799ba37e90315022700a1513aff16f9259210b71270d736093e2587",
+    "src/pages/ClientProject.test.tsx": "8b7714d31ba99afe4f25e22f5a08fbebe5932e39100ef8d33e1dbcc3b73761ac",
+    "src/pages/ClientProject.tsx": "1891d983a7d2e1a0181826074121d37c4cee23c246921619090b7b4d1eba15ec",
+    "src/pages/ClientProjectReview.tsx": "b177e4bf1748a09176684d9d0fac75389eb02ef23cfe207a3f81827997ca845b",
+    "src/pages/ClientReviews.test.tsx": "2b2bc9742cfcd370d6ab0951d7ee2edc1f3de585c017d16eb406a18ad9e2e254"
+  },
+  "checks": {
+    "vitest": {
+      "files": 8,
+      "passed": 285,
+      "failed": 0
+    },
+    "typecheck": "pass",
+    "eslint": "pass",
+    "playwright": "blocked: listen EPERM 127.0.0.1:4173"
+  }
+}
