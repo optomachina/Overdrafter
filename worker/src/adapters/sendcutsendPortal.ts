@@ -765,7 +765,7 @@ export function filterSendCutSendStorageState(state: unknown): {
   const kept = cookies.filter((cookie) => allowed.has(cookieHost(cookie)) || (isParent(cookie) && !appSlots.has(slot(cookie))))
     .map((cookie) => isParent(cookie) ? { ...cookie, domain: SENDCUTSEND_APP_HOST } : cookie);
   const dropped = [...new Set(cookies.filter((cookie) => !allowed.has(cookieHost(cookie)) && !isParent(cookie))
-    .map(cookieHost))].sort((left, right) => left.localeCompare(right));
+    .map(cookieHost))].sort((left, right) => left.localeCompare(right, "en"));
   const keptOrigins = origins.filter((entry) => {
     if (typeof entry?.origin !== "string") return false;
     try {
