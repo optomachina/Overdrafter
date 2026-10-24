@@ -117,6 +117,7 @@ describe("provider registry contract", () => {
     expect(byKey.quickparts.sessionSecrets[0].mountPath).toBe(
       "/var/secrets/quickparts-storage-state/storage-state.json",
     );
+    expect(byKey.oshcut).toEqual(defaultRegistryEntry("oshcut"));
     expect(byKey.weerg.sessionSecrets[0].mountPath).toBe(
       "/var/secrets/weerg-storage-state/storage-state.json",
     );
@@ -135,6 +136,8 @@ describe("provider registry contract", () => {
     expect(secrets.contents).toContain("FICTIV_STORAGE_STATE_SECRET_NAME");
     expect(secrets.contents).toContain("FICTIV_STORAGE_STATE_JSON");
     expect(secrets.contents).not.toContain("synthetic-fictiv");
+    expect(secrets.contents).not.toContain("oshcut");
+    expect(secrets.contents).not.toContain("OSHCUT_");
     expect(secrets.contents).not.toMatch(/sendcutsend_live_enabled=true/);
   });
 
@@ -166,7 +169,7 @@ describe("provider registry contract", () => {
     expect(secrets.contents).not.toContain("SENDCUTSEND_");
   });
 
-  it("covers every checked-in manifest, including Fictiv, Quickparts and Weerg secret names", async () => {
+  it("covers every checked-in manifest, with OSH Cut default-off and live provider secret names", async () => {
     const registry = await readProviderRegistry(repoRoot);
     const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
     expect(() => assertRegistryCoversManifests(
@@ -180,6 +183,7 @@ describe("provider registry contract", () => {
         `${key.toUpperCase()}_STORAGE_STATE_SECRET_NAME`,
       ]);
     }
+    expect(byKey.oshcut).toEqual(defaultRegistryEntry("oshcut"));
     // RMFG declares its API key secret by name only; the adapter stays off until a reviewed edit.
     expect(byKey.rmfg).toEqual({
       ...defaultRegistryEntry("rmfg"),

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import {
   OVD410_COMMERCIAL_CONTROLS,
+  OVD410_OUT_OF_SCOPE_CONTROLS,
   OVD410_PRODUCTION_PROJECT_REF,
   OVD410_PRODUCTION_SUPABASE_URL,
   collectOperationalEnvelope,
@@ -33,6 +34,22 @@ function disabledControls() {
     changeReason: "must never be retained",
     updatedByUserId: "customer-user-id",
   }));
+}
+
+// The fifth rollout control the OVD-987 migration seeds; the collector names it
+// as out of scope. Its extra fields must never reach the envelope either.
+function quantityControl(enabled = false) {
+  return {
+    capability: "controlled_beta_user_quantity",
+    enabled,
+    revision: 7,
+    changeReason: "quantity switch reason must never be retained",
+    updatedByUserId: "quantity-operator-id",
+  };
+}
+
+function controlsResponse(rows) {
+  return { data: { controls: rows, recentEvents: [] }, error: null };
 }
 
 function request(producer) {
@@ -429,6 +446,193 @@ describe("OVD-410 operational envelope collector", () => {
   ])("fails closed on %s", async (_label, controls) => {
     const { client } = fakeClient({ controls });
     await expect(collectOperationalEnvelope({ client })).rejects.toThrow();
+  });
+
+  describe("fifth rollout control (OVD-987 controlled_beta_user_quantity)", () => {
+    const certifiedControls = () =>
+      OVD410_COMMERCIAL_CONTROLS.map((capability) => ({
+        capability,
+        enabled: false,
+      }));
+
+    it("pins the certified scope: four commercial controls, one named out of scope", () => {
+      expect(OVD410_COMMERCIAL_CONTROLS).toEqual([
+        "automatic_quote_collection",
+        "commercial_admin_mutations",
+        "order_administration",
+        "promotion_codes",
+      ]);
+      expect(OVD410_OUT_OF_SCOPE_CONTROLS).toEqual([
+        "controlled_beta_user_quantity",
+      ]);
+      for (const name of OVD410_OUT_OF_SCOPE_CONTROLS) {
+        expect(OVD410_COMMERCIAL_CONTROLS).not.toContain(name);
+      }
+    });
+
+    it.each([
+      [
+        "four controls (production before the OVD-987 apply)",
+        () => disabledControls(),
+      ],
+      [
+        "five controls, the fifth off and listed last",
+        () => [...disabledControls(), quantityControl(false)],
+      ],
+      [
+        "five controls, the fifth off and listed first",
+        () => [quantityControl(false), ...disabledControls()],
+      ],
+    ])("certifies the same four controls from %s", async (_label, rows) => {
+      const four = await collectOperationalEnvelope({
+        client: fakeClient().client,
+      });
+      const { client } = fakeClient({ controls: controlsResponse(rows()) });
+
+      const envelope = await collectOperationalEnvelope({ client });
+
+      expect(envelope.controls).toEqual(certifiedControls());
+      // The OVD-419 adapter digests this array and compares it with its
+      // recorded baseline, so a fifth row must not change a single byte of it.
+      expect(JSON.stringify(envelope)).toBe(JSON.stringify(four));
+      const serialized = JSON.stringify(envelope);
+      for (const forbidden of [
+        "controlled_beta_user_quantity",
+        "quantity-operator-id",
+        "quantity switch reason",
+      ]) {
+        expect(serialized).not.toContain(forbidden);
+      }
+    });
+
+    it("does not certify the out-of-scope control: its state is neither gated nor drift-checked", async () => {
+      const { client, calls } = fakeClient({
+        controls: ({ callIndex }) =>
+          controlsResponse([
+            ...disabledControls(),
+            quantityControl(callIndex % 2 === 1),
+          ]),
+      });
+
+      const envelope = await collectOperationalEnvelope({ client });
+
+      expect(envelope.controls).toEqual(certifiedControls());
+      expect(calls.filter((call) => call.operation === "rpc")).toHaveLength(5);
+    });
+
+    it.each([
+      [
+        "an unknown fifth control",
+        () => [
+          ...disabledControls(),
+          { capability: "unknown_control", enabled: false },
+        ],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "an unknown control next to the named fifth (six rows)",
+        () => [
+          ...disabledControls(),
+          quantityControl(false),
+          { capability: "unknown_control", enabled: false },
+        ],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "the named fifth listed twice",
+        () => [
+          ...disabledControls(),
+          quantityControl(false),
+          quantityControl(),
+        ],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "the named fifth standing in for a missing commercial control",
+        () => [...disabledControls().slice(1), quantityControl(false)],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "a fifth row with a non-boolean state",
+        () => [
+          ...disabledControls(),
+          { ...quantityControl(false), enabled: "false" },
+        ],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "a fifth row that is not an object",
+        () => [...disabledControls(), null],
+        "Invalid rollout-control response.",
+      ],
+      [
+        "a commercial control on next to a fifth that is off",
+        () => [
+          ...disabledControls().map((control, index) => ({
+            ...control,
+            enabled: index === 0,
+          })),
+          quantityControl(false),
+        ],
+        "Commercial rollout controls are not safely disabled.",
+      ],
+      [
+        "a commercial control on next to a fifth that is on",
+        () => [
+          ...disabledControls().map((control, index) => ({
+            ...control,
+            enabled: index === 0,
+          })),
+          quantityControl(true),
+        ],
+        "Commercial rollout controls are not safely disabled.",
+      ],
+    ])("fails closed on %s", async (_label, rows, message) => {
+      const { client } = fakeClient({ controls: controlsResponse(rows()) });
+      await expect(collectOperationalEnvelope({ client })).rejects.toThrow(
+        message,
+      );
+    });
+
+    it("fails closed on a duplicated commercial control next to the fifth", async () => {
+      const [first, ...rest] = disabledControls();
+      const { client } = fakeClient({
+        controls: controlsResponse([
+          first,
+          first,
+          ...rest.slice(1),
+          quantityControl(false),
+        ]),
+      });
+      await expect(collectOperationalEnvelope({ client })).rejects.toThrow();
+    });
+
+    it("writes the same single JSON line from the CLI for four and five controls", async () => {
+      const run = async (controls) => {
+        const output = [];
+        const code = await runOperationalEnvelopeCli({
+          args: [],
+          env: { SUPABASE_SERVICE_ROLE_KEY: "never-print-this" },
+          output: { write: (value) => output.push(value) },
+          errorOutput: { write: () => undefined },
+          collect: () =>
+            collectOperationalEnvelope({
+              client: fakeClient({ controls }).client,
+            }),
+        });
+        return { code, output };
+      };
+
+      const four = await run(controlsResponse(disabledControls()));
+      const five = await run(
+        controlsResponse([...disabledControls(), quantityControl(false)]),
+      );
+
+      expect(four.code).toBe(0);
+      expect(five.code).toBe(0);
+      expect(four.output).toHaveLength(1);
+      expect(five.output).toEqual(four.output);
+    });
   });
 
   it.each([

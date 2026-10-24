@@ -46,7 +46,13 @@ jobs:
         if: steps.image-cache.outputs.cache-hit == 'true'
         run: node scripts/ovd591-image-pull.mjs load "$OVD591_IMAGE_CACHE"
       - name: Qualify full139 schema, baseline126, atomicity132, free suites and eighteen races
-        run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
+        run: |
+          set -euo pipefail
+          node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
+          if ! test -s "$FREE_QUOTE_EVIDENCE/fixture-result.json" || ! jq -e '.status == "passed"' "$FREE_QUOTE_EVIDENCE/fixture-result.json" > /dev/null; then
+            echo "::error::SQL qualification exited successfully without a passed fixture receipt."
+            exit 1
+          fi
       - name: Receipt and save the registry-pulled Supabase images
         id: image-save
         if: ${{ !cancelled() && steps.image-cache.outputs.cache-hit != 'true' }}
@@ -72,5 +78,5 @@ jobs:
         with:
           name: free-quote-sql-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.FREE_QUOTE_EVIDENCE }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14

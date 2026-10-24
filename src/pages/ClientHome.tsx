@@ -13,6 +13,7 @@ import { useWorkspaceNotifications } from "@/features/notifications/use-workspac
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
+import { resolveWorkspaceSelectionIds } from "@/features/quotes/sourcing-result";
 
 function parseTimestamp(value: string | null | undefined): number {
   if (!value) {
@@ -62,9 +63,10 @@ const ClientHome = () => {
     summariesByJobId,
     user,
     workspaceAccessScope,
+    workspaceItemsByJobId,
     accessibleJobs,
     accessibleJobsQuery,
-  } = useClientHomeController();
+  } = useClientHomeController({ loadPublishedWorkspace: true });
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
     isPlatformAdmin,
@@ -222,7 +224,12 @@ const ClientHome = () => {
       .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))
       .slice(0, 6);
     const awaitingDecisionJobs = [...accessibleJobs]
-      .filter((job) => job.status === "published" && !job.selected_vendor_quote_offer_id)
+      .filter((job) => {
+        if (job.status !== "published") return false;
+        const item = workspaceItemsByJobId.get(job.id);
+        const { selectedOfferId, selectedPublishedOptionId } = resolveWorkspaceSelectionIds(item);
+        return !selectedOfferId && !selectedPublishedOptionId;
+      })
       .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
     const awaitingDecisionCount = awaitingDecisionJobs.length;
 

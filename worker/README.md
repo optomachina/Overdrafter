@@ -540,12 +540,21 @@ dashboard. It allows only Xometry-owned HTTPS GET/HEAD/OPTIONS requests plus
 query-only GraphQL POSTs to Xometry's two dashboard endpoints, blocks
 WebSockets, WebRTC, and WebTransport, disables Camoufox service workers before
 the restored profile starts, performs no click or file-selection action, does not
-persist the locally changed profile, and emits only sanitized JSON
+persist the locally changed profile, and emits sanitized JSON evidence on stdout
 (classification, bounded route category, engine, generation, and blocked method
 names). It fails closed on login, anonymous quote-home, CAPTCHA, provider-error,
 missing/corrupt/incompatible snapshot, or ambiguous dashboard evidence. Do not
-capture a screenshot, DOM, trace, request body, cookie, or account identifier
-for this credential proof.
+capture a screenshot, raw DOM, trace, request body, cookie, or account
+identifier for this credential proof.
+
+Only when the result is `authenticated_dashboard_not_confirmed` does the probe
+also write one `fixtureHealFingerprint` JSON line to stderr, for selector
+repair. That line is a read-only structural summary of the same page: route
+class, landmark and element counts, the reviewed UI labels and test IDs that
+appear, and per-selector match counts for the locator groups. No raw DOM, HTML,
+other page text, screenshot or trace is captured or emitted, which is what the
+evidence's `domCaptured: false` attests. See the "Selector repair" section of
+[`docs/provider-integration.md`](../docs/provider-integration.md#auth-probe-result-authenticated_dashboard_not_confirmed).
 
 This evidence proves the worker's client-side transport allowlist, disabled
 alternate page transports, and absence of user-input interaction or file

@@ -34,6 +34,10 @@ create extension if not exists pgtap with schema extensions;
 
 select plan(66);
 
+-- OVD-767: the admin write RPCs now call require_verified_auth() before the
+-- admin check and require an AAL2 session after it. Both fixture users are
+-- email-verified and every session here is AAL2, so the refusals below still
+-- reach the admin and reason checks they pin.
 create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
 returns void
 language plpgsql
@@ -41,16 +45,18 @@ set search_path = pg_catalog
 as $$
 begin
   perform pg_catalog.set_config('request.jwt.claims',
-    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role)::text, true);
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role, 'aal', 'aal2')::text, true);
   perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
 end;
 $$;
 
 grant execute on function pg_temp.ovd722_as(uuid, text) to anon, authenticated, service_role;
 
-insert into auth.users (id, aud, role, email) values
-  ('00000000-0000-4000-8000-000000722001', 'authenticated', 'authenticated', 'ovd722-admin@example.test'),
-  ('00000000-0000-4000-8000-000000722002', 'authenticated', 'authenticated', 'ovd722-member@example.test');
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000722001', 'authenticated', 'authenticated', 'ovd722-admin@example.test',
+    pg_catalog.timezone('utc', pg_catalog.now())),
+  ('00000000-0000-4000-8000-000000722002', 'authenticated', 'authenticated', 'ovd722-member@example.test',
+    pg_catalog.timezone('utc', pg_catalog.now()));
 insert into private.platform_admin_emails (email) values ('ovd722-admin@example.test')
 on conflict do nothing;
 

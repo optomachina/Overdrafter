@@ -1,10 +1,14 @@
 import { addBusinessDays, format, isValid, parseISO, startOfDay } from "date-fns";
 import { scoreCapabilityMatch } from "@/features/quotes/scoring";
 import {
+  buildClientQuoteSelectionOptions,
+  buildVendorLabelMap,
+  resolveStoredQuoteSelection,
   resolveOfferFixedDeliveryDate,
   type ClientQuoteSelectionOption,
 } from "@/features/quotes/selection";
 import type {
+  ClientQuoteWorkspaceItem,
   PartAggregate,
   PublishedQuoteOptionRecord,
   VendorCapabilityProfileRecord,
@@ -295,6 +299,76 @@ export function buildClientQuoteComparisonOptions(input: {
   return input.candidates.filter((candidate) => input.liveOfferKeys.has(candidate.key));
 }
 
+type WorkspaceSelectionState = Pick<
+  ClientQuoteWorkspaceItem,
+  "job" | "publishedQuoteOptions" | "publishedQuoteSelection"
+>;
+
+export function hasPublishedQuotePackage(
+  item: Pick<WorkspaceSelectionState, "publishedQuoteOptions" | "publishedQuoteSelection"> | null | undefined,
+) {
+  return Boolean(item?.publishedQuoteOptions?.length || item?.publishedQuoteSelection);
+}
+
+export function getQuoteSelectionPrompt(hasPublishedPackage: boolean) {
+  return hasPublishedPackage ? "Choose a package option to continue" : "Choose a quote to continue";
+}
+
+export function getQuoteOptionsReason({ loadFailed, loading, hasPublishedPackage, promptSuffix = "" }: {
+  loadFailed: boolean;
+  loading: boolean;
+  hasPublishedPackage: boolean;
+  promptSuffix?: string;
+}) {
+  if (loadFailed) return "Unable to load quote options. Please try again.";
+  if (loading) return "Loading quote options…";
+  return `${getQuoteSelectionPrompt(hasPublishedPackage)}${promptSuffix}`;
+}
+
+/** A published package owns selection; its source offer is never a fallback. */
+export function resolveWorkspaceSelectionIds(
+  item: WorkspaceSelectionState | null | undefined,
+  legacyOfferId = item?.job.selected_vendor_quote_offer_id,
+) {
+  const hasPublishedPackage = hasPublishedQuotePackage(item);
+  return {
+    selectedOfferId: hasPublishedPackage ? null : legacyOfferId,
+    selectedPublishedOptionId: item?.publishedQuoteSelection?.option_id,
+  };
+}
+
+export function resolveWorkspaceStoredQuoteSelection(
+  options: readonly ClientQuoteSelectionOption[],
+  item: WorkspaceSelectionState | null | undefined,
+  legacyOfferId = item?.job.selected_vendor_quote_offer_id,
+) {
+  const { selectedOfferId, selectedPublishedOptionId } = resolveWorkspaceSelectionIds(item, legacyOfferId);
+  return resolveStoredQuoteSelection(options, selectedOfferId, selectedPublishedOptionId);
+}
+
+/** Workspaces and review surfaces share package selection precedence and pricing. */
+export function resolveWorkspaceQuoteSelection(item: ClientQuoteWorkspaceItem) {
+  const requestedByDate = item.summary?.requestedByDate ?? item.job.requested_by_date ?? null;
+  const vendorQuotes = item.part?.vendorQuotes ?? [];
+  const candidates = buildClientQuoteSelectionOptions({
+    vendorQuotes,
+    requestedByDate,
+    vendorLabels: buildVendorLabelMap(vendorQuotes.map((quote) => quote.vendor)),
+  });
+  const publishedOptions = item.publishedQuoteOptions ?? [];
+  const options = buildClientQuoteComparisonOptions({
+    candidates,
+    liveOfferKeys: new Set(candidates.map((candidate) => candidate.key)),
+    publishedOptions,
+    requestedByDate,
+  });
+
+  return {
+    options,
+    ...resolveWorkspaceStoredQuoteSelection(options, item),
+  };
+}
+
 function isTrustedLiveAdapterOffer(offer: SourcingLiveOfferCandidate) {
   if (!offer.vendorStatus || !LIVE_OFFER_STATUSES.has(offer.vendorStatus)) {
     return false;
@@ -371,6 +445,10 @@ function isCurrentLiveOffer(
   );
 }
 
+function isPlaceholderMaterial(material: string | null): boolean {
+  return material?.trim().toLowerCase() === "unknown material";
+}
+
 function resolveSupportedRequirement(
   part: PartAggregate | null,
 ): SupportedRequirement | Exclude<ClientSourcingResult, { outcome: "live_offers_available" | "provider_recommendations_available" }> {
@@ -400,7 +478,24 @@ function resolveSupportedRequirement(
     null;
   const normalizedMaterial = normalizeMaterial(material);
 
-  if (!material?.trim()) {
+  if (!material?.trim() || isPlaceholderMaterial(material)) {
+    const extraction = part.clientExtraction;
+    // STEP-only uploads have no drawing to extract. Older metadata RPCs also
+    // default their lifecycle to uploaded, so do not make those parts wait.
+    if (
+      extraction?.lifecycle === "queued" ||
+      extraction?.lifecycle === "extracting" ||
+      (extraction?.lifecycle === "uploaded" && extraction.hasDrawingFile)
+    ) {
+      return {
+        outcome: "unsupported_package",
+        reason: "part_not_ready",
+        title: "Requirements are still being prepared",
+        explanation: "The material is not known yet.",
+        nextAction: "Wait for extraction to finish, then review the part requirements.",
+      };
+    }
+
     return {
       outcome: "unsupported_package",
       reason: "material_unresolved",

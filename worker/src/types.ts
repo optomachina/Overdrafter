@@ -203,6 +203,8 @@ export type DrawingExtractionPayload = {
   };
   generalTolerance: { raw: string | null; confidence: number };
   tightestTolerance: {
+    reviewNeeded?: boolean;
+    reasons?: string[];
     raw: string | null;
     valueInch: number | null;
     confidence: number;
@@ -576,6 +578,7 @@ export type WorkerConfig = {
    * process (see ProviderDispatchCapMode).
    */
   providerDurableDispatchCap?: "off" | "on";
+  titleBlockApprovalEnabled: boolean;
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
   drawingExtractionDebugAllowedModels: string[];

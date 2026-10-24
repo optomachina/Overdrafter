@@ -148,6 +148,7 @@ function createControllerState(overrides: Record<string, unknown> = {}) {
       ],
     ]),
     user: { id: "user-1", email: "client@example.com" },
+    workspaceItemsByJobId: new Map(jobs.map((job) => [job.id, { job }])),
     accessibleJobs: jobs,
     accessibleJobsQuery: {
       data: jobs,
@@ -185,6 +186,25 @@ describe("ClientHome", () => {
 
     expect(screen.getByText("Upload your first part package to get started.")).toBeInTheDocument();
     expect(screen.queryByText(/Parts awaiting your decision/)).not.toBeInTheDocument();
+  });
+
+  it.each([null, "option-A"])("ignores a pre-publication offer pointer when the package selection is %s", (optionId) => {
+    const job = makeJob({ selected_vendor_quote_offer_id: "offer-1" });
+    useClientHomeControllerMock.mockReturnValue(createControllerState({
+      accessibleJobs: [job],
+      workspaceItemsByJobId: new Map([[job.id, {
+        job,
+        publishedQuoteOptions: [{ id: "option-A", source_vendor_quote_offer_id: "offer-1" }],
+        publishedQuoteSelection: optionId ? { option_id: optionId } : null,
+      }]]),
+    }));
+    render(<ClientHome />);
+    expect(screen.getByText(`Parts awaiting your decision (${optionId ? 0 : 1})`)).toBeInTheDocument();
+    if (optionId) {
+      expect(screen.getByText("No published packages are waiting on your selection right now.")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByText("No published packages are waiting on your selection right now.")).not.toBeInTheDocument();
+    }
   });
 
   it("counts only published jobs without a selected offer as awaiting decision", () => {

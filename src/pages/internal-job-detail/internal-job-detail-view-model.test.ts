@@ -1,11 +1,14 @@
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { ApprovedPartRequirement, PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
+import type { ApprovedPartRequirement, JobAggregate, PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   buildOptionKindsByOfferId,
   buildVisibleQuoteRows,
   resolveClientSummary,
   resolveDraftForUpdate,
+  useInternalJobDetailViewModel,
 } from "./internal-job-detail-view-model";
+
 
 function makeQuote(overrides: Partial<VendorQuoteAggregate> = {}): VendorQuoteAggregate {
   return {
@@ -171,5 +174,41 @@ describe("internal job detail view model helpers", () => {
         partId: "missing-part",
       }),
     ).toBeNull();
+  });
+});
+
+
+describe("internal quantity validation", () => {
+  const job = {
+    job: { id: "job-1", title: "Bracket" },
+    parts: [{ id: "part-a", quantity: 10, vendorQuotes: [] }],
+    packages: [],
+  } as unknown as JobAggregate;
+
+  it("keeps the real draft unsaved until invalid quote text is corrected", () => {
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job, latestQuoteRun: null }));
+    const draft = result.current.drafts["part-a"];
+    expect(draft.quantity).toBe(10);
+    act(() => result.current.setQuoteQuantityInputs({ "part-a": "10/12.5" }));
+    act(() => result.current.commitQuoteQuantityInput("part-a", draft));
+    expect(result.current.quoteQuantityInputs["part-a"]).toBe("10/12.5");
+    expect(result.current.drafts["part-a"]).toEqual(draft);
+    expect(result.current.requirementsBlocked).toBe(true);
+    expect(() => result.current.getRequirementsForSave()).toThrow("Enter whole numbers");
+    act(() => result.current.setQuoteQuantityInputs({ "part-a": "10/25" }));
+    expect(result.current.requirementsBlocked).toBe(false);
+    expect(result.current.getRequirementsForSave()[0].quoteQuantities).toEqual([10, 25]);
+  });
+
+  it.each(["", "12.5", "-1", "0", "abc", "1,000"])("retains invalid Quantity %j without changing the draft", (text) => {
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job, latestQuoteRun: null }));
+    const draft = result.current.drafts["part-a"];
+    act(() => result.current.setDraftQuantity("part-a", draft, text));
+    expect(result.current.getQuantityInput("part-a", draft)).toBe(text);
+    expect(result.current.drafts["part-a"].quantity).toBe(10);
+    expect(result.current.requirementsBlocked).toBe(true);
+    expect(() => result.current.getRequirementsForSave()).toThrow("Enter a whole number");
+    act(() => result.current.setDraftQuantity("part-a", draft, "50"));
+    expect(result.current.getRequirementsForSave()[0].quantity).toBe(50);
   });
 });

@@ -195,6 +195,29 @@ select upload_job_id, organization_id, user_id,
   'Founding Beta subscription upload'
 from fb_sub_context;
 
+-- OVD-766 E: only the job owner and explicit project editors can edit a job;
+-- plain organization membership is read-only. Both jobs sit in a project on
+-- which the second member is an editor, so in case (e) the second member
+-- passes the job edit checks and is refused by the notice boundary alone.
+insert into public.projects (id, organization_id, owner_user_id, name)
+select '00000000-0000-4000-8000-0000fb5c000a', organization_id, user_id,
+  'Founding Beta subscription project'
+from fb_sub_context;
+
+insert into public.project_memberships (project_id, user_id, role)
+select '00000000-0000-4000-8000-0000fb5c000a', member.id, member.role::public.project_role
+from fb_sub_context context
+cross join lateral (
+  values (context.user_id, 'owner'), (context.second_user_id, 'editor')
+) as member (id, role);
+
+insert into public.project_jobs (project_id, job_id, created_by)
+select '00000000-0000-4000-8000-0000fb5c000a', job.id, context.user_id
+from fb_sub_context context
+cross join lateral (
+  values (context.quote_job_id), (context.upload_job_id)
+) as job (id);
+
 insert into public.organization_file_blobs (
   id, organization_id, content_sha256, trusted_content_sha256,
   storage_bucket, storage_path, size_bytes, mime_type

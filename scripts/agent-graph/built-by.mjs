@@ -73,17 +73,128 @@ export function loadRouting(path) {
   return validateRouting(JSON.parse(readFileSync(path, 'utf8')));
 }
 
+const FREE_TEXT_POOLS = [
+  ['claude-opus', 'claude-opus'], ['opus', 'claude-opus'],
+  ['claude', 'claude-sonnet'], ['sonnet', 'claude-sonnet'],
+  ['codex', 'codex'], ['gpt', 'codex'], ['openai', 'codex'],
+  ['grok', 'grok-overflow'], ['jev', 'jev'],
+];
+const TOKEN_CHARACTER = /[a-z0-9-]/i;
+const digitAt = (text, index) => /[0-9]/.test(text[index] ?? '');
+const tokenCharacterAt = (text, index) => TOKEN_CHARACTER.test(text[index] ?? '');
+
+// The token is the leading run of letters, digits and hyphens; a "." joins it
+// only between digits (grok-4.7). Whatever follows is context text, scanned
+// by namesAnotherBuilder whatever character separates it from the token.
+function tokenLength(text) {
+  let end = 0;
+  while (end < text.length) {
+    const version = text[end] === '.' && digitAt(text, end - 1) && digitAt(text, end + 1);
+    if (!version && !tokenCharacterAt(text, end)) break;
+    end += 1;
+  }
+  return end;
+}
+
+// Splits "<bot> / <family> <context>" with string scans instead of one
+// backtracking regex, so a hostile PR body cannot make the parser super-linear.
+function splitFreeText(entry) {
+  const text = entry.trim();
+  const slash = text.indexOf('/');
+  const bot = slash < 0 ? '' : text.slice(0, slash).trim();
+  const rest = text.slice(slash + 1).trimStart();
+  if (!bot || !rest) return null;
+  const end = tokenLength(rest);
+  return { bot, token: rest.slice(0, end), context: rest.slice(end) };
+}
+
+// Whether `name` starts at a token boundary in `text`; with `whole`, it must
+// also end at one. Lowercase inputs. Linear: indexOf only moves forward.
+function mentions(text, name, whole) {
+  if (!name) return false;
+  for (let from = text.indexOf(name); from >= 0; from = text.indexOf(name, from + 1)) {
+    if (!tokenCharacterAt(text, from - 1) && !(whole && tokenCharacterAt(text, from + name.length))) return true;
+  }
+  return false;
+}
+
+// Family keywords whose pool belongs to another family than `family`. A pool
+// missing from routing has no family, so its keyword always counts as another.
+const otherFamilyKeywords = (family, routing) => FREE_TEXT_POOLS
+  .filter(([, pool]) => !own(routing.pools, pool) || routing.pools[pool].family !== family)
+  .map(([prefix]) => prefix);
+
+// Whether the token, past the keyword that chose its pool, contains another
+// family's keyword ("codex-opus", "gptclaude"). Lowercase inputs.
+const tokenNamesOtherFamily = (rest, keywords) => keywords.some(keyword => rest.includes(keyword));
+
+// Context outside parentheses that introduces a second builder. Any other
+// family's keyword at a word start counts, whatever glue precedes it
+// ("codex.opus", "codex_opus", "codex and opus", "codex then claude-opus"),
+// so review routing never depends on listing separators. So do any "+" or
+// another "/", and a comma followed later by any family keyword or a known bot
+// id or display name. Such lines must fail safe instead of being attributed
+// to their first model alone.
+function namesAnotherBuilder(outside, keywords, routing) {
+  if (/[+/]/.test(outside)) return true;
+  const lower = outside.toLowerCase();
+  if (keywords.some(keyword => mentions(lower, keyword, false))) return true;
+  const comma = lower.indexOf(',');
+  if (comma < 0) return false;
+  const after = lower.slice(comma + 1);
+  return FREE_TEXT_POOLS.some(([prefix]) => mentions(after, prefix, false)) ||
+    routing.bots.some(bot => [bot.id, bot.display].some(name => mentions(after, name.trim().toLowerCase(), true)));
+}
+
+// Text outside balanced parentheses, or null when the parentheses are unbalanced.
+function outsideParentheses(text) {
+  let depth = 0;
+  let outside = '';
+  for (const character of text) {
+    if (character === '(') {
+      depth += 1;
+    } else if (character === ')') {
+      if (!depth) return null;
+      depth -= 1;
+    } else if (!depth) {
+      outside += character;
+    }
+  }
+  return depth ? null : outside;
+}
+
+function readFreeText(entry, routing) {
+  const parts = splitFreeText(entry);
+  if (!parts) return [];
+  const { token } = parts;
+  const lowerToken = token.toLowerCase();
+  const [prefix, pool] = FREE_TEXT_POOLS.find(([keyword]) => lowerToken.startsWith(keyword)) ?? [];
+  if (!pool || !own(routing.pools, pool)) return [];
+  // Parenthetical context may name other models; outside it, another builder
+  // must fail safe rather than silently attributing the line to its first model.
+  const keywords = otherFamilyKeywords(routing.pools[pool].family, routing);
+  const outside = outsideParentheses(parts.context);
+  if (outside === null || tokenNamesOtherFamily(lowerToken.slice(prefix.length), keywords) ||
+      namesAnotherBuilder(outside, keywords, routing)) return [];
+  const name = parts.bot.toLowerCase();
+  const bot = routing.bots.find(bot => bot.id.toLowerCase() === name || bot.display.toLowerCase() === name)?.id
+    ?? name.replace(/\s+/g, '-');
+  return [{ bot, model: `model:${pool}`, token }];
+}
+
 const textLines = text => text.split(/\r?\n/);
 // One definition of "a Built-by line", used both to detect a commit trailer and to read it.
 const builtByLines = text => textLines(text).filter(line => /^\s*Built-by:/i.test(line));
 
-function readTags(text, findings) {
+function readTags(text, findings, routing) {
   const lines = builtByLines(text);
   if (lines.length > 1) findings.push('Multiple Built-by lines; use one semicolon-separated line');
   if (lines.length) {
     return lines.flatMap(line => line.replace(/^\s*Built-by:\s*/i, '').split(';').flatMap(entry => {
       const match = /^bot=([a-z0-9-]+)\s+model=(model:[a-z0-9-]+)$/.exec(entry.trim());
       if (!match) {
+        const freeText = readFreeText(entry, routing);
+        if (freeText.length) return freeText;
         findings.push('Unparseable Built-by line');
         return [];
       }
@@ -99,14 +210,14 @@ function readTags(text, findings) {
 }
 
 // Only Built-by commit metadata is supported; legacy Model is body-only.
-function readCommitTags(commits, bodyBuilders, findings) {
+function readCommitTags(commits, bodyBuilders, findings, routing) {
   const trailerBuilders = [];
   const commitEntries = [];
   let untagged = 0;
   for (const commit of commits) {
     if (!record(commit) || typeof commit.message !== 'string') throw new TypeError('Invalid commit');
     if (builtByLines(commit.message).length) {
-      const tags = readTags(commit.message, findings);
+      const tags = readTags(commit.message, findings, routing);
       trailerBuilders.push(...tags);
       commitEntries.push(...tags);
     } else {
@@ -190,8 +301,8 @@ export function parseBuiltBy(input) {
       throw new TypeError('Invalid parser input');
     }
     const findings = [];
-    const bodyBuilders = readTags(body, findings);
-    const { trailerBuilders, commitEntries, untagged } = readCommitTags(commits, bodyBuilders, findings);
+    const bodyBuilders = readTags(body, findings, routing);
+    const { trailerBuilders, commitEntries, untagged } = readCommitTags(commits, bodyBuilders, findings, routing);
     let conflict = false;
     if (trailerBuilders.length && bodyBuilders.length &&
         trailersDisagreeWithBody(trailerBuilders, bodyBuilders, untagged === 0)) {

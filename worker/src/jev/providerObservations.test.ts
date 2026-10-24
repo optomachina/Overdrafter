@@ -13,7 +13,8 @@ function quotePage(texts: string[], tierText = "Standard", disabled?: { parent: 
     getAttribute: vi.fn(async (name: string) => name === "data-option-id" ? `option-${index}` : name === "data-disabled" ? disabled?.parent ?? null : null),
     locator: vi.fn((selector: string) => selector.includes("disabled")
       ? { count: async () => disabled?.descendant ? 1 : 0 }
-      : { first: () => ({ innerText: async () => tierText }) }),
+      // One visible tier label; no nested option container or list-price slot.
+      : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tierText }) }),
   }));
   return {
     url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { useClientWorkspaceNotifications } from "@/features/notifications/use-client-workspace-notifications";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -13,6 +14,7 @@ import {
   filterQuoteCollection,
   parseEngineeringQuery,
 } from "@/features/quotes/quote-intelligence-view-model";
+import { formatCurrency } from "@/features/quotes/utils";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useQuoteIntelligenceWorkspace } from "@/features/quotes/use-quote-intelligence-workspace";
 
@@ -27,18 +29,13 @@ function formatDate(value: string | null): string {
     : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
-function formatUsd(value: number | null): string | null {
-  return value === null
-    ? null
-    : new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
-}
-
 export default function ClientQuotes() {
   const controller = useClientHomeController();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const parsedQuery = useMemo(() => parseEngineeringQuery(query), [query]);
   const jobIds = useMemo(() => controller.accessibleJobs.map((job) => job.id), [controller.accessibleJobs]);
+  const notificationCenter = useClientWorkspaceNotifications(controller, jobIds);
   const referencesByJobId = useQuoteReferences(jobIds);
   const quoteWorkspace = useQuoteIntelligenceWorkspace(
     jobIds,
@@ -142,7 +139,7 @@ export default function ClientQuotes() {
     return (
       <div className="border-b border-paper-hairline" aria-live="polite">
         {rows.map((quote) => {
-          const selectedPrice = formatUsd(quote.selectedPriceUsd);
+          const selectedPrice = quote.selectedPriceUsd === null ? null : formatCurrency(quote.selectedPriceUsd);
 
           return (
             <Link
@@ -233,6 +230,7 @@ export default function ClientQuotes() {
       }
       accountSlot={
         <WorkspaceAccountMenu
+          notificationCenter={notificationCenter}
           user={controller.user}
           compact
           activeMembership={controller.activeMembership}

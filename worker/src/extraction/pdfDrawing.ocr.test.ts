@@ -2,7 +2,7 @@
 //
 // Unmocked end to end check of the OCR path. It needs poppler (pdftotext,
 // pdftoppm, pdfinfo) and tesseract on PATH. The OCR assertion is skipped only
-// when tesseract is absent. The CI test job installs both, so it runs there.
+// when tesseract is absent. The CI unit job installs both, so it runs there.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";

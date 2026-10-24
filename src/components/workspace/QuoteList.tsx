@@ -171,12 +171,12 @@ export function QuoteList({
 
               <div className="flex flex-wrap gap-1.5">
                 {isBestPrice ? (
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
                     Best {formatCurrency(quote.unitPriceUsd)}
                   </span>
                 ) : null}
                 {isFastest && quote.leadTimeBusinessDays !== null ? (
-                  <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
                     Fastest {quote.leadTimeBusinessDays} bd
                   </span>
                 ) : null}
@@ -203,7 +203,7 @@ export function QuoteList({
                 </Button>
 
                 {isSelected ? (
-                  <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                  <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground">
                     Selected ✓
                   </span>
                 ) : (

@@ -85,6 +85,7 @@ function buildSmokeConfig(): WorkerConfig {
     openRouterApiKey: null,
     workerBuildVersion: process.env.WORKER_BUILD_VERSION ?? "smoke-local",
     drawingExtractionModel,
+    titleBlockApprovalEnabled: process.env.DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL === "1",
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
       hasDrawingExtractionModelKey,

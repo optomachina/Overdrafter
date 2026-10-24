@@ -7,6 +7,7 @@ type InternalJobHeaderActionsProps = {
   onStartQuoteRun: () => void;
   requestExtractionPending: boolean;
   saveRequirementsPending: boolean;
+  requirementsBlocked: boolean;
   startQuoteRunPending: boolean;
   writeActionsDisabled: boolean;
 };
@@ -17,6 +18,7 @@ export function InternalJobHeaderActions({
   onStartQuoteRun,
   requestExtractionPending,
   saveRequirementsPending,
+  requirementsBlocked,
   startQuoteRunPending,
   writeActionsDisabled,
 }: InternalJobHeaderActionsProps) {
@@ -39,7 +41,7 @@ export function InternalJobHeaderActions({
         variant="outline"
         className="border-border bg-accent"
         onClick={onSaveRequirements}
-        disabled={writeActionsDisabled || saveRequirementsPending}
+        disabled={writeActionsDisabled || saveRequirementsPending || requirementsBlocked}
       >
         {saveRequirementsPending ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

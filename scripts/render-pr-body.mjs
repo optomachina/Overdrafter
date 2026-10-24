@@ -1,6 +1,6 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import fs from "node:fs/promises";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
 
 import {
   PROVIDER_GO_LIVE_GROUPS,
@@ -335,7 +335,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   const exitCode = await main();
   process.exit(exitCode);
 }

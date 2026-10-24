@@ -1,3 +1,4 @@
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { ChevronDown, ChevronUp, Star } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -15,32 +16,32 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
   return (
     <div className={cn("rounded-surface-lg border border-border bg-muted p-4", className)}>
       <div className="mb-3 flex items-center gap-2">
-        <Star className="h-4 w-4 text-amber-400" />
-        <h3 className="text-sm font-semibold text-foreground/80">Routing Recommendation</h3>
+        <Star className={`h-4 w-4 ${STATUS_TONE.text}`} />
+        <h3 className="text-sm font-semibold text-foreground">Routing Recommendation</h3>
       </div>
 
       <p className="mb-4 text-xs text-muted-foreground">{summary.comparisonText}</p>
 
-      <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+      <div className="rounded-lg border border-border bg-card p-3 text-foreground">
         <div className="mb-1 flex items-center gap-2">
           <Badge
             variant="default"
-            className="bg-amber-400/20 text-amber-300 hover:bg-amber-400/20"
+            className={STATUS_TONE.badge}
           >
             Recommended
           </Badge>
-          <span className="text-sm font-medium text-foreground/80">{summary.topPick.vendorName}</span>
+          <span className="text-sm font-medium text-foreground">{summary.topPick.vendorName}</span>
           <span className="ml-auto text-xs text-muted-foreground">
             {Math.round(summary.topPick.overallScore ?? 0)}/100
           </span>
         </div>
-        <p className="text-xs text-foreground/80">{summary.topPick.statement}</p>
+        <p className="text-xs text-foreground">{summary.topPick.statement}</p>
         {summary.topPick.strengths.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {summary.topPick.strengths.map((s) => (
               <span
                 key={s}
-                className="rounded-full border border-emerald-400/20 bg-emerald-400/5 px-2 py-0.5 text-[10px] text-emerald-300"
+                className={`px-2 py-0.5 text-[10px] ${STATUS_TONE.badge}`}
               >
                 {s}
               </span>
@@ -52,7 +53,7 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
             {summary.topPick.weaknesses.map((w) => (
               <span
                 key={w}
-                className="rounded-full border border-red-400/20 bg-red-400/5 px-2 py-0.5 text-[10px] text-red-300"
+                className={`px-2 py-0.5 text-[10px] ${STATUS_TONE.badge}`}
               >
                 {w}
               </span>
@@ -65,7 +66,7 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
         <div className="mt-3">
           <button
             type="button"
-            className="flex w-full items-center gap-1 text-xs text-muted-foreground hover:text-foreground/80"
+            className="flex w-full items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setShowAlternatives(!showAlternatives)}
           >
             {showAlternatives ? (
@@ -93,7 +94,7 @@ function AlternativeCard({ statement }: { statement: TradeoffStatement }) {
   return (
     <div className="rounded-lg border border-border bg-accent p-3">
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-sm font-medium text-foreground/80">{statement.vendorName}</span>
+        <span className="text-sm font-medium text-foreground">{statement.vendorName}</span>
         <span className="ml-auto text-xs text-muted-foreground">
           {Math.round(statement.overallScore ?? 0)}/100
         </span>
@@ -104,7 +105,7 @@ function AlternativeCard({ statement }: { statement: TradeoffStatement }) {
           {statement.strengths.map((s) => (
             <span
               key={s}
-              className="rounded-full border border-emerald-400/15 bg-emerald-400/5 px-2 py-0.5 text-[10px] text-emerald-300/80"
+              className={`px-2 py-0.5 text-[10px] ${STATUS_TONE.badge}`}
             >
               {s}
             </span>
