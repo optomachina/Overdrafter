@@ -2185,18 +2185,73 @@ export async function setQuantity(
  */
 async function readLineItemQuantities(page: Page) {
   for (const selector of XOMETRY_LOCATORS.lineItemQuantityInputs) {
-    const locator = page.locator(selector);
-    const count = Math.min(await locator.count().catch(() => 0), 10);
-    const values: Array<number | null> = [];
-    for (let index = 0; index < count; index += 1) {
-      const input = locator.nth(index);
-      if (!(await input.isVisible().catch(() => false))) continue;
-      const value = (await input.inputValue().catch(() => "")).trim();
-      values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
-    }
+    const values = await readVisibleQuantityValues(page, selector);
     if (values.length > 0) return { selector, values };
   }
   return { selector: null, values: [] as Array<number | null> };
+}
+
+/** Values of up to ten visible matches of `selector`; unparseable values are null. */
+async function readVisibleQuantityValues(page: Page, selector: string) {
+  const locator = page.locator(selector);
+  const count = Math.min(await locator.count().catch(() => 0), 10);
+  const values: Array<number | null> = [];
+  for (let index = 0; index < count; index += 1) {
+    const input = locator.nth(index);
+    if (!(await input.isVisible().catch(() => false))) continue;
+    const value = (await input.inputValue().catch(() => "")).trim();
+    values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
+  }
+  return values;
+}
+
+/**
+ * Quantity-labelled inputs a configure view can show: the row-anchored
+ * lineItemQuantityInputs plus the quantity-named quantityInputs. The generic
+ * number-input fallbacks are left out because they can belong to other widgets.
+ */
+const XOMETRY_CONFIGURE_QUANTITY_SELECTORS = [...new Set([
+  ...XOMETRY_LOCATORS.lineItemQuantityInputs,
+  ...XOMETRY_LOCATORS.quantityInputs.filter((selector) => !selector.startsWith('input[type="number"]')),
+])];
+
+/**
+ * The first visible quantity-labelled input in the configure view that does
+ * not read the requested quantity, or null when none is shown or all agree.
+ * A skipped quantity is only safe while this stays null: Save Configuration
+ * keeps whatever such an input holds.
+ */
+export async function findConfigureViewQuantityConflict(page: Page, requestedQuantity: number) {
+  for (const selector of XOMETRY_CONFIGURE_QUANTITY_SELECTORS) {
+    const values = await readVisibleQuantityValues(page, selector);
+    if (values.some((value) => value !== requestedQuantity)) return { selector, values };
+  }
+  return null;
+}
+
+/**
+ * Before Save Configuration on a skipped quantity: a quantity input that
+ * rendered after the first look and reads another quantity would be saved as
+ * is, so stop here rather than price it.
+ */
+async function assertSkippedQuantityStillHolds(page: Page, requestedQuantity: number, runDir: string) {
+  const conflict = await findConfigureViewQuantityConflict(page, requestedQuantity);
+  if (!conflict) return;
+  throw new VendorAutomationError(
+    "Xometry configure view shows a quantity other than the requested one before Save Configuration.",
+    "unexpected_ui_state",
+    {
+      vendor: "xometry",
+      reason: "configure_quantity_mismatch",
+      terminalState: "configuration_required",
+      detectedFlow: "upload_complete",
+      requestedQuantity,
+      configureViewQuantitySelector: conflict.selector,
+      observedConfigureViewQuantities: conflict.values,
+      url: page.url(),
+    },
+    await capturePageArtifacts(page, runDir, "configure-quantity-mismatch"),
+  );
 }
 
 /**
@@ -2262,7 +2317,7 @@ export async function readSummaryRowQuantity(page: Page, requestedQuantity: numb
   } else {
     status = readback.values[0] === requestedQuantity ? "matched" : "mismatch";
   }
-  return { status, selector: readback.selector, count: readback.values.length };
+  return { status, selector: readback.selector, values: readback.values };
 }
 
 async function firstVisibleSelector(page: Page, selectors: readonly string[]) {
@@ -3466,7 +3521,13 @@ export class XometryAdapter extends VendorAdapter {
         if (editConfigurationSelector) {
           await appendArtifacts(artifacts, page, runDir, "edit-configuration");
         }
-        if (summaryRowQuantity.status === "matched") {
+        // A quantity input the configure view does show is filled as before;
+        // only a view with none, or one already reading the requested
+        // quantity, keeps the summary row's value.
+        const configureViewQuantityConflict = summaryRowQuantity.status === "matched"
+          ? await findConfigureViewQuantityConflict(page, normalizedQuantity(input))
+          : null;
+        if (summaryRowQuantity.status === "matched" && !configureViewQuantityConflict) {
           quantityConfiguration = "summary_row_matched";
         } else {
           try {
@@ -3483,8 +3544,11 @@ export class XometryAdapter extends VendorAdapter {
               terminalState: error.payload.terminalState ?? "selector_drift",
               detectedFlow,
               editConfigurationSelector,
+              requestedQuantity: normalizedQuantity(input),
               summaryRowQuantityStatus: summaryRowQuantity.status,
               summaryRowQuantitySelector: summaryRowQuantity.selector,
+              summaryRowQuantities: summaryRowQuantity.values,
+              configureViewQuantitySelector: configureViewQuantityConflict?.selector ?? null,
             }, error.artifacts);
           }
           quantityConfiguration = "configure_input";
@@ -3540,6 +3604,9 @@ export class XometryAdapter extends VendorAdapter {
       }
 
       if (!uploadedSummaryMatches) {
+        if (quantityConfiguration === "summary_row_matched") {
+          await assertSkippedQuantityStillHolds(page, normalizedQuantity(input), runDir);
+        }
         saveConfigurationSelector = await saveConfiguration(
           page,
           this.config.browserTimeoutMs,

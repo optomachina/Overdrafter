@@ -4315,9 +4315,12 @@ describe("XometryAdapter", () => {
       lineItemQuantity?: string;
       strayQuantity?: string;
       summaryQuantity?: string;
+      /** The part row is gone from the price-tier settle wait onward. */
+      lineItemGoneAtPriceCapture?: boolean;
     }) {
       const workerTempDir = await makeTempDir();
       const bodyText = t1QuotePageText(input.each, input.total, input.summaryQuantity ?? "Quantity");
+      let pricing = false;
       const selectorBehaviors: Record<string, LocatorBehavior> = {
         [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
         [XOMETRY_LOCATORS.priceText[0]]: {
@@ -4327,7 +4330,7 @@ describe("XometryAdapter", () => {
       };
       if (input.lineItemQuantity !== undefined) {
         selectorBehaviors[XOMETRY_LOCATORS.lineItemQuantityInputs[0]] = {
-          count: 1,
+          count: () => (input.lineItemGoneAtPriceCapture && pricing ? 0 : 1),
           inputValue: () => input.lineItemQuantity ?? "",
         };
       }
@@ -4346,6 +4349,11 @@ describe("XometryAdapter", () => {
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0901",
         selectorBehaviors,
       });
+      const waitForFunction = page.waitForFunction.bind(page);
+      page.waitForFunction = async (callback: unknown, argument?: unknown) => {
+        if (callback === xometryPriceTiersSettled) pricing = true;
+        return waitForFunction(callback, argument);
+      };
       launchMock.mockResolvedValue(createFakeBrowser(page));
       const adapter = new XometryAdapter(
         "xometry",
@@ -4395,7 +4403,7 @@ describe("XometryAdapter", () => {
         .toContain("quantity-unverified-dom");
     });
 
-    it("fails closed with no price when no line-item quantity input can be read", async () => {
+    it("stops at the part-details wait with no price when only a stray number input stands in for the part row", async () => {
       const failure = await quoteT1Page({ each: "41.41", total: "41.41", strayQuantity: "1", summaryQuantity: "Quantity: 1" })
         .catch((error: unknown) => error);
 
@@ -4407,6 +4415,33 @@ describe("XometryAdapter", () => {
         payload: { reason: "part_details_not_rendered", rowQuantitySelector: null },
       });
       expect((failure as VendorAutomationError).payload).not.toHaveProperty("totalPriceUsd");
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+      });
+    });
+
+    it("fails closed with no price when the part row read at upload is gone at price capture", async () => {
+      // An explicit summary quantity satisfies the saved-requirement check, so
+      // only the line-item guard stands between this page and a price.
+      const failure = await quoteT1Page({
+        each: "41.41",
+        total: "41.41",
+        lineItemQuantity: "1",
+        summaryQuantity: "Quantity: 1",
+        lineItemGoneAtPriceCapture: true,
+      }).catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        message: "Xometry line-item quantity could not be read back before price capture.",
+        payload: { reason: "quantity_unverified", observedLineItemQuantities: [], lineItemQuantitySelector: null },
+      });
+      const payload = (failure as VendorAutomationError).payload;
+      expect(payload).not.toHaveProperty("totalPriceUsd");
+      expect(payload).not.toHaveProperty("unitPriceUsd");
+      expect(payload).not.toHaveProperty("offers");
       expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
         ok: true,
         terminalState: "selector_drift",
@@ -7403,7 +7438,9 @@ describe("XometryAdapter", () => {
       payload: {
         failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
         terminalState: "selector_drift",
+        requestedQuantity: 2,
         summaryRowQuantityStatus: "mismatch",
+        summaryRowQuantities: [1],
       },
     });
     expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
@@ -7414,7 +7451,12 @@ describe("XometryAdapter", () => {
     // Synthetic summary of a just-uploaded part whose finish and tolerance
     // need configuring. The summary Quantity row is a bare label; the
     // number lives in the part row's stepper.
-    const summaryLines = (finish: string, tolerance: string) => [
+    const onePiecePrice = ["USD $41.41 ea.", "USD $41.41"];
+    // A ten-piece total with no per-unit line: the shape no per-tier
+    // quantity check can catch, so only the configure step stands between it
+    // and a one-piece quote.
+    const tenPieceTotalOnly = ["USD $300.00"];
+    const summaryLines = (finish: string, tolerance: string, priceLines = onePiecePrice) => [
       "1 Part Uploaded",
       "synthetic-bracket.step",
       "Quantity",
@@ -7426,8 +7468,7 @@ describe("XometryAdapter", () => {
       "Price and Lead Time",
       "Least Expensive",
       "Arrives by Nov 6",
-      "USD $41.41 ea.",
-      "USD $41.41",
+      ...priceLines,
     ].join("\n");
 
     function qtyOneInput() {
@@ -7441,18 +7482,31 @@ describe("XometryAdapter", () => {
 
     /**
      * Edit Configuration hides the part row (stepper included) until Save
-     * Configuration returns to the summary; no quantity input exists in the
-     * configure view.
+     * Configuration returns to the summary, where the row still reads the
+     * summary-page value. `configureQuantity` adds an input[aria-label=
+     * "Quantity"] to the configure view holding that value; Save keeps
+     * whatever it holds, and a ten-piece save prices as a ten-piece total.
      */
-    async function quoteConfigurePath(rowBehaviors: (visible: () => boolean) => Record<string, LocatorBehavior>) {
+    async function quoteConfigurePath(
+      rowBehaviors: (visible: () => boolean) => Record<string, LocatorBehavior>,
+      configureView: { quantity?: string; rendersAfterTolerance?: boolean } = {},
+    ) {
       const workerTempDir = await makeTempDir();
       let configuring = false;
+      let toleranceSet = false;
+      let configureQuantity = configureView.quantity;
+      let savedQuantity: string | undefined;
+      const fillQuantity = vi.fn((value: string) => {
+        configureQuantity = value;
+      });
       const saveConfiguration = vi.fn(() => {
+        savedQuantity = configureQuantity;
         configuring = false;
       });
+      const priceLines = () => (savedQuantity === "10" ? tenPieceTotalOnly : onePiecePrice);
       const page = createFakePage({
         bodyText: summaryLines("Standard", "±.010″ (±0.25mm)"),
-        postSaveBodyText: summaryLines("Black Anodize", "±.005″ (±0.13mm)"),
+        postSaveBodyText: () => summaryLines("Black Anodize", "±.005″ (±0.13mm)", priceLines()),
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1060",
         saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1060#part-part-1",
         selectorBehaviors: {
@@ -7464,13 +7518,30 @@ describe("XometryAdapter", () => {
               configuring = true;
             },
           },
+          [XOMETRY_LOCATORS.quantityInputs[0]]: {
+            count: () => (
+              configuring
+              && configureQuantity !== undefined
+              && (!configureView.rendersAfterTolerance || toleranceSet)
+                ? 1
+                : 0
+            ),
+            inputValue: () => configureQuantity ?? "",
+            fill: fillQuantity,
+            press: vi.fn(),
+          },
           [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
           [XOMETRY_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
-          [XOMETRY_LOCATORS.toleranceOptions.standard]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+            count: 1,
+            click: () => {
+              toleranceSet = true;
+            },
+          },
           [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: { count: 1, click: saveConfiguration },
           [XOMETRY_LOCATORS.priceText[0]]: {
             count: 1,
-            text: "Least Expensive\nArrives by Nov 6\nUSD $41.41 ea.\nUSD $41.41",
+            text: () => ["Least Expensive", "Arrives by Nov 6", ...priceLines()].join("\n"),
           },
         },
         optionTexts: ["6061-T6", "Black Anodize"],
@@ -7484,7 +7555,7 @@ describe("XometryAdapter", () => {
         (result) => ({ result, failure: null }),
         (failure: unknown) => ({ result: null, failure }),
       );
-      return { ...outcome, saveConfiguration };
+      return { ...outcome, saveConfiguration, fillQuantity };
     }
 
     it("skips the quantity when the summary row already shows it and the configure view has none", async () => {
@@ -7503,17 +7574,89 @@ describe("XometryAdapter", () => {
       expect(result?.artifacts.map((artifact) => artifact.label)).toContain("edit-configuration-dom");
     });
 
+    it("fills a configure-view quantity input that reads another quantity, even when the summary row matched", async () => {
+      // Skipping here would save ten pieces and publish the ten-piece total
+      // (USD $300.00) as a one-piece quote: the row still reads 1 after Save
+      // and the tier shows no per-unit price to cross-check.
+      const { result, failure, fillQuantity } = await quoteConfigurePath(
+        (visible) => partRowBehaviors("1", visible),
+        { quantity: "10" },
+      );
+
+      expect(failure).toBeNull();
+      expect(result?.status).toBe("instant_quote_received");
+      expect(result?.totalPriceUsd).toBe(41.41);
+      expect(fillQuantity).toHaveBeenCalledWith("1");
+      expect(result?.rawPayload).toMatchObject({ quantityConfiguration: "configure_input" });
+    });
+
+    it("fills a configure-view quantity input it cannot read, even when the summary row matched", async () => {
+      const { result, failure, fillQuantity } = await quoteConfigurePath(
+        (visible) => partRowBehaviors("1", visible),
+        { quantity: "" },
+      );
+
+      expect(failure).toBeNull();
+      expect(fillQuantity).toHaveBeenCalledWith("1");
+      expect(result?.rawPayload).toMatchObject({ quantityConfiguration: "configure_input" });
+    });
+
+    it("keeps the skip when a configure-view quantity input already reads the requested quantity", async () => {
+      const { result, failure, fillQuantity } = await quoteConfigurePath(
+        (visible) => partRowBehaviors("1", visible),
+        { quantity: "1" },
+      );
+
+      expect(failure).toBeNull();
+      expect(fillQuantity).not.toHaveBeenCalled();
+      expect(result?.totalPriceUsd).toBe(41.41);
+      expect(result?.rawPayload).toMatchObject({ quantityConfiguration: "summary_row_matched" });
+    });
+
+    it("stops before Save when a configure-view quantity input renders late with another quantity", async () => {
+      const { failure, fillQuantity, saveConfiguration } = await quoteConfigurePath(
+        (visible) => partRowBehaviors("1", visible),
+        { quantity: "10", rendersAfterTolerance: true },
+      );
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      const error = failure as VendorAutomationError;
+      expect(error).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          reason: "configure_quantity_mismatch",
+          terminalState: "configuration_required",
+          requestedQuantity: 1,
+          configureViewQuantitySelector: XOMETRY_LOCATORS.quantityInputs[0],
+          observedConfigureViewQuantities: [10],
+        },
+      });
+      for (const key of ["totalPriceUsd", "unitPriceUsd", "offers", "priceSource", "bodyExcerpt"]) {
+        expect(error.payload).not.toHaveProperty(key);
+      }
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "configuration_required",
+      });
+      expect(fillQuantity).not.toHaveBeenCalled();
+      expect(saveConfiguration).not.toHaveBeenCalled();
+      expect(error.artifacts.map((artifact) => artifact.label)).toContain("configure-quantity-mismatch-dom");
+    });
+
     it.each([
       {
         status: "unreadable",
+        observed: [null],
         rows: (visible: () => boolean) => partRowBehaviors("", visible),
       },
       {
         status: "mismatch",
+        observed: [3],
         rows: (visible: () => boolean) => partRowBehaviors("3", visible),
       },
       {
         status: "ambiguous",
+        observed: [1, 1],
         rows: (visible: () => boolean): Record<string, LocatorBehavior> => ({
           [PART_ROW_QUANTITY_SELECTOR]: {
             items: [
@@ -7523,7 +7666,7 @@ describe("XometryAdapter", () => {
           },
         }),
       },
-    ])("never skips on a $status summary row and fails closed with a snapshot", async ({ status, rows }) => {
+    ])("never skips on a $status summary row and fails closed with a snapshot", async ({ status, observed, rows }) => {
       const { failure, saveConfiguration } = await quoteConfigurePath(rows);
 
       expect(failure).toBeInstanceOf(VendorAutomationError);
@@ -7536,8 +7679,11 @@ describe("XometryAdapter", () => {
           terminalState: "selector_drift",
           detectedFlow: "upload_complete",
           editConfigurationSelector: XOMETRY_LOCATORS.editConfigurationButtons[0],
+          requestedQuantity: 1,
           summaryRowQuantityStatus: status,
           summaryRowQuantitySelector: PART_ROW_QUANTITY_SELECTOR,
+          summaryRowQuantities: observed,
+          configureViewQuantitySelector: null,
         },
       });
       // Flow and selector context only: no price reaches the failure payload.
