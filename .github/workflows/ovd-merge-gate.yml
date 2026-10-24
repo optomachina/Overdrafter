@@ -76,6 +76,10 @@ jobs:
   ovd-merge-gate-writer:
     name: ovd-merge-gate-writer
     needs: ovd-merge-gate-history
+    # F1: run even when the history job failed, and pass its result in, so a
+    # failed history write fails the gate instead of skipping the writer and
+    # leaving an earlier (possibly passing) result on the head.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -105,6 +109,7 @@ jobs:
           PR_FROM_ISSUE: ${{ github.event.issue.number }}
           ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
           PR_FROM_DISPATCH: ${{ inputs.pr }}
+          HISTORY_RESULT: ${{ needs.ovd-merge-gate-history.result }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ovd-merge-gate.mjs ]; then
@@ -141,7 +146,7 @@ jobs:
             echo "::error::not a pull request number: $pr"
             exit 1
           fi
-          node scripts/ovd-merge-gate.mjs write --pr "$pr" | tee -a "$GITHUB_STEP_SUMMARY"
+          node scripts/ovd-merge-gate.mjs write --pr "$pr" --history-result "$HISTORY_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
 
   ovd-merge-gate-history:
     name: ovd-merge-gate-history

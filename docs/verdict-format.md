@@ -361,6 +361,17 @@ can update it, and they are listed with `filter=all`.
 - The writer job `needs` the history job and alone is queued per PR, so
   every writer starts after its own run's record is written, and the last
   writer to run sees every record.
+- Size (F1). GitHub caps a check run's `output.text` at 65535 characters.
+  A snapshot never stores note text: `notes` becomes one
+  `high|other: <n> note(s) omitted, sha256 <hex>` marker, so a high note
+  still blocks and distinct blocks stay distinct; evidence and findings are
+  bounded too. Fresh entries are split across as many records as needed.
+  An entry that still cannot fit fails the history job. The writer runs with
+  `if: always()` and gets `--history-result <needs.result>`: anything but
+  `success` is `missing_input`, so a failed history write fails the gate
+  instead of leaving an earlier result on the head. The gate's own summary
+  is shrunk to fit (ignored details, then verdict snapshots, then one
+  unreadable marker), never into a pass.
 - The records sit on `HISTORY_ANCHOR_SHA`, the repository's root commit,
   which exists forever and is never a PR head. They are keyed on the PR, not
   a head SHA, and bound to the head like live verdicts (by `sha` or

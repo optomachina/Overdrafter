@@ -586,13 +586,21 @@ describe("workflow YAML (§6 item 5)", () => {
     for (const [, job] of jobs) expect(job.permissions).toBeUndefined();
   });
 
-  it("has the writer and the history recorder (never the check name) and no job-level if", () => {
+  it("has the writer and the history recorder (never the check name); only the writer has an if, and it is always()", () => {
     expect(jobs.map(([key]) => key)).toEqual(["ovd-merge-gate-writer", "ovd-merge-gate-history"]);
     for (const [key, job] of jobs) {
       expect(key).not.toBe(CHECK_NAME);
       expect(job.name).toBe(key);
-      expect(job.if).toBeUndefined();
+      // F1: the writer must run even when the history job failed; no condition may skip either job.
+      expect(job.if).toBe(key === "ovd-merge-gate-writer" ? "${{ always() }}" : undefined);
     }
+  });
+
+  it("passes the history job result to the writer (F1)", () => {
+    const writer = jobs.find(([key]) => key === "ovd-merge-gate-writer")[1];
+    const step = writer.steps.find((item) => item.name === "Write ovd-merge-gate");
+    expect(step.env.HISTORY_RESULT).toBe("${{ needs.ovd-merge-gate-history.result }}");
+    expect(step.run).toContain('write --pr "$pr" --history-result "$HISTORY_RESULT"');
   });
 
   it("queues the writer per PR without cancelling, after the history job", () => {
@@ -674,6 +682,8 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (fail.some((part) => pathname.includes(part))) return response(500, { message: "boom" });
     if (method === "POST" && pathname === "/repos/o/r/check-runs") {
       const posted = JSON.parse(options.body);
+      // GitHub rejects a check run whose output.text is over 65535 characters.
+      if ((posted.output?.text ?? "").length > 65535) return response(422, { message: "output.text too long" });
       posts.push(posted);
       stored.push({ id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
@@ -1430,5 +1440,82 @@ describe("Sonar repair: no behaviour change", () => {
     expect((await runCli(["record"], api)).err).toContain("record needs --pr");
     expect((await runCli(["write", "--pr"], api)).err).toContain("--pr needs a value");
     expect((await runCli(["write", "--pr", "7", "--json", "--bogus"], api)).err).toContain("unknown argument");
+  });
+});
+
+describe("F1: an oversized history record fails closed, never leaves a stale result", () => {
+  const bigNotes = (n, size = 30000) => Array.from({ length: n }, (_, i) => `${i === 0 ? "high" : "low"}: ${String(i).padStart(4, "0")}${"x".repeat(size)}`);
+
+  it("a FAIL with over 65535 characters of notes is recorded and still blocks after it is deleted", async () => {
+    const failComment = posted(verdict({ result: "FAIL", notes: bigNotes(3) }));
+    expect(failComment.body.length).toBeGreaterThan(65535);
+    const api = fakeGithub({ comments: [...passingComments(), failComment] });
+    const { code } = await runWithEvent(["record", "--pr", "7"], api, createdEvent(failComment));
+    expect(code).toBe(0);
+    for (const item of api.posts) expect(item.output.text.length).toBeLessThanOrEqual(65535);
+    const later = fakeGithub({ comments: passingComments(), stored: api.stored });
+    const { code: evalCode, out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], later);
+    expect(evalCode).toBe(1);
+    expect(reasonCodes(JSON.parse(out))).toContain("verdict_conflict");
+  });
+
+  it("note text is replaced by a digest that keeps high notes blocking and distinct notes distinct", () => {
+    const high = deletedVerdictsFromEvent({ action: "deleted", comment: posted(verdict({ result: "PASS_NOTES", notes: ["high: broken", "low: x"] })) });
+    expect(high).toHaveLength(1);
+    expect(high[0].verdict_block.notes).toEqual([expect.stringMatching(/^high: 2 note\(s\) omitted, sha256 [0-9a-f]{64}$/)]);
+    const a = deletedVerdictsFromEvent({ action: "deleted", comment: posted(verdict({ result: "FAIL", notes: ["low: a"] })) });
+    const b = deletedVerdictsFromEvent({ action: "deleted", comment: posted(verdict({ result: "FAIL", notes: ["low: b"] })) });
+    expect(a[0].verdict_block.notes).not.toEqual(b[0].verdict_block.notes);
+    // A recorded snapshot re-read by carriedDeletions is unchanged (idempotent) and still blocking.
+    expect(gate.carriedDeletions(high, ["optomachina"]).blocking).toEqual(high);
+  });
+
+  it("many fresh entries are split across records that each fit", async () => {
+    const comments = Array.from({ length: 400 }, (_, i) => posted(verdict({ result: "FAIL", findings: undefined, runs: [i + 1] })));
+    const api = fakeGithub({ comments });
+    const client = gateClientFor(api);
+    const result = await gate.recordHistory({ client, repo: "o/r", pr: 7, event: null });
+    expect(result.written).toBeGreaterThan(0);
+    for (const item of api.posts) expect(item.output.text.length).toBeLessThanOrEqual(65535);
+    expect((await gate.readHistory(client, "o/r", 7)).length).toBe(result.written);
+  });
+
+  it("historyBatches throws for an entry that cannot fit alone (the history job fails visibly)", () => {
+    const render = (entries) => JSON.stringify(entries);
+    expect(() => gate.historyBatches([{ comment_id: 1, author: "x", pad: "y".repeat(200) }], render, 100)).toThrow(/does not fit/);
+    expect(gate.historyBatches([{ a: 1 }, { a: 2 }, { a: 3 }], render, 17).map((b) => b.entries.length)).toEqual([2, 1]);
+  });
+
+  it.each(["failure", "cancelled", "skipped", ""])("the writer fails the gate when the history job result is %j", async (result) => {
+    const api = fakeGithub({ comments: passingComments() });
+    const { code } = await runCli(["write", "--pr", "7", "--history-result", result], api);
+    expect(code).toBe(0);
+    const check = api.posts.find((item) => item.name === CHECK_NAME);
+    expect(check.conclusion).not.toBe("success");
+    const summary = JSON.parse(check.output.text.slice(check.output.text.indexOf("{"), check.output.text.lastIndexOf("}") + 1));
+    expect(summary.gate).toBe("fail");
+    expect(summary.reasons.some((reason) => reason.code === "missing_input" && reason.detail.includes("history job"))).toBe(true);
+  });
+
+  it("--history-result success adds no reason, and is rejected outside write", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["write", "--pr", "7", "--history-result", "success"], api);
+    const check = api.posts.find((item) => item.name === CHECK_NAME);
+    expect(check.output.text).not.toContain("history job");
+    const { code } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--history-result", "success"], fakeGithub({ comments: passingComments() }));
+    expect(code).toBe(2);
+  });
+
+  it("summaryText fits a summary with huge deleted_verdicts and never makes it pass", () => {
+    const deleted = Array.from({ length: 2000 }, (_, i) => ({ comment_id: i, author: "optomachina", created_at: null, sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "FAIL", sha: HEAD, notes: ["x".repeat(100)] } }));
+    const summary = { gate: "fail", sha: HEAD, mode: "report", reasons: [{ code: "verdict_conflict", detail: "d" }], warnings: [], ignored: [], deleted_verdicts: deleted };
+    for (const max of [65535, 20000, 2000]) {
+      const text = gate.summaryText(summary, max);
+      expect(text.length).toBeLessThanOrEqual(max);
+      const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+      expect(parsed.gate).toBe("fail");
+      expect(parsed.deleted_verdicts.length).toBeGreaterThan(0);
+      expect(parsed.deleted_verdicts.every((item) => typeof item.author === "string")).toBe(true);
+    }
   });
 });

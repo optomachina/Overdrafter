@@ -51,7 +51,8 @@ describe("merge queue workflows", () => {
         it("writes the check from a job with another name and no job-level if", () => {
           const block = jobBlock(text, check.writer);
           expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
-          expect(block).not.toMatch(/^ {4}if:/m);
+          // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed).
+          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() }}");
           expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
           expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
         });

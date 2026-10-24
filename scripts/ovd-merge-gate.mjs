@@ -60,6 +60,7 @@
  * See docs/verdict-format.md ("OVD-845 merge gate").
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -324,6 +325,22 @@ function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, he
 /** A blocking verdict: anything that is not a clean PASS/PASS_NOTES (a FAIL, an unknown verdict, a high note or finding). */
 const isBlocking = (verdict) => !PASSING.has(verdict?.verdict) || isHigh(verdict);
 
+/**
+ * F1 (OVD-959): a snapshot never carries note text, which is unbounded and
+ * would push a history record or gate summary past GitHub's 65535-character
+ * output.text cap. It keeps what isBlocking reads: one "high:" marker when
+ * any note is high, and a digest of the notes so distinct blocks stay
+ * distinct. Idempotent: compacting a compacted list returns it unchanged.
+ */
+const COMPACT_NOTE = /^(?:high|other): \d+ note\(s\) omitted, sha256 [0-9a-f]{64}$/;
+function compactNotes(notes) {
+  if (!notes.length) return [];
+  if (notes.length === 1 && COMPACT_NOTE.test(notes[0])) return notes;
+  const digest = createHash("sha256").update(JSON.stringify(notes)).digest("hex");
+  const kind = notes.some((note) => note.startsWith("high:")) ? "high" : "other";
+  return [`${kind}: ${notes.length} note(s) omitted, sha256 ${digest}`];
+}
+
 /** The verdict fields a removed block keeps, so it can stand in the union and in later gate runs. */
 function deletedSnapshot(parsed) {
   if (!isRecord(parsed)) return null;
@@ -332,10 +349,17 @@ function deletedSnapshot(parsed) {
   const snapshot = { role, verdict, sha };
   if (typeof diffId === "string") snapshot.diff_id = diffId;
   if (Array.isArray(findings)) snapshot.findings = findings.map((finding) => ({ severity: finding?.severity ?? null }));
-  if (Array.isArray(notes)) snapshot.notes = notes.filter((note) => typeof note === "string");
-  if (Array.isArray(evidence)) snapshot.evidence = evidence.filter((item) => item && RUN_KINDS.has(item.kind) && typeof item.url === "string").map(({ kind, url }) => ({ kind, url }));
+  if (Array.isArray(notes)) snapshot.notes = compactNotes(notes.filter((note) => typeof note === "string"));
+  if (Array.isArray(evidence)) snapshot.evidence = evidence.filter((item) => item && RUN_KINDS.has(item.kind) && typeof item.url === "string" && item.url.length <= MAX_SNAPSHOT_URL).slice(0, MAX_SNAPSHOT_EVIDENCE).map(({ kind, url }) => ({ kind, url }));
+  if (Array.isArray(findings) && findings.length > MAX_SNAPSHOT_FINDINGS) snapshot.findings = summarizeFindings(findings);
   return snapshot;
 }
+
+const MAX_SNAPSHOT_URL = 500;
+const MAX_SNAPSHOT_EVIDENCE = 10;
+const MAX_SNAPSHOT_FINDINGS = 20;
+/** One finding per distinct severity (keeps isBlocking/isProductFail unchanged, bounds the size). */
+const summarizeFindings = (findings) => [...new Set(findings.map((finding) => finding?.severity ?? null))].map((severity) => ({ severity }));
 
 const historyEntry = (base, snapshot) => ({ ...base, sha: snapshot?.sha ?? null, diff_id: snapshot?.diff_id ?? null, role: snapshot?.role ?? null, ...(snapshot ? { verdict_block: snapshot } : {}) });
 
@@ -971,19 +995,43 @@ export async function recordHistory({ client, repo, pr, event }) {
     fresh.push(entry);
   }
   if (!fresh.length) return { written: 0 };
-  await client.post(`/repos/${repo}/check-runs`, {
-    name: historyCheckName(pr),
-    head_sha: HISTORY_ANCHOR_SHA,
-    external_id: `pr-${pr}`,
-    status: "completed",
-    conclusion: "neutral",
-    output: {
-      title: `ovd-merge-gate history: ${fresh.length} blocking verdict(s) for PR #${pr}`,
-      summary: "Append-only verdict history (OVD-959). Later gate runs carry these forward if the comment is removed; a record never counts as a pass.",
-      text: jsonBlock({ schema: HISTORY_SCHEMA_ID, pr: Number(pr), event: typeof event?.action === "string" ? event.action : null, entries: fresh }),
-    },
-  });
+  const action = typeof event?.action === "string" ? event.action : null;
+  const batches = historyBatches(fresh, (entries) => jsonBlock({ schema: HISTORY_SCHEMA_ID, pr: Number(pr), event: action, entries }));
+  for (const { entries, text } of batches) {
+    await client.post(`/repos/${repo}/check-runs`, {
+      name: historyCheckName(pr),
+      head_sha: HISTORY_ANCHOR_SHA,
+      external_id: `pr-${pr}`,
+      status: "completed",
+      conclusion: "neutral",
+      output: {
+        title: `ovd-merge-gate history: ${entries.length} blocking verdict(s) for PR #${pr}`,
+        summary: "Append-only verdict history (OVD-959). Later gate runs carry these forward if the comment is removed; a record never counts as a pass.",
+        text,
+      },
+    });
+  }
   return { written: fresh.length };
+}
+
+/**
+ * F1: split history entries into records whose output.text fits
+ * MAX_OUTPUT_TEXT. An entry that cannot fit even alone throws: the history
+ * job fails, and the writer (which runs anyway) fails the gate closed.
+ */
+export function historyBatches(entries, render, max = MAX_OUTPUT_TEXT) {
+  const batches = [];
+  let current = [];
+  for (const entry of entries) {
+    if (render([entry]).length > max) throw new Error(`a verdict history entry (comment ${entry?.comment_id ?? "?"}) does not fit in one check run`);
+    if (current.length && render([...current, entry]).length > max) {
+      batches.push(current);
+      current = [];
+    }
+    current.push(entry);
+  }
+  if (current.length) batches.push(current);
+  return batches.map((batch) => ({ entries: batch, text: render(batch) }));
 }
 
 /** The Actions run id of an https://github.com/<repo>/actions/runs/<id> URL in `repo`, else null. */
@@ -1053,7 +1101,7 @@ function failClosed(summary, detail) {
  * Read everything evaluate() needs for one PR and evaluate it.
  * Never throws for missing data: an unreadable input becomes a fail reason.
  */
-export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull }) {
+export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull, historyResult }) {
   const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
   const liveHeadSha = pull?.head?.sha ?? null;
   const headSha = sha ?? liveHeadSha;
@@ -1086,6 +1134,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   // Unreadable history may hide a deletion: say so instead of passing silently.
   if (prior === undefined) failClosed(summary, "earlier gate check runs on this head could not be read, or one has no readable summary");
   if (history === undefined) failClosed(summary, "the PR's verdict history could not be read, so a removed FAIL cannot be ruled out");
+  // F1: the history job did not record this event, so a FAIL it saw may be missing from the history.
+  if (historyResult !== undefined && historyResult !== "success") failClosed(summary, `the verdict history job did not succeed (${oneLine(String(historyResult)).slice(0, 40)}), so a FAIL it should have recorded may be missing`);
   // Carry forward only blocking or unreadable removals; a removed clean pass is never recorded.
   const candidates = deletionCandidates({ deletedVerdicts, history: history ?? [], comments });
   const carried = carriedDeletions(candidates, ALL_TRUSTED);
@@ -1093,11 +1143,30 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   return summary;
 }
 
-/** The check-run text: the JSON summary, without the `ignored` details if it would not fit. */
-function summaryText(summary) {
-  const text = jsonBlock(summary);
-  if (text.length <= MAX_OUTPUT_TEXT) return text;
-  return jsonBlock({ ...summary, ignored: [{ code: "truncated", detail: `${list(summary.ignored).length} ignored entries omitted to fit the check run` }] });
+/**
+ * The check-run text: the JSON summary, fitted to MAX_OUTPUT_TEXT. First the
+ * `ignored` details go; then deleted_verdicts lose their snapshots (a later
+ * run reads an entry without a snapshot as an unreadable removal, which
+ * still blocks); then they collapse to one unreadable marker. Shrinking never
+ * turns a blocking summary into a passing one: reasons are kept until last,
+ * and a summary that still does not fit is replaced by a failing stub.
+ */
+export function summaryText(summary, max = MAX_OUTPUT_TEXT) {
+  const truncatedIgnored = [{ code: "truncated", detail: `${list(summary.ignored).length} ignored entries omitted to fit the check run` }];
+  const deleted = list(summary.deleted_verdicts);
+  const marker = { comment_id: null, author: "ovd-merge-gate", created_at: null, sha: null, diff_id: null, role: null, truncated: deleted.length };
+  const stripped = deleted.map(({ comment_id: commentId, author, created_at: createdAt, sha, diff_id: diffId, role }) => ({ comment_id: commentId ?? null, author: typeof author === "string" ? author.slice(0, 100) : "unknown", created_at: createdAt ?? null, sha: sha ?? null, diff_id: diffId ?? null, role: role ?? null }));
+  const steps = [
+    summary,
+    { ...summary, ignored: truncatedIgnored },
+    { ...summary, ignored: truncatedIgnored, deleted_verdicts: stripped },
+    { ...summary, ignored: truncatedIgnored, deleted_verdicts: deleted.length ? [marker] : [], warnings: [], reasons: list(summary.reasons).map(({ code }) => ({ code, detail: "" })) },
+  ];
+  for (const step of steps) {
+    const text = jsonBlock(step);
+    if (text.length <= max) return text;
+  }
+  return jsonBlock({ gate: "fail", sha: summary.sha ?? null, mode: summary.mode, reasons: [missing("the gate summary did not fit in the check run")], warnings: [], ignored: truncatedIgnored, deleted_verdicts: deleted.length ? [marker] : [] });
 }
 
 /** POST the ovd-merge-gate check run. */
@@ -1113,8 +1182,9 @@ export async function writeCheckRun({ client, repo, sha, summary }) {
 }
 
 const COMMANDS = Object.freeze({ evaluate: ["pr", "sha"], write: ["pr"], record: ["pr"], "merge-group": ["sha"] });
+const HISTORY_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
 const SWITCHES = Object.freeze({ "--json": ["json", true], "--no-fetch": ["fetch", false] });
-const VALUE_FLAGS = new Set(["--pr", "--sha", "--repo"]);
+const VALUE_FLAGS = new Set(["--pr", "--sha", "--repo", "--history-result"]);
 
 /** Read the flag at `index` into options; returns the index of the last argument consumed. */
 function readFlag(args, index, options) {
@@ -1127,7 +1197,7 @@ function readFlag(args, index, options) {
   if (!VALUE_FLAGS.has(arg)) throw new Error(`unknown argument ${JSON.stringify(arg)}`);
   const value = args[index + 1];
   if (value === undefined) throw new Error(`${arg} needs a value`);
-  options[arg.slice(2)] = value;
+  options[arg === "--history-result" ? "historyResult" : arg.slice(2)] = value;
   return index + 1;
 }
 
@@ -1138,13 +1208,16 @@ function parseCli(argv) {
   for (let index = 0; index < rest.length; index += 1) index = readFlag(rest, index, options);
   if (options.pr !== undefined && !PR_NUMBER.test(options.pr)) throw new Error("--pr must be a positive integer");
   if (options.sha !== undefined) assertSha(options.sha, "--sha");
+  if (options.historyResult !== undefined && command !== "write") throw new Error("--history-result is only for write");
+  // An empty or unknown value (a misspelled needs context) is kept: runGate treats anything but "success" as a failure.
+  if (options.historyResult !== undefined && !HISTORY_RESULTS.has(options.historyResult)) options.historyResult = `unknown:${options.historyResult.slice(0, 20)}`;
   for (const name of COMMANDS[command]) {
     if (options[name] === undefined) throw new Error(`${command} needs --${name}`);
   }
   return options;
 }
 
-const USAGE = "usage: ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch] | record --pr N [--repo o/r] | write --pr N [--repo o/r] | merge-group --sha S [--repo o/r]";
+const USAGE = "usage: ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch] | record --pr N [--repo o/r] | write --pr N [--history-result R] [--repo o/r] | merge-group --sha S [--repo o/r]";
 
 function readEvent(env) {
   if (!env.GITHUB_EVENT_PATH) return null;
@@ -1183,7 +1256,7 @@ async function runCommand({ options, env, client, token, cwd, git, diff, classif
     return 0;
   }
   const event = options.command === "write" ? readEvent(env) : null;
-  const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify });
+  const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
   if (options.command === "write") return writeGate({ client, options, summary, stdout });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
