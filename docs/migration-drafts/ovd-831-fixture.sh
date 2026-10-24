@@ -10,7 +10,8 @@
 # pgTAP in the extensions schema), then:
 #   K-0    applies docs/migration-drafts/ovd-831-agent-api-keys.sql
 #   K-1..K-11  runs supabase/tests/pending/ovd831_agent_api_keys.sql.pending
-#   revoke vs use race: a use holding FOR SHARE makes a concurrent revoke wait
+#   use vs use: 16 parallel sessions on one key, no deadlock, every use admitted
+#   revoke vs use race: a use holding FOR NO KEY UPDATE makes a concurrent revoke wait
 #   policy listing (pg_policies, table/column ACLs, function ACLs)
 #   DM-1R  rollback -> pg_dump --schema-only diff against the pre-draft dump is
 #          empty; re-apply, rollback, rollback again -> still empty
@@ -150,9 +151,25 @@ values ('00000000-0000-4000-8000-0000008310e0', '00000000-0000-4000-8000-0000008
 insert into public.agent_api_keys (id, org_id, created_by, name, key_prefix, key_hash, expires_at)
 values ('00000000-0000-4000-8000-0000008311e9', '00000000-0000-4000-8000-0000008310e0',
         '00000000-0000-4000-8000-000000831e01', 'race', 'abababababababab', repeat('c', 64), now() + interval '1 day');
+insert into public.agent_api_keys (id, org_id, created_by, name, key_prefix, key_hash, expires_at)
+values ('00000000-0000-4000-8000-0000008311ea', '00000000-0000-4000-8000-0000008310e0',
+        '00000000-0000-4000-8000-000000831e01', 'parallel', 'cdcdcdcdcdcdcdcd', repeat('d', 64), now() + interval '1 day');
 SQL
+echo "== use vs use (16 parallel sessions, one key)"
+pids=()
+for _ in $(seq 16); do
+  for _ in $(seq 20); do
+    echo "select public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-0000008311ea', 'quotes.read', 3600, 100000, 1000000);"
+  done | "${PSQL[@]}" -v ON_ERROR_STOP=1 -tA -c "set role service_role" -f - >/dev/null &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do wait "$pid" || { echo "FAIL: a parallel use session errored (deadlock?)" >&2; exit 1; }; done
+admitted="$("${PSQL[@]}" -tA -c "select count(*) from private.agent_api_key_audit
+  where key_id = '00000000-0000-4000-8000-0000008311ea' and event = 'use' and result = 'allowed'")"
+[[ "$admitted" = "320" ]] || { echo "FAIL: expected 320 admitted parallel uses, got $admitted" >&2; exit 1; }
+echo "ok - 16x20 parallel uses of one key admitted without deadlock: $admitted"
 # Session 1 admits a use and holds its transaction for 2 s. Session 2's revoke
-# must wait for it (FOR SHARE vs FOR UPDATE), and every later use is refused.
+# must wait for it (FOR NO KEY UPDATE vs FOR UPDATE), and every later use is refused.
 "${PSQL[@]}" -c "begin; set local role service_role;
   select public.api_service_admit_agent_api_key_use('00000000-0000-4000-8000-0000008311e9', 'quotes.read', 60, 10, 10);
   select pg_catalog.pg_sleep(2); commit;" >/dev/null &
