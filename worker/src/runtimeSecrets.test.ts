@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./adapters/persistentProfileLock";
 import {
+  PRODUCTION_LIVE_ADAPTERS,
   prepareRuntimeSecrets,
   validateDrawingExtractionReadiness,
   validateFictivReadiness,
@@ -343,6 +344,22 @@ describe("runtimeSecrets", () => {
     const linked = path.join(workerTempDir, "linked-weerg-storage-state.json");
     await fs.symlink(mounted, linked);
     expect(await validateWeergReadiness(config({ vendorStorageStatePaths: { weerg: linked } }))).toEqual(missing);
+  });
+
+  it("keeps PRODUCTION_LIVE_ADAPTERS equal to the adapters validateLiveAdapterReadiness accepts", async () => {
+    const registry = JSON.parse(
+      await fs.readFile(
+        path.resolve(__dirname, "../../provider-integrations/provider-registry.v1.json"),
+        "utf8",
+      ),
+    ) as { providers: { key: string; liveAdapter: boolean }[] };
+    const accepted = registry.providers
+      .map((entry) => entry.key)
+      .filter((key) => validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: [key] })).length === 0);
+    const registryLive = registry.providers.filter((entry) => entry.liveAdapter).map((entry) => entry.key);
+
+    expect([...accepted].sort()).toEqual([...PRODUCTION_LIVE_ADAPTERS].sort());
+    expect([...accepted].sort()).toEqual([...registryLive].sort());
   });
 
   it("limits the production live-adapter set to adapters with a reviewed dispatch preflight", () => {

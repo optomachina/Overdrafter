@@ -130,7 +130,8 @@
         {
           "secretNameEnv": "XOMETRY_STORAGE_STATE_SECRET_NAME",
           "mountEnv": "XOMETRY_STORAGE_STATE_JSON",
-          "requiredWhenListed": false
+          "requiredWhenListed": false,
+          "manualDeploy": true
         }
       ],
       "egress": "stable_nat"

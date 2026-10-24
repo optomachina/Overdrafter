@@ -10,6 +10,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { STABLE_EGRESS_OPTIONAL_ADAPTERS } from "./xometry-stable-egress-contract.mjs";
 import {
   FORBIDDEN_REGISTRY_FIELD_NAMES,
+  RESERVED_DEPLOY_ENV,
+  isReservedDeployEnv,
+  looksLikeSecretValue,
   WORKER_REGISTRY_RELATIVE_PATH,
   WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
   assertRegistryCoversManifests,
@@ -104,6 +107,7 @@ describe("provider registry contract", () => {
       secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
       mountEnv: "XOMETRY_STORAGE_STATE_JSON",
       requiredWhenListed: false,
+      manualDeploy: true,
     }]);
     expect(byKey.fictiv.sessionSecrets[0].secretNameEnv).toBe("FICTIV_STORAGE_STATE_SECRET_NAME");
     expect(byKey.quickparts.sessionSecrets[0].mountPath).toBe(
@@ -144,6 +148,7 @@ describe("provider registry contract", () => {
             secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
             mountEnv: "XOMETRY_STORAGE_STATE_JSON",
             requiredWhenListed: false,
+            manualDeploy: true,
           }],
           egress: "stable_nat",
         },
@@ -207,6 +212,227 @@ describe("provider registry contract", () => {
       providers: [liveRegistry()],
       secret: "do-not-store-me",
     }))).toThrow("rejects secret-value-like field: secret");
+  });
+});
+
+function registryWith(...providers) {
+  return {
+    $schema: "./provider-registry.v1.schema.json",
+    schemaVersion: 1,
+    stableEgressRequiredKey: "xometry",
+    providers: [
+      {
+        key: "xometry",
+        liveAdapter: true,
+        sessionSecrets: [{
+          secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
+          mountEnv: "XOMETRY_STORAGE_STATE_JSON",
+          requiredWhenListed: false,
+          manualDeploy: true,
+        }],
+        egress: "stable_nat",
+      },
+      ...providers,
+    ].sort((left, right) => (left.key < right.key ? -1 : 1)),
+  };
+}
+
+function secretEntry(key, secret, extra = {}) {
+  return liveRegistry({ key, sessionSecrets: [secret], ...extra });
+}
+
+describe("provider registry hardening (OVD-727)", () => {
+  const mountEnvSecret = {
+    secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+    mountEnv: "FICTIV_STORAGE_STATE_JSON",
+    requiredWhenListed: true,
+  };
+
+  it("validates the current providers", async () => {
+    await expect(readProviderRegistry(repoRoot)).resolves.toBeTruthy();
+  });
+
+  it("requires secretNameEnv to end in _SECRET_NAME", () => {
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      key: "geomiq",
+      sessionSecrets: [{
+        secretNameEnv: "GEOMIQ_STATE",
+        mountPath: "/var/secrets/geomiq-storage-state/storage-state.json",
+        requiredWhenListed: true,
+      }],
+    }))).toThrow("secretNameEnv is invalid");
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      sessionSecrets: [{ ...mountEnvSecret, secretNameEnv: "FICTIV_STATE" }],
+    }))).toThrow("secretNameEnv is invalid");
+  });
+
+  it("rejects reserved deploy variables as secret, mount, or derived mount variables", () => {
+    for (const name of ["WORKER_MODE", "WORKER_LIVE_ADAPTERS", "PATH", "HOME", "IFS", "SUPABASE_URL", "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"]) {
+      expect(isReservedDeployEnv(name)).toBe(true);
+      expect(() => validateProviderRegistryEntry(liveRegistry({
+        sessionSecrets: [{ ...mountEnvSecret, mountEnv: name }],
+      }))).toThrow(`reserved deploy variable: ${name}`);
+    }
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      sessionSecrets: [{ ...mountEnvSecret, secretNameEnv: "SUPABASE_SERVICE_ROLE_SECRET_NAME" }],
+    }))).toThrow("reserved deploy variable: SUPABASE_SERVICE_ROLE_SECRET_NAME");
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      sessionSecrets: [{ ...mountEnvSecret, secretNameEnv: "OPENAI_API_KEY_SECRET_NAME" }],
+    }))).toThrow("reserved deploy variable: OPENAI_API_KEY_SECRET_NAME");
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      key: "gcloud",
+      sessionSecrets: [{
+        secretNameEnv: "GOOGLE_MOUNT_SECRET_NAME",
+        mountPath: "/var/secrets/gcloud-storage-state/storage-state.json",
+        requiredWhenListed: true,
+      }],
+    }))).toThrow("reserved deploy variable: GOOGLE_MOUNT_SECRET_NAME");
+    expect(RESERVED_DEPLOY_ENV).toContain("WORKER_MODE");
+  });
+
+  it("rejects variable collisions within and across providers", () => {
+    const other = secretEntry("quickparts", {
+      secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "QUICKPARTS_STORAGE_STATE_JSON",
+      requiredWhenListed: true,
+    });
+    expect(() => validateProviderRegistry(registryWith(liveRegistry(), other))).toThrow(
+      "FICTIV_STORAGE_STATE_SECRET_NAME collides between fictiv and quickparts",
+    );
+    const sameMount = secretEntry("quickparts", {
+      secretNameEnv: "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "FICTIV_STORAGE_STATE_JSON",
+      requiredWhenListed: true,
+    });
+    expect(() => validateProviderRegistry(registryWith(liveRegistry(), sameMount))).toThrow("collides");
+    const derived = secretEntry("quickparts", {
+      secretNameEnv: "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/var/secrets/quickparts-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    });
+    const clash = secretEntry("weerg", {
+      secretNameEnv: "WEERG_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "QUICKPARTS_STORAGE_STATE_MOUNT_PATH",
+      requiredWhenListed: true,
+    });
+    expect(() => validateProviderRegistry(registryWith(derived, clash))).toThrow(
+      "QUICKPARTS_STORAGE_STATE_MOUNT_PATH collides between quickparts and weerg",
+    );
+    expect(() => validateProviderRegistry(registryWith(secretEntry("quickparts", {
+      secretNameEnv: "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+      requiredWhenListed: true,
+    })))).toThrow("declared twice for quickparts");
+  });
+
+  it("requires a live adapter to have a required secret or a sessionless justification", () => {
+    const geomiq = { key: "geomiq", liveAdapter: true, sessionSecrets: [], egress: "none" };
+    expect(() => validateProviderRegistryEntry(geomiq)).toThrow("needs a requiredWhenListed session secret");
+    expect(() => validateProviderRegistryEntry({
+      ...geomiq,
+      sessionSecrets: [{ ...mountEnvSecret, secretNameEnv: "GEOMIQ_STORAGE_STATE_SECRET_NAME", mountEnv: "GEOMIQ_STORAGE_STATE_JSON", requiredWhenListed: false }],
+    })).toThrow("needs a requiredWhenListed session secret");
+    expect(() => validateProviderRegistryEntry({ ...geomiq, sessionlessJustification: "too short" })).toThrow(
+      "at least 20 characters",
+    );
+    expect(validateProviderRegistryEntry({
+      ...geomiq,
+      sessionlessJustification: "Public instant-quote API; no portal session exists.",
+    }).sessionlessJustification).toContain("Public instant-quote");
+    const { egress: _egress, ...withoutEgress } = geomiq;
+    expect(() => validateProviderRegistryEntry({
+      ...withoutEgress,
+      sessionlessJustification: "Public instant-quote API; no portal session exists.",
+    })).toThrow("must contain exactly");
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: false,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: "Public instant-quote API; no portal session exists.",
+    })).toThrow("liveAdapter is false");
+  });
+
+  it("keeps manualDeploy secrets optional-only", () => {
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      sessionSecrets: [{ ...mountEnvSecret, manualDeploy: true }],
+    }))).toThrow("manualDeploy secrets must set requiredWhenListed to false");
+  });
+
+  it("generates apply and remove steps for an optional secret and nothing for manualDeploy", () => {
+    const optional = secretEntry("fictiv", { ...mountEnvSecret, requiredWhenListed: false }, {
+      sessionlessJustification: "Optional session reuse only; adapter also runs sessionless.",
+    });
+    const registry = validateProviderRegistry(registryWith(optional));
+    const script = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH).contents;
+    expect(script).toContain('FICTIV_STORAGE_STATE_SECRET_NAME="${FICTIV_STORAGE_STATE_SECRET_NAME:-}"');
+    expect(script).not.toContain("is required when WORKER_LIVE_ADAPTERS includes fictiv");
+    expect(script).toContain([
+      '  if [[ "$fictiv_live_enabled" == "true" && -n "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then',
+      '    secret_vars+=("FICTIV_STORAGE_STATE_JSON=${FICTIV_STORAGE_STATE_SECRET_NAME}:latest")',
+      "  else",
+      "    remove_secret_vars+=('FICTIV_STORAGE_STATE_JSON')",
+      "  fi",
+    ].join("\n"));
+    expect(script).not.toContain("XOMETRY_STORAGE_STATE");
+    expect(script).not.toContain("xometry_live_enabled\" == \"true\" &&");
+  });
+
+  it("rejects every credential token shape in every string field", () => {
+    const tokens = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "AKIAIOSFODNN7EXAMPLE",
+      "ghp_abcdefghijklmnopqrstuvwxyz0123",
+      "gho_abcdefghijklmnopqrstuvwxyz0123",
+      "sk-abcdefghijklmnopqrstuvwxyz0123",
+      "qZ8vK3mP9xT2rL7wB5nH1cD6fG4jS0aE9uYtRiOp",
+    ];
+    const fields = [
+      (token) => liveRegistry({ key: token }),
+      (token) => liveRegistry({ egress: token }),
+      (token) => liveRegistry({ sessionlessJustification: `Public API ${token} no session` }),
+      (token) => liveRegistry({ sessionSecrets: [{ ...mountEnvSecret, secretNameEnv: token }] }),
+      (token) => liveRegistry({ sessionSecrets: [{ ...mountEnvSecret, mountEnv: token }] }),
+      (token) => liveRegistry({
+        sessionSecrets: [{ secretNameEnv: mountEnvSecret.secretNameEnv, mountPath: token, requiredWhenListed: true }],
+      }),
+    ];
+    for (const token of tokens) {
+      expect(looksLikeSecretValue(token)).toBe(true);
+      for (const build of fields) {
+        expect(() => validateProviderRegistryEntry(build(token))).toThrow();
+      }
+      expect(() => validateProviderRegistry({
+        ...registryWith(),
+        stableEgressRequiredKey: token,
+      })).toThrow("looks like a secret value");
+    }
+    expect(() => validateProviderRegistryEntry(liveRegistry({ key: "AKIAIOSFODNN7EXAMPLE" }))).toThrow(
+      "looks like a secret value",
+    );
+  });
+
+  it("accepts allowed mount-path shapes, including ones that contain sk-", () => {
+    expect(looksLikeSecretValue("/var/secrets/desk-x/storage-state.json")).toBe(false);
+    expect(looksLikeSecretValue("/var/secrets/quickparts-storage-state/storage-state.json")).toBe(false);
+    expect(validateProviderRegistryEntry(liveRegistry({
+      key: "deskx",
+      sessionSecrets: [{
+        secretNameEnv: "DESKX_STORAGE_STATE_SECRET_NAME",
+        mountPath: "/var/secrets/desk-x/storage-state.json",
+        requiredWhenListed: true,
+      }],
+    })).sessionSecrets[0].mountPath).toBe("/var/secrets/desk-x/storage-state.json");
+    const rendered = renderProviderRegistryOutputs(validateProviderRegistry(registryWith(liveRegistry({
+      key: "deskx",
+      sessionSecrets: [{
+        secretNameEnv: "DESKX_STORAGE_STATE_SECRET_NAME",
+        mountPath: "/var/secrets/desk-x/storage-state.json",
+        requiredWhenListed: true,
+      }],
+    }))));
+    expect(rendered.length).toBe(2);
   });
 });
 

@@ -1,9 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+
+import {
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  isReservedDeployEnv,
+  readProviderRegistry,
+  renderProviderRegistryOutputs,
+  validateProviderRegistry,
+} from "./provider-registry.mjs";
 
 const execFileAsync = promisify(execFile);
 const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh");
@@ -939,5 +947,90 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
+describe("provider registry and deploy script contract (OVD-727)", () => {
+  it("reserves every variable deploy-cloud-run.sh assigns", async () => {
+    const script = await readFile(DEPLOY_SCRIPT, "utf8");
+    const assigned = [...script.matchAll(/(?:^|if ! )[ \t]*([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]);
+    expect(assigned).toContain("WORKER_MODE");
+    for (const name of assigned) {
+      expect(isReservedDeployEnv(name), `${name} must be reserved`).toBe(true);
+    }
+  });
+
+  it("pins the Xometry session secret as manual and leaves its argv handling in the script", async () => {
+    const registry = await readProviderRegistry(process.cwd());
+    const xometry = registry.providers.find((entry) => entry.key === "xometry");
+    expect(xometry.sessionSecrets).toEqual([expect.objectContaining({ manualDeploy: true, requiredWhenListed: false })]);
+    const generated = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH).contents;
+    expect(generated).not.toContain("XOMETRY_STORAGE_STATE");
+    const script = await readFile(DEPLOY_SCRIPT, "utf8");
+    expect(script).toContain('secret_vars+=("XOMETRY_STORAGE_STATE_JSON=${XOMETRY_STORAGE_STATE_SECRET_NAME}:latest")');
+    expect(script).toContain('remove_secret_vars+=("XOMETRY_STORAGE_STATE_JSON")');
+  });
+
+  const NAMED_SECRETS = {
+    FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-state",
+    WEERG_STORAGE_STATE_SECRET_NAME: "synthetic-weerg-state",
+  };
+
+  async function runWithRegistry(registry, env) {
+    const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-message-"));
+    const scriptsDir = path.join(dir, "worker", "scripts");
+    await mkdir(path.join(scriptsDir, "generated"), { recursive: true });
+    await writeFile(path.join(scriptsDir, "deploy-cloud-run.sh"), await readFile(DEPLOY_SCRIPT, "utf8"));
+    const helper = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH);
+    await writeFile(path.join(scriptsDir, "generated", "provider-secrets.sh"), helper.contents);
+    try {
+      await execFileAsync("bash", [path.join(scriptsDir, "deploy-cloud-run.sh")], {
+        env: {
+          PATH: process.env.PATH,
+          GOOGLE_CLOUD_PROJECT: "synthetic-project",
+          SUPABASE_URL: "https://synthetic.invalid",
+          GCLOUD_BIN: "/bin/false",
+          ...STABLE_EGRESS_ENV,
+          WORKER_MODE: "live",
+          ...env,
+        },
+      });
+      return { stdout: "", code: 0 };
+    } catch (error) {
+      return { stdout: error.stdout, code: error.code };
+    }
+  }
+
+  it("builds the stable-egress restriction message from the registry", async () => {
+    const current = await readProviderRegistry(process.cwd());
+    const outcome = await runWithRegistry(current, { WORKER_LIVE_ADAPTERS: "xometry,weerg,fictiv", ...NAMED_SECRETS });
+    expect(outcome.code).toBe(1);
+    expect(outcome.stdout.trim()).toBe(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+    );
+
+    const extended = validateProviderRegistry({
+      ...current,
+      providers: [
+        ...current.providers,
+        {
+          key: "zetashop",
+          liveAdapter: true,
+          sessionSecrets: [{
+            secretNameEnv: "ZETASHOP_STORAGE_STATE_SECRET_NAME",
+            mountEnv: "ZETASHOP_STORAGE_STATE_JSON",
+            requiredWhenListed: true,
+          }],
+          egress: "stable_nat",
+        },
+      ].sort((left, right) => (left.key < right.key ? -1 : 1)),
+    });
+    const extendedOutcome = await runWithRegistry(extended, { WORKER_LIVE_ADAPTERS: "xometry,weerg,fictiv", ...NAMED_SECRETS });
+    expect(extendedOutcome.code).toBe(1);
+    expect(extendedOutcome.stdout.trim()).toBe(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, Weerg, and/or Zetashop in that order.",
+    );
   });
 });

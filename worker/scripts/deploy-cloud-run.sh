@@ -151,7 +151,7 @@ if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EG
   # enabled optional adapters in canonical registry order.
   stable_egress_canonical_adapters="$(provider_registry_stable_egress_canonical_adapters)"
   if [[ "$WORKER_MODE" != "live" || "$xometry_live_enabled" != "true" || "$WORKER_LIVE_ADAPTERS" != "$stable_egress_canonical_adapters" ]]; then
-    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order."
+    echo "$PROVIDER_REGISTRY_STABLE_EGRESS_MESSAGE"
     exit 1
   fi
   if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then

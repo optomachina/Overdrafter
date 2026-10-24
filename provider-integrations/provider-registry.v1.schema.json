@@ -40,7 +40,15 @@
           "default": [],
           "items": { "$ref": "#/$defs/sessionSecret" }
         },
-        "egress": { "enum": ["stable_nat", "none"] }
+        "egress": {
+          "enum": ["stable_nat", "none"],
+          "description": "Declared explicitly for every provider."
+        },
+        "sessionlessJustification": {
+          "type": "string",
+          "minLength": 20,
+          "description": "A live adapter needs a requiredWhenListed or manualDeploy session secret, or this explanation of why it runs without a session secret."
+        }
       }
     },
     "sessionSecret": {
@@ -50,8 +58,8 @@
       "properties": {
         "secretNameEnv": {
           "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]{1,80}$",
-          "description": "Environment variable that holds the Secret Manager secret name, never a secret value."
+          "pattern": "^[A-Z][A-Z0-9_]*_SECRET_NAME$",
+          "description": "Must end in _SECRET_NAME and must not collide with a reserved deploy variable or another provider's variables. Environment variable that holds the Secret Manager secret name, never a secret value."
         },
         "mountEnv": {
           "type": "string",
@@ -63,7 +71,14 @@
           "pattern": "^/var/secrets/[a-z0-9-]+/storage-state\\.json$",
           "description": "Fixed Cloud Run secret mount path. Not a secret value."
         },
-        "requiredWhenListed": { "type": "boolean" }
+        "requiredWhenListed": {
+          "type": "boolean",
+          "description": "When true, a live deploy that lists the adapter must set secretNameEnv. When false, the secret is optional: the generated deploy helper still mounts it when secretNameEnv is set and always removes a stale binding when the adapter is not listed; only the required check is skipped."
+        },
+        "manualDeploy": {
+          "type": "boolean",
+          "description": "When true, worker/scripts/deploy-cloud-run.sh binds this secret by hand and the generator emits nothing for it. Requires requiredWhenListed false."
+        }
       }
     }
   }

@@ -15,6 +15,12 @@ import {
 } from "./xometryProfileSnapshot.js";
 import { PRODUCTION_LIVE_ADAPTERS } from "./generated/providerRegistry.js";
 
+/**
+ * Adapters with a reviewed production dispatch path. The list is generated from
+ * provider-integrations/provider-registry.v1.json. Listing a generic provider
+ * here never admits it; the database policy, reviewed envelope, and rollout
+ * still decide every dispatch.
+ */
 export { PRODUCTION_LIVE_ADAPTERS };
 
 function parseStorageStateJson(input: string, source: string) {
@@ -285,13 +291,6 @@ export function validateQuickpartsReadiness(config: WorkerConfig): Promise<strin
 export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> {
   return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
 }
-
-/**
- * Adapters with a reviewed production dispatch path. The list is generated from
- * provider-integrations/provider-registry.v1.json. Listing a generic provider
- * here never admits it; the database policy, reviewed envelope, and rollout
- * still decide every dispatch.
- */
 
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
