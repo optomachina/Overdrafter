@@ -94,8 +94,16 @@ describe("Weerg offline preparation; no observed portal selectors", () => {
     ["session expired", "login_required"], ["captcha", "captcha"],
     ["manual review", "manual_review"], ["select material", "configuration_required"],
     ["service unavailable", "unavailable"], ["Total $99, 3 days", "selector_drift"],
+    ["session expired; verify you are human", "captcha"],
+    ["maintenance", "unavailable"],
+    ["configure part", "configuration_required"],
   ])("classifies synthetic text %s as finite %s", async (bodyText, state) => {
     expect(await createWeergPortalDefinition(facts).hooks.classifyPortalState({ url: "https://www.weerg.com/", bodyText, passwordInputCount: 0 })).toBe(state);
+  });
+  it("prioritizes an unexpected origin over session and challenge text", async () => {
+    expect(await createWeergPortalDefinition(facts).hooks.classifyPortalState({
+      url: "https://unexpected.example/", bodyText: "session expired; captcha", passwordInputCount: 1,
+    })).toBe("unexpected_origin");
   });
   it("rejects missing exact approval before browser launch", async () => {
     const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("must not launch"));
