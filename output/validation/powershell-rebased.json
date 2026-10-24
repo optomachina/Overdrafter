@@ -1,0 +1,6 @@
+{
+  "outcome": "passed",
+  "assertions": 35,
+  "nativeActions": 0,
+  "powershell": "7.6.6"
+}

@@ -1,0 +1,78 @@
+{
+  "issue": "OVD-495",
+  "worktree": "/Users/blainewilson/.codex/worktrees/engineering-cumulative/Overdrafter",
+  "branch": "codex/ovd-495-cumulative-native",
+  "fullMilestone": "docs/engineering-automatic-loop.md",
+  "status": "complete",
+  "goalComplete": false,
+  "implemented": [
+    "cumulative v2 consistency contracts",
+    "eligible-attempt and artifact-bound successor construction",
+    "native predecessor byte and geometry checks",
+    "default-off cumulative qualification harness",
+    "v1 and recovery-reader compatibility",
+    "native/preview lifecycle compile dependency closure"
+  ],
+  "localEvidence": {
+    "repositoryVerification": "Current-main rebase: 338 files,4197 passed,1 skipped; full verify passed",
+    "targetedTests": "236 passed",
+    "powershellCore": "35 assertions passed; no native actions",
+    "scriptParse": "7 scripts passed",
+    "localReview": "one shared-reader regression fixed; full follow-up and incremental composition reviews passed",
+    "qualityFix": "Required-check-list helper extracted;35PowerShell assertions and independent review passed;current Sonar0open"
+  },
+  "pending": [
+    "Record qualification docs and complete current PR review/checks",
+    "Land OVD495 and OVD500 when review gates complete",
+    "Implement OVD501 coordinator then artifact finalization/transport, AI, UI and activation"
+  ],
+  "sourcePacket": {
+    "path": "output/native-source-packet.json",
+    "bytes": 207805,
+    "sha256": "4f932d0688c08c24b6087064745a7c24bd668325c8210fe1cb205fccc0712fab"
+  },
+  "access": "Workstation qualification completed; no native job active or next execution authorized by this handoff.",
+  "head": "a10f123e801c41b96f7512004a6359c1fc578564",
+  "pr": "https://github.com/optomachina/Overdrafter/pull/489",
+  "state": "merged",
+  "watcherSession": 81095,
+  "watcherLog": "output/validation/hosted-qualified-source-checks.log",
+  "nativeQualification": {
+    "passed": true,
+    "source": "e3264e167526ec417e091f1079c4ecaa7e83fca5",
+    "runtime": "Windows PowerShell5.1.26100.9278 x64; SolidWorks2022 SP5 30.5.0.0049",
+    "directExit": 0,
+    "sequenceMm": [
+      5,
+      8,
+      9,
+      7
+    ],
+    "mandatoryChecksPassed": 21,
+    "seedAndPriorPackagesPreserved": true,
+    "finalNativeProcessInventory": "empty",
+    "receiptSha256": "f8723f76fc98b63bb63aab22828f3b578ae4a30408b214a66eb48a7b89316829",
+    "remoteReceipt": "%USERPROFILE%/ovd495-bfa70efc/qualification.json",
+    "localReadback": "output/validation/windows-qualification-readback.json",
+    "authenticatedDispatch": false
+  },
+  "hostedCiPassed": true,
+  "sonarOpenIssues": 0,
+  "review": {
+    "state": "completed",
+    "requestedAtUtc": "2026-09-10T09:49:52Z",
+    "requestUrl": "https://github.com/optomachina/Overdrafter/pull/489#issuecomment-5616617513",
+    "head": "a10f123e801c41b96f7512004a6359c1fc578564",
+    "fullReviewCompleted": false,
+    "runId": "3220a9aa-1630-4774-83ea-7857ea3eb43f",
+    "observedAtUtc": "2026-09-10T09:50:09Z",
+    "replyUrl": "https://github.com/optomachina/Overdrafter/pull/489#discussion_r3977866945",
+    "finding": "Fixed companion index2 was mistaken for edited target index1; explained and resolved without source change"
+  },
+  "nextWork": {
+    "coordinator": "OVD-501 local design commit384b7bbe; no migration yet",
+    "cumulativePreview": "OVD-502 scoped in Backlog; current v1 exporter does not accept v2 snapshots"
+  },
+  "mergeCommit": "3aa622a27cece200a38173edad35e0685ea45634",
+  "mergedAt": "2026-09-10T10:01:23Z"
+}

@@ -1,0 +1,8 @@
+{
+  "coreAutocrlf": true,
+  "withoutAttributes": "c6f0f3f616b73762d057160f9945ceebb91cbd419c5a99459ae9a028de6d22d5",
+  "withAttributes": "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+  "expected": "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+  "passed": true,
+  "nativeActions": 0
+}
