@@ -35,6 +35,19 @@ Obtain Blaine's current exact authorization before:
 - purchases, spending commitments, filing, publishing, or deletion of pre-existing resources;
 - real SolidWorks/PDM publication or native actions outside an already authorized exact operation.
 
+### Fixture-heal recapture and certification (OVD-796 §6.2, OVD-816)
+
+The `--stage=repair` commands arrive with OVD-823; nothing runs under this authorization until then.
+
+Blaine's standing authorization covers read-only repair recapture (`npm run fixture:onboard -- <key> --stage=repair --capture`), certification quotes (`--stage=repair --certify`) and scheduled certifications without a per-run OK, only when all hold:
+
+- The supplier is admitted for production quotes and cleared for paid automation in `docs/providers/permissions-matrix.md`; an engaged kill switch requires the certification-permit exception (OVD-817), never past a `C&D` or `global` switch.
+- A golden part from `provider-integrations/<key>/golden/` is quoted for the internal certification org, marked `raw_payload.fixtureHeal.internal = true`, never publishable or selectable.
+- The flow is quote-only: no checkout, order, account or credential change, or supplier message; the active cleanup ledger removes only this run's own items.
+- Caps: 3 propose-validate iterations and 2 live certification uploads per repair case; at most 2 certification uploads per supplier per day, counting that day's production uploads.
+
+Login, MFA, CAPTCHA, block or terms-of-service signals stop the run and go to a human. Envelope and admit stages, worker deploys, releasing a human-engaged kill switch, and any class other than S stay protected.
+
 Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repository access, and broad project approval do not expand into these actions.
 
 ## Standing approvals and the Blaine channel
@@ -56,6 +69,21 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
   7. New code in the categories above behind a feature flag that defaults off.
 - Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
 - Rollback for an auto-merged PR is `git revert` of its squash commit.
+
+### Fixture-heal class S auto-merge (OVD-796 D8, OVD-816)
+
+This is Blaine's standing adapter OK for selector-only repairs and the only exception to the sensitive-paths rule above: pack paths match `provider_dispatch`; `docs/sensitive-paths.json` is not narrowed.
+
+A fixture-repair PR auto-merges (squash) without a Blaine card only when all hold at the current head: hosted CI green, Jev screen not risky, independent Opus review with no open actionable findings, QA pass verdict, `heal-guard` CI classifies the diff as class `S` (OVD-796 §7), certification evidence meets §5.5 tolerances at both quantities with echo matched and cleanup verified, and every changed file matches:
+
+<!-- fixture-heal-class-s:begin -->
+- `provider-integrations/*/locators.v*.json`
+- `provider-integrations/*/fixtures/locators.v*.html`
+<!-- fixture-heal-class-s:end -->
+
+Classes P, F, E, C and H, missing or failing `heal-guard`, or any other changed file go to Blaine's approval card. Until `heal-guard` runs in hosted CI (OVD-823) and the eligibility check (OVD-845) reads its verdict, no PR qualifies.
+
+Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on the standing-approval row also revokes it. Rollback is `git revert` of the squash commit. Operator procedure: [docs/runbooks/fixture-heal.md](docs/runbooks/fixture-heal.md).
 
 ## Sensitive paths (single shared list)
 
