@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { PanelsTopLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
-import NotFound from "@/pages/NotFound";
 
 import { Set1HomePage } from "@/concepts/set-1/HomePage";
 import { Set1ProjectPage } from "@/concepts/set-1/ProjectPage";
@@ -198,10 +196,6 @@ function PageSwitcher({
 export const ConceptsGallery = () => {
   const [selectedSet, setSelectedSet] = useState<SetId>(1);
   const [selectedPage, setSelectedPage] = useState<PageType>("home");
-
-  if (!isFixtureModeAvailable()) {
-    return <NotFound />;
-  }
 
   const Component = COMPONENT_MAP[selectedSet][selectedPage];
   const currentSet = CONCEPT_SETS.find((s) => s.id === selectedSet);
