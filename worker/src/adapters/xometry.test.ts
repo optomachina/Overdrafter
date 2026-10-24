@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideProviderUploadCapability } from "../providerUploadCapability.js";
@@ -92,13 +93,18 @@ import { OperationalJevSession, OperationalJevObservations } from "../jev/operat
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
-import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
+import {
+  evaluateProviderAdapterContract,
+  evaluateProviderAdapterFailureContract,
+} from "./providerAdapterContract";
+import anonymousQuoteHome from "./fixtures/xometry-anonymous-quote-home.json";
 import {
   XometryAdapter,
   chooseOptionByTerms,
   detectBlockingStateSignal,
   hasVisibleFilename,
   isManualReviewText,
+  isXometryPricingInProgress,
   parseFirstCurrency,
   parseLeadTime,
   resolveXometryCompatibilityLeadTime,
@@ -106,6 +112,7 @@ import {
   setQuantity,
   toleranceSummaryMatches,
   uploadInputAcceptsFile,
+  xometryPriceTiersSettled,
 } from "./xometry";
 import {
   XOMETRY_LOCATORS,
@@ -114,6 +121,7 @@ import {
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
 } from "./xometryConstraints";
+import { collectXometryOffers, parseXometryOfferSnapshots } from "./xometryOffers";
 
 const tempDirs: string[] = [];
 
@@ -294,6 +302,10 @@ type LocatorBehavior = {
   dataTestId?: string | null;
   isChecked?: () => Promise<boolean> | boolean;
   isEnabled?: () => Promise<boolean> | boolean;
+  /** Distinct matches returned by nth(index); count follows their length. */
+  items?: LocatorBehavior[];
+  /** Behaviors for selectors scoped under this locator. */
+  children?: Record<string, LocatorBehavior> | ((selector: string) => LocatorBehavior);
 };
 
 type FakePageOptions = {
@@ -329,7 +341,17 @@ type FakePageOptions = {
   }>;
 };
 
-function makeLocator(behavior: LocatorBehavior = {}) {
+function makeLocator(behavior: LocatorBehavior = {}): ReturnType<typeof makeSingleLocator> {
+  const items = behavior.items;
+  if (!items) return makeSingleLocator(behavior);
+  return {
+    ...makeSingleLocator({ ...items[0], count: items.length }),
+    first: () => makeLocator(items[0] ?? { count: 0 }),
+    nth: (index: number) => makeLocator(items[index] ?? { count: 0 }),
+  };
+}
+
+function makeSingleLocator(behavior: LocatorBehavior = {}) {
   const currentCount = () =>
     typeof behavior.count === "function" ? behavior.count() : (behavior.count ?? 0);
   const currentText = () =>
@@ -339,7 +361,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     first() {
       return this;
     },
-    nth() {
+    nth(_index?: number) {
       return this;
     },
     async count() {
@@ -397,8 +419,11 @@ function makeLocator(behavior: LocatorBehavior = {}) {
         ? makeLocator(behavior)
         : makeLocator({ count: 0, text: "" });
     },
-    locator() {
-      return makeLocator({ count: 0 });
+    locator(selector: string) {
+      const scoped = typeof behavior.children === "function"
+        ? behavior.children(selector)
+        : behavior.children?.[selector];
+      return makeLocator(scoped ?? { count: 0 });
     },
   };
 }
@@ -1327,7 +1352,7 @@ describe("Xometry helpers", () => {
         text: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
         url: XOMETRY_URLS.quoteHome,
       }),
-    ).toBeNull();
+    ).toBe("login_required");
     expect(
       detectBlockingStateSignal({
         text: [
@@ -1350,6 +1375,114 @@ describe("Xometry helpers", () => {
 });
 
 describe("XometryAdapter", () => {
+  it.each([
+    ["", "login_required"],
+    [anonymousQuoteHome.errorBanner, "login_required"],
+    ["My Account", "login_required"],
+    ["Welcome back. Recent quotes", null],
+    ["My Account Part Library", null],
+    ["Sign in", "login_required"],
+    ["Sign in Verify you are human", "captcha"],
+    [`Welcome back ${anonymousQuoteHome.errorBanner}`, "anti_detection_block"],
+    ["Welcome back Already have an account?", "login_required"],
+  ])("classifies the upload prompt with %s as %s", (extra, expected) => {
+    expect(detectBlockingStateSignal({
+      url: XOMETRY_URLS.quoteHome,
+      text: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${extra}`,
+    })).toBe(expected);
+  });
+
+  it("does not block the upload prompt away from quote home", () => {
+    expect(detectBlockingStateSignal({
+      url: "https://www.xometry.com/resources/",
+      text: anonymousQuoteHome.uploadPrompt,
+    })).toBeNull();
+  });
+
+  it.each(["", anonymousQuoteHome.errorBanner])(
+    "ends an expired-session evaluation before upload with a login_required terminal state: %s",
+    async (banner) => {
+      const workerTempDir = await makeTempDir();
+      const page = createFakePage({
+        bodyText: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${banner}`,
+      });
+      const hydration = vi.spyOn(page, "waitForFunction");
+      const context = createFakeContext(page);
+      const close = vi.spyOn(context, "close");
+      playwrightLaunchPersistentContextMock.mockResolvedValue(context);
+      const config = makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: null,
+        xometryUserDataDir: path.join(workerTempDir, "profile"),
+        xometryProfileSnapshotBucket: "synthetic-profile-bucket",
+        xometryProfileSnapshotObject: "xometry/profile.tgz",
+        xometryProfileSnapshotGeneration: "41",
+        xometryBrowserEngine: "playwright",
+      });
+      const uploadCheckpoint = vi.fn(passingUploadCapabilityCheckpoint);
+      const input = await makeLiveEvaluationInput({ uploadCapabilityCheckpoint: uploadCheckpoint });
+      const adapter = makeLiveEvaluationAdapter(config);
+      const failure = await adapter.quote(input).catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        code: "login_required",
+        payload: { terminalState: "login_required", reason: "session_authentication_required" },
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
+      expect(hydration).toHaveBeenCalledTimes(1);
+      // The dashboard never hydrates, so the bounded wait runs out before the session is declared expired.
+      await expect(hydration.mock.results[0].value).rejects.toThrow("wait predicate did not match");
+      expect(uploadCheckpoint).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(persistSnapshotMock).not.toHaveBeenCalled();
+      const retryFailure = await adapter.quote(input).catch((error: unknown) => error);
+      expect(retryFailure).toMatchObject({
+        code: "login_required", payload: { reason: "profile_snapshot_unavailable" },
+      });
+      expect(evaluateProviderAdapterFailureContract(retryFailure)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
+      expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("keeps waiting for dashboard copy that hydrates after the upload prompt", async () => {
+    const workerTempDir = await makeTempDir();
+    let reads = 0;
+    const page = createFakePage({
+      bodyText: () => {
+        reads += 1;
+        const prompt = `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton}`;
+        return reads <= 3 ? prompt : `Welcome back. Recent quotes ${prompt}`;
+      },
+      waitForFunctionAttempts: 5,
+    });
+    playwrightLaunchPersistentContextMock.mockResolvedValue(createFakeContext(page));
+    const config = makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: null,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryProfileSnapshotBucket: "synthetic-profile-bucket",
+      xometryProfileSnapshotObject: "xometry/profile.tgz",
+      xometryProfileSnapshotGeneration: "41",
+      xometryBrowserEngine: "playwright",
+    });
+    const input = await makeLiveEvaluationInput({ uploadCapabilityCheckpoint: vi.fn(passingUploadCapabilityCheckpoint) });
+    const adapter = makeLiveEvaluationAdapter(config);
+    const failure = await adapter.quote(input).catch((error: unknown) => error);
+
+    // The fake page has no real uploader, so the run fails later; it must not fail as an expired session.
+    expect(failure).not.toMatchObject({ code: "login_required" });
+    expect(reads).toBeGreaterThan(3);
+    // The adapter keeps its own config copy: a quarantined snapshot would make the next quote refuse
+    // with profile_snapshot_unavailable before launching a browser.
+    const retry = await adapter.quote(input).catch((error: unknown) => error);
+    expect(retry).not.toMatchObject({ payload: { reason: "profile_snapshot_unavailable" } });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each([undefined, "production_dispatch", "live_evaluation"] as const)(
     "refuses direct live browser launch without authorization for context %s",
     async (executionContext) => {
@@ -2474,7 +2607,8 @@ describe("XometryAdapter", () => {
           count: 1,
           inputValue: () => "2",
         },
-        [XOMETRY_LOCATORS.priceText[1]]: {
+        // A fallback price anchor that is not itself an offer container.
+        '[data-testid*="price" i]': {
           count: 1,
           text: summaryText,
         },
@@ -2503,9 +2637,19 @@ describe("XometryAdapter", () => {
       }),
     );
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+    expect(XOMETRY_LOCATORS.priceText).toContain('[data-testid*="price" i]');
+    expect(XOMETRY_LOCATORS.offerContainers).not.toContain('[data-testid*="price" i]');
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
       code: "unexpected_ui_state",
       payload: expect.objectContaining({ reason: "xometry_offer_containers_missing" }),
+    });
+    // OVD-1052: a finite selector-drift stop (not finite_terminal_state_missing).
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+      ok: true,
+      terminalState: "selector_drift",
+      violations: [],
     });
   });
 
@@ -4226,6 +4370,10 @@ describe("XometryAdapter", () => {
       expect(failure).toMatchObject({
         payload: { reason: "quantity_mismatch", observedLineItemQuantities: [10] },
       });
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "configuration_required",
+      });
       expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
         .toContain("quantity-unverified-dom");
     });
@@ -4237,6 +4385,1140 @@ describe("XometryAdapter", () => {
       expect(failure).toBeInstanceOf(VendorAutomationError);
       expect(failure).toMatchObject({
         payload: { reason: "quantity_unverified", observedLineItemQuantities: [] },
+      });
+      // OVD-1052: the refusal is a finite selector-drift stop, not an
+      // unclassified failure (finite_terminal_state_missing).
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+      });
+    });
+  });
+
+  describe("OVD-1052 current quote-page price panel", () => {
+    // Hand-built structural fixture of the 2026-10-23 quote page; every value
+    // in it is synthetic. Never replace it with a captured page.
+    const fixturePath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "fixtures",
+      "xometry-quote-page-price-panel-2026-10.html",
+    );
+    const lineBreakingTags = new Set(["BODY", "DIV", "P", "LABEL", "SECTION", "MAIN", "DIALOG", "UL", "LI"]);
+
+    /**
+     * Approximates Playwright's innerText for the fixture: hidden subtrees are
+     * skipped, block boxes break lines, source indentation collapses, and the
+     * no-break space Xometry renders after a tier icon is kept.
+     */
+    function renderedText(root: Element) {
+      const parts: string[] = [];
+      const visit = (node: Node) => {
+        if (node.nodeType === node.TEXT_NODE) {
+          parts.push((node.textContent ?? "").replaceAll(/[ \t\r\n]+/g, " "));
+          return;
+        }
+        if (node.nodeType !== node.ELEMENT_NODE) return;
+        const element = node as Element;
+        if (/display:\s*none/i.test(element.getAttribute("style") ?? "")) return;
+        const breaksLine = lineBreakingTags.has(element.tagName);
+        if (breaksLine) parts.push("\n");
+        element.childNodes.forEach(visit);
+        if (breaksLine) parts.push("\n");
+      };
+      visit(root);
+      return parts
+        .join("")
+        .split("\n")
+        .map((line) => line.replaceAll(/^ +| +$/g, ""))
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    /**
+     * Approximates Playwright's :visible (a non-empty bounding box, not
+     * hidden) for the fixture: neither the element nor an ancestor is
+     * display:none (the fixture's only hiding), and it renders some text,
+     * since nothing in the fixture is sized without text (an empty
+     * <span data-testid="tierAndLeadTime"></span> has a zero-width box).
+     */
+    function isRendered(element: Element) {
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        if (/display:\s*none/i.test(node.getAttribute("style") ?? "")) return false;
+      }
+      return renderedText(element) !== "";
+    }
+
+    /**
+     * Locator behavior backed by fixture elements: every scoped selector the
+     * collector asks for (tier label, list price, nested containers, disabled
+     * descendants) resolves against the element's own DOM subtree. A trailing
+     * Playwright `:visible` keeps only rendered matches.
+     *
+     * Test hook: an element with data-test-unreadable="text" (or "attributes")
+     * rejects every innerText (or getAttribute) read, as a detached element
+     * would; "nested-text" (or "nested-attributes") rejects only when the
+     * element is reached through another candidate's scoped locator.
+     */
+    function domBehavior(elements: Iterable<Element>, nested = false): LocatorBehavior {
+      const detached = () => {
+        throw new Error("element was detached");
+      };
+      return {
+        items: [...elements].map((element) => {
+          const unreadable = element.getAttribute("data-test-unreadable");
+          const textUnreadable = unreadable === "text" || (nested && unreadable === "nested-text");
+          const attributesUnreadable = unreadable === "attributes" || (nested && unreadable === "nested-attributes");
+          return {
+            count: 1,
+            text: textUnreadable ? detached : renderedText(element),
+            getAttribute: attributesUnreadable ? detached : (name: string) => element.getAttribute(name),
+            children: (selector: string) => {
+              const visibleOnly = selector.endsWith(":visible");
+              const matches = [...element.querySelectorAll(visibleOnly ? selector.slice(0, -":visible".length) : selector)];
+              return domBehavior(visibleOnly ? matches.filter(isRendered) : matches, true);
+            },
+          };
+        }),
+      };
+    }
+
+    /**
+     * DOM behaviors for every fallback price/lead/review selector jsdom can
+     * parse (Playwright-only ones such as :has-text stay unmatched), so the
+     * adapter's fallback reads see what the fixture page would show.
+     */
+    function fallbackSelectorBehaviors(document: Document) {
+      const selectors = [
+        ...XOMETRY_LOCATORS.priceText,
+        ...XOMETRY_LOCATORS.leadTimeText,
+        ...XOMETRY_LOCATORS.manualReviewText,
+      ];
+      return Object.fromEntries(selectors.flatMap((selector) => {
+        try {
+          return [[selector, domBehavior(document.querySelectorAll(selector))]];
+        } catch {
+          return [];
+        }
+      }));
+    }
+
+    async function loadCurrentQuotePage(mutate?: (document: Document) => void) {
+      const { document } = new JSDOM(await fs.readFile(fixturePath, "utf8")).window;
+      mutate?.(document);
+      const cards = [...document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0])].map((card) => {
+        const timing = card.querySelector('[data-testid="tierAndLeadTime"]');
+        if (!timing) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+        return { text: renderedText(card), tierText: renderedText(timing) };
+      });
+      // Mirrors div:has(> span:text-is("Quantity")) > div > input[type="number"].
+      const quantityInputs = [...document.querySelectorAll('div > div > input[type="number"]')].filter((input) =>
+        [...(input.parentElement?.parentElement?.children ?? [])].some((sibling) =>
+          sibling.tagName === "SPAN" && sibling.textContent?.trim() === "Quantity"));
+      return {
+        document,
+        bodyText: renderedText(document.body),
+        hiddenTemplates: [...document.querySelectorAll("dialog span")]
+          .map((span) => span.textContent?.trim() ?? "")
+          .filter(Boolean),
+        cards,
+        quantityInputs,
+        offerContainerBehaviors: Object.fromEntries(XOMETRY_LOCATORS.offerContainers.map((selector) =>
+          [selector, domBehavior(document.querySelectorAll(selector))])),
+      };
+    }
+
+    /** A page whose offer-container selectors resolve against the fixture DOM. */
+    function fixturePage(fixture: Awaited<ReturnType<typeof loadCurrentQuotePage>>) {
+      return {
+        url: () => "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        locator: (selector: string) => makeLocator(fixture.offerContainerBehaviors[selector] ?? { count: 0 }),
+      } as unknown as Parameters<typeof collectXometryOffers>[0];
+    }
+
+    async function quoteCurrentPage(options: {
+      mutate?: (document: Document) => void;
+      /** Also resolve the fallback price/lead/review selectors against the fixture DOM. */
+      resolveFallbackSelectors?: boolean;
+      /** The body text the page shows from the price-tier settle wait onward. */
+      pricingBodyText?: (bodyText: string) => string;
+    } = {}) {
+      const fixture = await loadCurrentQuotePage(options.mutate);
+      const labelledQuantitySelector = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
+        selector.includes('span:text-is("Quantity")'));
+      expect(labelledQuantitySelector).toBeDefined();
+      const workerTempDir = await makeTempDir();
+      let bodyText = fixture.bodyText;
+      const page = createFakePage({
+        bodyText: () => bodyText,
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          [labelledQuantitySelector ?? "missing"]: {
+            count: fixture.quantityInputs.length,
+            inputValue: () => fixture.quantityInputs[0]?.getAttribute("value") ?? "",
+          },
+          ...(options.resolveFallbackSelectors ? fallbackSelectorBehaviors(fixture.document) : {}),
+          // Every offer-container selector resolves against the fixture DOM,
+          // including the role=button drag handle around the part card.
+          ...fixture.offerContainerBehaviors,
+        },
+      });
+      const requestedSelectors: string[] = [];
+      const locate = page.locator.bind(page);
+      page.locator = (selector: string) => {
+        requestedSelectors.push(selector);
+        return locate(selector);
+      };
+      const { pricingBodyText } = options;
+      if (pricingBodyText) {
+        const waitForFunction = page.waitForFunction.bind(page);
+        page.waitForFunction = async (callback: unknown, argument?: unknown) => {
+          if (callback === xometryPriceTiersSettled) bodyText = pricingBodyText(fixture.bodyText);
+          return waitForFunction(callback, argument);
+        };
+      }
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const baseInput = makeInput();
+      const input = makeInput({
+        requestedQuantity: 1,
+        requirement: { ...baseInput.requirement, finish: "as machined", quantity: 1, quote_quantities: [1] },
+      });
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      );
+      return { fixture, input, requestedSelectors, result: await adapter.quote(input) };
+    }
+
+    it("pins the drift: the tier name left the timing label and the quantity input lost its aria-label", async () => {
+      const fixture = await loadCurrentQuotePage();
+
+      expect(fixture.cards.map((card) => card.tierText)).toEqual([
+        "Arrives by Nov 3",
+        "Arrives by Nov 6",
+        "Arrives by Oct 30",
+      ]);
+      expect(fixture.cards.map((card) => card.text.split("\n")[0])).toEqual([
+        "\u00a0Least Expensive",
+        "\u00a0Standard",
+        "\u00a0Fastest",
+      ]);
+      expect(fixture.quantityInputs).toHaveLength(1);
+      expect(fixture.quantityInputs[0]?.hasAttribute("aria-label")).toBe(false);
+      // Hidden dialog templates are not visible text, so none of them reaches
+      // the body text the adapter classifies. This pins only that exclusion,
+      // not how a visible dialog with the same copy would be classified.
+      expect(fixture.hiddenTemplates).toEqual(expect.arrayContaining([
+        "Quote limit exceeded",
+        "Your Quote Was Not Automatically Saved",
+        "Delete Drawing",
+      ]));
+      for (const template of fixture.hiddenTemplates) {
+        expect(fixture.bodyText).not.toContain(template);
+      }
+    });
+
+    it("never takes the part card's role=button drag handle as a fourth tier container", async () => {
+      const tierIds = ["least-expensive", "standard", "fastest"];
+      // As captured (decrement disabled at quantity 1) and with the stepper
+      // enabled, so the handle is not merely dropped as an unavailable option.
+      for (const enableStepper of [false, true]) {
+        const fixture = await loadCurrentQuotePage((document) => {
+          if (enableStepper) {
+            for (const button of document.querySelectorAll("button[disabled]")) button.removeAttribute("disabled");
+          }
+        });
+        const handles = [...fixture.document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[3])];
+        expect(handles).toHaveLength(1);
+        expect(handles[0]?.matches('#draggable-parts > div[role="button"][tabindex="0"]')).toBe(true);
+        expect(handles[0]?.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0])).toHaveLength(3);
+        expect(fixture.document.querySelectorAll("button[disabled]")).toHaveLength(enableStepper ? 0 : 1);
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offers.map((offer) => offer.providerOptionId)).toEqual(tierIds);
+        expect(offers.map((offer) => offer.provenance.containerSelector))
+          .toEqual(Array(3).fill(XOMETRY_LOCATORS.offerContainers[0]));
+        expect(offers.map((offer) => offer.totalPriceUsd)).toEqual([101.25, 106.4, 117.1]);
+      }
+    });
+
+    it("takes the list total from the card's part-discount slot when the amounts alone are ambiguous", async () => {
+      const captured = await loadCurrentQuotePage();
+      // Captured structure: <span>$list</span> (Save $x) inside part-discount.
+      expect([...captured.document.querySelectorAll('[data-testid="part-discount"]')].map((slot) => ({
+        list: [...slot.children].filter((child) => child.tagName === "SPAN").map((span) => span.textContent),
+        text: slot.textContent,
+      }))).toEqual([
+        { list: ["$146.80"], text: "$146.80 (Save $45.55)" },
+        { list: ["$139.95"], text: "$139.95 (Save $33.55)" },
+        { list: ["$171.85"], text: "$171.85 (Save $54.75)" },
+      ]);
+
+      // $150.00 - $50.00 = $100.00 and $100.00 - $50.00 = $50.00, so only the
+      // DOM slot can say that $150.00 is the struck-through list total.
+      const fixture = await loadCurrentQuotePage((document) => {
+        const [card, ...others] = document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0]);
+        for (const other of others) other.remove();
+        const amounts = card?.querySelector('[kind="discount"]');
+        if (!amounts) throw new Error("fixture tier card lost its price block");
+        amounts.innerHTML = '<span kind="body-sm">$50.00 ea.</span><div>$100.00</div>'
+          + '<div data-testid="part-discount"><span>$150.00</span> (Save $50.00)</div>';
+      });
+      const offers = await collectXometryOffers(fixturePage(fixture), 2);
+
+      expect(offers).toEqual([expect.objectContaining({
+        providerOptionId: "least-expensive",
+        unitPriceUsd: 50,
+        totalPriceUsd: 100,
+      })]);
+      // The same card text without the DOM slot fails closed.
+      expect(() => parseXometryOfferSnapshots({
+        requestedQuantity: 2,
+        quoteUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        snapshots: fixture.cards.map((card) => ({ selector: ".price-tier", ...card, attributes: {} })),
+      })).toThrow(expect.objectContaining({
+        payload: expect.objectContaining({
+          reason: "xometry_offer_discount_unreconciled",
+          discountFailure: "list_price_ambiguous",
+          terminalState: "selector_drift",
+        }),
+      }));
+    });
+
+    it("captures all three tier cards as offers and ends offers_extracted", async () => {
+      const { input, requestedSelectors, result } = await quoteCurrentPage();
+
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.offers?.map((offer) => ({
+        id: offer.providerOptionId,
+        label: offer.providerLabel,
+        unit: offer.unitPriceUsd,
+        total: offer.totalPriceUsd,
+        arrives: offer.shipReceiveBy,
+      }))).toEqual([
+        { id: "least-expensive", label: "Least Expensive", unit: 101.25, total: 101.25, arrives: "Nov 3" },
+        { id: "standard", label: "Standard", unit: 106.4, total: 106.4, arrives: "Nov 6" },
+        { id: "fastest", label: "Fastest", unit: 117.1, total: 117.1, arrives: "Oct 30" },
+      ]);
+      // The customer pays the discounted total; the struck-through list totals
+      // ($146.80 / $139.95 / $171.85) are never anchored.
+      expect(result.totalPriceUsd).toBe(101.25);
+      expect(result.unitPriceUsd).toBe(101.25);
+      const now = new Date("2026-10-23T00:00:00Z");
+      expect(result.offers?.map((offer) => resolveXometryCompatibilityLeadTime(offer, now))).toEqual([7, 10, 5]);
+      expect(evaluateProviderAdapterContract({
+        definition: {
+          provider: "xometry",
+          allowedHosts: ["www.xometry.com"],
+          selectors: { cadUpload: "input[type='file']" },
+          requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
+        },
+        adapterInput: input,
+        output: result,
+      })).toMatchObject({ ok: true, terminalState: "offers_extracted", violations: [] });
+      // Quote only: no checkout, purchaser hand-off or configuration save is targeted.
+      expect(requestedSelectors.filter((selector) =>
+        /continue to checkout|forward to purchaser|save configuration/i.test(selector))).toEqual([]);
+    });
+
+    const firstCardLabelSelector = `${XOMETRY_LOCATORS.offerContainers[0]} [data-testid="tierAndLeadTime"]`;
+
+    it("keeps a tier card whose hidden duplicate timing label is not a second tier", async () => {
+      const fixture = await loadCurrentQuotePage((document) => {
+        const labelSlot = document.querySelector(firstCardLabelSelector)?.parentElement;
+        if (!labelSlot) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+        // Hidden duplicate ahead of the visible label, so it is also the
+        // card's first label in document order.
+        const hidden = document.createElement("div");
+        hidden.setAttribute("style", "display: none;");
+        hidden.innerHTML = '<label scale="small" data-testid="tierAndLeadTime"><div>Arrives by Nov 9</div></label>';
+        labelSlot.before(hidden);
+      });
+      expect(fixture.document.querySelector(XOMETRY_LOCATORS.offerContainers[0])
+        ?.querySelectorAll('[data-testid="tierAndLeadTime"]')).toHaveLength(2);
+
+      const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+      // The cheapest option is neither dropped nor named from the hidden label.
+      expect(offers.map((offer) => ({
+        id: offer.providerOptionId,
+        total: offer.totalPriceUsd,
+        arrives: offer.shipReceiveBy,
+      }))).toEqual([
+        { id: "least-expensive", total: 101.25, arrives: "Nov 3" },
+        { id: "standard", total: 106.4, arrives: "Nov 6" },
+        { id: "fastest", total: 117.1, arrives: "Oct 30" },
+      ]);
+    });
+
+    it("fails closed on a card with two visible timing labels instead of dropping it", async () => {
+      const fixture = await loadCurrentQuotePage((document) => {
+        const labelSlot = document.querySelector(firstCardLabelSelector)?.parentElement;
+        if (!labelSlot) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+        labelSlot.after(labelSlot.cloneNode(true));
+      });
+
+      const failure = await collectXometryOffers(fixturePage(fixture), 1).catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          reason: "xometry_offer_container_ambiguous",
+          ambiguity: "multiple_visible_tier_labels",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex: 0,
+          nestedContainers: 0,
+          visibleTierLabels: 2,
+        },
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+        violations: [],
+      });
+    });
+
+    it("fails closed when the page cannot say whether a candidate wraps other options", async () => {
+      const page = {
+        url: () => "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
+        locator: (selector: string) => makeLocator(selector === XOMETRY_LOCATORS.offerContainers[0]
+          ? {
+            items: [{
+              count: 1,
+              text: "Standard\nArrives by Nov 6\n$50.00 ea.\n$50.00",
+              children: () => ({ count: () => { throw new Error("frame was detached"); } }),
+            }],
+          }
+          : { count: 0 }),
+      } as unknown as Parameters<typeof collectXometryOffers>[0];
+
+      const failure = await collectXometryOffers(page, 1).catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        payload: {
+          reason: "xometry_offer_container_ambiguous",
+          terminalState: "selector_drift",
+          ambiguity: "shape_unreadable",
+          nestedContainers: null,
+          visibleTierLabels: null,
+        },
+      });
+    });
+
+    const expectedTierOffers = [
+      { id: "least-expensive", total: 101.25, arrives: "Nov 3" },
+      { id: "standard", total: 106.4, arrives: "Nov 6" },
+      { id: "fastest", total: 117.1, arrives: "Oct 30" },
+    ];
+
+    /** Adds markup inside the first tier card, after its price block. */
+    function addToFirstCard(html: string) {
+      return (document: Document) => {
+        const card = document.querySelector(XOMETRY_LOCATORS.offerContainers[0]);
+        const block = card?.querySelector('[kind="outlineWhite"]');
+        if (!block) throw new Error("fixture tier card lost its outlineWhite block");
+        block.insertAdjacentHTML("beforeend", html);
+      };
+    }
+
+    async function ambiguityOf(fixture: Awaited<ReturnType<typeof loadCurrentQuotePage>>) {
+      const failure = await collectXometryOffers(fixturePage(fixture), 1).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+        ok: true,
+        terminalState: "selector_drift",
+        violations: [],
+      });
+      return (failure as VendorAutomationError).payload;
+    }
+
+    it.each([
+      ["an empty", '<button type="button"><span data-testid="tierAndLeadTime"></span></button>'],
+      [
+        "a hidden",
+        '<button type="button"><span data-testid="tierAndLeadTime" style="display: none;">Arrives by Nov 9</span></button>',
+      ],
+    ])("keeps a tier card whose nested button holds only %s timing label", async (_kind, button) => {
+      const fixture = await loadCurrentQuotePage(addToFirstCard(button));
+      const firstCard = fixture.document.querySelector(XOMETRY_LOCATORS.offerContainers[0]);
+      // The button is an option-container match nested in the real card.
+      expect(firstCard?.querySelectorAll(XOMETRY_LOCATORS.offerContainers[1])).toHaveLength(1);
+      expect(firstCard?.querySelectorAll('[data-testid="tierAndLeadTime"]')).toHaveLength(2);
+
+      const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+      // The cheapest card is neither skipped as a wrapper nor lost with the
+      // empty button, so no partial option set is published.
+      expect(offers.map((offer) => ({
+        id: offer.providerOptionId,
+        total: offer.totalPriceUsd,
+        arrives: offer.shipReceiveBy,
+      }))).toEqual(expectedTierOffers);
+      expect(offers.map((offer) => offer.provenance.containerSelector))
+        .toEqual(Array(3).fill(XOMETRY_LOCATORS.offerContainers[0]));
+    });
+
+    it("never lets a labelled but unpriced nested match make its card a wrapper", async () => {
+      const fixture = await loadCurrentQuotePage(addToFirstCard(
+        '<button type="button"><span data-testid="tierAndLeadTime">Arrives by Nov 9</span></button>',
+      ));
+
+      // The card is judged on its own and fails closed; it is not skipped.
+      expect(await ambiguityOf(fixture)).toMatchObject({
+        reason: "xometry_offer_container_ambiguous",
+        ambiguity: "multiple_visible_tier_labels",
+        containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+        containerIndex: 0,
+        nestedContainers: 1,
+        pricedNestedContainers: 0,
+        visibleTierLabels: 2,
+      });
+    });
+
+    it("fails closed when a tier card holds a nested match with a price of its own", async () => {
+      const fixture = await loadCurrentQuotePage(addToFirstCard(
+        '<button type="button"><span data-testid="tierAndLeadTime" style="display: none;">Arrives by Nov 9</span>'
+          + "<span>$77.00</span></button>",
+      ));
+
+      expect(await ambiguityOf(fixture)).toMatchObject({
+        reason: "xometry_offer_container_ambiguous",
+        ambiguity: "overlapping_priced_candidates",
+        containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+        containerIndex: 0,
+        nestedContainers: 1,
+        pricedNestedContainers: 1,
+        visibleTierLabels: 1,
+      });
+    });
+
+    describe("a drag handle around a single tier card", () => {
+      const keepFirstCardOnly = (document: Document) => {
+        const [, ...others] = document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0]);
+        for (const other of others) other.remove();
+      };
+
+      it("is a frame with no price of its own, so the card is the one option", async () => {
+        const fixture = await loadCurrentQuotePage(keepFirstCardOnly);
+        expect(fixture.document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[3])).toHaveLength(1);
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offers.map((offer) => ({
+          id: offer.providerOptionId,
+          total: offer.totalPriceUsd,
+          container: offer.provenance.containerSelector,
+        }))).toEqual([{ id: "least-expensive", total: 101.25, container: XOMETRY_LOCATORS.offerContainers[0] }]);
+      });
+
+      it.each([
+        ["an amount", (document: Document) => {
+          document.querySelector(".part-card")?.insertAdjacentHTML("afterbegin", "<div>Handling $12.00</div>");
+        }],
+        ["a visible timing label", (document: Document) => {
+          document.querySelector(".part-card")?.insertAdjacentHTML(
+            "afterbegin",
+            '<div><label data-testid="tierAndLeadTime"><div>Arrives by Nov 9</div></label></div>',
+          );
+        }],
+      ])("is an overlapping priced candidate once it shows %s beyond the card", async (_extra, addExtra) => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          keepFirstCardOnly(document);
+          addExtra(document);
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          reason: "xometry_offer_container_ambiguous",
+          ambiguity: "overlapping_priced_candidates",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          pricedNestedContainers: 1,
+        });
+      });
+    });
+
+    const tierCards = (document: Document) => [...document.querySelectorAll(XOMETRY_LOCATORS.offerContainers[0])];
+    const dragHandleSelector = '#draggable-parts > [role="button"]';
+    /** Drops the role that makes the part card's drag handle an option-container match. */
+    const removeDragHandle = (document: Document) => {
+      document.querySelector(dragHandleSelector)?.removeAttribute("role");
+    };
+    const keepFirstCardOnly = (document: Document) => {
+      for (const card of tierCards(document).slice(1)) card.remove();
+    };
+    const addToPartCard = (document: Document, html: string) => {
+      const partCard = document.querySelector(".part-card");
+      if (!partCard) throw new Error("fixture lost its part card");
+      partCard.insertAdjacentHTML("afterbegin", html);
+    };
+
+    describe("a drag handle that wraps tier cards", () => {
+      const renameThirdCard = (document: Document) => {
+        const third = tierCards(document)[2];
+        if (!third) throw new Error("fixture lost its third tier card");
+        third.className = "price-tier-legacy";
+      };
+      const dropThirdCard = (document: Document) => {
+        tierCards(document)[2]?.remove();
+      };
+
+      it.each([
+        ["a third tier card the selectors no longer match", renameThirdCard, 3],
+        ["a third visible tier label", (document: Document) => {
+          dropThirdCard(document);
+          addToPartCard(document, '<div><label data-testid="tierAndLeadTime"><div>Arrives by Nov 9</div></label></div>');
+        }, 3],
+        ["a third amount", (document: Document) => {
+          dropThirdCard(document);
+          addToPartCard(document, "<div>Handling $12.00</div>");
+        }, 2],
+      ])("fails closed instead of skipping it when it shows %s outside its two cards", async (_extra, mutate, labels) => {
+        const fixture = await loadCurrentQuotePage(mutate);
+        // Two priced, labelled cards make the handle a wrapper candidate.
+        expect(fixture.cards).toHaveLength(2);
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          reason: "xometry_offer_container_ambiguous",
+          ambiguity: "wrapper_uncovered_content",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          nestedContainers: 2,
+          pricedNestedContainers: 2,
+          visibleTierLabels: labels,
+        });
+      });
+
+      it("never lets the adapter publish two of three tiers", async () => {
+        const failure = await quoteCurrentPage({ mutate: renameThirdCard }).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(VendorAutomationError);
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({
+            reason: "xometry_offer_container_ambiguous",
+            ambiguity: "wrapper_uncovered_content",
+          }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+      });
+
+      it("fails closed when a card it would collect holds another collected match", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          // The first card's timing label moves into a nested button with no
+          // price of its own, which the collector also collects.
+          const label = document.querySelector(firstCardLabelSelector);
+          if (!label?.parentElement) throw new Error("fixture tier card lost its tierAndLeadTime hook");
+          const button = document.createElement("button");
+          button.type = "button";
+          label.parentElement.append(button);
+          button.append(label);
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "wrapper_overlapping_candidates",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          nestedContainers: 4,
+          pricedNestedContainers: 3,
+          visibleTierLabels: 3,
+        });
+      });
+    });
+
+    describe("availability of a candidate the collector skips", () => {
+      /** Moves each tier card's content into one button, so every card frames a priced, labelled button. */
+      const buttonInEveryCard = (document: Document) => {
+        for (const card of tierCards(document)) {
+          const block = card.querySelector('[kind="outlineWhite"]');
+          if (!block) throw new Error("fixture tier card lost its outlineWhite block");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.append(...block.childNodes);
+          block.append(button);
+        }
+      };
+      const firstCard = (document: Document) => {
+        const [card] = tierCards(document);
+        if (!card) throw new Error("fixture lost its first tier card");
+        return card;
+      };
+      const offerSummary = (offers: Awaited<ReturnType<typeof collectXometryOffers>>) => offers.map((offer) => ({
+        id: offer.providerOptionId,
+        total: offer.totalPriceUsd,
+        arrives: offer.shipReceiveBy,
+      }));
+
+      it("collects each card's button when the card is only a frame around it", async () => {
+        for (const keepHandle of [false, true]) {
+          const fixture = await loadCurrentQuotePage((document) => {
+            buttonInEveryCard(document);
+            if (!keepHandle) removeDragHandle(document);
+          });
+
+          const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+          expect(offerSummary(offers)).toEqual(expectedTierOffers);
+          expect(offers.map((offer) => offer.provenance.containerSelector))
+            .toEqual(Array(3).fill(XOMETRY_LOCATORS.offerContainers[1]));
+        }
+      });
+
+      it.each([
+        ["aria-disabled", (card: Element) => card.setAttribute("aria-disabled", "true")],
+        ["a disabled attribute", (card: Element) => card.setAttribute("disabled", "")],
+        ["unavailable styling", (card: Element) => card.classList.add("price-tier--unavailable")],
+        ["'Not available' beside its button", (card: Element) => {
+          card.querySelector('[kind="outlineWhite"]')?.insertAdjacentHTML("beforeend", "<div>Not available</div>");
+        }],
+      ])("never publishes a framed button as available when its card carries %s", async (_marker, mark) => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          buttonInEveryCard(document);
+          removeDragHandle(document);
+          mark(firstCard(document));
+        });
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offerSummary(offers)).toEqual(expectedTierOffers.slice(1));
+      });
+
+      it("drops the framed button of a card marked unavailable inside the drag handle", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          buttonInEveryCard(document);
+          firstCard(document).setAttribute("aria-disabled", "true");
+        });
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offerSummary(offers)).toEqual(expectedTierOffers.slice(1));
+      });
+
+      it("never publishes a card styled unavailable", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          firstCard(document).classList.add("price-tier--unavailable");
+        });
+
+        const offers = await collectXometryOffers(fixturePage(fixture), 1);
+
+        expect(offerSummary(offers)).toEqual(expectedTierOffers.slice(1));
+      });
+
+      it("never publishes the one card inside a drag handle the page marks unavailable", async () => {
+        // The handle is read after the card it frames, so the card is withdrawn afterwards.
+        for (const mark of [
+          (handle: Element) => handle.setAttribute("aria-disabled", "true"),
+          (handle: Element) => handle.insertAdjacentHTML("afterbegin", "<div>Not available</div>"),
+        ]) {
+          const fixture = await loadCurrentQuotePage((document) => {
+            keepFirstCardOnly(document);
+            const handle = document.querySelector(dragHandleSelector);
+            if (!handle) throw new Error("fixture lost its drag handle");
+            mark(handle);
+          });
+
+          expect(await collectXometryOffers(fixturePage(fixture), 1)).toEqual([]);
+        }
+      });
+
+      it.each([
+        ["aria-disabled", (document: Document) => document.querySelector(dragHandleSelector)?.setAttribute("aria-disabled", "true")],
+        ["unavailability text outside its cards", (document: Document) => {
+          addToPartCard(document, "<div>Expedited shipping not available</div>");
+        }],
+        ["unavailability text beside a framed button", (document: Document) => {
+          buttonInEveryCard(document);
+          firstCard(document).querySelector('[kind="outlineWhite"]')
+            ?.insertAdjacentHTML("beforeend", "<div>Not available</div>");
+        }],
+      ])("fails closed when the drag handle around several cards shows %s", async (_marker, mutate) => {
+        const fixture = await loadCurrentQuotePage(mutate);
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+        });
+      });
+
+      it("fails closed when a card marked unavailable cannot be tied to the button it frames", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          buttonInEveryCard(document);
+          removeDragHandle(document);
+          const card = firstCard(document);
+          card.setAttribute("aria-disabled", "true");
+          const button = card.querySelector("button");
+          if (!button) throw new Error("fixture tier card lost its button");
+          // Read through the card, the button's identity attribute is lost,
+          // so the card's mark cannot be matched to the button collected on its own.
+          button.setAttribute("data-option-id", "synthetic-option");
+          button.setAttribute("data-test-unreadable", "nested-attributes");
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex: 0,
+        });
+      });
+
+      it.each([
+        ["a frame's", (document: Document) => {
+          buttonInEveryCard(document);
+          removeDragHandle(document);
+          firstCard(document).setAttribute("data-test-unreadable", "attributes");
+        }, 0],
+        ["a card's", (document: Document) => {
+          tierCards(document)[1]?.setAttribute("data-test-unreadable", "attributes");
+        }, 1],
+      ])("fails closed when %s own availability cannot be read", async (_candidate, mutate, containerIndex) => {
+        const fixture = await loadCurrentQuotePage(mutate);
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "availability_ambiguous",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex,
+        });
+      });
+    });
+
+    describe("the wrapper rule's label and price clauses", () => {
+      it("never lets priced matches without a visible tier label make the drag handle a wrapper", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          keepFirstCardOnly(document);
+          // A second priced match beside the card, its timing label hidden.
+          // Were it counted, the handle would be skipped and this match
+          // published as an "Expedited" tier.
+          addToPartCard(
+            document,
+            '<button type="button"><span data-testid="tierAndLeadTime" style="display: none;">Arrives by Nov 9</span>'
+              + "<span>Expedited, arrives by Nov 9: $12.00</span></button>",
+          );
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "overlapping_priced_candidates",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          nestedContainers: 2,
+          pricedNestedContainers: 2,
+          visibleTierLabels: 1,
+        });
+      });
+
+      it("never lets two priced matches without a visible tier label make a card a wrapper", async () => {
+        const hiddenLabelButton = '<button type="button"><span data-testid="tierAndLeadTime" style="display: none;">'
+          + "Arrives by Nov 9</span><span>$77.00</span></button>";
+        const fixture = await loadCurrentQuotePage(addToFirstCard(hiddenLabelButton + hiddenLabelButton));
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "overlapping_priced_candidates",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex: 0,
+          nestedContainers: 2,
+          pricedNestedContainers: 2,
+          visibleTierLabels: 1,
+        });
+      });
+
+      it("never lets a labelled match without a price make the drag handle a wrapper", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          keepFirstCardOnly(document);
+          // A second visible tier beside the card, with no price. Were it
+          // counted, the handle would be skipped, this tier dropped as
+          // unavailable, and one card published as the whole option set.
+          addToPartCard(
+            document,
+            '<button type="button"><span data-testid="tierAndLeadTime">Arrives by Nov 9</span>'
+              + "<span> Expedited not available</span></button>",
+          );
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "overlapping_priced_candidates",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          nestedContainers: 2,
+          pricedNestedContainers: 1,
+          visibleTierLabels: 2,
+        });
+      });
+
+      it("never lets two labelled matches without a price make a card a wrapper", async () => {
+        const labelButton = '<button type="button"><span data-testid="tierAndLeadTime">Arrives by Nov 9</span></button>';
+        const fixture = await loadCurrentQuotePage(addToFirstCard(labelButton + labelButton));
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "multiple_visible_tier_labels",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex: 0,
+          nestedContainers: 2,
+          pricedNestedContainers: 0,
+          visibleTierLabels: 3,
+        });
+      });
+
+      it("fails closed on a card whose text cannot be read instead of publishing the others", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          removeDragHandle(document);
+          tierCards(document)[1]?.setAttribute("data-test-unreadable", "text");
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "shape_unreadable",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[0],
+          containerIndex: 1,
+          nestedContainers: null,
+          pricedNestedContainers: null,
+          visibleTierLabels: null,
+        });
+      });
+
+      it("fails closed when a wrapper's nested card cannot be read", async () => {
+        const fixture = await loadCurrentQuotePage((document) => {
+          tierCards(document)[1]?.setAttribute("data-test-unreadable", "nested-text");
+        });
+
+        expect(await ambiguityOf(fixture)).toMatchObject({
+          ambiguity: "shape_unreadable",
+          containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+          nestedContainers: 3,
+          pricedNestedContainers: null,
+        });
+      });
+    });
+
+    it("never anchors a fallback price on the struck-through list total", async () => {
+      const fixture = await loadCurrentQuotePage();
+      const listTotals = [...fixture.document.querySelectorAll('[data-testid="part-discount"] > span')]
+        .map((span) => parseFirstCurrency(span.textContent ?? ""));
+      expect(listTotals).toEqual([146.8, 139.95, 171.85]);
+
+      let resolvedSelectors = 0;
+      for (const selector of XOMETRY_LOCATORS.priceText) {
+        let first: Element | null;
+        try {
+          first = fixture.document.querySelector(selector);
+        } catch {
+          continue; // Playwright-only syntax such as :has-text.
+        }
+        resolvedSelectors += 1;
+        if (!first) continue;
+        // Booleans only: a failing expect on a jsdom Element makes the
+        // reporter walk the jsdom window and throw a SecurityError instead.
+        expect(first.closest('[data-testid="part-discount"]') !== null, `${selector} anchors inside part-discount`)
+          .toBe(false);
+        expect(listTotals.includes(parseFirstCurrency(renderedText(first))), `${selector} reads a list total`)
+          .toBe(false);
+      }
+      expect(resolvedSelectors).toBeGreaterThan(0);
+    });
+
+    it("publishes no price, and never the list total, when the quote page asks for review", async () => {
+      const { input, result } = await quoteCurrentPage({
+        resolveFallbackSelectors: true,
+        mutate: (document) => {
+          const notice = document.createElement("div");
+          notice.textContent = "This part requires review before ordering.";
+          document.querySelector(".part-card")?.prepend(notice);
+        },
+      });
+
+      expect(result.status).toBe("manual_review_pending");
+      expect(result.offers).toEqual([]);
+      expect(result.totalPriceUsd).toBeNull();
+      expect(result.unitPriceUsd).toBeNull();
+      // The fallback did anchor an amount on the review page; it is withheld.
+      expect(result.rawPayload).toMatchObject({ detectedFlow: "manual_review", priceSource: "selector" });
+      expect(evaluateProviderAdapterContract({
+        definition: {
+          provider: "xometry",
+          allowedHosts: ["www.xometry.com"],
+          selectors: { cadUpload: "input[type='file']" },
+          requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
+        },
+        adapterInput: input,
+        output: result,
+      })).toMatchObject({ ok: true, terminalState: "manual_review", violations: [] });
+    });
+
+    it("withholds the fallback lead time with the price when the quote page asks for review", async () => {
+      const { result } = await quoteCurrentPage({
+        resolveFallbackSelectors: true,
+        mutate: (document) => {
+          const notice = document.createElement("div");
+          notice.textContent = "This part requires review before ordering.";
+          document.querySelector(".part-card")?.prepend(notice);
+          const label = document.querySelector('[data-testid="tierAndLeadTime"]');
+          if (!label) throw new Error("fixture lost its tierAndLeadTime hook");
+          label.textContent = "Lead time: 9 business days";
+        },
+      });
+
+      expect(result.status).toBe("manual_review_pending");
+      expect(result.totalPriceUsd).toBeNull();
+      // The fallback anchored a lead time on the review page; it is withheld
+      // with the price rather than published on its own.
+      expect(result.rawPayload).toMatchObject({ detectedFlow: "manual_review", leadTimeSource: "selector" });
+      expect(result.leadTimeBusinessDays).toBeNull();
+    });
+
+    describe("a configured quote page without a recognizable price", () => {
+      const removeTierCards = (document: Document) => {
+        for (const card of document.querySelectorAll(".price-tier")) card.remove();
+      };
+
+      it("stops as selector_drift when the page shows no price and no loading signal", async () => {
+        const failure = await quoteCurrentPage({ resolveFallbackSelectors: true, mutate: removeTierCards })
+          .catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ reason: "xometry_price_missing", terminalState: "selector_drift" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+      });
+
+      it("stays selector_drift when the page shows only the uploader's loading text", async () => {
+        const uploaderText = "Analyzing geometry\nLoading supported file extensions";
+        // Still the uploader's reviewed loading signals, but not pricing text.
+        expect(XOMETRY_LOCATORS.quoteLoadingSignals.filter((pattern) => pattern.test(uploaderText))).toHaveLength(2);
+        const failure = await quoteCurrentPage({
+          resolveFallbackSelectors: true,
+          mutate: removeTierCards,
+          pricingBodyText: (bodyText) => `${bodyText}\n${uploaderText}`,
+        }).catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ reason: "xometry_price_missing", terminalState: "selector_drift" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+      });
+
+      it("stops as unavailable while the quote page shows in-progress pricing text", async () => {
+        const failure = await quoteCurrentPage({
+          resolveFallbackSelectors: true,
+          mutate: removeTierCards,
+          pricingBodyText: (bodyText) => `${bodyText}\nCalculating your price`,
+        }).catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ reason: "xometry_price_pending", terminalState: "unavailable" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "unavailable",
+          violations: [],
+        });
+      });
+
+      it("counts only in-progress pricing text on the quote page as pricing in progress", () => {
+        const quotePage = "https://www.xometry.com/quoting/quote/Q00-TEST-1052";
+        expect(isXometryPricingInProgress({ url: quotePage, bodyText: "Calculating your price" })).toBe(true);
+        expect(isXometryPricingInProgress({ url: quotePage, bodyText: "Updating prices" })).toBe(true);
+        // Uploader and geometry-analysis text says nothing about pricing.
+        expect(isXometryPricingInProgress({ url: quotePage, bodyText: "Analyzing geometry" })).toBe(false);
+        expect(isXometryPricingInProgress({
+          url: quotePage,
+          bodyText: "Loading supported file extensions",
+        })).toBe(false);
+        // Pricing text off the quote page (the uploader's home, say) does not count.
+        expect(isXometryPricingInProgress({ url: XOMETRY_URLS.quoteHome, bodyText: "Calculating your price" })).toBe(false);
+      });
+    });
+
+    describe("a renamed .price-tier card", () => {
+      const renameTierCards = (document: Document) => {
+        for (const card of document.querySelectorAll(".price-tier")) card.className = "price-tier-card";
+      };
+
+      it("fails closed at the drag handle that now wraps three timing labels and no option container", async () => {
+        const failure = await quoteCurrentPage({ resolveFallbackSelectors: true, mutate: renameTierCards })
+          .catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          payload: expect.objectContaining({
+            reason: "xometry_offer_container_ambiguous",
+            ambiguity: "multiple_visible_tier_labels",
+            containerSelector: XOMETRY_LOCATORS.offerContainers[3],
+            nestedContainers: 0,
+            visibleTierLabels: 3,
+          }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+        });
+      });
+
+      it("ends in selector_drift when no option container matches at all", async () => {
+        const failure = await quoteCurrentPage({
+          resolveFallbackSelectors: true,
+          mutate: (document) => {
+            renameTierCards(document);
+            document.querySelector('#draggable-parts > [role="button"]')?.removeAttribute("role");
+          },
+        }).catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          code: "unexpected_ui_state",
+          payload: expect.objectContaining({ reason: "xometry_offer_containers_missing" }),
+        });
+        expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+          ok: true,
+          terminalState: "selector_drift",
+          violations: [],
+        });
+      });
+    });
+
+    describe("price-tier readiness predicate", () => {
+      /** Runs the page-side predicate against a fixture document. */
+      function settledOn(html: string) {
+        const { document } = new JSDOM(html).window;
+        const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+        Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+        try {
+          return xometryPriceTiersSettled();
+        } finally {
+          if (previous) {
+            Object.defineProperty(globalThis, "document", previous);
+          } else {
+            Reflect.deleteProperty(globalThis, "document");
+          }
+        }
+      }
+
+      const stripWhitespace = (html: string) => html.replaceAll(/>\s+</g, "><");
+
+      it("settles on tier cards whose markup has no whitespace between elements", async () => {
+        const html = await fs.readFile(fixturePath, "utf8");
+        const stripped = stripWhitespace(html);
+        // The drift: textContent runs the tier header into the timing label.
+        const strippedCard = new JSDOM(stripped).window.document.querySelector(".price-tier");
+        expect(strippedCard?.textContent?.replaceAll(/\s+/g, " ").toLowerCase())
+          .toContain("least expensivearrives by nov 3");
+
+        expect(settledOn(html)).toBe(true);
+        expect(settledOn(stripped)).toBe(true);
+      });
+
+      it("keeps waiting while a whitespace-free card lacks its timing or its price", async () => {
+        const stripped = stripWhitespace(await fs.readFile(fixturePath, "utf8"));
+        const dom = new JSDOM(stripped);
+        dom.window.document.querySelectorAll('[kind="discount"]')[1]?.replaceChildren();
+
+        expect(settledOn(stripped.replace("Arrives by Nov 6", ""))).toBe(false);
+        expect(settledOn(dom.serialize())).toBe(false);
       });
     });
   });
@@ -4306,7 +5588,7 @@ describe("XometryAdapter", () => {
               "View My Quote",
               "OVD-VALIDATION-002.STEP",
             ].join(" ")
-          : "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+          : `Welcome back. ${anonymousQuoteHome.uploadPrompt}`,
       quoteNavigationFails: true,
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
@@ -4343,6 +5625,9 @@ describe("XometryAdapter", () => {
       await adapter.quote(makeInput());
       throw new Error("expected the anonymous email gate to require login");
     } catch (error) {
+      expect(evaluateProviderAdapterFailureContract(error)).toEqual({
+        ok: true, terminalState: "login_required", violations: [],
+      });
       expect(error).toMatchObject({
         code: "login_required",
         payload: {
@@ -4391,7 +5676,7 @@ describe("XometryAdapter", () => {
   it("quarantines snapshot ownership when the browser cannot close", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+      bodyText: "Instant quoting",
     });
     const context = createFakeContext(page);
     context.close = vi.fn().mockRejectedValue(new Error("close failed"));
@@ -5853,16 +7138,17 @@ describe("XometryAdapter", () => {
     });
   });
 
-  it("fails closed on login and captcha barriers", async () => {
+  it("returns contract-valid failures on login, captcha and generic-error barriers", async () => {
     const workerTempDir = await makeTempDir();
 
-    for (const [bodyText, redirectUrl, expectedCode] of [
-      ["Sign in to continue", XOMETRY_URLS.login, "login_required"],
-      ["Verify you are human", XOMETRY_URLS.quoteHome, "captcha"],
+    for (const [bodyText, gotoRedirectUrl, expectedCode, terminalState] of [
+      ["Sign in to continue", XOMETRY_URLS.login, "login_required", "login_required"],
+      ["Verify you are human", XOMETRY_URLS.quoteHome, "captcha", "captcha"],
+      [anonymousQuoteHome.errorBanner, XOMETRY_URLS.quoteHome, "anti_detection_block", "unavailable"],
     ] as const) {
       const page = createFakePage({
         bodyText,
-        redirectUrl,
+        gotoRedirectUrl,
       });
       launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -5871,9 +7157,13 @@ describe("XometryAdapter", () => {
         makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
 
-      await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+      expect(failure).toMatchObject({
         name: "VendorAutomationError",
         code: expectedCode,
+      });
+      expect(evaluateProviderAdapterFailureContract(failure)).toEqual({
+        ok: true, terminalState, violations: [],
       });
     }
   });

@@ -92,7 +92,7 @@ Single accent. No multi-color systems. Colors are tokens, not values.
   --surface:     #FBF9F4;  /* half-shade lighter, primary card / inset surface */
   --surface-2:   #E7E0D4;  /* deeper inset, selected row, secondary fill */
   --text:        #1C1B19;  /* warm black, NOT pure black */
-  --muted:       #6B665C;  /* graphite pencil — secondary text, labels, micro nav */
+  --muted:       #686359;  /* graphite pencil — secondary text, labels, micro nav */
   --hairline:    #D8D2C4;  /* 1px borders, dividers, used liberally */
   --accent-red:  #C2410C;  /* oxidized red — engineer's pencil mark */
   --ink-data:    #1F2E3A;  /* dark teal-black for the densest data tables (use sparingly) */
@@ -335,6 +335,7 @@ Reject any UI work that includes:
 | 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
 | 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |
 | 2026-10-16 | Jarvis phone app (`OVD-799`) uses a dark theme with `#FF7A1A` as its single accent, allows a chat thread as its primary surface, and shows inches by default (mm secondary) | Approved by Blaine. Chat as the primary surface is allowed only in the Jarvis phone app; the ban on AI assistant chat widgets as the primary information surface in the customer quote workspace still stands. Rest of the design system unchanged. Spec: `docs/design/jarvis-pwa/SPEC.md`. |
+| 2026-10-21 | Graphite muted ink darkened from `#6B665C` to `#686359` (OVD-1040) | Secondary text measured 4.35:1 on the `--surface-2` inset. The smallest equal step down on every RGB channel keeps the hue and clears WCAG AA: 5.20:1 on `--bg`, 5.67:1 on `--surface`, 4.55:1 on `--surface-2`. The dark toggle is unchanged. |
 
 ---
 

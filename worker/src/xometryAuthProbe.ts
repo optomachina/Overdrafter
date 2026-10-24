@@ -9,6 +9,18 @@ import {
   type FailClosedBrowserCleanupOptions,
 } from "./browserCleanup.js";
 import type { WorkerConfig } from "./types.js";
+import {
+  coerceDomStructure,
+  defineFingerprintVocabulary,
+  fingerprint,
+  normalizeLabel,
+  UI_LABEL_PHRASES,
+  type FingerprintRouteClass,
+  type FingerprintVocabulary,
+  type PageFingerprint,
+  type SelectorMeasure,
+} from "./fixtureHeal/fingerprint.js";
+import type { DriftReference } from "./fixtureHeal/driftResult.js";
 import type { BrowserContext, Page } from "playwright";
 
 export const XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS = {
@@ -62,6 +74,11 @@ export type XometryAuthProbeEvidence = XometryAuthProbeBaseEvidence & {
   browserEngine: "playwright" | "camoufox";
   snapshotPersisted: false;
   screenshotCaptured: false;
+  /**
+   * No raw DOM, HTML or page text is captured or emitted. The not-confirmed
+   * drift fingerprint (reviewed labels, test IDs and counts only) is written
+   * separately to stderr and is not part of this evidence.
+   */
   domCaptured: false;
   traceCaptured: false;
   providerMutationObserved: false;
@@ -286,10 +303,6 @@ export function classifyXometryAuthProbe(input: {
     return { authenticated: false, reason: "anonymous_quote_home" };
   }
 
-  if (signalPresent(input.bodyText, XOMETRY_LOCATORS.genericErrorSignals)) {
-    return { authenticated: false, reason: "provider_error" };
-  }
-
   const dashboardTextVisible = signalPresent(
     input.bodyText,
     XOMETRY_LOCATORS.dashboardSignals,
@@ -298,7 +311,21 @@ export function classifyXometryAuthProbe(input: {
     XOMETRY_LOCATORS.accountQuoteListSignals.every((pattern) =>
       pattern.test(input.bodyText),
     );
-  if (quoteHome && (dashboardTextVisible || accountQuoteListVisible)) {
+  const dashboardConfirmed = quoteHome && (dashboardTextVisible || accountQuoteListVisible);
+  // The anonymous prompt can coexist with an error banner or a real dashboard.
+  // Only absent dashboard evidence makes session recovery the actionable cause.
+  if (
+    quoteHome && !dashboardConfirmed &&
+    signalPresent(input.bodyText, XOMETRY_LOCATORS.anonymousUploadPromptSignals)
+  ) {
+    return { authenticated: false, reason: "anonymous_quote_home" };
+  }
+
+  if (signalPresent(input.bodyText, XOMETRY_LOCATORS.genericErrorSignals)) {
+    return { authenticated: false, reason: "provider_error" };
+  }
+
+  if (dashboardConfirmed) {
     return { authenticated: true, reason: "authenticated_dashboard" };
   }
 
@@ -306,6 +333,171 @@ export function classifyXometryAuthProbe(input: {
     authenticated: false,
     reason: "authenticated_dashboard_not_confirmed",
   };
+}
+
+/** The final URL as a path class for the drift fingerprint; mirrors the classifier's URL checks. */
+export function xometryRouteClass(value: string): FingerprintRouteClass {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return "invalid";
+  }
+  const xometryOwnedOrigin =
+    parsed.protocol === "https:" &&
+    (parsed.hostname === "xometry.com" || parsed.hostname.endsWith(".xometry.com"));
+  if (!xometryOwnedOrigin) return "external";
+  if (parsed.pathname.includes("/login")) return "login";
+  if (value.startsWith(XOMETRY_URLS.quoteHome)) return "quote_home";
+  if (XOMETRY_URLS.quotePathPattern.test(parsed.pathname)) return "quote_page";
+  if (parsed.pathname.startsWith(new URL(XOMETRY_URLS.quoteCreation).pathname)) return "quote_new";
+  return "provider_other";
+}
+
+const DRIFT_SIGNAL_GROUPS = [
+  "dashboardSignals",
+  "accountQuoteListSignals",
+  "loginSignals",
+  "anonymousQuoteHomeSignals",
+  "anonymousEmailGateSignals",
+  "captchaSignals",
+  "genericErrorSignals",
+  "itarPopupSignals",
+  "renamePartsPopupSignals",
+] as const satisfies ReadonlyArray<keyof typeof XOMETRY_LOCATORS>;
+
+const DRIFT_ENTRY_SELECTOR_GROUPS = [
+  "dashboardUploadButtons",
+  "dashboardUploadPanels",
+  "accountQuoteListStartButtons",
+  "startNewQuoteButtons",
+] as const satisfies ReadonlyArray<keyof typeof XOMETRY_LOCATORS>;
+
+const DRIFT_SELECTOR_GROUPS = [
+  ...DRIFT_ENTRY_SELECTOR_GROUPS,
+  "uploadInputs",
+  "standaloneUploadInputs",
+  "uploadTriggers",
+] as const satisfies ReadonlyArray<keyof typeof XOMETRY_LOCATORS>;
+
+const pickLocatorGroups = <K extends keyof typeof XOMETRY_LOCATORS>(groups: readonly K[]) =>
+  Object.fromEntries(groups.map((group) => [group, XOMETRY_LOCATORS[group]])) as Record<K, (typeof XOMETRY_LOCATORS)[K]>;
+
+const locatorEntries = () =>
+  Object.values(XOMETRY_LOCATORS).flatMap((value): ReadonlyArray<unknown> => (Array.isArray(value) ? value : [value]));
+
+/** Literal text in the adapter's own selectors and plain signal phrases: Xometry labels a fingerprint may name. */
+function xometryLocatorLabels() {
+  const labels: string[] = [XOMETRY_LOCATORS.accountQuoteListStartButtonText];
+  for (const entry of locatorEntries()) {
+    if (typeof entry === "string") {
+      for (const match of entry.matchAll(/(?:has-text|text-is)\("([^"]+)"\)|^text=\/\^(.+)\$\/i$/g)) {
+        labels.push(match[1] ?? match[2]);
+      }
+    } else if (entry instanceof RegExp) {
+      const phrase = entry.source.replace(/\\b/g, "");
+      if (/^[a-z0-9 ]+$/i.test(phrase)) labels.push(phrase);
+    }
+  }
+  return labels.map(normalizeLabel).filter(Boolean);
+}
+
+/** Exact `[data-testid="..."]` values the adapter's selectors rely on. */
+function xometryLocatorTestIds() {
+  return locatorEntries().flatMap((entry) =>
+    typeof entry === "string" ? [...entry.matchAll(/\[data-testid="([^"]+)"\]/g)].map((match) => match[1]) : []);
+}
+
+/** Every string the drift fingerprint may carry, all taken from reviewed code constants. */
+export const XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY: FingerprintVocabulary = defineFingerprintVocabulary({
+  signalGroups: pickLocatorGroups(DRIFT_SIGNAL_GROUPS),
+  selectorGroups: pickLocatorGroups(DRIFT_SELECTOR_GROUPS),
+  labels: new Set([...UI_LABEL_PHRASES, ...xometryLocatorLabels()]),
+  testIds: new Set(xometryLocatorTestIds()),
+});
+
+/** What `classifyXometryAuthProbe` needs to see on the quote home page. Keep in step with it. */
+export const XOMETRY_AUTH_PROBE_DRIFT_REFERENCE: DriftReference = {
+  provider: "xometry",
+  page: "upload",
+  routeClass: "quote_home",
+  confirming: [
+    { group: "dashboardSignals", need: "any" },
+    { group: "accountQuoteListSignals", need: "all" },
+  ],
+  terminal: [
+    { group: "captchaSignals", need: "any" },
+    { group: "loginSignals", need: "any" },
+    { group: "anonymousQuoteHomeSignals", need: "all" },
+    { group: "anonymousEmailGateSignals", need: "all" },
+    { group: "genericErrorSignals", need: "any" },
+  ],
+  entrySelectors: DRIFT_ENTRY_SELECTOR_GROUPS,
+  locatorSource: "worker/src/adapters/xometryConstraints.ts XOMETRY_LOCATORS",
+  vocabulary: XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY,
+};
+
+const DRIFT_FINGERPRINT_TIMEOUT_MS = 3_000;
+
+// Read-only structure walk. Runs in the page as a string so the worker build
+// needs no DOM types. Input values and attributes other than aria-label and
+// data-testid are never read. Labels stay in this process: the Node side keeps
+// only reviewed phrases and counts the rest.
+const COLLECT_PAGE_STRUCTURE = `(() => {
+  const label = (el) => (el.getAttribute("aria-label") || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 400);
+  const all = (selector) => Array.from(document.querySelectorAll(selector)).slice(0, 300);
+  const roles = {
+    banner: 'header,[role="banner"]', navigation: 'nav,[role="navigation"]', main: 'main,[role="main"]',
+    contentinfo: 'footer,[role="contentinfo"]', complementary: 'aside,[role="complementary"]',
+    search: 'search,[role="search"]', form: 'form,[role="form"]', region: '[role="region"]',
+    dialog: 'dialog[open],[role="dialog"],[role="alertdialog"]', alert: '[role="alert"]',
+  };
+  return {
+    landmarks: Object.fromEntries(Object.entries(roles).map(([role, selector]) => [role, document.querySelectorAll(selector).length])),
+    headings: all('h1,h2,h3,h4,h5,h6,[role="heading"]').map(label),
+    buttons: all('button,[role="button"]').map(label),
+    links: all('a[href],[role="link"]').map(label),
+    testIds: all("[data-testid]").map((el) => (el.getAttribute("data-testid") || "").slice(0, 400)),
+  };
+})()`;
+
+/** The route class and body text come from the classified read, so a late redirect cannot skew them. */
+async function collectDriftFingerprint(
+  page: Page,
+  classified: { bodyText: string; routeClass: FingerprintRouteClass },
+): Promise<PageFingerprint | null> {
+  const structure = coerceDomStructure(await page.evaluate(COLLECT_PAGE_STRUCTURE));
+  if (!structure) return null;
+  const selectorGroups: Record<string, SelectorMeasure[]> = {};
+  for (const group of DRIFT_SELECTOR_GROUPS) {
+    const measures: SelectorMeasure[] = [];
+    for (const selector of XOMETRY_LOCATORS[group] as readonly string[]) {
+      const locator = page.locator(selector);
+      const count = await locator.count();
+      measures.push({ count, visible: count > 0 && (await locator.first().isVisible()) });
+    }
+    selectorGroups[group] = measures;
+  }
+  return fingerprint(
+    { provider: "xometry", page: "upload", source: "session_probe", ...classified, ...structure, selectorGroups },
+    XOMETRY_AUTH_PROBE_FINGERPRINT_VOCABULARY,
+  );
+}
+
+/** Bounded and fail-soft: a capture failure or timeout yields null and never changes the probe result. */
+async function captureDriftFingerprint(
+  page: Page,
+  classified: { bodyText: string; routeClass: FingerprintRouteClass },
+): Promise<PageFingerprint | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), DRIFT_FINGERPRINT_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([collectDriftFingerprint(page, classified).catch(() => null), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Refuse profile bootstrap unless the same read-only probe signals prove authentication. */
@@ -364,6 +556,11 @@ export function buildXometryAuthProbeEvidence(input: {
  * restored pages close only after that replacement exists; network access is
  * enabled last.
  *
+ * When the result is `authenticated_dashboard_not_confirmed` and
+ * `onDashboardNotConfirmed` is set, the probe also takes a scrubbed structural
+ * fingerprint of the same page (OVD-796 slice 5) and hands it, or null when
+ * capture failed, to the callback. The returned evidence never includes it.
+ *
  * @param context - Newly launched persistent browser context to probe.
  * @returns Sanitized authentication evidence from the bounded read-only probe.
  * @throws An error with a fixed stage message when setup, activation, navigation,
@@ -371,7 +568,10 @@ export function buildXometryAuthProbeEvidence(input: {
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
-  options: { beforeNetworkActivation?: () => Promise<void> } = {},
+  options: {
+    beforeNetworkActivation?: () => Promise<void>;
+    onDashboardNotConfirmed?: (fingerprint: PageFingerprint | null) => void;
+  } = {},
 ): Promise<XometryAuthProbeBaseEvidence> {
   const blockedMethods = new Set<string>();
   let restoredPages: Page[] = [];
@@ -482,16 +682,19 @@ export async function runBoundedXometryAuthProbe(
       reason: "authenticated_dashboard_not_confirmed",
     };
     let dashboardUploadButtonVisible = false;
+    let bodyText = "";
+    let classifiedUrl = "";
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const bodyText = await page.locator("body").innerText();
+      bodyText = await page.locator("body").innerText();
       dashboardUploadButtonVisible = await Promise.any(
         XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
           if (await page.locator(selector).first().isVisible()) return true;
           throw new Error("not visible");
         }),
       ).catch(() => false);
+      classifiedUrl = page.url();
       lastResult = classifyXometryAuthProbe({
-        url: page.url(),
+        url: classifiedUrl,
         bodyText,
         dashboardUploadButtonVisible,
       });
@@ -499,7 +702,7 @@ export async function runBoundedXometryAuthProbe(
         lastResult.authenticated ||
         lastResult.reason === "captcha" ||
         lastResult.reason === "provider_error" ||
-        page.url().includes("/login")
+        classifiedUrl.includes("/login")
       ) {
         break;
       }
@@ -508,9 +711,26 @@ export async function runBoundedXometryAuthProbe(
       }
     }
 
+    if (
+      !lastResult.authenticated &&
+      lastResult.reason === "authenticated_dashboard_not_confirmed" &&
+      options.onDashboardNotConfirmed
+    ) {
+      const driftFingerprint = await captureDriftFingerprint(page, {
+        bodyText,
+        routeClass: xometryRouteClass(classifiedUrl),
+      });
+      try {
+        options.onDashboardNotConfirmed(driftFingerprint);
+      } catch {
+        // Drift reporting must never change the probe's classification.
+      }
+    }
+
+    // The URL that was classified, never one read after the capture's awaits.
     return {
       ...lastResult,
-      url: sanitizedUrl(page.url()),
+      url: sanitizedUrl(classifiedUrl),
       blockedNonReadMethods: [...blockedMethods].sort((left, right) =>
         left.localeCompare(right),
       ),
