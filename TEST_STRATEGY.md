@@ -96,6 +96,13 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   absent/literal-true conditions count. The Windows form is one Node command
   followed by `exit $LASTEXITCODE`. Preflight's dynamic shell dispatch is not
   inferred; its current stages are independently reached from root `verify`.
+  Suite arguments, workflow working directories and npm prefixes must be literal
+  repository-relative paths. Absolute/drive/UNC paths, parent traversal, platform
+  aliases and ambiguous options fail closed; quoted spaces and `+` are supported.
+  Conditional and dispatch-only workflows are not categorically excluded: a
+  dispatch workflow with no step/job condition counts. Unknown expressions need
+  an explicit proven lane or a narrowly tested grammar extension; the guard does
+  not claim to evaluate GitHub expressions or arbitrary shell programs.
   Text mentions, unreachable npm scripts and failure-swallowing commands do not
   establish ownership. New suites must join an owning lane or document why they
   cannot run automatically, with operator instructions in the exception map.

@@ -89,6 +89,15 @@ function countedWorkflowCommands(source) {
       }));
 }
 
+// Only portable, repository-relative literal paths establish ownership. Reject
+// traversal even if normalization would stay inside: symlink/.. can resolve to
+// a different file. Colons/backslashes exclude drive, UNC and platform aliases.
+function repositoryPath(cwd, path) {
+  if (typeof path !== "string" || !/^[\w ./+-]+$/.test(path)
+    || /^[/-]/.test(path) || path.split("/").some((part) => part !== "." && /[. ]$/.test(part))) return null;
+  return posix.join(cwd, path);
+}
+
 function runnerReferences(manifests, workflows) {
   const references = new Set();
   const visited = new Set();
@@ -100,27 +109,36 @@ function runnerReferences(manifests, workflows) {
     if (typeof source === "string") visitCommands(source, cwd, true);
   }
   function visitCommands(source, cwd, npmScript = false) {
-    if (typeof cwd !== "string" || !/^[\w ./+-]+$/.test(cwd)) return;
+    cwd = repositoryPath(".", cwd);
+    if (cwd === null) return;
     for (const raw of requiredCommands(source, npmScript)) {
       const tokens = [...raw];
       const executable = tokens.shift();
       if (executable === "node") {
-        const testRunner = tokens.includes("--test");
-        while (["--test", "--experimental-strip-types"].includes(tokens[0])) tokens.shift();
+        let testRunner = false;
+        while (["--test", "--experimental-strip-types"].includes(tokens[0])) {
+          if (tokens.shift() === "--test") testRunner = true;
+        }
+        if (tokens[0] === "--") tokens.shift();
         // With plain node only the entrypoint runs; later arguments are data.
         const suites = testRunner ? tokens : tokens.slice(0, 1);
-        if (suites.length && suites.every((token) => nodeSuite.test(token))) {
-          for (const suite of suites) references.add(posix.normalize(posix.join(cwd, suite)));
-        }
+        const paths = suites.map((suite) => nodeSuite.test(suite) ? repositoryPath(cwd, suite) : null);
+        if (paths.length && paths.every((path) => path !== null)) paths.forEach((path) => references.add(path));
       } else if (executable === "npm") {
         let directory = cwd;
+        let prefixed = false;
         const args = [];
         for (let index = 0; index < tokens.length; index += 1) {
-          if (tokens[index] === "--prefix") directory = posix.join(cwd, tokens[++index] ?? "");
+          if (tokens[index] === "--prefix") {
+            if (prefixed) { directory = null; break; }
+            prefixed = true;
+            directory = repositoryPath(cwd, tokens[++index]);
+          }
           else if (tokens[index] !== "--silent") args.push(tokens[index]);
         }
+        if (directory === null) continue;
         if (args.length === 1 && args[0] === "test") visitScript(directory, "test");
-        else if (args.length === 2 && args[0] === "run") visitScript(directory, args[1]);
+        else if (args.length === 2 && args[0] === "run" && !args[1].startsWith("-")) visitScript(directory, args[1]);
       }
     }
   }
@@ -218,11 +236,100 @@ describe("explicit test execution lanes", () => {
       .toEqual([dummySuite]);
   });
 
+  it("admits dispatch-only workflows but does not infer event expressions", () => {
+    const workflow = JSON.parse(workflowWith({ run: invocation }));
+    workflow.on = { workflow_dispatch: {} };
+    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
+    workflow.on = { pull_request: {} };
+    workflow.jobs.test.if = "github.event_name == 'workflow_dispatch'";
+    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
+  });
+
   it("owns quoted paths with spaces or plus signs without narrowing discovery", () => {
     const suites = ["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs"];
     expect([...runnerReferences({}, [workflowWith({ run: `node --test '${suites[0]}' "${suites[1]}"` })])])
       .toEqual(suites);
   });
+
+  it.each(["/outside", "//server/share", "C:/outside", "C:outside", "\\\\server\\share",
+    "../outside", "worker/../../outside", "worker/../scripts", "worker.", "worker ", "-outside", ""])(
+    "rejects non-portable or ambiguous paths %j at every ownership boundary", (directory) => {
+      const manifests = { [posix.join(directory || ".", "package.json")]: { scripts: { check: invocation } } };
+      for (const step of [
+        { run: `node --test '${directory}/${dummySuite}'` },
+        { run: invocation, "working-directory": directory },
+        { run: `npm --prefix '${directory}' run check` },
+      ]) expect([...runnerReferences(manifests, [workflowWith(step)])]).toEqual([]);
+    },
+  );
+
+  it.each([`node --test --require.node-test.cjs`, `node --test --test-name-pattern=${dummySuite}`,
+    "npm --prefix run check", "npm --prefix --silent run check", "npm --prefix . --prefix . run check", "npm run --help"])(
+    "does not interpret an ambiguous option as a path: %s", (run) => {
+      expect([...runnerReferences({ "package.json": { scripts: { check: invocation, "--help": invocation } } }, [workflowWith({ run })])])
+        .toEqual([]);
+    },
+  );
+
+  it.each(["suite", "cwd", "prefix"])("does not own a tracked failing test through an external %s", (boundary) => {
+    const fixture = mkdtempSync(join(tmpdir(), "lane-external-"));
+    try {
+      const repo = join(fixture, "repo");
+      mkdirSync(repo);
+      const absolute = execFileSync("bash", ["-c", "pwd -P"], { cwd: fixture, encoding: "utf8" }).trim();
+      const suite = "outside.node-test.cjs";
+      const tracked = posix.join(".", absolute, suite);
+      const scripts = { check: `node --test ${suite}` };
+      writeFileSync(join(fixture, suite), "require('node:test')('external passes', () => {});\n");
+      writeFileSync(join(fixture, "package.json"), JSON.stringify({ private: true, scripts }));
+      mkdirSync(dirname(join(repo, tracked)), { recursive: true });
+      writeFileSync(join(repo, tracked), "throw new Error('tracked failure sentinel');\n");
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      execFileSync("git", ["add", "--", tracked], { cwd: repo });
+      expect(execFileSync("git", ["ls-files", "-z"], { cwd: repo, encoding: "utf8" })).toBe(`${tracked}\0`);
+      const run = boundary === "suite" ? `node --test '${absolute}/${suite}'`
+        : boundary === "prefix" ? `npm --prefix '${absolute}' run check` : scripts.check;
+      const step = { run, ...(boundary === "cwd" ? { "working-directory": absolute } : {}) };
+      const result = spawnSync("bash", ["-e", "-c", run], {
+        cwd: boundary === "cwd" ? fixture : repo, encoding: "utf8", timeout: 15_000,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      const failing = spawnSync(process.execPath, ["--test", tracked], { cwd: repo, encoding: "utf8", timeout: 15_000 });
+      expect(failing.error).toBeUndefined();
+      expect(failing.status).toBe(1);
+      expect(failing.stdout).toContain("tracked failure sentinel");
+      const manifests = { [posix.join(".", absolute, "package.json")]: { scripts } };
+      expect([...runnerReferences(manifests, [workflowWith(step)])]).toEqual([]);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("resolves quoted relative cwd/prefix paths to the same failing repository test", () => {
+    const repo = mkdtempSync(join(tmpdir(), "lane-relative-"));
+    try {
+      const cwd = "worker + space";
+      const suite = "tests/a + suite.node-test.cjs";
+      const run = `node --test -- './${suite}'`;
+      const scripts = { check: run };
+      mkdirSync(join(repo, cwd, "tests"), { recursive: true });
+      writeFileSync(join(repo, cwd, suite), "throw new Error('relative failure sentinel');\n");
+      writeFileSync(join(repo, cwd, "package.json"), JSON.stringify({ private: true, scripts }));
+      for (const step of [{ run, "working-directory": `./${cwd}/.` }, { run: `npm --prefix './${cwd}/.' run check` }]) {
+        expect([...runnerReferences({ [`${cwd}/package.json`]: { scripts } }, [workflowWith(step)])])
+          .toEqual([`${cwd}/${suite}`]);
+        const result = spawnSync("bash", ["-e", "-c", step.run], {
+          cwd: step["working-directory"] ? join(repo, cwd) : repo, encoding: "utf8", timeout: 15_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain("relative failure sentinel");
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it.each([
     ["paths filter", JSON.stringify({ on: { pull_request: { paths: [dummySuite] } } })],
@@ -239,6 +346,7 @@ describe("explicit test execution lanes", () => {
     ["conditional job", workflowWith({ run: invocation }, { if: "${{ 1 == 0 }}" })],
     ["unknown condition", workflowWith({ run: invocation, if: "${{ inputs.run_tests }}" })],
     ["disabled shell branch", workflowWith({ run: `if false; then\n${invocation}\nfi` })],
+    ["false AND-list", workflowWith({ run: `false && ${invocation}` })],
     ["AND-list followed by success", workflowWith({ run: `${invocation} && echo passed\necho final-success` })],
     ["custom bash shell", workflowWith({ run: invocation, shell: "bash {0}" })],
     ["custom job shell", workflowWith({ run: invocation }, { defaults: { run: { shell: "bash {0}" } } })],
@@ -253,6 +361,8 @@ describe("explicit test execution lanes", () => {
     ["or colon", workflowWith({ run: `${invocation} || :` })],
     ["pipe", workflowWith({ run: `${invocation} | cat` })],
     ["disabled errexit", workflowWith({ run: `set +e\n${invocation}` })],
+    ["combined errexit flags", workflowWith({ run: `set +eu\n${invocation}` })],
+    ["bare exit", workflowWith({ run: `exit\n${invocation}` })],
     ["shell function", workflowWith({ run: `never_run() {\n${invocation}\n}` })],
     ["early exit", workflowWith({ run: `exit 0\n${invocation}` })],
     ["substitution", workflowWith({ run: `echo $(${invocation})` })],
@@ -282,7 +392,7 @@ describe("explicit test execution lanes", () => {
     const manifests = {
       "package.json": { scripts: {
         verify: "npm run chain && npm --prefix worker run checks",
-        chain: "npm run lint && npm run sensitive-paths:report",
+        chain: "npm run lint && npm run sensitive-paths:report && python3 -m unittest checks",
         "sensitive-paths:report": `node ${dummySuite}`,
         test: "node --test scripts/default.node-test.js",
         lint: "node --test scripts/preflight.node-test.mjs",
