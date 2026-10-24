@@ -12,6 +12,7 @@ import { buildQuickpartsProductionPortalDefinition } from "./quickpartsPortal.js
 import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
 import { createWeergPortalDefinition } from "./weergPortal.js";
 import { buildExpectedProviderPortalApproval } from "./providerPortalKernel.js";
+import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerSettings.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows.js";
 
@@ -80,24 +81,52 @@ describe("local provider registry integration", () => {
     }
   });
 
-  it("stops an approved Quickparts evaluation at the kill switch before session access or launch", async () => {
-    // No credentials, so the real settings port can never reach a database.
+  /** An approved synthetic Quickparts run with no settings credentials, so no test can reach a database. */
+  async function approvedQuickpartsRun() {
     vi.stubEnv("SUPABASE_URL", "");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("WORKER_PROVIDER_DURABLE_DISPATCH_CAP", "");
     const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("Unexpected browser launch"));
-    const definition = buildQuickpartsProductionPortalDefinition();
     const { cadPath, staged } = await stagedSyntheticCad();
     const args = parseSmokeArgs(["--vendor", "quickparts", "--cad", cadPath, "--confirm-non-export-controlled"]);
-    const approval = buildExpectedProviderPortalApproval(definition, {
+    const approval = buildExpectedProviderPortalApproval(buildQuickpartsProductionPortalDefinition(), {
       requestedQuantity: 1,
       liveEvaluationAuthorization: staged.authorization,
       providerPortalExecutionScope: { cadPath, drawingPath: null, requestedQuantities: [1] },
     } as VendorQuoteAdapterInput)!;
+    return { launch, staged, args, approval };
+  }
+
+  it("stops an approved Quickparts evaluation at the kill switch before session access or launch", async () => {
+    const { launch, staged, args, approval } = await approvedQuickpartsRun();
     const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
     try {
       await expect(runQuote(isolatedConfig(), args, "quickparts", 1, staged, undefined, null, approval, killSwitchReader))
         .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
       expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
+      expect(launch).not.toHaveBeenCalled();
+    } finally {
+      await staged.cleanup();
+    }
+  });
+
+  it("runs an approved Quickparts evaluation through the production definition up to session lookup", async () => {
+    const { launch, staged, args, approval } = await approvedQuickpartsRun();
+    const disengaged = vi.fn(async () => ({
+      schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider: "quickparts", engaged: false, globalEngaged: false,
+    }));
+    // No stored session: the production definition is eligible and stops at session lookup, where the
+    // offline definition would already have returned quickparts_reviewed_portal_evidence_missing.
+    const noSession = {
+      workerMode: "live", workerLiveAdapters: ["quickparts"], workerTempDir: os.tmpdir(),
+      vendorStorageStateJson: {}, vendorStorageStatePaths: {},
+    } as unknown as WorkerConfig;
+    try {
+      const row = await runQuote(noSession, args, "quickparts", 1, staged, undefined, null, approval, disengaged);
+      expect(row.errorPayload).toMatchObject({
+        terminalState: "missing_session", reason: "missing_storage_state", providerInteractionAttempted: false,
+      });
+      expect(disengaged).toHaveBeenCalledWith("quickparts");
       expect(launch).not.toHaveBeenCalled();
     } finally {
       await staged.cleanup();
