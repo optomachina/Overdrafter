@@ -8,8 +8,8 @@ select is(
     from private.commercial_rollout_controls
     where not enabled
   ),
-  4::bigint,
-  'every commercial rollout control defaults off'
+  5::bigint,
+  'every commercial rollout control, and the OVD-987 controlled_beta_user_quantity control, defaults off'
 );
 
 select is(
