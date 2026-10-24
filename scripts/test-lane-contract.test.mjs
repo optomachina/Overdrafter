@@ -42,42 +42,54 @@ const manuallyRunNodeSuites = {
   "scripts/test-support/source-only-network.node-test.cjs": "scripts/test-support/README.md",
 };
 
-const nodeSuite = /^[\w./-]+\.node-test\.[cm]?js$/;
+// Discovery must not impose a shell-token naming restriction on tracked paths.
+const nodeSuite = /\.node-test\.[cm]?js$/;
 
 // Deliberately recognize simple, failure-propagating invocations, not arbitrary
 // shell programs. Unsupported wrappers/control flow need an explicit lane.
 function requiredCommands(source, npmScript = false) {
-  const active = source.replace(/\\\r?\n/g, " ").replace(/(^|\s)#.*$/gm, "");
-  if (/\bset\s+\+e\b|\bset\s+\+o\s+errexit\b|\bexit\s+0\b/.test(active)) return [];
-  // Do not reinterpret quoted echo/program text or heredoc data as commands.
-  const quoted = active.match(/"[^"]*"|'[^']*'/g) ?? [];
-  if (active.includes("<<") || quoted.some((token) => /[\r\n;&|]/.test(token))) return [];
-  if (/["']/.test(active.replace(/"[^"]*"|'[^']*'/g, ""))) return [];
-  // npm's shell does not have workflow bash's implicit errexit.
-  if (npmScript && /[\r\n]/.test(active.trim())) return [];
-  return active.split(/\r?\n/).flatMap((line) => {
-    if (/[;|<>`]/.test(line) || line.replaceAll("&&", "").includes("&")) return [];
-    return line.split("&&").map((command) => {
-      const tokens = command.trim().match(/"[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+/g) ?? [];
-      return tokens.map((token) => token.replace(/^(["'])(.*)\1$/, "$2"));
-    });
-  });
+  const active = source.replace(/\\\r?\n/g, " ").trim();
+  const lines = active.split(/\r?\n/);
+  // One AND-list returns its failing status. Multiple lines require workflow
+  // errexit and must contain no AND-lists (errexit ignores their non-final terms).
+  if (lines.length > 1 && (npmScript || active.includes("&&"))) return [];
+  const word = String.raw`(?:[\w./:+-]+|"[\w ./:+*-]+"|'[\w ./:+*-]+')`;
+  const command = new RegExp(`^(?:node|npm|python3|echo)(?:[ \\t]+${word})*$`);
+  const commands = lines.flatMap((line) => line.split("&&").map((part) => part.trim()));
+  // Validate the WHOLE body before counting anything. No control flow,
+  // substitutions, comments, redirects, assignments or shell-state changes.
+  if (!commands.length || !commands.every((part) => command.test(part))) return [];
+  return commands.map((part) => (part.match(/"[^"]*"|'[^']*'|\S+/g) ?? [])
+    .map((token) => token.replace(/^(["'])(.*)\1$/, "$2")));
 }
 
 function countedWorkflowCommands(source) {
   const workflow = parse(source);
-  const disabled = (entry) => /^(?:false|\$\{\{\s*false\s*\}\})$/i.test(String(entry.if).trim())
-    || (entry["continue-on-error"] !== undefined && entry["continue-on-error"] !== false);
-  return Object.values(workflow?.jobs ?? {}).flatMap((job) => disabled(job) ? []
-    : (job.steps ?? []).filter((step) => !disabled(step) && typeof step.run === "string")
-      .map((step) => ({
-        source: step.run,
-        cwd: step["working-directory"] ?? job.defaults?.run?.["working-directory"]
-          ?? workflow.defaults?.run?.["working-directory"] ?? ".",
-      })));
+  const enabled = (entry) => (entry.if === undefined || entry.if === true
+    || /^\$\{\{\s*true\s*\}\}$/.test(entry.if))
+    && (entry["continue-on-error"] === undefined || entry["continue-on-error"] === false);
+  return Object.values(workflow?.jobs ?? {}).flatMap((job) => !enabled(job) ? []
+    : (job.steps ?? []).filter((step) => enabled(step) && typeof step.run === "string")
+      .flatMap((step) => {
+        const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell
+          ?? (/^(ubuntu|macos)-[\w.-]+$/.test(job["runs-on"]) ? "bash" : undefined);
+        let source = step.run;
+        if (shell === "powershell" || shell === "pwsh") {
+          // The existing Windows lane has exactly one native command followed
+          // by an explicit exit-code handoff, not arbitrary PowerShell code.
+          const match = source.trim().match(/^(node[^\r\n]*)\r?\n[ \t]*exit \$LASTEXITCODE$/);
+          if (!match || match[1].includes("&&")) return [];
+          source = match[1];
+        } else if (shell !== "bash" && shell !== "sh") return [];
+        return [{
+          source,
+          cwd: step["working-directory"] ?? job.defaults?.run?.["working-directory"]
+            ?? workflow.defaults?.run?.["working-directory"] ?? ".",
+        }];
+      }));
 }
 
-function runnerReferences(manifests, workflows, preflight) {
+function runnerReferences(manifests, workflows) {
   const references = new Set();
   const visited = new Set();
   function visitScript(cwd, name) {
@@ -88,10 +100,9 @@ function runnerReferences(manifests, workflows, preflight) {
     if (typeof source === "string") visitCommands(source, cwd, true);
   }
   function visitCommands(source, cwd, npmScript = false) {
-    if (!/^[\w./-]+$/.test(cwd)) return;
+    if (typeof cwd !== "string" || !/^[\w ./+-]+$/.test(cwd)) return;
     for (const raw of requiredCommands(source, npmScript)) {
       const tokens = [...raw];
-      while (/^\w+=[\w./-]+$/.test(tokens[0])) tokens.shift();
       const executable = tokens.shift();
       if (executable === "node") {
         const testRunner = tokens.includes("--test");
@@ -105,12 +116,11 @@ function runnerReferences(manifests, workflows, preflight) {
         let directory = cwd;
         const args = [];
         for (let index = 0; index < tokens.length; index += 1) {
-          if (tokens[index] === "--") break;
           if (tokens[index] === "--prefix") directory = posix.join(cwd, tokens[++index] ?? "");
           else if (tokens[index] !== "--silent") args.push(tokens[index]);
         }
-        if (args[0] === "test") visitScript(directory, "test");
-        else if (args[0] === "run" && args[1]) visitScript(directory, args[1]);
+        if (args.length === 1 && args[0] === "test") visitScript(directory, "test");
+        else if (args.length === 2 && args[0] === "run") visitScript(directory, args[1]);
       }
     }
   }
@@ -118,10 +128,8 @@ function runnerReferences(manifests, workflows, preflight) {
   for (const workflow of workflows) {
     for (const { source, cwd } of countedWorkflowCommands(workflow)) visitCommands(source, cwd);
   }
-  visitCommands(preflight, ".");
-  // preflight dispatches npm run "$stage" after validating this case allowlist.
-  const stages = preflight.match(/^\s*([\w-]+(?:\s*\|\s*[\w-]+)+)\)\s*;;/m)?.[1].split(/\s*\|\s*/) ?? [];
-  for (const stage of stages) visitCommands(preflight.replaceAll('"$stage"', stage), ".");
+  // Do not infer execution inside preflight's shell control flow. Its current
+  // lint/typecheck/test scripts are already reached through root verify.
   return references;
 }
 
@@ -159,7 +167,7 @@ describe("explicit test execution lanes", () => {
       if (/(^|\/)package\.json$/.test(path)) manifests[path] = JSON.parse(readFileSync(join(repoRoot, path), "utf8"));
       else if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) workflows.push(readFileSync(join(repoRoot, path), "utf8"));
     }
-    const references = runnerReferences(manifests, workflows, readFileSync(join(repoRoot, "scripts/preflight.sh"), "utf8"));
+    const references = runnerReferences(manifests, workflows);
     for (const [suite, instructions] of Object.entries(manuallyRunNodeSuites)) {
       expect(suites, `stale manual exception: ${suite}`).toContain(suite);
       expect(references.has(suite), `remove the now-wired manual exception: ${suite}`).toBe(false);
@@ -172,7 +180,49 @@ describe("explicit test execution lanes", () => {
 
   const dummySuite = "scripts/unowned.node-test.cjs";
   const invocation = `node --test ${dummySuite}`;
-  const workflowWith = (step, job = {}) => JSON.stringify({ jobs: { test: { ...job, steps: [step] } } });
+  const workflowWith = (step, job = {}) => JSON.stringify({ jobs: { test: { "runs-on": "ubuntu-latest", ...job, steps: [step] } } });
+
+  it.each(["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs", "scripts/測試.node-test.js"])(
+    "discovers %s even when no supported invocation owns it", (suite) => {
+      const tracked = [suite, "scripts/not-a-suite.mjs"];
+      expect(tracked.filter((path) => nodeSuite.test(path)))
+        .toEqual([suite]);
+      expect(runnerReferences({}, []).has(suite)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["single command", invocation],
+    ["final AND-list", `${invocation} && echo passed`],
+    ["standalone lines", `${invocation}\necho final-success`],
+  ])("requires failure propagation for a supported bash %s", (_label, source) => {
+    expect([...runnerReferences({}, [workflowWith({ run: source, shell: "bash" })])]).toEqual([dummySuite]);
+    const result = spawnSync("bash", ["-e", "-c", `node() { return 23; }\n${source}`], { encoding: "utf8" });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(23);
+  });
+
+  it("rejects the AND-list counterexample that actually exits successfully under bash -e", () => {
+    const source = `${invocation} && echo passed\necho final-success`;
+    const result = spawnSync("bash", ["-e", "-c", `node() { return 23; }\n${source}`], { encoding: "utf8" });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect([...runnerReferences({}, [workflowWith({ run: source })])]).toEqual([]);
+  });
+
+  it("supports literal true conditions, inherited bash and the exact Windows exit handoff", () => {
+    const workflow = workflowWith({ run: invocation, if: "${{ true }}" },
+      { if: true, defaults: { run: { shell: "bash" } } });
+    expect([...runnerReferences({}, [workflow])]).toEqual([dummySuite]);
+    expect([...runnerReferences({}, [workflowWith({ shell: "powershell", run: `${invocation}\nexit $LASTEXITCODE` })])])
+      .toEqual([dummySuite]);
+  });
+
+  it("owns quoted paths with spaces or plus signs without narrowing discovery", () => {
+    const suites = ["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs"];
+    expect([...runnerReferences({}, [workflowWith({ run: `node --test '${suites[0]}' "${suites[1]}"` })])])
+      .toEqual(suites);
+  });
 
   it.each([
     ["paths filter", JSON.stringify({ on: { pull_request: { paths: [dummySuite] } } })],
@@ -185,6 +235,17 @@ describe("explicit test execution lanes", () => {
     ["disabled job", workflowWith({ run: invocation }, { if: false })],
     ["disabled step", workflowWith({ run: invocation, if: false })],
     ["false expression", workflowWith({ run: invocation, if: "${{ false }}" })],
+    ["false comparison", workflowWith({ run: invocation, if: "${{ 1 == 0 }}" })],
+    ["conditional job", workflowWith({ run: invocation }, { if: "${{ 1 == 0 }}" })],
+    ["unknown condition", workflowWith({ run: invocation, if: "${{ inputs.run_tests }}" })],
+    ["disabled shell branch", workflowWith({ run: `if false; then\n${invocation}\nfi` })],
+    ["AND-list followed by success", workflowWith({ run: `${invocation} && echo passed\necho final-success` })],
+    ["custom bash shell", workflowWith({ run: invocation, shell: "bash {0}" })],
+    ["custom job shell", workflowWith({ run: invocation }, { defaults: { run: { shell: "bash {0}" } } })],
+    ["custom workflow shell", JSON.stringify({ defaults: { run: { shell: "bash {0}" } }, jobs: { test: { steps: [{ run: invocation }] } } })],
+    ["PowerShell without exit handoff", workflowWith({ run: invocation, shell: "powershell" })],
+    ["PowerShell resets exit status", workflowWith({ run: `${invocation}\nnode other.mjs\nexit $LASTEXITCODE`, shell: "powershell" })],
+    ["unknown implicit shell", workflowWith({ run: invocation }, { "runs-on": "self-hosted" })],
     ["allowed job failure", workflowWith({ run: invocation }, { "continue-on-error": true })],
     ["allowed step failure", workflowWith({ run: invocation, "continue-on-error": true })],
     ["or true", workflowWith({ run: `${invocation} || true` })],
@@ -192,6 +253,10 @@ describe("explicit test execution lanes", () => {
     ["or colon", workflowWith({ run: `${invocation} || :` })],
     ["pipe", workflowWith({ run: `${invocation} | cat` })],
     ["disabled errexit", workflowWith({ run: `set +e\n${invocation}` })],
+    ["shell function", workflowWith({ run: `never_run() {\n${invocation}\n}` })],
+    ["early exit", workflowWith({ run: `exit 0\n${invocation}` })],
+    ["substitution", workflowWith({ run: `echo $(${invocation})` })],
+    ["subshell", workflowWith({ run: `( ${invocation} )` })],
     ["argument to another Node entrypoint", workflowWith({ run: `node helper.mjs ${dummySuite}` })],
   ])("does not count a workflow %s as suite execution", (_label, workflow) => {
     expect([...runnerReferences({}, [workflow], "")]).toEqual([]);
@@ -207,24 +272,29 @@ describe("explicit test execution lanes", () => {
     expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [], "")]).toEqual([]);
   });
 
-  it("follows required npm chains, npm test, preflight stages and package-relative paths without cycling", () => {
+  it("rejects multiline npm bodies and shell wrappers instead of inferring preflight control flow", () => {
+    for (const source of [`${invocation}\necho final-success`, `if false; then\n${invocation}\nfi`, "bash scripts/preflight.sh"]) {
+      expect([...runnerReferences({ "package.json": { scripts: { verify: source } } }, [])]).toEqual([]);
+    }
+  });
+
+  it("follows required npm chains, npm test and package-relative paths", () => {
     const manifests = {
       "package.json": { scripts: {
         verify: "npm run chain && npm --prefix worker run checks",
-        chain: "npm run verify && npm run sensitive-paths:report",
+        chain: "npm run lint && npm run sensitive-paths:report",
         "sensitive-paths:report": `node ${dummySuite}`,
         test: "node --test scripts/default.node-test.js",
         lint: "node --test scripts/preflight.node-test.mjs",
       } },
       "worker/package.json": { scripts: { checks: "node --test scripts/worker.node-test.mjs" } },
     };
-    expect([...runnerReferences(manifests, [workflowWith({ run: "npm test" })],
-      'case "$stage" in\n  lint | typecheck | test) ;;\nesac\nnpm run --silent "$stage" "$@"',
-    )].sort()).toEqual([dummySuite, "scripts/default.node-test.js", "scripts/preflight.node-test.mjs", "worker/scripts/worker.node-test.mjs"].sort());
+    expect([...runnerReferences(manifests, [workflowWith({ run: "npm test" })])].sort())
+      .toEqual([dummySuite, "scripts/default.node-test.js", "scripts/preflight.node-test.mjs", "worker/scripts/worker.node-test.mjs"].sort());
   });
 
   it("reads YAML run bodies, continuations, quotes and workflow working directories", () => {
-    const workflow = `jobs:\n  test:\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
+    const workflow = `jobs:\n  test:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
     expect([...runnerReferences({}, [workflow], "")]).toEqual(["worker/a.node-test.cjs", "worker/b.node-test.js"]);
   });
 

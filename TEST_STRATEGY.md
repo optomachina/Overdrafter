@@ -87,8 +87,15 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 
 - `scripts/test-lane-contract.test.mjs` enforces ownership of every tracked
   `.node-test.[cm]?js` suite: a failure-propagating Node invocation in an enabled
-  workflow run step, a package script reachable from root `verify`, a counted
-  workflow step or `scripts/preflight.sh`, or a reasoned manual exception.
+  workflow run step, a package script reachable from root `verify` or a counted
+  workflow step, or a reasoned manual exception. Discovery uses the suffix only,
+  including filenames with spaces, punctuation or Unicode.
+  Ownership accepts complete simple command bodies: one AND-list, or standalone
+  lines under workflow Bash/sh errexit. npm bodies must be one logical line.
+  Unknown conditions, custom shells and shell control flow fail closed; only
+  absent/literal-true conditions count. The Windows form is one Node command
+  followed by `exit $LASTEXITCODE`. Preflight's dynamic shell dispatch is not
+  inferred; its current stages are independently reached from root `verify`.
   Text mentions, unreachable npm scripts and failure-swallowing commands do not
   establish ownership. New suites must join an owning lane or document why they
   cannot run automatically, with operator instructions in the exception map.
