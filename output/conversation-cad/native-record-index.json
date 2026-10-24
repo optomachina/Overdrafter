@@ -1,0 +1,560 @@
+[
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline-child.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/000-baseline-child.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline-child.stdout.txt",
+    "bytes": 110,
+    "sha256": "e055ec8e2fa3ffa053196ea2b19970e446258d77258d6e221de323bcb5bc5489",
+    "local": "output/conversation-cad/native-records/001-baseline-child.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate-child.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/002-candidate-child.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate-child.stdout.txt",
+    "bytes": 111,
+    "sha256": "81d891bb8aeb63f73b51cad2892afba1c57ea6cd514fda5f464f0fe6584bc7b9",
+    "local": "output/conversation-cad/native-records/003-candidate-child.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension-child.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/004-dimension-child.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension-child.stdout.txt",
+    "bytes": 106,
+    "sha256": "2b34c0232128a70b189d4512b6a480626d092ab0bd9b57895e76ae95bc40f42c",
+    "local": "output/conversation-cad/native-records/005-dimension-child.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\request.json",
+    "bytes": 1167,
+    "sha256": "f4cf384a7f30c3a7605c0d888a7564d672a185f2f2b76bf3bb70b485193dd742",
+    "local": "output/conversation-cad/native-records/006-request.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\user-session-closure.json",
+    "bytes": 281,
+    "sha256": "0309d1c89f380d5b9932cbe557bce57668dfb067bd1990ddcc208eea706ff097",
+    "local": "output/conversation-cad/native-records/007-user-session-closure.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\workflow-progress.json",
+    "bytes": 28514,
+    "sha256": "cf7f895355eef697af3359fd219c25cece8bbcbd0d343f31726d724bcf04dc0d",
+    "local": "output/conversation-cad/native-records/008-workflow-progress.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\workflow-receipt-blocked-before-resume.json",
+    "bytes": 11997,
+    "sha256": "87706626805e13746af4a0406307a2530d88dfef410ced3f920ba2b4d942684e",
+    "local": "output/conversation-cad/native-records/009-workflow-receipt-blocked-before-resume.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\workflow-receipt.json",
+    "bytes": 35808,
+    "sha256": "0ce6600c4a5f19cd81deadc3870c837802138c682d81a774ef177f2a9cc004e2",
+    "local": "output/conversation-cad/native-records/010-workflow-receipt.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\close-native.stderr.txt",
+    "bytes": 1156,
+    "sha256": "14291d58146a649e62b51968b63a2e2b377c16421a601b95fc598d5318f30d28",
+    "local": "output/conversation-cad/native-records/011-close-native.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\close-native.stdout.txt",
+    "bytes": 305,
+    "sha256": "b960d7c40b9d603059c0ec6480325da9155606a917e3da79fe8629afa2e29ca3",
+    "local": "output/conversation-cad/native-records/012-close-native.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\compile-NativeSessionProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/013-compile-NativeSessionProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\compile-NativeSessionProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/014-compile-NativeSessionProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\compile-StepPreviewProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/015-compile-StepPreviewProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\compile-StepPreviewProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/016-compile-StepPreviewProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\context.json",
+    "bytes": 1803,
+    "sha256": "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d",
+    "local": "output/conversation-cad/native-records/017-context.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\native-step.stderr.txt",
+    "bytes": 29803,
+    "sha256": "416d0d2fa3dece0b21c2fe071f18401b0b320da3c38c841d9da20be781693955",
+    "local": "output/conversation-cad/native-records/018-native-step.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\native-step.stdout.txt",
+    "bytes": 8814,
+    "sha256": "313aab0e359d40017245801b57c46858ecf0448e81c76bebc5d8d4a69e68da48",
+    "local": "output/conversation-cad/native-records/019-native-step.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\preview.json",
+    "bytes": 46652,
+    "sha256": "1cc62e00959436b8845e3dd164240451bfdac73cbd73ae327130d3dccd38059c",
+    "local": "output/conversation-cad/native-records/020-preview.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\progress.json",
+    "bytes": 63731,
+    "sha256": "15add58b323bc84d706855409bf8f5935814904917a67edc6c43a20f044475b0",
+    "local": "output/conversation-cad/native-records/021-progress.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-1.stderr.txt",
+    "bytes": 212,
+    "sha256": "29598f5c5206515f0946906ca1f351553f1bc37f9bc0d61f31aad1fb370e4614",
+    "local": "output/conversation-cad/native-records/022-ready-1.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-1.stdout.txt",
+    "bytes": 326,
+    "sha256": "c5aa86ba71f53375a0139f3da003f6dac92d811b6bc3de4bf6660509ad034f4c",
+    "local": "output/conversation-cad/native-records/023-ready-1.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-2.stderr.txt",
+    "bytes": 211,
+    "sha256": "29cc3a5ebcee1c4d1f428a42756cb2380407230da98507abf0eb5c59ee82103c",
+    "local": "output/conversation-cad/native-records/024-ready-2.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-2.stdout.txt",
+    "bytes": 325,
+    "sha256": "040945534fe366dc7fbc887f5216c14b4b2983b917b868d7442831182f41536c",
+    "local": "output/conversation-cad/native-records/025-ready-2.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-3.stderr.txt",
+    "bytes": 212,
+    "sha256": "445594088badd6507daa1559f8e4d8a2daad6b7580c04afccef2f46c0459f23e",
+    "local": "output/conversation-cad/native-records/026-ready-3.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-3.stdout.txt",
+    "bytes": 326,
+    "sha256": "b6eff425a3b599701acac301cacb18daed65aefc2b2d3194a32576502312571b",
+    "local": "output/conversation-cad/native-records/027-ready-3.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-4.stderr.txt",
+    "bytes": 212,
+    "sha256": "ed80c3691db02504fba66333fb6752b328e59df9f96df01d683fc1d34ac6a76e",
+    "local": "output/conversation-cad/native-records/028-ready-4.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-4.stdout.txt",
+    "bytes": 326,
+    "sha256": "a2bd5982d54e6e3477a3caf59a9adda46cf69b2af66877f7345c60af8715fa10",
+    "local": "output/conversation-cad/native-records/029-ready-4.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-5.stderr.txt",
+    "bytes": 212,
+    "sha256": "960dbb3ef750da390d8be3ae54da98773094c6541592e6ef6616ffae9887471d",
+    "local": "output/conversation-cad/native-records/030-ready-5.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-5.stdout.txt",
+    "bytes": 326,
+    "sha256": "31989fd421804a576f171847d7a773b1e86cb10f4217a1eb6e87caa362313f7f",
+    "local": "output/conversation-cad/native-records/031-ready-5.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-6.stderr.txt",
+    "bytes": 503,
+    "sha256": "95650c967b9c6956aa301611a49c0b965115fd2b8bc926455e4d3225a7159e01",
+    "local": "output/conversation-cad/native-records/032-ready-6.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\ready-6.stdout.txt",
+    "bytes": 291,
+    "sha256": "180de437bad71071397bc3e0844ef301f383b6da9c194c5e640cef20a4490317",
+    "local": "output/conversation-cad/native-records/033-ready-6.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\settings.json",
+    "bytes": 1446,
+    "sha256": "4eaae7bfc43b3f24344b1da15610d3e2188f19984b0b661f68cf01440067ebb1",
+    "local": "output/conversation-cad/native-records/034-settings.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\supervisor-final.json",
+    "bytes": 65124,
+    "sha256": "f92b5b5dfb53541ed9372d93aec0aade908b7e09d1e2d561091caf349c7ab60e",
+    "local": "output/conversation-cad/native-records/035-supervisor-final.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\candidate-result.json",
+    "bytes": 4438,
+    "sha256": "c596274876c408e7155faa5502828176d2c2dcf5f8f13a7f9bf9a0c28a9153a9",
+    "local": "output/conversation-cad/native-records/036-candidate-result.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\close-native.stderr.txt",
+    "bytes": 1156,
+    "sha256": "3e2d25a62af8766e2bacb9ad6cf8ba86f92dd93bc71de0e644788e61e06052f8",
+    "local": "output/conversation-cad/native-records/037-close-native.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\close-native.stdout.txt",
+    "bytes": 305,
+    "sha256": "ebd262e023dfec036bc723138e3b5b4a8c25a7a107019e38ad196b39304999ca",
+    "local": "output/conversation-cad/native-records/038-close-native.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\compile-NativeSessionProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/039-compile-NativeSessionProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\compile-NativeSessionProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/040-compile-NativeSessionProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\compile-StepPreviewProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/041-compile-StepPreviewProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\compile-StepPreviewProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/042-compile-StepPreviewProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\context.json",
+    "bytes": 1803,
+    "sha256": "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d",
+    "local": "output/conversation-cad/native-records/043-context.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\native-step.stderr.txt",
+    "bytes": 29803,
+    "sha256": "7dd19cd83b7dbc764d25fd2b3f64b8abc34884ac6e59cea1c9a9f6502e79ef30",
+    "local": "output/conversation-cad/native-records/044-native-step.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\native-step.stdout.txt",
+    "bytes": 8971,
+    "sha256": "29f806bdcb77652288493400f6d586832e3e090d057298c8c990376b617f21bc",
+    "local": "output/conversation-cad/native-records/045-native-step.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\preview.json",
+    "bytes": 46801,
+    "sha256": "29493a75b362438f111ababa065811dd38e1eb2d5708bbfc4ce3f3ead857c8c8",
+    "local": "output/conversation-cad/native-records/046-preview.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\progress.json",
+    "bytes": 64037,
+    "sha256": "a04afbf062667be3a98c1e24fe341fe1d5f0ea60dc7a5a736505dad27456c797",
+    "local": "output/conversation-cad/native-records/047-progress.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-1.stderr.txt",
+    "bytes": 212,
+    "sha256": "777a47912e8e362e6151e83464544ebad976b97b5fd00b87ed23e58840d7b8e3",
+    "local": "output/conversation-cad/native-records/048-ready-1.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-1.stdout.txt",
+    "bytes": 326,
+    "sha256": "b0064c61c10aa35ed9efdf4fbf67d7b9564059a231ecb111b36288cfc2a4372e",
+    "local": "output/conversation-cad/native-records/049-ready-1.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-2.stderr.txt",
+    "bytes": 212,
+    "sha256": "97153e62590a0449197c4bbc748ea4d0818cfff680cbf1b8517523a93b3f3b05",
+    "local": "output/conversation-cad/native-records/050-ready-2.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-2.stdout.txt",
+    "bytes": 326,
+    "sha256": "460c222fbba9db7d10838da1ddc02601220ff9670ebaa12bccdd88dcc18816ef",
+    "local": "output/conversation-cad/native-records/051-ready-2.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-3.stderr.txt",
+    "bytes": 212,
+    "sha256": "b377ed942a4e962b96fa169e6f93fdf8dc4b074018c8ab8ec8b100c1ba05646b",
+    "local": "output/conversation-cad/native-records/052-ready-3.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-3.stdout.txt",
+    "bytes": 326,
+    "sha256": "01346bfd5e1694f6b980df19b26327bc141180e6b761fbea13315ca298bbbc34",
+    "local": "output/conversation-cad/native-records/053-ready-3.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-4.stderr.txt",
+    "bytes": 212,
+    "sha256": "ef2eaaf59e6672f3199ff2b6b19df84aee40728dff7f7f29fe46d81cebec6066",
+    "local": "output/conversation-cad/native-records/054-ready-4.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-4.stdout.txt",
+    "bytes": 326,
+    "sha256": "6e6afb017589768330ab951423632d5930970791576d34c7cfbce0264b36fca4",
+    "local": "output/conversation-cad/native-records/055-ready-4.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-5.stderr.txt",
+    "bytes": 212,
+    "sha256": "647df45778ebabff74ab5241f954a2ea09a9f1cebaac4f20a0c8ae96d7fccaea",
+    "local": "output/conversation-cad/native-records/056-ready-5.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-5.stdout.txt",
+    "bytes": 326,
+    "sha256": "4a1a4bb30f2f222c7820e1d68db5977224feade620f33a1d960b6dd866a2be39",
+    "local": "output/conversation-cad/native-records/057-ready-5.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-6.stderr.txt",
+    "bytes": 503,
+    "sha256": "de289b475488c1ff09b38d5119b235000018edac175ba7292aa13e6aeec036af",
+    "local": "output/conversation-cad/native-records/058-ready-6.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\ready-6.stdout.txt",
+    "bytes": 291,
+    "sha256": "20e3568ea1e9453976a00f614fac8a61509992db9794a68704699e35596cf808",
+    "local": "output/conversation-cad/native-records/059-ready-6.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\request.json",
+    "bytes": 1167,
+    "sha256": "f4cf384a7f30c3a7605c0d888a7564d672a185f2f2b76bf3bb70b485193dd742",
+    "local": "output/conversation-cad/native-records/060-request.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\settings.json",
+    "bytes": 1573,
+    "sha256": "d4c83a8ca709a5c80de66fd1402529f3640459d330a8629f0b9af9b5d095583f",
+    "local": "output/conversation-cad/native-records/061-settings.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\supervisor-final.json",
+    "bytes": 65430,
+    "sha256": "8ffbea6a034d43eac169526a7ec235216a1fd4ea9de194bd3a23f100e6455cdc",
+    "local": "output/conversation-cad/native-records/062-supervisor-final.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\close-native.stderr.txt",
+    "bytes": 1149,
+    "sha256": "5f954955c11b8bf8e0bd83638b66f4d3ed53c3aa69c925b532493cb120bb105e",
+    "local": "output/conversation-cad/native-records/063-close-native.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\close-native.stdout.txt",
+    "bytes": 303,
+    "sha256": "0dabd4217b40be8923c3deb0e46620fb570df8c641e21c72e570feddf96fbeac",
+    "local": "output/conversation-cad/native-records/064-close-native.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\compile-NativeSessionProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/065-compile-NativeSessionProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\compile-NativeSessionProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/066-compile-NativeSessionProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\compile-PreparedDimensionProbe.stderr.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/067-compile-PreparedDimensionProbe.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\compile-PreparedDimensionProbe.stdout.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local": "output/conversation-cad/native-records/068-compile-PreparedDimensionProbe.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\context.json",
+    "bytes": 1803,
+    "sha256": "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d",
+    "local": "output/conversation-cad/native-records/069-context.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\input-identity.json",
+    "bytes": 1155,
+    "sha256": "4c00a937a337d2acdec5caefe26026938f03610da5b5d2e442b92f071ae4e720",
+    "local": "output/conversation-cad/native-records/070-input-identity.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\native-dimension.stderr.txt",
+    "bytes": 113981,
+    "sha256": "57433c47bb45773155611df79c2185fbdaf1a3e6cc22be1e875f9e387930c365",
+    "local": "output/conversation-cad/native-records/071-native-dimension.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\native-dimension.stdout.txt",
+    "bytes": 17131,
+    "sha256": "95e8ccee78ddffadf82e0b48e229c0ec8b3dd37b12fbf2a98558a64662374f81",
+    "local": "output/conversation-cad/native-records/072-native-dimension.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\progress.json",
+    "bytes": 173595,
+    "sha256": "9e7a2863df790e69bcd9f40973b63aebf7c8ff4705299cc05015535a9c0d34f3",
+    "local": "output/conversation-cad/native-records/073-progress.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-1.stderr.txt",
+    "bytes": 211,
+    "sha256": "195ee532c6c5bdf7e9b23cc7074bb30dbe3f103222d66cfb7ec996bfd8723110",
+    "local": "output/conversation-cad/native-records/074-ready-1.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-1.stdout.txt",
+    "bytes": 325,
+    "sha256": "db8501751e51523a755d2e429d011531094352d71142cc5af4d8e61ff27ddc0b",
+    "local": "output/conversation-cad/native-records/075-ready-1.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-2.stderr.txt",
+    "bytes": 211,
+    "sha256": "4336afaa99078bdc175de0d1c24b646e905c3c83cfe02fa1df43ce9f806fd562",
+    "local": "output/conversation-cad/native-records/076-ready-2.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-2.stdout.txt",
+    "bytes": 325,
+    "sha256": "9bf5ec19218c48fe40f9fb294c72698513e7500c8451baa63617344798612f3b",
+    "local": "output/conversation-cad/native-records/077-ready-2.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-3.stderr.txt",
+    "bytes": 210,
+    "sha256": "4acc1ff9ed7ee8e0ba416389f7e2c214afb8ef7397167d8e55bf35d5b068b545",
+    "local": "output/conversation-cad/native-records/078-ready-3.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-3.stdout.txt",
+    "bytes": 324,
+    "sha256": "ab36fa1d1ac53ea46ea7aa10344648daad76d253d3febe25331c6918a96e42bb",
+    "local": "output/conversation-cad/native-records/079-ready-3.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-4.stderr.txt",
+    "bytes": 210,
+    "sha256": "5d1150805634ba73a4fe691230d165f716e392d9dc41bd4cf97043330a88c10b",
+    "local": "output/conversation-cad/native-records/080-ready-4.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-4.stdout.txt",
+    "bytes": 324,
+    "sha256": "8f6c0636c7dba1a9b5d1cc623de31ef253da17cccfc6bb9ea058151773eebfbd",
+    "local": "output/conversation-cad/native-records/081-ready-4.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-5.stderr.txt",
+    "bytes": 211,
+    "sha256": "208a9d3105026d7fb2ef285350b677913ac168462d03fdcf5563f000dff7a445",
+    "local": "output/conversation-cad/native-records/082-ready-5.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-5.stdout.txt",
+    "bytes": 325,
+    "sha256": "c84af8e5b4723a6d86c7986679a5ffdc2c1f72bf9b11721f67aed7e7b1384e95",
+    "local": "output/conversation-cad/native-records/083-ready-5.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-6.stderr.txt",
+    "bytes": 210,
+    "sha256": "62fddc093c1488ff044cb9136413ff3c758079c2dd4be1c978163e65a16a2603",
+    "local": "output/conversation-cad/native-records/084-ready-6.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-6.stdout.txt",
+    "bytes": 324,
+    "sha256": "90585aaad7a33941f159a1b60ef7a0792b363a30e0923daca241be3b7807188c",
+    "local": "output/conversation-cad/native-records/085-ready-6.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-7.stderr.txt",
+    "bytes": 500,
+    "sha256": "03a55bf95b0dcb0d1c3847683d0994ed4d8f2d7ab83527bd3b22b2f6c66370c5",
+    "local": "output/conversation-cad/native-records/086-ready-7.stderr.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\ready-7.stdout.txt",
+    "bytes": 289,
+    "sha256": "d134b3bf7d826ba6f3a21e27b1112b8ccf693cff3a9f8e43398af51b7d8586da",
+    "local": "output/conversation-cad/native-records/087-ready-7.stdout.txt"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\request.json",
+    "bytes": 1167,
+    "sha256": "f4cf384a7f30c3a7605c0d888a7564d672a185f2f2b76bf3bb70b485193dd742",
+    "local": "output/conversation-cad/native-records/088-request.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\result.json",
+    "bytes": 4438,
+    "sha256": "c596274876c408e7155faa5502828176d2c2dcf5f8f13a7f9bf9a0c28a9153a9",
+    "local": "output/conversation-cad/native-records/089-result.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\settings.json",
+    "bytes": 458,
+    "sha256": "d8bdb41d6e4d18d155a5a7e8f7297e9b689fe19b99a4dbb12b6b666e938298bf",
+    "local": "output/conversation-cad/native-records/090-settings.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\source-preservation.json",
+    "bytes": 1815,
+    "sha256": "32262338bbb4b6edaaa1979ed9974f9516940626d21a39e7df313c89d5d900ba",
+    "local": "output/conversation-cad/native-records/091-source-preservation.json"
+  },
+  {
+    "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\supervisor-final.json",
+    "bytes": 174988,
+    "sha256": "fa2cf372dc4ca5d08d84af5a5b695fcc92023f1d75afd5a8fec21fca251f4611",
+    "local": "output/conversation-cad/native-records/092-supervisor-final.json"
+  }
+]

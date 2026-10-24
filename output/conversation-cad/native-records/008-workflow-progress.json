@@ -1,0 +1,405 @@
+{
+    "scope":  "one fresh dimension request then serial baseline/candidate STEP exports",
+    "outcome":  "not_run",
+    "sourceCommit":  null,
+    "sources":  [
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\run.ps1",
+                        "sha256":  "8a7d87ab30c1b92416206ca5ae9c4973ac3c151b6a6fbe949ec3d22c09155b19",
+                        "bytes":  15623
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\StepPreviewProbe.cs",
+                        "sha256":  "da2ffc3e00ac6d0d8ada036664f3cddd8d9066a00df70e53591b646394bfea65",
+                        "bytes":  10552
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\README.md",
+                        "sha256":  "929c0a7aea6c4cb976908be48937d74cf8a21c13adea80948593d8e7a571463e",
+                        "bytes":  7339
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\PreviewContract.ps1",
+                        "sha256":  "a28d0b05a5bd1bf93123d6fe2d62c40ac01f23b481324fccb9612706f4685fcf",
+                        "bytes":  8967
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\run.ps1",
+                        "sha256":  "7a1944dfdbfd84fc40c615c9591932b59dd9f717b7746708bdc3b2a33cb8b632",
+                        "bytes":  20538
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\WireContract.ps1",
+                        "sha256":  "18b47338b2d4330dd4a2828342097f04a6a3b0c593b3d94005778e02d44dab75",
+                        "bytes":  8759
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\capture-context.ps1",
+                        "sha256":  "8a37ce8b046122ba9eb77a9cce985665a1102b7b1bdf54f2dcdbf632af7d8430",
+                        "bytes":  1609
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PreparedDimensionProbe.cs",
+                        "sha256":  "35b0dfec75346156f30d601f50e4dff9595f7726af43d31c9b6332002a1f2901",
+                        "bytes":  8195
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PreparedPackage.cs",
+                        "sha256":  "00e0cdb2aaf2d2a8293408f26a5965ca1163647c307cf28bbfc1c70143fb484c",
+                        "bytes":  13309
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PartGeometry.cs",
+                        "sha256":  "a9f9b688feca2a7008cf23a2ff5abe6bd1b9a3fbd28264d26c0335c69f538def",
+                        "bytes":  6262
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\session-lifecycle\\NativeSessionProbe.cs",
+                        "sha256":  "ad89d6ecdb3bf619d09ac20a836a5cad69f3983495e4ee2bfdf51eee5dec2dc6",
+                        "bytes":  6333
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\session-lifecycle\\PreparedCylinder.cs",
+                        "sha256":  "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+                        "bytes":  14120
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\file-admission\\SharedFilePredicates.cs",
+                        "sha256":  "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+                        "bytes":  1533
+                    },
+                    {
+                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\file-admission\\OwnedProcess.ps1",
+                        "sha256":  "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+                        "bytes":  4835
+                    }
+                ],
+    "stages":  [
+                   {
+                       "name":  "dimension",
+                       "before":  {
+                                      "policy":  [
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "MachinePolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "UserPolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "Process"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "CurrentUser"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "LocalMachine"
+                                                     }
+                                                 ],
+                                      "files":  [
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                                        "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                                        "bytes":  59987
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                                        "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                                        "bytes":  56144
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                                        "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                                        "bytes":  56171
+                                                    }
+                                                ],
+                                      "cim":  [
+
+                                              ],
+                                      "dotnet":  [
+
+                                                 ]
+                                  },
+                       "child":  {
+                                     "pid":  21000,
+                                     "exitCode":  0,
+                                     "timedOut":  false,
+                                     "terminationRequested":  false,
+                                     "terminated":  false,
+                                     "elapsedSeconds":  46.7588605,
+                                     "error":  null,
+                                     "stdout":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\result.json\r\n",
+                                     "stderr":  ""
+                                 },
+                       "after":  {
+                                     "policy":  [
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "MachinePolicy"
+                                                    },
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "UserPolicy"
+                                                    },
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "Process"
+                                                    },
+                                                    {
+                                                        "value":  "RemoteSigned",
+                                                        "scope":  "CurrentUser"
+                                                    },
+                                                    {
+                                                        "value":  "RemoteSigned",
+                                                        "scope":  "LocalMachine"
+                                                    }
+                                                ],
+                                     "files":  [
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                                       "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                                       "bytes":  59987
+                                                   },
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                                       "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                                       "bytes":  56144
+                                                   },
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                                       "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                                       "bytes":  56171
+                                                   }
+                                               ],
+                                     "cim":  [
+
+                                             ],
+                                     "dotnet":  [
+
+                                                ]
+                                 },
+                       "artifact":  {
+                                        "sha256":  "c596274876c408e7155faa5502828176d2c2dcf5f8f13a7f9bf9a0c28a9153a9",
+                                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\dimension\\52bf3d21-ff84-4974-b246-46ac5bd20d56\\result.json"
+                                    }
+                   },
+                   {
+                       "name":  "baseline",
+                       "before":  {
+                                      "policy":  [
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "MachinePolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "UserPolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "Process"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "CurrentUser"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "LocalMachine"
+                                                     }
+                                                 ],
+                                      "files":  [
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                                        "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                                        "bytes":  59987
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                                        "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                                        "bytes":  56144
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                                        "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                                        "bytes":  56171
+                                                    }
+                                                ],
+                                      "cim":  [
+
+                                              ],
+                                      "dotnet":  [
+
+                                                 ]
+                                  },
+                       "child":  {
+                                     "pid":  10444,
+                                     "exitCode":  0,
+                                     "timedOut":  false,
+                                     "terminationRequested":  false,
+                                     "terminated":  false,
+                                     "elapsedSeconds":  22.386482299999997,
+                                     "error":  null,
+                                     "stdout":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\preview.json\r\n",
+                                     "stderr":  ""
+                                 },
+                       "after":  {
+                                     "policy":  [
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "MachinePolicy"
+                                                    },
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "UserPolicy"
+                                                    },
+                                                    {
+                                                        "value":  "Undefined",
+                                                        "scope":  "Process"
+                                                    },
+                                                    {
+                                                        "value":  "RemoteSigned",
+                                                        "scope":  "CurrentUser"
+                                                    },
+                                                    {
+                                                        "value":  "RemoteSigned",
+                                                        "scope":  "LocalMachine"
+                                                    }
+                                                ],
+                                     "files":  [
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                                       "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                                       "bytes":  59987
+                                                   },
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                                       "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                                       "bytes":  56144
+                                                   },
+                                                   {
+                                                       "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                                       "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                                       "bytes":  56171
+                                                   }
+                                               ],
+                                     "cim":  [
+
+                                             ],
+                                     "dotnet":  [
+
+                                                ]
+                                 },
+                       "artifact":  {
+                                        "sha256":  "1cc62e00959436b8845e3dd164240451bfdac73cbd73ae327130d3dccd38059c",
+                                        "path":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\baseline\\preview-a93bc04e2a264b32bd0a80f49dba1b6f\\preview.json"
+                                    }
+                   },
+                   {
+                       "name":  "candidate",
+                       "before":  {
+                                      "policy":  [
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "MachinePolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "UserPolicy"
+                                                     },
+                                                     {
+                                                         "value":  "Undefined",
+                                                         "scope":  "Process"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "CurrentUser"
+                                                     },
+                                                     {
+                                                         "value":  "RemoteSigned",
+                                                         "scope":  "LocalMachine"
+                                                     }
+                                                 ],
+                                      "files":  [
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                                        "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                                        "bytes":  59987
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                                        "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                                        "bytes":  56144
+                                                    },
+                                                    {
+                                                        "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                                        "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                                        "bytes":  56171
+                                                    }
+                                                ],
+                                      "cim":  [
+
+                                              ],
+                                      "dotnet":  [
+
+                                                 ]
+                                  },
+                       "child":  null,
+                       "after":  null,
+                       "artifact":  null
+                   }
+               ],
+    "before":  {
+                   "policy":  [
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "MachinePolicy"
+                                  },
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "UserPolicy"
+                                  },
+                                  {
+                                      "value":  "Undefined",
+                                      "scope":  "Process"
+                                  },
+                                  {
+                                      "value":  "RemoteSigned",
+                                      "scope":  "CurrentUser"
+                                  },
+                                  {
+                                      "value":  "RemoteSigned",
+                                      "scope":  "LocalMachine"
+                                  }
+                              ],
+                   "files":  [
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+                                     "sha256":  "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+                                     "bytes":  59987
+                                 },
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+                                     "sha256":  "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+                                     "bytes":  56144
+                                 },
+                                 {
+                                     "path":  "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+                                     "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+                                     "bytes":  56171
+                                 }
+                             ],
+                   "cim":  [
+
+                           ],
+                   "dotnet":  [
+
+                              ]
+               },
+    "after":  null,
+    "error":  null
+}

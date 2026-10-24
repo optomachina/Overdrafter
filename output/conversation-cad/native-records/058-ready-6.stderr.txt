@@ -1,0 +1,2 @@
+{"utc":"2026-09-10T00:37:40.4187223Z","helperPid":20728,"outcome":"failed","exitAppRequested":false,"mode":"inspect","expectedPid":25636,"expectedTicks":"639245974542378649","session":1,"stage":"bind_existing"}
+{"utc":"2026-09-10T00:37:40.4187223Z","helperPid":20728,"outcome":"failed","exitAppRequested":false,"mode":"inspect","expectedPid":25636,"expectedTicks":"639245974542378649","session":1,"stage":"inspected_empty","apiPid":25636,"revision":"30.5.0","startupCompleted":true,"documentCount":0}

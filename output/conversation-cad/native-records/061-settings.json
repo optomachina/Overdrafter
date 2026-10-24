@@ -1,0 +1,27 @@
+{
+    "swconstSha256":  "b6f1aff6729712027d8c96b0da67ae3e949c133893c13c9a6add0ea5d27e35f1",
+    "nativeFiles":  [
+                        {
+                            "path":  "synthetic-assembly.SLDASM",
+                            "bytes":  60928,
+                            "sha256":  "29e49c5b8cd51f44c34f52c7d48896ceb1265569d34a99470a9e041e82102d80"
+                        },
+                        {
+                            "path":  "parts/baseline-5mm.SLDPRT",
+                            "bytes":  57241,
+                            "sha256":  "de7a526e9054bb195974e2c0d08b874a9a743ba348620bef753b18b52c42be52"
+                        },
+                        {
+                            "path":  "parts/candidate-8mm.SLDPRT",
+                            "bytes":  56171,
+                            "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                        }
+                    ],
+    "contextSha256":  "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d",
+    "resultSha256":  "c596274876c408e7155faa5502828176d2c2dcf5f8f13a7f9bf9a0c28a9153a9",
+    "requestSha256":  "f4cf384a7f30c3a7605c0d888a7564d672a185f2f2b76bf3bb70b485193dd742",
+    "candidateRoot":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\package",
+    "role":  "candidate",
+    "depthMm":  8,
+    "stepPath":  "C:\\Users\\blain\\AppData\\Local\\Temp\\O493-e51e1e\\candidate\\preview-6be34ce985a34202b35867bde9badf9d\\step\\assembly.step"
+}

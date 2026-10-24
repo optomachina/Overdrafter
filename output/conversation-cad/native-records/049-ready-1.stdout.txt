@@ -1,0 +1,1 @@
+{"utc":"2026-09-10T00:37:34.5958881Z","helperPid":11024,"outcome":"not_ready","exitAppRequested":false,"mode":"inspect","expectedPid":25636,"expectedTicks":"639245974542378649","session":1,"stage":"bind_existing","error":"Operation unavailable (Exception from HRESULT: 0x800401E3 (MK_E_UNAVAILABLE))","hresult":"0x800401E3"}

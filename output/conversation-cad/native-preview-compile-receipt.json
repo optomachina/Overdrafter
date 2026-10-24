@@ -1,0 +1,351 @@
+{
+  "outcome": "passed",
+  "scope": "compile and inert only",
+  "before": {
+    "policy": [
+      {
+        "value": "Undefined",
+        "scope": "MachinePolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "UserPolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "Process"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "CurrentUser"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "LocalMachine"
+      }
+    ],
+    "files": [
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+        "bytes": 59987
+      },
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+        "bytes": 56144
+      },
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+        "bytes": 56171
+      }
+    ],
+    "cim": [],
+    "dotnet": []
+  },
+  "after": {
+    "policy": [
+      {
+        "value": "Undefined",
+        "scope": "MachinePolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "UserPolicy"
+      },
+      {
+        "value": "Undefined",
+        "scope": "Process"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "CurrentUser"
+      },
+      {
+        "value": "RemoteSigned",
+        "scope": "LocalMachine"
+      }
+    ],
+    "files": [
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\synthetic-assembly.SLDASM",
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
+        "bytes": 59987
+      },
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\baseline-5mm.SLDPRT",
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
+        "bytes": 56144
+      },
+      {
+        "path": "C:\\Users\\blain\\Documents\\Codex\\2026-09-06\\create-a-new-assembly-in-solidworks\\outputs\\ovd-480-native-fixtures\\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7\\parts\\candidate-8mm.SLDPRT",
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+        "bytes": 56171
+      }
+    ],
+    "cim": [],
+    "dotnet": []
+  },
+  "sources": [
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\run.ps1",
+      "sha256": "8a7d87ab30c1b92416206ca5ae9c4973ac3c151b6a6fbe949ec3d22c09155b19",
+      "bytes": 15623
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\StepPreviewProbe.cs",
+      "sha256": "da2ffc3e00ac6d0d8ada036664f3cddd8d9066a00df70e53591b646394bfea65",
+      "bytes": 10552
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\README.md",
+      "sha256": "929c0a7aea6c4cb976908be48937d74cf8a21c13adea80948593d8e7a571463e",
+      "bytes": 7339
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\PreviewContract.ps1",
+      "sha256": "a28d0b05a5bd1bf93123d6fe2d62c40ac01f23b481324fccb9612706f4685fcf",
+      "bytes": 8967
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\run.ps1",
+      "sha256": "7a1944dfdbfd84fc40c615c9591932b59dd9f717b7746708bdc3b2a33cb8b632",
+      "bytes": 20538
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\WireContract.ps1",
+      "sha256": "18b47338b2d4330dd4a2828342097f04a6a3b0c593b3d94005778e02d44dab75",
+      "bytes": 8759
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\capture-context.ps1",
+      "sha256": "8a37ce8b046122ba9eb77a9cce985665a1102b7b1bdf54f2dcdbf632af7d8430",
+      "bytes": 1609
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PreparedDimensionProbe.cs",
+      "sha256": "35b0dfec75346156f30d601f50e4dff9595f7726af43d31c9b6332002a1f2901",
+      "bytes": 8195
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PreparedPackage.cs",
+      "sha256": "00e0cdb2aaf2d2a8293408f26a5965ca1163647c307cf28bbfc1c70143fb484c",
+      "bytes": 13309
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\PartGeometry.cs",
+      "sha256": "a9f9b688feca2a7008cf23a2ff5abe6bd1b9a3fbd28264d26c0335c69f538def",
+      "bytes": 6262
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\session-lifecycle\\NativeSessionProbe.cs",
+      "sha256": "ad89d6ecdb3bf619d09ac20a836a5cad69f3983495e4ee2bfdf51eee5dec2dc6",
+      "bytes": 6333
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\session-lifecycle\\PreparedCylinder.cs",
+      "sha256": "de0e2e7a96ba2cff764918bb00e7a8a91855a8db379e76a0973cc12dfbbe435c",
+      "bytes": 14120
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\file-admission\\SharedFilePredicates.cs",
+      "sha256": "ddf07e19823672a6fda7ad3a8dbff63755784528166d6b291a8afa144fb0acb7",
+      "bytes": 1533
+    },
+    {
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\file-admission\\OwnedProcess.ps1",
+      "sha256": "d4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e",
+      "bytes": 4835
+    }
+  ],
+  "ast": [
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\run.ps1"
+    },
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\PreviewContract.ps1"
+    },
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\run.ps1"
+    },
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\WireContract.ps1"
+    },
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-dimension\\capture-context.ps1"
+    },
+    {
+      "errors": [],
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\file-admission\\OwnedProcess.ps1"
+    }
+  ],
+  "compiles": [
+    {
+      "sha256": "63619dd34cef4c11f77d1bd2f2080e0f5e82558b61bc2759dd126f4819b46e21",
+      "name": "StepPreviewBootstrap",
+      "child": {
+        "pid": 6704,
+        "exitCode": 0,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.3030789,
+        "error": null,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "sha256": "7677cb6c1257d1221e662516bbdf56c8a1ced7d7a64af7a91b2eff19ae5cdca9",
+      "name": "NativeSessionProbe",
+      "child": {
+        "pid": 12512,
+        "exitCode": 0,
+        "timedOut": false,
+        "terminationRequested": false,
+        "terminated": false,
+        "elapsedSeconds": 0.2246471,
+        "error": null,
+        "stdout": "",
+        "stderr": ""
+      }
+    }
+  ],
+  "cases": [
+    {
+      "expected": "Request does not bind",
+      "error": "Request does not bind these context bytes.",
+      "name": "wrong_context_bytes",
+      "passed": true
+    },
+    {
+      "expected": "binding mismatch|check set|seven checks|measurement mismatch",
+      "error": "Successful candidate result binding mismatch.",
+      "name": "wrong_result",
+      "passed": true
+    },
+    {
+      "expected": "binding mismatch|check set|seven checks|measurement mismatch",
+      "error": "Candidate check set did not pass.",
+      "name": "duplicate_checks",
+      "passed": true
+    },
+    {
+      "expected": "binding mismatch|check set|seven checks|measurement mismatch",
+      "error": "Candidate requires all seven checks.",
+      "name": "missing_checks",
+      "passed": true
+    },
+    {
+      "expected": "binding mismatch|check set|seven checks|measurement mismatch",
+      "error": "Native cylinder measurement mismatch.",
+      "name": "invalid_measurement",
+      "passed": true
+    },
+    {
+      "expected": "Native file identity differs",
+      "error": "Native file identity differs: synthetic-assembly.SLDASM",
+      "name": "wrong_native_file_identity",
+      "passed": true
+    },
+    {
+      "expected": "2,000,000",
+      "error": "STEP exceeds the 2,000,000-byte bound.",
+      "name": "step_limit",
+      "passed": true
+    },
+    {
+      "expected": "3,000,000",
+      "error": "Preview JSON exceeds the 3,000,000-byte bound.",
+      "name": "json_limit",
+      "passed": true
+    }
+  ],
+  "error": null,
+  "runtime": "5.1.26100.9278",
+  "candidateBefore": [
+    {
+      "sha256": "d64c6cb9831821c073169be2806fc33ff95d86addfc12dcf312b117f3133a3a5",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\synthetic-assembly.SLDASM"
+    },
+    {
+      "sha256": "f93ec5db4fb7f586a1b579a06d38c0131b14dbfd4a207ebc68947d67c514e5e4",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\parts\\baseline-5mm.SLDPRT"
+    },
+    {
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\parts\\candidate-8mm.SLDPRT"
+    }
+  ],
+  "extractedFunctionCount": 8,
+  "pins": [
+    {
+      "path": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+      "version": "4.8.9221.0 built by: NET481REL1LAST_25H2"
+    },
+    {
+      "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\api\\redist\\SolidWorks.Interop.sldworks.dll",
+      "sha256": "9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0",
+      "version": "30.5.0.49"
+    },
+    {
+      "path": "C:\\Program Files\\SOLIDWORKS 2022\\SOLIDWORKS\\api\\redist\\SolidWorks.Interop.swconst.dll",
+      "sha256": "b6f1aff6729712027d8c96b0da67ae3e949c133893c13c9a6add0ea5d27e35f1",
+      "version": "30.5.0.49"
+    }
+  ],
+  "positiveBindings": {
+    "candidateDepth": 8,
+    "baselineDepth": 5,
+    "resultHash": "bdcba207d801d3bce9f55803d735349493aae9ab8ba5a1c608b0ee4bed592439",
+    "requestHash": "5405cfefa341757355200b8df30e9b60d47401bf7eb4e270562554bdb74483b1",
+    "contextHash": "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d"
+  },
+  "defaultOff": {
+    "pid": 24028,
+    "exitCode": 1,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 0.3388001,
+    "error": null,
+    "stdout": "",
+    "stderr": "Default-off: -Execute is required for one native STEP preview.\r\nAt C:\\Users\\blain\\AppData\\Local\\Temp\\OVD493-C-13502a\\scripts\\native\\prepared-preview\\run.ps1:20 char:22\r\n+ ... $Execute) { throw 'Default-off: -Execute is required for one native S ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (Default-off: -E...e STEP preview.:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : Default-off: -Execute is required for one native STEP preview.\r\n \r\n"
+  },
+  "candidateAfter": [
+    {
+      "sha256": "d64c6cb9831821c073169be2806fc33ff95d86addfc12dcf312b117f3133a3a5",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\synthetic-assembly.SLDASM"
+    },
+    {
+      "sha256": "f93ec5db4fb7f586a1b579a06d38c0131b14dbfd4a207ebc68947d67c514e5e4",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\parts\\baseline-5mm.SLDPRT"
+    },
+    {
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898",
+      "path": "C:\\Users\\blain\\AppData\\Local\\Temp\\OD490-R\\8a5a7d22-1cd5-4ffa-95f3-e049e0656b49\\candidate\\parts\\candidate-8mm.SLDPRT"
+    }
+  ],
+  "outer": {
+    "pid": 22896,
+    "exitCode": 0,
+    "timedOut": false,
+    "terminationRequested": false,
+    "terminated": false,
+    "elapsedSeconds": 2.5503312,
+    "error": null,
+    "stdout": "",
+    "stderr": ""
+  },
+  "invariance": {
+    "originalsPolicyInventory": true,
+    "candidate": true
+  }
+}

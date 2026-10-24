@@ -1,0 +1,40 @@
+{
+  "schema": "overdrafter.prepared-dimension-job.v1",
+  "jobId": "80f8a459-4473-475c-b5d6-08bf6ee8614a",
+  "attemptId": "52bf3d21-ff84-4974-b246-46ac5bd20d56",
+  "scope": {
+    "organizationId": "local-engineering",
+    "projectId": "prepared-assembly"
+  },
+  "contextSha256": "e3a7aaa8b6249224c0bbac7e4bad78e46c28c3f59eba58e0ad9f33ffdfd5ec8d",
+  "inputFiles": [
+    {
+      "path": "synthetic-assembly.SLDASM",
+      "bytes": 59987,
+      "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+    },
+    {
+      "path": "parts/baseline-5mm.SLDPRT",
+      "bytes": 56144,
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+    },
+    {
+      "path": "parts/candidate-8mm.SLDPRT",
+      "bytes": 56171,
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+    }
+  ],
+  "dimensionId": "baseline-depth",
+  "depthMm": 8,
+  "configuration": "Default",
+  "createdAt": "2026-09-09T05:53:22.174Z",
+  "requiredChecks": [
+    "input_identity",
+    "native_integrity",
+    "dimension",
+    "assembly_references",
+    "component_placements",
+    "save_reopen",
+    "source_preservation"
+  ]
+}
