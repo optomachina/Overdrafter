@@ -27,8 +27,11 @@ import {
   reasonCodes,
   runGate,
 } from "./ovd-merge-gate.mjs";
+// Exports added by the OVD-959 repair, read through the namespace so each
+// regression test fails on its own (not the whole file) against older code.
+import * as gate from "./ovd-merge-gate.mjs";
 import { detect, loadConfig } from "./sensitive-class-detect.mjs";
-import { formatVerdictBlock } from "./verdict-schema.mjs";
+import { extractVerdictBlocks, formatVerdictBlock } from "./verdict-schema.mjs";
 
 const HEAD = "a".repeat(40);
 const OLD = "b".repeat(40);
@@ -37,11 +40,14 @@ const DIFF = "c".repeat(64);
 const OTHER_DIFF = "d".repeat(64);
 const PATCH = "f".repeat(40);
 const BOT = "overdrafter-verifier[bot]";
+const NEW_HEAD = "9".repeat(40);
+const BUILT_BY = "Built-by: bot=engineer model=model:codex";
+const runUrl = (run) => `https://github.com/o/r/actions/runs/${run}`;
 
 let nextId = 100;
 const at = (id) => new Date(Date.UTC(2026, 9, 20, 0, 0, 0) + id * 1000).toISOString().replace(".000Z", "Z");
 
-function verdict({ role = "verifier", result = "PASS", sha = HEAD, diffId = DIFF, login = "optomachina", checks = "green", notes, findings, runs = [1], supersedes, reason } = {}) {
+function verdict({ role = "verifier", result = "PASS", sha = HEAD, diffId = DIFF, login = "optomachina", checks = "green", notes, findings, runs = [1], supersedes, reason, family = "claude", evidence } = {}) {
   const value = {
     schema: "overdrafter.verdict/v1",
     role,
@@ -49,8 +55,8 @@ function verdict({ role = "verifier", result = "PASS", sha = HEAD, diffId = DIFF
     sha,
     patch_id: PATCH,
     diff_id: diffId,
-    verifier: { id: role === "verifier" ? "astra-verifier" : "opus-reviewer", model_family: "opus", github_login: login },
-    evidence: runs.map((run) => ({ kind: "ci-run", url: `https://github.com/optomachina/Overdrafter/actions/runs/${run}` })),
+    verifier: { id: role === "verifier" ? "astra-verifier" : "opus-reviewer", model_family: family, github_login: login },
+    evidence: evidence ?? runs.map((run) => ({ kind: "ci-run", url: runUrl(run) })),
     notes: notes ?? (result === "PASS_NOTES" ? ["low: fine"] : []),
     readiness: { conflicts: 0, open_threads: 0, checks },
     timestamp: "2026-10-20T00:00:00Z",
@@ -79,19 +85,41 @@ const okClassification = (files = DOCS_FILES, classes = []) => ({
   errors: [],
 });
 
-const baseInput = (overrides = {}) => ({
-  headSha: HEAD,
-  liveHeadSha: HEAD,
-  headDiffId: DIFF,
-  comments: [posted(verdict()), posted(verdict({ role: "reviewer" }))],
-  commits: [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }],
-  prAuthor: "optomachina",
-  changedFiles: DOCS_FILES,
-  classification: okClassification(),
-  mode: "enforce",
-  identity: "shared-account",
-  ...overrides,
-});
+/** Evidence as runGate verifies it: every cited URL resolves at its verdict's SHA (tests of unverified evidence pass their own). */
+function verifiedFor(comments) {
+  const verified = {};
+  for (const item of Array.isArray(comments) ? comments : []) {
+    for (const text of extractVerdictBlocks(item?.body)) {
+      let value;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      for (const evidence of Array.isArray(value?.evidence) ? value.evidence : []) (verified[value.sha] ??= []).push(evidence.url);
+    }
+  }
+  return verified;
+}
+
+const baseInput = (overrides = {}) => {
+  const input = {
+    headSha: HEAD,
+    liveHeadSha: HEAD,
+    headDiffId: DIFF,
+    comments: [posted(verdict()), posted(verdict({ role: "reviewer" }))],
+    commits: [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }],
+    prAuthor: "optomachina",
+    prBody: BUILT_BY,
+    changedFiles: DOCS_FILES,
+    classification: okClassification(),
+    mode: "enforce",
+    identity: "shared-account",
+    ...overrides,
+  };
+  if (!Object.hasOwn(overrides, "verifiedEvidence")) input.verifiedEvidence = verifiedFor(input.comments);
+  return input;
+};
 
 const codes = (input) => reasonCodes(evaluate(input));
 
@@ -558,24 +586,40 @@ describe("workflow YAML (§6 item 5)", () => {
     for (const [, job] of jobs) expect(job.permissions).toBeUndefined();
   });
 
-  it("has one job named ovd-merge-gate-writer (never the check name) and no job-level if", () => {
-    expect(jobs.map(([key]) => key)).toEqual(["ovd-merge-gate-writer"]);
+  it("has the writer and the history recorder (never the check name) and no job-level if", () => {
+    expect(jobs.map(([key]) => key)).toEqual(["ovd-merge-gate-writer", "ovd-merge-gate-history"]);
     for (const [key, job] of jobs) {
       expect(key).not.toBe(CHECK_NAME);
-      expect(job.name).toBe("ovd-merge-gate-writer");
+      expect(job.name).toBe(key);
       expect(job.if).toBeUndefined();
     }
   });
 
-  it("queues per PR without cancelling", () => {
-    expect(workflow.concurrency.group).toBe("ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}");
-    expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+  it("queues the writer per PR without cancelling, after the history job", () => {
+    const writer = workflow.jobs["ovd-merge-gate-writer"];
+    expect(writer.concurrency.group).toBe("ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}");
+    expect(writer.concurrency["cancel-in-progress"]).toBe(false);
+    expect(writer.needs).toBe("ovd-merge-gate-history");
   });
 
-  it("checks out only the default branch on every trigger, never the head ref", () => {
+  it("never lets a newer run replace the history job: no workflow-level or history concurrency group (finding 1)", () => {
+    expect(workflow.concurrency).toBeUndefined();
+    const history = workflow.jobs["ovd-merge-gate-history"];
+    expect(history.concurrency).toBeUndefined();
+    expect(history.needs).toBeUndefined();
+    const run = history.steps.find((step) => step.run?.includes("ovd-merge-gate.mjs")).run;
+    expect(run).toContain("node scripts/ovd-merge-gate.mjs record --pr \"$pr\"");
+    expect(run).toMatch(/merge_group\)\n\s+echo [^\n]*\n\s+exit 0/);
+    for (const event of ["pull_request_target)", "issue_comment)", "workflow_dispatch)"]) expect(run).toContain(event);
+    expect(run).toContain("refs/heads/$DEFAULT_BRANCH");
+  });
+
+  it("checks out only the default branch in each job, never the head ref, and fetches no history into it", () => {
     const checkouts = steps.filter((step) => String(step.uses ?? "").startsWith("actions/checkout"));
-    expect(checkouts).toHaveLength(1);
+    expect(checkouts).toHaveLength(jobs.length);
+    for (const [, job] of jobs) expect(job.steps.filter((step) => String(step.uses ?? "").startsWith("actions/checkout"))).toHaveLength(1);
     for (const step of checkouts) {
+      expect(step.with["fetch-depth"]).toBeUndefined();
       expect(step.if).toBeUndefined();
       expect(step.with.ref).toBe("${{ github.event.repository.default_branch }}");
       expect(step.with.repository).toBeUndefined();
@@ -607,17 +651,31 @@ function response(status, body) {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) };
 }
 
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], fail = [] } = {}) {
+/** GitHub Actions check runs (CI) on a SHA, as the Checks API lists them. */
+const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `ci-${run}`, head_sha: sha, app: { id: 15368 }, details_url: `${runUrl(run)}/job/${9000 + run}`, html_url: `https://github.com/o/r/runs/${7000 + run}` }));
+
+/**
+ * A fake GitHub API. Posted check runs are kept and listed again (by SHA,
+ * check_name), like the real Checks API; `checkRuns` are earlier runs listed
+ * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
+ */
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [] } = {}) {
   const requests = [];
+  const urls = [];
   const posts = [];
   let pullReads = 0;
+  const listRuns = (sha, name) => [...checkRuns, ...stored.filter((run) => run.head_sha === sha), ...ciCheckRuns(sha, ciRuns[sha] ?? [1, 2, 3])]
+    .filter((run) => name === null || run.name === name);
   const fetchImpl = async (url, options = {}) => {
-    const { pathname } = new URL(url);
+    const { pathname, search, searchParams } = new URL(url);
     const method = options.method ?? "GET";
     requests.push(`${method} ${pathname}`);
+    urls.push(`${method} ${pathname}${search}`);
     if (fail.some((part) => pathname.includes(part))) return response(500, { message: "boom" });
     if (method === "POST" && pathname === "/repos/o/r/check-runs") {
-      posts.push(JSON.parse(options.body));
+      const posted = JSON.parse(options.body);
+      posts.push(posted);
+      stored.push({ id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
     }
     if (pathname === "/repos/o/r/pulls/7") {
@@ -628,7 +686,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
     if (pathname === "/repos/o/r/pulls/7/files") return response(200, files);
-    if (pathname.startsWith(`/repos/o/r/commits/`) && pathname.endsWith("/check-runs")) return response(200, { check_runs: checkRuns });
+    if (pathname.startsWith(`/repos/o/r/commits/`) && pathname.endsWith("/check-runs")) return response(200, { check_runs: listRuns(pathname.split("/")[5], searchParams.get("check_name")) });
     if (pathname.endsWith("/status") || pathname.endsWith("/statuses")) return response(200, { statuses: [{ context: "jev-screen", state: "failure" }] });
     return response(404, { message: `no route ${pathname}` });
   };
@@ -636,13 +694,13 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     json: async (p) => (await fetchImpl(`https://api.test${p}`)).json(),
     raw: async (p) => (await fetchImpl(`https://api.test${p}`)).text(),
   };
-  return { fetch: fetchImpl, client, requests, posts };
+  return { fetch: fetchImpl, client, requests, urls, posts, stored };
 }
 
 function fakeGit(calls = []) {
   return (args, options = {}) => {
     calls.push({ args, env: options.env ?? {} });
-    if (args[0] === "rev-parse") return `${BASE}\n`;
+    if (args.includes("rev-parse")) return `${BASE}\n`;
     return "";
   };
 }
@@ -953,10 +1011,11 @@ describe("verifier independence from the PR builder (ruling 1, stage A warning)"
     ["a null body", null],
     ["a body without a builder line", "Just a summary."],
     ["an unparseable builder line", "Built-by: ???"],
-  ])("%s: no warning and no pass effect", (_name, prBody) => {
+  ])("%s: no verifier_not_independent warning and no pass effect in stage A (builder_unattributed warns)", (_name, prBody) => {
     const passing = evaluate(baseInput({ prBody }));
     expect(passing.gate).toBe("pass");
     expect(notIndependent(passing.warnings)).toEqual([]);
+    expect(passing.warnings.map((warning) => warning.code)).toContain("builder_unattributed");
     for (const comments of [[], [posted(verdict())], [posted(verdict({ result: "FAIL" })), posted(verdict({ role: "reviewer" }))]]) {
       expect(evaluate(baseInput({ comments, prBody })).reasons).toEqual(evaluate(baseInput({ comments })).reasons);
       expect(evaluate(baseInput({ comments, prBody })).gate).toBe("fail");
@@ -972,14 +1031,24 @@ describe("verifier independence from the PR builder (ruling 1, stage A warning)"
 });
 
 describe("headDiffId", () => {
-  it("fetches the PR head and base as data, with the token only in the git child env", () => {
+  it("fetches the PR head and base as data into a separate bare store, with the token only in the git child env", () => {
     const calls = [];
-    const result = headDiffId({ pr: 7, headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), diff: ({ base, head }) => (base === BASE && head === HEAD ? DIFF : "wrong") });
+    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    let diffCwd;
+    const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), makeStore: () => store, diff: ({ base, head, cwd }) => { diffCwd = cwd; return base === BASE && head === HEAD ? DIFF : "wrong"; } });
     expect(result).toEqual({ diffId: DIFF, error: null });
-    expect(calls[0].args).toEqual(["fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "origin", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
+    expect(calls[0].args).toEqual(["init", "--bare", "--quiet", store]);
+    expect(calls[1].args).toEqual(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
+    expect(calls[2].args.slice(0, 2)).toEqual(["--git-dir", store]);
+    // Nothing runs in the trusted checkout (/x): every git call and the diff use the store.
+    expect(diffCwd).toBe(store);
+    expect(JSON.stringify(calls.map((call) => call.args))).not.toContain("/x");
+    expect(calls.some((call) => call.args.includes("checkout") || call.args.includes("worktree"))).toBe(false);
     expect(JSON.stringify(calls.map((call) => call.args))).not.toContain("secret-token");
-    expect(calls[0].env.GIT_CONFIG_VALUE_0).toBe(`AUTHORIZATION: basic ${Buffer.from("x-access-token:secret-token").toString("base64")}`);
-    expect(calls[1].env).toEqual({});
+    expect(calls[1].env.GIT_CONFIG_VALUE_0).toBe(`AUTHORIZATION: basic ${Buffer.from("x-access-token:secret-token").toString("base64")}`);
+    expect(calls[2].env).toEqual({});
+    // The store is removed afterwards.
+    expect(() => readFileSync(path.join(store, "HEAD"))).toThrow();
   });
 
   it.each([
@@ -988,16 +1057,17 @@ describe("headDiffId", () => {
     ["no base ref", { baseRef: undefined }],
     ["a bad head", { headSha: "HEAD" }],
     ["a bad PR", { pr: "7; rm" }],
+    ["a bad repository", { repo: "o/r --upload-pack=x" }],
   ])("returns an error and no diff_id for %s", (_name, overrides) => {
     const calls = [];
-    const result = headDiffId({ pr: 7, headSha: HEAD, baseRef: "main", git: fakeGit(calls), diff: () => DIFF, ...overrides });
+    const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", git: fakeGit(calls), diff: () => DIFF, ...overrides });
     expect(result.diffId).toBeNull();
     expect(result.error).toBeTruthy();
     expect(calls).toEqual([]);
   });
 
   it("returns an error when the fetch fails", () => {
-    const result = headDiffId({ pr: 7, headSha: HEAD, baseRef: "main", git: () => { throw new Error("fatal: could not read"); }, diff: () => DIFF });
+    const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", git: () => { throw new Error("fatal: could not read"); }, diff: () => DIFF });
     expect(result).toEqual({ diffId: null, error: "fatal: could not read" });
   });
 
@@ -1022,5 +1092,343 @@ describe("headDiffId", () => {
       expect(result.error).toBeNull();
       expect(result.diffId).toBe(computeDiffId({ base, head, cwd: dir }));
     });
+  });
+});
+
+// ------------------------------------------------- OVD-959 repair round 1
+// One describe per finding in the Codex review of dd68f8a5. Every test here
+// fails against dd68f8a5 and passes now.
+
+const ANCHOR = "a1cd387a57f7441a0c498ac6365148b04c39f724";
+const gateClientFor = (api) => ({ ...api.client, paginate: async (p, pick = (d) => d) => pick(await api.client.json(p)), post: async (p, b) => (await api.fetch(`https://api.test${p}`, { method: "POST", body: JSON.stringify(b) })).json() });
+const deletedEvent = (value, id, body = formatVerdictBlock(value)) => ({ action: "deleted", issue: { number: 7 }, comment: { id, body, created_at: at(id), updated_at: at(id), user: { login: value.verifier.github_login } } });
+const createdEvent = (item) => ({ action: "created", issue: { number: 7 }, comment: item });
+
+/** Run the CLI with an event payload, as the workflow does (GITHUB_EVENT_PATH). */
+async function runWithEvent(args, api, event, overrides = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), "ovd959-event-"));
+  try {
+    const file = path.join(dir, "event.json");
+    writeFileSync(file, JSON.stringify(event));
+    return await runCli(args, api, { ...overrides, env: { GITHUB_EVENT_PATH: file, ...overrides.env } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const historyRun = (entries, { pr = 7, name = `ovd-merge-gate-history/pr-${pr}`, text } = {}) => ({
+  id: 4242,
+  name,
+  head_sha: ANCHOR,
+  app: { id: 15368 },
+  output: { text: text ?? `\`\`\`json\n${JSON.stringify({ schema: "overdrafter.gate-history/v1", pr, event: "deleted", entries })}\n\`\`\`` },
+});
+
+describe("finding 1: verdict history survives a replaced gate run (durable, append-only)", () => {
+  it("anchors the history on the repository root commit, one check name per PR", () => {
+    expect(gate.HISTORY_ANCHOR_SHA).toBe(ANCHOR);
+    expect(gate.historyCheckName(7)).toBe("ovd-merge-gate-history/pr-7");
+    expect(gate.HISTORY_SCHEMA_ID).toBe("overdrafter.gate-history/v1");
+  });
+
+  it("a deletion whose own gate run never ran (replaced in the queue) still blocks the next writer", async () => {
+    const fail = verdict({ result: "FAIL" });
+    const api = fakeGithub({ comments: passingComments() });
+    // The deletion run: its history job records; its writer is replaced by a newer pending run.
+    const recorded = await runWithEvent(["record", "--pr", "7"], api, deletedEvent(fail, 1));
+    expect(recorded.code).toBe(0);
+    expect(api.posts).toHaveLength(1);
+    expect(api.posts[0]).toMatchObject({ name: "ovd-merge-gate-history/pr-7", head_sha: ANCHOR, status: "completed" });
+    // The newer run (an unrelated comment) has no deletion event; only the history knows.
+    const unrelated = comment("thanks!");
+    const written = await runWithEvent(["write", "--pr", "7"], api, createdEvent(unrelated));
+    expect(written.code).toBe(0);
+    const check = api.posts.find((item) => item.name === CHECK_NAME);
+    expect(check.conclusion).toBe("neutral");
+    expect(check.output.title).toContain("verdict_conflict");
+    expect(JSON.parse(check.output.text.slice(8, -4)).deleted_verdicts).toHaveLength(1);
+  });
+
+  it("records a FAIL when it is created, so it is carried even if every deletion run fails", async () => {
+    const failComment = posted(verdict({ result: "FAIL" }));
+    const api = fakeGithub({ comments: [...passingComments(), failComment] });
+    expect((await runWithEvent(["record", "--pr", "7"], api, createdEvent(failComment))).code).toBe(0);
+    // The FAIL is deleted; no deleted event is ever processed.
+    const later = fakeGithub({ comments: passingComments(), stored: api.stored });
+    const { code, out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], later);
+    expect(code).toBe(1);
+    expect(reasonCodes(JSON.parse(out))).toContain("verdict_conflict");
+  });
+
+  it("records only trusted blocking verdicts, never a clean pass, and never the same one twice", async () => {
+    const api = fakeGithub({ comments: [...passingComments(), posted(verdict({ result: "FAIL", login: "mallory" }))] });
+    const client = gateClientFor(api);
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: deletedEvent(verdict(), 1) })).toEqual({ written: 0 });
+    const fail = deletedEvent(verdict({ role: "reviewer", result: "FAIL" }), 2);
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: fail })).toEqual({ written: 1 });
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: fail })).toEqual({ written: 0 });
+    const [entry] = await gate.readHistory(client, "o/r", 7);
+    expect(entry).toMatchObject({ comment_id: 2, author: "optomachina", role: "reviewer", verdict_block: { verdict: "FAIL", sha: HEAD, diff_id: DIFF } });
+  });
+
+  it("leaves a recorded verdict that is still posted to the live comments, and carries one that was removed or edited away", () => {
+    const failComment = posted(verdict({ result: "FAIL" }));
+    const [entry] = deletedVerdictsFromEvent({ action: "deleted", comment: failComment });
+    expect(gate.removedHistory([entry], [failComment])).toEqual([]);
+    expect(gate.removedHistory([entry], [])).toEqual([entry]);
+    const editedAway = { ...failComment, body: formatVerdictBlock(verdict()), updated_at: at(failComment.id + 9) };
+    expect(gate.removedHistory([entry], [editedAway])).toEqual([entry]);
+    // A FAIL edited into a PASS, then a fresh PASS: the original FAIL still stands.
+    const summary = evaluate(baseInput({ comments: [editedAway, posted(verdict()), posted(verdict({ role: "reviewer" }))], history: [entry] }));
+    expect(reasonCodes(summary)).toContain("verdict_conflict");
+  });
+
+  it.each([
+    ["the history list cannot be read", { fail: [ANCHOR] }],
+    ["a history record is not JSON", { stored: [historyRun([], { text: "```json\n{nope\n```" })] }],
+    ["a history record has another schema", { stored: [historyRun([], { text: "```json\n{\"schema\":\"x\",\"pr\":7,\"entries\":[]}\n```" })] }],
+    ["a history record is for another PR", { stored: [historyRun([], { pr: 8, name: "ovd-merge-gate-history/pr-7" })] }],
+    ["a history entry is not an object", { stored: [historyRun(["FAIL"])] }],
+  ])("fails closed (missing_input) when %s", async (_name, options) => {
+    const api = fakeGithub({ comments: passingComments(), ...options });
+    const { code, out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(code).toBe(1);
+    const summary = JSON.parse(out);
+    expect(summary.gate).toBe("fail");
+    expect(summary.reasons.some((reason) => reason.code === "missing_input" && reason.detail.includes("verdict history"))).toBe(true);
+  });
+});
+
+describe("finding 2: removed blocking verdicts are keyed on the PR and diff_id, not the head SHA", () => {
+  it("a new head with the same diff_id cannot pass on surviving PASS comments after a FAIL was deleted", async () => {
+    const survivors = [posted(verdict({ sha: OLD })), posted(verdict({ role: "reviewer", sha: OLD }))];
+    // At head OLD: the FAIL is deleted; the workflow records, then writes.
+    const before = fakeGithub({ head: OLD, comments: survivors });
+    await runWithEvent(["record", "--pr", "7"], before, deletedEvent(verdict({ result: "FAIL", sha: OLD }), 1));
+    await runWithEvent(["write", "--pr", "7"], before, deletedEvent(verdict({ result: "FAIL", sha: OLD }), 1));
+    expect(before.posts.find((item) => item.name === CHECK_NAME).conclusion).toBe("neutral");
+    // A rebase to NEW_HEAD keeps diff_id; the gate's own runs on OLD are not read for NEW_HEAD.
+    const after = fakeGithub({ head: NEW_HEAD, comments: survivors, stored: before.stored });
+    const { code, out } = await runCli(["evaluate", "--pr", "7", "--sha", NEW_HEAD, "--json"], after);
+    expect(code).toBe(1);
+    const summary = JSON.parse(out);
+    expect(summary.diff_id).toBe(DIFF);
+    expect(reasonCodes(summary)).toContain("verdict_conflict");
+  });
+
+  it("a removed FAIL for another diff_id does not block the new head", () => {
+    const [entry] = deletedVerdictsFromEvent(deletedEvent(verdict({ result: "FAIL", sha: OLD, diffId: OTHER_DIFF }), 1));
+    expect(evaluate(baseInput({ history: [entry] })).gate).toBe("pass");
+  });
+});
+
+describe("finding 3: earlier gate runs are read with filter=all and fail closed when malformed", () => {
+  const gateRun = (text) => ({ id: 31, name: CHECK_NAME, app: { id: 15368 }, output: { text } });
+
+  it.each([
+    ["JSON that does not parse", "```json\n{\"deleted_verdicts\": [\n```"],
+    ["no JSON block", "nothing here"],
+    ["no deleted_verdicts list", "```json\n{\"gate\":\"pass\"}\n```"],
+    ["a deleted_verdicts item that is not an object", "```json\n{\"deleted_verdicts\":[\"FAIL\"]}\n```"],
+  ])("an earlier gate run with %s is missing_input, never empty history", async (_name, text) => {
+    const api = fakeGithub({ comments: passingComments(), checkRuns: [gateRun(text)] });
+    const { code, out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(code).toBe(1);
+    const summary = JSON.parse(out);
+    expect(summary.gate).toBe("fail");
+    expect(summary.reasons.some((reason) => reason.code === "missing_input" && reason.detail.includes("earlier gate check runs"))).toBe(true);
+  });
+
+  it("queries earlier gate runs and the history with filter=all", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(api.urls).toContain(`GET /repos/o/r/commits/${HEAD}/check-runs?check_name=ovd-merge-gate&filter=all&per_page=100&page=1`);
+    expect(api.urls).toContain(`GET /repos/o/r/commits/${ANCHOR}/check-runs?check_name=ovd-merge-gate-history%2Fpr-7&filter=all&per_page=100&page=1`);
+  });
+});
+
+describe("finding 4: a missing or unparseable Built-by line warns in stage A and blocks in stage B", () => {
+  const botComments = () => [posted(verdict({ login: BOT })), posted(verdict({ role: "reviewer", login: BOT }))];
+  const attribution = (body) => gate.builderAttribution(body);
+
+  it.each([
+    ["no body", undefined],
+    ["no Built-by line", "Just a summary."],
+    ["an unparseable line", "Built-by: ???"],
+    ["a second builder in free text", "Built-by: Engineer / Codex and Opus"],
+    ["a legacy Model line only", "Model: model:codex"],
+    ["one unparseable entry next to a good one", "Built-by: bot=engineer model=model:codex; ???"],
+  ])("%s: builder_unattributed blocks in stage B", (_name, prBody) => {
+    const summary = evaluate(baseInput({ identity: "app", comments: botComments(), prBody }));
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toEqual(["builder_unattributed"]);
+  });
+
+  it("is a warning, not a reason, in stage A", () => {
+    const summary = evaluate(baseInput({ prBody: "Built-by: Engineer / Codex and Opus" }));
+    expect(summary.gate).toBe("pass");
+    expect(summary.warnings.map((warning) => warning.code)).toContain("builder_unattributed");
+    expect(formatSummary(summary)).toContain("`builder_unattributed` (warning)");
+  });
+
+  it("parses the documented forms with the maintained parser (docs/agent-pr-tags.md)", () => {
+    expect(attribution("Built-by: bot=engineer model=model:codex; bot=architect model=model:claude-opus")).toEqual({ ids: ["engineer", "architect"], problem: null });
+    expect(attribution("Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)")).toEqual({ ids: ["engineer"], problem: null });
+    expect(attribution("Built-by: Mac Mini Claude Jobs / claude-opus")).toEqual({ ids: ["mac-mini-claude-jobs"], problem: null });
+    expect(attribution("Built-by: Engineer / Codex and Opus").problem).toMatch(/cannot be parsed/);
+    expect(attribution("Model: model:codex").problem).toMatch(/no Built-by line/);
+  });
+
+  it("a parseable line with no match passes stage B", () => {
+    expect(evaluate(baseInput({ identity: "app", comments: botComments(), prBody: BUILT_BY })).reasons).toEqual([]);
+  });
+});
+
+describe("finding 5: PASS evidence must resolve to an Actions run on the verdict's SHA", () => {
+  const evaluateCli = async (api) => {
+    const { code, out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    return { code, summary: JSON.parse(out) };
+  };
+
+  it("https://example.invalid/not-a-run does not carry a PASS", async () => {
+    const fake = verdict({ evidence: [{ kind: "ci-run", url: "https://example.invalid/not-a-run" }] });
+    const { code, summary } = await evaluateCli(fakeGithub({ comments: [posted(fake), posted(verdict({ role: "reviewer" }))] }));
+    expect(code).toBe(1);
+    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_qa_pass_on_head"]);
+    expect(summary.verifier_comment_id).toBeNull();
+  });
+
+  it.each([
+    ["an Actions run that never reported on the verdict's SHA", { runs: [77] }, {}],
+    ["a run in another repository", { evidence: [{ kind: "ci-run", url: "https://github.com/evil/r/actions/runs/1" }] }, {}],
+    ["a lookalike host", { evidence: [{ kind: "verify-run", url: "https://github.com.evil.test/o/r/actions/runs/1" }] }, {}],
+    ["a run whose check runs cannot be read", {}, { fail: [`/commits/${HEAD}/check-runs`] }],
+  ])("%s does not carry a PASS", async (_name, overrides, apiOptions) => {
+    const { summary } = await evaluateCli(fakeGithub({ comments: [posted(verdict(overrides)), posted(verdict({ role: "reviewer" }))], ...apiOptions }));
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toContain("evidence_unverified");
+  });
+
+  it("a reviewer PASS needs resolving evidence too", async () => {
+    const { summary } = await evaluateCli(fakeGithub({ comments: [posted(verdict()), posted(verdict({ role: "reviewer", runs: [77] }))] }));
+    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_review_on_head"]);
+  });
+
+  it("an Actions run on the verdict's SHA carries it, including a diff_id-bound verdict at an older SHA", async () => {
+    expect((await evaluateCli(fakeGithub({ comments: passingComments() }))).summary.gate).toBe("pass");
+    const old = [posted(verdict({ sha: OLD, runs: [8] })), posted(verdict({ role: "reviewer", sha: OLD, runs: [8] }))];
+    expect((await evaluateCli(fakeGithub({ comments: old, ciRuns: { [OLD]: [8], [HEAD]: [] } }))).summary.gate).toBe("pass");
+    expect(reasonCodes((await evaluateCli(fakeGithub({ comments: old, ciRuns: { [OLD]: [], [HEAD]: [8] } }))).summary)).toContain("evidence_unverified");
+  });
+
+  it("evaluate counts no pass without verified evidence", () => {
+    expect(reasonCodes(evaluate(baseInput({ verifiedEvidence: undefined })))).toContain("evidence_unverified");
+    expect(evaluate(baseInput({ verifiedEvidence: { [OLD]: [runUrl(1)] } })).gate).toBe("fail");
+  });
+
+  it("an infra supersede needs its new run verified at the FAIL's SHA", () => {
+    const fail = posted(verdict({ result: "FAIL", runs: [1] }));
+    const comments = [fail, posted(verdict({ runs: [2], supersedes: fail.id, reason: "infra" })), posted(verdict({ role: "reviewer" }))];
+    expect(evaluate(baseInput({ comments })).gate).toBe("pass");
+    // Run 2 is not an Actions run on HEAD: the FAIL stands.
+    expect(codes(baseInput({ comments, verifiedEvidence: { [HEAD]: [runUrl(1)] } }))).toContain("verdict_conflict");
+    expect(codes(baseInput({ comments, verifiedEvidence: { [OLD]: [runUrl(2)], [HEAD]: [runUrl(1)] } }))).toContain("verdict_conflict");
+  });
+
+  it("reads only Actions run URLs of this repository", () => {
+    expect(gate.actionsRunId("https://github.com/o/r/actions/runs/12", "o/r")).toBe("12");
+    expect(gate.actionsRunId("https://github.com/O/R/actions/runs/12/job/34?pr=7", "o/r")).toBe("12");
+    expect(gate.actionsRunId("https://github.com/o/r/actions/runs/12/attempts/2", "o/r")).toBe("12");
+    for (const url of ["https://example.invalid/not-a-run", "http://github.com/o/r/actions/runs/12", "https://github.com/o/x/actions/runs/12", "https://github.com:444/o/r/actions/runs/12", "https://u:p@github.com/o/r/actions/runs/12", "https://github.com/o/r/actions/runs/x", "not a url"]) {
+      expect(gate.actionsRunId(url, "o/r")).toBeNull();
+    }
+  });
+});
+
+describe("medium: a commits fetch error is never a stage A success", () => {
+  it.each([
+    ["the commits API returns 500", { fail: ["/pulls/7/commits"] }],
+    ["the commit list is incomplete", { commits: [] }],
+  ])("%s: missing_input, neutral in report mode", async (_name, options) => {
+    const api = fakeGithub({ comments: passingComments(), ...options });
+    if (options.commits) {
+      const original = api.fetch;
+      api.fetch = async (url, init) => {
+        const result = await original(url, init);
+        if (new URL(url).pathname === "/repos/o/r/pulls/7") return response(200, { ...(await result.json()), commits: 1 });
+        return result;
+      };
+    }
+    const { code } = await runCli(["write", "--pr", "7"], api);
+    expect(code).toBe(0);
+    const check = api.posts.find((item) => item.name === CHECK_NAME);
+    expect(check.conclusion).toBe("neutral");
+    expect(check.output.title).toContain("missing_input");
+  });
+
+  it("evaluate in stage A fails without a commit list", () => {
+    expect(codes(baseInput({ commits: undefined }))).toEqual(["missing_input"]);
+    expect(codes(baseInput({ commits: [null] }))).toEqual(["missing_input"]);
+  });
+});
+
+describe("medium: an unterminated verdict fence does not disappear", () => {
+  const unterminated = (value) => comment(`Verdict:\n\n\`\`\`overdrafter-verdict\n${JSON.stringify(value, null, 2)}\n`);
+
+  it("an unterminated trusted FAIL is verdict_schema_error (blocking)", () => {
+    const summary = evaluate(baseInput({ comments: [...passingComments(), unterminated(verdict({ result: "FAIL" }))] }));
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toEqual(["verdict_schema_error"]);
+    expect(summary.ignored.map((item) => item.code)).toContain("unterminated_block");
+  });
+
+  it("an unterminated block after a closed one still counts", () => {
+    const body = `${formatVerdictBlock(verdict({ role: "reviewer" }))}\n\n\`\`\`overdrafter-verdict\n${JSON.stringify(verdict({ result: "FAIL" }))}\n`;
+    expect(codes(baseInput({ comments: [posted(verdict()), comment(body)] }))).toContain("verdict_schema_error");
+  });
+
+  it("an unterminated block from an untrusted author is ignored", () => {
+    const item = { ...unterminated(verdict({ result: "FAIL", login: "mallory" })), user: { login: "mallory" } };
+    expect(evaluate(baseInput({ comments: [...passingComments(), item] })).gate).toBe("pass");
+  });
+
+  it("a deleted comment with an unterminated block is kept as unreadable", () => {
+    const event = { action: "deleted", comment: { ...unterminated(verdict({ result: "FAIL" })), id: 99999, created_at: at(99999) } };
+    const [item] = deletedVerdictsFromEvent(event);
+    expect(item).toMatchObject({ comment_id: 99999, role: null, sha: null });
+    expect(codes(baseInput({ deletedVerdicts: [item] }))).toContain("edited_verdict");
+  });
+});
+
+describe("medium: ruling-4 model families and repo-relative finding paths", () => {
+  it.each(["opus", "gpt-6", "claude-opus", "mallory"])("a trusted verdict with model_family %s is verdict_schema_error", (family) => {
+    const comments = [...passingComments(), posted(verdict({ result: "FAIL", family }))];
+    const summary = evaluate(baseInput({ comments }));
+    expect(reasonCodes(summary)).toEqual(["verdict_schema_error"]);
+    expect(summary.ignored.find((item) => item.code === "schema_error").detail).toContain("model_family");
+  });
+
+  it("an unknown family never carries a pass", () => {
+    expect(codes(baseInput({ comments: [posted(verdict({ family: "gpt-6" })), posted(verdict({ role: "reviewer" }))] }))).toContain("no_qa_pass_on_head");
+  });
+
+  it.each(["claude", "codex", "grok", "jev", "human"])("accepts model_family %s", (family) => {
+    expect(evaluate(baseInput({ comments: [posted(verdict({ family })), posted(verdict({ role: "reviewer", family }))] })).gate).toBe("pass");
+  });
+
+  it("a trusted reviewer PASS with a legacy finding at ../outside is verdict_schema_error", () => {
+    const findings = [{ severity: "low", file: "../outside", line: 1, model: "grok" }];
+    const comments = [posted(verdict()), posted(verdict({ role: "reviewer" })), posted(verdict({ role: "reviewer", findings }))];
+    expect(codes(baseInput({ comments }))).toEqual(["verdict_schema_error"]);
+  });
+});
+
+describe("Sonar repair: no behaviour change", () => {
+  it("the CLI still parses every flag and refuses unknown ones", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    expect((await runCli(["evaluate", "--json", "--no-fetch", "--pr", "7", "--sha", HEAD, "--repo", "o/r"], api, { git: fakeGit() })).code).toBe(0);
+    expect((await runCli(["record"], api)).err).toContain("record needs --pr");
+    expect((await runCli(["write", "--pr"], api)).err).toContain("--pr needs a value");
+    expect((await runCli(["write", "--pr", "7", "--json", "--bogus"], api)).err).toContain("unknown argument");
   });
 });

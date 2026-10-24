@@ -9,26 +9,35 @@
  * (c) no outstanding FAIL and no disagreement over the union of every verdict
  *     bound to the head SHA or the head diff_id (a FAIL stands unless a later
  *     same-role verdict at the same SHA supersedes it for `reason: infra` and
- *     cites a new ci-run/verify-run; a FAIL with findings or a high note is a
- *     product FAIL and needs a new head),
+ *     cites a new, verified ci-run/verify-run; a FAIL with findings or a high
+ *     note is a product FAIL and needs a new head),
  * (d) verdicts from trusted logins only (TRUSTED_VERIFIERS, a constant here,
- *     never an env or repo variable),
- * (e) no edited or malformed trusted verdict for the head until a fresh one
- *     is posted (untrusted and malformed-by-others blocks are ignored); a
- *     deleted trusted verdict is carried forward only when it blocks (a FAIL,
- *     or a pass with a high note or finding), and then it still stands in the
- *     union exactly as if it had not been deleted; a deleted PASS/PASS_NOTES
- *     simply disappears and never counts as a pass; a deleted block that
- *     cannot be read fails closed until a fresh verdict is posted,
+ *     never an env or repo variable), with a known model_family (ruling 4),
+ * (e) no edited, malformed or unterminated trusted verdict for the head until
+ *     a fresh one is posted (untrusted and malformed-by-others blocks are
+ *     ignored); a removed (deleted, or edited away) trusted verdict is carried
+ *     forward only when it blocks (a FAIL, or a pass with a high note or
+ *     finding), and then it still stands in the union exactly as if it had
+ *     not been removed; a deleted PASS/PASS_NOTES simply disappears and never
+ *     counts as a pass; a removed block that cannot be read fails closed until
+ *     a fresh verdict is posted. Removals come from the append-only history
+ *     (see "Verdict history" below), keyed on the PR and bound by SHA or
+ *     diff_id, so a new head with the same diff_id inherits them,
  * (f) Blaine's `overdrafter.approval/v1` record for any sensitive class, from
  *     the default-branch copy of the sensitive-class detector; a detector
  *     status other than ok, or a missing, partial or stale result, is
  *     classifier_error,
  * (g) independence, enforced only when IDENTITY is "app" (stage B). Ruling 1:
  *     a counted verdict whose verifier id equals a builder in the PR body's
- *     Built-by line is verifier_not_independent, a warning in stage A (until
- *     K3) and a reason in stage B; a missing or unparseable line gives no
- *     warning and never helps a pass.
+ *     Built-by line (parsed by scripts/agent-graph/built-by.mjs, per
+ *     docs/agent-pr-tags.md) is verifier_not_independent; a missing or
+ *     unparseable Built-by line is builder_unattributed. Both are warnings in
+ *     stage A (until K3) and blocking reasons in stage B,
+ * (h) PASS evidence that resolves (ruling 6): a PASS or PASS_NOTES counts
+ *     only when one of its https ci-run/verify-run links is a GitHub Actions
+ *     run of this repository that reported a check run on the verdict's SHA
+ *     (the revision the verdict is bound to the head by); otherwise
+ *     evidence_unverified.
  *
  * Fail closed: every missing, unparseable, error, unknown or partial input is
  * a reason, never a pass. The advisory `jev-screen` status is never read.
@@ -40,6 +49,9 @@
  * CLI (run from a default-branch checkout; reads GITHUB_TOKEN or GH_TOKEN):
  *   node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch]
  *       prints the summary; exit 0 when gate is pass, 1 when fail, 2 on usage errors
+ *   node scripts/ovd-merge-gate.mjs record --pr N [--repo o/r]
+ *       appends the trusted blocking verdicts of the event comment and the
+ *       live comments to the PR's verdict history
  *   node scripts/ovd-merge-gate.mjs write --pr N [--repo o/r]
  *       evaluates the live head, re-reads the head, writes the check run
  *   node scripts/ovd-merge-gate.mjs merge-group --sha S [--repo o/r]
@@ -48,8 +60,11 @@
  * See docs/verdict-format.md ("OVD-845 merge gate").
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import process from "node:process";
+import { loadRouting, parseBuiltBy } from "./agent-graph/built-by.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { pathCandidates } from "./lib/sensitive-paths.mjs";
 import { approvalForHead, parseApprovalComments } from "./approval-record.mjs";
@@ -74,6 +89,34 @@ export const IDENTITY_NOTES = Object.freeze({
 });
 /** GitHub Actions; protection pins ovd-merge-gate to it. */
 export const GITHUB_ACTIONS_APP_ID = 15368;
+/** Ruling 4: the verifier's model_family. Anything else is a malformed verdict. */
+export const MODEL_FAMILIES = Object.freeze(["claude", "codex", "grok", "jev", "human"]);
+
+/**
+ * Verdict history: the durable, append-only record of trusted blocking
+ * verdicts (OVD-959, Codex review of dd68f8a5, findings 1-3).
+ *
+ * Why check runs on a fixed anchor commit. GitHub keeps no readable copy of
+ * a deleted issue comment: the comments, timeline and issue-events APIs drop
+ * it, comment edit history (GraphQL userContentEdits) disappears with the
+ * comment, and the public events feed is lossy (300 events, 90 days, delayed).
+ * So the only way to keep a deleted FAIL is to record it while it is still
+ * readable, in a store optomachina cannot delete and that no single gate run
+ * owns. Check runs fit, with the permissions the workflow already has
+ * (checks: write): there is no API to delete a check run, only the app that
+ * created one (GitHub Actions) can update it, and they can be listed with
+ * filter=all. Every workflow run records first, in its own job outside the
+ * per-PR concurrency group, so a replaced pending gate run cannot lose it,
+ * and it records at comment creation as well as on deletion, so the FAIL is
+ * kept even when the deletion run itself fails. The records are keyed on the
+ * PR (check name ovd-merge-gate-history/pr-<N>) on HISTORY_ANCHOR_SHA (the
+ * repository's root commit, which exists forever and is never a PR head), not
+ * on a head SHA, so a new head with the same diff_id still sees them.
+ * Reading fails closed: an unreadable list or record is missing_input.
+ */
+export const HISTORY_ANCHOR_SHA = "a1cd387a57f7441a0c498ac6365148b04c39f724";
+export const HISTORY_SCHEMA_ID = "overdrafter.gate-history/v1";
+export const historyCheckName = (pr) => `${CHECK_NAME}-history/pr-${pr}`;
 
 const MODES = new Set(["report", "enforce"]);
 const IDENTITIES = new Set(["shared-account", "app"]);
@@ -82,14 +125,22 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const PASSING = new Set(["PASS", "PASS_NOTES"]);
 const RUN_KINDS = new Set(["ci-run", "verify-run"]);
 /** Parser rejections that mean a trusted block could not be read (author_mismatch is ignored: it is not the author's verdict). */
-const MALFORMED = new Set(["invalid_json", "schema_error", "missing_comment_timestamps"]);
+const MALFORMED = new Set(["invalid_json", "schema_error", "missing_comment_timestamps", "unterminated_block"]);
+const ALL_TRUSTED = Object.freeze([...TRUSTED_VERIFIERS, ...APP_TRUSTED_VERIFIERS]);
+const OPEN_FENCE = "```" + FENCE_INFO;
+/** https://github.com/<owner>/<repo>/actions/runs/<id>[/job/<id>|/attempts/<n>]; no part can match another. */
+const ACTIONS_RUN_PATH = /^\/([\w.-]+)\/([\w.-]+)\/actions\/runs\/(\d{1,20})(?:\/job\/\d{1,20}|\/attempts\/\d{1,6})?\/?$/;
+const ROUTING_FIXTURE = new URL("./fixtures/agent-graph/model-routing.v2.yaml", import.meta.url);
 
 const lower = (login) => (typeof login === "string" ? login.toLowerCase() : null);
 const inList = (list, login) => login !== null && list.some((entry) => entry.toLowerCase() === login);
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const list = (value) => (Array.isArray(value) ? value : []);
 const instant = (value) => {
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : Number.NaN;
 };
+const missing = (detail) => ({ code: "missing_input", detail });
 
 /** Comment order: created_at as an instant, then the numeric id, then block order. */
 function compareEntries(a, b) {
@@ -108,64 +159,108 @@ function postedAfter(a, b) {
   return Number.isFinite(x) && Number.isFinite(y) && x > y;
 }
 
+/** Opening verdict fences, counted per line with startsWith (no regex, no backtracking). */
+function openFences(body) {
+  return typeof body === "string" ? body.split("\n").filter((line) => line.startsWith(OPEN_FENCE)).length : 0;
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function familyErrors(verdict) {
+  const family = verdict?.verifier?.model_family;
+  if (MODEL_FAMILIES.includes(family)) return [];
+  return [`verdict.verifier.model_family: must be one of ${MODEL_FAMILIES.join(", ")} (got ${JSON.stringify(family ?? null)})`];
+}
+
+/** One verdict block through the shared parser, plus the gate's ruling-4 family check. */
+function readBlock(comment, text, block, headSha) {
+  const single = { ...comment, body: [OPEN_FENCE, text, "```"].join("\n") };
+  const parsed = parseVerdictComments([single], { sha: headSha });
+  const base = { comment_id: comment.id ?? null, block, author: comment.user?.login ?? null, created_at: comment.created_at ?? null };
+  if (parsed.rejected.length) return { rejected: parsed.rejected.map((item) => ({ ...item, ...base, text })) };
+  const entry = parsed.latest ?? parsed.reviews[0] ?? parsed.other_sha[0];
+  if (!entry) return { rejected: [] };
+  const errors = familyErrors(entry.verdict);
+  if (errors.length) return { rejected: [{ ...base, reason: "schema_error", errors, text }] };
+  return { entry: { ...base, created_at: comment.created_at, verdict: entry.verdict }, rejected: [] };
+}
+
 /**
  * Every verdict block in the comments, one at a time, through the shared
  * parser. parseVerdictComments only reports the latest verifier verdict and
  * the ones that disagree with it, so an earlier PASS with a high finding
  * would be hidden; giving it one block at a time keeps every entry while
  * reusing its validation (schema, edited comments, author match, timestamps).
+ * An opening fence that is never closed is an `unterminated_block`: the
+ * shared extractor cannot see it, so it must not silently disappear.
  */
 export function collectVerdicts(comments, headSha) {
   const entries = [];
   const rejected = [];
-  for (const comment of Array.isArray(comments) ? comments : []) {
-    extractVerdictBlocks(comment?.body).forEach((text, block) => {
-      const single = { ...comment, body: `\`\`\`${FENCE_INFO}\n${text}\n\`\`\`` };
-      const parsed = parseVerdictComments([single], { sha: headSha });
-      const author = comment.user?.login ?? null;
-      if (parsed.rejected.length) {
-        for (const item of parsed.rejected) rejected.push({ ...item, block, author, text, created_at: comment.created_at ?? null });
-        return;
-      }
-      const entry = parsed.latest ?? parsed.reviews[0] ?? parsed.other_sha[0];
-      if (entry) entries.push({ comment_id: comment.id ?? null, block, created_at: comment.created_at, author, verdict: entry.verdict });
+  for (const comment of list(comments)) {
+    const blocks = extractVerdictBlocks(comment?.body);
+    blocks.forEach((text, block) => {
+      const result = readBlock(comment, text, block, headSha);
+      if (result.entry) entries.push(result.entry);
+      rejected.push(...result.rejected);
     });
+    if (openFences(comment?.body) > blocks.length) {
+      rejected.push({ comment_id: comment.id ?? null, block: blocks.length, reason: "unterminated_block", errors: ["a verdict fence is never closed"], author: comment.user?.login ?? null, text: "", created_at: comment.created_at ?? null });
+    }
   }
   entries.sort(compareEntries);
   return { entries, rejected };
 }
 
-/** The ci-run / verify-run ids a verdict cites (the Actions run id, else the URL). */
-function runIds(verdict) {
-  return new Set((verdict.evidence ?? []).filter((item) => RUN_KINDS.has(item.kind)).map((item) => /\/actions\/runs\/(\d+)/.exec(item.url)?.[1] ?? item.url));
+/** The Actions run id in a URL, else the URL itself (for "a new run id" comparisons). */
+const runId = (url) => /\/actions\/runs\/(\d+)/.exec(url)?.[1] ?? url;
+/** The ci-run / verify-run ids a verdict cites. */
+const runIds = (verdict) => new Set(list(verdict.evidence).filter((item) => RUN_KINDS.has(item?.kind)).map((item) => runId(item.url)));
+/** The https ci-run / verify-run URLs that could carry a PASS (ruling 6). */
+const carryingUrls = (verdict) => list(verdict.evidence)
+  .filter((item) => RUN_KINDS.has(item?.kind) && typeof item.url === "string" && item.url.startsWith("https://"))
+  .map((item) => item.url);
+/** True when runGate verified `url` as an Actions run of this repository with a check run on `sha`. */
+function verifiedAt(verified, sha, url) {
+  if (!isRecord(verified) || typeof sha !== "string" || !Object.hasOwn(verified, sha)) return false;
+  return Array.isArray(verified[sha]) && verified[sha].includes(url);
 }
+const evidenceVerified = (verdict, verified) => carryingUrls(verdict).some((url) => verifiedAt(verified, verdict.sha, url));
 
 const hasHighFinding = (verdict) => Array.isArray(verdict.findings) && verdict.findings.some((finding) => finding?.severity === "high");
 const isHigh = (verdict) => hasHighNote(verdict) || hasHighFinding(verdict);
 /** A FAIL for product reasons (any finding or a high note) can never be superseded at the same SHA. */
 const isProductFail = (verdict) => (Array.isArray(verdict.findings) && verdict.findings.length > 0) || hasHighNote(verdict);
 
+/** A valid infra supersede: later, same SHA, reason infra, and a new run id that resolves at that SHA. */
+function supersedes(claim, fail, verified) {
+  if (isProductFail(fail.verdict) || claim.verdict.reason !== "infra" || claim.verdict.sha !== fail.verdict.sha || !postedAfter(claim, fail)) return false;
+  const old = runIds(fail.verdict);
+  return carryingUrls(claim.verdict).some((url) => !old.has(runId(url)) && verifiedAt(verified, claim.verdict.sha, url));
+}
+
 /**
  * Split one role's bound entries into outstanding FAILs and the verdicts that
  * supersede a FAIL. A supersede is valid only for a non-product FAIL, at the
- * same SHA, from a later comment, with reason infra and a run id the FAIL did
- * not cite. An invalid claim leaves the FAIL standing and is a conflict.
+ * same SHA, from a later comment, with reason infra and a verified run id the
+ * FAIL did not cite. An invalid claim leaves the FAIL standing and is a conflict.
  */
-function resolveFails(entries) {
+function resolveFails(entries, verified) {
   // Any verdict that is not a pass is a FAIL (live verdicts are schema-checked; a deleted snapshot is not).
   const fails = entries.filter((entry) => !PASSING.has(entry.verdict.verdict));
   const outstanding = [];
   const conflicts = [];
   for (const fail of fails) {
     const claims = entries.filter((entry) => entry !== fail && !entry.deleted && entry.verdict.supersedes !== undefined && Number(entry.verdict.supersedes) === Number(fail.comment_id));
-    const valid = claims.find((entry) => {
-      if (isProductFail(fail.verdict) || entry.verdict.reason !== "infra" || entry.verdict.sha !== fail.verdict.sha || !postedAfter(entry, fail)) return false;
-      const old = runIds(fail.verdict);
-      return [...runIds(entry.verdict)].some((id) => !old.has(id));
-    });
-    if (valid) continue;
+    if (claims.some((claim) => supersedes(claim, fail, verified))) continue;
     outstanding.push(fail);
-    for (const claim of claims) conflicts.push(`comment ${claim.comment_id} cannot supersede FAIL ${fail.comment_id} (needs reason infra, the same SHA, a later comment, a new run id and a FAIL with no findings or high note)`);
+    for (const claim of claims) conflicts.push(`comment ${claim.comment_id} cannot supersede FAIL ${fail.comment_id} (needs reason infra, the same SHA, a later comment, a new verified run id and a FAIL with no findings or high note)`);
   }
   return { outstanding, conflicts };
 }
@@ -174,15 +269,15 @@ function resolveFails(entries) {
 function classifierProblem(classification, headSha, changedFiles) {
   if (classification === null || classification === undefined || typeof classification !== "object") return "no sensitive-class result (missing)";
   if (classification.status !== "ok") {
-    const errors = Array.isArray(classification.errors) && classification.errors.length ? `: ${classification.errors.join("; ")}` : "";
+    const errors = Array.isArray(classification.errors) && classification.errors.length ? ": " + classification.errors.join("; ") : "";
     return `sensitive-class status is ${JSON.stringify(classification.status ?? null)}, not "ok"${errors}`;
   }
   if (classification.sha !== headSha) return `sensitive-class result is for ${JSON.stringify(classification.sha ?? null)}, not the head ${headSha}`;
   if (!Array.isArray(classification.classes) || classification.classes.some((name) => typeof name !== "string")) return "sensitive-class result has no class list (partial)";
   if (!Array.isArray(classification.files)) return "sensitive-class result has no file list (partial)";
   const classified = new Set(classification.files.map((file) => file?.path));
-  const missing = changedFiles.map(changedPath).filter((file) => !classified.has(file));
-  if (missing.length) return `sensitive-class result does not cover ${missing.length} changed file(s) (partial): ${missing.slice(0, 5).join(", ")}`;
+  const absent = changedFiles.map(changedPath).filter((file) => !classified.has(file));
+  if (absent.length) return `sensitive-class result does not cover ${absent.length} changed file(s) (partial): ${absent.slice(0, 5).join(", ")}`;
   return null;
 }
 
@@ -191,33 +286,37 @@ const changedPaths = (file) => [changedPath(file), typeof file === "object" ? fi
 /** Any .github/** change is sensitive (infra_ci) in every spelling, whatever the shared list says. */
 const touchesGithub = (file) => changedPaths(file).some((name) => pathCandidates(name).some((form) => /^\.github(?:\/|$)/i.test(form)));
 
-/** Edited, malformed or unreadable deleted trusted verdicts that may be for this head and have no fresher trusted verdict. */
-function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, headSha, headDiffId }) {
+/** A block may be for the head unless both its sha and its diff_id are readable and point elsewhere. */
+const mayBeForHead = (sha, diffId, head) => typeof sha !== "string" || sha === head.sha || typeof diffId !== "string" || diffId === head.diffId;
+
+function blockTarget(text, head) {
+  const parsed = parseJson(text);
+  if (!parsed || typeof parsed !== "object") return { forHead: true, role: null };
+  return { forHead: mayBeForHead(parsed.sha, parsed.diff_id, head), role: typeof parsed.role === "string" ? parsed.role : null };
+}
+
+const hasFresher = (entries, item, role) => entries.some((entry) => (role === null || entry.verdict.role === role) && postedAfter(entry, item));
+
+function rejectedReason(item) {
+  if (item.reason === "edited_comment") return { code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was edited; post a fresh verdict` };
+  // A trusted block that does not parse may be a FAIL; it never counts as a pass and is not silently dropped.
+  if (MALFORMED.has(item.reason)) return { code: "verdict_schema_error", detail: `trusted verdict comment ${item.comment_id} block ${item.block} is ${item.reason}; post a fresh verdict` };
+  return null;
+}
+
+/** Edited, malformed or unreadable removed trusted verdicts that may be for this head and have no fresher trusted verdict. */
+function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, head }) {
   const reasons = [];
-  const mayBeForHead = (text) => {
-    try {
-      const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== "object") return { forHead: true, role: null };
-      const forHead = typeof parsed.sha !== "string" || parsed.sha === headSha || typeof parsed.diff_id !== "string" || parsed.diff_id === headDiffId;
-      return { forHead, role: typeof parsed.role === "string" ? parsed.role : null };
-    } catch {
-      return { forHead: true, role: null };
-    }
-  };
-  const fresher = (item, role) => entries.some((entry) => (role === null || entry.verdict.role === role) && postedAfter(entry, item));
-  for (const item of rejected) {
-    if (!inList(trusted, lower(item.author))) continue;
-    const { forHead, role } = mayBeForHead(item.text);
-    if (!forHead || fresher(item, role)) continue;
-    if (item.reason === "edited_comment") reasons.push({ code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was edited; post a fresh verdict` });
-    // A trusted block that does not parse may be a FAIL; it never counts as a pass and is not silently dropped.
-    else if (MALFORMED.has(item.reason)) reasons.push({ code: "verdict_schema_error", detail: `trusted verdict comment ${item.comment_id} block ${item.block} is ${item.reason}; post a fresh verdict` });
+  for (const item of rejected.filter((entry) => inList(trusted, lower(entry.author)))) {
+    const { forHead, role } = blockTarget(item.text, head);
+    const reason = forHead && !hasFresher(entries, item, role) ? rejectedReason(item) : null;
+    if (reason) reasons.push(reason);
   }
-  for (const item of unreadableDeletions) {
-    if (!inList(trusted, lower(item.author))) continue;
-    const forHead = typeof item.sha !== "string" || item.sha === headSha || typeof item.diff_id !== "string" || item.diff_id === headDiffId;
+  for (const item of unreadableDeletions.filter((entry) => inList(trusted, lower(entry.author)))) {
     const role = typeof item.role === "string" ? item.role : null;
-    if (forHead && !fresher(item, role)) reasons.push({ code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was deleted and its verdict cannot be read; post a fresh verdict` });
+    if (mayBeForHead(item.sha, item.diff_id, head) && !hasFresher(entries, item, role)) {
+      reasons.push({ code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was removed and its verdict cannot be read; post a fresh verdict` });
+    }
   }
   return reasons;
 }
@@ -225,9 +324,9 @@ function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, he
 /** A blocking verdict: anything that is not a clean PASS/PASS_NOTES (a FAIL, an unknown verdict, a high note or finding). */
 const isBlocking = (verdict) => !PASSING.has(verdict?.verdict) || isHigh(verdict);
 
-/** The verdict fields a deleted block keeps, so it can stand in the union and in later gate runs. */
+/** The verdict fields a removed block keeps, so it can stand in the union and in later gate runs. */
 function deletedSnapshot(parsed) {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  if (!isRecord(parsed)) return null;
   const { role, verdict, sha, diff_id: diffId, findings, notes, evidence } = parsed;
   if (!["verifier", "reviewer"].includes(role) || typeof verdict !== "string" || typeof sha !== "string") return null;
   const snapshot = { role, verdict, sha };
@@ -238,18 +337,72 @@ function deletedSnapshot(parsed) {
   return snapshot;
 }
 
+const historyEntry = (base, snapshot) => ({ ...base, sha: snapshot?.sha ?? null, diff_id: snapshot?.diff_id ?? null, role: snapshot?.role ?? null, ...(snapshot ? { verdict_block: snapshot } : {}) });
+
 /**
- * Sort deleted trusted verdicts (from the event and from earlier gate runs)
- * into the blocking ones that keep standing and the unreadable ones. A
- * deleted clean PASS/PASS_NOTES is dropped: it must never count as a pass,
- * and it does not block either. Anything that cannot be read as a verdict
- * fails closed as unreadable.
+ * The blocking verdict blocks of one comment, as history entries: a FAIL, a
+ * pass with a high note or finding, or a block that cannot be read (kept
+ * without a snapshot, possibly a FAIL for the head). A clean PASS/PASS_NOTES
+ * is never recorded. An unterminated fence is an unreadable block.
+ */
+export function historyEntriesFromComment(comment) {
+  if (!isRecord(comment)) return [];
+  const base = { comment_id: comment.id ?? null, author: comment.user?.login ?? null, created_at: comment.created_at ?? null };
+  const blocks = extractVerdictBlocks(comment.body);
+  const entries = blocks.flatMap((text) => {
+    const snapshot = deletedSnapshot(parseJson(text));
+    return snapshot && !isBlocking(snapshot) ? [] : [historyEntry(base, snapshot)];
+  });
+  if (openFences(comment.body) > blocks.length) entries.push(historyEntry(base, null));
+  return entries;
+}
+
+/** The deleted verdict blocks to carry forward from an issue_comment deleted event (blocking or unreadable only). */
+export function deletedVerdictsFromEvent(event) {
+  if (event?.action !== "deleted" || !event.comment) return [];
+  return historyEntriesFromComment(event.comment);
+}
+
+const snapshotKey = (item) => JSON.stringify(item?.verdict_block ?? null);
+const historyKey = (item) => [String(item?.comment_id), lower(item?.author), snapshotKey(item)].join("\u0000");
+
+/**
+ * The recorded history entries whose block is no longer posted: the comment
+ * was deleted, or edited so it no longer holds that block. Entries still
+ * posted are left to the live comments (which also catch an edit).
+ */
+export function removedHistory(history, comments) {
+  const live = new Map(list(comments).filter(isRecord).map((comment) => [String(comment.id), comment]));
+  return list(history).filter((item) => {
+    const comment = live.get(String(item?.comment_id));
+    if (!comment) return true;
+    const key = snapshotKey(item);
+    return !historyEntriesFromComment(comment).some((entry) => snapshotKey(entry) === key);
+  });
+}
+
+/** Every removal candidate (event, earlier gate runs, history), once each. */
+function deletionCandidates({ deletedVerdicts, history, comments }) {
+  const seen = new Set();
+  return [...list(deletedVerdicts), ...removedHistory(history, comments)].filter((item) => {
+    const key = historyKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Sort removed trusted verdicts into the blocking ones that keep standing
+ * and the unreadable ones. A removed clean PASS/PASS_NOTES is dropped: it
+ * must never count as a pass, and it does not block either. Anything that
+ * cannot be read as a verdict fails closed as unreadable.
  */
 export function carriedDeletions(deletedVerdicts, trusted) {
   const blocking = [];
   const unreadable = [];
-  for (const item of Array.isArray(deletedVerdicts) ? deletedVerdicts : []) {
-    if (!item || typeof item !== "object" || !inList(trusted, lower(item.author))) continue;
+  for (const item of list(deletedVerdicts)) {
+    if (!isRecord(item) || !inList(trusted, lower(item.author))) continue;
     const snapshot = deletedSnapshot(item.verdict_block);
     if (!snapshot) unreadable.push(item);
     else if (isBlocking(snapshot)) blocking.push(item);
@@ -257,46 +410,60 @@ export function carriedDeletions(deletedVerdicts, trusted) {
   return { blocking, unreadable };
 }
 
-/**
- * The builder bot ids recorded in the PR body's Built-by (or Model-builder)
- * line: `bot=<id> model=model:<pool>` entries and the free-text
- * `<bot> / <family>` form (docs/agent-pr-tags.md). Missing or unparseable
- * lines give no ids; they only ever remove a warning, never add a pass.
- */
-export function bodyBuilders(body) {
-  if (typeof body !== "string") return [];
-  const ids = new Set();
-  for (const line of body.split(/\r?\n/)) {
-    const match = /^\s*(?:Built-by|Model-builder):\s*(.*)$/i.exec(line);
-    if (!match) continue;
-    for (const entry of match[1].split(";")) {
-      const canonical = /(?:^|\s)bot=([A-Za-z0-9._-]+)/.exec(entry);
-      const freeText = /^\s*([A-Za-z0-9][A-Za-z0-9 ._-]*?)\s*\//.exec(entry);
-      const id = canonical?.[1] ?? freeText?.[1]?.replaceAll(/\s+/g, "-");
-      if (id) ids.add(id.toLowerCase());
-    }
-  }
-  return [...ids];
+let routing = null;
+try {
+  routing = loadRouting(ROUTING_FIXTURE);
+} catch {
+  // Without routing every Built-by line is unattributed (fail closed).
 }
 
-/** Ruling 1: counted verdicts whose verifier id equals a builder in the PR body. */
-function builderMatches(entries, prBody) {
-  const builders = new Set(bodyBuilders(prBody));
-  if (!builders.size) return [];
-  return entries
+const BUILDER_PREFIXES = ["built-by:", "model-builder:"];
+
+/** The body's Built-by (or legacy Model-builder) lines, lowercased: ids and display names match case-insensitively. */
+function builderLines(body) {
+  return body.split("\n")
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => BUILDER_PREFIXES.some((prefix) => line.startsWith(prefix)))
+    .map((line) => (line.startsWith("model-builder:") ? "built-by:" + line.slice("model-builder:".length) : line));
+}
+
+/**
+ * The builder bot ids in the PR body's Built-by line, parsed by the
+ * maintained parser (scripts/agent-graph/built-by.mjs, docs/agent-pr-tags.md),
+ * and the problem when the line is missing or cannot be (fully) parsed.
+ */
+export function builderAttribution(body) {
+  if (typeof body !== "string") return { ids: [], problem: "the PR body could not be read" };
+  const lines = builderLines(body);
+  if (!lines.length) return { ids: [], problem: "the PR body has no Built-by line" };
+  if (!routing) return { ids: [], problem: "the builder routing fixture could not be loaded" };
+  const parsed = parseBuiltBy({ body: lines.join("\n"), routing });
+  const ids = [...new Set(parsed.builders.map((builder) => builder.bot).filter((bot) => typeof bot === "string" && bot !== "unknown"))];
+  const unparsed = parsed.findings.some((finding) => finding.startsWith("Unparseable") || finding.startsWith("Parser error"))
+    || parsed.builders.some((builder) => builder.bot === "unknown");
+  return { ids, problem: ids.length && !unparsed ? null : "the PR body's Built-by line cannot be parsed (docs/agent-pr-tags.md)" };
+}
+
+export const bodyBuilders = (body) => builderAttribution(body).ids;
+
+/** Ruling 1: counted verdicts whose verifier id equals a builder; and an unattributed builder. */
+function builderReasons(entries, prBody) {
+  const { ids, problem } = builderAttribution(prBody);
+  const builders = new Set(ids);
+  const items = entries
     .filter((entry) => !entry.deleted)
     .map((entry) => ({ entry, id: entry.verdict.verifier?.agent_id ?? entry.verdict.verifier?.id }))
     .filter(({ id }) => typeof id === "string" && builders.has(id.toLowerCase()))
     .map(({ entry, id }) => ({ code: "verifier_not_independent", detail: `${entry.verdict.role} comment ${entry.comment_id} verifier id ${id} is the PR's builder (Built-by line)` }));
+  if (problem) items.push({ code: "builder_unattributed", detail: `${problem}; verifier independence from the builder cannot be checked` });
+  return items;
 }
 
-function independenceProblems({ entries, identity, prAuthor, commits }) {
-  if (identity !== "app") return { ignored: [], reasons: [] };
+function independenceProblems({ entries, prAuthor, commits }) {
   const ignored = [];
   const reasons = [];
   const authors = new Set([lower(prAuthor)]);
-  if (!Array.isArray(commits)) reasons.push({ code: "missing_input", detail: "PR commit list is missing, so independence cannot be checked" });
-  for (const commit of Array.isArray(commits) ? commits : []) {
+  for (const commit of list(commits)) {
     authors.add(lower(commit?.author?.login));
     authors.add(lower(commit?.committer?.login));
   }
@@ -306,15 +473,31 @@ function independenceProblems({ entries, identity, prAuthor, commits }) {
     const author = lower(entry.author);
     if (inList(MERGER_LOGINS, author)) {
       ignored.push({ comment_id: entry.comment_id, code: "verifier_is_merger", detail: `${entry.author} is a merging identity` });
-      continue;
-    }
-    if (authors.has(author)) {
+    } else if (authors.has(author)) {
       reasons.push({ code: "verifier_not_independent", detail: `${entry.author} authored or committed this PR (comment ${entry.comment_id})` });
-      continue;
+    } else {
+      kept.push(entry);
     }
-    kept.push(entry);
   }
   return { ignored, reasons, kept };
+}
+
+/** Trusted entries (d) and, in stage B, independence (g). */
+function trustedCandidates({ entries, rejected, trusted, identity, prAuthor, commits }) {
+  const candidates = [];
+  const ignored = [];
+  for (const entry of entries) {
+    if (inList(trusted, lower(entry.author))) {
+      candidates.push(entry);
+      continue;
+    }
+    const code = identity === "app" && inList(MERGER_LOGINS, lower(entry.author)) ? "verifier_is_merger" : "untrusted_author";
+    ignored.push({ comment_id: entry.comment_id, code, detail: `${entry.author ?? "unknown"} is not a trusted verifier` });
+  }
+  for (const item of rejected) ignored.push({ comment_id: item.comment_id, code: item.reason, detail: (item.errors ?? []).join("; ") });
+  if (identity !== "app") return { candidates, ignored, reasons: [] };
+  const independence = independenceProblems({ entries: candidates, prAuthor, commits });
+  return { candidates: independence.kept, ignored: [...ignored, ...independence.ignored], reasons: independence.reasons };
 }
 
 /** Verifier checks (a): the latest bound verifier pass, high notes/findings, readiness. */
@@ -327,7 +510,7 @@ function verifierReasons(verifiers, staleVerifier) {
     else reasons.push({ code: "no_qa_pass_on_head", detail: verifiers.length ? "no verifier PASS bound to the head" : "no trusted verifier verdict bound to the head" });
     return { reasons, chosen: null };
   }
-  for (const entry of verifiers.filter((item) => PASSING.has(item.verdict.verdict) && isHigh(item.verdict))) {
+  for (const entry of passes.filter((item) => isHigh(item.verdict))) {
     reasons.push({ code: "no_qa_pass_on_head", detail: `verifier comment ${entry.comment_id} has a high note or finding` });
   }
   if (chosen.verdict.readiness?.checks !== "green") {
@@ -347,18 +530,41 @@ function reviewerReasons(reviewers) {
   return { reasons, ids: clean.map((entry) => entry.comment_id) };
 }
 
+const deletedLabel = (entry) => (entry.deleted ? String(entry.comment_id) + " (deleted)" : String(entry.comment_id));
+
 /** Outstanding FAILs and pass/fail disagreement within one role's union. */
-function failReasons(role, entries) {
+function failReasons(role, entries, verified) {
   const reasons = [];
-  const { outstanding, conflicts } = resolveFails(entries);
+  const { outstanding, conflicts } = resolveFails(entries, verified);
   for (const detail of conflicts) reasons.push({ code: "verdict_conflict", detail });
   if (outstanding.length) {
     const disagree = entries.some((entry) => PASSING.has(entry.verdict.verdict));
-    const ids = outstanding.map((entry) => `${entry.comment_id}${entry.deleted ? " (deleted)" : ""}`).join(", ");
+    const ids = outstanding.map(deletedLabel).join(", ");
     if (disagree) reasons.push({ code: "verdict_conflict", detail: `${role} verdicts bound to the head disagree: FAIL in comment(s) ${ids} stands` });
     else reasons.push({ code: role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head", detail: `${role} FAIL in comment(s) ${ids}` });
   }
-  return { reasons, outstanding };
+  return reasons;
+}
+
+/** (a), (b), (c) and (h) over the live bound verdicts and the carried removals. */
+function roleReasons({ candidates, deleted, bound, verified }) {
+  const reasons = [];
+  const live = (role) => candidates.filter((entry) => entry.verdict.role === role && bound(entry));
+  const verifiers = live("verifier");
+  const reviewers = live("reviewer");
+  const staleVerifier = candidates.findLast((entry) => entry.verdict.role === "verifier" && !bound(entry)) ?? null;
+  const union = (role, entries) => [...entries, ...deleted.filter((entry) => entry.verdict.role === role)].sort(compareEntries);
+  reasons.push(...failReasons("verifier", union("verifier", verifiers), verified), ...failReasons("reviewer", union("reviewer", reviewers), verified));
+  // Ruling 6: a pass whose evidence does not resolve at its SHA never counts.
+  const unverified = new Set([...verifiers, ...reviewers].filter((entry) => PASSING.has(entry.verdict.verdict) && !evidenceVerified(entry.verdict, verified)));
+  for (const entry of unverified) {
+    reasons.push({ code: "evidence_unverified", detail: `${entry.verdict.role} comment ${entry.comment_id} cites no https ci-run/verify-run that is a GitHub Actions run of this repository on ${entry.verdict.sha}` });
+  }
+  const counted = (entries) => entries.filter((entry) => !unverified.has(entry));
+  const verifier = verifierReasons(counted(verifiers), staleVerifier);
+  const reviewer = reviewerReasons(counted(reviewers));
+  reasons.push(...verifier.reasons, ...reviewer.reasons);
+  return { reasons, live: [...verifiers, ...reviewers], verifierId: verifier.chosen?.comment_id ?? null, reviewerIds: reviewer.ids };
 }
 
 function sensitiveReasons({ classification, headSha, headDiffId, changedFiles, comments }) {
@@ -378,34 +584,52 @@ function sensitiveReasons({ classification, headSha, headDiffId, changedFiles, c
   return { reasons, classes, approval, classifierOk: true };
 }
 
-/**
- * Evaluate the gate for one head. Pure: every input is data.
- *
- * @param {object} input
- * @param {string} input.headSha the head SHA being gated (40-hex)
- * @param {string} [input.liveHeadSha] the PR head as re-read from the API; must equal headSha
- * @param {string|null} input.headDiffId diff_id recomputed from base...head, or null when it could not be
- * @param {string} [input.diffIdError] why diff_id could not be computed
- * @param {object[]} input.comments PR issue comments
- * @param {object[]} [input.deletedVerdicts] deleted trusted verdict comments seen ({ comment_id, author, created_at, sha, diff_id, role, verdict_block })
- * @param {string} [input.prBody] PR body (data only), read for the Built-by line
- * @param {object[]} input.commits PR commits ({ author: { login }, committer: { login } })
- * @param {string} input.prAuthor PR author login
- * @param {Array<object|string>} input.changedFiles PR files ({ filename, status, previous_filename })
- * @param {object} input.classification the default-branch sensitive-class detector result
- * @param {"report"|"enforce"} input.mode
- * @param {"shared-account"|"app"} input.identity
- */
-export function evaluate(given = {}) {
-  const input = given !== null && typeof given === "object" ? given : {};
-  const { headSha, liveHeadSha, headDiffId, diffIdError, comments, deletedVerdicts = [], commits, prAuthor, prBody, changedFiles, classification } = input;
-  const mode = MODES.has(input.mode) ? input.mode : "enforce";
-  const identity = IDENTITIES.has(input.identity) ? input.identity : "app";
+function settingProblems(input) {
   const reasons = [];
-  const warnings = [];
-  if (!MODES.has(input.mode)) reasons.push({ code: "missing_input", detail: `unknown mode ${JSON.stringify(input.mode ?? null)}` });
-  if (!IDENTITIES.has(input.identity)) reasons.push({ code: "missing_input", detail: `unknown identity ${JSON.stringify(input.identity ?? null)}` });
-  const summary = {
+  if (!MODES.has(input.mode)) reasons.push(missing(`unknown mode ${JSON.stringify(input.mode ?? null)}`));
+  if (!IDENTITIES.has(input.identity)) reasons.push(missing(`unknown identity ${JSON.stringify(input.identity ?? null)}`));
+  return reasons;
+}
+
+function inputProblems({ headSha, liveHeadSha, diffIdError, comments, commits, prAuthor }, diffId) {
+  const reasons = [];
+  if (typeof liveHeadSha !== "string" || !HEX40.test(liveHeadSha)) reasons.push(missing("the live PR head could not be read"));
+  else if (liveHeadSha !== headSha) reasons.push({ code: "stale_sha", detail: `PR head is ${liveHeadSha}, not ${headSha}` });
+  if (diffId === null) reasons.push({ code: "error", detail: diffIdError ? "head diff_id could not be computed: " + diffIdError : "head diff_id could not be computed" });
+  if (!Array.isArray(comments)) reasons.push(missing("PR comment list is missing"));
+  if (typeof prAuthor !== "string" || prAuthor === "") reasons.push(missing("PR author is missing"));
+  // Every stage: an unreadable or incomplete commit list is never a pass (stage B also needs it for independence).
+  if (!Array.isArray(commits) || !commits.every(isRecord)) reasons.push(missing("PR commit list is missing or incomplete"));
+  return reasons;
+}
+
+/**
+ * (e) for removed verdicts: the stale edited, malformed or unreadable ones
+ * (only a fresh verdict bound to the head clears them), and the blocking ones
+ * that stand as if they were still posted (never a pass).
+ */
+function removedReasons({ input, rejected, candidates, trusted, head, bound }) {
+  const deletions = carriedDeletions(deletionCandidates(input), trusted);
+  const reasons = staleTrustedEdits({ rejected, unreadableDeletions: deletions.unreadable, entries: candidates.filter(bound), trusted, head });
+  const deleted = deletions.blocking
+    .map((item) => ({ comment_id: item.comment_id ?? null, block: 0, created_at: item.created_at ?? null, author: item.author, verdict: deletedSnapshot(item.verdict_block), deleted: true }))
+    .filter(bound);
+  for (const entry of deleted.filter((item) => PASSING.has(item.verdict.verdict))) {
+    const code = entry.verdict.role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head";
+    reasons.push({ code, detail: `deleted ${entry.verdict.role} comment ${entry.comment_id} had a high note or finding` });
+  }
+  return { reasons, deleted };
+}
+
+/** Ruling 1: a warning until K3 (stage A), blocking from K3 on (stage B). */
+function addBuilderReasons(summary, entries, prBody) {
+  const builder = builderReasons(entries, prBody);
+  if (summary.identity === "app") summary.reasons.push(...builder);
+  else summary.warnings.push(...builder, { code: "identity_not_enforced", detail: IDENTITY_NOTES["shared-account"] });
+}
+
+function emptySummary({ headSha, headDiffId }, mode, identity) {
+  return {
     gate: "fail",
     sha: typeof headSha === "string" ? headSha : null,
     diff_id: typeof headDiffId === "string" && HEX64.test(headDiffId) ? headDiffId : null,
@@ -417,74 +641,70 @@ export function evaluate(given = {}) {
     approval_comment_id: null,
     automerge: "needs_blaine",
     sensitive_classes: [],
-    reasons,
-    warnings,
+    reasons: [],
+    warnings: [],
     ignored: [],
   };
+}
+
+/**
+ * Evaluate the gate for one head. Pure: every input is data.
+ *
+ * @param {object} input
+ * @param {string} input.headSha the head SHA being gated (40-hex)
+ * @param {string} [input.liveHeadSha] the PR head as re-read from the API; must equal headSha
+ * @param {string|null} input.headDiffId diff_id recomputed from base...head, or null when it could not be
+ * @param {string} [input.diffIdError] why diff_id could not be computed
+ * @param {object[]} input.comments PR issue comments
+ * @param {object[]} [input.deletedVerdicts] deleted trusted verdict comments seen ({ comment_id, author, created_at, sha, diff_id, role, verdict_block })
+ * @param {object[]} [input.history] the PR's recorded blocking verdicts (same shape); those no longer posted are carried as removed
+ * @param {Object<string, string[]>} [input.verifiedEvidence] SHA -> evidence URLs verified as Actions runs on that SHA
+ * @param {string} [input.prBody] PR body (data only), read for the Built-by line
+ * @param {object[]} input.commits PR commits ({ author: { login }, committer: { login } })
+ * @param {string} input.prAuthor PR author login
+ * @param {Array<object|string>} input.changedFiles PR files ({ filename, status, previous_filename })
+ * @param {object} input.classification the default-branch sensitive-class detector result
+ * @param {"report"|"enforce"} input.mode
+ * @param {"shared-account"|"app"} input.identity
+ */
+export function evaluate(given = {}) {
+  const input = given !== null && typeof given === "object" ? given : {};
+  const mode = MODES.has(input.mode) ? input.mode : "enforce";
+  const identity = IDENTITIES.has(input.identity) ? input.identity : "app";
+  const summary = emptySummary(input, mode, identity);
+  const { reasons } = summary;
+  reasons.push(...settingProblems(input));
+  const { headSha } = input;
   if (typeof headSha !== "string" || !HEX40.test(headSha)) {
-    reasons.push({ code: "missing_input", detail: "head SHA is missing or not a 40-hex SHA" });
+    reasons.push(missing("head SHA is missing or not a 40-hex SHA"));
     return summary;
   }
-  if (typeof liveHeadSha !== "string" || !HEX40.test(liveHeadSha)) reasons.push({ code: "missing_input", detail: "the live PR head could not be read" });
-  else if (liveHeadSha !== headSha) reasons.push({ code: "stale_sha", detail: `PR head is ${liveHeadSha}, not ${headSha}` });
-  if (summary.diff_id === null) reasons.push({ code: "error", detail: `head diff_id could not be computed${diffIdError ? `: ${diffIdError}` : ""}` });
-  if (!Array.isArray(comments)) reasons.push({ code: "missing_input", detail: "PR comment list is missing" });
-  if (typeof prAuthor !== "string" || prAuthor === "") reasons.push({ code: "missing_input", detail: "PR author is missing" });
-
+  reasons.push(...inputProblems(input, summary.diff_id));
+  const comments = list(input.comments);
   const trusted = identity === "app" ? APP_TRUSTED_VERIFIERS : TRUSTED_VERIFIERS;
-  const { entries, rejected } = collectVerdicts(Array.isArray(comments) ? comments : [], headSha);
-  let candidates = [];
-  for (const entry of entries) {
-    if (inList(trusted, lower(entry.author))) candidates.push(entry);
-    else summary.ignored.push({ comment_id: entry.comment_id, code: identity === "app" && inList(MERGER_LOGINS, lower(entry.author)) ? "verifier_is_merger" : "untrusted_author", detail: `${entry.author ?? "unknown"} is not a trusted verifier` });
-  }
-  for (const item of rejected) summary.ignored.push({ comment_id: item.comment_id, code: item.reason, detail: (item.errors ?? []).join("; ") });
-  const independence = independenceProblems({ entries: candidates, identity, prAuthor, commits });
-  if (identity === "app") {
-    candidates = independence.kept;
-    summary.ignored.push(...independence.ignored);
-    reasons.push(...independence.reasons);
-  }
+  const { entries, rejected } = collectVerdicts(comments, headSha);
+  const { candidates, ignored, reasons: independence } = trustedCandidates({ entries, rejected, trusted, identity, prAuthor: input.prAuthor, commits: input.commits });
+  summary.ignored.push(...ignored);
+  reasons.push(...independence);
 
-  const bound = (entry) => entry.verdict.sha === headSha || (summary.diff_id !== null && entry.verdict.diff_id === summary.diff_id);
-  const deletions = carriedDeletions(deletedVerdicts, trusted);
-  // Only a fresh verdict bound to the head clears an edited, malformed or unreadable deleted one.
-  reasons.push(...staleTrustedEdits({ rejected, unreadableDeletions: deletions.unreadable, entries: candidates.filter(bound), trusted, headSha, headDiffId: summary.diff_id }));
-  // A deleted blocking verdict stands as if it were still posted; it never counts as a pass.
-  const deleted = deletions.blocking
-    .map((item) => ({ comment_id: item.comment_id ?? null, block: 0, created_at: item.created_at ?? null, author: item.author, verdict: deletedSnapshot(item.verdict_block), deleted: true }))
-    .filter(bound);
-  for (const entry of deleted.filter((item) => PASSING.has(item.verdict.verdict))) {
-    reasons.push({ code: entry.verdict.role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head", detail: `deleted ${entry.verdict.role} comment ${entry.comment_id} had a high note or finding` });
-  }
+  const head = { sha: headSha, diffId: summary.diff_id };
+  const bound = (entry) => entry.verdict.sha === headSha || (head.diffId !== null && entry.verdict.diff_id === head.diffId);
+  const removed = removedReasons({ input, rejected, candidates, trusted, head, bound });
+  reasons.push(...removed.reasons);
 
-  const verifiers = candidates.filter((entry) => entry.verdict.role === "verifier" && bound(entry));
-  const reviewers = candidates.filter((entry) => entry.verdict.role === "reviewer" && bound(entry));
-  const staleVerifier = candidates.filter((entry) => entry.verdict.role === "verifier" && !bound(entry)).at(-1) ?? null;
-  const union = (role, live) => [...live, ...deleted.filter((entry) => entry.verdict.role === role)].sort(compareEntries);
+  const roles = roleReasons({ candidates, deleted: removed.deleted, bound, verified: input.verifiedEvidence });
+  reasons.push(...roles.reasons);
+  summary.verifier_comment_id = roles.verifierId;
+  summary.reviewer_comment_ids = roles.reviewerIds;
 
-  const verifierFails = failReasons("verifier", union("verifier", verifiers));
-  const reviewerFails = failReasons("reviewer", union("reviewer", reviewers));
-  reasons.push(...verifierFails.reasons, ...reviewerFails.reasons);
-  const verifier = verifierReasons(verifiers, staleVerifier);
-  reasons.push(...verifier.reasons);
-  const reviewer = reviewerReasons(reviewers);
-  reasons.push(...reviewer.reasons);
-  summary.verifier_comment_id = verifier.chosen?.comment_id ?? null;
-  summary.reviewer_comment_ids = reviewer.ids;
-
-  const sensitive = sensitiveReasons({ classification, headSha, headDiffId: summary.diff_id, changedFiles, comments: Array.isArray(comments) ? comments : [] });
+  const sensitive = sensitiveReasons({ classification: input.classification, headSha, headDiffId: head.diffId, changedFiles: input.changedFiles, comments });
   reasons.push(...sensitive.reasons);
   summary.sensitive_classes = sensitive.classes;
   summary.approval_comment_id = sensitive.approval?.comment_id ?? null;
   // eligible needs proof-check evidence per class (OVD-841), which does not exist yet.
   summary.automerge = sensitive.classifierOk && sensitive.classes.length === 0 ? "needs_release" : "needs_blaine";
 
-  // Ruling 1: a warning until K3 (stage A), blocking from K3 on (stage B).
-  const notIndependent = builderMatches([...verifiers, ...reviewers], prBody);
-  if (identity === "app") reasons.push(...notIndependent);
-  else warnings.push(...notIndependent);
-  if (identity === "shared-account") warnings.push({ code: "identity_not_enforced", detail: IDENTITY_NOTES["shared-account"] });
+  addBuilderReasons(summary, roles.live, input.prBody);
   summary.reasons = dedupeReasons(reasons);
   summary.gate = summary.reasons.length === 0 ? "pass" : "fail";
   return summary;
@@ -512,10 +732,12 @@ export function conclusionFor(summary, mode = summary?.mode) {
   const pass = summary?.gate === "pass" && Array.isArray(summary.reasons) && summary.reasons.length === 0;
   if (pass) return { conclusion: "success", title: `ovd-merge-gate: pass (${mode === "report" ? "report mode" : "enforce"})` };
   const codes = reasonCodes(summary);
-  const list = codes.length ? codes.join(", ") : "error";
-  if (mode === "report") return { conclusion: "neutral", title: `REPORT: would block: ${list}` };
-  return { conclusion: "failure", title: `ovd-merge-gate: fail: ${list}` };
+  const names = codes.length ? codes.join(", ") : "error";
+  if (mode === "report") return { conclusion: "neutral", title: `REPORT: would block: ${names}` };
+  return { conclusion: "failure", title: `ovd-merge-gate: fail: ${names}` };
 }
+
+const oneLine = (text) => String(text).replaceAll(/[\r\n]+/g, " ");
 
 /** Markdown summary for the check run. */
 export function formatSummary(summary) {
@@ -527,12 +749,12 @@ export function formatSummary(summary) {
     `automerge: \`${summary.automerge}\``,
     "",
   ];
-  for (const reason of summary.reasons) lines.push(`- \`${reason.code}\`: ${String(reason.detail).replaceAll(/[\r\n]+/g, " ")}`);
+  for (const reason of summary.reasons) lines.push(`- \`${reason.code}\`: ${oneLine(reason.detail)}`);
   if (summary.reasons.length) lines.push("");
-  const warnings = (Array.isArray(summary.warnings) ? summary.warnings : []).filter((warning) => warning?.code !== "identity_not_enforced");
+  const warnings = list(summary.warnings).filter((warning) => warning?.code !== "identity_not_enforced");
   if (warnings.length) {
     lines.push("Warnings (non-blocking):", "");
-    for (const warning of warnings) lines.push(`- \`${warning.code}\` (warning): ${String(warning.detail).replaceAll(/[\r\n]+/g, " ")}`);
+    for (const warning of warnings) lines.push(`- \`${warning.code}\` (warning): ${oneLine(warning.detail)}`);
     lines.push("");
   }
   return lines.join("\n");
@@ -546,10 +768,14 @@ const BRANCH = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/;
 const FETCH_HEAD_REF = "refs/ovd-merge-gate/head";
 const FETCH_BASE_REF = "refs/ovd-merge-gate/base";
 const SAFE_PATH = "/usr/bin:/bin:/usr/local/bin";
+/** At most this many distinct verdict SHAs have their evidence resolved per run; the rest stay unverified. */
+const MAX_EVIDENCE_SHAS = 20;
+/** Check-run output.text is capped at 65535 characters by GitHub. */
+const MAX_OUTPUT_TEXT = 60000;
 
 export class GithubApiError extends Error {
-  constructor(status, path) {
-    super(`GitHub API ${path} returned ${status}`);
+  constructor(status, apiPath) {
+    super(`GitHub API ${apiPath} returned ${status}`);
     this.status = status;
   }
 }
@@ -558,32 +784,33 @@ export class GithubApiError extends Error {
 export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl = globalThis.fetch } = {}) {
   const headers = { "x-github-api-version": "2022-11-28", "user-agent": "overdrafter-ovd-merge-gate" };
   if (token) headers.authorization = `Bearer ${token}`;
-  const request = async (method, path, { body, accept = "application/vnd.github+json" } = {}) => {
-    const response = await fetchImpl(`${apiUrl}${path}`, {
+  const request = async (method, apiPath, { body, accept = "application/vnd.github+json" } = {}) => {
+    const response = await fetchImpl(`${apiUrl}${apiPath}`, {
       method,
       headers: { ...headers, accept, ...(body ? { "content-type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!response.ok) throw new GithubApiError(response.status, path);
+    if (!response.ok) throw new GithubApiError(response.status, apiPath);
     return response;
   };
-  const json = async (path) => (await request("GET", path)).json();
-  const paginate = async (path, pick = (data) => data) => {
+  const json = async (apiPath) => (await request("GET", apiPath)).json();
+  const paginate = async (apiPath, pick = (data) => data) => {
     const items = [];
+    const joiner = apiPath.includes("?") ? "&" : "?";
     for (let page = 1; page <= 100; page += 1) {
-      const data = await json(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`);
+      const data = await json(`${apiPath}${joiner}per_page=100&page=${page}`);
       const batch = pick(data);
-      if (!Array.isArray(batch)) throw new Error(`${path} page ${page} is not a list`);
+      if (!Array.isArray(batch)) throw new Error(`${apiPath} page ${page} is not a list`);
       items.push(...batch);
       if (batch.length < 100) return items;
     }
-    throw new Error(`${path} has more than 100 pages`);
+    throw new Error(`${apiPath} has more than 100 pages`);
   };
   return {
     json,
-    raw: async (path) => (await request("GET", path, { accept: "application/vnd.github.raw" })).text(),
+    raw: async (apiPath) => (await request("GET", apiPath, { accept: "application/vnd.github.raw" })).text(),
     paginate,
-    post: async (path, body) => (await request("POST", path, { body })).json(),
+    post: async (apiPath, body) => (await request("POST", apiPath, { body })).json(),
   };
 }
 
@@ -601,33 +828,47 @@ function defaultGit(args, { cwd, env = {} } = {}) {
 /** Git config through the environment, so the token never reaches argv or .git/config. */
 function authEnv(token) {
   if (!token) return {};
+  const credentials = Buffer.from("x-access-token:" + token).toString("base64");
   return {
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+    GIT_CONFIG_VALUE_0: "AUTHORIZATION: basic " + credentials,
   };
 }
 
+/** A fresh, empty directory for the bare object store that holds the PR's git data. */
+const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data-"));
+
 /**
- * Fetch the PR head and the base branch tip as data (no checkout, nothing
- * from the PR runs) and recompute diff_id over base...head. Returns
- * { diffId, error } and never throws: any failure is "cannot compute".
+ * Recompute diff_id over base...head. With fetch (the workflow), the PR head
+ * and the base branch tip are fetched as git data into a separate, freshly
+ * created bare repository (no working tree, so nothing from the PR can be
+ * checked out, and the trusted checkout's own object store and refs are never
+ * touched), the diff is computed there, and the store is removed. Nothing
+ * from the PR is ever executed. Without fetch (a box CLI run) it reads
+ * origin/<base> in `cwd`. Returns { diffId, error } and never throws: any
+ * failure is "cannot compute".
  */
-export function headDiffId({ pr, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId }) {
+export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore }) {
+  let store = null;
   try {
     const head = assertSha(headSha, "head");
     if (typeof baseRef !== "string" || !BRANCH.test(baseRef)) throw new Error(`base ref ${JSON.stringify(baseRef ?? null)} is not a plain branch name`);
     if (!PR_NUMBER.test(String(pr))) throw new Error("PR number is not valid");
-    let base;
-    if (fetch) {
-      git(["fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "origin", `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd, env: authEnv(token) });
-      base = git(["rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd }).trim();
-    } else {
-      base = git(["rev-parse", "--verify", "--quiet", "--end-of-options", `refs/remotes/origin/${baseRef}^{commit}`], { cwd }).trim();
+    if (!fetch) {
+      const base = git(["rev-parse", "--verify", "--quiet", "--end-of-options", `refs/remotes/origin/${baseRef}^{commit}`], { cwd }).trim();
+      return { diffId: diff({ base: assertSha(base, "base"), head, cwd }), error: null };
     }
-    return { diffId: diff({ base: assertSha(base, "base"), head, cwd }), error: null };
+    if (typeof repo !== "string" || !REPO.test(repo)) throw new Error("repository is not owner/name");
+    store = makeStore();
+    git(["init", "--bare", "--quiet", store], { cwd: store });
+    git(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
+    const base = git(["--git-dir", store, "rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd: store }).trim();
+    return { diffId: diff({ base: assertSha(base, "base"), head, cwd: store }), error: null };
   } catch (error) {
     return { diffId: null, error: error?.message ?? String(error) };
+  } finally {
+    if (store) rmSync(store, { recursive: true, force: true });
   }
 }
 
@@ -654,48 +895,158 @@ export async function classifyPull({ client, repo, pr, headSha, root, loadConfig
   }
 }
 
-/** The JSON summary embedded in a check run's output.text, or null. */
-function summaryFromCheckRun(run) {
-  const match = /```json\n([\s\S]*?)\n```/.exec(String(run?.output?.text ?? ""));
-  if (!match) return null;
+const JSON_OPEN = "```json\n";
+const JSON_CLOSE = "\n```";
+const jsonBlock = (value) => JSON_OPEN + JSON.stringify(value, null, 2) + JSON_CLOSE;
+
+/** The JSON embedded in a check run's output.text, or null. indexOf, not a regex (JSON text never holds a raw newline). */
+function jsonFromCheckRun(run) {
+  const text = String(run?.output?.text ?? "");
+  const start = text.indexOf(JSON_OPEN);
+  if (start < 0) return null;
+  const end = text.indexOf(JSON_CLOSE, start + JSON_OPEN.length);
+  return end < 0 ? null : parseJson(text.slice(start + JSON_OPEN.length, end));
+}
+
+const historyItemOk = (item) => isRecord(item) && typeof item.author === "string" && (item.verdict_block === undefined || isRecord(item.verdict_block));
+
+/**
+ * Deleted trusted verdicts recorded by earlier gate runs on this head (every
+ * run, filter=all). A run whose summary cannot be read fails closed: it may
+ * have held a deletion.
+ */
+async function priorDeletions(client, repo, headSha) {
+  const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}&filter=all`, (data) => data?.check_runs);
+  return runs.flatMap((run) => {
+    const summary = jsonFromCheckRun(run);
+    if (!isRecord(summary) || !Array.isArray(summary.deleted_verdicts) || !summary.deleted_verdicts.every(historyItemOk)) {
+      throw new Error(`earlier ${CHECK_NAME} check run ${run?.id ?? "(no id)"} has no readable summary`);
+    }
+    return summary.deleted_verdicts;
+  });
+}
+
+/** One history check run's entries; anything unexpected throws (the caller fails closed). */
+export function parseHistoryRun(run, pr) {
+  const record = jsonFromCheckRun(run);
+  const ok = run?.name === historyCheckName(pr) && isRecord(record) && record.schema === HISTORY_SCHEMA_ID
+    && Number(record.pr) === Number(pr) && Array.isArray(record.entries) && record.entries.every(historyItemOk);
+  if (!ok) throw new Error(`verdict history check run ${run?.id ?? "(no id)"} for PR ${pr} cannot be read`);
+  return record.entries;
+}
+
+/** Every recorded blocking verdict for the PR (see HISTORY_ANCHOR_SHA). Throws when unreadable. */
+export async function readHistory(client, repo, pr) {
+  const name = encodeURIComponent(historyCheckName(pr));
+  const runs = await client.paginate(`/repos/${repo}/commits/${HISTORY_ANCHOR_SHA}/check-runs?check_name=${name}&filter=all`, (data) => data?.check_runs);
+  return runs.flatMap((run) => parseHistoryRun(run, pr));
+}
+
+async function attempt(task) {
   try {
-    return JSON.parse(match[1]);
+    return await task();
   } catch {
-    return null;
+    return undefined;
   }
 }
 
 /**
- * The deleted verdict blocks to carry forward from an issue_comment deleted
- * event, one per block. Only blocking verdicts are kept (with a snapshot of
- * the verdict); a clean PASS/PASS_NOTES is dropped. A block that cannot be
- * read is kept without a snapshot (treated as possibly a FAIL for the head).
+ * Append the trusted blocking verdicts of the event comment (created, edited
+ * or deleted) and of every live comment to the PR's history, skipping those
+ * already recorded. Unreadable live comments or history only mean more is
+ * written; a failed write throws (the job fails visibly).
  */
-export function deletedVerdictsFromEvent(event) {
-  if (event?.action !== "deleted" || !event.comment) return [];
-  const base = { comment_id: event.comment.id ?? null, author: event.comment.user?.login ?? null, created_at: event.comment.created_at ?? null };
-  return extractVerdictBlocks(event.comment.body).flatMap((text) => {
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // Unreadable: kept, and treated as possibly for the head.
-    }
-    const snapshot = deletedSnapshot(parsed);
-    if (snapshot && !isBlocking(snapshot)) return [];
-    return [{ ...base, sha: snapshot?.sha ?? null, diff_id: snapshot?.diff_id ?? null, role: snapshot?.role ?? null, ...(snapshot ? { verdict_block: snapshot } : {}) }];
+export async function recordHistory({ client, repo, pr, event }) {
+  const sources = [];
+  const eventPr = event?.issue?.number;
+  if (isRecord(event?.comment) && (eventPr === undefined || Number(eventPr) === Number(pr))) sources.push(event.comment);
+  sources.push(...list(await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`))));
+  const known = list(await attempt(() => readHistory(client, repo, pr)));
+  const seen = new Set(known.map(historyKey));
+  const fresh = [];
+  for (const entry of sources.flatMap(historyEntriesFromComment)) {
+    const key = historyKey(entry);
+    if (!inList(ALL_TRUSTED, lower(entry.author)) || seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(entry);
+  }
+  if (!fresh.length) return { written: 0 };
+  await client.post(`/repos/${repo}/check-runs`, {
+    name: historyCheckName(pr),
+    head_sha: HISTORY_ANCHOR_SHA,
+    external_id: `pr-${pr}`,
+    status: "completed",
+    conclusion: "neutral",
+    output: {
+      title: `ovd-merge-gate history: ${fresh.length} blocking verdict(s) for PR #${pr}`,
+      summary: "Append-only verdict history (OVD-959). Later gate runs carry these forward if the comment is removed; a record never counts as a pass.",
+      text: jsonBlock({ schema: HISTORY_SCHEMA_ID, pr: Number(pr), event: typeof event?.action === "string" ? event.action : null, entries: fresh }),
+    },
   });
+  return { written: fresh.length };
+}
+
+/** The Actions run id of an https://github.com/<repo>/actions/runs/<id> URL in `repo`, else null. */
+export function actionsRunId(url, repo) {
+  if (typeof url !== "string" || typeof repo !== "string") return null;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com" || parsed.port !== "" || parsed.username !== "" || parsed.password !== "") return null;
+  const match = ACTIONS_RUN_PATH.exec(parsed.pathname);
+  if (!match || `${match[1]}/${match[2]}`.toLowerCase() !== repo.toLowerCase()) return null;
+  return match[3];
+}
+
+/** The Actions run ids that reported a check run on `sha` (details_url of GitHub Actions check runs). */
+async function actionsRunIdsAt(client, repo, sha) {
+  const runs = await client.paginate(`/repos/${repo}/commits/${sha}/check-runs?filter=all`, (data) => data?.check_runs);
+  const ids = new Set();
+  for (const run of runs) {
+    if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || run?.head_sha !== sha) continue;
+    for (const url of [run.details_url, run.html_url]) {
+      const id = actionsRunId(url, repo);
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
 }
 
 /**
- * Deleted trusted verdicts recorded by earlier gate runs on this head. The
- * GitHub API does not list deleted comments, so each run carries forward the
- * deletions it saw; the union over every gate check run on the head can only
- * add deletions, so a forged run cannot remove one.
+ * Ruling 6: resolve the ci-run/verify-run links of trusted passes and
+ * supersede claims. A link counts only when it is an Actions run URL of this
+ * repository whose run reported a check run on the verdict's SHA. Returns
+ * SHA -> verified URLs; anything unreadable stays unverified.
  */
-async function priorDeletions(client, repo, headSha) {
-  const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}`, (data) => data?.check_runs);
-  return runs.flatMap((run) => (Array.isArray(summaryFromCheckRun(run)?.deleted_verdicts) ? summaryFromCheckRun(run).deleted_verdicts : []));
+async function verifyEvidence({ client, repo, comments, headSha }) {
+  const wanted = new Map();
+  for (const entry of collectVerdicts(comments, headSha).entries) {
+    const claims = PASSING.has(entry.verdict.verdict) || entry.verdict.supersedes !== undefined;
+    if (!claims || !inList(ALL_TRUSTED, lower(entry.author))) continue;
+    const urls = carryingUrls(entry.verdict).filter((url) => actionsRunId(url, repo) !== null);
+    if (!wanted.has(entry.verdict.sha)) wanted.set(entry.verdict.sha, new Set());
+    for (const url of urls) wanted.get(entry.verdict.sha).add(url);
+  }
+  const verified = {};
+  for (const [sha, urls] of [...wanted].slice(0, MAX_EVIDENCE_SHAS)) {
+    const ids = urls.size ? await attempt(() => actionsRunIdsAt(client, repo, sha)) : undefined;
+    if (ids) verified[sha] = [...urls].filter((url) => ids.has(actionsRunId(url, repo)));
+  }
+  return verified;
+}
+
+async function readCommits(client, repo, pr, pull) {
+  const commits = await client.paginate(`/repos/${repo}/pulls/${pr}/commits`);
+  if (!Number.isInteger(pull?.commits) || commits.length !== pull.commits) throw new Error("the PR commit list is incomplete");
+  return commits;
+}
+
+function failClosed(summary, detail) {
+  summary.reasons.push(missing(detail));
+  summary.gate = "fail";
 }
 
 /**
@@ -706,21 +1057,14 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
   const liveHeadSha = pull?.head?.sha ?? null;
   const headSha = sha ?? liveHeadSha;
-  const read = async (task) => {
-    try {
-      return await task();
-    } catch {
-      return undefined;
-    }
-  };
-  const comments = await read(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
-  const commits = await read(async () => {
-    const list = await client.paginate(`/repos/${repo}/pulls/${pr}/commits`);
-    return Number.isInteger(pull?.commits) && list.length === pull.commits ? list : undefined;
-  });
-  const prior = HEX40.test(String(headSha)) ? await read(() => priorDeletions(client, repo, headSha)) : [];
+  const validHead = HEX40.test(String(headSha));
+  const comments = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
+  const commits = await attempt(() => readCommits(client, repo, pr, pull));
+  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha)) : [];
+  const history = await attempt(() => readHistory(client, repo, pr));
+  const verifiedEvidence = validHead && Array.isArray(comments) ? await verifyEvidence({ client, repo, comments, headSha }) : {};
   const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];
-  const { diffId, error: diffIdError } = headDiffId({ pr, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
+  const { diffId, error: diffIdError } = headDiffId({ pr, repo, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
   const { classification, files } = await classify({ client, repo, pr, headSha, root });
   const summary = evaluate({
     headSha,
@@ -729,6 +1073,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     diffIdError,
     comments,
     deletedVerdicts,
+    history: history ?? [],
+    verifiedEvidence,
     commits,
     prAuthor: pull?.user?.login,
     prBody: typeof pull?.body === "string" ? pull.body : null,
@@ -737,15 +1083,21 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     mode: MODE,
     identity: IDENTITY,
   });
-  // A prior run that could not be read keeps no deletion history; say so instead of passing silently.
-  if (prior === undefined) {
-    summary.reasons.push({ code: "missing_input", detail: "earlier gate check runs on this head could not be read" });
-    summary.gate = "fail";
-  }
-  // Carry forward only blocking or unreadable deletions; a deleted clean pass is never recorded.
-  const carried = carriedDeletions(deletedVerdicts, [...TRUSTED_VERIFIERS, ...APP_TRUSTED_VERIFIERS]);
-  summary.deleted_verdicts = deletedVerdicts.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
+  // Unreadable history may hide a deletion: say so instead of passing silently.
+  if (prior === undefined) failClosed(summary, "earlier gate check runs on this head could not be read, or one has no readable summary");
+  if (history === undefined) failClosed(summary, "the PR's verdict history could not be read, so a removed FAIL cannot be ruled out");
+  // Carry forward only blocking or unreadable removals; a removed clean pass is never recorded.
+  const candidates = deletionCandidates({ deletedVerdicts, history: history ?? [], comments });
+  const carried = carriedDeletions(candidates, ALL_TRUSTED);
+  summary.deleted_verdicts = candidates.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
   return summary;
+}
+
+/** The check-run text: the JSON summary, without the `ignored` details if it would not fit. */
+function summaryText(summary) {
+  const text = jsonBlock(summary);
+  if (text.length <= MAX_OUTPUT_TEXT) return text;
+  return jsonBlock({ ...summary, ignored: [{ code: "truncated", detail: `${list(summary.ignored).length} ignored entries omitted to fit the check run` }] });
 }
 
 /** POST the ovd-merge-gate check run. */
@@ -756,33 +1108,43 @@ export async function writeCheckRun({ client, repo, sha, summary }) {
     head_sha: sha,
     status: "completed",
     conclusion,
-    output: { title, summary: formatSummary(summary), text: `\`\`\`json\n${JSON.stringify(summary, null, 2)}\n\`\`\`` },
+    output: { title, summary: formatSummary(summary), text: summaryText(summary) },
   });
+}
+
+const COMMANDS = Object.freeze({ evaluate: ["pr", "sha"], write: ["pr"], record: ["pr"], "merge-group": ["sha"] });
+const SWITCHES = Object.freeze({ "--json": ["json", true], "--no-fetch": ["fetch", false] });
+const VALUE_FLAGS = new Set(["--pr", "--sha", "--repo"]);
+
+/** Read the flag at `index` into options; returns the index of the last argument consumed. */
+function readFlag(args, index, options) {
+  const arg = args[index];
+  if (Object.hasOwn(SWITCHES, arg)) {
+    const [key, value] = SWITCHES[arg];
+    options[key] = value;
+    return index;
+  }
+  if (!VALUE_FLAGS.has(arg)) throw new Error(`unknown argument ${JSON.stringify(arg)}`);
+  const value = args[index + 1];
+  if (value === undefined) throw new Error(`${arg} needs a value`);
+  options[arg.slice(2)] = value;
+  return index + 1;
 }
 
 function parseCli(argv) {
   const [command, ...rest] = argv;
-  if (!["evaluate", "write", "merge-group"].includes(command)) throw new Error("command must be evaluate, write or merge-group");
+  if (!Object.hasOwn(COMMANDS, command ?? "")) throw new Error("command must be evaluate, write, record or merge-group");
   const options = { command, json: false, fetch: true };
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-    if (arg === "--json") options.json = true;
-    else if (arg === "--no-fetch") options.fetch = false;
-    else if (["--pr", "--sha", "--repo"].includes(arg)) {
-      const value = rest[++index];
-      if (value === undefined) throw new Error(`${arg} needs a value`);
-      options[arg.slice(2)] = value;
-    } else throw new Error(`unknown argument ${JSON.stringify(arg)}`);
-  }
+  for (let index = 0; index < rest.length; index += 1) index = readFlag(rest, index, options);
   if (options.pr !== undefined && !PR_NUMBER.test(options.pr)) throw new Error("--pr must be a positive integer");
   if (options.sha !== undefined) assertSha(options.sha, "--sha");
-  if (command !== "merge-group" && options.pr === undefined) throw new Error(`${command} needs --pr`);
-  if (command === "evaluate" && options.sha === undefined) throw new Error("evaluate needs --sha");
-  if (command === "merge-group" && options.sha === undefined) throw new Error("merge-group needs --sha");
+  for (const name of COMMANDS[command]) {
+    if (options[name] === undefined) throw new Error(`${command} needs --${name}`);
+  }
   return options;
 }
 
-const USAGE = "usage: ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch] | write --pr N [--repo o/r] | merge-group --sha S [--repo o/r]";
+const USAGE = "usage: ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch] | record --pr N [--repo o/r] | write --pr N [--repo o/r] | merge-group --sha S [--repo o/r]";
 
 function readEvent(env) {
   if (!env.GITHUB_EVENT_PATH) return null;
@@ -793,9 +1155,43 @@ function readEvent(env) {
   }
 }
 
+/** The queue no-op: the rule was evaluated on the PR head; the queue only needs the check to exist. */
+async function writeMergeGroup({ client, options, stdout }) {
+  const summary = { gate: "pass", sha: options.sha, mode: MODE, identity: IDENTITY, identity_note: IDENTITY_NOTES[IDENTITY], automerge: "needs_release", reasons: [], warnings: [{ code: "merge_group", detail: "merge queue no-op; the gate ran on the PR head" }], ignored: [], deleted_verdicts: [] };
+  await client.post(`/repos/${options.repo}/check-runs`, { name: CHECK_NAME, head_sha: options.sha, status: "completed", conclusion: "success", output: { title: "ovd-merge-gate: merge queue no-op", summary: "The merge gate was evaluated on the PR head.", text: jsonBlock(summary) } });
+  stdout.write(`ovd-merge-gate: merge_group success on ${options.sha}\n`);
+  return 0;
+}
+
+async function writeGate({ client, options, summary, stdout }) {
+  // Re-read the head right before writing: a result for a head that moved is not written.
+  const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
+  if (now !== summary.sha) {
+    stdout.write(`ovd-merge-gate: head moved from ${summary.sha} to ${now}; not writing (the run for the new head writes it)\n`);
+    return 0;
+  }
+  await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
+  stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
+  return 0;
+}
+
+async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout }) {
+  if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
+  if (options.command === "record") {
+    const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env) });
+    stdout.write(`ovd-merge-gate: recorded ${written} blocking verdict(s) in the history of PR #${options.pr}\n`);
+    return 0;
+  }
+  const event = options.command === "write" ? readEvent(env) : null;
+  const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify });
+  if (options.command === "write") return writeGate({ client, options, summary, stdout });
+  stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
+  return summary.gate === "pass" ? 0 : 1;
+}
+
 /**
- * CLI. Returns the exit code: evaluate 0 pass / 1 fail; write and
- * merge-group 0 once handled (report mode never fails the job), 1 when the
+ * CLI. Returns the exit code: evaluate 0 pass / 1 fail; record, write and
+ * merge-group 0 once handled (report mode never fails the job), 1 when a
  * check run could not be written; 2 on usage errors.
  */
 export async function main(argv = process.argv.slice(2), { env = process.env, fetchImpl, stdout = process.stdout, stderr = process.stderr, cwd = process.cwd(), git, diff, classify } = {}) {
@@ -811,28 +1207,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   const client = createApi({ token, apiUrl: env.GITHUB_API_URL || undefined, fetchImpl });
   try {
-    if (options.command === "merge-group") {
-      // The rule was evaluated on the PR head; the queue only needs the check to exist.
-      const summary = { gate: "pass", sha: options.sha, mode: MODE, identity: IDENTITY, identity_note: IDENTITY_NOTES[IDENTITY], automerge: "needs_release", reasons: [], warnings: [{ code: "merge_group", detail: "merge queue no-op; the gate ran on the PR head" }], ignored: [] };
-      await client.post(`/repos/${options.repo}/check-runs`, { name: CHECK_NAME, head_sha: options.sha, status: "completed", conclusion: "success", output: { title: "ovd-merge-gate: merge queue no-op", summary: "The merge gate was evaluated on the PR head.", text: `\`\`\`json\n${JSON.stringify(summary, null, 2)}\n\`\`\`` } });
-      stdout.write(`ovd-merge-gate: merge_group success on ${options.sha}\n`);
-      return 0;
-    }
-    const event = options.command === "write" ? readEvent(env) : null;
-    const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify });
-    if (options.command === "evaluate") {
-      stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
-      return summary.gate === "pass" ? 0 : 1;
-    }
-    // Re-read the head right before writing: a result for a head that moved is not written.
-    const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
-    if (now !== summary.sha) {
-      stdout.write(`ovd-merge-gate: head moved from ${summary.sha} to ${now}; not writing (the run for the new head writes it)\n`);
-      return 0;
-    }
-    await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
-    stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
-    return 0;
+    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
     return 1;

@@ -36,9 +36,9 @@ Field names follow the OVD-845 §6 schema. This format adds the following:
 | Field | Rule |
 | --- | --- |
 | `role` | `verifier` or `reviewer`. `parseVerdictComments` returns only the `verifier` verdict as `verdict`; `reviewer` verdicts come back in `reviews`. **Both roles are `ovd-merge-gate` input:** it needs a verifier PASS and at least one reviewer PASS (see below). |
-| `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `line` is an integer ≥ 1 or `null` for a file-level finding. |
+| `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `file` is repo-relative (no leading `/`, no drive letter, no `..` segment), like a gate finding. `line` is an integer ≥ 1 or `null` for a file-level finding. |
 | `notes` | Strings prefixed with a severity: `high: `, `medium: `, `low: ` or `info: `. `PASS_NOTES` needs at least one note. Under OVD-845, a `PASS_NOTES` verdict with a `high:` note (`hasHighNote`) can't be merged. |
-| `verifier.model_family` | Lower-case family token (`opus`, `grok`, `codex`, ...). |
+| `verifier.model_family` | Lower-case family token. The schema accepts any token; `ovd-merge-gate` accepts only ruling 4's `claude`, `codex`, `grok`, `jev` or `human` and treats anything else (for example `opus`) as a malformed verdict. |
 | `verifier.github_login` | GitHub login, with an optional `[bot]` suffix. It must match the author of the comment. |
 
 The validator fails closed and reports one message per problem, each prefixed
@@ -238,7 +238,9 @@ are implemented by `scripts/ovd-merge-gate.mjs` and
 `.github/workflows/ovd-merge-gate.yml` (OVD-959, PR-G1). The workflow runs
 only default-branch code (`pull_request_target`, `issue_comment` created,
 edited and deleted, `workflow_dispatch` with `pr`, and `merge_group`), fetches
-the PR head and base as data, and writes one check run named
+the PR head and base as git data into a separate bare repository, records
+trusted blocking verdicts in the verdict history from a job named
+`ovd-merge-gate-history`, and then writes one check run named
 `ovd-merge-gate` on the head from a job named `ovd-merge-gate-writer`. On
 `merge_group` it writes `success` on the merge group commit (the queue
 no-op). It re-reads the head right before writing and writes nothing for a
@@ -272,12 +274,18 @@ only when all of these hold:
   comment that may be for the head (its `sha` or `diff_id` matches, or cannot
   be read) fails the gate until a fresher trusted verdict of that role is
   posted: `edited_verdict` when it was edited, and `verdict_schema_error`
-  when its block is unparseable, fails the schema or lacks comment
-  timestamps.
-  Deletions are seen on the `issue_comment` deleted event and carried
-  forward in `deleted_verdicts` through the gate's own check runs on the
-  head, but **only blocking verdicts are carried forward**: a FAIL, or a
-  PASS/PASS_NOTES with a `high` finding or `high:` note. A carried deletion
+  when its block is unparseable, fails the schema, has a `model_family`
+  outside ruling 4, lacks comment timestamps, or opens a
+  ```` ```overdrafter-verdict ```` fence that is never closed
+  (`unterminated_block`; such a block is invisible to `extractVerdictBlocks`,
+  so the gate counts opening fences itself).
+  Removed verdicts come from the verdict history (below), from the
+  `issue_comment` deleted event, and from `deleted_verdicts` in the gate's
+  own earlier check runs on the head, but **only blocking verdicts are
+  carried forward**: a FAIL, or a PASS/PASS_NOTES with a `high` finding or
+  `high:` note. A history entry whose block is no longer posted (the comment
+  was deleted, or edited so it no longer holds that block) is removed. A
+  carried deletion
   stands in the union exactly as if it were still posted (a deleted FAIL
   stays outstanding unless a later verdict supersedes it under the normal
   rules; a deleted verdict is never itself a supersede claim), and it never
@@ -303,16 +311,74 @@ only when all of these hold:
   Ruling 1 (both stages): when a counted verifier or reviewer verdict's
   `verifier.id` (the agent id) equals a builder bot id in the PR body's
   `Built-by:` (or `Model-builder:`) line, the gate reports
-  `verifier_not_independent`. Until K3 (stage A) it is a **warning** in
-  `warnings` and in the check-run summary, not a reason; from K3 (stage B) it
-  is a blocking reason. The body is read as data from the PR API. A missing
-  body or a missing or unparseable builder line gives no warning and never
-  helps a pass.
+  `verifier_not_independent`. The line is parsed by the maintained parser,
+  `parseBuiltBy` in `scripts/agent-graph/built-by.mjs`, as
+  `docs/agent-pr-tags.md` specifies (canonical `bot=<id> model=model:<pool>`
+  entries and the free-text `<bot> / <family>` form; ids and display names
+  match case-insensitively; a legacy `Model-builder:` line is read as a
+  Built-by line). A missing body, no Built-by line, a line (or one entry of
+  it) the parser cannot read, a second builder in free text, or only a
+  legacy `Model:` line (`bot=unknown`) is `builder_unattributed`: the
+  independence from the builder cannot be checked. Until K3 (stage A) both
+  codes are **warnings** in `warnings` and in the check-run summary, not
+  reasons; from K3 (stage B) both are blocking reasons. The body is read as
+  data from the PR API.
+- **(h) PASS evidence resolves (ruling 6).** A PASS or PASS_NOTES counts for
+  (a) or (b), and a supersede's "new run id" counts for (c), only when one of
+  its https `ci-run` or `verify-run` links is
+  `https://github.com/<this repo>/actions/runs/<id>` (optionally
+  `/job/<id>` or `/attempts/<n>`) and that Actions run reported a GitHub
+  Actions (app 15368) check run on the verdict's `sha`: the revision the
+  verdict is bound to the head by (the head itself, or an older SHA with an
+  equal `diff_id`). The gate checks this through the Checks API
+  (`details_url` of the check runs on that SHA, `filter=all`), so it needs no
+  permission beyond `checks`. Anything else, such as
+  `https://example.invalid/not-a-run`, another repository, a lookalike host,
+  a run that never reported on that SHA, or a check-run list that cannot be
+  read, is `evidence_unverified` and the pass does not count.
+
+**Verdict history (why it is durable, and where it lives).** GitHub keeps no
+readable copy of a deleted issue comment: the comments, timeline and
+issue-events APIs drop it, its edit history (GraphQL `userContentEdits`)
+goes with it, and the public events feed is lossy (at most 300 events over
+90 days, delivered late). A deleted FAIL can therefore only be kept by
+recording it while it is still readable, somewhere that optomachina cannot
+delete and that no single gate run owns. A per-PR concurrency group can
+replace a pending run, so the deletion run's own check run is not enough.
+The gate uses check runs: the workflow already has `checks: write`, there is
+no API to delete a check run, only the app that created it (GitHub Actions)
+can update it, and they are listed with `filter=all`.
+
+- Every workflow run first runs the job `ovd-merge-gate-history`
+  (`node scripts/ovd-merge-gate.mjs record --pr N`). It has no concurrency
+  group, so a newer run never replaces it. It appends the trusted blocking
+  verdicts it sees, from the event comment (on `created`, `edited` and
+  `deleted`) and from every live comment, as one check run named
+  `ovd-merge-gate-history/pr-<N>` holding
+  `{ "schema": "overdrafter.gate-history/v1", "pr", "event", "entries" }`.
+  Recording at creation means a FAIL is kept even if the deletion run itself
+  fails.
+- The writer job `needs` the history job and alone is queued per PR, so
+  every writer starts after its own run's record is written, and the last
+  writer to run sees every record.
+- The records sit on `HISTORY_ANCHOR_SHA`, the repository's root commit,
+  which exists forever and is never a PR head. They are keyed on the PR, not
+  a head SHA, and bound to the head like live verdicts (by `sha` or
+  `diff_id`), so a new head with the same `diff_id` still sees a deleted FAIL.
+- Reading fails closed: if the history list cannot be read, or any record is
+  not valid JSON of that schema for that PR, the result is `missing_input`.
+  The same holds for the gate's own earlier check runs on the head: a run
+  without a readable JSON summary holding a `deleted_verdicts` list is
+  `missing_input`, never empty history.
+- Residual risk (as R3): a workflow that a PR adds runs as GitHub Actions too
+  and could update a history check run. Any `.github/**` change needs
+  Blaine's approval record, and the land helper recomputes the gate from main.
 
 **Fail closed.** A missing, unparseable, error, unknown or partial input is
 never a pass: no live head or a moved head (`missing_input`, `stale_sha`), a
-`diff_id` that cannot be computed (`error`), unreadable comments, commits or
-earlier gate check runs (`missing_input`), and any sensitive-class result
+`diff_id` that cannot be computed (`error`), unreadable comments, an
+unreadable or incomplete commit list in either stage, unreadable verdict
+history or earlier gate check runs (`missing_input`), and any sensitive-class result
 whose `status` is not exactly `ok`, that is missing, for another SHA, or does
 not cover every changed file (`classifier_error`, and `automerge:
 needs_blaine`). The advisory `jev-screen` status is never read, counted or
@@ -337,8 +403,12 @@ over the combined findings itself.
 **CLI.** From a clean default-branch checkout, with `GITHUB_TOKEN` or
 `GH_TOKEN` set: `node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S
 --json` prints the summary and exits 0 for `gate: pass`, 1 for fail and 2 on
-usage errors. It fetches `refs/pull/N/head` and the base branch into
-`refs/ovd-merge-gate/*` first (`--no-fetch` reads `origin/<base>` instead).
+usage errors. It fetches `refs/pull/N/head` and the base branch, as git data
+only, into `refs/ovd-merge-gate/*` of a fresh bare repository in a temporary
+directory, computes `diff_id` there and removes it; nothing is fetched into
+the checkout, and no PR file is checked out or run (`--no-fetch` reads
+`origin/<base>` in the current repository instead). `record --pr N` appends
+to the verdict history.
 The land helper and merge read-back consume it in PR-G2.
 
 ## Corroboration

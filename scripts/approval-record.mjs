@@ -25,7 +25,7 @@ export const APPROVERS = Object.freeze(["blaine"]);
 /** Allowed clock skew for an approval timestamp ahead of the comment's created_at. */
 export const APPROVAL_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
-const FIELDS = ["schema", "sha", "diff_id", "approver", "card_id", "timestamp"];
+const FIELDS = new Set(["schema", "sha", "diff_id", "approver", "card_id", "timestamp"]);
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const CARD_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -66,7 +66,7 @@ export function validateApproval(obj, { now = new Date() } = {}) {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return { ok: false, errors: ["approval: must be an object"] };
   const errors = [];
   for (const key of Object.keys(obj)) {
-    if (!FIELDS.includes(key)) errors.push(`approval.${key}: is not an allowed field`);
+    if (!FIELDS.has(key)) errors.push(`approval.${key}: is not an allowed field`);
   }
   for (const key of FIELDS) {
     if (!Object.hasOwn(obj, key)) {

@@ -46,7 +46,8 @@ const LEGACY_FINDING = {
   required: ["severity", "file", "line", "model"],
   properties: {
     severity: { enum: SEVERITIES },
-    file: { type: "string", minLength: 1 },
+    // Repo-relative like gate findings (ruling 3): a legacy finding must not name ../outside either.
+    file: { type: "string", minLength: 1, format: "repo-path" },
     line: { type: ["integer", "null"], minimum: 1 },
     model: { type: "string", pattern: MODEL_FAMILY },
     message: { type: "string" },

@@ -104,6 +104,8 @@
     { "glob": "scripts/approval-record*", "class": "infra_ci" },
     { "glob": "scripts/verdict-schema*", "class": "infra_ci" },
     { "glob": "scripts/emit-verdict*", "class": "infra_ci" },
+    { "glob": "scripts/agent-graph/built-by*", "class": "infra_ci" },
+    { "glob": "scripts/fixtures/agent-graph/model-routing*", "class": "infra_ci" },
     { "glob": "scripts/preflight.sh", "class": "infra_ci" },
     { "glob": "scripts/symphony-preflight.sh", "class": "infra_ci" },
     { "glob": "scripts/symphony-agent.sh", "class": "infra_ci" },
