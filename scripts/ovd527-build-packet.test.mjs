@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
-import os from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OVD419_DIGEST_CONTRACT as CONTRACT } from "./ovd419-digest-contract.mjs";
@@ -12,130 +11,28 @@ import {
   PacketError,
   REQUIRED_RUNTIME_ASSETS,
   assembleBundle,
-  buildTags,
   cloudBuildConfig,
+  commandSteps,
   containerInspectionScript,
   createSourcePacket,
-  expectedBuildStep,
-  imageTag,
   loadPacket,
   renderCommands,
   runCli,
   taggedImage,
 } from "./ovd527-build-packet.mjs";
+import {
+  IMAGE,
+  git,
+  goodBuildOutput,
+  goodInspectOutput,
+  makePacket,
+  makeRepo,
+  removeTempDirs,
+  tempDir,
+  writeRepoFile,
+} from "./ovd527-test-fixtures.mjs";
 
-const DIGEST = `sha256:${"d".repeat(64)}`;
-const IMAGE = `${CONTRACT.imageRepository}@${DIGEST}`;
-const DOCKERFILE = `FROM scratch
-RUN mkdir -p /home/pwuser/.cache/camoufox \\
-  && printf '%s' '{"version":"152.0.4","release":"beta.28"}' > /home/pwuser/.cache/camoufox/version.json
-`;
-
-const tempDirs = [];
-function tempDir(label) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), `ovd527-${label}-`));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  while (tempDirs.length > 0) rmSync(tempDirs.pop(), { recursive: true, force: true });
-});
-
-function git(cwd, ...args) {
-  return execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-}
-
-function writeRepoFile(root, relative, content) {
-  mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
-  writeFileSync(path.join(root, relative), content);
-}
-
-function makeRepo() {
-  const root = tempDir("repo");
-  git(root, "init", "-q");
-  git(root, "config", "user.email", "fixture@example.invalid");
-  git(root, "config", "user.name", "Fixture");
-  git(root, "config", "commit.gpgsign", "false");
-  writeRepoFile(root, "worker/Dockerfile", DOCKERFILE);
-  writeRepoFile(root, "worker/package.json", '{"name":"worker"}\n');
-  writeRepoFile(root, "worker/package-lock.json", '{"lockfileVersion":3}\n');
-  writeRepoFile(root, "worker/scripts/install-camoufox.mjs", "export {};\n");
-  writeRepoFile(root, "worker/src/index.ts", "console.log('worker');\n");
-  writeRepoFile(root, "README.md", "outside the archive\n");
-  git(root, "add", ".");
-  git(root, "commit", "-q", "-m", "fixture");
-  return { root, sha: git(root, "rev-parse", "HEAD").trim() };
-}
-
-function makePacket() {
-  const repo = makeRepo();
-  const outDir = path.join(tempDir("packet"), "packet");
-  const { source, packetDir } = createSourcePacket({ sha: repo.sha, cwd: repo.root, outDir });
-  return { ...repo, source, packetDir };
-}
-
-function goodBuildOutput(source) {
-  return {
-    build: {
-      id: "0b8f3c1e-1111-4222-8333-944455556666",
-      status: "SUCCESS",
-      steps: [{ ...expectedBuildStep(source), status: "SUCCESS", id: "0" }],
-      images: [taggedImage(source)],
-      tags: buildTags(source),
-      results: { images: [{ name: taggedImage(source), digest: DIGEST }] },
-      source: { storageSource: { bucket: "b", object: "source.tgz", generation: "1" } },
-      sourceProvenance: {
-        fileHashes: {
-          "gs://b/source.tgz#1": {
-            fileHash: [{ type: "SHA256", value: Buffer.from(source.archiveSha256, "hex").toString("base64") }],
-          },
-        },
-      },
-      options: { sourceProvenanceHash: ["SHA256"] },
-    },
-    resolve: { image_summary: { digest: DIGEST, fully_qualified_digest: IMAGE } },
-    tags: [
-      {
-        tag: `projects/p/locations/l/repositories/r/packages/overdrafter-cad-worker/tags/${imageTag(source)}`,
-        version: `projects/p/locations/l/repositories/r/packages/overdrafter-cad-worker/versions/${DIGEST}`,
-      },
-      {
-        tag: "projects/p/locations/l/repositories/r/packages/overdrafter-cad-worker/tags/older",
-        version: `projects/p/locations/l/repositories/r/packages/overdrafter-cad-worker/versions/sha256:${"e".repeat(64)}`,
-      },
-    ],
-  };
-}
-
-function goodInspectOutput(source) {
-  return {
-    image: IMAGE,
-    imageInspect: [
-      {
-        Id: `sha256:${"f".repeat(64)}`,
-        RepoDigests: [IMAGE],
-        Os: "linux",
-        Architecture: "amd64",
-        Config: {
-          Env: ["PATH=/usr/bin", `WORKER_BUILD_VERSION=${source.commit}`],
-          Cmd: ["node", "dist/index.js"],
-        },
-      },
-    ],
-    container: {
-      schema: "ovd527-container-v1",
-      buildVersion: source.commit,
-      machine: "x86_64",
-      user: "pwuser",
-      netInterfaces: "lo ",
-      nodeProcessCount: 0,
-      mmdbCount: 0,
-      criticalFiles: Object.fromEntries(source.criticalFiles.map((f) => [f.imagePath, f.sha256])),
-      assets: Object.fromEntries(REQUIRED_RUNTIME_ASSETS.map((a) => [a.path, true])),
-    },
-  };
-}
+afterEach(removeTempDirs);
 
 function captureRefusal(fn) {
   try {
@@ -247,6 +144,17 @@ describe("ovd527 commands", () => {
     expect(config.steps[0].args).toContain("--platform=linux/amd64");
     expect(config.images).toEqual([taggedImage(source)]);
     expect(config.options.sourceProvenanceHash).toEqual(["SHA256"]);
+  });
+
+  it("renders the commands from the seven steps; targets move only the saved outputs", () => {
+    const { source, packetDir } = makePacket();
+    const steps = commandSteps(source, packetDir);
+    expect(Object.keys(steps)).toEqual(["submit", "follow", "saveBuild", "pin", "inspect", "bundle", "plan"]);
+    expect(renderCommands(source, packetDir).endsWith(Object.values(steps).join("\n"))).toBe(true);
+    const moved = commandSteps(source, packetDir, { buildJson: "/x/b.partial", inspectJson: "/x/i.partial" });
+    expect(moved.saveBuild).toContain('> "/x/b.partial"');
+    expect(moved.inspect).toContain('> "/x/i.partial"');
+    for (const name of ["submit", "follow", "pin", "bundle", "plan"]) expect(moved[name]).toBe(steps[name]);
   });
 
   it("emits an inspection script that prints parseable JSON without single quotes", () => {

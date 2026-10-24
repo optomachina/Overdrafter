@@ -75,7 +75,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function stableJson(value) {
+export function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
@@ -269,7 +269,7 @@ export function cloudBuildConfig(source) {
   };
 }
 
-function shellDouble(text) {
+export function shellDouble(text) {
   return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$")}"`;
 }
 
@@ -326,7 +326,12 @@ export function containerInspectionScript(source) {
   return script;
 }
 
-export function renderCommands(source, packetDir) {
+/**
+ * The seven printed steps in order. Steps 1-5 need GCP access (step 5 also a
+ * local Docker); steps 6 and 7 are local. `targets` redirects where steps 3
+ * and 5 write, so a wrapper can write a partial file and rename it.
+ */
+export function commandSteps(source, packetDir, targets = {}) {
   const { project, region, imageRepository } = OVD419_DIGEST_CONTRACT;
   const tag = imageTag(source);
   const archive = path.join(packetDir, "source.tgz");
@@ -335,27 +340,20 @@ export function renderCommands(source, packetDir) {
   const inspectJson = path.join(packetDir, "inspect.json");
   const bundleJson = path.join(packetDir, "bundle.json");
   const script = containerInspectionScript(source);
-  return `# OVD-527 build qualification commands for ${source.commit}
-# Packet: ${packetDir}
-# Source archive SHA-256:  ${source.archiveSha256}
-# Source manifest SHA-256: ${source.manifestSha256}
-# Image tag: ${imageRepository}:${tag}
-# This is a build only Cloud Build: one docker build step, one pushed image, no deploy.
-# Nothing here changes Cloud Run, the database, or any provider.
-
-# 1. Submit the build. Must print one build id.
+  return {
+    submit: `# 1. Submit the build. Must print one build id.
 BUILD_ID="$(gcloud builds submit ${shellDouble(archive)} \\
   --project=${project} --region=${region} \\
   --config=${shellDouble(config)} \\
   --async --format='value(id)')"
 echo "$BUILD_ID"
-
-# 2. Follow the build log. Must end with the image pushed and status SUCCESS.
+`,
+    follow: `# 2. Follow the build log. Must end with the image pushed and status SUCCESS.
 #    The only step is "${BUILDER_IMAGE} build --platform=${PLATFORM}
 #    --build-arg WORKER_BUILD_VERSION=${source.commit}".
 gcloud builds log "$BUILD_ID" --project=${project} --region=${region} --stream
-
-# 3. Save the build record, the digest resolve and the tag list in one file.
+`,
+    saveBuild: `# 3. Save the build record, the digest resolve and the tag list in one file.
 #    The build must show status SUCCESS, exactly one step, the four ovd527 tags,
 #    and a SHA256 source provenance hash equal to the archive SHA-256 above.
 #    The resolve and the single matching tag entry must show the same digest.
@@ -366,13 +364,13 @@ gcloud builds log "$BUILD_ID" --project=${project} --region=${region} --stream
   printf ',"tags":'
   gcloud artifacts docker tags list "${imageRepository}" --project=${project} --format=json
   printf '}\\n'
-} > ${shellDouble(buildJson)}
-
-# 4. Pin the immutable image by digest. Must print ${imageRepository}@sha256:<64 hex>.
+} > ${shellDouble(targets.buildJson ?? buildJson)}
+`,
+    pin: `# 4. Pin the immutable image by digest. Must print ${imageRepository}@sha256:<64 hex>.
 IMAGE="${imageRepository}@$(gcloud artifacts docker images describe "${imageRepository}:${tag}" --project=${project} --format='value(image_summary.digest)')"
 echo "$IMAGE"
-
-# 5. Pull and inspect offline: ${PLATFORM}, --network=none, worker entrypoint replaced
+`,
+    inspect: `# 5. Pull and inspect offline: ${PLATFORM}, --network=none, worker entrypoint replaced
 #    by a read only shell check, WORKER_BUILD_VERSION not overridden.
 #    The container output must show buildVersion ${source.commit}, machine x86_64,
 #    user ${RUNTIME_USER}, netInterfaces "lo" plus only down kernel fallback tunnels, nodeProcessCount 0, mmdbCount 0,
@@ -386,16 +384,30 @@ docker pull --platform=${PLATFORM} "$IMAGE"
     --cap-drop=ALL --security-opt=no-new-privileges \\
     --entrypoint /bin/sh "$IMAGE" -c '${script}'
   printf '}\\n'
-} > ${shellDouble(inspectJson)}
-
-# 6. Build the attestation bundle. Must exit 0; any mismatch is refused.
+} > ${shellDouble(targets.inspectJson ?? inspectJson)}
+`,
+    bundle: `# 6. Build the attestation bundle. Must exit 0; any mismatch is refused.
 node scripts/ovd527-build-packet.mjs bundle \\
   --build-json ${shellDouble(buildJson)} \\
   --inspect-json ${shellDouble(inspectJson)} > ${shellDouble(bundleJson)}
-
-# 7. Confirm the release runner accepts it. Must print "plan-valid".
+`,
+    plan: `# 7. Confirm the release runner accepts it. Must print "plan-valid".
 node scripts/run-ovd419-final-digest-release.mjs --plan-stdin < ${shellDouble(bundleJson)}
-`;
+`,
+  };
+}
+
+export function renderCommands(source, packetDir) {
+  const { imageRepository } = OVD419_DIGEST_CONTRACT;
+  return `# OVD-527 build qualification commands for ${source.commit}
+# Packet: ${packetDir}
+# Source archive SHA-256:  ${source.archiveSha256}
+# Source manifest SHA-256: ${source.manifestSha256}
+# Image tag: ${imageRepository}:${imageTag(source)}
+# This is a build only Cloud Build: one docker build step, one pushed image, no deploy.
+# Nothing here changes Cloud Run, the database, or any provider.
+
+${Object.values(commandSteps(source, packetDir)).join("\n")}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -705,7 +717,7 @@ const USAGE = `usage:
 The packet directory defaults to ~/ovd527-packet/<sha> and must be outside the repository.
 `;
 
-function parseFlags(args, allowed) {
+export function parseFlags(args, allowed) {
   const flags = {};
   for (let index = 0; index < args.length; index += 2) {
     const name = args[index];
@@ -718,7 +730,7 @@ function parseFlags(args, allowed) {
   return flags;
 }
 
-function readJsonFile(file, label) {
+export function readJsonFile(file, label) {
   try {
     return JSON.parse(readFileSync(file, "utf8"));
   } catch {
