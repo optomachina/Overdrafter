@@ -15,7 +15,7 @@ const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => {
   server.closeAllConnections(); server.close(error => error ? reject(error) : resolve());
 }))); });
-async function setup(enabled?: boolean, wrongBytes = false, output = false, hangPool = false) {
+async function setup(enabled?: boolean, wrongBytes = false, output = false, hangPool = false, stallPool = false) {
   let stored = false;
   const query = vi.fn(async (text: string) => {
     if (text === ARTIFACT_AUTHORITY_SQL) return { rows: [{ scope, inputEligible: !output, outputEligible: output }] };
@@ -33,6 +33,7 @@ async function setup(enabled?: boolean, wrongBytes = false, output = false, hang
   });
   const connect = vi.fn(async () => {
     if (hangPool) await new Promise<never>(() => {});
+    if (stallPool) { const until = performance.now() + 50; while (performance.now() < until) { /* block the event loop past the deadline */ } }
     return { query, release: vi.fn() };
   });
   const storageFetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -40,7 +41,7 @@ async function setup(enabled?: boolean, wrongBytes = false, output = false, hang
     return new Response(wrongBytes ? "different" : bytes);
   });
   const route = createNativeArtifactRoute({ pool: { connect }, storageOrigin: "https://storage.invalid", storageAuthorization: "Bearer synthetic-fixture",
-    publicOrigin: "https://artifact.invalid", enabled, storageVersionIdQualified: true, fetch: storageFetch, timeoutMs: hangPool ? 20 : 30000 });
+    publicOrigin: "https://artifact.invalid", enabled, storageVersionIdQualified: true, fetch: storageFetch, timeoutMs: hangPool || stallPool ? 20 : 30000 });
   const server = createServer((req, res) => { void route(req, res).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }); });
   servers.push(server); await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); if (!address || typeof address === "string") throw Error("fixture address");
@@ -61,6 +62,12 @@ describe("Node artifact route (synthetic loopback only)", () => {
     expect(response.status).toBe(503); expect(response.headers.get("connection")).toBe("close");
     expect((await response.json()).error).toBe("transfer_unavailable");
     expect(f.connect).toHaveBeenCalledTimes(1); expect(f.storageFetch).not.toHaveBeenCalled();
+  });
+  it("closes the connection on deadline when a stalled event loop lets the SQL deadline win the race", async () => {
+    const f = await setup(true, false, false, false, true);
+    const response = await fetch(f.url, { headers, signal: AbortSignal.timeout(1000) });
+    expect(response.status).toBe(503); expect(response.headers.get("connection")).toBe("close");
+    expect((await response.json()).error).toBe("transfer_unavailable"); expect(f.storageFetch).not.toHaveBeenCalled();
   });
   it("rejects invalid authentication before acquiring SQL", async () => {
     const f = await setup(true); expect((await fetch(f.url)).status).toBe(403); expect(f.connect).not.toHaveBeenCalled();
