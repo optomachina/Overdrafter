@@ -1,0 +1,27 @@
+{
+  "owner": "Codex /root; independent read-only reviewer /root/review_cleanup",
+  "host": "Blaines-MacBook-Pro.local",
+  "worktree": "/Users/blainewilson/Documents/Codex/2026-10-20/overnight/cx/ovd1022",
+  "branch": "fix/portal-cleanup-row-bound-confirm",
+  "base_revision": "fa44417408c02c0c62e2cc0c3d64b6ddb928d33a",
+  "timestamp_utc": "2026-10-21T11:07:26.497173+00:00",
+  "scope": "PR 895 / OVD-1022 three confirmed cleanup findings",
+  "allowed_actions": "Source edits and local synthetic tests; no git writes, dependencies, provider activity or credentials",
+  "budget": "45 minutes; bounded repair and requested checks",
+  "completion_condition": "Three findings fixed with regressions; requested verification run; browser tests handed to coordinator",
+  "verification": {
+    "kernel_final": "162 passed",
+    "adapters_before_final_ambiguity_guard": "1412 passed, 10 failed; all failures rmfgHttpTransport local listen EPERM 127.0.0.1",
+    "typecheck_worker_final": "passed",
+    "eslint_changed_files_final": "passed",
+    "browser": "3 new tests, unrun as requested; coordinator runs outside sandbox",
+    "independent_review": "no findings including final ambiguity guard"
+  },
+  "failure_family": "Sandbox network bind denial, not a code-test pass",
+  "file_sha256": {
+    "worker/src/adapters/providerPortalCleanupConfirmation.ts": "82dd2cf545de4fc365367a7c5863601d581dc26a89df9b8e8e88c37bd0285397",
+    "worker/src/adapters/providerPortalKernel.ts": "f824496a0437c8747117d5e46f9cfcd1df5275b8c5cd238ccc691002ebe682e4",
+    "worker/src/adapters/providerPortalKernel.test.ts": "f0ac3a1e9fe5c422e8de186a8c379e7c0cd6820d923102cc92d096bd50913a87",
+    "worker/src/adapters/providerPortalCleanup.browser.test.ts": "5c601f4ca31158eed50caa550bf1b1439b5eafefc1b007669bc6cb7228300db4"
+  }
+}

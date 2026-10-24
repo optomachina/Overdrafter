@@ -1,0 +1,43 @@
+{
+  "task": "OVD-1022",
+  "owner": "Codex /root (sole writer)",
+  "reviewer": "review_cleanup (Astra xhigh, read-only)",
+  "host": "Blaines-MacBook-Pro.local",
+  "worktree": "/Users/blainewilson/Documents/Codex/2026-10-20/overnight/cx/ovd1022",
+  "branch": "fix/portal-cleanup-row-bound-confirm",
+  "base_revision": "f7b322d7c50bac3aa0e3bac5f982000527ffc8f1",
+  "timestamp": "2026-10-21T10:04:15.437026+00:00",
+  "allowed_actions": "Scoped source/test edits and local checks; no git writes, provider activity, or browser suites",
+  "completion_condition": "Row-bound cleanup, fail-closed native confirmations, regressions and requested checks; coordinator owns browser verification",
+  "budget": "One primary analysis pass; two local repair rounds; independent bounded review",
+  "failure_family": "RMFG local HTTP listen EPERM in sandbox; browser checks delegated to coordinator",
+  "files": {
+    "worker/src/adapters/providerPortalKernel.ts": "1061454dead4844d75c40c81f83c4ec1c2dcaa806848140492688cb2ba3cb09e",
+    "worker/src/adapters/providerPortalCleanupConfirmation.ts": "b2ed0bbe0a013a61c980672b1e47b9478e47e10013ef204e3161e576452802c8",
+    "worker/src/adapters/providerPortalKernel.test.ts": "614123c0fef6d2d740c98e97adfa8e6a1a0174605e028c0899f0ef77aa5cc656"
+  },
+  "results": {
+    "provider:check": "PASS (exit 0)",
+    "typecheck:worker": "PASS (exit 0)",
+    "eslint": "PASS (exit 0)",
+    "git diff --check": "PASS (exit 0)",
+    "adapter_suite": {
+      "exit_code": 1,
+      "files_passed": 42,
+      "files_failed": 1,
+      "tests_passed": 1396,
+      "tests_failed": 10,
+      "errors": 10,
+      "failed_file": "worker/src/adapters/rmfgHttpTransport.test.ts",
+      "cause": "listen EPERM 127.0.0.1; sandbox forbids local listeners"
+    },
+    "kernel_tests": {
+      "passed": 145,
+      "failed": 0
+    },
+    "browser_suites": "Not run; coordinator owns verification",
+    "review": "Astra xhigh independent bounded review: actionable findings resolved; no remaining findings"
+  },
+  "requested_body_path": "/Users/blainewilson/Documents/Codex/2026-10-20/overnight/cx/j1022-body.md",
+  "body_path_result": "Write denied by filesystem sandbox; saved output/ovd1022-current/j1022-body.md instead"
+}

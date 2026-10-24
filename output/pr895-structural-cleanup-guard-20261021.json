@@ -1,0 +1,54 @@
+{
+  "task": "OVD-1022 / PR 895 structural cleanup guard",
+  "owner": "/root",
+  "host": "Blaines-MacBook-Pro.local",
+  "worktree": "/Users/blainewilson/Documents/Codex/2026-10-20/overnight/cx/ovd1022",
+  "branch": "fix/portal-cleanup-row-bound-confirm",
+  "baseHead": "6a903eb679d4ce9579ccced13093f393c178847a",
+  "timestamp": "2026-10-21T15:50:32.397469+00:00",
+  "budget": "30 minutes implementation and requested checks; 5 minute independent static review",
+  "allowedActions": "Scoped source/test edits and local checks; no git writes, new dependencies, provider operations or browser execution",
+  "completionCondition": "Structural isolation before/after clicks; preserve pre-upload identities across frames; name lost rows in incomplete/manual_cleanup_required report; regression tests and requested checks",
+  "patchSha256": {
+    "worker/src/adapters/providerPortalCleanupConfirmation.ts": "b6edc457e50da6d54c947bd2707dc18fa74adaf2df180557d7724d8074cc188c",
+    "worker/src/adapters/providerPortalCleanupRows.ts": "86032a67552deb62f4cff245fcc8e5f2bb0ce3caa783e5eeebbff6618bf55f47",
+    "worker/src/adapters/providerPortalKernel.ts": "efa049b88e5412180d0d106a2dd0ab9a12fa107b071de28415d19dbdcf7c7ad5",
+    "worker/src/adapters/providerPortalKernel.test.ts": "d730d66814f0bd22acd917c9d01b7367349771c160294bfe4d4add3d24d60fb5",
+    "worker/src/adapters/providerPortalCleanup.browser.test.ts": "5b6248b81c945f89207b3f8660267612c4849cba652a9b2115729a7c205b7da1"
+  },
+  "verification": {
+    "npx vitest run worker/src/adapters --exclude '**/*.browser.test.ts'": {
+      "exitCode": 1,
+      "passed": 1435,
+      "failed": 10,
+      "passedFiles": 42,
+      "failedFiles": 1,
+      "failureFamily": "sandbox listen EPERM 127.0.0.1 in rmfgHttpTransport.test.ts",
+      "log": "/private/tmp/ovd1022-adapters-final.log"
+    },
+    "npx vitest run worker/src/adapters/providerPortalKernel.test.ts": {
+      "exitCode": 0,
+      "passed": 184,
+      "log": "/private/tmp/ovd1022-kernel.log"
+    },
+    "npm run typecheck:worker": {
+      "exitCode": 0,
+      "log": "/private/tmp/ovd1022-typecheck.log"
+    },
+    "npx eslint on all five changed files": {
+      "exitCode": 0,
+      "log": "/private/tmp/ovd1022-eslint.log"
+    },
+    "git diff --check": {
+      "exitCode": 0
+    },
+    "independentReview": "structural_guard_review: no actionable findings; static only",
+    "browserTests": {
+      "addedCases": 6,
+      "totalCases": 29,
+      "status": "Not run; coordinator owns execution"
+    }
+  },
+  "residualRisk": "P3 re-render during the click accepted by user; named in code comment",
+  "remaining": "Coordinator browser execution and localhost-enabled RMFG HTTP test verification"
+}
