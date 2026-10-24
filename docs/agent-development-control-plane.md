@@ -24,6 +24,22 @@ Each unit records:
 
 The controller rejects stale expected revisions, cycles, unsatisfied dependencies, active target collisions, invalid owner transfers, acceptance against an old source identity, and retries beyond the failure-family limit.
 
+## Task contract
+
+A task states what a capable agent needs without a new schema. Each field maps onto an existing unit field or an issue/PR section. A trivial unit needs only **outcome + acceptance**; add the other fields when the work touches a protected action, a [sensitive path](../AGENTS.md#sensitive-paths-single-shared-list), or High complexity.
+
+| Field | Unit / assignment field | Issue and PR section |
+|---|---|---|
+| Outcome (and why) | `deliverable` | Issue Source / Problem / Requested outcome; PR Summary, Problem |
+| Scope and non-goals | `target`, `mutable_targets` | Issue scope; PR Scope (included, not included) |
+| Raw sources | assignment `inputs[]` with roles | Issue Source (file:line, log or check-run link); PR Proof |
+| Tools and access | assignment `actions`; a missing item becomes an `access:` blocker | Issue line "Access needed" |
+| Methods | none (unenforced) | Issue Plan; rolling Linear comment Plan |
+| Independent acceptance | assignment `requirements[]`, `check_identity`; ledger `verifier` | Issue Acceptance; PR Acceptance criteria addressed, Verification |
+| Budget, stop, escalate | `attempt`, `max_attempts`, `failure_family`; blocker classes below | Progress and retry policy; PR diagnostics comment |
+
+Gap, not added here: the run store has no time or spend budget field. `add` records only `--attempt` and `--max-attempts`, so the "time/resource budget" in the unit contract lives in the issue and the dispatch, not in the store.
+
 ## State flow
 
 `planned -> ready -> running -> verifying -> passed -> complete`
@@ -31,6 +47,21 @@ The controller rejects stale expected revisions, cycles, unsatisfied dependencie
 `blocked`, `failed`, and `abandoned` are explicit alternate states. `passed` means the unit's artifact was accepted but a dependent integration unit remains. `complete` means the promised outcome is delivered.
 
 A worker exit is not success. A successful unit has an inspectable artifact or a causal blocker receipt. A bounded wait names a currently live process, CI job, or tool handle.
+
+## Lifecycle phases
+
+Phases reuse the run-store states and gates above; none adds a state. Investigation is a `review`-kind unit (an assignment `kind`), not a new state. The agent-routing nodes named in `docs/agent-graph/graph.v1.yaml` are **provisional**: that file is in PR #799 and is not on `main`, so the last column is a pointer, not a dependency.
+
+| Phase | Entry condition | Exit evidence | Store state(s) | Enforcing code | Graph node (provisional) |
+|---|---|---|---|---|---|
+| Intake | Linear issue with outcome and acceptance; triage route chosen | unit row with `deliverable`, owner, host, target | `planned` | `run_store.py:add_unit` (unique ID, schema v2); triage and task-contract content are unenforced here | `auto-triage` |
+| Investigation | a question that gates the plan, scoped as a `review` unit | accepted result with hashed artifacts (raw data, method, outside check) | `ready` -> `running` -> `complete` | `launch.py:admit` (claim), `launch.py:finish` (independent verifier, hashed artifacts); relevance review: `launch.py:verify_dependency` | none |
+| Implementation | unit `ready`, dependencies satisfied, owner and target free | commits on the unit branch at a recorded head | `ready` -> `running` | `launch.py:admit`; `run_store.py:_validate_unit_dependencies`, `_validate_target_owners` | `engineer`, `designer` |
+| Validation | head committed; preflight and targeted checks run | ledger row (verdict, verifier, head, evidence) bound to the head | `running` -> `verifying` -> `passed` | `run_store.py:record_verdict` (head match, verifier not the owner), `_validate_accepted_units`; preflight output pasted by hand is unenforced | `ci` |
+| Review | validation green at the current head | review verdicts at that head, sized per `AGENTS.md` | `verifying` | `launch.py:verified_result` for guarded reviews; PR review-coverage text is unenforced | `jev`, `sonnet`, `codex`, `opus`, `qa` |
+| Release | review and QA pass at one head, no open findings | merge SHA read back; Linear Done after post-merge criteria | `passed` -> `complete` | `run_store.py:_validate_accepted_units`; required checks `ci` and `provider-go-live` are GitHub branch protection, not repository code; merge read-back is unenforced | `merge-gate`, `release` |
+
+A new commit voids acceptance for the old head (`record_verdict` and `_validate_accepted_verdict` bind to `head_sha`). `launch.py:finish` moves an accepted unit straight to `complete` without passing through `verifying`; the table describes the CLI path.
 
 ## Ownership and hosts
 
@@ -64,6 +95,23 @@ its scope and any unavailable-tool fallback; the callable path and boundaries ar
 [jev-agent-decisions.md](release/jarvis-loop/jev-agent-decisions.md). Semantic review does not replace
 deterministic acceptance evidence or independent review required by `AGENTS.md`.
 
+## Second-model agreement and raw sources
+
+A second model agreeing is review evidence. When a runnable check exists (test, typecheck, migration lineage, pgTAP, a browser trace), it must also be among the accepted evidence for the unit; agreement alone is never the only accepted verdict. Record model review under an artifact key starting `review:` so it is distinguishable from check evidence. Nothing in the code enforces this prefix or the pairing today. The code does reject an accepted verdict from the unit's own owner (`run_store.py:record_verdict`).
+
+For Overdrafter, start from these raw sources before summaries, and name any that were unavailable:
+
+| Source | Where | Access it needs |
+|---|---|---|
+| CI logs and check runs | `gh pr checks`, `gh run view --log-failed`, check-runs API for the head SHA | read-only GitHub access through `gh` |
+| Supabase migration ledger | `supabase_migrations.schema_migrations` and `npm run verify:migration-lineage`; see `docs/runbooks/staging.md` | local needs none; hosted reads need read-only database access from the owner; production needs Blaine's current authorization |
+| pgTAP results | `supabase/tests/*.sql` in an ephemeral database (CI pgTAP workflows or the fixture lane) | Docker for the fixture lane; none for CI logs |
+| Worker logs and task payloads | worker host logs and task payloads; record `workerBuildVersion` and match it to the commit under test | read-only host log access; production execution or configuration stays protected |
+| Playwright traces | `trace: "retain-on-failure"` in `playwright.config.ts`; CI artifacts | `gh run download` read access |
+| Linear issue history | issue description, comments and status history | read-only Linear access (CLI or API token) |
+
+Missing access is an `access:` blocker with the exact resource and its owner, never a reason to substitute a summary.
+
 ## Synthetic development fixtures
 
 Use the standing fixture lane in `AGENTS.md`. The lane is limited to local Docker with cached pinned images, repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Each fixture uses an exclusive internal network and may publish only on explicit IPv4 or IPv6 loopback addresses. No external egress, host networking, privileged container, Docker-socket mount, sensitive host mount, or persistent volume is allowed.
@@ -77,6 +125,23 @@ A maintained fixture runner owns admission, resource caps, platform bootstrap, d
 At each checkpoint require one of: durable source change, newly verified artifact, causal evidence changing the next action, or a bounded live wait. Two checkpoints without durable progress trigger a replan. Three materially similar failures stop the unit and require an independent causal review. A materially revised unit may return through the controller; accepted siblings remain accepted.
 
 Reasoning escalation does not create action authority. Use the model routing in `AGENTS.md`, selecting model and effort in the actual dispatch.
+
+## Failure classes and recovery
+
+Entering `blocked` through `run_store.py transition` requires `--blocker` to start with `<class>:` followed by detail, for example `access: claude-cli-login; owner=Blaine`. The classes are `code`, `infra`, `access`, `approval`, `quota`, `provider`, `host`, `owner` and `budget`. Only transitions enforce this: `validate` still accepts older free-text blockers, and a unit invalidated by a dependency (`stopping` with a `dependency invalidated` blocker) needs a classified blocker if it later moves to `blocked`.
+
+| Class | Meaning | Store path and recovery |
+|---|---|---|
+| `code` | a check fails at the head | repair on the same PR (2 rounds, local and CI combined, all logs at once); when the rounds are spent the unit goes `failed`, the PR becomes a draft with diagnostics, and attempt N+1 is a new superseding unit in the same failure family |
+| `infra` | install, network, runner loss, or a timeout before a stage starts | rerun the same unit; no repair round, no attempt; never fix with code; three identical infra failures follow the three-similar-failures rule |
+| `access` | a credential, permission or tool is missing | `blocked` naming the exact access and its owner; record a `blocked` verdict with evidence; continue independent units; `blocked -> ready` when granted; never record an accepted verdict or a fabricated completion |
+| `approval` | a protected action needs Blaine's exact OK | `blocked`; Grok Bot gets the one approval card; record the approval as a decision, then `blocked -> ready` |
+| `quota`, `provider` | model quota is exhausted or a provider is unavailable | `blocked` with the pool or provider and `resume_after` if known; record a handoff decision; `transition --state ready --owner-thread NEW --owner-transfer-decision ID` on the **same unit and attempt**; requirements, `check_identity` and independent verification are unchanged; a live process is resolved first, never replayed |
+| `host` | a machine is offline or unreachable | only that host's units park (`host: NAME unreachable; since=TS`); other hosts and disjoint targets continue; no replacement dispatch until process evidence resolves it; the `unknown` host state above is this blocker, not a new state |
+| `owner` | a named person must decide (scope, ownership) | `blocked` with the decision needed and who decides; record the answer as a decision |
+| `budget` | repair rounds, attempts or spend are exhausted | stop the unit; a new budget is a recorded owner decision, never an automatic extension; the store has no spend field |
+
+Counters, reconciled: a **repair round** happens inside one attempt on one PR (budget 2). An **attempt** is one unit in a failure family (store ceiling 3, each superseding a `failed` or `abandoned` predecessor). A **materially similar failure** is counted across attempts and renamed packets; the third stops the family for independent causal review (`WORKFLOW.md`), which with a ceiling of 3 coincides with the last attempt. Dissimilar failures still end at the ceiling, and further work needs a materially revised unit through the controller. The store does not count repair rounds today.
 
 ## Projections
 

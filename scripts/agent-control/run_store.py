@@ -56,6 +56,12 @@ VERDICTS = {
 }
 ACCEPTED_VERDICTS = {"real-artifact-verified", "unit-test-verified", "typecheck-only"}
 RUN_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+# A blocker names why work stopped and who can clear it, for example
+# "access: claude-cli-login; owner=Blaine". Enforced when a unit enters blocked or
+# stopping, never in validate(), so stores with older free-text blockers still load.
+BLOCKER_CLASSES = ("code", "infra", "access", "approval", "quota", "provider", "host", "owner", "budget")
+BLOCKER_PATTERN = re.compile(rf"^({'|'.join(BLOCKER_CLASSES)}):\s*\S")
+BLOCKING_STATES = {"blocked", "stopping"}
 TRANSITIONS = {
     "planned": {"ready", "blocked", "abandoned"},
     "ready": {"running", "blocked", "abandoned"},
@@ -580,6 +586,18 @@ def _validate_owner_transfer(args: argparse.Namespace, unit: dict[str, str], dec
             raise ValueError("owner transfer requires a recorded decision for this unit")
 
 
+def _validate_blocker_class(args: argparse.Namespace, unit: dict[str, str]) -> None:
+    """Require a classified blocker on the value that entering blocked/stopping would store."""
+    if args.state not in BLOCKING_STATES:
+        return
+    blocker = args.blocker if args.blocker is not None else unit["blocker"]
+    if not BLOCKER_PATTERN.match(blocker):
+        raise ValueError(
+            f"blocker for {args.unit_id} must start with a class ({', '.join(BLOCKER_CLASSES)}) "
+            f"followed by a colon and detail, for example 'access: claude-cli-login; owner=Blaine'"
+        )
+
+
 def transition_unit(args: argparse.Namespace) -> None:
     run = Path(args.run).expanduser().resolve()
     with lock_store(run):
@@ -597,6 +615,7 @@ def transition_unit(args: argparse.Namespace) -> None:
         if unit["state"] == "failed" and args.state == "ready":
             raise ValueError("failed attempts require a new superseding unit")
         _validate_owner_transfer(args, unit, decisions)
+        _validate_blocker_class(args, unit)
         unit["state"] = args.state
         unit["revision"] = str(current_revision + 1)
         unit["updated_at"] = utc_now()
@@ -674,6 +693,8 @@ def record_verdict(args: argparse.Namespace) -> None:
             raise ValueError(f"unknown unit: {args.unit_id}")
         if args.verdict in ACCEPTED_VERDICTS and unit["head_sha"] and args.head_sha != unit["head_sha"]:
             raise ValueError(f"accepted verdict head does not match current unit: {args.unit_id}")
+        if args.verdict in ACCEPTED_VERDICTS and args.verifier == unit["owner_thread"]:
+            raise ValueError(f"accepted verdict requires a verifier other than the unit owner: {args.unit_id}")
         row = {
             "unit_id": args.unit_id, "artifact_key": args.artifact_key,
             "head_sha": args.head_sha, "verdict": args.verdict,

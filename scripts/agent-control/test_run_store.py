@@ -275,6 +275,106 @@ class RunStoreTests(unittest.TestCase):
             "--owner-transfer-decision", "handoff-1",
         )
 
+    def verdict(self, unit: str, verdict: str, verifier: str, *, expect: int = 0):
+        evidence = self.run / "proof.txt"
+        evidence.write_text("proof\n", encoding="utf-8")
+        return self.command(
+            "verdict", "--run", str(self.run), "--unit-id", unit,
+            "--artifact-key", "proof", "--head-sha", "abc123",
+            "--verdict", verdict, "--verifier", verifier,
+            "--evidence-path", str(evidence), expect=expect,
+        )
+
+    def ledger(self) -> list[dict[str, str]]:
+        return json.loads(self.command("export", "--run", str(self.run)).stdout)["ledger"]
+
+    def test_accepted_verdict_rejects_owner_as_verifier(self) -> None:
+        self.add("u1")  # owner_thread is thread-1
+        self.transition("u1", 1, "ready")
+        self.transition("u1", 2, "running")
+        self.transition("u1", 3, "verifying")
+        for verdict in sorted(store.ACCEPTED_VERDICTS):
+            with self.subTest(verdict=verdict):
+                result = self.verdict("u1", verdict, "thread-1", expect=1)
+                self.assertIn("verifier other than the unit owner", result.stderr)
+        self.assertEqual([], self.ledger())
+        self.verdict("u1", "unit-test-verified", "thread-2")
+        self.assertEqual("thread-2", self.ledger()[0]["verifier"])
+
+    def test_failed_verdict_from_owner_is_still_recorded(self) -> None:
+        self.add("u1")
+        self.transition("u1", 1, "ready")
+        self.transition("u1", 2, "running")
+        self.verdict("u1", "failed", "thread-1")
+        self.verdict("u1", "blocked", "thread-1")
+        self.assertEqual(["failed", "blocked"], [row["verdict"] for row in self.ledger()])
+
+    def running_unit(self, unit: str = "u1") -> None:
+        self.add(unit)
+        self.transition(unit, 1, "ready")
+        self.transition(unit, 2, "running")
+
+    def unit_state(self, unit: str = "u1") -> dict[str, str]:
+        exported = json.loads(self.command("export", "--run", str(self.run)).stdout)
+        return next(row for row in exported["units"] if row["unit_id"] == unit)
+
+    def test_blocked_transition_requires_classified_blocker(self) -> None:
+        self.running_unit()
+        before = (self.run / "events.tsv").read_text(encoding="utf-8")
+        for blocker in (None, "", "waiting on credentials", "access:", "access:   ", "Access: x"):
+            with self.subTest(blocker=blocker):
+                extra = [] if blocker is None else ["--blocker", blocker]
+                result = self.transition("u1", 3, "blocked", *extra, expect=1)
+                self.assertIn("must start with a class", result.stderr)
+        self.assertEqual("running", self.unit_state()["state"])
+        self.assertEqual(before, (self.run / "events.tsv").read_text(encoding="utf-8"))
+        self.transition("u1", 3, "blocked", "--blocker", "access: claude-cli-login; owner=Blaine")
+        self.assertEqual("blocked", self.unit_state()["state"])
+
+    def test_each_blocker_class_is_accepted(self) -> None:
+        for index, blocker_class in enumerate(store.BLOCKER_CLASSES):
+            unit = f"u{index}"
+            with self.subTest(blocker_class=blocker_class):
+                self.running_unit(unit)
+                self.transition(unit, 3, "blocked", "--blocker", f"{blocker_class}: detail; owner=Blaine")
+                self.assertEqual("blocked", self.unit_state(unit)["state"])
+                self.command("transition", "--run", str(self.run), "--unit-id", unit,
+                             "--expected-revision", "4", "--state", "abandoned")
+
+    def test_unknown_blocker_prefix_is_rejected(self) -> None:
+        self.running_unit()
+        for blocker in ("network: runner lost", "accessory: x", "quota", "quota - exhausted"):
+            with self.subTest(blocker=blocker):
+                result = self.transition("u1", 3, "blocked", "--blocker", blocker, expect=1)
+                self.assertIn("must start with a class", result.stderr)
+
+    def test_quota_handoff_keeps_same_unit_and_attempt(self) -> None:
+        self.running_unit()
+        self.transition("u1", 3, "blocked", "--blocker", "quota: claude-weekly; resume_after=2026-10-24")
+        self.transition("u1", 4, "ready", "--owner-thread", "thread-2", expect=1)
+        self.command(
+            "decision", "--run", str(self.run), "--decision-id", "quota-handoff",
+            "--unit-id", "u1", "--decision", "hand off to thread-2",
+            "--evidence", "checkpoint.md", "--consequence", "acceptance unchanged",
+        )
+        self.transition("u1", 4, "ready", "--owner-thread", "thread-2",
+                        "--owner-transfer-decision", "quota-handoff")
+        unit = self.unit_state()
+        self.assertEqual(("ready", "thread-2", "1"), (unit["state"], unit["owner_thread"], unit["attempt"]))
+
+    def test_legacy_unclassified_blocker_still_validates(self) -> None:
+        self.command(
+            "add", "--run", str(self.run), "--unit-id", "legacy", "--track", "test",
+            "--owner-thread", "thread-1", "--host", "local", "--target", "legacy",
+            "--deliverable", "artifact", "--state", "blocked", "--blocker", "waiting on vendor reply",
+        )
+        result = self.command("check", "--run", str(self.run))
+        self.assertIn("valid run store (v2)", result.stdout)
+        self.assertEqual("waiting on vendor reply", self.unit_state("legacy")["blocker"])
+        # Leaving blocked is not gated on the blocker text.
+        self.transition("legacy", 1, "ready")
+        self.assertEqual("ready", self.unit_state("legacy")["state"])
+
     def stage_next_revision(self) -> Path:
         staged = self.root / "staged"
         store.stage_store(self.run, staged)
