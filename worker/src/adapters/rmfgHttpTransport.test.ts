@@ -20,8 +20,11 @@ const design = {
 };
 const readyQuote = {
   id: "quote-synthetic", status: "ready", currency: "usd", requirements: [],
+  amount_subtotal_cents: 12500, amount_shipping_cents: null, amount_tax_cents: null, amount_total_cents: 12500,
   items: [{ design_id: "design-synthetic", quantity: 10, status: "ready",
     unit_amount_cents: 1250, amount_cents: 12500, requirements: [],
+    line_items: [{ part_id: "part-a", process: "sheet_metal", quantity: 20, material_id: "catalog-stock-a",
+      unit_amount_cents: 625, amount_cents: 12500 }],
     dfm: { design_id: "design-synthetic", status: "ready", requirements: [],
       configuration: { parts: [{ part_id: "part-a", material_id: "catalog-stock-a" }] },
       parts: [{ part_id: "part-a", status: "ready", issues: [] }] } }],
@@ -71,12 +74,13 @@ describe("RMFG HTTP transport against a local stub", () => {
     ]);
     expect(seen.every((entry) => entry.authorization === `Bearer ${API_KEY}`)).toBe(true);
     expect(seen[0].idempotency).toBe("analysis-synthetic-1");
-    expect(seen[2].idempotency).toBe("quote-synthetic-1");
+    expect(seen[2].idempotency).toMatch(/^quote-synthetic-1-[0-9a-f]{16}$/);
     expect(JSON.stringify(outcome)).not.toContain(API_KEY);
     expect(transport.blockedReason()).toBeNull();
   });
 
-  it.each([[401, "authorization_required"], [403, "authorization_required"], [429, "rate_limited"]] as const)(
+  it.each([[401, "authorization_required"], [402, "account_action_required"], [403, "authorization_required"],
+    [429, "rate_limited"]] as const)(
     "stops on HTTP %i and never retries or makes another request",
     async (status, reason) => {
       const { seen, baseUrl } = await stub(() => ({ status, body: { error: "synthetic" } }));
@@ -90,6 +94,26 @@ describe("RMFG HTTP transport against a local stub", () => {
       expect(seen).toHaveLength(1);
     },
   );
+
+  it("polls a queued design without asking RMFG to create a review link", async () => {
+    let polls = 0;
+    const { seen, baseUrl } = await stub((request) => {
+      if (request.url === "/v1/analyze") return { status: 202, body: { ...design, status: "queued" } };
+      if (request.url?.startsWith("/v1/designs/")) {
+        polls += 1;
+        return { status: 200, body: polls < 2 ? { ...design, status: "processing" } : design };
+      }
+      return happyPath(request);
+    });
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
+    expect((await runRmfgQuoteOnly(input, transport)).state).toBe("ready");
+    expect(seen.map((entry) => `${entry.method} ${entry.url}`)).toEqual([
+      "POST /v1/analyze",
+      "GET /v1/designs/design-synthetic?include_review_link=false",
+      "GET /v1/designs/design-synthetic?include_review_link=false",
+      "GET /v1/materials", "POST /v1/quotes",
+    ]);
+  });
 
   it("keeps no daily quote cap of its own; the shared supplier settings gate counts dispatches (OVD-829)", async () => {
     const { seen, baseUrl } = await stub(happyPath);
