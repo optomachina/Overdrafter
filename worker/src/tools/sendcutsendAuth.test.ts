@@ -139,7 +139,8 @@ describe("SendCutSend current-user check (the real in-page evaluator)", () => {
   it("confirms only an id with an explicit guest: false, sending the app's own headers", async () => {
     const fetch = stubPage(json({ id: 42, guest: false, email: "operator@example.com" }));
     await expect(checkSendCutSendCurrentUser()).resolves.toEqual({ signedIn: true, detail: "status 200" });
-    expect(fetch).toHaveBeenCalledWith("/users/current", expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith("https://app.sendcutsend.com/users/current", expect.objectContaining({
+      method: "GET", mode: "same-origin", redirect: "error",
       credentials: "same-origin",
       headers: expect.objectContaining({ "X-CSRF-Token": "csrf-token-value", "X-Client-Guid": "client-guid" }),
     }));

@@ -17,7 +17,6 @@ import {
 import {
   assessSendCutSendSheetEligibility,
   buildSendCutSendSheetPortalDefinition,
-  checkSendCutSendCurrentUser,
   classifySendCutSendPortalState,
   configureSendCutSendSheet,
   extractSendCutSendSheetOffers,
@@ -647,7 +646,7 @@ describe("SendCutSend pre-upload guard", () => {
   it("passes a rendered page with one upload input once the app confirms a non-guest user", async () => {
     const session = sessionReporting(confirmed);
     await expect(guard(signedInPage, session)).resolves.toBeUndefined();
-    expect(session.confirmSignedIn).toHaveBeenCalledWith(checkSendCutSendCurrentUser);
+    expect(session.confirmSignedIn).toHaveBeenCalledWith();
   });
 
   it.each([
@@ -665,7 +664,6 @@ describe("SendCutSend pre-upload guard", () => {
     ["a guest user", { signedIn: false, detail: "guest user" }],
     ["a user without a guest flag", { signedIn: false, detail: "status 200 without a guest flag" }],
     ["a failed lookup", { signedIn: false, detail: "status 401" }],
-    ["an unresolved lookup", { signedIn: false, detail: "timed out" }],
   ])("stops before upload when the app reports %s", async (_label, result) => {
     await expect(guard(signedInPage, sessionReporting(result))).rejects.toMatchObject({
       payload: { terminalState: "login_required", reason: "sendcutsend_session_unconfirmed", providerMutationPossible: false },

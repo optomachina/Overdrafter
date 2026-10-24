@@ -9,7 +9,6 @@ import {
   type ProviderPortalOfferCandidate,
   type ProviderPortalReadCapability,
   type ProviderPortalSessionCapability,
-  type ProviderPortalSessionCheckResult,
   type ProviderPortalSnapshot,
   type ProviderPortalState,
 } from "./providerPortalKernel.js";
@@ -591,43 +590,8 @@ export function classifySendCutSendPortalState(snapshot: ProviderPortalSnapshot)
   return state;
 }
 
-/**
- * Asks the app whether a signed-in, non-guest user is present, with the same
- * headers SendCutSend's own API helper sends (JSON, CSRF meta token, client
- * GUID). It runs inside the page, so it must stay self-contained (no
- * closures or helpers), and it returns only a boolean and a status; the
- * response body never leaves the page. Only an id plus an explicit
- * `guest: false` counts: a missing or null guest flag is not evidence. The
- * fetch aborts after 10 s. Shared by the session save and the pre-upload guard.
- */
-export async function checkSendCutSendCurrentUser(): Promise<ProviderPortalSessionCheckResult> {
-  const controller = new AbortController();
-  const abort = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
-    const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-    if (csrf) headers["X-CSRF-Token"] = csrf;
-    const clientGuid = (window as { appData?: { clientGuid?: unknown } }).appData?.clientGuid;
-    if (typeof clientGuid === "string" && clientGuid) headers["X-Client-Guid"] = clientGuid;
-    const response = await fetch("/users/current", { credentials: "same-origin", headers, signal: controller.signal });
-    if (response.status !== 200) return { signedIn: false, detail: `status ${response.status}` };
-    const user: unknown = await response.json();
-    if (user === null || typeof user !== "object" || Array.isArray(user)) {
-      return { signedIn: false, detail: "status 200 without a user" };
-    }
-    const { id, guest } = user as { id?: unknown; guest?: unknown };
-    const hasId = (typeof id === "number" && Number.isSafeInteger(id) && id > 0)
-      || (typeof id === "string" && id.trim() !== "");
-    if (!hasId) return { signedIn: false, detail: "status 200 without a user" };
-    if (guest === true) return { signedIn: false, detail: "guest user" };
-    if (guest !== false) return { signedIn: false, detail: "status 200 without a guest flag" };
-    return { signedIn: true, detail: "status 200" };
-  } catch {
-    return { signedIn: false, detail: "request failed" };
-  } finally {
-    clearTimeout(abort);
-  }
-}
+// Session-save tooling shares the fixed evaluator owned by the kernel.
+export { checkSendCutSendCurrentUser } from "./providerPortalKernel.js";
 
 /**
  * Read-only guard before classification and again before upload. The header
@@ -662,7 +626,7 @@ async function guardBeforeUpload(
     await assertSignedIn(reader, false);
     throw terminal("selector_drift", "sendcutsend_header_missing", "the page header did not render", false);
   }
-  const check = session ? await session.confirmSignedIn(checkSendCutSendCurrentUser)
+  const check = session ? await session.confirmSignedIn()
     : { signedIn: false, detail: "no session check" };
   if (!check.signedIn) {
     throw terminal(
