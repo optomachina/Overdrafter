@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "supersessions": [
+    {
+      "signature": "public.api_list_client_part_metadata(uuid[])",
+      "file": "docs/migration-drafts/ovd-978.sql",
+      "supersedesSha256": "5f0dc6f06ce5454f24fb5910e61da46eee8978b0844df7f2b5f9c0cdd5869913",
+      "reason": "OVD-978 draft (PR #873): written against the body deployed by 20261011170000 (OVD-670), which it intentionally replaces to restore the client part metadata projection. Verified on staging 2026-10-20 (apply, pgTAP 48/48, rollback to this exact body, re-apply). If a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "private.job_file_finalize_delegate(uuid,text,text,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "9a50049db4c68ff1fd84c3d502c6af6dfbc2ef62bca809f98ddf4121f6f1d87b",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "private.job_file_prepare_delegate(uuid,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "969f321e49c8cb795054307ebfd52e8c2294ba120d38d00ae33da80ee7d827d6",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_list_provider_kill_switches()",
+      "file": "docs/migration-drafts/ovd-828-s1.sql",
+      "supersedesSha256": "7d47562c683b3c167617c18b448148217d64a3b056657dce671f760dd898d5ef",
+      "reason": "OVD-828 S1 draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_admin_set_provider_kill_switch(vendor_name,boolean,text,bigint)",
+      "file": "docs/migration-drafts/ovd-828-s1.sql",
+      "supersedesSha256": "e83daa7e9a381748d44d64c5fc9a8a725ab7af71f9c32ee21e6c5c71ead5cc61",
+      "reason": "OVD-828 S1 preserves the verified-auth, platform-admin and AAL2 guards from 20261016000156_ovd767_admin_write_aal2_guards.sql before delegating to the cap-preserving settings writer. Its AAL2 exception explicitly uses SQLSTATE 42501, as the pending OVD-829 test expects. This entry names the deployed OVD-767 body; the retired OVD-722 body is no longer a supersession target."
+    },
+    {
+      "signature": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "59b32c6e5c96859299c5c02496f5aa04c0b18360f88959aa94477caccf8574e0",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "133bf547e8d6f0d7220f38e94600a3c541f53d9e6f1da560aff148835cc47f87",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
+      "supersedesSha256": "f79e517df35848021ee4ed9ce1fe9e598496f977aaa427771d7c689db8d8f491",
+      "reason": "Both drafts restate this function from the same deployed body and neither is rebased onto the other, so whichever is promoted second must be rebased onto the first. Recorded as the baseline when this check was added."
+    },
+    {
+      "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
+      "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
+      "supersedesSha256": "133bf547e8d6f0d7220f38e94600a3c541f53d9e6f1da560aff148835cc47f87",
+      "reason": "OVD-762 fan out draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it. The OVD-987 controlled beta user quantity migration (PR 886, not merged) also restates this function and will trigger exactly that."
+    },
+    {
+      "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "f0032443b65bff24e70d958f4e6684002c269e44537494405ff188f5c9cd05e8",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_prepare_job_file_upload(uuid,text,job_file_kind,text,bigint,text)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "bd1613926137a31a59ea33d83c3b74147781646b2e86adefaac7a7817e1166f8",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "public.api_request_manual_quote(uuid,boolean)",
+      "file": "docs/migration-drafts/ovd-723-contract.sql",
+      "supersedesSha256": "5ef5ae02d57bc04469886624201d7ddc4893228dd73d2d475b1f8e6a6edfd577",
+      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    }
+  ]
+}

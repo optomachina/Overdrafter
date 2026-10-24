@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import {
   buildRequirementDraft,
+  formatCurrency,
   getImportedVendorOffers,
   getJobSummaryMetrics,
   hasManualQuoteIntakeSource,
@@ -1317,4 +1318,13 @@ describe("tolerance without re-parsing raw drawing text (OVD-984)", () => {
       expect(loose.applicableVendors).toContain("sendcutsend");
     });
   });
+});
+
+
+describe("formatCurrency across package, review and quotes", () => {
+  it.each([[402.5, "$402.50"], [360, "$360.00"], [0, "$0.00"], [1234.56, "$1,234.56"]])(
+    "formats %s as %s without rounding away cents", (amount, expected) => {
+      expect(formatCurrency(amount as number)).toBe(expected);
+    },
+  );
 });

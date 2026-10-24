@@ -843,10 +843,11 @@ describe("export-control extraction check (no CAD or drawing to a model without 
 });
 
 describe("OVD-723 migration draft", () => {
-  // Window 1 (#728) applied the expand byte identical to this draft; the
+  // Window 1 (#728) applied the expand byte identical to this draft before retirement; the
   // contract stays a draft until its own window.
-  it("applies only the expand, byte identical to the reviewed draft", () => {
-    expect(draft.startsWith("-- =")).toBe(true);
+  it("preserves the applied expand byte for byte after its superseded marker", () => {
+    const retirementMarker = "-- SUPERSEDED by supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql; historical copy of 20261013043000_ovd723_export_control_upload_block.sql.\n";
+    expect(draft.startsWith(retirementMarker)).toBe(true);
     expect(draft).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
     expect(draft).toMatch(/-- WINDOW 1: EXPAND [\s\S]*-- ROLLBACK/);
     expect(contract).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
@@ -859,7 +860,7 @@ describe("OVD-723 migration draft", () => {
       expect(sql).not.toContain("OVD-723 contract refused: apply the OVD-723 expand migration first");
     }
     expect(declaring).toEqual(["20261013043000_ovd723_export_control_upload_block.sql"]);
-    expect(readFileSync(new URL(declaring[0], migrationsDir), "utf8")).toBe(draft);
+    expect(draft).toBe(retirementMarker + readFileSync(new URL(declaring[0], migrationsDir), "utf8"));
   });
 
   it("returns every worker export code and nothing else from the gate", () => {

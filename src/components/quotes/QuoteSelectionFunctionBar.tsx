@@ -1,3 +1,4 @@
+import { formatCivilDate, type DeadlineStatusCounts } from "@/features/quotes/delivered-comparison";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,8 +13,8 @@ type QuoteSelectionFunctionBarProps = {
   onRequestedByDateChange: (next: string | null) => void;
   disabled?: boolean;
   dueDateHelpText?: string;
-  matchingOptionCount?: number | null;
-  totalOptionCount?: number;
+  viewDeadline?: string | null;
+  deadlineCounts?: DeadlineStatusCounts | null;
   domesticAriaLabel?: string;
   globalAriaLabel?: string;
   className?: string;
@@ -94,16 +95,15 @@ export function QuoteSelectionFunctionBar({
   onRequestedByDateChange,
   disabled = false,
   dueDateHelpText = "Filters vendor options by the requested delivery date for this part.",
-  matchingOptionCount = null,
-  totalOptionCount = 0,
+  deadlineCounts = null,
+  viewDeadline = null,
   domesticAriaLabel = "US-only sourcing",
   globalAriaLabel = "All sourcing",
   className,
 }: QuoteSelectionFunctionBarProps) {
   const showDeadlineChip =
-    Boolean(requestedByDate) &&
-    typeof matchingOptionCount === "number" &&
-    totalOptionCount > 0;
+    Boolean(viewDeadline) &&
+    deadlineCounts !== null;
 
   return (
     <div className={cn("rounded-lg border border-ws-border-subtle bg-ws-card p-3", className)}>
@@ -182,8 +182,8 @@ export function QuoteSelectionFunctionBar({
         </div>
         {showDeadlineChip ? (
           <div className="flex justify-end">
-            <div className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-50/90">
-              Showing {matchingOptionCount} of {totalOptionCount} options that meet your deadline.
+            <div className="rounded-surface-sm border border-border bg-muted px-3 py-1 font-mono text-xs text-foreground">
+              By {viewDeadline ? formatCivilDate(viewDeadline) : ""}: {deadlineCounts?.on_time} on time · {deadlineCounts?.unconfirmed} may miss · {deadlineCounts?.late} late
             </div>
           </div>
         ) : null}

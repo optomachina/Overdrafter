@@ -48,8 +48,8 @@ export function InternalJobPublicationCard({
                 variant="secondary"
                 className={
                   readiness?.ready
-                    ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                    : "border border-amber-500/20 bg-amber-500/10 text-amber-300"
+                    ? "border border-border bg-accent text-foreground"
+                    : "border border-border bg-accent text-foreground"
                 }
               >
                 {readiness?.ready ? "Auto-publish eligible" : "Internal approval required"}

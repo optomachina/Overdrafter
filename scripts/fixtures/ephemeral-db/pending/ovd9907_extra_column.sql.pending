@@ -1,0 +1,6 @@
+-- OVD-924 fixture: pgTAP for scripts/fixtures/ephemeral-db/drafts/ovd-9907-extra-column.sql.
+begin;
+select plan(1);
+select ok(true, 'extra column fixture');
+select * from finish();
+rollback;

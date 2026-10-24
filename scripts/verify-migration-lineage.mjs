@@ -1,7 +1,7 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MIGRATION_BASE_REF,
   MIGRATION_FILENAME_PATTERN,
@@ -285,10 +285,6 @@ async function main() {
   );
 }
 
-const isDirectExecution = process.argv[1]
-  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-  : false;
-
-if (isDirectExecution) {
+if (isEntryPoint(import.meta.url)) {
   await main();
 }

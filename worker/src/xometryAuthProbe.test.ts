@@ -15,8 +15,11 @@ import {
   withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
+  xometryRouteClass,
 } from "./xometryAuthProbe.js";
+import type { PageFingerprint } from "./fixtureHeal/fingerprint.js";
 import type { BrowserContext } from "playwright";
+import anonymousQuoteHome from "./adapters/fixtures/xometry-anonymous-quote-home.json";
 
 function fakeProbeContext(input: {
   url?: string;
@@ -32,6 +35,11 @@ function fakeProbeContext(input: {
   offlineIsolationHangs?: boolean;
   closeError?: Error;
   closeHangs?: boolean;
+  domStructure?: unknown;
+  domStructureError?: Error;
+  domStructureHangs?: boolean;
+  selectorCounts?: Record<string, number>;
+  urlAfterStructureWalk?: string;
   requests?: Array<{
     method: string;
     url: string;
@@ -66,7 +74,7 @@ function fakeProbeContext(input: {
     | null = null;
   let webSocketHandler: ((route: { close: () => void }) => void) | null = null;
   let openRestoredPages = 1;
-  const pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
+  let pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
   const context = {
     pages: () => [
       {
@@ -122,7 +130,14 @@ function fakeProbeContext(input: {
         throw new Error("persistent context lost its last page");
       }
       return {
-        evaluate: async () => {
+        evaluate: async (script: unknown) => {
+          if (typeof script === "string") {
+            events.setupOrder.push("collect-page-structure");
+            if (input.urlAfterStructureWalk) pageUrl = input.urlAfterStructureWalk;
+            if (input.domStructureError) throw input.domStructureError;
+            if (input.domStructureHangs) await new Promise<void>(() => undefined);
+            return input.domStructure ?? null;
+          }
           events.setupOrder.push("verify-page-transport-guards");
           events.transportGuardsVerified = true;
           return !input.transportGuardVerificationFails;
@@ -176,6 +191,7 @@ function fakeProbeContext(input: {
               isVisible: async () =>
                 input.dashboardUploadButtonVisible ?? false,
             }),
+            count: async () => input.selectorCounts?.[selector] ?? 0,
           };
         },
         waitForTimeout: async () => undefined,
@@ -260,6 +276,32 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
     });
+  });
+
+  it.each([
+    ["", "anonymous_quote_home"],
+    [anonymousQuoteHome.errorBanner, "anonymous_quote_home"],
+    ["My Account", "anonymous_quote_home"],
+    ["Welcome back. Recent quotes", "authenticated_dashboard"],
+    ["My Account Part Library", "authenticated_dashboard"],
+    ["Sign in", "login_required"],
+    ["Sign in Verify you are human", "captcha"],
+    [`Welcome back ${anonymousQuoteHome.errorBanner}`, "provider_error"],
+    ["Welcome back Already have an account?", "anonymous_quote_home"],
+  ])("classifies the upload prompt with %s as %s", (extra, reason) => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/quoting/home/",
+      bodyText: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${extra}`,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: reason === "authenticated_dashboard", reason });
+  });
+
+  it("does not classify the upload prompt away from quote home as anonymous", () => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/resources/",
+      bodyText: anonymousQuoteHome.uploadPrompt,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: false, reason: "authenticated_dashboard_not_confirmed" });
   });
 
   it.each([
@@ -956,6 +998,120 @@ describe("Xometry authentication probe", () => {
   });
 });
 
+
+describe("drift fingerprint on authenticated_dashboard_not_confirmed", () => {
+  const privatePage = {
+    bodyText: "Your quotes · Jordan Okafor · jordan@example.com · Q24-1234-5678 · $252.97",
+    domStructure: {
+      landmarks: { banner: 1, navigation: 1, main: 1, dialog: 0 },
+      headings: ["Your quotes", "Welcome, Jordan Okafor"],
+      buttons: ["New quote", "Q24-1234-5678", "jordan@example.com"],
+      links: ["Orders", "Account settings for Jordan"],
+      testIds: ["QuoteListView-new-quote", "quote-row-Q24-1234-5678"],
+    },
+    selectorCounts: { 'button:has-text("Start a New")': 1 },
+  };
+
+  it("hands over one scrubbed fingerprint and leaves the evidence unchanged", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const withCallback = fakeProbeContext(privatePage);
+    const evidence = await runBoundedXometryAuthProbe(withCallback.context, {
+      onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint),
+    });
+    const plain = await runBoundedXometryAuthProbe(fakeProbeContext(privatePage).context);
+
+    expect(evidence).toEqual(plain);
+    expect(evidence).toMatchObject({ authenticated: false, reason: "authenticated_dashboard_not_confirmed" });
+    expect(Object.keys(evidence)).not.toContain("fingerprint");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      provider: "xometry",
+      page: "upload",
+      source: "session_probe",
+      routeClass: "quote_home",
+      headings: { count: 2, labels: ["your quotes"] },
+      buttons: { count: 3, labels: ["new quote"] },
+      links: { count: 2, labels: ["orders"] },
+      testIds: { values: [], withheld: 2 },
+      signalGroups: { dashboardSignals: { matched: 0, total: 3 } },
+      selectorGroups: {
+        startNewQuoteButtons: {
+          matched: 1,
+          total: 4,
+          selectors: [{ count: 0, visible: false }, { count: 0, visible: false }, { count: 0, visible: false }, { count: 1, visible: false }],
+        },
+        dashboardUploadButtons: { matched: 0, total: 1, selectors: [{ count: 0, visible: false }] },
+      },
+    });
+    expect(JSON.stringify(seen[0])).not.toMatch(/jordan|okafor|example\.com|q24|252/i);
+    expect(withCallback.events.setupOrder.filter((step) => step === "collect-page-structure")).toHaveLength(1);
+  });
+
+  it.each([
+    ["Welcome back. Recent quotes", "https://www.xometry.com/quoting/home/"],
+    ["Sign in to continue", "https://www.xometry.com/login/"],
+  ])("takes no fingerprint for a classified page (%s)", async (bodyText, url) => {
+    const callback = vi.fn();
+    const { context, events } = fakeProbeContext({ ...privatePage, bodyText, url });
+    await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: callback });
+    expect(callback).not.toHaveBeenCalled();
+    expect(events.setupOrder).not.toContain("collect-page-structure");
+  });
+
+  it("reports the classified URL even when the page redirects during the capture", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const plain = await runBoundedXometryAuthProbe(fakeProbeContext(privatePage).context);
+    const { context } = fakeProbeContext({ ...privatePage, urlAfterStructureWalk: "https://www.xometry.com/login/" });
+    const evidence = await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) });
+    expect(evidence).toEqual(plain);
+    expect(evidence.url).toBe("https://www.xometry.com/quoting/home/");
+    expect(seen[0]?.routeClass).toBe("quote_home");
+  });
+
+  it("reports an unavailable capture without changing the classification", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const { context } = fakeProbeContext({ ...privatePage, domStructureError: new Error("private DOM detail") });
+    await expect(
+      runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) }),
+    ).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+    expect(seen).toEqual([null]);
+  });
+
+  it("gives up on a hung capture after its own bound", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: Array<PageFingerprint | null> = [];
+      const { context } = fakeProbeContext({ ...privatePage, domStructureHangs: true });
+      const probe = runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) });
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(probe).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+      expect(seen).toEqual([null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the classification when the drift callback throws", async () => {
+    const { context } = fakeProbeContext(privatePage);
+    await expect(
+      runBoundedXometryAuthProbe(context, {
+        onDashboardNotConfirmed: () => {
+          throw new Error("reporting failed");
+        },
+      }),
+    ).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+  });
+
+  it("classifies the final URL as a path class only", () => {
+    expect(xometryRouteClass("https://www.xometry.com/quoting/home/?ref=abc")).toBe("quote_home");
+    expect(xometryRouteClass("https://www.xometry.com/login/?next=/quoting")).toBe("login");
+    expect(xometryRouteClass("https://www.xometry.com/quoting/quote/Q24-1234-5678/")).toBe("quote_page");
+    expect(xometryRouteClass("https://www.xometry.com/quoting/new")).toBe("quote_new");
+    expect(xometryRouteClass("https://get.xometry.com/welcome")).toBe("provider_other");
+    expect(xometryRouteClass("https://evil.example/xometry.com")).toBe("external");
+    expect(xometryRouteClass("not a url")).toBe("invalid");
+  });
+});
 
 describe("bounded restore failure reasons", () => {
   it.each([

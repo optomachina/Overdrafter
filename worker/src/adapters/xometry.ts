@@ -323,6 +323,16 @@ export function isManualReviewText(text: string) {
   return isSignalPresent(text, XOMETRY_LOCATORS.manualReviewSignals);
 }
 
+/**
+ * OVD-1052: whether a configured page without a recognizable price is still
+ * being priced. Only Xometry's in-progress pricing text on the quote page
+ * itself counts; uploader or geometry-analysis loading text does not.
+ */
+export function isXometryPricingInProgress(input: { url: string; bodyText: string }) {
+  return XOMETRY_LOCATORS.quotePagePathPattern.test(input.url)
+    && isSignalPresent(input.bodyText, XOMETRY_LOCATORS.quotePricingInProgressSignals);
+}
+
 function isAnonymousEmailGate(input: { text: string; url: string }) {
   return (
     input.url.startsWith(XOMETRY_URLS.quoteHome) &&
@@ -355,6 +365,16 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
   if (
     input.url.startsWith(XOMETRY_URLS.quoteHome) &&
     XOMETRY_LOCATORS.anonymousQuoteHomeSignals.every((pattern) => pattern.test(input.text))
+  ) {
+    return "login_required";
+  }
+
+  const dashboardVisible =
+    isSignalPresent(input.text, XOMETRY_LOCATORS.dashboardSignals) ||
+    XOMETRY_LOCATORS.accountQuoteListSignals.every((pattern) => pattern.test(input.text));
+  if (
+    input.url.startsWith(XOMETRY_URLS.quoteHome) && !dashboardVisible &&
+    isSignalPresent(input.text, XOMETRY_LOCATORS.anonymousUploadPromptSignals)
   ) {
     return "login_required";
   }
@@ -2743,6 +2763,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "captcha",
       {
         vendor: "xometry",
+        terminalState: "captcha",
         url: page.url(),
       },
       artifacts,
@@ -2759,6 +2780,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "login_required",
       {
         vendor: "xometry",
+        terminalState: "login_required",
         reason,
         url: page.url(),
         expectedLoginUrl: XOMETRY_URLS.login,
@@ -2774,6 +2796,7 @@ async function detectBlockingState(page: Page, runDir: string) {
       "anti_detection_block",
       {
         vendor: "xometry",
+        terminalState: "unavailable",
         url: page.url(),
         bodyExcerpt: excerptText(bodyText),
       },
@@ -2829,6 +2852,49 @@ async function detectManualReview(page: Page, bodyText: string) {
     manualReview: isManualReviewText(bodyText),
     selector: null,
   };
+}
+
+/**
+ * Page-side readiness predicate for page.waitForFunction: Xometry recomputes
+ * prices after quantity changes and tier cards can finish at different times,
+ * so it holds until every available .price-tier card shows both a price and
+ * timing evidence. Playwright serializes it into the page, so it must stay
+ * self-contained: no module references and no named inner functions.
+ *
+ * OVD-1052: each card's text nodes are joined with spaces. textContent runs
+ * adjacent elements together when the markup has no whitespace between them
+ * ("least expensivearrives by nov 3"), which defeats every word boundary below
+ * and left each quote waiting out the full timeout.
+ */
+export function xometryPriceTiersSettled(): boolean {
+  const cards = [...document.querySelectorAll(".price-tier")];
+  if (cards.length > 0) {
+    let availableCardCount = 0;
+    for (const card of cards) {
+      const parts: string[] = [];
+      // 4 is NodeFilter.SHOW_TEXT.
+      const walker = document.createTreeWalker(card, 4);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        parts.push(node.nodeValue ?? "");
+      }
+      const text = parts.join(" ");
+      const explicitlyUnavailable =
+        card.matches('[disabled], [aria-disabled="true"], [data-disabled="true"], [data-available="false"]')
+        || card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
+        || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text);
+      if (explicitlyUnavailable) continue;
+      availableCardCount += 1;
+      const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
+      const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
+      const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
+      const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
+      const hasTiming = hasBusinessDays || hasArrival;
+      if (!hasPrice || !hasTiming) return false;
+    }
+    return availableCardCount > 0;
+  }
+
+  return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
 }
 
 export class XometryAdapter extends VendorAdapter {
@@ -2900,7 +2966,7 @@ export class XometryAdapter extends VendorAdapter {
         throw new VendorAutomationError(
           "Xometry snapshot mode requires a local profile directory.",
           "login_required",
-          { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+          { vendor: "xometry", terminalState: "login_required", reason: "profile_snapshot_unavailable" },
         );
       }
       return this.quoteWithoutSnapshotLock(input, allowLiveEvaluation);
@@ -2920,7 +2986,7 @@ export class XometryAdapter extends VendorAdapter {
           throw new VendorAutomationError(
             "Xometry profile snapshot ownership is unavailable; browser launch is blocked.",
             "login_required",
-            { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+            { vendor: "xometry", terminalState: "login_required", reason: "profile_snapshot_unavailable" },
           );
         }
         return withXometryProfileSnapshotLock(async () => {
@@ -3020,6 +3086,7 @@ export class XometryAdapter extends VendorAdapter {
         "login_required",
         {
           vendor: "xometry",
+          terminalState: "login_required",
           expectedLoginUrl: XOMETRY_URLS.login,
         },
       );
@@ -3034,6 +3101,7 @@ export class XometryAdapter extends VendorAdapter {
         "login_required",
         {
           vendor: "xometry",
+          terminalState: "login_required",
           reason: "profile_snapshot_unavailable",
         },
       );
@@ -3430,34 +3498,7 @@ export class XometryAdapter extends VendorAdapter {
       // at different times, so wait until every available card exposes both
       // commercial and timing evidence before parsing the complete option set.
       await page
-        .waitForFunction(
-          () => {
-            const cards = [...document.querySelectorAll(".price-tier")];
-            if (cards.length > 0) {
-              let availableCardCount = 0;
-              for (const card of cards) {
-                const text = card.textContent ?? "";
-                const explicitlyUnavailable =
-                  card.matches('[disabled], [aria-disabled="true"], [data-disabled="true"], [data-available="false"]')
-                  || card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
-                  || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text);
-                if (explicitlyUnavailable) continue;
-                availableCardCount += 1;
-                const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
-                const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
-                const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
-                const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
-                const hasTiming = hasBusinessDays || hasArrival;
-                if (!hasPrice || !hasTiming) return false;
-              }
-              return availableCardCount > 0;
-            }
-
-            return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
-          },
-          undefined,
-          { timeout: this.config.browserTimeoutMs },
-        )
+        .waitForFunction(xometryPriceTiersSettled, undefined, { timeout: this.config.browserTimeoutMs })
         .catch(() => undefined);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
@@ -3506,6 +3547,10 @@ export class XometryAdapter extends VendorAdapter {
           {
             vendor: "xometry",
             reason: quantityFailure.reason,
+            // OVD-1052: a price-capture refusal on the quote page is a finite stop.
+            terminalState: quantityFailure.reason === "quantity_mismatch"
+              ? "configuration_required"
+              : "selector_drift",
             requestedQuantity: normalizedQuantity(input),
             observedLineItemQuantities: quantityFailure.values,
             lineItemQuantitySelector: quantityFailure.selector,
@@ -3550,8 +3595,16 @@ export class XometryAdapter extends VendorAdapter {
             bodyText,
           );
       const priceGate = gateVendorPrice(priceResult);
-      const totalPrice = priceGate.trusted && !quantityFailure ? priceResult.value : null;
-      const leadTime = gateLeadTime(leadTimeResult, priceGate);
+      // OVD-1052: a page that asks for review publishes no price. The
+      // fallback locators read whatever amount the review page still shows,
+      // which can be a struck-through list total, and a manual_review result
+      // must stay price-free.
+      const totalPrice = priceGate.trusted && !quantityFailure && !manualReviewResult.manualReview
+        ? priceResult.value
+        : null;
+      // OVD-1052: the lead time is quoted beside the price, so it is withheld
+      // whenever the price is (a review page, say), never published alone.
+      const leadTime = totalPrice === null ? null : gateLeadTime(leadTimeResult, priceGate);
       // A drifted adapter must never publish a price, so the lane routes to
       // review instead of quoting whatever currency string the page happened
       // to contain. See gateVendorPrice for the reasoning.
@@ -3569,6 +3622,9 @@ export class XometryAdapter extends VendorAdapter {
           {
             vendor: "xometry",
             reason: "xometry_offer_containers_missing",
+            // OVD-1052: no option container matched (a renamed .price-tier,
+            // say), so the adapter's contract with the page is broken.
+            terminalState: "selector_drift",
             url: page.url(),
             detectedFlow,
             bodyExcerpt: excerptText(bodyText),
@@ -3587,11 +3643,20 @@ export class XometryAdapter extends VendorAdapter {
       }
 
       if (!totalPrice && !manualReview) {
+        // OVD-1052: a finite stop. A quote page that still shows in-progress
+        // pricing text (quotePricingInProgressSignals) has not priced the
+        // part yet, so the quote is `unavailable` for now and selector repair
+        // would chase nothing. Any other configured page without a
+        // recognizable price, uploader loading text included, means the
+        // adapter's price anchors no longer match it: `selector_drift`.
+        const pricingInProgress = isXometryPricingInProgress({ url: page.url(), bodyText });
         throw new VendorAutomationError(
           "Xometry quote page did not expose a recognizable price after configuration.",
           "unexpected_ui_state",
           {
             vendor: "xometry",
+            reason: pricingInProgress ? "xometry_price_pending" : "xometry_price_missing",
+            terminalState: pricingInProgress ? "unavailable" : "selector_drift",
             uploadSelector,
             drawingUploadMode,
             selectedMaterial,

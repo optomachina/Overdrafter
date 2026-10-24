@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { PromptComposerHandle } from "@/components/chat/PromptComposer";
@@ -15,6 +15,7 @@ import {
   unarchiveJob,
 } from "@/features/quotes/api/archive-api";
 import { checkClientIntakeCompatibility } from "@/features/quotes/api/compatibility-api";
+import { fetchClientQuoteWorkspaceByJobIds } from "@/features/quotes/api/workspace-access";
 import { createClientDraft } from "@/features/quotes/api/jobs-api";
 import {
   archiveProject,
@@ -55,6 +56,9 @@ import {
   createWorkspaceAccessScope,
   prefetchPartPage,
   prefetchProjectPage,
+  stableJobIds,
+  workspaceQueryKeys,
+  WORKSPACE_SHARED_STALE_TIME_MS,
 } from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
@@ -88,7 +92,7 @@ function createProjectStorageKey(organizationId?: string, userEmail?: string): s
   return `${PROJECT_STORAGE_PREFIX}:${organizationId}:${userEmail.toLowerCase()}`;
 }
 
-export function useClientHomeController() {
+export function useClientHomeController({ loadPublishedWorkspace = false }: { loadPublishedWorkspace?: boolean } = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
@@ -148,6 +152,21 @@ export function useClientHomeController() {
     accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
+
+  const publishedJobIds = useMemo(
+    () => stableJobIds(accessibleJobs.filter((job) => job.status === "published").map((job) => job.id)),
+    [accessibleJobs],
+  );
+  const publishedWorkspaceQuery = useQuery({
+    queryKey: workspaceQueryKeys.clientQuoteWorkspace(publishedJobIds, workspaceAccessScope),
+    queryFn: () => fetchClientQuoteWorkspaceByJobIds(publishedJobIds),
+    enabled: loadPublishedWorkspace && hasWorkspaceAuthContext && publishedJobIds.length > 0,
+    staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
+  });
+  const workspaceItemsByJobId = useMemo(
+    () => new Map((publishedWorkspaceQuery.data ?? []).map((item) => [item.job.id, item])),
+    [publishedWorkspaceQuery.data],
+  );
 
   const openAuth = (mode: "signin" | "signup") => {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -911,6 +930,7 @@ export function useClientHomeController() {
     summariesByJobId,
     user,
     workspaceAccessScope,
+    workspaceItemsByJobId,
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
   };

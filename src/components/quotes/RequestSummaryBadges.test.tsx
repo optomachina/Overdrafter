@@ -18,6 +18,10 @@ describe("RequestSummaryBadges", () => {
     expect(screen.getByText("Qty 12")).toBeInTheDocument();
     expect(screen.getByText("Quote qty 12 / 24")).toBeInTheDocument();
     expect(screen.getByText("Need by Apr 15, 2026")).toBeInTheDocument();
+    for (const label of ["Manufacturing quote", "Qty 12", "Quote qty 12 / 24", "Need by Apr 15, 2026"]) {
+      expect(screen.getByText(label)).toHaveClass("border-border", "bg-accent", "text-foreground");
+      expect(screen.getByText(label).className).not.toMatch(/(?:emerald|amber|sky|rose)-/);
+    }
   });
 
   it("hides quote fields for mixed-service selections", () => {

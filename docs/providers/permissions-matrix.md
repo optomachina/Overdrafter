@@ -1,6 +1,6 @@
 # Provider permissions matrix (OVD-724)
 
-Checked on **2026-10-11**. Machine-readable source: [`permissions-matrix.v1.json`](permissions-matrix.v1.json). Schema: [`permissions-matrix.v1.schema.json`](permissions-matrix.v1.schema.json).
+Checked on **2026-10-21**. Machine-readable source: [`permissions-matrix.v1.json`](permissions-matrix.v1.json). Schema: [`permissions-matrix.v1.schema.json`](permissions-matrix.v1.schema.json).
 
 This matrix is the ToS and partner-API clearance record for paid automated quoting. It does not admit a provider, dispatch traffic, or copy the OVD-722 kill-switch runtime state.
 
@@ -12,9 +12,9 @@ This matrix is the ToS and partner-API clearance record for paid automated quoti
 
 1. `in_1_0` is true (Protolabs and Weerg stay in the matrix and are marked **not in 1.0**).
 2. `permission_status` is not `cease_and_desist`.
-3. `tos_stance` is `allowed`, or a written permission is recorded on the row.
+3. `tos_stance` is `allowed`, or a written permission is recorded on the row, or an owner override recorded on the row (Blaine).
 
-Fictiv requires prior written consent, so it stays false until that consent is recorded. Xometry's controlled-beta admission is not a matrix clearance.
+On 2026-10-21, owner Blaine Wilson was shown each provider's terms clause and explicitly cleared Xometry, Fictiv and Quickparts for quote-only automated quoting on his own provider accounts. He accepts ToS risk until a cease-and-desist arrives; no orders. This owner decision does not change their ToS stances or constitute vendor consent. No vendor was contacted; agents never contact vendors. Runtime admission and enablement remain separate.
 
 ## Kill switch pointer
 
@@ -24,9 +24,9 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 
 | key | in_1_0 | api_availability | tos_stance | permission_status | enabled_for_paid_automation | date_checked | kill_switch_state |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| xometry | true | partner_or_request_only | prohibited | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
-| fictiv | true | none | prior-consent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
-| quickparts | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
+| xometry | true | partner_or_request_only | prohibited | draft_outreach_prepared | true | 2026-10-21 | OVD-722 |
+| fictiv | true | none | prior-consent | draft_outreach_prepared | true | 2026-10-21 | OVD-722 |
+| quickparts | true | none | silent | draft_outreach_prepared | true | 2026-10-21 | OVD-722 |
 | weerg | false | none | silent | not_in_1_0 | false | 2026-10-11 | OVD-722 |
 | geomiq | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
 | rmfg | true | public_agent_api | allowed | oct23_checkpoint_referenced | true | 2026-10-11 | OVD-722 |
@@ -46,12 +46,13 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - partner_program: Xometry Developer API exists for accepted jobs and a separately approved Job Board. Customer-side instant quoting is not a published public API.
 - contact: Developer API / website support; support@xometry.com
 - permission_status: draft_outreach_prepared
-- date_checked: 2026-10-11
+- date_checked: 2026-10-21
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for xometry
-- enabled_for_paid_automation: false
+- enabled_for_paid_automation: true
+- owner_override: Blaine Wilson; 2026-10-21; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [Xometry Customer Service Agreement §7.1.2](https://www.xometry.com/service-agreement/) — You shall not or permit any third party to: use any manual or automated software devices or other processes (including but not limited to spiders, robots, scrapers, crawlers, avatars, data mining tools or the like) to “scrape” or download data from any web pages contained in the Website.
 - replies: 0
-- notes: Legacy controlled-beta admission is not a matrix clearance. Partner API access is supplier/job-board scoped; ask only if useful.
+- notes: Owner reviewed Customer Service Agreement §7.1.2 and explicitly cleared quote-only automated quoting on his own accounts. The prohibited ToS stance is unchanged. Legacy controlled-beta admission remains separate. No vendor was contacted; agents never contact vendors.
 
 ### fictiv
 
@@ -61,12 +62,13 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - partner_program: No public customer-quoting API found. Fictiv is part of MISUMI. Written consent is the stated path for any application that interacts with the services.
 - contact: Published terms contact; help@fictiv.com
 - permission_status: draft_outreach_prepared
-- date_checked: 2026-10-11
+- date_checked: 2026-10-21
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for fictiv
-- enabled_for_paid_automation: false
+- enabled_for_paid_automation: true
+- owner_override: Blaine Wilson; 2026-10-21; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [Fictiv Terms](https://www.fictiv.com/terms) — You will not or permit any third party to: ... develop or use any applications that interact with our Services without our prior written consent.
 - replies: 0
-- notes: Stays false until written permission is recorded.
+- notes: Owner reviewed the prior-consent clause and explicitly cleared quote-only automated quoting on his own accounts. No written vendor consent is recorded; the prior-consent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Terms also prohibit scraping/downloading site data and using another user's account without authorization from that user and Fictiv.
 
 ### quickparts
 
@@ -76,12 +78,13 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - partner_program: No public quote API found. QuickQuote is an authenticated website tool, not a published partner API.
 - contact: Published website contact; https://quickparts.com/contact/
 - permission_status: draft_outreach_prepared
-- date_checked: 2026-10-11
+- date_checked: 2026-10-21
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for quickparts
-- enabled_for_paid_automation: false
+- enabled_for_paid_automation: true
+- owner_override: Blaine Wilson; 2026-10-21; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [Quickparts Website Terms of Use](https://quickparts.com/terms-conditions/) — none of the material may be copied, reproduced, distributed, republished, downloaded ... without the prior written permission of Quickparts. No express automation clause.
 - replies: 0
-- notes: Outreach is optional but useful.
+- notes: Owner reviewed the terms clause and explicitly cleared quote-only automated quoting on his own accounts. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Website terms restrict copying site materials. They do not expressly allow or ban authenticated automated quoting. Sales terms at https://quickparts.com/sales-terms-conditions/ also omit an automation clause.
 
 ### weerg
 
@@ -141,7 +144,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - enabled_for_paid_automation: false
 - tos_automation_clause: [OSH Cut Terms of Service](https://www.oshcut.com/terms-of-service) — no published clause addresses automated access, robots, or a customer quote API.
 - replies: 0
-- notes: Ask for partner API access and written permission.
+- notes: Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. This is not a matrix clearance, so enabled_for_paid_automation stays derived false.
 
 ### sendcutsend
 

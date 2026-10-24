@@ -86,7 +86,7 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 ### Explicit execution boundaries
 
 - The default suite's browser-recovery tests exercise real Chromium DOM behavior.
-  CI provisions Playwright Chromium in the test job. Local runners may select an
+  CI provisions Playwright Chromium in the unit job. Local runners may select an
   already installed browser with `OVD_TEST_CHROMIUM_EXECUTABLE_PATH=/absolute/path`;
   record its version with results. This override affects only the test launcher,
   leaves production browser configuration unchanged, and never skips a test.
@@ -152,9 +152,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - `npm run e2e:authenticated` selects the remaining browser cases against
   prepared synthetic local data and real local authentication. `npm run e2e`
   is an alias. Deliberately reset/seed only a disposable repository-owned stack.
-- CI runs fixture coverage first, then starts/resets/seeds its disposable
-  Supabase stack and runs authenticated coverage. Either lane's failure blocks
-  the aggregate `ci` job; retain the independent OVD-420 network proof.
+- CI runs fixture and authenticated coverage as separate lanes of the
+  `browser-test` job; only the authenticated lane starts/resets/seeds its
+  disposable Supabase stack. Either lane's failure blocks the aggregate `ci`
+  job; retain the independent OVD-420 network proof.
 - Preserve horizontal and vertical artifact containment across phone, tablet
   and desktop. A visible CAD canvas and drawing visual are required for preview
   checks; an unavailable-preview fallback is not a successful rendered preview.
@@ -577,6 +578,7 @@ Minimum CI target:
 - pgTAP database tests when `supabase/tests/` contains database-policy coverage
 - RLS deny-case coverage for changed policies (`rls-deny-coverage`, report mode; see `docs/rls-deny-coverage.md`)
 - append-only migrations (report mode via `test:portable-node`; the dedicated `migration-immutability` ci.yml job is a card draft; see `docs/migration-immutability.md`)
+- migration function collisions (`npm run verify:migration-function-collisions`, a step of the `lint` job; see `docs/migration-function-collisions.md`)
 - build
 - worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`

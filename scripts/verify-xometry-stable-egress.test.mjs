@@ -273,6 +273,11 @@ describe("stable egress evidence evaluation", () => {
     ["weerg", true, "OVD-675"],
     ["weerg,xometry", true, "OVD-675"],
     ["xometry,weerg,fictiv", true, "OVD-675"],
+    ["xometry,oshcut", true, "OVD-677"],
+    ["xometry,fictiv,oshcut,quickparts,weerg", true, "OVD-677"],
+    ["oshcut", true, "OVD-677"],
+    ["oshcut,xometry", true, "OVD-677"],
+    ["xometry,quickparts,oshcut", true, "OVD-677"],
   ])("admits only canonical xometry-first live-adapter values (%s, %s)", (value, blocked) => {
     const evidence = compliantEvidence();
     evidence.service.spec.template.spec.containers[0].env.find(

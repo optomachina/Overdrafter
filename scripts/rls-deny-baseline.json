@@ -563,18 +563,6 @@
       "policy": "project_invites_select_owners"
     },
     {
-      "table": "public.project_jobs",
-      "policy": null
-    },
-    {
-      "table": "public.project_jobs",
-      "policy": "project_jobs_manage_editors"
-    },
-    {
-      "table": "public.project_jobs",
-      "policy": "project_jobs_select_accessible"
-    },
-    {
       "table": "public.project_memberships",
       "policy": null
     },
