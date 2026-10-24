@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 import { VendorAutomationError } from "../types.js";
 import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract.js";
+import { readFileSync } from "node:fs";
 import {
+  FILE_NAME_TEXT,
   parseXometryOfferSnapshots,
   selectCompatibilityOffer,
   type XometryOfferSnapshot,
@@ -650,3 +652,21 @@ describe("Xometry multi-offer normalization", () => {
   });
 });
 
+
+describe("FILE_NAME_TEXT", () => {
+  it("still strips ordinary CAD file names", () => {
+    expect("part-1.v2.STEP is loading".replaceAll(FILE_NAME_TEXT, " ")).toBe("  is loading");
+  });
+
+  it("runs in linear time on a long adversarial input", () => {
+    const adversarial = `${"a".repeat(50_000)}${".a".repeat(25_000)}!`;
+    const started = performance.now();
+    adversarial.replaceAll(FILE_NAME_TEXT, " ");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  it("matches the in-page copy in xometry.ts", () => {
+    const source = readFileSync(new URL("./xometry.ts", import.meta.url), "utf8");
+    expect(source).toContain(`${FILE_NAME_TEXT.toString()},`);
+  });
+});
