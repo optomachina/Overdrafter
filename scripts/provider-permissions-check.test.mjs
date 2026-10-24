@@ -217,6 +217,19 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).toBe(false);
   });
 
+  it.each([
+    ["weerg", "Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set."],
+    ["geomiq", "User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal. Ask for partner API access and written permission."],
+    ["oshcut", "Sales terms are silent on automation. Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15;"],
+    ["sendcutsend", "Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it."],
+  ])("appends the 2026-10-22 owner override to %s notes without dropping prior notes", async (key, priorNotes) => {
+    const { document } = await readRepoMatrix();
+    const row = document.providers.find((provider) => provider.key === key);
+    expect(row.notes.startsWith(priorNotes)).toBe(true);
+    expect(row.notes.indexOf("2026-10-22 owner override")).toBeGreaterThan(row.notes.indexOf(priorNotes));
+    expect(row.owner_override.orders_allowed).toBe(false);
+  });
+
   it.each(["xometry", "fictiv", "quickparts", "geomiq", "oshcut", "sendcutsend"])("accepts %s owner clearance without changing ToS or runtime admission", async (key) => {
     const { document } = await readRepoMatrix();
     const row = document.providers.find((provider) => provider.key === key);

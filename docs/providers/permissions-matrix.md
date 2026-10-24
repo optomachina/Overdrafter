@@ -102,7 +102,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - owner_override: Blaine Wilson; 2026-10-22; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [Weerg General Terms of Use and Delivery](https://www.weerg.com/faq/general-terms-and-conditions-for-the-purchase-of-services-and-supplies-supplier) — no published robots, scraper, or partner-API clause.
 - replies: 0
-- notes: Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set.
+- notes: Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors.
 
 ### geomiq
 
@@ -118,7 +118,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - owner_override: Blaine Wilson; 2026-10-22; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [Geomiq User Terms](https://geomiq.com/user-terms-conditions/) — Users must not introduce harmful software or misuse the platform. No grant of customer automation rights.
 - replies: 0
-- notes: Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal.
+- notes: Ask for partner API access and written permission. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. The partner-API and written-permission ask above stays open.
 
 ### rmfg
 
@@ -149,7 +149,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - owner_override: Blaine Wilson; 2026-10-22; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [OSH Cut Terms of Service](https://www.oshcut.com/terms-of-service) — no published clause addresses automated access, robots, or a customer quote API.
 - replies: 0
-- notes: Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Sales terms are silent on automation. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. The 2026-10-22 owner override is the matrix clearance; runtime gates (liveAdapter, session secrets, egress, admission) are unchanged.
+- notes: Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. This is not a matrix clearance, so enabled_for_paid_automation stays derived false. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. It supersedes the "not a matrix clearance" sentence above: the override is the matrix clearance; runtime gates (liveAdapter, session secrets, egress, admission) are unchanged. The partner-API and written-permission ask above stays open.
 
 ### sendcutsend
 
@@ -165,7 +165,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - owner_override: Blaine Wilson; 2026-10-22; quote-only on owner accounts; ToS risk accepted until a cease-and-desist; no orders.
 - tos_automation_clause: [SendCutSend Terms](https://sendcutsend.com/terms-of-service/) — no published clause addresses automated access, robots, scrapers, or a public developer API.
 - replies: 0
-- notes: Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it.
+- notes: Named in OVD-724. Not in the current outreach ask list. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors.
 
 ### protolabs
 
