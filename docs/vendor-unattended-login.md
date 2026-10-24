@@ -27,7 +27,7 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
 
 - `challenge_page`, `http_forbidden`, `navigation_failed`: a challenge, a denial, or a network failure;
 - `unconfirmable_public_landing` or `anonymous_comparison_inconclusive`: the landing page looks the same with and without the session, or the comparison visit without it did not come back clearly signed out;
-- `settled_page_indeterminate`: the landing page showed an error, a spinner or a second-factor prompt rather than a signed-in or signed-out page;
+- `settled_page_indeterminate`: the landing page showed an error, a spinner or a second-factor prompt rather than a signed-in or signed-out page, even if it also showed a log out control;
 - `worker_reads_session_from_env`: `QUOTE_VENDOR_STORAGE_STATE_JSON` or `QUOTE_VENDOR_STORAGE_STATE_PATHS` names the vendor, so the worker would not read the file in the state directory.
 
 ## What `login:vendors` does per vendor
@@ -49,12 +49,12 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
      - a generic Continue or Submit button with no sign-in context around it.
 
      It checks for every stop condition before typing, and again before its single submit.
-   - **Request guard.** It aborts:
+   - **Request guard.** A reviewed origin is exactly `https://` on the default port to one of the vendor's session hosts or definition hosts. A subdomain, another port and the off-host subresource allowlist are not reviewed origins. It aborts:
      - a script navigation of the main frame to another host;
      - any popup;
-     - a POST-style request from the main frame to a host outside the vendor's reviewed hosts and their subdomains;
-     - a POST-style navigation of any frame to such a host;
-     - once the password is typed, any child-frame navigation to such a host, and any main-frame request whose URL carries the password.
+     - a POST-style request from any frame or worker, or a POST-style navigation of any frame, to an origin that is not reviewed;
+     - a WebSocket from any frame to anything but a reviewed `wss://` origin, before and after typing;
+     - once the password is typed, any child-frame navigation to such an origin, and any request whose URL carries the password.
    - **Limit.** Playwright cannot hold a server redirect. If a reviewed host redirects the submitted form to another host (HTTP 307 or 308), the tool detects it afterwards, stops, and saves nothing. The password has already left by then. The tool trusts each vendor's reviewed hosts with that vendor's own password.
 5. **Confirmation.** It opens the vendor's landing page, the page the kernel opens first, and needs positive evidence of a signed-in session:
    - either a log out control;
@@ -63,7 +63,7 @@ Before a live run, an agent runs `session:check` for the vendors in that run. If
    The vendor definition's own terminal-signal classifier must accept the page as well. The tool then scopes the session to the reviewed hosts (`scopeStorageStateToHosts`) and checks that the kernel would open it (`resolveIsolatedProviderStorageState`). It confirms the scoped session once more in a fresh browser context.
 6. **Save.** It writes the session owner-only (0600) through `writePrivateStorageState` to `<state dir>/<vendor>-storage-state.json`. It refuses to write:
    - an empty session;
-   - a session that holds the typed password, for example in a remembered-login cookie;
+   - a session that holds the typed password, for example in a remembered-login cookie, including URL-encoded, base64 or inside a JSON value;
    - into a state directory with a symlinked component.
 
    It reads the file back through the kernel's own path resolver.
@@ -105,7 +105,7 @@ The log is one line per vendor per run, at `~/Library/Logs/overdrafter/vendor-lo
 
 Every value is fixed vocabulary or a host name. Usernames, item names, passwords, page text and URLs beyond the host are never written. Any value outside that vocabulary is printed as `redacted`. An older log is reset to 0600, and the tool refuses to write to a symlinked log.
 
-The tool refuses to start when a diagnostic setting is present: `DEBUG`, `DEBUG_FILE`, `PWDEBUG`, `NODE_DEBUG`, or `NODE_OPTIONS=--inspect`. Playwright and Node diagnostics can print filled values and child-process environments. Browsers and the notifier start with a minimal environment that holds no Bitwarden session and no worker secrets.
+The tool refuses to start when a diagnostic setting is present: `DEBUG`, `DEBUG_FILE`, `PWDEBUG`, `NODE_DEBUG`, or `NODE_OPTIONS=--inspect`. Playwright and Node diagnostics can print filled values and child-process environments. `session:check` and `session:refresh` refuse the same settings before they probe, because Playwright protocol logging in the parent process would print restored cookies and local-storage tokens. Browsers and the notifier start with a minimal environment that holds no Bitwarden session and no worker secrets.
 
 ## Choosing how Bitwarden unlocks
 

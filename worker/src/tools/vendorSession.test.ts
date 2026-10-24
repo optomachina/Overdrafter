@@ -11,7 +11,9 @@ import {
   checkVendorSession,
   parseSessionCliArgs,
   parseVendorList,
+  probeStorageState,
   refreshVendorSession,
+  refuseDiagnostics,
   resolveVendorSessionProfile,
   saveScopedSession,
   sessionStatePath,
@@ -147,6 +149,20 @@ describe("session:check", () => {
     }
   });
 
+  it("refuses to probe a session with Playwright or Node diagnostics enabled", async () => {
+    await writeState("quickparts", quickpartsState);
+    const fake = fakeProbe(evidence("authenticated", "authenticated_marker_found"));
+    for (const env of [{ DEBUG: "pw:protocol" }, { DEBUG: "*" }, { PWDEBUG: "1" }, { DEBUG_FILE: "/tmp/x" }, { NODE_DEBUG: "child_process" }, { NODE_OPTIONS: "--inspect=0" }]) {
+      expect(() => refuseDiagnostics(env)).toThrow(/diagnostics enabled/);
+      await expect(checkVendorSession(profile, stateDir, { probe: fake.probe, env })).rejects.toThrow(/diagnostics enabled/);
+      await expect(refreshVendorSession(profile, stateDir, { probe: fake.probe, env })).rejects.toThrow(/diagnostics enabled/);
+      await expect(probeStorageState(profile, quickpartsState, { probe: fake.probe, env })).rejects.toThrow(/diagnostics enabled/);
+    }
+    expect(fake.calls).toHaveLength(0);
+    expect(() => refuseDiagnostics({ DEBUG: " ", NODE_OPTIONS: "--max-old-space-size=4096" })).not.toThrow();
+    await expect(checkVendorSession(profile, stateDir, { probe: fake.probe, env: {} })).resolves.toMatchObject({ state: "valid" });
+  });
+
   it("probes the landing page with the kernel-parsed session and the definition's own classifier", async () => {
     await writeState("quickparts", quickpartsState);
     const fake = fakeProbe(evidence("authenticated", "terminal_signals_ready"));
@@ -195,6 +211,14 @@ describe("signed-in evidence without a log out control", () => {
     await expect(page("Something went wrong. Please try again later, our team has been notified.")).resolves.toBe("indeterminate");
     await expect(page(`${SIGNED_IN_TEXT} Log in to see prices`)).resolves.toBe("signed_out");
     await expect(page(SIGNED_IN_TEXT)).resolves.toBe("signed_in");
+  });
+
+  it("never takes a log out control on a second-factor or error page as signed in", async () => {
+    const withLogout = (bodyText: string) => settledPageVerdict({ url, bodyText, passwordInputCount: 0 }, definition, { logoutControl: true });
+    await expect(withLogout("Enter the verification code we sent to your phone. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("Approve the request in your authenticator app. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("Something went wrong. Log out")).resolves.toBe("indeterminate");
+    await expect(withLogout("Upload a part. Log out")).resolves.toBe("signed_in");
   });
 
   it("needs a clearly signed-out anonymous visit to confirm content-only evidence", async () => {
@@ -270,7 +294,17 @@ describe("typed-password detection in saved state", () => {
   it("finds the password as stored and decoded, including quotes and backslashes JSON would escape", () => {
     const password = `pa"ss\\word+1 &x`;
     const state = (value: string) => ({ cookies: [], origins: [{ origin: "https://quickquote.quickparts.com", localStorage: [{ name: "k", value }] }] });
-    for (const value of [password, encodeURIComponent(password), new URLSearchParams({ p: password }).toString(), Buffer.from(password).toString("base64"), `{"remember":"${password}"}`]) {
+    for (const value of [
+      password,
+      encodeURIComponent(password),
+      new URLSearchParams({ p: password }).toString(),
+      Buffer.from(password).toString("base64"),
+      // What a page writes with localStorage.setItem(key, JSON.stringify(...)): quotes and backslashes escaped.
+      JSON.stringify({ password }),
+      JSON.stringify({ form: { fields: [`prefix ${password} suffix`] } }),
+      JSON.stringify({ nested: JSON.stringify({ password }) }),
+      encodeURIComponent(JSON.stringify({ password })),
+    ]) {
       expect(storageStateHoldsSecret(state(value), [password])).toBe(true);
     }
     expect(storageStateHoldsSecret(state("unrelated"), [password])).toBe(false);

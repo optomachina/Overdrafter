@@ -44,6 +44,11 @@ beforeAll(async () => {
       return send(200, `<!doctype html><title>Fixture app</title><body><h1>Upload a part</h1><a href="/logout">Log out</a>
         <script>fetch("/api/beacon", { method: "POST", body: "x" }).catch(() => {});</script></body>`, { "set-cookie": "rot=2; Path=/; HttpOnly" });
     }
+    // A second-factor page that already shows the account's log out control.
+    if (url === "/mfa") {
+      return send(200, `<!doctype html><title>Fixture app</title><body><h1>Enter the verification code we sent to your phone</h1>
+        <input name="code" autocomplete="one-time-code"><a href="/logout">Log out</a></body>`);
+    }
     if (url === "/plain") return send(200, `<!doctype html><title>Fixture app</title><body><h1>${CONTENT}</h1></body>`);
     return send(404, "");
   });
@@ -118,6 +123,14 @@ describe("session tools through the GET-only probe", () => {
     await writeSession([sessionCookie]);
     await expect(checkVendorSession(loopbackProfile("/plain"), stateDir, deps))
       .resolves.toMatchObject({ state: "valid", reason: "terminal_signals_ready" });
+  }, TIMEOUT_MS);
+
+  it("never reports a second-factor page with a log out control as valid, and leaves the file alone", async () => {
+    await writeSession([sessionCookie]);
+    const before = await fs.readFile(sessionStatePath(stateDir, "quickparts"), "utf8");
+    const result = await refreshVendorSession(loopbackProfile("/mfa"), stateDir, { ...deps, env: {} });
+    expect(result).toMatchObject({ state: "check_failed", reason: "settled_page_indeterminate", refreshed: false });
+    expect(await fs.readFile(sessionStatePath(stateDir, "quickparts"), "utf8")).toBe(before);
   }, TIMEOUT_MS);
 
   it("reports a landing page that looks the same without a session as unconfirmable", async () => {

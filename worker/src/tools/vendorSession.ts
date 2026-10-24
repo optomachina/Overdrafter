@@ -143,20 +143,30 @@ export async function signedInEvidence(
 }
 
 const SIGNED_OUT_TEXT = /\b(log ?in|sign ?in|session expired)\b/i;
+/** A second-factor prompt or an error page; either can carry a log out control. */
+const STOP_TEXT = [
+  NOT_SIGNED_IN_TEXT[2],
+  /\b(something went wrong|access denied|forbidden)\b/i,
+];
 
 /**
- * The probe's verdict for a settled page with no log out control: signed in
- * only on `signedInEvidence`; signed out when the classifier or the page says
- * so; anything else (an error, a spinner, a second-factor or challenge page)
- * is indeterminate, so it is never mistaken for a session worth a password.
+ * The probe's verdict for a settled page: a second-factor or error page is
+ * indeterminate even with a log out control. Otherwise a log out control is
+ * signed in; without one, signed in only on `signedInEvidence`. Signed out
+ * when the classifier or the page says so; anything else (an error, a
+ * spinner, a second-factor or challenge page) is indeterminate, so it is
+ * never mistaken for a session worth a password.
  */
 export async function settledPageVerdict(
   snapshot: ProviderPortalSnapshot,
   definition: Pick<ProviderPortalDefinition, "hooks">,
+  page: { logoutControl: boolean } = { logoutControl: false },
 ): Promise<SettledPageVerdict> {
   const state = await definition.hooks.classifyPortalState(snapshot);
   if (state === "login_required" || state === "missing_session") return "signed_out";
   if (!sessionStateAccepted(state)) return "indeterminate";
+  if (STOP_TEXT.some((pattern) => pattern.test(snapshot.bodyText))) return "indeterminate";
+  if (page.logoutControl) return "signed_in";
   if (await signedInEvidence(snapshot, definition)) return "signed_in";
   return SIGNED_OUT_TEXT.test(snapshot.bodyText) ? "signed_out" : "indeterminate";
 }
@@ -174,10 +184,28 @@ export type SessionProbe = (options: BrowserProbeOptions) => Promise<SessionProb
 
 export type VendorSessionDeps = {
   probe?: SessionProbe;
+  /** Read for the diagnostics refusal; the process environment when absent. */
+  env?: NodeJS.ProcessEnv;
   sandbox?: BrowserProbeOptions["sandbox"];
   /** Test seams for loopback fixtures; never set by the CLI. */
   probeOverrides?: Pick<BrowserProbeOptions, "allowLoopbackHttp" | "executablePath" | "settleMs" | "confirmMs" | "timeoutMs">;
 };
+
+/**
+ * Playwright debug namespaces (including DEBUG=*) log protocol traffic in
+ * this process, which carries restored cookies, local-storage tokens and
+ * filled values; Node's child_process diagnostics echo child environments,
+ * and an inspector can read memory. Sanitizing Chromium's environment does
+ * not switch off logging in this process, so every command that opens a
+ * session or a credential refuses to start with any of them set.
+ */
+export function refuseDiagnostics(env: NodeJS.ProcessEnv): void {
+  const diagnostics = ["DEBUG", "DEBUG_FILE", "PWDEBUG", "NODE_DEBUG"].filter((name) => env[name]?.trim());
+  if (/--inspect/.test(env.NODE_OPTIONS ?? "")) diagnostics.push("NODE_OPTIONS=--inspect");
+  if (diagnostics.length > 0) {
+    throw new Error(`Refusing to run with diagnostics enabled (${diagnostics.join(", ")}). Unset them first.`);
+  }
+}
 
 function envFlag(name: string, fallback: boolean): boolean {
   const value = process.env[name]?.trim().toLowerCase();
@@ -223,6 +251,8 @@ export async function probeStorageState(
   storageState: StorageState,
   deps: VendorSessionDeps = {},
 ): Promise<VendorSessionCheck & { refreshedState: StorageState | null }> {
+  // Before the session reaches a browser: protocol logging would print it.
+  refuseDiagnostics(deps.env ?? process.env);
   const probe = deps.probe ?? runBoundedBrowserSessionProbe;
   const run = async (state: StorageState) => {
     let captured: StorageState | null = null;
@@ -230,7 +260,7 @@ export async function probeStorageState(
       target: { provider: profile.vendor, adapterKind: "portal", landingUrl: profile.landingUrl, allowedHosts: profile.probeHosts },
       storageState: state as BrowserProbeOptions["storageState"],
       sandbox: deps.sandbox ?? sandboxFromEnv(),
-      settledPageVerdict: (snapshot) => settledPageVerdict(snapshot, profile.definition),
+      settledPageVerdict: (snapshot, page) => settledPageVerdict(snapshot, profile.definition, page),
       browserEnv: minimalChildEnv(process.env),
       onAuthenticated: (refreshed) => {
         captured = refreshed as unknown as StorageState;
@@ -288,7 +318,7 @@ export function workerSessionOverride(vendor: UnattendedLoginVendor, env: NodeJS
 export async function checkVendorSession(
   profile: VendorSessionProfile,
   stateDir: string,
-  deps: VendorSessionDeps & { env?: NodeJS.ProcessEnv } = {},
+  deps: VendorSessionDeps = {},
 ): Promise<VendorSessionCheck & { refreshedState: StorageState | null }> {
   if (workerSessionOverride(profile.vendor, deps.env ?? process.env)) {
     return { vendor: profile.vendor, state: "check_failed", reason: "worker_reads_session_from_env", refreshedState: null };
@@ -306,10 +336,12 @@ export async function checkVendorSession(
 
 export type SaveResult = { saved: true } | { saved: false; reason: string };
 
-/** The forms a typed secret could take in a cookie, a local-storage value or a URL. */
+/** The forms a typed secret could take in a cookie, a local-storage value, a JSON document or a URL. */
 export function secretForms(value: string): string[] {
   return [
     value,
+    // Inside a JSON string, as JSON.stringify writes quotes, backslashes and control characters.
+    JSON.stringify(value).slice(1, -1),
     encodeURIComponent(value),
     new URLSearchParams({ v: value }).toString().slice(2),
     Buffer.from(value, "utf8").toString("base64"),
@@ -324,7 +356,37 @@ function safeDecode(value: string): string {
   }
 }
 
-/** True when any cookie or local-storage name or value holds one of `secrets`, read as stored and decoded. */
+/** Every key and string inside a value that parses as JSON, however deeply nested; nothing for other text. */
+function jsonStrings(text: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const found: string[] = [];
+  const walk = (node: unknown, depth: number) => {
+    if (depth > 32) return;
+    if (typeof node === "string") {
+      found.push(node);
+      // A JSON document stored as a string inside another one.
+      if (depth < 4) found.push(...jsonStrings(node));
+    } else if (Array.isArray(node)) node.forEach((item) => walk(item, depth + 1));
+    else if (node && typeof node === "object") {
+      for (const [key, item] of Object.entries(node)) {
+        found.push(key);
+        walk(item, depth + 1);
+      }
+    }
+  };
+  walk(parsed, 0);
+  return found;
+}
+
+/**
+ * True when any cookie or local-storage name or value holds one of `secrets`,
+ * read as stored, URL-decoded, and as the strings of a JSON value.
+ */
 export function storageStateHoldsSecret(state: StorageState, secrets: readonly string[]): boolean {
   if (secrets.length === 0) return false;
   const forms = secrets.flatMap(secretForms);
@@ -332,7 +394,11 @@ export function storageStateHoldsSecret(state: StorageState, secrets: readonly s
     ...state.cookies.flatMap((cookie) => [cookie.name, cookie.value]),
     ...state.origins.flatMap((origin) => origin.localStorage.flatMap((entry) => [entry.name, entry.value])),
   ];
-  return values.some((value) => [value, safeDecode(value)].some((text) => forms.some((form) => text.includes(form))));
+  const readings = (value: string) => {
+    const decoded = safeDecode(value);
+    return [value, decoded, ...jsonStrings(value), ...(decoded === value ? [] : jsonStrings(decoded))];
+  };
+  return values.some((value) => readings(value).some((text) => forms.some((form) => text.includes(form))));
 }
 
 /**
@@ -435,7 +501,7 @@ export type VendorSessionRefresh = VendorSessionCheck & {
 export async function refreshVendorSession(
   profile: VendorSessionProfile,
   stateDir: string,
-  deps: VendorSessionDeps & { env?: NodeJS.ProcessEnv; killSwitchReader?: ProviderKillSwitchReader } = {},
+  deps: VendorSessionDeps & { killSwitchReader?: ProviderKillSwitchReader } = {},
 ): Promise<VendorSessionRefresh> {
   const killSwitch = await vendorKillSwitchDecision(profile.vendor, deps.env, deps.killSwitchReader);
   if (killSwitch === "engaged_or_unreadable") {
@@ -515,6 +581,7 @@ function formatLine(result: VendorSessionCheck & { refreshed?: boolean }): strin
 }
 
 async function main() {
+  refuseDiagnostics(process.env);
   const args = parseSessionCliArgs(process.argv.slice(2));
   const config = await optionalConfig(args.configPath);
   const vendors = args.vendors ?? (config ? parseVendorList(Object.keys(config.vendors).join(",")) : null);

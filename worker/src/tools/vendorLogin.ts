@@ -23,6 +23,7 @@ import {
   kernelOpensStorageState,
   parseVendorList,
   probeStorageState,
+  refuseDiagnostics,
   resolveVendorSessionProfile,
   sandboxFromEnv,
   saveScopedSession,
@@ -110,13 +111,7 @@ export function assertHumanOrLaunchdCaller(env: NodeJS.ProcessEnv, stdinIsTTY: b
   if (!stdinIsTTY && !launchd) {
     throw new Error("login:vendors needs an interactive terminal or the com.overdrafter.vendor-login LaunchAgent.");
   }
-  // Playwright debug namespaces (including DEBUG=*) echo filled values, Node's
-  // child_process diagnostics echo child environments, and an inspector can read memory.
-  const diagnostics = ["DEBUG", "DEBUG_FILE", "PWDEBUG", "NODE_DEBUG"].filter((name) => env[name]?.trim());
-  if (/--inspect/.test(env.NODE_OPTIONS ?? "")) diagnostics.push("NODE_OPTIONS=--inspect");
-  if (diagnostics.length > 0) {
-    throw new Error(`Refusing to run with diagnostics enabled (${diagnostics.join(", ")}). Unset them first.`);
-  }
+  refuseDiagnostics(env);
 }
 
 export { minimalChildEnv };
@@ -252,7 +247,7 @@ async function saveAndVerify(
   if (!saved.saved) return stopped(vendor, `not_saved:${saved.reason}`, killSwitch);
   const opened = await kernelOpensStorageState(profile, { path: sessionStatePath(deps.stateDir, vendor) });
   const verdict = opened
-    ? await probeStorageState(profile, opened, deps.sessionDeps)
+    ? await probeStorageState(profile, opened, { ...deps.sessionDeps, env: deps.env })
     : { state: "unopenable_by_kernel" as const, reason: "kernel_refused_session", refreshedState: null };
   const check = `${verdict.state}:${verdict.reason}`;
   if (verdict.state !== "valid") {

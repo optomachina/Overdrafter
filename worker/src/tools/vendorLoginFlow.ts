@@ -1,5 +1,5 @@
 import type { BrowserContext, Frame, Locator, Page, Request, Route } from "playwright";
-import { isAllowedProviderUrl } from "../adapters/providerPortalKernel.js";
+import { isAllowedProviderUrl, isAllowedProviderWebSocketUrl } from "../adapters/providerPortalKernel.js";
 import type { LoginCredential } from "./vendorLoginBitwarden.js";
 import { secretForms, sessionStateAccepted, signedInEvidence, type VendorSessionProfile } from "./vendorSession.js";
 
@@ -12,12 +12,16 @@ import { secretForms, sessionStateAccepted, signedInEvidence, type VendorSession
  *   immediately before typing and again before the single submit.
  * - A form that submits to another host or into another frame or window is a
  *   stop before anything is typed.
+ * - A credential may only travel to an exact reviewed origin: https on the
+ *   default port to one of the vendor's session hosts or definition hosts.
+ *   A subdomain, another port or the off-host subresource allowlist is not
+ *   one, as in the portal kernel.
  * - Script navigation of the main frame to another host is aborted, popups
- *   never load, and a state-changing request (POST and the like) from the
- *   main frame, or a state-changing navigation of any frame, to a host
- *   outside the vendor's reviewed hosts is aborted. Once the password is
- *   typed, any navigation of a child frame to such a host, and any main-frame
- *   request to one whose URL carries the password, is aborted too.
+ *   never load, and a state-changing request (POST and the like) from any
+ *   frame or worker to an origin that is not reviewed is aborted. A
+ *   WebSocket to anything but a reviewed wss origin is refused. Once the
+ *   password is typed, any navigation of a child frame to such an origin,
+ *   and any request to one whose URL carries the password, is aborted too.
  *   Playwright cannot hold a server redirect, so a reviewed host that
  *   redirects a submission to another host is detected afterwards and stops
  *   the attempt; nothing is saved.
@@ -219,14 +223,18 @@ type GuardedPage = {
   assertSafePage: () => Promise<void>;
 };
 
-/** Host names a state-changing request may reach: the reviewed hosts, their subdomains, and the reviewed off-host allowlist. */
+/**
+ * Exact hosts a credential may reach: the session hosts and the definition's
+ * own hosts. The off-host allowlist admits only body-less subresources in the
+ * kernel, so it is no credential destination here either.
+ */
+function submissionHosts(profile: VendorSessionProfile): readonly string[] {
+  return [...new Set([...profile.sessionHosts, ...profile.definition.allowedHosts])];
+}
+
+/** An exact reviewed origin, by the kernel's own URL check: https, default port, no user info. */
 function submissionHostAllowed(rawUrl: string, profile: VendorSessionProfile): boolean {
-  const host = hostOf(rawUrl);
-  if (!host) return false;
-  return [...profile.sessionHosts, ...profile.probeHosts].some((raw) => {
-    const allowed = raw.toLowerCase();
-    return host === allowed || host.endsWith(`.${allowed}`);
-  });
+  return isAllowedProviderUrl(rawUrl, submissionHosts(profile));
 }
 
 type FrameKind = "main" | "sub" | "other";
@@ -285,16 +293,22 @@ async function guardedPage(
     const stateChanging = !READ_ONLY_METHODS.has(request.method().toUpperCase());
     const afterPassword = passwordForms.length > 0;
     const carriesPassword = afterPassword && passwordForms.some((form) => url.includes(form));
-    if (offHost && (
-      (stateChanging && (frameKind === "main" || navigation))
-      || (afterPassword && navigation)
-      || carriesPassword
-    )) {
+    // A child frame's or worker's script can POST the filled password as well as the page's own.
+    if (offHost && (stateChanging || (afterPassword && navigation) || carriesPassword)) {
       if (submitted || carriesPassword) blockedSubmissionHost ??= hostOf(url);
       await route.abort("blockedbyclient");
       return;
     }
     await route.fallback();
+  });
+  // Every frame's and worker's sockets: only a reviewed wss origin connects, before and after typing.
+  await context.routeWebSocket("**/*", async (socket) => {
+    if (isAllowedProviderWebSocketUrl(socket.url(), submissionHosts(profile))) {
+      socket.connectToServer();
+      return;
+    }
+    if (passwordForms.length > 0) blockedSubmissionHost ??= hostOf(socket.url());
+    await socket.close({ code: 1008, reason: "unexpected_origin" });
   });
 
   const signals = async (): Promise<PageSignals | null> => {
@@ -373,7 +387,8 @@ async function confirmLanding(guarded: GuardedPage, profile: VendorSessionProfil
   if (state === "unavailable") throw new LoginStop("unknown_page", "portal_unavailable", host);
   if (!sessionStateAccepted(state)) throw new LoginStop("login_failed", "landing_still_requires_login", host);
   const current = await guarded.signals();
-  const signedIn = (current?.logoutControl === true && !current.passwordVisible)
+  // A second-factor page can carry a log out control too.
+  const signedIn = (current?.logoutControl === true && !current.passwordVisible && !current.twoFactorText)
     || await signedInEvidence(snapshot, profile.definition);
   if (!signedIn) throw new LoginStop("login_failed", "landing_not_signed_in", host);
 }

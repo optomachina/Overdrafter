@@ -314,16 +314,19 @@ export type BrowserProbeOptions = {
   confirmMs?: number;
   now?: () => Date;
   /**
-   * Consulted only when the settled page shows no login form, no login route
-   * and no challenge, but also no log out control (OVD-1060). `signed_in`
-   * reports the session authenticated by the provider definition's own
-   * terminal signals, `signed_out` keeps the logged-out answer, and
-   * `indeterminate` (an error, a spinner, a second-factor prompt) reports an
-   * error rather than a logged-out session. The page text stays inside this
-   * callback.
+   * Consulted once the settled page shows no login form, no login route and
+   * no challenge (OVD-1060), with or without a log out control: a second
+   * factor prompt or an error page can carry one too. `signed_in` reports
+   * the session authenticated (by the marker, or without one by the provider
+   * definition's own terminal signals), `signed_out` keeps the logged-out
+   * answer, and `indeterminate` (an error, a spinner, a second-factor prompt)
+   * reports an error rather than a logged-out session. The page text stays
+   * inside this callback.
    */
-  settledPageVerdict?: (snapshot: { url: string; bodyText: string; passwordInputCount: number }) =>
-    SettledPageVerdict | Promise<SettledPageVerdict>;
+  settledPageVerdict?: (
+    snapshot: { url: string; bodyText: string; passwordInputCount: number },
+    page: { logoutControl: boolean },
+  ) => SettledPageVerdict | Promise<SettledPageVerdict>;
   /** Environment for the probe's Chromium; the caller's own environment when absent. */
   browserEnv?: NodeJS.ProcessEnv;
   /**
@@ -411,13 +414,14 @@ async function settledPageVerdictOf(
   page: Page,
   url: string,
   verdict: NonNullable<BrowserProbeOptions["settledPageVerdict"]>,
+  logoutControl: boolean,
 ): Promise<SettledPageVerdict> {
   try {
     return await verdict({
       url,
       bodyText: await page.locator("body").innerText({ timeout: 5_000 }),
       passwordInputCount: await page.locator("input[type='password']").count(),
-    });
+    }, { logoutControl });
   } catch {
     return "indeterminate";
   }
@@ -733,15 +737,16 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     if (status === null || status < 200 || status >= 300) {
       return { ...evidence, outcome: "error", reason: "http_status_unexpected" };
     }
-    let reason: SessionProbeReason = "authenticated_marker_found";
-    if (!signals.marker) {
-      const verdict = options.settledPageVerdict
-        ? await settledPageVerdictOf(page, settledUrl, options.settledPageVerdict)
-        : "signed_out";
-      if (verdict === "indeterminate") return { ...evidence, outcome: "error", reason: "settled_page_indeterminate" };
-      if (verdict === "signed_out") return { ...evidence, outcome: "logged_out", reason: "no_authenticated_marker" };
-      reason = "terminal_signals_ready";
+    // Without a verdict callback the marker alone decides, as before OVD-1060.
+    let verdict: SettledPageVerdict = signals.marker ? "signed_in" : "signed_out";
+    if (options.settledPageVerdict) {
+      verdict = await settledPageVerdictOf(page, settledUrl, options.settledPageVerdict, signals.marker);
     }
+    if (verdict === "indeterminate") return { ...evidence, outcome: "error", reason: "settled_page_indeterminate" };
+    if (verdict === "signed_out") {
+      return { ...evidence, outcome: "logged_out", reason: signals.marker ? "login_form" : "no_authenticated_marker" };
+    }
+    const reason: SessionProbeReason = signals.marker ? "authenticated_marker_found" : "terminal_signals_ready";
     if (options.onAuthenticated) {
       try {
         await options.onAuthenticated((await context.storageState()) as StorageStateInput);
