@@ -76,17 +76,18 @@ test.describe("friends release golden journey (OVD-1011)", () => {
     await test.step("2. Edit extracted material and finish and persist after reload", async () => {
       const material = page.getByLabel("Material", { exact: true });
       const finish = page.getByLabel("Finish", { exact: true });
-      // The copied approved requirement is 7075; 6061 is its raw extraction/reset target.
+      // The copied approved requirement is 7075. Clients never read drawing_extractions, so the
+      // reset target is the property default the first save freezes, where the requirement wins.
       // Check the seeded value before editing, then prove the new override survives reload.
       await expect(material).toHaveValue("7075 aluminum");
       await material.fill("7075-T6 aluminum");
       await finish.fill("As machined");
-      await expect(page.getByRole("button", { name: "Reset to extracted: 6061-T6 aluminum", exact: true })).toBeVisible();
       await saveDetails(page);
       await page.reload();
       await expect(page).toHaveURL(partUrl);
       await expect(material).toHaveValue("7075-T6 aluminum");
       await expect(finish).toHaveValue("As machined");
+      await expect(page.getByRole("button", { name: "Reset to extracted: 7075 aluminum", exact: true })).toBeVisible();
       await noCommerce(page);
     });
 
