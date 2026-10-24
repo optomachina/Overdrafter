@@ -27,9 +27,12 @@ const totalOf = (cents: number, label: "total" | "subtotal" = "total") => ({ cen
 
 const tolerance = (qty: number) => PRICE_TOLERANCE_CENTS_PER_PIECE * qty;
 
+const pageQty = (value: number) => ({ value, sourceText: `Quantity ${value}` });
+
 const priced = (unitCents: number, totalCents: number, qty: number): AdmitPriceInput => ({
   requestedQuantity: qty,
   quantity: qty,
+  pageQuantity: pageQty(qty),
   unit: unitOf(unitCents),
   total: totalOf(totalCents),
 });
@@ -41,6 +44,7 @@ describe("admitPrice properties", () => {
         const verdict = admitPrice({
           requestedQuantity: qty,
           quantity: qty,
+          pageQuantity: pageQty(qty),
           unit: unitOf(unitCents, unitLabel),
           total: totalOf(unitCents * qty, totalLabel),
         });
@@ -75,6 +79,28 @@ describe("admitPrice properties", () => {
       fc.property(arb, ([qty, unitCents, delta]) => {
         const verdict = admitPrice(priced(unitCents, unitCents * qty + delta, qty));
         expect(verdict.ok).toBe(true);
+      }),
+      params,
+    );
+  });
+
+  it("accepts |total − unit × qty| == 1¢ × qty and refuses 1¢ × qty + 1 for any qty >= 2", () => {
+    // admitPrice refuses only when the gap is strictly greater than the tolerance.
+    // unit >= 2 keeps unit × qty − (1¢ × qty + 1) = qty(unit − 1) − 1 >= 1.
+    fc.assert(
+      fc.property(multiQtyArb, fc.integer({ min: 2, max: MAX_UNIT_CENTS }), fc.constantFrom(1, -1), (qty, unitCents, sign) => {
+        const expected = unitCents * qty;
+        const atBoundary = expected + sign * tolerance(qty);
+        expect(admitPrice(priced(unitCents, atBoundary, qty))).toMatchObject({
+          ok: true,
+          value: { unit: { cents: unitCents }, total: { cents: atBoundary } },
+        });
+        const pastBoundary = expected + sign * (tolerance(qty) + 1);
+        expect(admitPrice(priced(unitCents, pastBoundary, qty))).toEqual({
+          ok: false,
+          reason: "invariant_failed",
+          detail: { unitCents, totalCents: pastBoundary, quantity: qty, toleranceCents: tolerance(qty) },
+        });
       }),
       params,
     );
@@ -140,15 +166,17 @@ describe("admitPrice properties", () => {
     );
   });
 
-  it("refuses any quantity != requestedQuantity with qty_mismatch", () => {
+  it("refuses a card or page quantity != requestedQuantity with qty_mismatch", () => {
     const arb = fc
       .tuple(qtyArb, qtyArb)
-      .filter(([quantity, requested]) => quantity !== requested);
+      .filter(([other, requested]) => other !== requested);
+    const mismatchedArb = fc.constantFrom("card" as const, "page" as const, "both" as const);
     fc.assert(
-      fc.property(arb, centsArb, centsArb, ([quantity, requestedQuantity], unitCents, totalCents) => {
+      fc.property(arb, mismatchedArb, centsArb, centsArb, ([other, requestedQuantity], mismatched, unitCents, totalCents) => {
         const verdict = admitPrice({
           requestedQuantity,
-          quantity,
+          quantity: mismatched === "page" ? requestedQuantity : other,
+          pageQuantity: pageQty(mismatched === "card" ? requestedQuantity : other),
           unit: unitOf(unitCents),
           total: totalOf(totalCents),
         });
@@ -171,8 +199,38 @@ describe("admitPrice properties", () => {
         const verdict = admitPrice({
           requestedQuantity,
           quantity,
+          pageQuantity: pageQty(quantity),
           unit: unitOf(unitCents),
           total: totalOf(unitCents * quantity),
+        });
+        expect(verdict).toMatchObject({ ok: false, reason: "qty_missing" });
+      }),
+      params,
+    );
+  });
+
+  it("never admits a missing, invalid or unsupported pageQuantity", () => {
+    const invalidPage = (qty: number) =>
+      fc.oneof(
+        fc.constant(undefined),
+        fc.constant(null),
+        fc.integer({ min: -MAX_QTY, max: 0 }).map((value) => ({ value, sourceText: `Quantity ${value}` })),
+        fc.double({ noInteger: true }).map((value) => ({ value, sourceText: `Quantity ${value}` })),
+        // A valid value whose source text is blank or does not show that number.
+        fc.constantFrom("", "   ", "Quantity", `Quantity ${qty + 1}`, `Quantity ${qty}0`).map((sourceText) => ({
+          value: qty,
+          sourceText,
+        })),
+      );
+    const arb = qtyArb.chain((qty) => fc.tuple(fc.constant(qty), invalidPage(qty)));
+    fc.assert(
+      fc.property(arb, centsArb, ([qty, pageQuantity], unitCents) => {
+        const verdict = admitPrice({
+          requestedQuantity: qty,
+          quantity: qty,
+          pageQuantity,
+          unit: unitOf(unitCents),
+          total: totalOf(unitCents * qty),
         });
         expect(verdict).toMatchObject({ ok: false, reason: "qty_missing" });
       }),
@@ -191,6 +249,7 @@ describe("admitPrice properties", () => {
             .map((delta) => ({
               requestedQuantity: qty,
               quantity: qty,
+              pageQuantity: pageQty(qty),
               unit: unitOf(unitCents, unitLabel),
               total: totalOf(unitCents * qty + delta, totalLabel),
             })),
@@ -198,11 +257,13 @@ describe("admitPrice properties", () => {
       fc.tuple(centsArb, unitLabelArb).map(([cents, label]) => ({
         requestedQuantity: 1,
         quantity: 1,
+        pageQuantity: pageQty(1),
         unit: unitOf(cents, label),
       })),
       fc.tuple(centsArb, totalLabelArb).map(([cents, label]) => ({
         requestedQuantity: 1,
         quantity: 1,
+        pageQuantity: pageQty(1),
         total: totalOf(cents, label),
       })),
     );
@@ -214,6 +275,7 @@ describe("admitPrice properties", () => {
         const again = admitPrice({
           requestedQuantity: stored.requestedQuantity,
           quantity: stored.quantity,
+          pageQuantity: pageQty(stored.requestedQuantity),
           unit: stored.unitSource === "observed" ? { ...stored.unit, label: "each" } : null,
           total: stored.totalSource === "observed" ? { ...stored.total, label: "total" } : null,
         });
@@ -225,8 +287,9 @@ describe("admitPrice properties", () => {
 
   it("never admits a qty-piece page total when one piece was requested", () => {
     // The page priced qty >= 2 pieces: unitCents each, pageTotal for all of them.
-    // The adapter may report or lose the page quantity and may label any of the
-    // page amounts any way; none of that may publish pageTotal for one piece.
+    // The adapter may report or lose the card and page quantities (or misread the
+    // page control as 1) and may label any of the page amounts any way; none of
+    // that may publish pageTotal for one piece.
     const amountArb = (pageAmounts: number[]) =>
       fc.oneof(fc.constantFrom(...pageAmounts), centsArb);
     const arb = fc
@@ -237,6 +300,13 @@ describe("admitPrice properties", () => {
         const input: fc.Arbitrary<AdmitPriceInput> = fc.record({
           requestedQuantity: fc.constant(1),
           quantity: fc.constantFrom<number | null | undefined>(qty, null, undefined, 0),
+          pageQuantity: fc.constantFrom<AdmitPriceInput["pageQuantity"]>(
+            pageQty(qty),
+            pageQty(1),
+            { value: 1, sourceText: `Quantity ${qty}` },
+            null,
+            undefined,
+          ),
           unit: fc.option(
             fc.record(
               { cents: amountArb(page), currency: fc.constant("USD"), label: unitLabelArb },
