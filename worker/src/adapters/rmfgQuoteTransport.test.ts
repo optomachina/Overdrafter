@@ -72,6 +72,47 @@ describe("RMFG offline quote transport", () => {
     expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 
+  it("sorts unique priced components alphabetically using locale comparison", async () => {
+    const compare = vi.spyOn(String.prototype, "localeCompare");
+    try {
+      for (const types of [["bends", "base", "bends"], ["base", "bends", "base"]]) {
+        const quote = { ...readyQuote, items: [{ ...readyQuote.items[0], line_items: [{
+          ...readyQuote.items[0].line_items[0], breakdown: types.map((type) => ({ type })),
+        }] }] };
+        const { transport } = fixture({ quote, analyze: { ...design,
+          parts: [{ ...design.parts[0], bend_count: 1 }] } });
+        const outcome = await runRmfgQuoteOnly(input, transport);
+        expect(outcome).toMatchObject({ state: "ready", offer: { pricedComponents: ["base", "bends"] } });
+      }
+      expect(compare).toHaveBeenCalled();
+    } finally {
+      compare.mockRestore();
+    }
+  });
+
+  it.each(["configuration", "dfm", "lines"])("rejects missing %s part lists", async (missing) => {
+    const item = structuredClone(readyQuote.items[0]);
+    if (missing === "configuration") Reflect.deleteProperty(item.dfm.configuration, "parts");
+    if (missing === "dfm") Reflect.deleteProperty(item.dfm, "parts");
+    if (missing === "lines") Reflect.deleteProperty(item, "line_items");
+    const { transport } = fixture({ quote: { ...readyQuote, items: [item] } });
+    expect(await runRmfgQuoteOnly(input, transport)).toMatchObject({ state: "unknown", offer: null,
+      reason: missing === "lines" ? "line_items_unverified" : "dfm_configuration_unverified" });
+  });
+
+  it.each([
+    ["failed", "error", "quote_failed"],
+    ["processing", "blocked", "manufacturing_blocked"],
+    ["requires_input", "blocked", "manufacturing_blocked"],
+  ])("preserves stop precedence for a %s quote with conflicting findings", async (status, state, reason) => {
+    const quote = { ...readyQuote, status, requirements: [{ code: "review" }], items: [{
+      ...readyQuote.items[0], status: "requires_input", dfm: { ...readyQuote.items[0].dfm, status: "blocked" },
+    }] };
+    const { requests, transport } = fixture({ quote });
+    expect(await runRmfgQuoteOnly(input, transport)).toMatchObject({ state, reason, offer: null });
+    expect(requests.filter((request) => request.endpoint === "quote_status")).toHaveLength(0);
+  });
+
   it("stops before quoting for an unverified stock ID or missing part selection", async () => {
     const { requests, transport } = fixture();
     const outcome = await runRmfgQuoteOnly({ ...input,

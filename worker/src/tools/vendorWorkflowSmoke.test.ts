@@ -415,6 +415,26 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       .toThrow(/only be supplied when --vendor includes rmfg/);
   });
 
+  it.each(["1", "01", ".125", "0.125", "00.125", " 0.125 "])("accepts decimal RMFG thickness %s", (thickness) => {
+    const args = parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness]);
+    expect(args.rmfgStock?.thicknessIn).toBe(Number(thickness));
+  });
+
+  it.each([".", "1.", "+.125", "1e-1", "0x1", "0.1.25"])("rejects nondecimal RMFG thickness %s", (thickness) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+  });
+
+  it("rejects a long invalid RMFG thickness without quadratic backtracking", () => {
+    const thickness = `${"0".repeat(60_000)}!`;
+    const started = performance.now();
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+    // Generous for a linear scan; the overlapping digit repetitions took seconds.
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("accepts a comma-separated hidden vendor subset", () => {
     const args = parseSmokeArgs([
       "--vendor",

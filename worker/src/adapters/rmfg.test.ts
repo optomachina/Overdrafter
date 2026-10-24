@@ -484,6 +484,20 @@ describe("RMFG live evaluation with a stated stock (OVD-1057)", () => {
     expect(calls).toEqual([]);
   });
 
+  it("checks evaluation file authorization before scope and provider checkpoints", async () => {
+    const { calls, fetchImpl } = fakeFetch(platePath());
+    const checkpoint = vi.fn(async () => undefined);
+    const adapterInput = await evaluationInput({ requestedQuantity: 5 });
+    (adapterInput.liveEvaluationAuthorization as { nonExportControlled: boolean }).nonExportControlled = false;
+    const inputWithCheckpoint = adapterInput as VendorQuoteAdapterInput & RmfgDispatchSeams;
+    inputWithCheckpoint.providerKillSwitchCheckpoint = checkpoint;
+    await expect(adapterWith(fetchImpl).quote(inputWithCheckpoint)).rejects.toMatchObject({
+      payload: { reason: "evaluation_file_authorization_missing", providerInteractionAttempted: false },
+    });
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it("reports a malformed mounted key as a finite refusal that names nothing about the key", async () => {
     const { calls, fetchImpl } = fakeFetch(platePath());
     const error = await adapterWith(fetchImpl, { [RMFG_API_KEY_ENV]: `${SYNTHETIC_KEY} ` }).quote(await evaluationInput())

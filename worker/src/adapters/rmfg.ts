@@ -239,6 +239,29 @@ function sha256(bytes: Uint8Array | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function authorizeRmfgRequest(input: VendorQuoteAdapterInput, evaluation: boolean,
+  stock: RmfgStockRequirement | undefined): void {
+  if (evaluation) {
+    if (!getAuthorizedLiveEvaluationFiles(input) || input.liveEvaluationAuthorization?.nonExportControlled !== true) {
+      throw refusal("evaluation_file_authorization_missing",
+        "RMFG evaluation needs the harness's digest bound file capture and non export controlled confirmation.");
+    }
+    // The approved evaluation is one part, quantity 1, on a stated stock; nothing else reaches RMFG.
+    if (input.requestedQuantity !== 1 || !stock
+      || specValue(input.requirement.spec_snapshot, ["rmfgSelections", "rmfg_selections"]) !== undefined) {
+      throw refusal("evaluation_scope_unapproved",
+        "RMFG evaluation quotes only quantity 1 on a stated stock; nothing was sent.", { terminalState: "unsupported" });
+    }
+  } else {
+    const denial = providerDispatchAuthorizationDenial(input, { provider: "rmfg", ...RMFG_DISPATCH_ENVELOPE });
+    if (denial) throw refusal(denial, "RMFG dispatch is not authorized for these exact files and quantity.");
+    if (input.providerDispatchAuthorization?.envelope.affirmations?.nonExportControlled !== true) {
+      throw refusal("export_control_affirmation_missing",
+        "RMFG dispatch needs a non export controlled affirmation; nothing was sent.");
+    }
+  }
+}
+
 export class RmfgAdapter extends VendorAdapter {
   private readonly env: NodeJS.ProcessEnv;
   private readonly createTransport: RmfgTransportFactory;
@@ -268,25 +291,7 @@ export class RmfgAdapter extends VendorAdapter {
     const evaluation = input.executionContext === "live_evaluation";
     // A stated stock is the operator evaluation's own scope; production quotes use person-chosen catalog IDs.
     const stock = evaluation ? stockFrom(input.requirement.spec_snapshot) : undefined;
-    if (evaluation) {
-      if (!getAuthorizedLiveEvaluationFiles(input) || input.liveEvaluationAuthorization?.nonExportControlled !== true) {
-        throw refusal("evaluation_file_authorization_missing",
-          "RMFG evaluation needs the harness's digest bound file capture and non export controlled confirmation.");
-      }
-      // The approved evaluation is one part, quantity 1, on a stated stock; nothing else reaches RMFG.
-      if (input.requestedQuantity !== 1 || !stock
-        || specValue(input.requirement.spec_snapshot, ["rmfgSelections", "rmfg_selections"]) !== undefined) {
-        throw refusal("evaluation_scope_unapproved",
-          "RMFG evaluation quotes only quantity 1 on a stated stock; nothing was sent.", { terminalState: "unsupported" });
-      }
-    } else {
-      const denial = providerDispatchAuthorizationDenial(input, { provider: "rmfg", ...RMFG_DISPATCH_ENVELOPE });
-      if (denial) throw refusal(denial, "RMFG dispatch is not authorized for these exact files and quantity.");
-      if (input.providerDispatchAuthorization?.envelope.affirmations?.nonExportControlled !== true) {
-        throw refusal("export_control_affirmation_missing",
-          "RMFG dispatch needs a non export controlled affirmation; nothing was sent.");
-      }
-    }
+    authorizeRmfgRequest(input, evaluation, stock);
 
     // OVD-722: fresh read before any provider facing step; a refusal propagates unchanged.
     await input.providerKillSwitchCheckpoint?.("before_navigation");
@@ -299,17 +304,7 @@ export class RmfgAdapter extends VendorAdapter {
     if (sha256(bytes) !== expectedSha256) {
       throw refusal("dispatch_authorization_file_mismatch", "The staged RMFG file no longer matches its authorization.");
     }
-    const apiKey = this.env[RMFG_API_KEY_ENV];
-    if (!apiKey) {
-      throw refusal("rmfg_api_key_missing", `RMFG needs an API key mounted at ${RMFG_API_KEY_ENV}; nothing was sent.`);
-    }
-    let transport: ReturnType<RmfgTransportFactory>;
-    try {
-      transport = this.createTransport(apiKey);
-    } catch {
-      // The client rejects a malformed key; its message is not carried, so nothing about the key leaves here.
-      throw refusal("rmfg_api_key_malformed", `The key mounted at ${RMFG_API_KEY_ENV} is malformed; nothing was sent.`);
-    }
+    const transport = this.transportFromMountedKey();
 
     let seamError: { error: unknown } | null = null;
     let stop: StopOutcome = null;
@@ -351,6 +346,19 @@ export class RmfgAdapter extends VendorAdapter {
     const capturedStop = stop as StopOutcome;
     if (capturedStop) throw stopError(capturedStop, { providerInteractionAttempted: true });
     return this.fromResult(input, result);
+  }
+
+  private transportFromMountedKey(): ReturnType<RmfgTransportFactory> {
+    const apiKey = this.env[RMFG_API_KEY_ENV];
+    if (!apiKey) {
+      throw refusal("rmfg_api_key_missing", `RMFG needs an API key mounted at ${RMFG_API_KEY_ENV}; nothing was sent.`);
+    }
+    try {
+      return this.createTransport(apiKey);
+    } catch {
+      // The client rejects a malformed key; its message is not carried, so nothing about the key leaves here.
+      throw refusal("rmfg_api_key_malformed", `The key mounted at ${RMFG_API_KEY_ENV} is malformed; nothing was sent.`);
+    }
   }
 
   private fromResult(input: VendorQuoteAdapterInput, result: RmfgQuoteResult): VendorQuoteAdapterOutput {

@@ -340,8 +340,7 @@ function showsUnrequestedWork(item: Json | null, dfm: Json | null): boolean {
 /** The echoed configuration is exactly the selected parts, each on its selected stock with nothing added. */
 function configurationMatches(configuration: Json | null, selectedParts: SelectedPart[]): boolean {
   const configuredParts = Array.isArray(configuration?.parts) ? configuration.parts : null;
-  if (hasUnrequestedConfiguration(configuration) || !configuredParts ||
-      configuredParts.length !== selectedParts.length) return false;
+  if (hasUnrequestedConfiguration(configuration) || configuredParts?.length !== selectedParts.length) return false;
   const seen = new Set<string>();
   for (const value of configuredParts) {
     const part = record(value);
@@ -355,8 +354,7 @@ function configurationMatches(configuration: Json | null, selectedParts: Selecte
 
 function dfmMatchesSelection(dfm: Json | null, selectedParts: SelectedPart[]): boolean {
   const reportedParts = Array.isArray(dfm?.parts) ? dfm.parts : null;
-  if (!configurationMatches(record(dfm?.configuration), selectedParts) || !reportedParts ||
-      reportedParts.length !== selectedParts.length) return false;
+  if (!configurationMatches(record(dfm?.configuration), selectedParts) || reportedParts?.length !== selectedParts.length) return false;
   const reported = new Set<string>();
   for (const value of reportedParts) {
     const part = record(value);
@@ -389,7 +387,7 @@ function lineMatches(line: Json | null, selection: PreparedSelection, requestedQ
 
 function lineItemsMatch(item: Json, selection: PreparedSelection, requestedQuantity: number): boolean {
   const lines = Array.isArray(item.line_items) ? item.line_items.map(record) : null;
-  if (!lines || lines.length !== selection.selectedParts.length) return false;
+  if (lines?.length !== selection.selectedParts.length) return false;
   if (item.assembly_operations_amount_cents !== undefined && item.assembly_operations_amount_cents !== 0) return false;
   const priced = new Set<string>();
   let total = 0;
@@ -485,7 +483,7 @@ function pricedComponents(item: Json): string[] {
     const breakdown = record(line)?.breakdown;
     return Array.isArray(breakdown) ? breakdown.map((part) => string(record(part)?.type)) : [];
   });
-  return [...new Set(types.filter((type): type is string => type !== null))].sort();
+  return [...new Set(types.filter((type): type is string => type !== null))].sort((left, right) => left.localeCompare(right));
 }
 
 function expiry(value: unknown, nowMs: number): { validUntil: string | null } | "elapsed" | "unreadable" {
@@ -495,9 +493,37 @@ function expiry(value: unknown, nowMs: number): { validUntil: string | null } | 
   return at <= nowMs ? "elapsed" : { validUntil: new Date(at).toISOString() };
 }
 
+function manufacturingStop(quote: Json, item: Json | null, dfm: Json | null):
+  { state: "blocked" | "requires_input"; reason: string } | null {
+  // A stop reported while the quote is still processing stops now; it is never polled past.
+  const reportedParts = Array.isArray(dfm?.parts) ? dfm.parts : [];
+  if (quote.status === "blocked" || dfm?.status === "blocked" || item?.status === "blocked" ||
+      reportedParts.some((part) => record(part)?.status === "blocked") || hasBlockingIssue(dfm))
+    return { state: "blocked", reason: "manufacturing_blocked" };
+  if (quote.status === "requires_input" || dfm?.status === "requires_input" || item?.status === "requires_input" ||
+      reportedParts.some((part) => record(part)?.status === "requires_input"))
+    return { state: "requires_input", reason: "manufacturing_input_required" };
+  return null;
+}
+
+function readyEvidenceIssue(quote: Json, item: Json | null, dfm: Json | null, designId: string,
+  requestedQuantity: number, selection: PreparedSelection): string | null {
+  if (item?.status !== "ready" || dfm?.status !== "ready" ||
+      [quote.requirements, item?.requirements, dfm?.requirements].some((value) => requirementCodes(value) === null))
+    return "ready_evidence_incomplete";
+  if (dfm?.design_id !== designId || !dfmMatchesSelection(dfm, selection.selectedParts))
+    return "dfm_configuration_unverified";
+  if (item.design_id !== designId || item.quantity !== requestedQuantity || quote.currency !== "usd" ||
+      !consistentPrice(item.unit_amount_cents, item.amount_cents, item.quantity))
+    return "offer_provenance_incomplete";
+  if (!lineItemsMatch(item, selection, requestedQuantity))
+    return "line_items_unverified";
+  if (!quoteTotalsMatch(quote, item)) return "quote_totals_unverified";
+  return null;
+}
+
 function quoteDisposition(quote: Json, designId: string, requestedQuantity: number,
   selection: PreparedSelection, nowMs: number): RmfgQuoteResult {
-  const { selectedParts } = selection;
   const quoteId = string(quote.id);
   if (!quoteId) return result("unknown", "quote_id_missing", designId);
   const items = Array.isArray(quote.items) ? quote.items : null;
@@ -516,45 +542,31 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
   if (quote.status === "failed" || quote.status === "expired")
     return finish("error", `quote_${quote.status}`);
   // One item was requested: another count is not this request, processing or not.
-  if (items && items.length > 1) return finish("unknown", "quote_items_unverified");
-  // A stop reported while the quote is still processing stops now; it is never polled past.
-  const reportedParts = Array.isArray(dfm?.parts) ? dfm.parts : [];
-  if (quote.status === "blocked" || dfmStatus === "blocked" || item?.status === "blocked" ||
-      reportedParts.some((part) => record(part)?.status === "blocked") || hasBlockingIssue(dfm))
-    return finish("blocked", "manufacturing_blocked");
-  if (quote.status === "requires_input" || dfmStatus === "requires_input" || item?.status === "requires_input" ||
-      reportedParts.some((part) => record(part)?.status === "requires_input"))
-    return finish("requires_input", "manufacturing_input_required");
+  if ((items?.length ?? 0) > 1) return finish("unknown", "quote_items_unverified");
+  const stop = manufacturingStop(quote, item, dfm);
+  if (stop) return finish(stop.state, stop.reason);
   if (codes.length) return finish("requires_input", "unresolved_requirements");
   if (showsUnrequestedWork(item, dfm)) return finish("unknown", "unrequested_work_priced");
   const contradiction = contradictsRequest(quote, item, dfm, designId, requestedQuantity, selection);
   if (contradiction) return finish("unknown", contradiction);
   if (quote.status === "processing") return finish("pending", "quote_processing");
   if (quote.status !== "ready") return finish("unknown", "quote_status_unknown");
-  if (item?.status !== "ready" || dfmStatus !== "ready" ||
-      requirements === null || itemRequirements === null || dfmRequirements === null)
-    return finish("unknown", "ready_evidence_incomplete");
-  if (dfm?.design_id !== designId || !dfmMatchesSelection(dfm, selectedParts))
-    return finish("unknown", "dfm_configuration_unverified");
-  if (item.design_id !== designId || item.quantity !== requestedQuantity || quote.currency !== "usd" ||
-      !consistentPrice(item.unit_amount_cents, item.amount_cents, item.quantity))
-    return finish("unknown", "offer_provenance_incomplete");
-  if (!lineItemsMatch(item, selection, requestedQuantity))
-    return finish("unknown", "line_items_unverified");
-  if (!quoteTotalsMatch(quote, item)) return finish("unknown", "quote_totals_unverified");
+  const readyIssue = readyEvidenceIssue(quote, item, dfm, designId, requestedQuantity, selection);
+  if (readyIssue) return finish("unknown", readyIssue);
   const validity = expiry(quote.expires_at, nowMs);
   if (validity === "elapsed") return finish("error", "quote_expired");
   if (validity === "unreadable") return finish("unknown", "quote_expiry_unverified");
+  const verifiedItem = item!;
   const offer: RmfgQuoteOffer = {
-    providerOptionId: `${quoteId}:${designId}:${item.quantity}`,
-    quoteRef: quoteId, designId, quantity: item.quantity as number, currency: "USD",
-    unitPriceUsd: (item.unit_amount_cents as number) / 100,
-    totalPriceUsd: (item.amount_cents as number) / 100,
+    providerOptionId: `${quoteId}:${designId}:${verifiedItem.quantity}`,
+    quoteRef: quoteId, designId, quantity: verifiedItem.quantity as number, currency: "USD",
+    unitPriceUsd: (verifiedItem.unit_amount_cents as number) / 100,
+    totalPriceUsd: (verifiedItem.amount_cents as number) / 100,
     leadTimeBusinessDays: null,
     validUntil: validity.validUntil,
-    totalCents: item.amount_cents as number,
+    totalCents: verifiedItem.amount_cents as number,
     fulfillment: fulfillmentEvidence(quote),
-    pricedComponents: pricedComponents(item),
+    pricedComponents: pricedComponents(verifiedItem),
     provenance: {
       quantity: "items[0].quantity", currency: "currency",
       unitPrice: "items[0].unit_amount_cents", totalPrice: "items[0].amount_cents",
