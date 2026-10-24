@@ -9,6 +9,7 @@ const baseURL = fixtureOnly
   : process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 
 export default defineConfig({
+  forbidOnly: !!process.env.CI,
   testDir: "./e2e",
   // Served only by its synthetic server; `npm run e2e:fixture` runs it through
   // e2e/delivered-comparison.config.ts.
