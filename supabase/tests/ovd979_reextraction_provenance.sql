@@ -12,16 +12,20 @@
 -- ovd-979-b.rollback.sql, notes: ovd-979-notes.md). This test was promoted from
 -- supabase/tests/pending/ovd979_reextraction_provenance.sql.pending, so the
 -- policy-test runner and the ephemeral-db stage run it against the migrations.
--- Observed on a local Supabase Postgres 17.11 holding the 153 migrations of main
--- (real schema, triggers and access helpers): with both rollbacks applied 39 of
--- 98 assertions pass (A2, A4, B1, B1b, B3, B5, B8, B9, D0-D5, Q1-Q3, F1, F2, F2b,
--- F3, F4b, H1, V2, M1, M2, RU0, RU2, RU3, W1, W2, W3, W5, Z1, Z2, Z2b, Z3, PP0, PP1,
--- PP2, PP2b, PP3, PP4, PP5b, PC1, CS0, CS1, CS4, CS5, CS7, CS8, RF0, RF1, RF2, RF3,
--- RF3b, RF5, RF7 and G1 fail:
+-- Observed through revision 6 on a local Supabase Postgres 17.11 holding the 153
+-- migrations of main (real schema, triggers and access helpers): with both
+-- rollbacks applied 39 of 98 assertions passed (A2, A4, B1, B1b, B3, B5, B8, B9,
+-- D0-D5, Q1-Q3, F1, F2, F2b, F3, F4b, H1, V2, M1, M2, RU0, RU2, RU3, W1, W2, W3,
+-- W5, Z1, Z2, Z2b, Z3, PP0, PP1, PP2, PP2b, PP3, PP4, PP5b, PC1, CS0, CS1, CS4,
+-- CS5, CS7, CS8, RF0, RF1, RF2, RF3, RF3b, RF5, RF7 and G1 failed:
 -- corrections overwritten, 0 tasks queued on attach, stale editor defaults,
 -- placeholder material, tolerance filled, quoted jobs moved to ready_to_quote,
 -- reuse keeping the CAD-only row or an unfinished one); with the two migrations
--- applied 98 of 98 pass.
+-- applied 98 of 98 passed. Fix round 7 (113 assertions) was run on a scratch
+-- PostgreSQL 17 with a minimal Supabase stand-in and the 159 earlier migrations:
+-- 113 of 113 with the fix round 7 bytes; on the revision 6 bytes RU5b, DF1,
+-- DF2, DF4, DF6, DF7, DF8, RV1, RV2 and G7 fail and G8 errors (the trigger
+-- function does not exist), so the run stops at 112 of 113.
 -- Sections D, E and Q cover
 -- review r0 R1-R4;
 -- B5b, B8, B9, D-1 and the F, R, H, N jobs close the review r1 mutation gaps;
@@ -62,6 +66,19 @@
 -- source whose retry is queued is waited for). Because the reuse now needs a
 -- completed task on record, the fixtures that insert a reuse source row directly
 -- (RU1 and RU6, CS6) also insert the completed task that produced it.
+-- Fix round 7 (the Codex mediums on revision 6): DF1-DF8 cover a drawing
+-- attached while the part's extract_part task runs (api_request_extraction
+-- defers one drawing task behind it, the settlement trigger releases it on
+-- completion or failure; nothing is deferred behind a task for the current
+-- drawing); RT0 and RV1-RV3 cover a retried attach task that still holds its
+-- failed attempt's extraction while another part's run auto-approves (pending
+-- until it stores its own result during its claim; that run leaves the old row
+-- untouched); RU5b covers the reuse stamping a kept row during the claim; G7 and
+-- G8 the attributes of the redefined context loader and the new trigger. RU3b's
+-- claim is now dated a minute before the reuse, as it is in production. The
+-- two-session races (a save or reset during auto-approval, a settlement during
+-- a request, the same retry with real clocks) are in
+-- ovd979_auto_approve_concurrency.sql.
 --
 -- The whole test is one transaction, so now() is constant. The worker's
 -- extraction writes are simulated as postgres with explicit updated_at values
@@ -73,7 +90,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(98);
+select plan(113);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (
@@ -1024,10 +1041,13 @@ reset role;
 
 -- The worker's reuse path, as handleExtractTask runs it: claim the task, resolve
 -- the intake, reuse the source version's artifacts, auto-approve while the task
--- is still running, then mark it completed.
+-- is still running, then mark it completed. The claim is a transaction of its
+-- own that commits before the reuse runs; with the one clock of this test it is
+-- dated a minute earlier, so the row the reuse writes during the claim is newer
+-- than the claim, as in production (fix round 7: per-claim completion evidence).
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 update public.work_queue
-set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+set status = 'running', locked_at = timezone('utc', now()) - interval '1 minute', locked_by = 'ovd979-test', attempts = attempts + 1
 where part_id = '00000000-0000-4000-8000-0000009795b3' and task_type = 'extract_part' and status = 'queued';
 select is(
   (select array[
@@ -1039,6 +1059,13 @@ select is(
   array['existing_version', 'true'],
   'RU1 the attached package matches an existing version, so the worker reuses its artifacts'
 );
+-- Fix round 7: the row RU5's target keeps was stored before this claim (an
+-- earlier, failed attempt); with the one clock of this test it is aged
+-- explicitly, so RU5b can see the reuse stamp it during the claim.
+alter table public.drawing_extractions disable trigger touch_drawing_extractions_updated_at;
+update public.drawing_extractions set updated_at = timezone('utc', now()) - interval '1 hour'
+where part_id = '00000000-0000-4000-8000-0000009795c3';
+alter table public.drawing_extractions enable trigger touch_drawing_extractions_updated_at;
 select public.api_reuse_trusted_part_version_artifacts(
   '00000000-0000-4000-8000-0000009795c3', '00000000-0000-4000-8000-0000009795a3',
   (select part_version_id from public.parts where id = '00000000-0000-4000-8000-0000009795c3')
@@ -1097,6 +1124,11 @@ select is(
    from public.drawing_extractions where part_id = '00000000-0000-4000-8000-0000009795c3'),
   array['worker-pdf-v3', 'own'],
   'RU5 reuse keeps an extraction the part already holds when it is not a CAD-only row'
+);
+select ok(
+  (select updated_at = timezone('utc', now())
+   from public.drawing_extractions where part_id = '00000000-0000-4000-8000-0000009795c3'),
+  'RU5b (fix round 7) and stamps the kept row, so the auto-approval of the same claim sees a result written during the claim'
 );
 
 select is(
@@ -1935,6 +1967,268 @@ select is(
   'RF7 a failed task created at the same instant as the completed one counts against the source'
 );
 
+-- ---------------------------------------------------------------- fix round 7 (Codex): deferred drawing task, per-claim evidence
+-- DF: the drawing is attached while the part's CAD-only extraction is running
+--     (it has stored its worker-sim row and is not completed yet). The request
+--     defers one drawing task behind it, and the task's completion releases it.
+-- DH: the same, and the CAD-only task fails instead: the failure releases it
+--     too; while the released task runs, a request defers nothing more.
+-- RT: two parts with attached drawings. RT1's attach task stores its drawing
+--     extraction and fails, and is retried; while the retry still holds that
+--     old row, RT2's run calls auto-approval. The races of these sequences with
+--     real clocks and two sessions are in ovd979_auto_approve_concurrency.sql.
+insert into public.jobs (id, organization_id, created_by, title, status)
+values
+  ('00000000-0000-4000-8000-000000979f10', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 DF', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979f20', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 DH', 'uploaded'),
+  ('00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 RT', 'uploaded');
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, file.original_name, file.normalized_name, 'cad'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-000000979f11'::uuid, '00000000-0000-4000-8000-000000979f10'::uuid, 'bracket.step', 'ovd979-bracket'),
+  ('00000000-0000-4000-8000-000000979f21'::uuid, '00000000-0000-4000-8000-000000979f20'::uuid, 'bracket.step', 'ovd979-bracket'),
+  ('00000000-0000-4000-8000-000000979fa1'::uuid, '00000000-0000-4000-8000-000000979fa0'::uuid, 'rt1.step', 'ovd979-rt1'),
+  ('00000000-0000-4000-8000-000000979fb1'::uuid, '00000000-0000-4000-8000-000000979fa0'::uuid, 'rt2.step', 'ovd979-rt2')
+) as file(id, job_id, original_name, normalized_name);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values
+  ('00000000-0000-4000-8000-000000979f13', '00000000-0000-4000-8000-000000979f10', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979f11', null),
+  ('00000000-0000-4000-8000-000000979f23', '00000000-0000-4000-8000-000000979f20', '00000000-0000-4000-8000-000000979001',
+    'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979f21', null),
+  ('00000000-0000-4000-8000-000000979fa3', '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-rt1', 'ovd979-rt1', '00000000-0000-4000-8000-000000979fa1', null),
+  ('00000000-0000-4000-8000-000000979fb3', '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979001',
+    'ovd979-rt2', 'ovd979-rt2', '00000000-0000-4000-8000-000000979fb1', null);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction(job_id)
+from unnest(array['00000000-0000-4000-8000-000000979f10', '00000000-0000-4000-8000-000000979f20',
+  '00000000-0000-4000-8000-000000979fa0']::uuid[]) job_id;
+reset role;
+
+-- DF and DH: the CAD-only task is claimed and stores its row; it is not done.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979f10', '00000000-0000-4000-8000-000000979f13', 'worker-sim-v1', 'cad', 1,
+  '{}'::jsonb, '{}'::text[], false, false
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979f20', '00000000-0000-4000-8000-000000979f23', 'worker-sim-v1', 'cad', 1,
+  '{}'::jsonb, '{}'::text[], false, false
+);
+-- RT: both parts complete their CAD-only extraction.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979fa3', 'worker-sim-v1', 'cad1', 1
+);
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979fb3', 'worker-sim-v1', 'cad2', 1
+);
+update public.jobs set status = 'ready_to_quote' where id = '00000000-0000-4000-8000-000000979fa0';
+
+-- The drawings are uploaded; api_request_extraction reconciles them onto the parts.
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+)
+select file.id, file.job_id, '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011',
+  'job-files', 'org/ovd979/' || file.id::text, file.original_name, file.normalized_name, 'drawing'::public.job_file_kind
+from (values
+  ('00000000-0000-4000-8000-000000979f12'::uuid, '00000000-0000-4000-8000-000000979f10'::uuid, 'bracket.pdf', 'ovd979-bracket'),
+  ('00000000-0000-4000-8000-000000979f22'::uuid, '00000000-0000-4000-8000-000000979f20'::uuid, 'bracket.pdf', 'ovd979-bracket'),
+  ('00000000-0000-4000-8000-000000979fa2'::uuid, '00000000-0000-4000-8000-000000979fa0'::uuid, 'rt1.pdf', 'ovd979-rt1'),
+  ('00000000-0000-4000-8000-000000979fb2'::uuid, '00000000-0000-4000-8000-000000979fa0'::uuid, 'rt2.pdf', 'ovd979-rt2')
+) as file(id, job_id, original_name, normalized_name);
+
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  array[public.api_request_extraction('00000000-0000-4000-8000-000000979f10'),
+        public.api_request_extraction('00000000-0000-4000-8000-000000979f20')],
+  array[1, 1],
+  'DF1 a drawing attached while the CAD-only extraction runs queues one task for it'
+);
+reset role;
+select ok(
+  (select count(*) = 1
+     and bool_and(deferred.status = 'queued'
+       and deferred.available_at > timezone('utc', now())
+       and deferred.payload ->> 'reason' = 'drawing_attached'
+       and deferred.payload ->> 'drawingFileId' = '00000000-0000-4000-8000-000000979f12'
+       and deferred.payload ->> 'awaitingTaskId' = running.id::text)
+   from public.work_queue deferred
+   join public.work_queue running
+     on running.part_id = deferred.part_id and running.status = 'running'
+   where deferred.part_id = '00000000-0000-4000-8000-000000979f13' and deferred.status = 'queued'),
+  'DF2 the task is deferred: it names the running task and is not claimable (available_at is ahead)'
+);
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-000000979f10'), 0,
+  'DF3 a second request while the deferred task waits queues nothing'
+);
+reset role;
+
+-- The CAD-only task completes (markTaskCompleted).
+update public.work_queue set status = 'completed', locked_at = null, locked_by = null
+where part_id = '00000000-0000-4000-8000-000000979f13' and task_type = 'extract_part' and status = 'running';
+select ok(
+  (select bool_and(status = 'queued' and available_at <= timezone('utc', now()))
+   from public.work_queue
+   where part_id = '00000000-0000-4000-8000-000000979f13' and payload ->> 'reason' = 'drawing_attached'),
+  'DF4 its completion releases the deferred drawing task'
+);
+
+-- The worker runs it like any drawing task.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979f10', '00000000-0000-4000-8000-000000979f13', 'worker-pdf-v3', 'df', 3
+);
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+create temporary table ovd979_df5_requested on commit drop as
+select public.api_request_extraction('00000000-0000-4000-8000-000000979f10') as queued;
+reset role;
+select is(
+  array[(select description from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-000000979f13'),
+        (select status::text from public.jobs where id = '00000000-0000-4000-8000-000000979f10'),
+        (select queued::text from ovd979_df5_requested)],
+  array['EXTRACTED DESC df', 'ready_to_quote', '0'],
+  'DF5 the drawing is extracted and approved, and nothing is queued again for it'
+);
+
+-- DH: the CAD-only task fails instead (markTaskFailed acts on the claimed task
+-- only, so pg_temp.ovd979_worker_fails, which also fails queued tasks, is not
+-- used here).
+update public.work_queue
+set status = 'failed', last_error = 'ovd979 simulated extraction failure', locked_at = null, locked_by = null
+where part_id = '00000000-0000-4000-8000-000000979f23' and task_type = 'extract_part' and status = 'running';
+select ok(
+  (select bool_and(status = 'queued' and available_at <= timezone('utc', now()))
+   from public.work_queue
+   where part_id = '00000000-0000-4000-8000-000000979f23' and payload ->> 'reason' = 'drawing_attached'),
+  'DF6 a failed settlement releases the deferred drawing task as well'
+);
+-- The released task is claimed: it reads the current drawing, so a request
+-- while it runs defers nothing.
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-000000979f23' and task_type = 'extract_part' and status = 'queued';
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-000000979f20'), 0,
+  'DF7 nothing is deferred behind a running task for the current drawing'
+);
+select is(
+  public.api_request_extraction('00000000-0000-4000-8000-000000979fa0'), 2,
+  'RT0 one request queues the drawing tasks of both RT parts'
+);
+reset role;
+
+-- DJ: the first extraction of a CAD-only part is claimed and has stored nothing
+-- yet when the drawing is attached: the drawing task is deferred too, with the
+-- drawing_attached payload (the running task may never read the drawing).
+insert into public.jobs (id, organization_id, created_by, title, status)
+values ('00000000-0000-4000-8000-000000979f30', '00000000-0000-4000-8000-000000979001', '00000000-0000-4000-8000-000000979011', 'OVD 979 DJ', 'uploaded');
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+) values (
+  '00000000-0000-4000-8000-000000979f31', '00000000-0000-4000-8000-000000979f30', '00000000-0000-4000-8000-000000979001',
+  '00000000-0000-4000-8000-000000979011', 'job-files', 'org/ovd979/dj.step', 'bracket.step', 'ovd979-bracket', 'cad'
+);
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values ('00000000-0000-4000-8000-000000979f33', '00000000-0000-4000-8000-000000979f30', '00000000-0000-4000-8000-000000979001',
+  'ovd979-bracket', 'ovd979-bracket', '00000000-0000-4000-8000-000000979f31', null);
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979f30');
+reset role;
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()), locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-000000979f33' and task_type = 'extract_part' and status = 'queued';
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind
+) values (
+  '00000000-0000-4000-8000-000000979f32', '00000000-0000-4000-8000-000000979f30', '00000000-0000-4000-8000-000000979001',
+  '00000000-0000-4000-8000-000000979011', 'job-files', 'org/ovd979/dj.pdf', 'bracket.pdf', 'ovd979-bracket', 'drawing'
+);
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+create temporary table ovd979_df8_requested on commit drop as
+select public.api_request_extraction('00000000-0000-4000-8000-000000979f30') as queued;
+reset role;
+select ok(
+  (select queued = 1 from ovd979_df8_requested)
+  and (select count(*) = 1
+         and bool_and(deferred.available_at > timezone('utc', now())
+           and deferred.payload ->> 'reason' = 'drawing_attached'
+           and deferred.payload ->> 'drawingFileId' = '00000000-0000-4000-8000-000000979f32'
+           and deferred.payload ->> 'awaitingTaskId' is not null)
+       from public.work_queue deferred
+       where deferred.part_id = '00000000-0000-4000-8000-000000979f33' and deferred.status = 'queued'),
+  'DF8 a drawing attached while a first extraction runs, before it stored anything, is deferred as a drawing task'
+);
+
+-- RT1's attach task stores its drawing extraction and fails before it is done.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979fa3', 'worker-pdf-v3', 'rt1-try1', 2,
+  '{}'::jsonb, '{}'::text[], false, false
+);
+select pg_temp.ovd979_worker_fails('00000000-0000-4000-8000-000000979fa3');
+select pg_temp.ovd979_age_tasks('00000000-0000-4000-8000-000000979fa3');
+set local role authenticated;
+select pg_temp.ovd979_as_owner();
+select public.api_request_extraction('00000000-0000-4000-8000-000000979fa0');
+reset role;
+-- The retry is claimed after its failed attempt stored the row. This test has
+-- one clock, so the claim is dated explicitly, at the same instant as that row
+-- (now + 2 minutes): a tie is not evidence that the claim wrote the row.
+update public.work_queue
+set status = 'running', locked_at = timezone('utc', now()) + interval '2 minutes', locked_by = 'ovd979-test', attempts = attempts + 1
+where part_id = '00000000-0000-4000-8000-000000979fa3' and task_type = 'extract_part' and status = 'queued';
+
+-- RT2's run reaches its auto-approval while the retry still holds the old row.
+select pg_temp.ovd979_worker_completes(
+  '00000000-0000-4000-8000-000000979fa0', '00000000-0000-4000-8000-000000979fb3', 'worker-pdf-v3', 'rt2', 3,
+  '{}'::jsonb, '{}'::text[], false
+);
+select is(
+  (select status::text from public.jobs where id = '00000000-0000-4000-8000-000000979fa0'),
+  'extracting',
+  'RV1 (Codex) a retry that holds its failed attempt''s extraction is not finishing: another part''s run keeps the job extracting'
+);
+select is(
+  (select array[status::text, (updated_at = timezone('utc', now()) + interval '2 minutes')::text]
+   from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979fa3'),
+  array['needs_review', 'true'],
+  'RV2 that run leaves the retry''s old row untouched (status and updated_at)'
+);
+update public.work_queue set status = 'completed', locked_at = null, locked_by = null
+where part_id = '00000000-0000-4000-8000-000000979fb3' and task_type = 'extract_part' and status = 'running';
+
+-- The retry stores its own extraction during its claim and auto-approves.
+delete from public.drawing_extractions where part_id = '00000000-0000-4000-8000-000000979fa3';
+insert into public.drawing_extractions (part_id, organization_id, extractor_version, extraction, status, created_at, updated_at)
+values ('00000000-0000-4000-8000-000000979fa3', '00000000-0000-4000-8000-000000979001', 'worker-pdf-v3',
+  '{"description":"EXTRACTED DESC rt1-try2","quoteDescription":"EXTRACTED DESC rt1-try2"}'::jsonb, 'needs_review',
+  timezone('utc', now()) + interval '10 minutes', timezone('utc', now()) + interval '10 minutes');
+select public.api_auto_approve_job_requirements('00000000-0000-4000-8000-000000979fa0');
+select is(
+  array[(select status::text from public.jobs where id = '00000000-0000-4000-8000-000000979fa0'),
+        (select description from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-000000979fa3')],
+  array['ready_to_quote', 'EXTRACTED DESC rt1-try2'],
+  'RV3 once the retry has stored its own result during its claim it is finishing, and the job is ready to quote'
+);
+
 -- ---------------------------------------------------------------- attributes and grants
 select ok(
   (select bool_and(p.prosecdef and p.proconfig = array['search_path=pg_catalog, public'])
@@ -1980,6 +2274,28 @@ select ok(
     where p.oid = 'public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid)'::regprocedure and acl.grantee = 0
   ),
   'G6 trusted reuse stays SECURITY DEFINER with search_path=pg_catalog and service_role only'
+);
+select ok(
+  (select p.prosecdef and p.provolatile = 'v' and p.proconfig = array['search_path=pg_catalog, public']
+   from pg_proc p where p.oid = 'public.load_editable_project_part_context(uuid)'::regprocedure)
+  and has_function_privilege('service_role', 'public.load_editable_project_part_context(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.load_editable_project_part_context(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.load_editable_project_part_context(uuid)', 'execute'),
+  'G7 (fix round 7) the save/reset context loader is SECURITY DEFINER, VOLATILE (it locks the job row), search_path=pg_catalog, public, service_role only'
+);
+select ok(
+  (select p.prosecdef and p.proconfig = array['search_path=pg_catalog']
+   from pg_proc p where p.oid = 'private.release_deferred_drawing_extractions()'::regprocedure)
+  and not has_function_privilege('authenticated', 'private.release_deferred_drawing_extractions()', 'execute')
+  and not has_function_privilege('anon', 'private.release_deferred_drawing_extractions()', 'execute')
+  and exists (
+    select 1 from pg_trigger t
+    where t.tgrelid = 'public.work_queue'::regclass
+      and t.tgname = 'release_deferred_drawing_extractions'
+      and t.tgfoid = 'private.release_deferred_drawing_extractions()'::regprocedure
+      and not t.tgisinternal and t.tgenabled = 'O'
+  ),
+  'G8 (fix round 7) the settlement trigger is installed; its function is SECURITY DEFINER, search_path=pg_catalog, not executable by anon or authenticated'
 );
 
 select * from finish();

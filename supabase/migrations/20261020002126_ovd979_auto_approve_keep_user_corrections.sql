@@ -1,6 +1,8 @@
 -- =====================================================================
 -- OVD-979 (part a, finding 3f): public.api_auto_approve_job_requirements(uuid)
--- respects overrides saved through the client property editor.
+-- respects overrides saved through the client property editor, and (fix round
+-- 7) public.load_editable_project_part_context(uuid) serializes the client save
+-- and reset with it.
 --
 -- This file and docs/migration-drafts/ovd-979-a.sql are byte-identical copies
 -- of one reviewed definition (apply a, then b). It is not applied to
@@ -62,6 +64,54 @@
 --      otherwise pinned the job to needs_spec_review after the retry succeeded.
 --      A failure with no later task, and a failure followed only by failed or
 --      cancelled tasks, still counts.
+--  10. Fix round 7 (Codex, high): a user save or reset that committed after this
+--      function had read the requirement was overwritten by its upsert (values
+--      and override keys). The function now locks the job row first
+--      (SELECT ... FOR NO KEY UPDATE), before it reads anything it writes back,
+--      and public.load_editable_project_part_context(uuid), which
+--      api_update_client_part_request and api_reset_client_part_property_overrides
+--      call before they read anything, takes the same lock (redefined below,
+--      otherwise verbatim from 20260402120000). See LOCK ORDER below.
+--  11. Fix round 7 (Codex, medium): the item 8 exemption needs completion
+--      evidence of the CURRENT claim: the part's stored extraction must have
+--      been written after the task was claimed (stored.updated_at >
+--      queue.locked_at). A retry starts with the row its failed attempt stored,
+--      which is older than the retry's claim, so the retry is pending until it
+--      stores its own result (the worker's upsert stamps updated_at through the
+--      touch trigger; the trusted reuse stamps a kept row, migration b). The
+--      set of such tasks is read before the function changes any row, because
+--      its own status updates below are stamped by the same trigger. This
+--      replaces the inline predicate of item 8 (and with it the null-safe
+--      'reason' comparison, which a filter no longer needs).
+--  12. Fix round 7, so that item 11 holds: this function no longer changes the
+--      status of an extraction row that is older than the claim of a running
+--      drawing_attached task of its part (the touch trigger would stamp it and
+--      fake the evidence of item 11). The running claim replaces the row and its
+--      own auto-approval run sets the status.
+-- LOCK ORDER (fix round 7). Every path that writes the approved requirement of a
+-- part takes the row locks of one job in this order, and takes the first one
+-- before it reads anything it writes back:
+--   1. public.jobs row of the job (FOR NO KEY UPDATE; an UPDATE of the row takes
+--      the same lock mode, and neither blocks the FOR KEY SHARE of a foreign-key
+--      check, so inserts that reference the job are not serialized);
+--   2. public.parts rows of the job;
+--   3. public.approved_part_requirements rows;
+--   4. public.drawing_extractions rows;
+--   5. public.work_queue rows.
+-- Paths: this function (1, then 2 to 4 per part; it only reads work_queue);
+-- api_update_client_part_request and api_reset_client_part_property_overrides
+-- (1 in load_editable_project_part_context, then their writes, all under 1);
+-- api_request_extraction (migration b: its advisory lock, then 1, then 2 through
+-- api_reconcile_job_parts, then 5); the worker's task settlement and the trigger
+-- that releases a deferred drawing extraction (migration b: 5 only). The
+-- triggers on these tables (touch_*_updated_at, the part deadline history and
+-- the canonical version assignment) only write the row being changed or private
+-- history rows, so they add no edge. While a path holds 1, the order of its later
+-- row locks cannot deadlock with another path that takes 1 first.
+-- Not changed: api_approve_job_requirements (internal approval) does not take 1
+-- (requirements, parts, extractions, then the job). It already took its locks in
+-- a different order than this function did on main; it is a staff action and
+-- out of scope here (see the notes).
 -- Body otherwise verbatim from 20260317013000 (generated and diffed by
 -- gen-draft-a.mjs in the OVD-979 harness). Not changed: quantities, vendors,
 -- audit event, return value, and the values written for the four legacy
@@ -72,6 +122,10 @@
 -- lint; every relation in the body is schema-qualified, so behavior is the
 -- same); CREATE OR REPLACE keeps owner and ACL; the OVD-535 revoke/grant is restated
 -- verbatim (EXECUTE for service_role only). No grant is widened.
+-- load_editable_project_part_context (fix round 7) keeps SECURITY DEFINER and
+-- its access checks, which still run first (require_verified_auth(), then
+-- user_can_edit_job()); search_path becomes pg_catalog, public for the same
+-- lint, and its OVD-736 revoke/grant (service_role only) is restated verbatim.
 -- =====================================================================
 
 begin;
@@ -139,6 +193,12 @@ declare
   -- OVD-979: the part has (ever had) an extract_part task queued by a drawing
   -- attach (api_request_extraction, reason 'drawing_attached').
   v_drawing_attached boolean := false;
+  -- OVD-979 (fix round 7): the part's extraction row is older than the claim of
+  -- a running drawing_attached task of the part, which will replace it.
+  v_extraction_before_claim boolean := false;
+  -- OVD-979 (fix round 7): running drawing_attached tasks that stored their
+  -- result during their current claim (header item 11).
+  v_finishing_attach_tasks uuid[] := '{}'::uuid[];
   v_property_defaults jsonb;
   v_description_review_needed boolean := false;
   v_part_number_review_needed boolean := false;
@@ -152,10 +212,15 @@ declare
   v_failed_extract_tasks integer := 0;
   v_unapproved_parts integer := 0;
 begin
+  -- OVD-979 (fix round 7): lock 1 of the LOCK ORDER in the header, taken before
+  -- any requirement is read. A user save or reset in flight finishes first and
+  -- this function then reads what it committed; a save or reset that starts
+  -- later waits until this function commits.
   select *
   into v_job
   from public.jobs
-  where id = p_job_id;
+  where id = p_job_id
+  for no key update;
 
   if v_job.id is null then
     raise exception 'Job % not found.', p_job_id;
@@ -170,6 +235,25 @@ begin
     v_job.primary_service_kind
   );
   v_requires_material := 'manufacturing_quote' = any(v_requested_service_kinds);
+
+  -- OVD-979 (fix round 7, header item 11): read before the loop below, whose
+  -- status updates stamp drawing_extractions.updated_at, so the evidence is the
+  -- time the worker (or the trusted reuse) wrote the row and never this run's
+  -- own write.
+  select coalesce(array_agg(queue.id), '{}'::uuid[])
+  into v_finishing_attach_tasks
+  from public.work_queue queue
+  where queue.job_id = p_job_id
+    and queue.task_type = 'extract_part'
+    and queue.status = 'running'
+    and queue.payload ->> 'reason' = 'drawing_attached'
+    and exists (
+      select 1
+      from public.drawing_extractions stored
+      where stored.part_id = queue.part_id
+        and stored.extractor_version not like 'worker-sim-%'
+        and stored.updated_at > queue.locked_at
+    );
 
   for v_part in
     select *
@@ -264,6 +348,16 @@ begin
         and queue.part_id = v_part.id
         and queue.task_type = 'extract_part'
         and queue.payload ->> 'reason' = 'drawing_attached'
+    );
+    v_extraction_before_claim := v_extraction.id is not null and exists (
+      select 1
+      from public.work_queue claim
+      where claim.job_id = p_job_id
+        and claim.part_id = v_part.id
+        and claim.task_type = 'extract_part'
+        and claim.status = 'running'
+        and claim.payload ->> 'reason' = 'drawing_attached'
+        and claim.locked_at >= v_extraction.updated_at
     );
 
     v_description := case
@@ -424,7 +518,9 @@ begin
     where id = v_part.id;
 
     if v_requirement.id is null and v_has_review_blocker then
-      if v_extraction.id is not null then
+      -- OVD-979 (fix round 7): a row older than a running attach claim is left
+      -- untouched (header item 12), here and below.
+      if v_extraction.id is not null and not v_extraction_before_claim then
         update public.drawing_extractions
         set status = 'needs_review'
         where part_id = v_part.id;
@@ -575,7 +671,7 @@ begin
           approved_at = excluded.approved_at,
           updated_at = excluded.updated_at;
 
-    if v_extraction.id is not null then
+    if v_extraction.id is not null and not v_extraction_before_claim then
       update public.drawing_extractions
       set status = 'approved'
       where part_id = v_part.id;
@@ -588,22 +684,16 @@ begin
   -- task completed, so a running drawing_attached task whose extraction is
   -- already stored (written by the worker, or copied by the trusted reuse) is
   -- finishing, not pending. Anything else queued or running still is.
+  -- Fix round 7: the stored row must have been written after this claim began
+  -- (header item 11; the set is read before the loop), so a retry that still
+  -- holds its failed attempt's row is pending until it stores its own.
   select count(*)::integer
   into v_pending_extract_tasks
   from public.work_queue queue
   where queue.job_id = p_job_id
     and queue.task_type = 'extract_part'
     and queue.status in ('queued', 'running')
-    and not (
-      queue.status = 'running'
-      and queue.payload ->> 'reason' is not distinct from 'drawing_attached'
-      and exists (
-        select 1
-        from public.drawing_extractions stored
-        where stored.part_id = queue.part_id
-          and stored.extractor_version not like 'worker-sim-%'
-      )
-    );
+    and not (queue.id = any(v_finishing_attach_tasks));
 
   -- OVD-979 (review r3): a failure that a later task of the same part replaced
   -- (api_request_extraction queues a new task and keeps the failed row) is
@@ -675,5 +765,92 @@ $$;
 revoke execute on function public.api_auto_approve_job_requirements(uuid) from public;
 revoke execute on function public.api_auto_approve_job_requirements(uuid) from anon, authenticated;
 grant execute on function public.api_auto_approve_job_requirements(uuid) to service_role;
+
+-- OVD-979 (fix round 7, header item 10): verbatim from
+-- 20260402120000_persist_project_part_property_overrides.sql except three marked
+-- changes. The save and reset RPCs call this before they read anything, so it
+-- takes lock 1 of the LOCK ORDER (the job row) after the access checks and
+-- re-reads the job under it; the part, requirement and extraction reads that
+-- follow then see what a concurrent auto-approval committed. A row lock is not
+-- allowed in a STABLE function, so the function is now VOLATILE (its callers are
+-- VOLATILE RPCs that write). search_path becomes pg_catalog, public (the
+-- security-definer lint; every name in the body is schema-qualified).
+create or replace function public.load_editable_project_part_context(
+  p_job_id uuid
+)
+returns table (
+  job public.jobs,
+  part public.parts,
+  requirement public.approved_part_requirements,
+  extraction public.drawing_extractions
+)
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_part public.parts%rowtype;
+  v_requirement public.approved_part_requirements%rowtype;
+  v_extraction public.drawing_extractions%rowtype;
+begin
+  perform public.require_verified_auth();
+
+  select *
+  into v_job
+  from public.jobs
+  where id = p_job_id;
+
+  if v_job.id is null then
+    raise exception 'Job % not found.', p_job_id;
+  end if;
+
+  if not public.user_can_edit_job(v_job.id) then
+    raise exception 'You do not have permission to edit job %.', p_job_id;
+  end if;
+
+  -- OVD-979 (fix round 7): lock 1 of the LOCK ORDER, held until the caller
+  -- commits, so a save or reset never interleaves with
+  -- api_auto_approve_job_requirements for the same job.
+  select *
+  into v_job
+  from public.jobs
+  where id = p_job_id
+  for no key update;
+
+  select *
+  into v_part
+  from public.parts
+  where job_id = v_job.id
+  order by created_at asc, id asc
+  limit 1;
+
+  if v_part.id is null then
+    raise exception 'Job % has no part revisions yet.', p_job_id;
+  end if;
+
+  select *
+  into v_requirement
+  from public.approved_part_requirements
+  where part_id = v_part.id;
+
+  select *
+  into v_extraction
+  from public.drawing_extractions
+  where part_id = v_part.id;
+
+  return query
+  select
+    v_job,
+    v_part,
+    v_requirement,
+    v_extraction;
+end;
+$$;
+
+-- Restated exactly as 20261016013742_ovd736_revoke_anon_definer_execute.sql left it.
+revoke execute on function public.load_editable_project_part_context(uuid) from public, anon, authenticated;
+grant execute on function public.load_editable_project_part_context(uuid) to service_role;
 
 commit;

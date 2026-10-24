@@ -153,14 +153,44 @@ describe("api_auto_approve_job_requirements latest definition (OVD-979)", () => 
     );
   });
 
-  it("does not count a running drawing_attached task whose extraction is stored as pending (review r3)", () => {
-    // The worker calls this function before it marks its own task completed. The 'reason'
-    // comparison must be null-safe: with a plain '=' a task without a reason makes the whole
-    // 'not (...)' null, which would drop every running first-extraction task from the count too.
+  it("does not count a running drawing_attached task as pending only with evidence from its current claim (review r3, fix round 7)", () => {
+    // The worker calls this function before it marks its own task completed. Fix round 7: the stored row
+    // must have been written after the task was claimed, so a retry that still holds its failed attempt's
+    // row is pending. The set is read before the loop, because the loop's own status updates are stamped
+    // by the touch trigger and would otherwise pass for the worker's write.
     expect(latestSql).toMatch(
-      /into v_pending_extract_tasks\s+from public\.work_queue queue\s+where queue\.job_id = p_job_id\s+and queue\.task_type = 'extract_part'\s+and queue\.status in \('queued', 'running'\)\s+and not \(\s+queue\.status = 'running'\s+and queue\.payload ->> 'reason' is not distinct from 'drawing_attached'\s+and exists \(\s+select 1\s+from public\.drawing_extractions stored\s+where stored\.part_id = queue\.part_id\s+and stored\.extractor_version not like 'worker-sim-%'\s+\)\s+\);/,
+      /select coalesce\(array_agg\(queue\.id\), '\{\}'::uuid\[\]\)\s+into v_finishing_attach_tasks\s+from public\.work_queue queue\s+where queue\.job_id = p_job_id\s+and queue\.task_type = 'extract_part'\s+and queue\.status = 'running'\s+and queue\.payload ->> 'reason' = 'drawing_attached'\s+and exists \(\s+select 1\s+from public\.drawing_extractions stored\s+where stored\.part_id = queue\.part_id\s+and stored\.extractor_version not like 'worker-sim-%'\s+and stored\.updated_at > queue\.locked_at\s+\);/,
     );
-    expect(latestSql).not.toMatch(/and queue\.payload ->> 'reason' = 'drawing_attached'\s+and exists/);
+    expect(latestSql).toMatch(
+      /into v_pending_extract_tasks\s+from public\.work_queue queue\s+where queue\.job_id = p_job_id\s+and queue\.task_type = 'extract_part'\s+and queue\.status in \('queued', 'running'\)\s+and not \(queue\.id = any\(v_finishing_attach_tasks\)\);/,
+    );
+    const evidence = latestSql.indexOf("into v_finishing_attach_tasks");
+    const loop = latestSql.indexOf("  for v_part in");
+    const firstStatusUpdate = latestSql.indexOf("update public.drawing_extractions");
+    expect(evidence).toBeGreaterThan(0);
+    expect(loop).toBeGreaterThan(evidence);
+    expect(firstStatusUpdate).toBeGreaterThan(loop);
+  });
+
+  it("does not stamp an extraction row that is older than a running attach claim of its part (fix round 7)", () => {
+    // Another part's auto-approval would otherwise set the status of the retry's old row, the touch trigger
+    // would stamp it, and the stamp would read as the retry's own result.
+    expect(latestSql).toMatch(
+      /v_extraction_before_claim := v_extraction\.id is not null and exists \(\s+select 1\s+from public\.work_queue claim\s+where claim\.job_id = p_job_id\s+and claim\.part_id = v_part\.id\s+and claim\.task_type = 'extract_part'\s+and claim\.status = 'running'\s+and claim\.payload ->> 'reason' = 'drawing_attached'\s+and claim\.locked_at >= v_extraction\.updated_at\s+\);/,
+    );
+    const updates = latestSql.match(/if v_extraction\.id is not null(?: and not v_extraction_before_claim)? then\s+update public\.drawing_extractions/g) ?? [];
+    expect(updates).toHaveLength(2);
+    for (const update of updates) {
+      expect(update).toContain("and not v_extraction_before_claim");
+    }
+  });
+
+  it("locks the job row before it reads a requirement, in the documented lock order (fix round 7)", () => {
+    expect(latestSql).toContain("-- LOCK ORDER (fix round 7).");
+    const lock = latestSql.search(/select \*\s+into v_job\s+from public\.jobs\s+where id = p_job_id\s+for no key update;/);
+    const firstRequirementRead = latestSql.indexOf("from public.approved_part_requirements\n    where part_id = v_part.id;");
+    expect(lock).toBeGreaterThan(0);
+    expect(firstRequirementRead).toBeGreaterThan(lock);
   });
 
   it("does not count a failed extract_part task that a later task of the same part replaced (review r3)", () => {
@@ -221,10 +251,67 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     );
   });
 
-  it("queues a drawing attach once: not while queued or running, and not again for a completed drawing", () => {
-    expect(requestSql).toContain("placement_extraction.extractor_version like 'worker-sim-%'");
-    expect(requestSql).toContain("and done.payload ->> 'drawingFileId' = part.drawing_file_id::text");
-    expect(requestSql).toMatch(/and queue\.status in \('queued', 'running'\)/);
+  it("queues a drawing attach once: not while queued, deferred while another task runs, not again for a completed drawing", () => {
+    const request = extractFunction(requestSql, "api_request_extraction");
+    expect(request).toContain("placement_extraction.extractor_version like 'worker-sim-%'");
+    expect(request).toContain("and done.payload ->> 'drawingFileId' = part.drawing_file_id::text");
+    expect(request).toMatch(
+      /and not exists \(\s+select 1 from public\.work_queue queue\s+where queue\.part_id = part\.id\s+and queue\.task_type = 'extract_part'\s+and queue\.status = 'queued'\s+\)/,
+    );
+    // Fix round 7: behind a running task only when that task is not for the current drawing.
+    expect(request).toMatch(
+      /and \(\s+running_task\.id is null\s+or \(\s+part\.drawing_file_id is not null\s+and not exists \(\s+select 1 from public\.work_queue same_drawing\s+where same_drawing\.job_id = p_job_id\s+and same_drawing\.part_id = part\.id\s+and same_drawing\.task_type = 'extract_part'\s+and same_drawing\.status in \('running', 'completed'\)\s+and same_drawing\.payload ->> 'drawingFileId' = part\.drawing_file_id::text\s+\)\s+\)\s+\)/,
+    );
+  });
+
+  it("defers a drawing attached during a running extraction and releases it when that task settles (fix round 7)", () => {
+    const request = extractFunction(requestSql, "api_request_extraction");
+    expect(request).toContain("jsonb_build_object('awaitingTaskId', running_task.id)");
+    expect(request).toMatch(
+      /case\s+when running_task\.id is null then timezone\('utc', now\(\)\)\s+else timezone\('utc', now\(\)\) \+ interval '1 hour'\s+end/,
+    );
+    // Lock order: the job row before api_reconcile_job_parts locks parts, then the running tasks, then
+    // the insert (a settlement committing in between would otherwise miss the deferred row).
+    const jobLock = request.indexOf("perform 1 from public.jobs where id = p_job_id for no key update;");
+    const reconcile = request.indexOf("perform public.api_reconcile_job_parts(p_job_id);");
+    const taskLock = request.search(/perform 1 from public\.work_queue running[\s\S]*?for no key update;/);
+    const insert = request.indexOf("insert into public.work_queue (");
+    expect(jobLock).toBeGreaterThan(request.indexOf("pg_advisory_xact_lock"));
+    expect(reconcile).toBeGreaterThan(jobLock);
+    expect(taskLock).toBeGreaterThan(reconcile);
+    expect(insert).toBeGreaterThan(taskLock);
+    expect(requestSql).toMatch(
+      /create trigger release_deferred_drawing_extractions\s+after update of status on public\.work_queue\s+for each row\s+when \(\s+new\.task_type = 'extract_part'\s+and old\.status in \('queued', 'running'\)\s+and new\.status in \('completed', 'failed', 'cancelled'\)\s+\)\s+execute function private\.release_deferred_drawing_extractions\(\);/,
+    );
+    expect(requestSql).toMatch(
+      /create or replace function private\.release_deferred_drawing_extractions\(\)\s+returns trigger\s+language plpgsql\s+security definer\s+set search_path = pg_catalog\s+as \$\$/,
+    );
+    expect(requestSql).toMatch(
+      /and deferred\.status = 'queued'\s+and deferred\.payload ->> 'awaitingTaskId' = new\.id::text/,
+    );
+    expect(requestSql).toMatch(
+      /revoke all on function private\.release_deferred_drawing_extractions\(\)\s+from public, anon, authenticated;/,
+    );
+  });
+
+  it("rests on the claim honouring available_at and the worker settling tasks with a status update (fix round 7)", () => {
+    // A deferred task is only safe if no worker can claim it early, and it is only released if every
+    // settlement is an UPDATE of work_queue.status (the trigger is AFTER UPDATE OF status).
+    const claim = readFileSync(path.join(migrationsDir, "20260324120000_add_api_claim_next_task.sql"), "utf8");
+    expect(latestDefiner("api_claim_next_task")).toBe("20260324120000_add_api_claim_next_task.sql");
+    expect(claim).toMatch(/WHERE status = 'queued'\s+AND available_at <= now\(\)/);
+    const queue = readFileSync(path.join(process.cwd(), "worker/src/queue.ts"), "utf8");
+    for (const [helper, status] of [
+      ["markTaskCompleted", "completed"],
+      ["markTaskFailed", "failed"],
+      ["markTaskCancelled", "cancelled"],
+    ]) {
+      const start = queue.indexOf(`export async function ${helper}(`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const body = queue.slice(start, queue.indexOf("\n}\n", start));
+      expect(body).toContain('.from("work_queue")');
+      expect(body).toContain(`status: "${status}"`);
+    }
   });
 
   it("retries an attach task that failed or was cancelled after the worker stored its extraction (review r6)", () => {
@@ -277,7 +364,8 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     // A part that holds the CAD-only extraction the worker wrote before its drawing existed completed
     // its reuse task with that row kept (ON CONFLICT DO NOTHING) and, with the completed-task
     // dedupe above, was never extracted from its drawing. Every other row is still kept. The
-    // early returns of reviews r10 and r11 (next tests) are the only other changes to the function body.
+    // early returns of reviews r10 and r11 (next tests) and the claim stamp of fix round 7 are the only
+    // other changes to the function body.
     const original = extractFunction(
       readFileSync(path.join(migrationsDir, "20260812042000_add_canonical_part_identity.sql"), "utf8"),
       "api_reuse_trusted_part_version_artifacts",
@@ -289,10 +377,12 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     const earlyReturn = / {2}-- OVD-979 \(review r10, Codex\)[\s\S]*?\n {2}end if;\n\n/;
     const unfinishedReturn = / {2}-- OVD-979 \(review r11, Codex\)[\s\S]*?\n {2}end if;\n\n/;
     const conflictClause = / {2}-- OVD-979 \(review r2\): a part that has a drawing[\s\S]*?like 'worker-sim-%';\n/;
+    const claimStamp = /\n {2}-- OVD-979 \(fix round 7, rule 11\)[\s\S]*?and v_target\.drawing_file_id is not null;\n/;
     expect(
       current
         .replace(earlyReturn, "")
         .replace(unfinishedReturn, "")
+        .replace(claimStamp, "")
         .replace(conflictClause, "  on conflict (part_id) do nothing;\n"),
     ).toBe(original);
   });
@@ -375,5 +465,58 @@ describe("api_request_extraction and trusted reuse latest definitions (OVD-979 p
     expect(shared).toMatch(
       /currentExtractorVersion\(hasDrawingFile: boolean\) \{\s+return hasDrawingFile \? PDF_EXTRACTOR_VERSION : SIM_EXTRACTOR_VERSION;/,
     );
+  });
+});
+
+// Fix round 7: the client save and reset take the job row lock through their shared context loader, so
+// they serialize with auto-approval (lock 1 of the LOCK ORDER in 20261020002126).
+describe("load_editable_project_part_context latest definition (OVD-979 fix round 7)", () => {
+  it("is redefined in the OVD-979 migration and nowhere later", () => {
+    expect(latestDefiner("load_editable_project_part_context")).toBe(latestMigrationFile);
+  });
+
+  it("locks the job row after the access checks and before reading the part, and is otherwise verbatim", () => {
+    const original = extractFunction(
+      readFileSync(path.join(migrationsDir, "20260402120000_persist_project_part_property_overrides.sql"), "utf8"),
+      "load_editable_project_part_context",
+    );
+    const current = extractFunction(latestSql, "load_editable_project_part_context");
+    const access = current.indexOf("if not public.user_can_edit_job(v_job.id) then");
+    const lock = current.search(/select \*\s+into v_job\s+from public\.jobs\s+where id = p_job_id\s+for no key update;/);
+    const partRead = current.indexOf("from public.parts\n  where job_id = v_job.id");
+    expect(access).toBeGreaterThan(current.indexOf("perform public.require_verified_auth();"));
+    expect(lock).toBeGreaterThan(access);
+    expect(partRead).toBeGreaterThan(lock);
+    const lockBlock = /\n {2}-- OVD-979 \(fix round 7\): lock 1 of the LOCK ORDER[\s\S]*?for no key update;\n/;
+    expect(
+      current
+        .replace("language plpgsql\nvolatile\nsecurity definer\nset search_path = pg_catalog, public", "language plpgsql\nstable\nsecurity definer\nset search_path = public")
+        .replace(lockBlock, ""),
+    ).toBe(original);
+  });
+
+  it("keeps SECURITY DEFINER and restates the service_role-only ACL", () => {
+    expect(latestSql).toContain(
+      "revoke execute on function public.load_editable_project_part_context(uuid) from public, anon, authenticated;",
+    );
+    expect(latestSql).toContain("grant execute on function public.load_editable_project_part_context(uuid) to service_role;");
+    expect(latestSql).not.toMatch(
+      /grant execute on function public\.load_editable_project_part_context\(uuid\) to (?:public|anon|authenticated)/,
+    );
+  });
+
+  it("is what the save and reset RPCs call before they read anything", () => {
+    const save = readFileSync(path.join(migrationsDir, "20260408120000_add_revision_process_to_property_overrides.sql"), "utf8");
+    expect(latestDefiner("api_update_client_part_request")).toBe("20260408120000_add_revision_process_to_property_overrides.sql");
+    expect(latestDefiner("api_reset_client_part_property_overrides")).toBe(
+      "20260408120000_add_revision_process_to_property_overrides.sql",
+    );
+    for (const name of ["api_reset_client_part_property_overrides", "api_update_client_part_request"]) {
+      const body = extractFunction(save, name);
+      const begin = body.indexOf("\nbegin\n");
+      const load = body.indexOf("public.load_editable_project_part_context(p_job_id)");
+      expect(load).toBeGreaterThan(begin);
+      expect(body.slice(begin, load)).not.toMatch(/\bfrom public\.(?:approved_part_requirements|parts|drawing_extractions)\b/);
+    }
   });
 });

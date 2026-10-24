@@ -3,7 +3,9 @@
 -- queues one extraction when a drawing is attached to a part whose only
 -- extraction was made without a drawing (CAD-only), and
 -- public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid) lets the
--- reuse of an identical package replace that CAD-only extraction.
+-- reuse of an identical package replace that CAD-only extraction. Since fix
+-- round 7 a trigger on public.work_queue releases a drawing extraction that
+-- api_request_extraction deferred behind a running extract_part task.
 --
 -- This file and docs/migration-drafts/ovd-979-b.sql are byte-identical copies
 -- of one reviewed definition. It is not applied to production: that is a
@@ -38,8 +40,11 @@
 --   4. A transaction-scoped advisory lock per job, taken after the access
 --      checks, serializes concurrent calls for the same job so the not-exists
 --      dedupe also holds under concurrency (same pattern as
---      private.lock_job_export_state). It takes no row lock, so it cannot
---      invert the parts -> jobs lock order that api_auto_approve uses.
+--      private.lock_job_export_state). Since fix round 7 the function then
+--      locks the job row before api_reconcile_job_parts locks parts, which is
+--      the LOCK ORDER of 20261020002126 (job, parts, requirements, extractions,
+--      work_queue); before, it locked parts first and the job last, which
+--      auto-approval no longer does.
 --   5. Job status: a request that queued at least one never-extracted part
 --      sets 'extracting' exactly as before. A request that queued only
 --      drawing_attached tasks sets 'extracting' only for a job in uploaded,
@@ -95,6 +100,31 @@
 --      check follows the pending checks, so a source whose retry is queued or
 --      running is still waited for, and a source whose failed task was retried
 --      to completion is reused again.
+--  10. Fix round 7 (Codex, medium): a drawing attached while the part's
+--      extract_part task was running (typically the CAD-only extraction, after
+--      it stored its worker-sim row and before it completed) was skipped by the
+--      queued-or-running dedupe, and nothing queued it when that task settled,
+--      so the drawing was never extracted. Such a part now gets one deferred
+--      drawing_attached task: status queued, payload.awaitingTaskId naming the
+--      running task, available_at one hour ahead so api_claim_next_task cannot
+--      take it while the running task can still write the part's extraction.
+--      A new trigger on work_queue (release_deferred_drawing_extractions) sets
+--      its available_at to now when the awaited task leaves queued or running
+--      (completed, failed or cancelled), so it runs next. Nothing is deferred
+--      when a task for the current drawing is running or has completed, or when
+--      another task of the part is queued (the queued task reads the part when
+--      it is claimed, and the deferred task is itself queued, so a second
+--      request adds nothing). The function locks the job's running extract_part
+--      tasks before it decides, so a settlement cannot slip between the
+--      decision and the commit. The hour is a backstop for a missed release
+--      (for example after the rollback drops the trigger): the reaper fails any
+--      task left running for ten minutes.
+--  11. Fix round 7 (Codex, medium; see item 11 of 20261020002126): the trusted
+--      reuse stamps the target's drawing_extractions row (updated_at = now) when
+--      the target has a drawing, after the copy, so the auto-approval that the
+--      worker runs next sees a row written during its own claim. A kept row
+--      (stored by a failed attempt) and a copied row (which carries the
+--      source's timestamps) would otherwise read as older than the claim.
 -- ORDERING (blocks apply): apply this file only after OVD-976 (unit-aware
 -- drawing tolerance parsing in the worker) is deployed, and only after
 -- ovd-979-a.sql. Part a also stops a drawing-attach extraction from filling a
@@ -107,7 +137,12 @@
 -- revoke/grant is restated verbatim (EXECUTE for authenticated and
 -- service_role, not PUBLIC or anon). The reuse function keeps SECURITY DEFINER,
 -- set search_path = pg_catalog and the service_role-only check of
--- 20260812042000, and its revoke/grant is restated verbatim. No grant is widened.
+-- 20260812042000, and its revoke/grant is restated verbatim. The trigger function
+-- private.release_deferred_drawing_extractions() (fix round 7) is SECURITY
+-- DEFINER with search_path = pg_catalog, so the release does not depend on the
+-- privileges of whoever settles the task; EXECUTE is revoked from PUBLIC, anon
+-- and authenticated and granted to service_role only (a trigger function is
+-- never called directly). No grant is widened.
 -- =====================================================================
 
 begin;
@@ -140,16 +175,30 @@ begin
     pg_catalog.hashtextextended('ovd979:extract-request:' || p_job_id::text, 0)
   );
 
+  -- OVD-979 (fix round 7): lock 1 of the LOCK ORDER of 20261020002126 (the job
+  -- row) before api_reconcile_job_parts locks parts, as auto-approval does.
+  perform 1 from public.jobs where id = p_job_id for no key update;
+
   perform public.api_reconcile_job_parts(p_job_id);
+
+  -- OVD-979 (fix round 7, rule 10): lock 5, the job's running extract_part
+  -- tasks. A settlement that commits after this waits for this request and then
+  -- releases the task deferred below (the settlement trigger); one that
+  -- committed before is seen as settled by the insert, which queues normally.
+  perform 1 from public.work_queue running
+  where running.job_id = p_job_id
+    and running.task_type = 'extract_part'
+    and running.status = 'running'
+  for no key update;
 
   with enqueued as (
     insert into public.work_queue (
-      organization_id, job_id, part_id, task_type, payload
+      organization_id, job_id, part_id, task_type, payload, available_at
     )
     select
       v_job.organization_id, p_job_id, part.id, 'extract_part',
       case
-        when placement_extraction.id is null then
+        when placement_extraction.id is null and running_task.id is null then
           jsonb_build_object('partId', part.id, 'jobId', p_job_id)
         else
           jsonb_build_object(
@@ -158,10 +207,35 @@ begin
             'reason', 'drawing_attached',
             'drawingFileId', part.drawing_file_id
           )
+          -- OVD-979 (fix round 7, rule 10): the task this one waits for.
+          || case
+            when running_task.id is null then '{}'::jsonb
+            else jsonb_build_object('awaitingTaskId', running_task.id)
+          end
+      end,
+      -- A deferred task is not claimable (api_claim_next_task needs
+      -- available_at <= now()) until the task it waits for settles; the
+      -- settlement trigger below releases it then. The hour is only a backstop:
+      -- the worker's reaper fails a task left running for more than ten minutes.
+      case
+        when running_task.id is null then timezone('utc', now())
+        else timezone('utc', now()) + interval '1 hour'
       end
     from public.parts part
     left join public.drawing_extractions placement_extraction
       on placement_extraction.part_id = part.id
+    -- OVD-979 (fix round 7, rule 10): the part's running extract_part task, if
+    -- any (the dedupe allows at most one).
+    left join lateral (
+      select running.id
+      from public.work_queue running
+      where running.job_id = p_job_id
+        and running.part_id = part.id
+        and running.task_type = 'extract_part'
+        and running.status = 'running'
+      order by running.created_at desc, running.id desc
+      limit 1
+    ) running_task on true
     where part.job_id = p_job_id
       and (
         placement_extraction.id is null
@@ -198,7 +272,26 @@ begin
         select 1 from public.work_queue queue
         where queue.part_id = part.id
           and queue.task_type = 'extract_part'
-          and queue.status in ('queued', 'running')
+          and queue.status = 'queued'
+      )
+      -- OVD-979 (fix round 7, rule 10): nothing is queued while a task runs,
+      -- except one deferred drawing task when the running task does not read
+      -- the current drawing (a CAD-only extraction claimed before the drawing
+      -- was attached). Nothing is deferred once a task for this drawing runs
+      -- or has completed.
+      and (
+        running_task.id is null
+        or (
+          part.drawing_file_id is not null
+          and not exists (
+            select 1 from public.work_queue same_drawing
+            where same_drawing.job_id = p_job_id
+              and same_drawing.part_id = part.id
+              and same_drawing.task_type = 'extract_part'
+              and same_drawing.status in ('running', 'completed')
+              and same_drawing.payload ->> 'drawingFileId' = part.drawing_file_id::text
+          )
+        )
       )
     returning id, payload ->> 'reason' as reason
   )
@@ -412,6 +505,16 @@ begin
   where v_target.drawing_file_id is not null
     and public.drawing_extractions.extractor_version like 'worker-sim-%';
 
+  -- OVD-979 (fix round 7, rule 11): the row of a part that has a drawing (copied,
+  -- replaced or kept) is stamped now, inside the worker's claim, so the
+  -- auto-approval the worker runs next has the per-claim completion evidence of
+  -- 20261020002126 (stored.updated_at > queue.locked_at). A kept row was stored
+  -- by an earlier, failed attempt and a copied row carries the source's time.
+  update public.drawing_extractions extraction
+  set updated_at = timezone('utc', now())
+  where extraction.part_id = v_target.id
+    and v_target.drawing_file_id is not null;
+
   insert into public.drawing_preview_assets (
     part_id, organization_id, page_number, kind, storage_bucket, storage_path,
     width, height, created_at
@@ -465,5 +568,45 @@ revoke all on function public.api_reuse_trusted_part_version_artifacts(uuid, uui
 from public, anon, authenticated;
 grant execute on function public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid)
 to service_role;
+
+-- OVD-979 (fix round 7, rule 10): when an extract_part task settles (the worker's
+-- markTaskCompleted, markTaskFailed or markTaskCancelled, the reaper, or any
+-- other status change out of queued or running), the drawing task that
+-- api_request_extraction deferred behind it becomes claimable at once. Lock
+-- order: this only locks work_queue rows of the settled task's part (lock 5).
+create or replace function private.release_deferred_drawing_extractions()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  update public.work_queue deferred
+  set available_at = timezone('utc', now())
+  where deferred.job_id = new.job_id
+    and deferred.part_id = new.part_id
+    and deferred.task_type = 'extract_part'
+    and deferred.status = 'queued'
+    and deferred.payload ->> 'awaitingTaskId' = new.id::text
+    and deferred.available_at > timezone('utc', now());
+  return null;
+end;
+$$;
+
+revoke all on function private.release_deferred_drawing_extractions()
+from public, anon, authenticated;
+grant execute on function private.release_deferred_drawing_extractions()
+to service_role;
+
+drop trigger if exists release_deferred_drawing_extractions on public.work_queue;
+create trigger release_deferred_drawing_extractions
+after update of status on public.work_queue
+for each row
+when (
+  new.task_type = 'extract_part'
+  and old.status in ('queued', 'running')
+  and new.status in ('completed', 'failed', 'cancelled')
+)
+execute function private.release_deferred_drawing_extractions();
 
 commit;

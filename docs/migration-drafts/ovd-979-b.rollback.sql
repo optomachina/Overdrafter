@@ -12,9 +12,19 @@
 -- Idempotent: replays cleanly. extract_part tasks the draft queued are left in
 -- work_queue (ordinary tasks; the worker completes or fails them). Extractions
 -- the reuse wrote over a CAD-only row while the draft was live keep their values.
+-- Since fix round 7 it also drops the trigger release_deferred_drawing_extractions
+-- on public.work_queue and its function private.release_deferred_drawing_extractions(),
+-- which the draft added (nothing existed before). A drawing task the draft
+-- deferred behind a running task and that is still waiting keeps its
+-- available_at backstop (one hour after it was queued) and is claimed then.
 -- =====================================================================
 
 begin;
+
+-- OVD-979 (fix round 7): the settlement trigger and its function did not exist
+-- before the draft.
+drop trigger if exists release_deferred_drawing_extractions on public.work_queue;
+drop function if exists private.release_deferred_drawing_extractions();
 
 -- Reused versions already have technical extraction/preview data. New versions
 -- still queue one extraction per placement as before; exact reuse does not.

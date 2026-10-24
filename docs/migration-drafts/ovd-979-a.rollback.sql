@@ -6,6 +6,10 @@
 -- DRAFT. Not applied. Restores public.api_auto_approve_job_requirements(uuid)
 -- verbatim from supabase/migrations/20260317013000_fix_auto_approve_stale_auto_refresh.sql
 -- (set search_path = public, SECURITY DEFINER) and the OVD-535 ACL
+-- (EXECUTE for service_role only), and since fix round 7
+-- public.load_editable_project_part_context(uuid) verbatim from
+-- 20260402120000_persist_project_part_property_overrides.sql (STABLE,
+-- set search_path = public, SECURITY DEFINER) with the OVD-736 ACL
 -- (EXECUTE for service_role only). Idempotent: replays cleanly.
 -- Data written while the draft was live is not rewritten: rows keep the values
 -- the draft computed (user corrections kept instead of overwritten).
@@ -439,5 +443,77 @@ $$;
 revoke execute on function public.api_auto_approve_job_requirements(uuid) from public;
 revoke execute on function public.api_auto_approve_job_requirements(uuid) from anon, authenticated;
 grant execute on function public.api_auto_approve_job_requirements(uuid) to service_role;
+
+-- OVD-979 (fix round 7): restores public.load_editable_project_part_context(uuid)
+-- verbatim from 20260402120000_persist_project_part_property_overrides.sql
+-- (STABLE, set search_path = public, no row lock) and the ACL
+-- 20261016013742_ovd736_revoke_anon_definer_execute.sql left it with.
+create or replace function public.load_editable_project_part_context(
+  p_job_id uuid
+)
+returns table (
+  job public.jobs,
+  part public.parts,
+  requirement public.approved_part_requirements,
+  extraction public.drawing_extractions
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_part public.parts%rowtype;
+  v_requirement public.approved_part_requirements%rowtype;
+  v_extraction public.drawing_extractions%rowtype;
+begin
+  perform public.require_verified_auth();
+
+  select *
+  into v_job
+  from public.jobs
+  where id = p_job_id;
+
+  if v_job.id is null then
+    raise exception 'Job % not found.', p_job_id;
+  end if;
+
+  if not public.user_can_edit_job(v_job.id) then
+    raise exception 'You do not have permission to edit job %.', p_job_id;
+  end if;
+
+  select *
+  into v_part
+  from public.parts
+  where job_id = v_job.id
+  order by created_at asc, id asc
+  limit 1;
+
+  if v_part.id is null then
+    raise exception 'Job % has no part revisions yet.', p_job_id;
+  end if;
+
+  select *
+  into v_requirement
+  from public.approved_part_requirements
+  where part_id = v_part.id;
+
+  select *
+  into v_extraction
+  from public.drawing_extractions
+  where part_id = v_part.id;
+
+  return query
+  select
+    v_job,
+    v_part,
+    v_requirement,
+    v_extraction;
+end;
+$$;
+
+revoke execute on function public.load_editable_project_part_context(uuid) from public, anon, authenticated;
+grant execute on function public.load_editable_project_part_context(uuid) to service_role;
 
 commit;
