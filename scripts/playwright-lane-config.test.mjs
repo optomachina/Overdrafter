@@ -6,38 +6,97 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 
 const configPath = fileURLToPath(new URL("../playwright.config.ts", import.meta.url));
 const setupPath = fileURLToPath(new URL("../e2e/global-setup.mjs", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
-// Discover by imports, not config names, so future Playwright lanes join the contract.
-function findPlaywrightConfigs() {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
-    .split("\0")
-    .filter(file => /\.[cm]?[jt]sx?$/.test(file))
-    .filter(file => {
-      const source = readFileSync(path.join(repoRoot, file), "utf8");
-      if (!source.includes("@playwright/test")) return false;
-      return ts.createSourceFile(file, source, ts.ScriptTarget.Latest).statements.some(statement => {
-        if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== "@playwright/test") return false;
-        const bindings = statement.importClause?.namedBindings;
-        return bindings && ts.isNamedImports(bindings)
-          && bindings.elements.some(binding => (binding.propertyName ?? binding.name).text === "defineConfig");
-      });
-    });
+const playwrightStub = { defineConfig: value => value };
+const configDependencies = {
+  "@playwright/test": playwrightStub,
+  "playwright/test": playwrightStub,
+  "node:url": { fileURLToPath },
+};
+
+function commandConfigs(command) {
+  // Read only Playwright invocations, excluding Vite, Deno and scanner --config flags.
+  return command.replace(/\\\r?\n/g, " ").split(/&&|\|\||[;\n]/).flatMap(part => {
+    const args = part.match(/\bplaywright(?:\/cli\.js)?["']?\s+test\b(.*)/)?.[1];
+    return [...(args ?? "").matchAll(/--config(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s&|;]+))/g)]
+      .map(match => match[1] ?? match[2] ?? match[3]);
+  });
+}
+
+function referencedConfigs(trackedFiles) {
+  const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const commands = Object.values(pkg.scripts);
+  for (const file of trackedFiles.filter(file => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file))) {
+    const workflow = parseYaml(readFileSync(path.join(repoRoot, file), "utf8"));
+    for (const job of Object.values(workflow.jobs ?? {})) {
+      for (const step of job.steps ?? []) if (typeof step.run === "string") commands.push(step.run);
+    }
+  }
+  // Evaluate the registry with inert imports too; never launch its CLI or a browser.
+  const registry = loadModule(path.join(repoRoot, ".agents/skills/verify-overdrafter/scripts/feature-specs.mjs"), {}, {
+    "node:url": { fileURLToPath },
+  });
+  const required = new Set([
+    "playwright.config.ts", ...commands.flatMap(commandConfigs), registry.DEFAULT_CONFIG,
+    ...Object.keys(registry.CONFIG_PORTS), ...Object.keys(registry.CONFIG_TEST_DIRS),
+  ]);
+  function collectSpecs(value) {
+    if (!value || typeof value !== "object") return;
+    if (typeof value.config === "string") required.add(value.config);
+    for (const child of Object.values(value)) collectSpecs(child);
+  }
+  collectSpecs(registry.FEATURE_SPECS);
+  collectSpecs(registry.PENDING_SPECS);
+  return new Set([...required].map(file => path.posix.normalize(file)));
+}
+
+function isPlaywrightConfig(file, source) {
+  if (!source.includes("playwright/test")) return false;
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest);
+  let importsPlaywright = false;
+  let exportsConfig = false;
+  function visit(node) {
+    if (ts.isImportDeclaration(node) && ["@playwright/test", "playwright/test"].includes(node.moduleSpecifier.text)) {
+      importsPlaywright = true;
+    }
+    if (ts.isCallExpression(node) && node.expression.getText(ast) === "require"
+      && ["@playwright/test", "playwright/test"].includes(node.arguments[0]?.text)) importsPlaywright = true;
+    if (ts.isExportAssignment(node)) exportsConfig = true;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ["module.exports", "exports.default"].includes(node.left.getText(ast))) exportsConfig = true;
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  return importsPlaywright && exportsConfig;
+}
+
+function findPlaywrightConfigs(trackedFiles, required) {
+  return trackedFiles.filter(file => /\.[cm]?[jt]sx?$/.test(file)).filter(file => (
+    required.has(file) || isPlaywrightConfig(file, readFileSync(path.join(repoRoot, file), "utf8"))
+  ));
 }
 
 /** Evaluate real lane modules with explicit environment and inert dependencies. */
 function loadModule(sourcePath, env, dependencies) {
-  const compiled = ts.transpileModule(readFileSync(sourcePath, "utf8"), {
+  return evaluateModule(readFileSync(sourcePath, "utf8"), sourcePath, env, dependencies);
+}
+
+function evaluateModule(source, sourcePath, env, dependencies) {
+  const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
+  const module = { exports: {} };
   const sandbox = {
-    exports: {},
+    module,
+    exports: module.exports,
     URL,
-    process: { env: { ...env } },
+    process: { env: { ...env }, argv: [] },
     require(specifier) {
       if (!Object.hasOwn(dependencies, specifier)) {
         throw new Error(`Unexpected lane dependency: ${specifier}`);
@@ -46,7 +105,7 @@ function loadModule(sourcePath, env, dependencies) {
     },
   };
   runInNewContext(compiled.replaceAll("import.meta.url", JSON.stringify(pathToFileURL(sourcePath).href)), sandbox, { filename: sourcePath, timeout: 1000 });
-  return sandbox.exports.default ?? sandbox.exports;
+  return module.exports.default ?? module.exports;
 }
 
 function loadConfig(env = {}) {
@@ -62,15 +121,45 @@ function loadSetup(env, ensureAuthStates, warmFixtureRoutes = vi.fn().mockResolv
 
 describe("Playwright execution lane configuration", () => {
   it.each([{}, { CI: "true" }])("forbids focused tests only in CI across all tracked configs for %j", env => {
-    const configs = findPlaywrightConfigs();
-    expect(configs.length).toBeGreaterThan(0);
+    const trackedFiles = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" }).split("\0");
+    const required = referencedConfigs(trackedFiles);
+    const configs = findPlaywrightConfigs(trackedFiles, required);
+    for (const file of required) expect(configs, `Referenced Playwright config not discovered: ${file}`).toContain(file);
     for (const file of configs) {
-      const config = loadModule(path.join(repoRoot, file), env, {
-        "@playwright/test": { defineConfig: value => value },
-        "node:url": { fileURLToPath },
-      });
+      const config = loadModule(path.join(repoRoot, file), env, configDependencies);
       expect(config.forbidOnly, file).toBe(!!env.CI);
     }
+  });
+
+  it.each([
+    'import { defineConfig } from "playwright/test"; export default defineConfig({ forbidOnly: !!process.env.CI });',
+    'import type { PlaywrightTestConfig } from "@playwright/test"; const config: PlaywrightTestConfig = { forbidOnly: !!process.env.CI }; export default config;',
+    'import * as pw from "@playwright/test"; export default pw.defineConfig({ forbidOnly: !!process.env.CI });',
+    'const pw = require("playwright/test"); module.exports = pw.defineConfig({ forbidOnly: !!process.env.CI });',
+  ])("discovers alternate config syntax and evaluates it without real imports: %s", source => {
+    expect(isPlaywrightConfig("lane.ts", source)).toBe(true);
+    for (const env of [{}, { CI: "true" }]) {
+      expect(evaluateModule(source, configPath, env, configDependencies).forbidOnly).toBe(!!env.CI);
+    }
+  });
+
+  it.each([
+    ["lane.mjs", "export default { forbidOnly: !!process.env.CI };"],
+    ["lane.cjs", "module.exports = { forbidOnly: !!process.env.CI };"],
+  ])("includes and evaluates import-free referenced configs: %s", (file, source) => {
+    expect(findPlaywrightConfigs([file], new Set([file]))).toEqual([file]);
+    for (const env of [{}, { CI: "true" }]) {
+      expect(evaluateModule(source, path.join(repoRoot, file), env, configDependencies).forbidOnly).toBe(!!env.CI);
+    }
+  });
+
+  it("extracts quoted, equals and multiline config arguments only from Playwright commands", () => {
+    expect(commandConfigs('vite build --config vite.config.ts && playwright test --config="e2e/new lane.mjs"\nnode ./node_modules/playwright/cli.js test \\\n --config lane.cjs')).toEqual(["e2e/new lane.mjs", "lane.cjs"]);
+  });
+
+  it("rejects unstubbed dependencies instead of executing config side effects", () => {
+    expect(() => evaluateModule('require("node:child_process").execSync("unexpected");', configPath, {}, configDependencies))
+      .toThrow("Unexpected lane dependency: node:child_process");
   });
 
   it.each([{}, { CI: "true" }])("retains sandboxed auth-setup launches for %j", async env => {
