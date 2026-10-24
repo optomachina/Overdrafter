@@ -1,6 +1,6 @@
 {
   "schema": "overdrafter.agent-graph/v1",
-  "version": "1.0.0-draft.4",
+  "version": "1.0.0-draft.5",
   "note": "Canonical OverDrafter agent graph. Written in the JSON subset of YAML so it parses with no dependencies. Owns routing, verdicts and the merge gate; AGENTS.md owns approvals, the auto-merge allowlist and sensitive paths. Validate with: node scripts/validate-agent-graph.mjs",
   "root": "grok-bot",
   "nodes": {
@@ -170,7 +170,9 @@
       ],
       "bound_to": "head_sha",
       "voided_by": "new_sha",
-      "rebase_reuse": "patch-id-equal"
+      "rebase_reuse": "diff-id-equal",
+      "rebase_reuse_on_error": "reject",
+      "note": "A verdict carries over a rebase only when the diff_id recomputed for the new head equals the verdict's diff_id (docs/verdict-format.md, OVD-845). An equal patch_id alone is never enough; if diff_id cannot be computed, the verdict is not reused."
     },
     "readiness": {
       "values": [

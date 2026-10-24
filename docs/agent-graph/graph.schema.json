@@ -66,6 +66,25 @@
             "items": {
               "type": "string"
             }
+          },
+          "bound_to": {
+            "type": "string"
+          },
+          "voided_by": {
+            "type": "string"
+          },
+          "rebase_reuse": {
+            "enum": [
+              "diff-id-equal"
+            ]
+          },
+          "rebase_reuse_on_error": {
+            "enum": [
+              "reject"
+            ]
+          },
+          "note": {
+            "type": "string"
           }
         }
       }

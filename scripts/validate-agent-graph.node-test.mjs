@@ -111,3 +111,83 @@ test("rejects a usage balancer rule with no text or an unknown key", () => {
   assert.match(errors, /missing rule/);
   assert.match(errors, /unknown key weight/);
 });
+
+test("qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed", () => {
+  for (const [mutate, pattern] of [
+    [(qa) => (qa.rebase_reuse = "patch-id-equal"), /verdicts\.qa\.rebase_reuse/],
+    [(qa) => delete qa.rebase_reuse, /verdicts\.qa\.rebase_reuse/],
+    [(qa) => delete qa.rebase_reuse_on_error, /verdicts\.qa\.rebase_reuse_on_error/],
+    [(qa) => (qa.rebase_reuse_on_error = "patch-id-equal"), /verdicts\.qa\.rebase_reuse_on_error/],
+  ]) {
+    const { graph, schema } = fresh();
+    mutate(graph.verdicts.qa);
+    assert.match(validateGraph(graph, schema).join("\n"), pattern, mutate.toString());
+  }
+});
+
+test("rejects a graph with no qa verdict", () => {
+  const { graph, schema } = fresh();
+  delete graph.verdicts.qa;
+  assert.match(validateGraph(graph, schema).join("\n"), /verdicts\.qa/);
+});
+
+test("rejects a graph missing a mandatory route", () => {
+  for (const [match, pattern] of [
+    [(e) => e.from === "jev" && e.to === "opus" && e.when?.includes("sensitive-paths"), /jev -> opus when sensitive-paths/],
+    [(e) => e.from === "auto-triage", /auto-triage -> engineer unless sensitive-paths else release/],
+    [(e) => e.from === "qa" && e.to === "merge-gate", /qa -> merge-gate/],
+    [(e) => e.from === "merge-gate", /merge-gate -> release when protected/],
+  ]) {
+    const { graph, schema } = fresh();
+    graph.edges = graph.edges.filter((e) => !match(e));
+    assert.match(validateGraph(graph, schema).join("\n"), pattern, pattern.source);
+  }
+});
+
+test("a mandatory route with an extra condition does not count", () => {
+  const { graph, schema } = fresh();
+  graph.edges.find((e) => e.from === "jev" && e.to === "opus" && e.when?.includes("sensitive-paths")).when.push("jev-risky");
+  assert.match(validateGraph(graph, schema).join("\n"), /missing mandatory route jev -> opus when sensitive-paths/);
+});
+
+test("rejects an empty or incomplete merge gate", () => {
+  for (const [key, mutate, pattern] of [
+    ["requires", (g) => (g.requires = []), /merge_gate\.requires must include ci_green/],
+    ["requires", (g) => (g.requires = g.requires.filter((r) => r !== "qa_PASS_or_PASS_NOTES_at_head")), /merge_gate\.requires must include qa_PASS_or_PASS_NOTES_at_head/],
+    ["auto_merge_also_requires", (g) => (g.auto_merge_also_requires = []), /merge_gate\.auto_merge_also_requires must include jev_not_risky/],
+  ]) {
+    const { graph, schema } = fresh();
+    mutate(graph.merge_gate);
+    assert.match(validateGraph(graph, schema).join("\n"), pattern, key);
+  }
+});
+
+test("an event-gated reviewer edge does not count toward the two-family rule", () => {
+  for (const key of ["trigger", "gate"]) {
+    const { graph, schema } = fresh();
+    graph.edges.find((e) => e.from === "jev" && e.to === "codex")[key] = "pull_request.labeled";
+    assert.match(validateGraph(graph, schema).join("\n"), /two model families/, key);
+  }
+});
+
+test("rejects a $ref with a sibling constraint", () => {
+  const { graph, schema } = fresh();
+  schema.properties.nodes.additionalProperties = { $ref: "#/$defs/node", required: ["family"] };
+  assert.match(validateGraph(graph, schema).join("\n"), /\$ref with sibling keyword required/);
+});
+
+test("rejects a chained $ref", () => {
+  const { graph, schema } = fresh();
+  schema.$defs.alias = { $ref: "#/$defs/node" };
+  schema.properties.nodes.additionalProperties = { $ref: "#/$defs/alias" };
+  assert.match(validateGraph(graph, schema).join("\n"), /chained \$ref #\/\$defs\/alias/);
+});
+
+test("rejects a chained $ref that ends unresolved", () => {
+  const { graph, schema } = fresh();
+  schema.$defs.alias = { $ref: "#/$defs/ghost" };
+  schema.properties.nodes.additionalProperties = { $ref: "#/$defs/alias" };
+  const errors = validateGraph(graph, schema).join("\n");
+  assert.match(errors, /chained \$ref #\/\$defs\/alias/);
+  assert.match(errors, /unresolved \$ref #\/\$defs\/ghost/);
+});

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Validates docs/agent-graph/graph.v1.yaml (JSON-subset YAML) against graph.schema.json, then checks edge
-// references, declared predicates, nodes with no edges, verifier and reviewer rules, and usage balancer rule
-// precedence. It does not check reachability or dead ends. Dependency-free: it evaluates only the schema
-// keywords listed below and rejects any other keyword, so a keyword added to the schema later fails loudly
-// instead of being silently ignored.
+// references, declared predicates, nodes with no edges, verifier and reviewer rules, mandatory routes and
+// merge gates, the QA verdict reuse rule, and usage balancer rule precedence. It does not check reachability or
+// dead ends. Dependency-free: it evaluates only the schema keywords listed below and rejects any other keyword,
+// so a keyword added to the schema later fails loudly instead of being silently ignored. A $ref must point at a
+// root $defs entry that is not itself a $ref, and may carry only annotation siblings.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -22,11 +23,26 @@ function subSchemas(schema) {
   return subs;
 }
 
-function schemaKeywordErrors(schema, at, errors) {
+function refTarget(ref, defs) {
+  return ref.startsWith("#/$defs/") ? defs[ref.slice("#/$defs/".length)] : undefined;
+}
+
+function refErrors(schema, at, defs) {
+  const errors = Object.keys(schema)
+    .filter((key) => key !== "$ref" && !ANNOTATION_KEYWORDS.includes(key))
+    .map((key) => `${at}: $ref with sibling keyword ${key}`);
+  const target = refTarget(schema.$ref, defs);
+  if (!target) errors.push(`${at}: unresolved $ref ${schema.$ref}`);
+  else if (target.$ref) errors.push(`${at}: chained $ref ${schema.$ref}`);
+  return errors;
+}
+
+function schemaKeywordErrors(schema, at, defs, errors) {
   for (const key of Object.keys(schema)) {
     if (!SUPPORTED_KEYWORDS.has(key)) errors.push(`${at}: unsupported schema keyword ${key}`);
   }
-  for (const [name, sub] of subSchemas(schema)) schemaKeywordErrors(sub, `${at}.${name}`, errors);
+  if (schema.$ref !== undefined) errors.push(...refErrors(schema, at, defs));
+  for (const [name, sub] of subSchemas(schema)) schemaKeywordErrors(sub, `${at}.${name}`, defs, errors);
 }
 
 function jsonType(value) {
@@ -50,7 +66,7 @@ function checkObject(schema, value, at, defs, errors) {
 }
 
 function check(rawSchema, value, at, defs, errors) {
-  const schema = rawSchema.$ref ? defs[rawSchema.$ref.replace("#/$defs/", "")] : rawSchema;
+  const schema = rawSchema.$ref ? refTarget(rawSchema.$ref, defs) : rawSchema;
   if (!schema) {
     errors.push(`${at}: unresolved $ref ${rawSchema.$ref}`);
     return;
@@ -109,18 +125,89 @@ function verifierErrors(graph) {
   return ok ? [] : ["every verifier must set must_not_author: true"];
 }
 
-// Count only reviewers on the default path: unconditional edges out of jev. Overflow or risk-gated reviewers
-// don't count, and a reviewer with no family is an error, never a family of its own.
+// An edge is unconditional only with no predicate and no event trigger or gate.
+const CONDITION_KEYS = ["when", "unless", "trigger", "gate"];
+const isUnconditional = (edge) => CONDITION_KEYS.every((k) => edge[k] === undefined);
+
+// Count only reviewers on the default path: unconditional edges out of jev. Overflow, risk-gated or event-gated
+// reviewers don't count, and a reviewer with no family is an error, never a family of its own.
 function reviewerErrors(graph) {
   const missing = Object.entries(graph.nodes)
     .filter(([, n]) => n.role === "reviewer" && !n.family)
     .map(([id]) => `reviewer ${id} must set family`);
   const defaultReviewers = graph.edges
-    .filter((e) => e.from === "jev" && !e.when && !e.unless && graph.nodes[e.to]?.role === "reviewer")
+    .filter((e) => e.from === "jev" && isUnconditional(e) && graph.nodes[e.to]?.role === "reviewer")
     .map((e) => graph.nodes[e.to]);
   const families = new Set(defaultReviewers.map((n) => n.family).filter(Boolean));
   const spread = families.size < 2 ? ["default-path reviewers (unconditional jev edges) must span at least two model families"] : [];
   return [...missing, ...spread];
+}
+
+// Routes the graph must always contain. A matching edge has exactly these conditions and no event trigger or gate,
+// so an edge that narrows a mandatory route (an extra predicate, an event gate) does not satisfy it.
+const MANDATORY_ROUTES = [
+  { from: "auto-triage", to: "engineer", unless: ["sensitive-paths"], else: "release" },
+  { from: "jev", to: "opus", when: ["sensitive-paths"] },
+  { from: "qa", to: "merge-gate" },
+  { from: "merge-gate", to: "release", when: ["protected"] },
+];
+
+const sameList = (a = [], b = []) => a.length === b.length && a.every((x) => b.includes(x));
+
+function routeMatches(edge, route) {
+  return (
+    edge.from === route.from &&
+    edge.to === route.to &&
+    edge.else === route.else &&
+    sameList(edge.when, route.when) &&
+    sameList(edge.unless, route.unless) &&
+    edge.trigger === undefined &&
+    edge.gate === undefined
+  );
+}
+
+function describeRoute(route) {
+  const parts = [`${route.from} -> ${route.to}`];
+  if (route.when) parts.push(`when ${route.when.join(", ")}`);
+  if (route.unless) parts.push(`unless ${route.unless.join(", ")}`);
+  if (route.else) parts.push(`else ${route.else}`);
+  return parts.join(" ");
+}
+
+function mandatoryRouteErrors(graph) {
+  return MANDATORY_ROUTES.filter((route) => !graph.edges.some((e) => routeMatches(e, route))).map(
+    (route) => `missing mandatory route ${describeRoute(route)}`,
+  );
+}
+
+// Gates the merge gate must always require. Adding gates tightens the gate; dropping one loosens it.
+const MANDATORY_GATES = {
+  requires: ["ci_green", "review_no_open_findings", "qa_PASS_or_PASS_NOTES_at_head", "readiness_READY"],
+  auto_merge_also_requires: ["jev_not_risky", "allowlisted_paths_only"],
+};
+
+function mergeGateErrors(graph) {
+  return Object.entries(MANDATORY_GATES).flatMap(([key, gates]) =>
+    gates.filter((g) => !graph.merge_gate[key].includes(g)).map((g) => `merge_gate.${key} must include ${g}`),
+  );
+}
+
+// A QA verdict is bound to the head SHA. It may carry over a rebase only when the recomputed diff_id equals the
+// verdict's diff_id (docs/verdict-format.md, OVD-845); an equal patch_id is never enough, and a diff_id that
+// cannot be computed means no reuse.
+const QA_VERDICT_RULES = {
+  bound_to: "head_sha",
+  voided_by: "new_sha",
+  rebase_reuse: "diff-id-equal",
+  rebase_reuse_on_error: "reject",
+};
+
+function qaVerdictErrors(graph) {
+  const qa = graph.verdicts.qa;
+  if (!qa) return ["verdicts.qa is required"];
+  return Object.entries(QA_VERDICT_RULES)
+    .filter(([key, value]) => qa[key] !== value)
+    .map(([key, value]) => `verdicts.qa.${key} must be ${value}`);
 }
 
 function ruleTextErrors(rules) {
@@ -165,7 +252,7 @@ function balancerErrors(graph) {
 
 export function validateGraph(graph, schema) {
   const keywordErrors = [];
-  schemaKeywordErrors(schema, "schema", keywordErrors);
+  schemaKeywordErrors(schema, "schema", schema.$defs ?? {}, keywordErrors);
   if (keywordErrors.length) return keywordErrors;
   const errors = [];
   check(schema, graph, "graph", schema.$defs ?? {}, errors);
@@ -176,6 +263,9 @@ export function validateGraph(graph, schema) {
     ...orphanErrors(graph),
     ...verifierErrors(graph),
     ...reviewerErrors(graph),
+    ...mandatoryRouteErrors(graph),
+    ...mergeGateErrors(graph),
+    ...qaVerdictErrors(graph),
     ...balancerErrors(graph),
   ];
 }
