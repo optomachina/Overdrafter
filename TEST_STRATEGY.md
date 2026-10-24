@@ -85,6 +85,25 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 
 ### Explicit execution boundaries
 
+- `scripts/test-lane-contract.test.mjs` enforces ownership of every tracked
+  `.node-test.[cm]?js` suite: a failure-propagating Node invocation in an enabled
+  workflow run step, a package script reachable from root `verify`, a counted
+  workflow step or `scripts/preflight.sh`, or a reasoned manual exception.
+  Text mentions, unreachable npm scripts and failure-swallowing commands do not
+  establish ownership. New suites must join an owning lane or document why they
+  cannot run automatically, with operator instructions in the exception map.
+- `scripts/check-compiled-worker-scope.node-test.mjs` is a manual exception:
+  it requires Node 22 type stripping (CI uses Node 20) and the pinned historical
+  revision's populated npm cache. Instructions and prerequisites are in
+  `scripts/fixtures/compiled-worker-scope.md`.
+- `scripts/test-support/source-only-network.node-test.cjs` is a manual exception
+  while its transport-probe execution-review boundary remains unresolved, as
+  recorded in `scripts/test-support/README.md` under Current validation status.
+  That README contains its offline commands and containment prerequisites;
+  listing them does not establish a pass or resolve the execution boundary.
+  The separate filesystem-only
+  `scripts/test-support/source-only-network-marker.node-test.cjs` is owned by
+  `test:portable-node` and needs no transport probes.
 - The default suite's browser-recovery tests exercise real Chromium DOM behavior.
   CI provisions Playwright Chromium in the unit job. Local runners may select an
   already installed browser with `OVD_TEST_CHROMIUM_EXECUTABLE_PATH=/absolute/path`;

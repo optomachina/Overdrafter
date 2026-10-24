@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -28,6 +29,7 @@ const portableSuites = [
   "scripts/check-migration-function-collisions.node-test.mjs",
   "scripts/ovd510-boundary-recovery.node-test.mjs",
   "scripts/ovd510-immutable-source.node-test.mjs",
+  "scripts/test-support/source-only-network-marker.node-test.cjs",
 ];
 
 // Operator-run historical build replay, not a portable Node 20 suite. Preserve
@@ -35,7 +37,93 @@ const portableSuites = [
 // cache. The exact command/prerequisites live in scripts/fixtures/compiled-worker-scope.md.
 const manuallyRunNodeSuites = {
   "scripts/check-compiled-worker-scope.node-test.mjs": "scripts/fixtures/compiled-worker-scope.md",
+  // Transport probes remain execution-review-blocked per this README; the
+  // filesystem-only marker suite is independently owned by the portable lane.
+  "scripts/test-support/source-only-network.node-test.cjs": "scripts/test-support/README.md",
 };
+
+const nodeSuite = /^[\w./-]+\.node-test\.[cm]?js$/;
+
+// Deliberately recognize simple, failure-propagating invocations, not arbitrary
+// shell programs. Unsupported wrappers/control flow need an explicit lane.
+function requiredCommands(source, npmScript = false) {
+  const active = source.replace(/\\\r?\n/g, " ").replace(/(^|\s)#.*$/gm, "");
+  if (/\bset\s+\+e\b|\bset\s+\+o\s+errexit\b|\bexit\s+0\b/.test(active)) return [];
+  // Do not reinterpret quoted echo/program text or heredoc data as commands.
+  const quoted = active.match(/"[^"]*"|'[^']*'/g) ?? [];
+  if (active.includes("<<") || quoted.some((token) => /[\r\n;&|]/.test(token))) return [];
+  if (/["']/.test(active.replace(/"[^"]*"|'[^']*'/g, ""))) return [];
+  // npm's shell does not have workflow bash's implicit errexit.
+  if (npmScript && /[\r\n]/.test(active.trim())) return [];
+  return active.split(/\r?\n/).flatMap((line) => {
+    if (/[;|<>`]/.test(line) || line.replaceAll("&&", "").includes("&")) return [];
+    return line.split("&&").map((command) => {
+      const tokens = command.trim().match(/"[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+/g) ?? [];
+      return tokens.map((token) => token.replace(/^(["'])(.*)\1$/, "$2"));
+    });
+  });
+}
+
+function countedWorkflowCommands(source) {
+  const workflow = parse(source);
+  const disabled = (entry) => /^(?:false|\$\{\{\s*false\s*\}\})$/i.test(String(entry.if).trim())
+    || (entry["continue-on-error"] !== undefined && entry["continue-on-error"] !== false);
+  return Object.values(workflow?.jobs ?? {}).flatMap((job) => disabled(job) ? []
+    : (job.steps ?? []).filter((step) => !disabled(step) && typeof step.run === "string")
+      .map((step) => ({
+        source: step.run,
+        cwd: step["working-directory"] ?? job.defaults?.run?.["working-directory"]
+          ?? workflow.defaults?.run?.["working-directory"] ?? ".",
+      })));
+}
+
+function runnerReferences(manifests, workflows, preflight) {
+  const references = new Set();
+  const visited = new Set();
+  function visitScript(cwd, name) {
+    const key = `${cwd}:${name}`;
+    if (visited.has(key)) return;
+    visited.add(key);
+    const source = manifests[posix.join(cwd, "package.json")]?.scripts?.[name];
+    if (typeof source === "string") visitCommands(source, cwd, true);
+  }
+  function visitCommands(source, cwd, npmScript = false) {
+    if (!/^[\w./-]+$/.test(cwd)) return;
+    for (const raw of requiredCommands(source, npmScript)) {
+      const tokens = [...raw];
+      while (/^\w+=[\w./-]+$/.test(tokens[0])) tokens.shift();
+      const executable = tokens.shift();
+      if (executable === "node") {
+        const testRunner = tokens.includes("--test");
+        while (["--test", "--experimental-strip-types"].includes(tokens[0])) tokens.shift();
+        // With plain node only the entrypoint runs; later arguments are data.
+        const suites = testRunner ? tokens : tokens.slice(0, 1);
+        if (suites.length && suites.every((token) => nodeSuite.test(token))) {
+          for (const suite of suites) references.add(posix.normalize(posix.join(cwd, suite)));
+        }
+      } else if (executable === "npm") {
+        let directory = cwd;
+        const args = [];
+        for (let index = 0; index < tokens.length; index += 1) {
+          if (tokens[index] === "--") break;
+          if (tokens[index] === "--prefix") directory = posix.join(cwd, tokens[++index] ?? "");
+          else if (tokens[index] !== "--silent") args.push(tokens[index]);
+        }
+        if (args[0] === "test") visitScript(directory, "test");
+        else if (args[0] === "run" && args[1]) visitScript(directory, args[1]);
+      }
+    }
+  }
+  visitScript(".", "verify");
+  for (const workflow of workflows) {
+    for (const { source, cwd } of countedWorkflowCommands(workflow)) visitCommands(source, cwd);
+  }
+  visitCommands(preflight, ".");
+  // preflight dispatches npm run "$stage" after validating this case allowlist.
+  const stages = preflight.match(/^\s*([\w-]+(?:\s*\|\s*[\w-]+)+)\)\s*;;/m)?.[1].split(/\s*\|\s*/) ?? [];
+  for (const stage of stages) visitCommands(preflight.replaceAll('"$stage"', stage), ".");
+  return references;
+}
 
 function portableCommand() {
   const command = packageJson.scripts["test:portable-node"];
@@ -64,20 +152,14 @@ describe("explicit test execution lanes", () => {
     const tracked = execFileSync("git", ["ls-files", "-z"], {
       cwd: repoRoot, encoding: "utf8",
     }).split("\0").filter(Boolean);
-    const suites = tracked.filter((path) => path.endsWith(".node-test.mjs"));
-    const references = new Set();
+    const suites = tracked.filter((path) => nodeSuite.test(path));
+    const manifests = {};
+    const workflows = [];
     for (const path of tracked) {
-      const manifest = /(^|\/)package\.json$/.test(path);
-      if (!manifest && !/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)
-        && path !== "scripts/preflight.sh") continue;
-      const source = readFileSync(join(repoRoot, path), "utf8");
-      const commands = manifest ? Object.values(JSON.parse(source).scripts ?? {}).join("\n") : source;
-      // Match explicit file tokens, not substring hits or commented-out commands.
-      const active = commands.replace(/(^|\s)#.*$/gm, "");
-      for (const [suite] of active.matchAll(/[\w./-]+\.node-test\.mjs(?=$|[\s'";|&])/g)) {
-        references.add(posix.normalize(manifest ? posix.join(posix.dirname(path), suite) : suite));
-      }
+      if (/(^|\/)package\.json$/.test(path)) manifests[path] = JSON.parse(readFileSync(join(repoRoot, path), "utf8"));
+      else if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) workflows.push(readFileSync(join(repoRoot, path), "utf8"));
     }
+    const references = runnerReferences(manifests, workflows, readFileSync(join(repoRoot, "scripts/preflight.sh"), "utf8"));
     for (const [suite, instructions] of Object.entries(manuallyRunNodeSuites)) {
       expect(suites, `stale manual exception: ${suite}`).toContain(suite);
       expect(references.has(suite), `remove the now-wired manual exception: ${suite}`).toBe(false);
@@ -86,6 +168,64 @@ describe("explicit test execution lanes", () => {
     expect(suites.filter((suite) => !references.has(suite) && !Object.hasOwn(manuallyRunNodeSuites, suite)),
       "Unwired tracked Node tests: add an explicit runner reference or a reasoned manual-lane exception",
     ).toEqual([]);
+  });
+
+  const dummySuite = "scripts/unowned.node-test.cjs";
+  const invocation = `node --test ${dummySuite}`;
+  const workflowWith = (step, job = {}) => JSON.stringify({ jobs: { test: { ...job, steps: [step] } } });
+
+  it.each([
+    ["paths filter", JSON.stringify({ on: { pull_request: { paths: [dummySuite] } } })],
+    ["step name", workflowWith({ name: invocation, run: "echo checking" })],
+    ["echo", workflowWith({ run: `echo ${invocation}` })],
+    ["quoted echo", workflowWith({ run: `echo "example && ${invocation}"` })],
+    ["multiline echo", workflowWith({ run: `echo "example\n${invocation}\n"` })],
+    ["heredoc data", workflowWith({ run: `cat <<EOF\n${invocation}\nEOF` })],
+    ["comment", workflowWith({ run: `# ${invocation}` })],
+    ["disabled job", workflowWith({ run: invocation }, { if: false })],
+    ["disabled step", workflowWith({ run: invocation, if: false })],
+    ["false expression", workflowWith({ run: invocation, if: "${{ false }}" })],
+    ["allowed job failure", workflowWith({ run: invocation }, { "continue-on-error": true })],
+    ["allowed step failure", workflowWith({ run: invocation, "continue-on-error": true })],
+    ["or true", workflowWith({ run: `${invocation} || true` })],
+    ["semicolon true", workflowWith({ run: `${invocation}; true` })],
+    ["or colon", workflowWith({ run: `${invocation} || :` })],
+    ["pipe", workflowWith({ run: `${invocation} | cat` })],
+    ["disabled errexit", workflowWith({ run: `set +e\n${invocation}` })],
+    ["argument to another Node entrypoint", workflowWith({ run: `node helper.mjs ${dummySuite}` })],
+  ])("does not count a workflow %s as suite execution", (_label, workflow) => {
+    expect([...runnerReferences({}, [workflow], "")]).toEqual([]);
+  });
+
+  it.each(["", "echo npm run test:orphan", "npm run test:orphan || true", "npm run test:orphan; true", "npm run test:orphan || :"])(
+    "does not reach an orphan npm script from %j", (run) => {
+      expect([...runnerReferences({ "package.json": { scripts: { "test:orphan": invocation } } }, [workflowWith({ run })], "")]).toEqual([]);
+    },
+  );
+
+  it.each(["|| true", "; true", "|| :"])("does not count swallowed npm script failure (%s)", (suffix) => {
+    expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [], "")]).toEqual([]);
+  });
+
+  it("follows required npm chains, npm test, preflight stages and package-relative paths without cycling", () => {
+    const manifests = {
+      "package.json": { scripts: {
+        verify: "npm run chain && npm --prefix worker run checks",
+        chain: "npm run verify && npm run sensitive-paths:report",
+        "sensitive-paths:report": `node ${dummySuite}`,
+        test: "node --test scripts/default.node-test.js",
+        lint: "node --test scripts/preflight.node-test.mjs",
+      } },
+      "worker/package.json": { scripts: { checks: "node --test scripts/worker.node-test.mjs" } },
+    };
+    expect([...runnerReferences(manifests, [workflowWith({ run: "npm test" })],
+      'case "$stage" in\n  lint | typecheck | test) ;;\nesac\nnpm run --silent "$stage" "$@"',
+    )].sort()).toEqual([dummySuite, "scripts/default.node-test.js", "scripts/preflight.node-test.mjs", "worker/scripts/worker.node-test.mjs"].sort());
+  });
+
+  it("reads YAML run bodies, continuations, quotes and workflow working directories", () => {
+    const workflow = `jobs:\n  test:\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
+    expect([...runnerReferences({}, [workflow], "")]).toEqual(["worker/a.node-test.cjs", "worker/b.node-test.js"]);
   });
 
   it("requires the portable Node allowlist in root verification and the CI test job", () => {
@@ -114,9 +254,10 @@ describe("explicit test execution lanes", () => {
       }));
       for (const suite of portableSuites) {
         mkdirSync(dirname(join(root, suite)), { recursive: true });
-        writeFileSync(join(root, suite), `import test from 'node:test';
-import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+        const imports = suite.endsWith(".cjs")
+          ? "const test = require('node:test'); const assert = require('node:assert/strict'); const { writeFileSync } = require('node:fs');"
+          : "import test from 'node:test'; import assert from 'node:assert/strict'; import { writeFileSync } from 'node:fs';";
+        writeFileSync(join(root, suite), `${imports}
 test('synthetic portable contract', () => {
   writeFileSync(${JSON.stringify(join(root, `${portableSuites.indexOf(suite)}.ran`))}, 'ran');
   assert.equal(${JSON.stringify(suite === failedSuite)}, false);
