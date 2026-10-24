@@ -86,12 +86,17 @@ each body is this file's or the previous one.
 | File | sha256 | md5 |
 | --- | --- | --- |
 | `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
-| `docs/migration-drafts/ovd-987.rollback.sql` | `e863f27f7ae88d91208a7d8df277ad7a75a08bbbe5b5feb5a0a12398f828fe0b` | `2fa6068507562e09b22a21c68e1e43dd` |
+| `docs/migration-drafts/ovd-987.rollback.sql` | `7d48869ca885676f52562600a601c80acc6b97bea0aeecafc8eac5c190b90ecb` | `ba6ae65c4619ceeb35408f1ae35d504f` |
 
 The migration's sha256 is also pinned in `scripts/free-quote-ci-profile.mjs` and
 `scripts/fixtures/free-quote-ci-source.json`. The review-round-3 change (the
 lock blocks and the header text of both files) changed no function body, so the
-`md5(prosrc)` tables in this file still hold.
+`md5(prosrc)` tables in this file still hold. The rollback is byte-copied to
+`supabase/tests/fixtures/ovd987_controlled_beta_user_quantity_rollback.inc` for
+the pgTAP drill; `scripts/run-supabase-policy-tests.node-test.mjs` requires the
+copy to be identical. The audit-history change (below, "Rollback and audit
+history") changed the rollback only (sha256 was `e863f27f...`); no function
+body changed.
 
 **Staging must be re-applied.** The staging evidence is for the migration at
 sha256 `f34f5f7d...` (b91c086c) and a rollback drill with the earlier rollback
@@ -257,7 +262,9 @@ is split into two NOWAIT statements with the sleep between them.
 | A session holds a controls read for 7 s | Not re-run | The apply and the rollback each refused after 5 s with the 55P03 message; nothing changed |
 
 The drill scripts and raw outputs are kept with the overnight run notes, not in
-this repo.
+this repo. They ran the rollback before the audit-history change ("Rollback and
+audit history" below); that change touches only the guard's first check and the
+events CHECK statement, not the lock block.
 
 ### Runners (review round 2, L1)
 
@@ -279,9 +286,61 @@ The files have no begin/commit of their own.
 Earlier versions of this file said the CLI applied a migration statement by
 statement. That was wrong.
 
+## Rollback and audit history (decision: refuse loudly)
+
+The rollback always restores the events CHECK to its pre-OVD-987 definition
+(`20260802020349_add_commercial_rollout_controls.sql`: the four commercial
+capabilities). The earlier rollback kept the widened CHECK, with a NOTICE, when
+audit events for the switch existed; that left the schema half rolled back.
+
+Audit events are immutable (a trigger rejects UPDATE and DELETE) and the
+rollback never deletes or rewrites them. The restored CHECK rejects an event row
+with `controlled_beta_user_quantity`, so the two cannot coexist. The rollback
+therefore refuses, as the first check of its guard and before any change, with
+errcode `55000` and the message `OVD-987 rollback refused: immutable audit
+events exist for controlled_beta_user_quantity; ...`, while any event row uses
+that capability. Nothing changes and the operator decides.
+
+Every setter call for the switch writes an event, a no-op call included (the
+event records `changed = false`). So:
+
+- If the switch was never set (only the migration's seed exists), the rollback
+  runs as before.
+- Once the switch has been set even once, the rollback for this migration is
+  turning the switch off and keeping the migration applied. That is the
+  operational rollback OVD-313 prescribes for the whole registry ("leave this
+  schema installed and set affected controls off"). Removing the schema after
+  that is a separate decision (for example: export the events, then a reviewed
+  migration), not something this file does.
+
+Rejected alternatives: keeping the widened CHECK (a partial rollback that a
+later migration would trip over); deleting the events, or `NOT VALID` on the
+CHECK (rewrites or hides audit history, and a later `VALIDATE` fails); mapping
+the events to another capability (rewrites history).
+
+Proof: `supabase/tests/ovd987_controlled_beta_user_quantity.sql` runs the byte
+copy of the rollback twice in its rolled-back transaction: (a) first, with no
+event for the switch, inside a savepoint: the events CHECK and the controls
+CHECK equal the pre-OVD-987 definitions, the control row and the helper are
+gone and the seven bodies have their previous md5; (b) last, after the test's
+two audited flips: the include refuses at the guard and the events, both
+CHECKs, the control row, the helper and the seven bodies are unchanged. The
+text pins in `controlled-beta-user-quantity-migration.test.ts` require the
+refusal to be the guard's first check, with `55000`, before any change, and the
+plain restore of the old CHECK.
+
+Staging: if the staging smoke or drill called the setter for this switch, its
+events now make this rollback refuse there, by design. The rollback drill on
+staging then proves the refusal; a drill of the restore path needs a database
+whose events never name the switch (for example a fresh local replay).
+
 ## Rollback order (design 5.4)
 
-1. Switch off (above).
+1. The switch is off and was never set: no row in
+   `private.commercial_rollout_control_events` has capability
+   `controlled_beta_user_quantity`. Do not call the setter to make sure; a no-op
+   call writes an event. If such an event exists, stop: keep the migration
+   applied with the switch off (above).
 2. Drain: check 1 above returns `in_flight = 0` (a refused task fails, its
    result fails, the meter releases; `api_reconcile_terminal_free_quote_tasks`
    settles stragglers).
@@ -307,11 +366,9 @@ Every such failure is atomic.
 While the rollback holds its locks, previews, requests, worker preflights, the
 setter and the read API wait for it, bounded by their own statement timeouts.
 
-**Data loss: none.** The deleted control row is disabled; its audit events are
-immutable and stay (the events CHECK then keeps the capability, with a NOTICE).
-Rolling back and re-applying re-seeds the control at revision 0, so a
-(capability, revision) pair can repeat in the immutable audit log; the events'
-ids and timestamps keep them apart.
+**Data loss: none.** The deleted control row is disabled and has no audit
+events (the guard refuses otherwise), so no audit row is lost, rewritten or
+orphaned. Re-applying re-seeds the control at revision 0.
 
 ## Ordering with other work
 

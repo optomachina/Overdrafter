@@ -298,15 +298,64 @@ describe("OVD-987 rollback guard", () => {
     );
   });
 
-  it("deletes only a disabled control row and keeps the events CHECK while immutable events exist", () => {
+  it("refuses first, with 55000, while any immutable audit event names the switch", () => {
+    // Every setter call writes an event (a no-op call too), and the restored CHECK rejects the value.
+    expect(guard.text).toContain(
+      " do $ovd987_rollback_guard$ declare v_expected record; v_md5 text; begin " +
+        "if exists ( select 1 from private.commercial_rollout_control_events where capability = 'controlled_beta_user_quantity' ) " +
+        "then raise exception 'OVD-987 rollback refused: immutable audit events exist for controlled_beta_user_quantity;",
+    );
+    expect(guard.text).toContain(
+      "keep the migration applied with the switch off, or decide on a separate schema removal' using errcode = '55000'; end if; " +
+        "if private.commercial_rollout_enabled('controlled_beta_user_quantity') then",
+    );
+  });
+
+  it("restores both capability CHECKs to their pre-OVD-987 definitions unconditionally", () => {
     const flatRollback = flat(rollbackSql);
+    const previousSql = "20260802020349_add_commercial_rollout_controls.sql";
+    // That migration holds the latest definition of both CHECKs before OVD-987.
+    for (const name of ["commercial_rollout_controls_capability_check", "commercial_rollout_control_events_capability_check"]) {
+      expect(sqlFiles.filter((file) => file < MIGRATION_FILE && readFileSync(`${MIGRATIONS}/${file}`, "utf8").includes(name)), name).toEqual([previousSql]);
+    }
+    const previous = flat(readFileSync(`${MIGRATIONS}/${previousSql}`, "utf8"));
+    for (const table of ["commercial_rollout_controls", "commercial_rollout_control_events"]) {
+      const check = previous.match(new RegExp(`constraint ${table}_capability_check (check \\( capability in \\([^)]*\\) \\))`))?.[1];
+      expect(check, table).toContain("'order_administration' )");
+      expect(flatRollback).toContain(
+        `alter table private.${table} drop constraint if exists ${table}_capability_check; ` +
+          `alter table private.${table} add constraint ${table}_capability_check ${check};`,
+      );
+      // Top-level statements, not inside a conditional block.
+      expect(rollbackSql).toMatch(new RegExp(`^alter table private\\.${table}\\n  add constraint ${table}_capability_check check \\(\\n`, "m"));
+    }
+    expect(rollbackSql).not.toContain("ovd987_rollback_events");
+    expect(rollbackSql).not.toMatch(/raise notice|not valid/i);
+  });
+
+  it("never deletes or rewrites an audit event and deletes only a disabled control row", () => {
+    const flatRollback = flat(rollbackSql);
+    // Outside the restored function bodies ($$ ... $$; the restored setter still appends events when called).
+    const statements = flatRollback.replace(/\$\$[\s\S]*?\$\$/g, "$$$$");
+    expect(statements).toContain("do $ovd987_rollback_guard$");
+    expect(statements).not.toMatch(/(?:delete from|update|truncate(?: table)?|insert into) private\.commercial_rollout_control_events\b/);
     expect(flatRollback).toContain(
       "delete from private.commercial_rollout_controls where capability = 'controlled_beta_user_quantity' and not enabled;",
     );
-    const events = doBlock(rollbackSql, "ovd987_rollback_events");
-    expect(events.text).toContain(
-      "if exists ( select 1 from private.commercial_rollout_control_events where capability = 'controlled_beta_user_quantity' ) then raise notice",
-    );
-    expect(events.text.indexOf("raise notice")).toBeLessThan(events.text.indexOf("else alter table private.commercial_rollout_control_events"));
+  });
+
+  it("is drilled in pgTAP both ways: restore with no audit event, refusal with one", () => {
+    const suite = readFileSync("supabase/tests/ovd987_controlled_beta_user_quantity.sql", "utf8");
+    const include = "\\ir fixtures/ovd987_controlled_beta_user_quantity_rollback.inc\n";
+    const restore = suite.indexOf(`savepoint ovd987_rollback_restores;\n${include}`);
+    const noop = suite.indexOf("'ovd987-pgtap-noop-0001'");
+    const refusal = suite.indexOf(`\\set ON_ERROR_STOP off\n${include}\\set ON_ERROR_STOP on\n`);
+    expect(restore).toBeGreaterThan(0);
+    expect(noop).toBeGreaterThan(restore);
+    expect(refusal).toBeGreaterThan(noop);
+    // Both drills run before the file's own first audited flip.
+    expect(suite.indexOf("'ovd987-pgtap-enable-0001'")).toBeGreaterThan(refusal);
+    expect(suite).toContain("\\set ON_ERROR_ROLLBACK off\n");
+    expect(suite).toContain("select is(:'LAST_ERROR_SQLSTATE'::text, '25P02',");
   });
 });

@@ -4,13 +4,23 @@
 -- OVD-987 rollback for
 -- supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql
 --
+-- Audit history decides first. Every call of the audited setter for
+-- controlled_beta_user_quantity, a no-op call included, writes an immutable
+-- row to private.commercial_rollout_control_events, and the pre-OVD-987
+-- events CHECK this file restores rejects that value. The rollback never
+-- deletes or rewrites audit history and never keeps the widened CHECK, so it
+-- refuses with 55000 (nothing changes) while any such event exists. Once the
+-- switch has been set even once, the rollback is turning it off and keeping
+-- this migration applied: the operational rollback OVD-313 prescribes for the
+-- rollout registry. Removing the schema after that is an operator decision
+-- (for example, export the events and write a new migration); this file does
+-- not make it.
+--
 -- Procedure (the order matters):
---   1. Turn the switch off through the audited setter (service_role):
---        select public.api_set_commercial_rollout_control(
---          'controlled_beta_user_quantity', false, '<reason>', '<operator>',
---          <current revision>, '<new idempotency key>');
---      From then on S1 denies new requests above quantity 1 and S4 refuses
---      queued tasks above 1 before browser launch (dispatch_quantity_not_admitted).
+--   1. The switch must be off and must never have been set. Do not call the
+--      setter to "make sure": a no-op call writes an event, and the rollback
+--      then refuses. Check: no row in private.commercial_rollout_control_events
+--      has capability 'controlled_beta_user_quantity'.
 --   2. Drain: wait until no Xometry beta permit whose lane is above quantity 1
 --      has a reserved free-beta admission, a queued or requesting quote
 --      request, or a queued or running provider task. A refused task fails,
@@ -19,22 +29,21 @@
 --   3. Apply this file as one transaction:
 --        psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-987.rollback.sql
 --
--- The guard below refuses (nothing changes) while the switch is on, while
--- step 2 is incomplete, or when a function to restore is neither the
--- migration's body nor the original (a later migration owns it: roll that one
--- back first). Rolling back with a reserved admission above 1 would leave it
--- reserved for good, because the restored meter accepts only quantity 1.
+-- The guard below refuses (nothing changes) while an audit event exists for
+-- the switch, while the switch is on, while step 2 is incomplete, or when a
+-- function to restore is neither the migration's body nor the original (a
+-- later migration owns it: roll that one back first). Rolling back with a
+-- reserved admission above 1 would leave it reserved for good, because the
+-- restored meter accepts only quantity 1.
 --
 -- Effect: the seven functions get their previous bodies back byte for byte
 -- (md5(prosrc) equals the definitions before the migration) with their
 -- previous revokes and grants; the helper is dropped; the disabled control row
--- is deleted and both capability CHECKs list the four commercial capabilities
--- again. Rollout-control audit events are immutable: if any exist for
--- controlled_beta_user_quantity, the events CHECK keeps that value (a NOTICE
--- says so) and the events stay.
+-- is deleted and both capability CHECKs are their pre-OVD-987 definitions
+-- again (the four commercial capabilities, as 20260802020349 created them).
 --
--- Data loss: none. The deleted control row is disabled (the guard proves it)
--- and its history stays in private.commercial_rollout_control_events. Lanes,
+-- Data loss: none. The deleted control row is disabled and has no audit
+-- events (the guard proves both). Lanes,
 -- results, permits and admissions created above quantity 1 are kept as they
 -- are (all terminal, by the guard). Re-applying the migration re-seeds the
 -- control OFF at revision 0.
@@ -92,6 +101,14 @@ declare
   v_expected record;
   v_md5 text;
 begin
+  if exists (
+    select 1 from private.commercial_rollout_control_events
+    where capability = 'controlled_beta_user_quantity'
+  ) then
+    raise exception 'OVD-987 rollback refused: immutable audit events exist for controlled_beta_user_quantity; the restored events CHECK would reject them and audit history is never deleted or rewritten. Nothing changed: keep the migration applied with the switch off, or decide on a separate schema removal'
+      using errcode = '55000';
+  end if;
+
   if private.commercial_rollout_enabled('controlled_beta_user_quantity') then
     raise exception 'OVD-987 rollback refused: controlled_beta_user_quantity is on; turn it off through public.api_set_commercial_rollout_control first'
       using errcode = 'P0001';
@@ -1349,25 +1366,16 @@ alter table private.commercial_rollout_controls
     )
   );
 
-do $ovd987_rollback_events$
-begin
-  if exists (
-    select 1 from private.commercial_rollout_control_events
-    where capability = 'controlled_beta_user_quantity'
-  ) then
-    raise notice 'OVD-987 rollback: immutable audit events exist for controlled_beta_user_quantity; commercial_rollout_control_events_capability_check keeps that value';
-  else
-    alter table private.commercial_rollout_control_events
-      drop constraint if exists commercial_rollout_control_events_capability_check;
-    alter table private.commercial_rollout_control_events
-      add constraint commercial_rollout_control_events_capability_check check (
-        capability in (
-          'commercial_admin_mutations',
-          'automatic_quote_collection',
-          'promotion_codes',
-          'order_administration'
-        )
-      );
-  end if;
-end;
-$ovd987_rollback_events$;
+-- Previous events CHECK (20260802020349). The guard proved that no event uses
+-- controlled_beta_user_quantity, so it validates without touching a row.
+alter table private.commercial_rollout_control_events
+  drop constraint if exists commercial_rollout_control_events_capability_check;
+alter table private.commercial_rollout_control_events
+  add constraint commercial_rollout_control_events_capability_check check (
+    capability in (
+      'commercial_admin_mutations',
+      'automatic_quote_collection',
+      'promotion_codes',
+      'order_administration'
+    )
+  );

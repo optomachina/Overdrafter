@@ -3,9 +3,137 @@
 -- Switch ON: one positive quantity of any size, several quantities denied.
 -- Switch turned OFF with a lane above 1 in flight: the worker preflight
 -- refuses it, and the free-beta meter still settles every hold.
+-- Rollback drill: with no audit event for the switch the rollback restores
+-- the pre-OVD-987 schema; with one it refuses and changes nothing.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(111);
+select plan(126);
+
+-- ---------------------------------------------------------------- 0. rollback drill
+-- fixtures/ovd987_controlled_beta_user_quantity_rollback.inc is a byte copy of
+-- docs/migration-drafts/ovd-987.rollback.sql (scripts/run-supabase-policy-tests.node-test.mjs).
+-- Both runs sit in savepoints that are rolled back, so the rest of this file
+-- starts from the migration as applied, with no audit event for the switch.
+create schema ovd987_drill;
+create table ovd987_drill.bodies (signature text primary key, applied_md5 text not null, previous_md5 text not null);
+insert into ovd987_drill.bodies values
+  ('public.api_set_commercial_rollout_control(text,boolean,text,text,bigint,text)', '2a2b6b6980abb0dd113b64b3dcd57041', 'eb741ed4f0be63d3189486959cdccdac'),
+  ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '916594293cfc4e66053acf4c7414b2ba', '0d4abcf48f054aced6dd3d531a1114bb'),
+  ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '28c932e1ccf964302ffed42d9ce4bc0b', 'b633e6921485eefc211ab238bab10e43'),
+  ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19', 'eb659d92aa927555f4c4fe93591fa9d1'),
+  ('private.record_quote_access_admission(uuid,uuid,text,uuid)', '7c5f710bccffddd8562974ae489e803c', '92b05edef3ec774fdb704e21efdc392d'),
+  ('private.finalize_free_quote_job(uuid)', 'b76415a18a9bb15659ec388cc4da2880', '66021f1fc65ee7fa7d5c24666c858512'),
+  ('public.api_reconcile_terminal_free_quote_tasks(uuid,integer)', 'edcca1ef0dd3cf45a7ff9c202696f185', '30208617d8ea6ec756e268d1b31ad4c9');
+
+create function ovd987_drill.body_md5s() returns jsonb language sql as $$
+  select pg_catalog.jsonb_object_agg(b.signature, pg_catalog.md5(p.prosrc))
+  from ovd987_drill.bodies b
+  left join pg_catalog.pg_proc p on p.oid = pg_catalog.to_regprocedure(b.signature)
+$$;
+
+create function ovd987_drill.check_def(p_name text) returns text language sql as $$
+  select pg_catalog.pg_get_constraintdef(c.oid) from pg_catalog.pg_constraint c
+  where c.conname = p_name and c.connamespace = 'private'::regnamespace
+$$;
+
+-- Everything the rollback could touch: audit events, both CHECKs, the control row, the helper, the bodies.
+create function ovd987_drill.state() returns jsonb language sql as $$
+  select pg_catalog.jsonb_build_object(
+    'events', (select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(e) order by e.id), '[]'::jsonb)
+               from private.commercial_rollout_control_events e where e.capability = 'controlled_beta_user_quantity'),
+    'events_check', ovd987_drill.check_def('commercial_rollout_control_events_capability_check'),
+    'controls_check', ovd987_drill.check_def('commercial_rollout_controls_capability_check'),
+    'control', (select pg_catalog.to_jsonb(c) from private.commercial_rollout_controls c
+                where c.capability = 'controlled_beta_user_quantity'),
+    'helper', pg_catalog.to_regprocedure('private.xometry_beta_user_quantity_enabled()') is not null,
+    'bodies', ovd987_drill.body_md5s())
+$$;
+
+create table ovd987_drill.captured (name text primary key, state jsonb not null);
+
+-- (a) No audit event names the switch: the rollback restores the previous schema.
+select is(
+  (select count(*)::integer from private.commercial_rollout_control_events where capability = 'controlled_beta_user_quantity'),
+  0, 'rollback drill (a): no audit event names the switch yet');
+select is(ovd987_drill.body_md5s(),
+  (select pg_catalog.jsonb_object_agg(signature, applied_md5) from ovd987_drill.bodies),
+  'rollback drill (a): the seven bodies are this migration''s');
+insert into ovd987_drill.captured values ('applied', ovd987_drill.state());
+
+savepoint ovd987_rollback_restores;
+\ir fixtures/ovd987_controlled_beta_user_quantity_rollback.inc
+select is(ovd987_drill.check_def('commercial_rollout_control_events_capability_check'),
+  'CHECK ((capability = ANY (ARRAY[''commercial_admin_mutations''::text, ''automatic_quote_collection''::text, ''promotion_codes''::text, ''order_administration''::text])))',
+  'rollback drill (a): the events CHECK is its pre-OVD-987 definition again');
+select is(ovd987_drill.check_def('commercial_rollout_controls_capability_check'),
+  'CHECK ((capability = ANY (ARRAY[''commercial_admin_mutations''::text, ''automatic_quote_collection''::text, ''promotion_codes''::text, ''order_administration''::text])))',
+  'rollback drill (a): the controls CHECK is its pre-OVD-987 definition again');
+select is(
+  (select count(*)::integer from private.commercial_rollout_controls where capability = 'controlled_beta_user_quantity'),
+  0, 'rollback drill (a): the disabled control row is deleted');
+select ok(pg_catalog.to_regprocedure('private.xometry_beta_user_quantity_enabled()') is null,
+  'rollback drill (a): the helper is dropped');
+select is(ovd987_drill.body_md5s(),
+  (select pg_catalog.jsonb_object_agg(signature, previous_md5) from ovd987_drill.bodies),
+  'rollback drill (a): the seven bodies are the previous definitions byte for byte');
+select throws_ok(
+  $$insert into private.commercial_rollout_control_events (capability, idempotency_key, previous_enabled, enabled,
+      changed, previous_revision, revision, change_reason, changed_by_actor, changed_by_role)
+    values ('controlled_beta_user_quantity', 'ovd987-pgtap-probe-0001', false, false, false, 0, 0,
+      'OVD-987 rollback probe', 'ovd987-pgtap@example.test', 'service_role')$$,
+  '23514', null, 'rollback drill (a): the restored events CHECK rejects the capability again');
+rollback to savepoint ovd987_rollback_restores;
+select is(ovd987_drill.state(), (select state from ovd987_drill.captured where name = 'applied'),
+  'rollback drill (a): the savepoint puts the migration back for the rest of this file');
+
+-- (b) An audit event names the switch: the rollback refuses before any change.
+-- A no-op setter call is enough (the operator "making sure" the switch is off).
+savepoint ovd987_rollback_audit_history;
+set local role service_role;
+select is(
+  public.api_set_commercial_rollout_control('controlled_beta_user_quantity', false,
+    'OVD-987 pgTAP no-op before a rollback', 'ovd987-pgtap@example.test', 0, 'ovd987-pgtap-noop-0001') ->> 'changed',
+  'false', 'rollback drill (b): a no-op setter call for the switch changes nothing');
+reset role;
+select is(
+  (select count(*)::integer from private.commercial_rollout_control_events
+   where capability = 'controlled_beta_user_quantity' and not changed and revision = 0),
+  1, 'rollback drill (b): the no-op call is still an immutable audit event');
+-- Every other guard check passes here, so only the audit-history check can refuse.
+select ok(
+  not private.commercial_rollout_enabled('controlled_beta_user_quantity')
+  and not exists (
+    select 1 from private.xometry_beta_dispatch_permits permit
+    join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id
+    where lane.requested_quantity <> 1)
+  and ovd987_drill.body_md5s() = (select pg_catalog.jsonb_object_agg(signature, applied_md5) from ovd987_drill.bodies),
+  'rollback drill (b): the switch is off, no permit above quantity 1 exists and the bodies are this migration''s');
+insert into ovd987_drill.captured values ('audit_history', ovd987_drill.state());
+
+-- psql keeps going after the guard's exception so this file can assert that
+-- nothing changed. Every later statement of the rollback then fails with 25P02
+-- (transaction aborted); the savepoint clears that. Expected on stderr: the
+-- refusal message, then one 25P02 line per remaining statement.
+savepoint ovd987_rollback_refuses;
+\set LAST_ERROR_SQLSTATE none
+\set ON_ERROR_ROLLBACK off
+\set VERBOSITY terse
+\set ON_ERROR_STOP off
+\ir fixtures/ovd987_controlled_beta_user_quantity_rollback.inc
+\set ON_ERROR_STOP on
+\set VERBOSITY default
+rollback to savepoint ovd987_rollback_refuses;
+-- 25P02 on the file's last statement (the events CHECK) means an earlier statement
+-- aborted the run; without the guard check that statement would fail with 23514.
+select is(:'LAST_ERROR_SQLSTATE'::text, '25P02',
+  'rollback drill (b): the rollback aborted before its last statement (the events CHECK) ran');
+select is(ovd987_drill.state(), (select state from ovd987_drill.captured where name = 'audit_history'),
+  'rollback drill (b): the audit events, both CHECKs, the control row, the helper and the seven bodies are untouched');
+rollback to savepoint ovd987_rollback_audit_history;
+select is(
+  (select count(*)::integer from private.commercial_rollout_control_events where capability = 'controlled_beta_user_quantity'),
+  0, 'rollback drill: the rest of this file starts with no audit event for the switch');
+
 \set meter_fixture_limit 20
 \ir fixtures/free_quote_meter_setup.inc
 
