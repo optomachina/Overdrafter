@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,9 +9,17 @@ const preflight = readFileSync(preflightPath, "utf8");
 const dockerTests = [...preflight.match(/docker_only_tests=\(([\s\S]*?)\)/)[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 const bashPath = process.env.PATH.split(":").map((dir) => join(dir, "bash")).find(existsSync);
 const dirnamePath = process.env.PATH.split(":").map((dir) => join(dir, "dirname")).find(existsSync);
+const nodePath = process.execPath;
+const lockfile = (version) => JSON.stringify({ packages: { "": {}, "node_modules/left-pad": { version }, "node_modules/fsevents": { version: "9.9.9", optional: true } } });
 
-function runPreflight({ args = ["test"], docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false, stderr = "" } = {}) {
+function runPreflight({ args = ["test"], docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false, stderr = "", workerDeps = "1.0.0" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ovd909-preflight-"));
+  // A copy of preflight.sh in a fake repo root, so the worker-deps check reads fixture lockfiles.
+  mkdirSync(join(root, "scripts"));
+  copyFileSync(preflightPath, join(root, "scripts", "preflight.sh"));
+  mkdirSync(join(root, "worker", "node_modules"), { recursive: true });
+  writeFileSync(join(root, "worker", "package-lock.json"), lockfile("1.0.0"));
+  if (workerDeps !== "missing") writeFileSync(join(root, "worker", "node_modules", ".package-lock.json"), lockfile(workerDeps).replace(/,"node_modules\/fsevents".*?\}/, ""));
   const bin = join(root, "bin");
   mkdirSync(bin);
   const callsPath = join(root, "npm-calls");
@@ -24,6 +32,7 @@ function runPreflight({ args = ["test"], docker = "available", ci = false, githu
   try {
     symlinkSync(bashPath, join(bin, "bash"));
     symlinkSync(dirnamePath, join(bin, "dirname"));
+    symlinkSync(nodePath, join(bin, "node"));
     stub("npm", 'printf \'%s\\n\' "$*" "${OVD_PREFLIGHT_DOCKER_UNAVAILABLE-unset}" >> "$NPM_CALLS"\nexit "$NPM_STATUS"');
     if (docker !== "missing") {
       stub("docker", `printf '%s\\n' "$*" >> "$DOCKER_CALLS"\nprintf 'probe output\\n'\nprintf 'probe error\\n' >&2\nexit ${docker === "available" ? 0 : 1}`);
@@ -35,7 +44,7 @@ function runPreflight({ args = ["test"], docker = "available", ci = false, githu
     if (inheritedDockerUnavailable) env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE = "1";
     if (ci) env.CI = "true";
     if (githubActions) env.GITHUB_ACTIONS = "true";
-    const result = spawnSync(bashPath, [preflightPath, ...args], { env, encoding: "utf8", stdio: "pipe" });
+    const result = spawnSync(bashPath, [join(root, "scripts", "preflight.sh"), ...args], { env, encoding: "utf8", stdio: "pipe" });
     expect(result.error).toBeUndefined();
     expect(result.stderr).toBe(stderr);
     return {
@@ -170,5 +179,26 @@ describe("preflight stage arguments", () => {
     expect(result.status).toBe(2);
     expect(result.npmCalls).toBe("");
     expect(result.output).toBe("");
+  });
+
+  it.each([["missing"], ["stale", "0.9.0"]])("stops before any stage when worker dependencies are %s", (problem, version = "missing") => {
+    const result = runPreflight({
+      args: ["lint", "test"], ci: true, workerDeps: version,
+      stderr: `preflight: worker dependencies ${problem} (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci\n`,
+    });
+    expect(result.status).toBe(1);
+    expect(result.npmCalls).toBe("");
+    expect(result.output).toBe("");
+  });
+
+  it("does not check worker dependencies for lint or typecheck only", () => {
+    const result = runPreflight({ args: ["lint", "typecheck"], ci: true, workerDeps: "missing" });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain("preflight: typecheck PASS");
+  });
+
+  it("ignores an optional package missing from the install", () => {
+    const result = runPreflight({ args: ["test"], ci: true });
+    expect(result.status).toBe(0);
   });
 });

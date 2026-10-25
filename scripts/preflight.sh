@@ -52,6 +52,33 @@ docker_unavailable() {
   ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1
 }
 
+# The test stage runs worker suites, which import worker/node_modules. A missing or
+# stale worker install makes those suites fail as if the code were broken, so stop
+# before any stage starts and name the fix. npm writes worker/node_modules/.package-lock.json
+# on install; every package version in worker/package-lock.json must match it.
+worker_deps_problem() {
+  node -e '
+    const fs = require("node:fs");
+    const read = (p) => JSON.parse(fs.readFileSync(p, "utf8")).packages || {};
+    let installed;
+    try { installed = read("worker/node_modules/.package-lock.json"); } catch { console.log("missing"); process.exit(0); }
+    const wanted = read("worker/package-lock.json");
+    for (const [key, entry] of Object.entries(wanted)) {
+      if (!key.startsWith("node_modules/") || entry.optional) continue;
+      if (!installed[key] || installed[key].version !== entry.version) { console.log("stale"); process.exit(0); }
+    }
+  '
+}
+
+for stage in "${stages[@]}"; do
+  [ "$stage" = test ] || continue
+  problem="$(worker_deps_problem)"
+  if [ -n "$problem" ]; then
+    echo "preflight: worker dependencies $problem (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci" >&2
+    exit 1
+  fi
+done
+
 status=0
 for stage in "${stages[@]}"; do
   echo "preflight: $stage start$note"
