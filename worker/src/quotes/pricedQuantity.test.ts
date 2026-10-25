@@ -204,6 +204,117 @@ const pageQuantityVerdict = (sourceText: string, quantity: number) =>
     total: total(5 * quantity),
   });
 
+/** Deterministic mulberry32 so failures reproduce. */
+const seededRandom = (initialSeed: number) => {
+  let seed = initialSeed;
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/** Requested 1, 10 and 1000, plus every integer the text itself shows. */
+const candidateQuantities = (sourceText: string) => [
+  ...new Set([1, 10, 1000, ...(sourceText.match(/[0-9]+/g) ?? []).map(Number).filter((n) => n >= 1)]),
+];
+
+describe("page quantity near-labels and non-ASCII", () => {
+  it.each([
+    // N1: anything that looks like a quantity label but is not the strict form.
+    "Qty 1000; Qtys: 1",
+    "Qty 1000, Quantities 1",
+    "Qty 1000 max_qty 1",
+    "MaxQty 5 Qty 5",
+    "Qty 5 q.t.y 5",
+    "QTY_5",
+    "qty-5",
+    // Look-alike and non-ASCII characters fail the whole text, even beside a valid label.
+    "Qту 5",
+    "Ԛту 5",
+    "Qτy 5",
+    "Qty 5; Qту 5",
+    "Ｑｔｙ 5",
+    "Qty 5 Ｑｔｙ 5",
+    "Qty​5",
+    "Qty ​5",
+    "Qty 5",
+    "Qty 5 ",
+    "Qty 5 ",
+    "﻿Qty 5",
+    "Qty 5\r",
+    "Qty 5\r\n",
+    // N2: a newline between the label and its number fails.
+    "Qty\n1000",
+    "Qty:\n1000",
+    "Quantity =\n5",
+    "Qty\r\n1000",
+    // N3 is only a colon glued to the label.
+    "Qty=1000",
+    "Qty :1000",
+  ])("rejects %j at requested 1, 10, 1000 and its own numbers", (sourceText) => {
+    for (const quantity of candidateQuantities(sourceText)) {
+      expect(pageQuantityVerdict(sourceText, quantity), `${JSON.stringify(sourceText)} @ ${quantity}`).toMatchObject({
+        ok: false,
+        reason: "qty_missing",
+        detail: { pageQuantitySourceValid: false },
+      });
+    }
+  });
+
+  it.each([
+    ["Qty\t5", 5],
+    ["Qty:\t5", 5],
+    ["Qty:1000", 1000],
+    ["Qty:1000 pcs", 1000],
+  ])("admits %j at page value %i", (sourceText, quantity) => {
+    expect(pageQuantityVerdict(sourceText, quantity).ok).toBe(true);
+  });
+
+  it("refuses any inserted near-label token or non-ASCII character, and admits the rest", () => {
+    const random = seededRandom(0x1092);
+    const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+    const nearLabels = ["qtys", "Qtys", "Quantities", "quantitative", "max_qty", "MaxQty", "q.t.y", "Q T Y", "q-ty", "QTY_", "_qty", "qty2", "xqty"];
+    const fixedNonAscii = ["т", "у", "τ", "Ｑ", "​", "‍", " ", " ", " ", "﻿", "\r", "\u000b", "\u000c", "\u0000", "\u007f", "é", "٠"];
+    const nonAscii = () =>
+      random() < 0.5 ? pick(fixedNonAscii) : String.fromCharCode(0x80 + Math.floor(random() * (0xffff - 0x80)));
+    const bases = (quantity: number) => [
+      `Qty ${quantity}`,
+      `Qty: ${quantity} pcs`,
+      `Qty:${quantity}`,
+      `Quantity = ${quantity};`,
+      `QUANTITY\t${quantity} each`,
+      `Qty ${quantity}\nPart A`,
+      `Part A; Qty ${quantity} units, Unit price $4.00`,
+    ];
+    let admitted = 0;
+    let refused = 0;
+
+    for (let i = 0; i < 3000; i++) {
+      const quantity = pick([1, 10, 1000]);
+      const base = pick(bases(quantity));
+      const insertion = random() < 0.3 ? "" : random() < 0.5 ? pick(nearLabels) : nonAscii();
+      const at = Math.floor(random() * (base.length + 1));
+      const sourceText = base.slice(0, at) + insertion + base.slice(at);
+      const verdict = pageQuantityVerdict(sourceText, quantity);
+      if (insertion === "") {
+        expect(verdict.ok, JSON.stringify(sourceText)).toBe(true);
+        admitted++;
+      } else {
+        expect(verdict, JSON.stringify(sourceText)).toMatchObject({
+          ok: false,
+          reason: "qty_missing",
+          detail: { pageQuantitySourceValid: false },
+        });
+        refused++;
+      }
+    }
+    expect(admitted).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
+  });
+});
+
 describe("page quantity suffix allowlist", () => {
   it.each([
     "Qty 1 to 10",
@@ -254,14 +365,7 @@ describe("page quantity suffix allowlist", () => {
   });
 
   it("rejects random words after the integer unless they are allow-listed units", () => {
-    // Deterministic mulberry32 so failures reproduce.
-    let seed = 0x1091;
-    const random = () => {
-      seed = (seed + 0x6d2b79f5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+    const random = seededRandom(0x1091);
     const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
     const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const allowed = new Set<string>(PAGE_QUANTITY_UNITS);
