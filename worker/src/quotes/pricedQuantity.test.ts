@@ -231,6 +231,28 @@ describe("page quantity suffix allowlist", () => {
     }
   });
 
+  it.each([
+    ["Qty 5pcs", 5],
+    ["Qty 1\nfoo", 1],
+  ])("admits %j at page value %i (glued unit; newline ends the field)", (sourceText, quantity) => {
+    expect(pageQuantityVerdict(sourceText, quantity).ok).toBe(true);
+  });
+
+  it.each([
+    ["Qty 5pcsX", [5]],
+    ["Qty 5ea3", [5, 3, 53]],
+    ["Qty 5 pcs 10", [5, 10]],
+    ["Qty 1\nQty 10", [1, 10]],
+  ] as Array<[string, number[]]>)("rejects %j at every candidate page value", (sourceText, quantities) => {
+    for (const quantity of quantities) {
+      expect(pageQuantityVerdict(sourceText, quantity)).toMatchObject({
+        ok: false,
+        reason: "qty_missing",
+        detail: { pageQuantitySourceValid: false },
+      });
+    }
+  });
+
   it("rejects random words after the integer unless they are allow-listed units", () => {
     // Deterministic mulberry32 so failures reproduce.
     let seed = 0x1091;
