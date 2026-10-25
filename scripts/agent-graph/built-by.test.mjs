@@ -32,7 +32,8 @@ describe('routing fixture and format drift', () => {
     try {
       const file = join(directory, 'bad.yaml');
       for (const content of ['pools: [broken', '{}', JSON.stringify({ ...routing, pools: { bad: {} } }),
-        JSON.stringify({ ...routing, review_routing: { ...routing.review_routing, openai: 'codex' } })]) {
+        JSON.stringify({ ...routing, review_routing: { ...routing.review_routing, openai: 'codex' } }),
+        JSON.stringify({ ...routing, review_routing: { ...routing.review_routing, grok: { reviewer: 'claude-opus', extra: 1 } } })]) {
         writeFileSync(file, content);
         expect(() => loadRouting(file)).toThrow();
       }
@@ -40,13 +41,48 @@ describe('routing fixture and format drift', () => {
   });
 });
 
+describe('review route families', () => {
+  const withRoutes = routes => ({ ...routing, review_routing: { ...routing.review_routing, ...routes } });
+  const load = value => {
+    const directory = mkdtempSync(join(tmpdir(), 'ovd-routes-'));
+    try {
+      const file = join(directory, 'routing.yaml');
+      writeFileSync(file, JSON.stringify(value));
+      return loadRouting(file);
+    } finally { rmSync(directory, { recursive: true }); }
+  };
+  it('allows claude->claude only with fresh_session', () => {
+    expect(() => load(withRoutes({ claude: { reviewer: 'claude-opus', fresh_session: true } }))).not.toThrow();
+    expect(() => load(withRoutes({ claude: { reviewer: 'claude-opus' } }))).toThrow('cross-family');
+    expect(() => load(withRoutes({ claude: { reviewer: 'claude-opus', fresh_session: false } }))).toThrow('cross-family');
+    expect(() => load(withRoutes({ claude: 'claude-opus' }))).toThrow('cross-family');
+  });
+  it('still rejects openai->openai and grok->grok, even with fresh_session', () => {
+    expect(() => load(withRoutes({ openai: 'codex' }))).toThrow('cross-family');
+    expect(() => load(withRoutes({ openai: { reviewer: 'codex-xhigh', fresh_session: true } }))).toThrow('cross-family');
+    expect(() => load(withRoutes({ grok: 'grok-overflow' }))).toThrow('cross-family');
+    expect(() => load(withRoutes({ grok: { reviewer: 'grok-overflow', fresh_session: true } }))).toThrow('cross-family');
+  });
+  it('accepts grok->claude and openai->claude-sonnet', () => {
+    expect(() => load(withRoutes({ grok: 'claude-opus' }))).not.toThrow();
+    expect(() => load(withRoutes({ grok: 'claude-sonnet' }))).not.toThrow();
+    expect(() => load(withRoutes({ openai: 'claude-sonnet' }))).not.toThrow();
+  });
+  it('keeps the missing-route check', () => {
+    const { claude, ...rest } = routing.review_routing;
+    expect(claude).toBeDefined();
+    expect(() => load({ ...routing, review_routing: rest })).toThrow('Missing review route');
+  });
+});
+
 describe('builder attribution', () => {
   it('parses canonical tags and cross-family routes', () => {
     expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
     expect(reviewers(parse(tag()))).toEqual(['claude-sonnet']);
-    expect(reviewers(parse(tag('claude-opus')))).toEqual(['codex-xhigh']);
-    expect(reviewers(parse(tag('grok-overflow')))).toEqual(['codex-xhigh']);
+    expect(reviewers(parse(tag('claude-opus')))).toEqual(['claude-opus']);
+    expect(reviewers(parse(tag('grok-overflow')))).toEqual(['claude-opus']);
   });
+
   it('retains legacy model-only attribution as unknown', () => {
     const result = parse('Model: model:codex');
     expect(result.builders[0]).toEqual({ bot: 'unknown', model: 'model:codex', family: 'openai' });
@@ -226,7 +262,7 @@ describe('free-text Built-by form', () => {
     const result = parse('Built-by: Engineer / grok-4.7 via Cursor cloud agent');
     expect(result.status).toBe('ok');
     expect(result.builders[0].family).toBe('grok');
-    expect(reviewers(result)).toEqual(['codex-xhigh']);
+    expect(reviewers(result)).toEqual(['claude-opus']);
   });
   it.each([
     ['  built-by:   eNgInEeR   /   CoDeX, via safe-build (host)  ', 'engineer', 'CoDeX', 'codex'],

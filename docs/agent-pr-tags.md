@@ -56,8 +56,16 @@ findings. Labels outside the declared builder history (the body's, or the
 commit trailers' when the body declares none) produce conflicts. Builders
 from multiple families produce `mixed`. Missing, unknown, mixed, conflicting,
 or failed parsing/routing requests both `codex-xhigh` and `claude-sonnet`.
-An `ok` tag requests a cross-family pool from `review_routing`; the family alias
-`openai` resolves to `codex-xhigh`. Existing extra reviewers (including
+An `ok` tag requests the pool `review_routing` names for the builder's family.
+A route is a pool id, or `{ "reviewer": <pool>, "fresh_session": true }` when the
+review must run in a fresh session with no build context; the alias `openai`
+resolves to `codex-xhigh`. Current routes: `openai` builds are reviewed by
+`claude-sonnet` (Opus instead for sensitive PRs, or when Opus has headroom;
+the Opus pass is added as an extra reviewer), `claude` builds by `claude-opus`
+in a fresh session with no build context, and `grok` builds by `claude-opus`.
+Routes must cross families, with one exception: a `claude` route may name a
+`claude` pool only when it is marked `fresh_session: true`. Any other
+same-family route fails to load. Existing extra reviewers (including
 `claude-opus` from sensitive-path/HIGH rules) are always retained. Availability
 never removes required reviewers: when none of the required pools is available,
 return `queue` plus extras instead of skipping review.

@@ -35,11 +35,28 @@ function validateBots(bots) {
   }
 }
 
+// A route is a pool id string, or { reviewer, fresh_session } when the review
+// must run in a fresh session with no build context. The alias `openai`
+// resolves to `codex-xhigh`.
+function resolveRoute(target) {
+  if (typeof target === 'string') return { pool: target === 'openai' ? 'codex-xhigh' : target, fresh: false };
+  if (record(target) && typeof target.reviewer === 'string' && Object.keys(target).every(key => key === 'reviewer' || key === 'fresh_session') &&
+      (target.fresh_session === undefined || typeof target.fresh_session === 'boolean')) {
+    return { pool: target.reviewer === 'openai' ? 'codex-xhigh' : target.reviewer, fresh: target.fresh_session === true };
+  }
+  return null;
+}
+
+// The only same-family route allowed: claude builds reviewed by a claude pool,
+// and only when the route is marked fresh_session. Every other same-family
+// route still throws.
 function validateReviewRoutes(routing) {
   for (const [family, target] of Object.entries(routing.review_routing)) {
-    if (!FAMILIES.has(family) || typeof target !== 'string') throw new Error('Invalid review route');
-    const pool = target === 'openai' ? 'codex-xhigh' : target;
-    if (!own(routing.pools, pool) || routing.pools[pool].family === family) {
+    const route = resolveRoute(target);
+    if (!FAMILIES.has(family) || !route) throw new Error('Invalid review route');
+    if (!own(routing.pools, route.pool)) throw new Error('Review route must name a cross-family pool');
+    const sameFamily = routing.pools[route.pool].family === family;
+    if (sameFamily && !(family === 'claude' && route.fresh)) {
       throw new Error('Review route must name a cross-family pool');
     }
   }
@@ -333,9 +350,8 @@ export function reviewFamilies(parsed, options = {}) {
           typeof builder.model === 'string' && builder.model.startsWith('model:') &&
           own(routing.pools, builder.model.slice(6)) &&
           routing.pools[builder.model.slice(6)].family === builder.family)) {
-      const target = routing.review_routing[parsed.builders[0].family];
-      const pool = target === 'openai' ? 'codex-xhigh' : target;
-      if (own(routing.pools, pool)) required = [pool];
+      const route = resolveRoute(routing.review_routing[parsed.builders[0].family]);
+      if (route && own(routing.pools, route.pool)) required = [route.pool];
     }
   } catch { /* Report-only fail-safe: retain both reviewers and any extras. */ }
   try {
