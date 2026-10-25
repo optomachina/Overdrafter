@@ -153,9 +153,11 @@ export const KNOWN_UNAUDITED_CALLEES = {
 export class LockOrderError extends Error {}
 
 const IDENT = "[a-z_][a-z0-9_]*";
-const QUALIFIED = `(?:"?(?:public|private)"?\\.)?"?(${IDENT})"?`;
+const ORDERED_SCHEMAS = new Set(["public", "private"]);
+const QUALIFIED = String.raw`(?:"?(?:public|private)"?\.)?"?(${IDENT})"?`;
 const LOCK_CLAUSE =
-  /\bfor\s+(?:no\s+key\s+update|update|key\s+share|share)\b((?:\s+of\s+[a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)?)/gi;
+  /\bfor\s+(?:no\s+key\s+update|update|key\s+share|share)\b/gi;
+const OF_LIST = /^\s+of\s+([a-z_]\w*(?:\s*,\s*[a-z_]\w*)*)/i;
 const ADVISORY = /\bpg_(?:try_)?advisory(?:_xact)?_lock(?:_shared)?\s*\(/gi;
 const CLAUSE_WORDS = [
   "where",
@@ -192,26 +194,141 @@ const CLAUSE_WORDS = [
   "select",
 ];
 // Alias group that never consumes a clause keyword (e.g. the bare JOIN in "from jobs join parts").
-const ALIAS = `(?:\\s+(?:as\\s+)?(?!(?:${CLAUSE_WORDS.join("|")})\\b)(${IDENT}))?`;
+const ALIAS = String.raw`(?:\s+(?:as\s+)?(?!(?:${CLAUSE_WORDS.join("|")})\b)(${IDENT}))?`;
 
-const stripComments = (sql) =>
-  sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+const byCodePoint = (a, b) => (a < b ? -1 : Number(a > b));
 
-const stripNoise = (sql) => stripComments(sql).replace(/'(?:[^']|'')*'/g, "''");
+// ---- Quote-aware SQL scanner -------------------------------------------------------------
+// One pass over the text that knows PostgreSQL quoting: '...' strings ('' escapes, and
+// backslash escapes in E'...'), "..." identifiers ("" escapes) and $tag$...$tag$ literals.
+// `--` and `/* */` (nested) are comments only outside those. Comments become a single space.
 
-// Every CREATE FUNCTION header in comment-stripped SQL. The dollar-quoted body tag must appear
-// inside the same CREATE statement (before its first ";"); otherwise the definition is
+const DOLLAR_TAG = /\$(?:[a-z_\u0080-\uffff][a-z0-9_\u0080-\uffff]*)?\$/iy;
+const WORD_CHAR = /[a-z0-9_$\u0080-\uffff]/i;
+
+function blockCommentEnd(sql, i) {
+  let depth = 0;
+  let j = i;
+  while (j < sql.length) {
+    const two = sql.slice(j, j + 2);
+    if (two === "/*") depth++;
+    else if (two === "*/") depth--;
+    else {
+      j++;
+      continue;
+    }
+    j += 2;
+    if (depth === 0) return j;
+  }
+  throw new LockOrderError("unterminated /* comment");
+}
+
+function quotedEnd(sql, i, quote, backslashEscapes) {
+  let j = i + 1;
+  while (j < sql.length) {
+    const c = sql[j];
+    if (backslashEscapes && c === "\\") j += 2;
+    else if (c !== quote) j++;
+    else if (sql[j + 1] === quote) j += 2;
+    else return j + 1;
+  }
+  throw new LockOrderError(`unterminated ${quote} literal`);
+}
+
+const isEscapeString = (sql, i) =>
+  i > 0 && /e/i.test(sql[i - 1]) && !(i > 1 && WORD_CHAR.test(sql[i - 2]));
+
+function dollarTagAt(sql, i) {
+  if (i > 0 && WORD_CHAR.test(sql[i - 1])) return null; // $1 params, identifiers with $
+  DOLLAR_TAG.lastIndex = i;
+  return DOLLAR_TAG.exec(sql)?.[0] ?? null;
+}
+
+// The token starting at `i`: { kind, end, text? }, or null for an ordinary character.
+function tokenAt(sql, i) {
+  const two = sql.slice(i, i + 2);
+  if (two === "--") {
+    const nl = sql.indexOf("\n", i);
+    return { kind: "comment", end: nl < 0 ? sql.length : nl };
+  }
+  if (two === "/*") return { kind: "comment", end: blockCommentEnd(sql, i) };
+  const c = sql[i];
+  if (c === "'")
+    return {
+      kind: "string",
+      end: quotedEnd(sql, i, "'", isEscapeString(sql, i)),
+    };
+  if (c === '"') return { kind: "ident", end: quotedEnd(sql, i, '"', false) };
+  const tag = c === "$" ? dollarTagAt(sql, i) : null;
+  if (!tag) return null;
+  const close = sql.indexOf(tag, i + tag.length);
+  if (close < 0) throw new LockOrderError(`unterminated ${tag} literal`);
+  return {
+    kind: "dollar",
+    end: close + tag.length,
+    text: sql.slice(i + tag.length, close),
+  };
+}
+
+// Rewrites `sql`: comments -> " ", strings -> onString(raw), dollar literals -> onDollar(body).
+export function scanSql(sql, { onString, onDollar }) {
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const token = tokenAt(sql, i);
+    if (!token) {
+      out += sql[i++];
+      continue;
+    }
+    const raw = sql.slice(i, token.end);
+    if (token.kind === "comment") out += " ";
+    else if (token.kind === "string") out += onString(raw);
+    else if (token.kind === "dollar") out += onDollar(token.text);
+    else out += raw;
+    i = token.end;
+  }
+  return out;
+}
+
+// Function body text with comments removed and every literal blanked to ''.
+export const stripNoise = (sql) =>
+  scanSql(sql, { onString: () => "''", onDollar: () => "''" });
+
+// Top level of a migration file: comments removed, strings blanked, and each dollar-quoted
+// literal replaced by $<n>$ (not a valid tag, so unambiguous) with its body kept in `bodies`.
+function scanFile(sql) {
+  const bodies = [];
+  const text = scanSql(sql, {
+    onString: () => "''",
+    onDollar: (body) => `$${bodies.push(body) - 1}$`,
+  });
+  return { text, bodies };
+}
+
+// Every CREATE FUNCTION header outside literals and comments. The dollar-quoted body must
+// appear inside the same CREATE statement (before its first ";"); otherwise the definition is
 // unparsable (single-quoted body, BEGIN ATOMIC, ...) and that is an error, never a fallback.
+// A function in a schema other than public/private is recorded as an error, so calling it
+// from an audited function fails closed.
 function* functionDefinitions(sql, file) {
+  const { text, bodies } = scanFile(sql);
   const header = new RegExp(
-    `\\bcreate\\s+(?:or\\s+replace\\s+)?function\\s+${QUALIFIED}\\s*\\(`,
+    String.raw`\bcreate\s+(?:or\s+replace\s+)?function\s+(?:"?(${IDENT})"?\s*\.\s*)?"?(${IDENT})"?\s*\(`,
     "gi",
   );
-  for (const match of sql.matchAll(header)) {
-    const name = match[1].toLowerCase();
-    const rest = sql.slice(match.index);
-    const tag = rest.match(/\bas\s+(\$[a-z_]*\$)|;/i);
-    if (!tag || !tag[1]) {
+  for (const match of text.matchAll(header)) {
+    const schema = (match[1] ?? "public").toLowerCase();
+    const name = match[2].toLowerCase();
+    if (!ORDERED_SCHEMAS.has(schema)) {
+      yield {
+        name,
+        file,
+        error: `${schema}.${name} in ${file}: functions outside the public and private schemas are not audited`,
+      };
+      continue;
+    }
+    const tag = /\bas\s+\$(\d+)\$|;/i.exec(text.slice(match.index));
+    if (!tag?.[1]) {
       yield {
         name,
         file,
@@ -219,29 +336,27 @@ function* functionDefinitions(sql, file) {
       };
       continue;
     }
-    const start = tag.index + tag[0].length;
-    const end = rest.indexOf(tag[1], start);
-    if (end < 0) {
-      yield {
-        name,
-        file,
-        error: `${name} in ${file}: unterminated ${tag[1]} body`,
-      };
-      continue;
-    }
-    yield { name, file, body: rest.slice(start, end) };
+    yield { name, file, body: bodies[Number(tag[1])] };
   }
 }
 
 export function latestDefinitions(migrationsDir, { withAll = false } = {}) {
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
-    .sort();
+    .sort(byCodePoint);
   const defs = new Map();
   const all = new Map(); // every function: latest definition or parse error
   for (const file of files) {
-    const sql = stripComments(readFileSync(join(migrationsDir, file), "utf8"));
-    for (const def of functionDefinitions(sql, file)) {
+    const sql = readFileSync(join(migrationsDir, file), "utf8");
+    let found;
+    try {
+      found = [...functionDefinitions(sql, file)];
+    } catch (error) {
+      if (error instanceof LockOrderError)
+        throw new LockOrderError(`${file}: ${error.message}`);
+      throw error;
+    }
+    for (const def of found) {
       all.set(def.name, def);
       if (!AUDITED_FUNCTIONS.includes(def.name)) continue;
       if (def.error) throw new LockOrderError(def.error);
@@ -254,47 +369,47 @@ export function latestDefinitions(migrationsDir, { withAll = false } = {}) {
 let probing = false;
 
 function levelOf(table, where) {
-  if (probing && !(table in LEVELS)) return null;
+  if (table in LEVELS) return LEVELS[table];
+  if (probing) return null;
   if ((KNOWN_UNORDERED_LOCKS[where] ?? []).includes(table)) return null;
-  if (!(table in LEVELS)) {
-    throw new LockOrderError(
-      `${where}: lock on table "${table}" outside the canonical order`,
-    );
+  throw new LockOrderError(
+    `${where}: lock on table "${table}" outside the canonical order`,
+  );
+}
+
+// Start of the query level containing `pos`: just after the innermost unmatched "(".
+function levelStart(statement, pos) {
+  let depth = 0;
+  for (let i = pos - 1; i >= 0; i--) {
+    const c = statement[i];
+    if (c === ")") depth++;
+    else if (c === "(" && depth === 0) return i + 1;
+    else if (c === "(") depth--;
   }
-  return LEVELS[table];
+  return 0;
+}
+
+// End of the query level containing `pos`: the innermost unmatched ")".
+function levelEnd(statement, pos) {
+  let depth = 0;
+  for (let i = pos; i < statement.length; i++) {
+    const c = statement[i];
+    if (c === "(") depth++;
+    else if (c === ")" && depth === 0) return i;
+    else if (c === ")") depth--;
+  }
+  return statement.length;
 }
 
 // Text of the query level containing `pos`: the innermost enclosing parentheses (or the
 // whole statement), with nested parenthesised subqueries blanked out.
 function queryLevel(statement, pos) {
-  let start = 0;
-  let depth = 0;
-  for (let i = pos - 1; i >= 0; i--) {
-    if (statement[i] === ")") depth++;
-    else if (statement[i] === "(") {
-      if (depth === 0) {
-        start = i + 1;
-        break;
-      }
-      depth--;
-    }
-  }
-  let end = statement.length;
-  depth = 0;
-  for (let i = pos; i < statement.length; i++) {
-    if (statement[i] === "(") depth++;
-    else if (statement[i] === ")") {
-      if (depth === 0) {
-        end = i;
-        break;
-      }
-      depth--;
-    }
-  }
   let text = "";
-  depth = 0;
-  for (let i = start; i < end; i++) {
-    const c = statement[i];
+  let depth = 0;
+  for (const c of statement.slice(
+    levelStart(statement, pos),
+    levelEnd(statement, pos),
+  )) {
     if (c === "(") depth++;
     text += depth === 0 ? c : " ";
     if (c === ")") depth--;
@@ -304,10 +419,32 @@ function queryLevel(statement, pos) {
 
 const FROM_END =
   /\b(?:where|group|order|limit|offset|for|having|window|union|except|intersect|returning|fetch)\b/i;
+const FROM_HEAD = new RegExp(
+  String.raw`^\s*(?:only\s+)?${QUALIFIED}${ALIAS}\s*(?!\s*\()`,
+  "i",
+);
+const JOIN_ITEM = new RegExp(
+  String.raw`\bjoin\s+(?:lateral\s+)?(?:only\s+)?${QUALIFIED}${ALIAS}`,
+  "gi",
+);
+const OPENS_CALL = /^\s*\(/;
 
-// Tables in every FROM clause of one query level: comma-separated items and JOINs. A FROM item
-// that isn't a plain table (a blanked subquery or a function call) is skipped; it holds no
-// row locks of its own.
+// Plain tables in one comma-separated FROM item: its head and every JOIN. A blanked subquery
+// or a function call holds no row locks of its own and is skipped.
+function itemTables(item, add) {
+  const head = FROM_HEAD.exec(item);
+  const headIsTable =
+    head &&
+    !OPENS_CALL.test(item.slice(head[0].length)) &&
+    !CLAUSE_WORDS.includes(head[1].toLowerCase());
+  if (headIsTable) add(head[1], head[2]);
+  for (const j of item.matchAll(JOIN_ITEM)) {
+    const callInJoin = OPENS_CALL.test(item.slice(j.index + j[0].length));
+    if (!callInJoin || j[2]) add(j[1], j[2]);
+  }
+}
+
+// Tables in every FROM clause of one query level: comma-separated items and JOINs.
 export function fromTables(levelText) {
   const tables = new Map(); // alias -> table
   const order = [];
@@ -321,27 +458,7 @@ export function fromTables(levelText) {
     const tail = levelText.slice(from.index + from[0].length);
     const stop = tail.search(FROM_END);
     const clause = stop < 0 ? tail : tail.slice(0, stop);
-    for (const item of clause.split(",")) {
-      const head = new RegExp(
-        `^\\s*(?:only\\s+)?${QUALIFIED}${ALIAS}\\s*(?!\\s*\\()`,
-        "i",
-      ).exec(item);
-      if (
-        head &&
-        !/^\s*\(/.test(item.slice(head[0].length)) &&
-        !CLAUSE_WORDS.includes(head[1].toLowerCase())
-      )
-        add(head[1], head[2]);
-      const join = new RegExp(
-        `\\bjoin\\s+(?:lateral\\s+)?(?:only\\s+)?${QUALIFIED}${ALIAS}`,
-        "gi",
-      );
-      for (const j of item.matchAll(join)) {
-        const after = item.slice(j.index + j[0].length);
-        if (/^\s*\(/.test(after) && !j[2]) continue; // function call in JOIN
-        add(j[1], j[2]);
-      }
-    }
+    for (const item of clause.split(",")) itemTables(item, add);
   }
   return { tables, order };
 }
@@ -350,11 +467,10 @@ function selectLocks(statement, where) {
   const steps = [];
   for (const m of statement.matchAll(LOCK_CLAUSE)) {
     const { tables, order } = fromTables(queryLevel(statement, m.index));
-    const ofList = m[1]
-      .replace(/^\s+of\s+/i, "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
+    const of = OF_LIST.exec(statement.slice(m.index + m[0].length));
+    const ofList = of
+      ? of[1].split(",").map((s) => s.trim().toLowerCase())
+      : [];
     const targets = ofList.length
       ? ofList.map((alias) => {
           const table = tables.get(alias);
@@ -383,7 +499,7 @@ function selectLocks(statement, where) {
 function writeLocks(statement, where) {
   const steps = [];
   const re = new RegExp(
-    `\\b(update|delete\\s+from|insert\\s+into)\\s+(?:only\\s+)?${QUALIFIED}`,
+    String.raw`\b(update|delete\s+from|insert\s+into)\s+(?:only\s+)?${QUALIFIED}`,
     "gi",
   );
   for (const m of statement.matchAll(re)) {
@@ -397,22 +513,26 @@ function writeLocks(statement, where) {
   return steps;
 }
 
+const LOCK_TABLE = /\block\s+(?:table\s+)?/gi;
+const LOCK_TARGET = new RegExp(
+  String.raw`^(?:only\s+)?${QUALIFIED}\s*\*?$`,
+  "i",
+);
+
 // LOCK [TABLE] [ONLY] t [, t2 ...] [IN ... MODE] [NOWAIT]
 function tableLocks(statement, where) {
   const steps = [];
-  for (const m of statement.matchAll(
-    /\block\s+(?:table\s+)?([\s\S]*?)(?=\bin\b|\bnowait\b|$)/gi,
-  )) {
-    const names = m[1]
+  for (const m of statement.matchAll(LOCK_TABLE)) {
+    const rest = statement.slice(m.index + m[0].length);
+    const stop = rest.search(/\b(?:in|nowait)\b/i);
+    const names = (stop < 0 ? rest : rest.slice(0, stop))
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (!names.length)
       throw new LockOrderError(`${where}: cannot resolve LOCK TABLE target`);
     for (const raw of names) {
-      const t = new RegExp(`^(?:only\\s+)?${QUALIFIED}\\s*\\*?$`, "i").exec(
-        raw,
-      );
+      const t = LOCK_TARGET.exec(raw);
       if (!t)
         throw new LockOrderError(
           `${where}: cannot resolve LOCK TABLE target "${raw}"`,
@@ -429,7 +549,71 @@ function tableLocks(statement, where) {
   return steps;
 }
 
-const callPattern = (name) => new RegExp(`\\b${name}\\s*\\(`, "gi");
+// Statements the check can't order. They fail closed instead of being skipped: TRUNCATE
+// (takes ACCESS EXCLUSIVE), MERGE (any action may lock), CALL (procedures are not expanded),
+// and a write, LOCK TABLE or FOR <lock> query on a table in a schema other than public/private.
+const UNSUPPORTED = [
+  [/\btruncate\b/i, "TRUNCATE"],
+  [/\bmerge\s+into\b/i, "MERGE"],
+  [/\bcall\s+[a-z_"]/i, "CALL"],
+];
+const SCHEMA_WRITE = new RegExp(
+  String.raw`\b(?:update|delete\s+from|insert\s+into|lock(?:\s+table)?)\s+(?:only\s+)?"?(${IDENT})"?\s*\.`,
+  "gi",
+);
+const SCHEMA_FROM = new RegExp(
+  String.raw`\b(?:from|join)\s+(?:lateral\s+)?(?:only\s+)?"?(${IDENT})"?\s*\.\s*"?${IDENT}"?\s*(?!\s*\()`,
+  "gi",
+);
+
+function otherSchemas(statement, re) {
+  return [...statement.matchAll(re)]
+    .map((m) => m[1].toLowerCase())
+    .filter((s) => !ORDERED_SCHEMAS.has(s));
+}
+
+function rejectUnsupported(statement, where) {
+  for (const [re, what] of UNSUPPORTED)
+    if (re.test(statement))
+      throw new LockOrderError(
+        `${where}: ${what} is not supported by the lock-order check`,
+      );
+  if (probing) return; // unaudited callees may write outside public/private
+  const schemas = otherSchemas(statement, SCHEMA_WRITE);
+  LOCK_CLAUSE.lastIndex = 0;
+  if (LOCK_CLAUSE.test(statement))
+    schemas.push(...otherSchemas(statement, SCHEMA_FROM));
+  LOCK_CLAUSE.lastIndex = 0;
+  if (schemas.length)
+    throw new LockOrderError(
+      `${where}: lock on a table in schema "${schemas[0]}"; only public and private are ordered`,
+    );
+}
+
+const callPattern = (name) => new RegExp(String.raw`\b${name}\s*\(`, "gi");
+
+function calleeSteps(statement, defs, depth, where) {
+  const steps = [];
+  for (const callee of AUDITED_FUNCTIONS) {
+    const def = defs.get(callee);
+    if (!def) continue;
+    for (const call of statement.matchAll(callPattern(callee))) {
+      if (depth >= MAX_DEPTH)
+        throw new LockOrderError(
+          `${where}: call to ${callee} exceeds the expansion depth cap of ${MAX_DEPTH}`,
+        );
+      const inner = lockSequence(def.body, defs, depth + 1, callee);
+      steps.push(
+        ...inner.map((l, i) => ({
+          ...l,
+          pos: call.index + i / 1000,
+          via: l.via ?? callee,
+        })),
+      );
+    }
+  }
+  return steps;
+}
 
 export function lockSequence(
   body,
@@ -440,25 +624,8 @@ export function lockSequence(
   const statements = stripNoise(body).split(";");
   const locks = [];
   for (const statement of statements) {
-    const steps = [];
-    for (const callee of AUDITED_FUNCTIONS) {
-      const def = defs.get(callee);
-      if (!def) continue;
-      for (const call of statement.matchAll(callPattern(callee))) {
-        if (depth >= MAX_DEPTH)
-          throw new LockOrderError(
-            `${where}: call to ${callee} exceeds the expansion depth cap of ${MAX_DEPTH}`,
-          );
-        const inner = lockSequence(def.body, defs, depth + 1, callee);
-        steps.push(
-          ...inner.map((l, i) => ({
-            ...l,
-            pos: call.index + i / 1000,
-            via: l.via ?? callee,
-          })),
-        );
-      }
-    }
+    rejectUnsupported(statement, where);
+    const steps = calleeSteps(statement, defs, depth, where);
     for (const m of statement.matchAll(ADVISORY))
       steps.push({
         pos: m.index,
@@ -489,7 +656,7 @@ export function findInversions(locks) {
       highestTable = lock.table;
     }
   }
-  return [...pairs].sort();
+  return [...pairs].sort(byCodePoint);
 }
 
 // Functions defined in the migrations, other than audited ones, that `body` calls.
@@ -498,23 +665,25 @@ export function unauditedCallees(body, allFunctions) {
   return [...allFunctions.keys()]
     .filter((name) => !AUDITED_FUNCTIONS.includes(name))
     .filter((name) => callPattern(name).test(text))
-    .sort();
+    .sort(byCodePoint);
 }
 
-// Ordered tables (L0-L5) an unaudited callee locks directly. Unaudited callees must take none:
-// their locks are not expanded into the caller's sequence. An unparsable callee is an error.
-function orderedLocksOf(callee, all) {
+// What an unaudited callee reaches in L0-L5: ordered tables it locks directly, and any audited
+// function it calls (whose locks it would take without being expanded). Unaudited callees must
+// reach none. An unparsable callee is an error.
+export function orderedLocksOf(callee, all) {
   const def = all.get(callee);
   if (def.error) throw new LockOrderError(def.error);
+  const text = stripNoise(def.body);
+  const audited = AUDITED_FUNCTIONS.filter((name) =>
+    callPattern(name).test(text),
+  ).map((name) => `calls audited ${name}`);
   probing = true;
   try {
-    return [
-      ...new Set(
-        lockSequence(def.body, new Map(), MAX_DEPTH, callee)
-          .filter((l) => l.level !== null)
-          .map((l) => l.table),
-      ),
-    ];
+    const tables = lockSequence(def.body, new Map(), MAX_DEPTH, callee)
+      .filter((l) => l.level !== null)
+      .map((l) => l.table);
+    return [...new Set(tables), ...audited];
   } finally {
     probing = false;
   }
@@ -545,9 +714,66 @@ export function audit(migrationsDir = DEFAULT_MIGRATIONS_DIR) {
   });
 }
 
-const sameSet = (a, b) =>
-  a.length === b.length &&
-  [...a].sort().every((v, i) => v === [...b].sort()[i]);
+const sorted = (list) => [...list].sort(byCodePoint);
+const sameSet = (a, b) => {
+  const left = sorted(a);
+  const right = sorted(b);
+  return left.length === right.length && left.every((v, i) => v === right[i]);
+};
+
+function listErrors(lists, unordered) {
+  const errors = [];
+  for (const [list, map] of Object.entries(lists))
+    for (const key of Object.keys(map))
+      if (!AUDITED_FUNCTIONS.includes(key))
+        errors.push(`${list}: key ${key} is not an audited function`);
+  for (const [name, list] of Object.entries(unordered))
+    for (const table of list)
+      if (table in LEVELS)
+        errors.push(
+          `KNOWN_UNORDERED_LOCKS: ${name} lists ${table}, which is an ordered table (L${LEVELS[table]})`,
+        );
+  return errors;
+}
+
+function inversionErrors(row, known) {
+  const expected = sorted(known[row.name] ?? []);
+  const actual = row.inversions;
+  return [
+    ...actual
+      .filter((p) => !expected.includes(p))
+      .map((p) => `${row.name}: unlisted inversion ${p}`),
+    ...expected
+      .filter((p) => !actual.includes(p))
+      .map(
+        (p) =>
+          `${row.name}: listed inversion ${p} no longer occurs; remove it from KNOWN_INVERSIONS`,
+      ),
+  ];
+}
+
+function calleeErrors(row, unordered, unaudited) {
+  const errors = [];
+  const direct = new Set(
+    row.locks.filter((l) => l.level === null && !l.via).map((l) => l.table),
+  );
+  for (const t of unordered[row.name] ?? [])
+    if (!direct.has(t))
+      errors.push(
+        `${row.name}: listed unordered lock on ${t} no longer occurs; remove it from KNOWN_UNORDERED_LOCKS`,
+      );
+  for (const hit of row.unauditedOrderedLocks ?? [])
+    errors.push(
+      `${row.name}: unaudited callee locks an ordered table (${hit}); add the callee to AUDITED_FUNCTIONS`,
+    );
+  const calls = row.unauditedCalls ?? [];
+  const listed = unaudited[row.name] ?? [];
+  if (!sameSet(calls, listed))
+    errors.push(
+      `${row.name}: unaudited callees [${calls.join(", ")}] don't match KNOWN_UNAUDITED_CALLEES [${sorted(listed).join(", ")}]`,
+    );
+  return errors;
+}
 
 export function verify(
   rows,
@@ -555,69 +781,44 @@ export function verify(
   unordered = KNOWN_UNORDERED_LOCKS,
   unaudited = KNOWN_UNAUDITED_CALLEES,
 ) {
-  const errors = [];
-  for (const [list, map] of [
-    ["KNOWN_INVERSIONS", known],
-    ["KNOWN_UNORDERED_LOCKS", unordered],
-    ["KNOWN_UNAUDITED_CALLEES", unaudited],
-  ])
-    for (const key of Object.keys(map))
-      if (!AUDITED_FUNCTIONS.includes(key))
-        errors.push(`${list}: key ${key} is not an audited function`);
+  const errors = listErrors(
+    {
+      KNOWN_INVERSIONS: known,
+      KNOWN_UNORDERED_LOCKS: unordered,
+      KNOWN_UNAUDITED_CALLEES: unaudited,
+    },
+    unordered,
+  );
   for (const row of rows) {
-    if (row.missing) {
-      errors.push(`${row.name}: no CREATE definition found`);
-      continue;
-    }
-    const expected = [...(known[row.name] ?? [])].sort();
-    const actual = row.inversions;
-    for (const p of actual.filter((p) => !expected.includes(p)))
-      errors.push(`${row.name}: unlisted inversion ${p}`);
-    for (const p of expected.filter((p) => !actual.includes(p)))
+    if (row.missing) errors.push(`${row.name}: no CREATE definition found`);
+    else
       errors.push(
-        `${row.name}: listed inversion ${p} no longer occurs; remove it from KNOWN_INVERSIONS`,
-      );
-    const direct = new Set(
-      row.locks.filter((l) => l.level === null && !l.via).map((l) => l.table),
-    );
-    for (const t of unordered[row.name] ?? [])
-      if (!direct.has(t))
-        errors.push(
-          `${row.name}: listed unordered lock on ${t} no longer occurs; remove it from KNOWN_UNORDERED_LOCKS`,
-        );
-    for (const hit of row.unauditedOrderedLocks ?? [])
-      errors.push(
-        `${row.name}: unaudited callee locks an ordered table (${hit}); add the callee to AUDITED_FUNCTIONS`,
-      );
-    const calls = row.unauditedCalls ?? [];
-    const listed = unaudited[row.name] ?? [];
-    if (!sameSet(calls, listed))
-      errors.push(
-        `${row.name}: unaudited callees [${calls.join(", ")}] don't match KNOWN_UNAUDITED_CALLEES [${[...listed].sort().join(", ")}]`,
+        ...inversionErrors(row, known),
+        ...calleeErrors(row, unordered, unaudited),
       );
   }
   return errors;
 }
 
+function formatLock(l) {
+  const level = l.level === null ? "unordered" : "L" + l.level;
+  const kind =
+    l.kind === "select" || l.kind === "advisory" ? "" : "(" + l.kind + ")";
+  const via = l.via ? "[via " + l.via + "]" : "";
+  return level + ":" + l.table + kind + via;
+}
+
+// Always audits the repository's own supabase/migrations (no path argument).
 function main() {
-  const dir = process.argv[2]
-    ? resolve(process.argv[2])
-    : DEFAULT_MIGRATIONS_DIR;
   let rows;
   try {
-    rows = audit(dir);
+    rows = audit(DEFAULT_MIGRATIONS_DIR);
   } catch (error) {
     console.error(`Lock-order check failed:\n- ${error.message}`);
     process.exit(1);
   }
   for (const row of rows.filter((r) => !r.missing)) {
-    const seq =
-      row.locks
-        .map(
-          (l) =>
-            `${l.level === null ? "unordered" : `L${l.level}`}:${l.table}${l.kind === "select" || l.kind === "advisory" ? "" : `(${l.kind})`}${l.via ? `[via ${l.via}]` : ""}`,
-        )
-        .join(" -> ") || "(no row locks)";
+    const seq = row.locks.map(formatLock).join(" -> ") || "(no row locks)";
     const calls = row.calls.length ? ` calls ${row.calls.join(", ")}` : "";
     const other = row.unauditedCalls.length
       ? ` unaudited calls ${row.unauditedCalls.join(", ")}`

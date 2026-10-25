@@ -97,6 +97,21 @@ against the repository in the normal Vitest suite, resolving paths from
 `import.meta.url` so it doesn't depend on the working directory. It isn't wired
 into a CI workflow.
 
+Parsing is quote-aware: one scanner pass skips `'...'` strings (with `''`
+escapes, and backslash escapes in `E'...'`), `"..."` identifiers and
+`$$`/`$tag$` literals before it removes `--` and nested `/* */` comments, so
+comment markers inside a literal can't hide a lock or a newer definition.
+
+Unsupported statements fail closed (the check errors rather than skipping
+them): `TRUNCATE`, `MERGE` (any action), `CALL` (procedures, which are never
+expanded), and an `UPDATE`, `DELETE`, `INSERT`, `LOCK TABLE` or `FOR <lock>`
+query on a table in a schema other than `public` or `private`. A function
+defined outside `public`/`private` is recorded as unparsable, so an audited
+function with that name, or a call to it from an audited function, is an
+error. An unaudited callee that calls an audited function is an error, and
+`KNOWN_UNORDERED_LOCKS` may not list an L0–L5 table. On `main` none of these
+occur.
+
 Limits: the check is static. It can't see dynamic SQL (`EXECUTE`), locks
 taken by triggers, or locks inside an unaudited callee's own callees (only
 the callee's direct statements are checked). The two-session dblink tests

@@ -9,6 +9,9 @@ import {
   findInversions,
   latestDefinitions,
   lockSequence,
+  orderedLocksOf,
+  scanSql,
+  stripNoise,
   unauditedCallees,
   verify,
 } from "./check-lock-order.mjs";
@@ -410,6 +413,107 @@ describe("check-lock-order", () => {
           "api_claim_next_task",
         ),
       ).toThrow(/"job_files" outside the canonical order/);
+    });
+  });
+  describe("Opus repair round 1 regressions", () => {
+    it("(1e) a '--' inside a string literal does not hide the next statement's lock", () => {
+      const locks = lockSequence(
+        "update public.work_queue set a = '--'; update public.jobs set b = 1;",
+      );
+      expect(tables(locks)).toEqual(["5:work_queue", "1:jobs"]);
+      expect(findInversions(locks)).toEqual(["work_queue > jobs"]);
+      expect(
+        tables(
+          lockSequence(
+            "update public.work_queue set a = E'it\\'s -- /*'; update public.jobs set b = 1;",
+          ),
+        ),
+      ).toEqual(["5:work_queue", "1:jobs"]);
+    });
+
+    it("(1f) '/*' and '*/' literals in different functions don't hide the newest definition", () => {
+      const dir = migrations({
+        "001.sql": fn("api_claim_next_task", "update public.jobs set a = 1;"),
+        "002.sql":
+          fn("helper_a", "perform '/*';") +
+          fn("api_claim_next_task", "update public.parts set a = 1;") +
+          fn("helper_b", "perform '*/';"),
+      });
+      const def = latestDefinitions(dir).get("api_claim_next_task");
+      expect(def.file).toBe("002.sql");
+      expect(tables(lockSequence(def.body))).toEqual(["2:parts"]);
+    });
+
+    it("scanner keeps quoted identifiers, skips nested and dollar-tagged literals", () => {
+      const keep = { onString: () => "''", onDollar: () => "<d>" };
+      expect(scanSql('select "a--b" /* x /* y */ z */ from t', keep)).toBe(
+        'select "a--b"   from t',
+      );
+      expect(scanSql("x $tag$ -- $$ $tag$ y $1", keep)).toBe("x <d> y $1");
+      expect(stripNoise("a = 'it''s /*'; b")).toBe("a = ''; b");
+      expect(() => stripNoise("a = 'open")).toThrow(LockOrderError);
+    });
+
+    it("an unaudited helper that calls an audited function is flagged", () => {
+      const dir = migrations({
+        "001.sql":
+          fn("api_reconcile_job_parts", "delete from public.parts;") +
+          fn(
+            "sneaky_helper",
+            "perform public.api_reconcile_job_parts(p_job_id);",
+          ) +
+          fn("api_claim_next_task", "perform public.sneaky_helper(p_job_id);"),
+      });
+      const { all } = latestDefinitions(dir, { withAll: true });
+      expect(orderedLocksOf("sneaky_helper", all)).toEqual([
+        "calls audited api_reconcile_job_parts",
+      ]);
+      const row = audit(dir).find((r) => r.name === "api_claim_next_task");
+      expect(
+        verify([row], {}, {}, { api_claim_next_task: ["sneaky_helper"] }),
+      ).toEqual([
+        "api_claim_next_task: unaudited callee locks an ordered table (sneaky_helper: calls audited api_reconcile_job_parts); add the callee to AUDITED_FUNCTIONS",
+      ]);
+    });
+
+    it("an ordered table listed in KNOWN_UNORDERED_LOCKS is refused", () => {
+      expect(verify([], {}, { api_claim_next_task: ["jobs"] }, {})).toEqual([
+        "KNOWN_UNORDERED_LOCKS: api_claim_next_task lists jobs, which is an ordered table (L1)",
+      ]);
+    });
+
+    it("fails closed on TRUNCATE, MERGE, CALL and locks on tables in other schemas", () => {
+      const run = (sql) => () =>
+        lockSequence(sql, new Map(), 0, "api_claim_next_task");
+      expect(run("truncate public.jobs;")).toThrow(/TRUNCATE is not supported/);
+      expect(
+        run(
+          "merge into public.jobs j using x on true when not matched then insert values (1);",
+        ),
+      ).toThrow(/MERGE is not supported/);
+      expect(run("call public.do_it(p_job_id);")).toThrow(
+        /CALL is not supported/,
+      );
+      expect(run("update audit.jobs set a = 1;")).toThrow(/schema "audit"/);
+      expect(run("insert into audit.events (a) values (1);")).toThrow(
+        /schema "audit"/,
+      );
+      expect(run("select 1 from other.jobs for update;")).toThrow(
+        /schema "other"/,
+      );
+      expect(run("select 1 from public.jobs for update;")).not.toThrow();
+    });
+
+    it("an audited function defined outside public/private is an error", () => {
+      const dir = migrations({
+        "001.sql": fn("api_claim_next_task", "select 1;").replace(
+          "public.",
+          "other.",
+        ),
+      });
+      expect(() => latestDefinitions(dir)).toThrow(
+        /outside the public and private schemas/,
+      );
     });
   });
 });
