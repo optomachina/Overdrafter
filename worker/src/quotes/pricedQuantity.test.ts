@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   admitPrice,
+  PAGE_QUANTITY_UNITS,
   PRICE_TOLERANCE_CENTS_PER_PIECE,
   type AdmitPriceInput,
   type PriceVerdictReason,
@@ -152,7 +153,7 @@ describe("page quantity labeled tokens", () => {
     });
   });
 
-  it.each(["1 000", "1,000", "1.000", "1\u2009000", "1\u202f000", "1\u00a0000"])(
+  it.each(["1 000", "1,000", "1, 000", "1;000", "1|000", "1.000", "1\u2009000", "1\u202f000", "1\u00a0000"])(
     "rejects grouped quantity %s without accepting its prefix or normalizing it",
     (token) => {
       for (const quantity of [1, 1000]) {
@@ -178,6 +179,11 @@ describe("page quantity labeled tokens", () => {
     ["qty 1000", 1000],
     ["QUANTITY = 10", 10],
     ["Qty 10; Quantity: 10; part 1", 10],
+    ["Quantity = 25 pcs", 25],
+    ["Qty 5 each;", 5],
+    ["Qty 1\n", 1],
+    ["Qty 7)", 7],
+    ["Qty 3 units, Unit price $4.00", 3],
   ])("admits %s with page value %i", (sourceText, quantity) => {
     expect(admitPrice({
       requestedQuantity: quantity,
@@ -186,6 +192,78 @@ describe("page quantity labeled tokens", () => {
       unit: each(5),
       total: total(5 * quantity),
     }).ok).toBe(true);
+  });
+});
+
+const pageQuantityVerdict = (sourceText: string, quantity: number) =>
+  admitPrice({
+    requestedQuantity: quantity,
+    quantity,
+    pageQuantity: { value: quantity, sourceText },
+    unit: each(5),
+    total: total(5 * quantity),
+  });
+
+describe("page quantity suffix allowlist", () => {
+  it.each([
+    "Qty 1 to 10",
+    "Qty 1 through 10",
+    "Qty 1 - 10",
+    "Qty 1-10",
+    "Qty 1 or more",
+    "Qty 1 k",
+    "Qty 1k",
+    "Qty 1 thousand",
+    "Qty 1 x 1000",
+    "Qty 1 of 10",
+    "Qty1000",
+    "Quantity1000",
+    "qty1",
+    "Qty 10 Qty1000",
+    "Qty 1 widgets",
+  ])("rejects %j for requested 1, 10 and 1000", (sourceText) => {
+    for (const quantity of [1, 10, 1000]) {
+      expect(pageQuantityVerdict(sourceText, quantity)).toMatchObject({
+        ok: false,
+        reason: "qty_missing",
+        detail: { pageQuantitySourceValid: false },
+      });
+    }
+  });
+
+  it("rejects random words after the integer unless they are allow-listed units", () => {
+    // Deterministic mulberry32 so failures reproduce.
+    let seed = 0x1091;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+    const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const allowed = new Set<string>(PAGE_QUANTITY_UNITS);
+    let admitted = 0;
+    let refused = 0;
+
+    for (let i = 0; i < 2000; i++) {
+      const word =
+        random() < 0.25
+          ? [...pick(PAGE_QUANTITY_UNITS)].map((c) => (random() < 0.5 ? c.toUpperCase() : c)).join("")
+          : Array.from({ length: 1 + Math.floor(random() * 8) }, () => pick([...letters])).join("");
+      const quantity = pick([1, 10, 1000]);
+      const sourceText = `Qty ${quantity}${pick([" ", "  ", ""])}${word}${pick(["", ";", " ,", ")"])}`;
+      const verdict = pageQuantityVerdict(sourceText, quantity);
+      if (allowed.has(word.toLowerCase())) {
+        expect(verdict.ok, sourceText).toBe(true);
+        admitted++;
+      } else {
+        expect(verdict, sourceText).toMatchObject({ ok: false, reason: "qty_missing" });
+        refused++;
+      }
+    }
+    expect(admitted).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
   });
 });
 

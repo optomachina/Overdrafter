@@ -66,12 +66,50 @@ export const PRICE_TOLERANCE_CENTS_PER_PIECE = 1;
 const isQuantity = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
+/** The only words that may follow a page quantity integer. Anything else fails closed. */
+export const PAGE_QUANTITY_UNITS = ["pc", "pcs", "piece", "pieces", "part", "parts", "unit", "units", "ea", "each"] as const;
+const PAGE_QUANTITY_DELIMITERS = [";", ",", "|", ")", "\n"];
+
+/** Skip whitespace on the current line; a newline is a field delimiter, not padding. */
+const skipInlineSpace = (text: string, cursor: number) => {
+  while (cursor < text.length && text[cursor] !== "\n" && /\s/.test(text[cursor])) cursor++;
+  return cursor;
+};
+
+/**
+ * True when the field ends at cursor: optional inline whitespace, then end of text or a
+ * delimiter. A digit right after the delimiter (1,000 or 1;000) is a grouped number.
+ */
+const fieldEndsAt = (text: string, cursor: number) => {
+  cursor = skipInlineSpace(text, cursor);
+  if (cursor >= text.length) return true;
+  if (!PAGE_QUANTITY_DELIMITERS.includes(text[cursor])) return false;
+  cursor++;
+  while (cursor < text.length && /\s/.test(text[cursor])) cursor++;
+  return cursor >= text.length || !/[0-9]/.test(text[cursor]);
+};
+
+/** After the integer: the field ends, or one allow-listed unit word ends it. */
+const quantitySuffixAllowed = (text: string, cursor: number) => {
+  if (fieldEndsAt(text, cursor)) return true;
+  cursor = skipInlineSpace(text, cursor);
+  const word = /^[A-Za-z]+/.exec(text.slice(cursor))?.[0];
+  return (
+    word !== undefined &&
+    PAGE_QUANTITY_UNITS.some((unit) => unit === word.toLowerCase()) &&
+    fieldEndsAt(text, cursor + word.length)
+  );
+};
+
 /**
  * Read only canonical unsigned integer tokens following quantity/qty labels. Every label
  * must name the expected value; unrelated numbers cannot supply the quantity.
  * Scan each label and its token once, without a backtracking number search.
+ * Only an allow-listed suffix may follow the integer (ranges, multipliers, prose fail).
  */
 const sourceShowsQuantity = (sourceText: string, value: number) => {
+  // A label glued to digits (Qty1000) is never read; it poisons the whole text.
+  if (/(?:quantity|qty)(?=[0-9])/i.test(sourceText)) return false;
   const labels = /\b(?:quantity|qty)\b/gi;
   let found = false;
   for (const label of sourceText.matchAll(labels)) {
@@ -87,18 +125,8 @@ const sourceShowsQuantity = (sourceText: string, value: number) => {
     const start = cursor;
     while (cursor < sourceText.length && /[0-9]/.test(sourceText[cursor])) cursor++;
     const token = sourceText.slice(start, cursor);
-    let suffix = cursor;
-    while (suffix < sourceText.length && /\s/.test(sourceText[suffix])) suffix++;
-    // Only whitespace, prose or a field delimiter may follow the integer.
-    // A digit after whitespace is still part of an ambiguous numeric form;
-    // never validate just its prefix or normalize grouping separators away.
-    if (
-      !/^[1-9][0-9]*$/.test(token) ||
-      (cursor < sourceText.length && !/[\s;]/.test(sourceText[cursor])) ||
-      (suffix < sourceText.length && !/[A-Za-z;]/.test(sourceText[suffix])) ||
-      /^[ex]\s*[+-]?\s*[0-9]/i.test(sourceText.slice(suffix)) ||
-      Number(token) !== value
-    ) {
+    // Never validate just a prefix of an ambiguous numeric form or normalize it.
+    if (!/^[1-9][0-9]*$/.test(token) || !quantitySuffixAllowed(sourceText, cursor) || Number(token) !== value) {
       return false;
     }
     found = true;
