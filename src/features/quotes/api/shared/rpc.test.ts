@@ -1,23 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
-import { callRpc, callUntypedRpc, untypedSupabase } from "./rpc";
 import { supabase } from "@/integrations/supabase/client";
-import { __resetWorkerWakeForTests } from "./worker-wake";
+
+let callRpc: typeof import("./rpc")["callRpc"];
+let callUntypedRpc: typeof import("./rpc")["callUntypedRpc"];
+let untypedSupabase: typeof import("./rpc")["untypedSupabase"];
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: { rpc: vi.fn(), functions: { invoke: vi.fn() } },
 }));
 
+beforeEach(async () => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  ({ callRpc, callUntypedRpc, untypedSupabase } = await import("./rpc"));
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
+
 describe("RPC timeout handling", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
-
   it("should timeout callUntypedRpc after 30 seconds by default", async () => {
     const slowRpcPromise = new Promise<PostgrestSingleResponse<unknown>>(() => {
       // Never resolves
@@ -125,19 +132,9 @@ describe.each(["typed", "untyped"] as const)("%s RPC worker wake", (kind) => {
   const invoke = vi.mocked(supabase.functions.invoke);
 
   beforeEach(() => {
-    vi.useFakeTimers();
-    __resetWorkerWakeForTests();
     vi.stubEnv("VITE_WORKER_WAKE_ON_SUBMIT", "true");
     vi.spyOn(untypedSupabase, "rpc").mockResolvedValue(successResponse);
     invoke.mockResolvedValue({ data: {}, error: null });
-  });
-
-  afterEach(() => {
-    __resetWorkerWakeForTests();
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
-    vi.clearAllTimers();
-    vi.useRealTimers();
   });
 
   it("wakes once after success and returns the original response", async () => {
@@ -216,18 +213,50 @@ describe.each(["typed", "untyped"] as const)("%s RPC worker wake", (kind) => {
   });
 
   it("preserves RPC success when the wake invocation rejects", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     invoke.mockRejectedValue(new Error("Sensitive wake failure payload"));
     await expect(submit()).resolves.toBe(successResponse);
     expect(invoke).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("worker wake request failed");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Sensitive wake failure payload");
   });
 
   it("preserves RPC success when the wake invocation throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     invoke.mockImplementation(() => {
       throw new Error("Sensitive wake failure payload");
     });
     await expect(submit()).resolves.toBe(successResponse);
     expect(invoke).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("worker wake request failed");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Sensitive wake failure payload");
   });
+
+  it.each([
+    ["api_request_quotes", { p_job_ids: ["job-1"] as string[] }],
+    ["api_enqueue_debug_vendor_quote", {
+      p_part_id: "part-1",
+      p_quote_run_id: "run-1",
+      p_requested_quantity: 1,
+      p_vendor: "xometry",
+    }],
+    ["api_request_manual_quote", { p_job_id: "job-1" }],
+    ["api_request_manual_quotes", { p_job_ids: ["job-1"] as string[] }],
+  ] as const)("does not wake for removed RPC %s", async (fn, args) => {
+    const result = kind === "typed"
+      ? callRpc(fn, args)
+      : callUntypedRpc(fn, args);
+    await expect(result).resolves.toBe(successResponse);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  if (kind === "untyped") {
+    it("wakes after an untyped export marking rescan succeeds", async () => {
+      await expect(callUntypedRpc("api_request_export_marking_rescan", { p_job_id: "job-1" }))
+        .resolves.toBe(successResponse);
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("worker-wake", { body: {} });
+    });
+  }
 
   it("does not wake for a non-allowlisted RPC", async () => {
     const read = kind === "typed"
