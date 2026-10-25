@@ -785,6 +785,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   const exportScanOutcomes: ExportScanOutcomes = {};
   try {
     const identityContext = await fetchPartContext(supabase, task.part_id!);
+    organizationIdForError = identityContext.part.organization_id;
+    partIdForError = identityContext.part.id;
     const identityStageDir = await createRunDir(config, ["identity", task.id]);
     runDir = identityStageDir;
     const identityStagedCad = await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
@@ -861,9 +863,21 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
               : null,
           extractText: extractPdfText,
         }, exportScanOutcomes);
-        // OVD-1067: 0 approved is a review hold (fields need review; the job
-        // stays 'extracting'), so the task completes with reviewRequired.
-        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
+        // A missing approval for this part is a review hold, even when the
+        // job-wide RPC count includes approvals for other parts.
+        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!, identityContext.part.id);
+        await logWorkerAuditEvent(supabase, {
+          organizationId: identityContext.part.organization_id,
+          jobId: task.job_id!,
+          eventType: "worker.extraction_completed",
+          payload: {
+            partId: identityContext.part.id,
+            reusedCanonicalPartVersion: true,
+            sourcePartId,
+            autoApprovedPartCount: autoApproval.approvedCount,
+            reviewRequired: autoApproval.reviewHold,
+          },
+        });
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
@@ -941,8 +955,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         logCadPreviewWarning(task, enqueueError);
       }
     }
-    // OVD-1067: 0 approved is a review hold, not a failure (see above).
-    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
+    // A missing approval for this part is a review hold, not a failure.
+    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!, context.part.id);
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
       extraction,

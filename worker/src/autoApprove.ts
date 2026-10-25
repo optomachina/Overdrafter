@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type AutoApproveResult = {
   approvedCount: number;
   /**
-   * OVD-1067: the RPC approved nothing because a field needs human review
+   * This part has no approved requirements because a field needs human review
    * (for example title-block fields while DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL
    * is off). The extraction stays needs_review. The job is NOT moved to
    * needs_spec_review here: the RPC runs while this task is still 'running', so
@@ -15,6 +15,7 @@ export type AutoApproveResult = {
 export async function autoApproveJobRequirements(
   supabase: SupabaseClient,
   jobId: string,
+  partId: string,
 ): Promise<AutoApproveResult> {
   const { data, error } = await supabase.rpc("api_auto_approve_job_requirements", {
     p_job_id: jobId,
@@ -32,5 +33,16 @@ export async function autoApproveJobRequirements(
     throw new Error(`Auto-approval returned an invalid approved requirement count for job ${jobId}.`);
   }
 
-  return { approvedCount, reviewHold: approvedCount === 0 };
+  const { data: approvedPart, error: approvedPartError } = await supabase
+    .from("approved_part_requirements")
+    .select("id")
+    .eq("part_id", partId)
+    .limit(1)
+    .maybeSingle();
+
+  if (approvedPartError) {
+    throw approvedPartError;
+  }
+
+  return { approvedCount, reviewHold: !approvedPart };
 }
