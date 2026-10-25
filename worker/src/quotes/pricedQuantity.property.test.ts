@@ -129,41 +129,66 @@ describe("admitPrice properties", () => {
   });
 
   it("refuses total = unit × qty × k for integer k >= 2 once the gap exceeds tolerance", () => {
+    const counts = { admitted: 0, invariant_failed: 0 };
+    const scaledArb = fc.oneof(
+      fc.tuple(qtyArb, fc.constant(1), fc.constant(2)), // Exactly at tolerance.
+      fc.tuple(
+        qtyArb,
+        fc.integer({ min: 2, max: MAX_UNIT_CENTS / MAX_SCALE }),
+        fc.integer({ min: 2, max: MAX_SCALE }),
+      ),
+    );
     fc.assert(
       fc.property(
-        qtyArb,
-        fc.integer({ min: 1, max: MAX_UNIT_CENTS / MAX_SCALE }),
-        fc.integer({ min: 2, max: MAX_SCALE }),
-        (qty, unitCents, k) => {
+        scaledArb,
+        ([qty, unitCents, k]) => {
           const expected = unitCents * qty;
           const scaled = expected * k;
           const verdict = admitPrice(priced(unitCents, scaled, qty));
           if (Math.abs(scaled - expected) > tolerance(qty)) {
             expect(verdict).toMatchObject({ ok: false, reason: "invariant_failed" });
+            counts.invariant_failed++;
           } else {
-            expect(verdict.ok).toBe(true);
+            expect(verdict).toMatchObject({ ok: true, value: { total: { cents: scaled } } });
+            counts.admitted++;
           }
         },
       ),
       params,
     );
+    expect(counts.admitted).toBeGreaterThanOrEqual(50);
+    expect(counts.invariant_failed).toBeGreaterThanOrEqual(50);
+    console.log("×k coverage", counts);
   });
 
   it("refuses total = unit × qty ÷ k for integer k >= 2 once the gap exceeds tolerance", () => {
+    const counts = { admitted: 0, invariant_failed: 0 };
+    const dividedArb = fc.oneof(
+      fc.tuple(qtyArb, fc.constant(2), fc.constant(2)), // Exactly at tolerance.
+      fc.tuple(
+        qtyArb,
+        fc.integer({ min: MAX_SCALE, max: MAX_UNIT_CENTS }),
+        fc.integer({ min: 2, max: MAX_SCALE }),
+      ), // Constructively keeps the divided total positive.
+    );
     fc.assert(
-      fc.property(qtyArb, centsArb, fc.integer({ min: 2, max: MAX_SCALE }), (qty, unitCents, k) => {
+      fc.property(dividedArb, ([qty, unitCents, k]) => {
         const expected = unitCents * qty;
         const divided = Math.floor(expected / k);
-        fc.pre(divided >= 1);
         const verdict = admitPrice(priced(unitCents, divided, qty));
         if (Math.abs(divided - expected) > tolerance(qty)) {
           expect(verdict).toMatchObject({ ok: false, reason: "invariant_failed" });
+          counts.invariant_failed++;
         } else {
-          expect(verdict.ok).toBe(true);
+          expect(verdict).toMatchObject({ ok: true, value: { total: { cents: divided } } });
+          counts.admitted++;
         }
       }),
       params,
     );
+    expect(counts.admitted).toBeGreaterThanOrEqual(50);
+    expect(counts.invariant_failed).toBeGreaterThanOrEqual(50);
+    console.log("÷k coverage", counts);
   });
 
   it("refuses a card or page quantity != requestedQuantity with qty_mismatch", () => {
@@ -238,6 +263,63 @@ describe("admitPrice properties", () => {
     );
   });
 
+  it("admits canonical labeled page tokens and refuses malformed tokens with qty_missing", () => {
+    const counts = { admitted: 0, qty_missing: 0 };
+    fc.assert(
+      fc.property(
+        qtyArb,
+        fc.constantFrom("Quantity", "qty", "QTY"),
+        fc.constantFrom(" ", ": ", " = "),
+        fc.boolean(),
+        fc.constantFrom("leadingZero", "grouping", "exponent", "hex", "spacedDigit", "fraction", "nonAscii", "conflict"),
+        (qty, label, separator, canonical, malformed) => {
+          const badTokens: Record<string, string> = {
+            leadingZero: `0${qty}`,
+            grouping: `${qty},000`,
+            exponent: `${qty}e3`,
+            hex: `${qty}x2`,
+            spacedDigit: `${qty} 0`,
+            fraction: `${qty}.5`,
+            nonAscii: String(qty).replace(/[0-9]/g, (digit) => String.fromCharCode(0x660 + Number(digit))),
+            conflict: `${qty}; qty ${qty + 1}`,
+          };
+          const input = priced(100, 100 * qty, qty);
+          input.pageQuantity = { value: qty, sourceText: `${label}${separator}${canonical ? qty : badTokens[malformed]}` };
+          const verdict = admitPrice(input);
+          if (canonical) {
+            expect(verdict).toMatchObject({ ok: true, value: { quantity: qty } });
+            counts.admitted++;
+          } else {
+            expect(verdict).toMatchObject({ ok: false, reason: "qty_missing" });
+            counts.qty_missing++;
+          }
+        },
+      ),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("page token coverage", counts);
+  });
+
+  it("refuses unit × quantity overflow with invariant_failed", () => {
+    const counts = { invariant_failed: 0 };
+    fc.assert(
+      fc.property(multiQtyArb, (qty) => {
+        // Both observed amounts remain safe integers; only their product overflows.
+        const unitCents = Math.floor(Number.MAX_SAFE_INTEGER / qty) + 1;
+        expect(admitPrice(priced(unitCents, 1, qty))).toEqual({
+          ok: false,
+          reason: "invariant_failed",
+          detail: { unitCents, totalCents: 1, quantity: qty, overflow: true },
+        });
+        counts.invariant_failed++;
+      }),
+      params,
+    );
+    expect(counts.invariant_failed).toBeGreaterThanOrEqual(50);
+    console.log("overflow coverage", counts);
+  });
+
   it("re-admits a JSON round-tripped admitted value to a deep-equal value", () => {
     // Both sides observed for any qty, or one side observed for qty 1.
     const admittedInput: fc.Arbitrary<AdmitPriceInput> = fc.oneof(
@@ -285,49 +367,181 @@ describe("admitPrice properties", () => {
     );
   });
 
-  it("never admits a qty-piece page total when one piece was requested", () => {
-    // The page priced qty >= 2 pieces: unitCents each, pageTotal for all of them.
-    // The adapter may report or lose the card and page quantities (or misread the
-    // page control as 1) and may label any of the page amounts any way; none of
-    // that may publish pageTotal for one piece.
-    const amountArb = (pageAmounts: number[]) =>
-      fc.oneof(fc.constantFrom(...pageAmounts), centsArb);
-    const arb = fc
-      .tuple(multiQtyArb, fc.integer({ min: 1, max: MAX_UNIT_CENTS / 10 }))
-      .chain(([qty, unitCents]) => {
-        const pageTotal = unitCents * qty;
-        const page = [unitCents, pageTotal];
-        const input: fc.Arbitrary<AdmitPriceInput> = fc.record({
-          requestedQuantity: fc.constant(1),
-          quantity: fc.constantFrom<number | null | undefined>(qty, null, undefined, 0),
-          pageQuantity: fc.constantFrom<AdmitPriceInput["pageQuantity"]>(
-            pageQty(qty),
-            pageQty(1),
-            { value: 1, sourceText: `Quantity ${qty}` },
-            null,
-            undefined,
-          ),
-          unit: fc.option(
-            fc.record(
-              { cents: amountArb(page), currency: fc.constant("USD"), label: unitLabelArb },
-              { requiredKeys: ["cents", "currency"] },
-            ),
-          ),
-          total: fc.option(
-            fc.record(
-              { cents: amountArb(page), currency: fc.constant("USD"), label: totalLabelArb },
-              { requiredKeys: ["cents", "currency"] },
-            ),
-          ),
-        });
-        return fc.tuple(fc.constant(pageTotal), input);
-      });
+  it("admits the observed multi-piece total when every quantity signal incorrectly says 1", () => {
+    // admitPrice cannot detect a stale multi-piece amount when every quantity
+    // signal says 1. Accurate page-quantity read-back belongs to the adapter /
+    // collector; this property documents the residual risk rather than safety.
+    const counts = { unitOnly: 0, totalOnly: 0, both: 0 };
     fc.assert(
-      fc.property(arb, ([pageTotal, input]) => {
-        const verdict = admitPrice(input);
-        expect(verdict.ok && verdict.value.total.cents === pageTotal).toBe(false);
+      fc.property(
+        multiQtyArb,
+        centsArb,
+        fc.constantFrom("unitOnly" as const, "totalOnly" as const, "both" as const),
+        (actualPageQty, unitCents, observed) => {
+          const observedCents = unitCents * actualPageQty;
+          const verdict = admitPrice({
+            requestedQuantity: 1,
+            quantity: 1,
+            pageQuantity: pageQty(1),
+            unit: observed === "totalOnly" ? null : unitOf(observedCents),
+            total: observed === "unitOnly" ? null : totalOf(observedCents),
+          });
+          expect(verdict).toEqual({
+            ok: true,
+            value: {
+              quantity: 1,
+              requestedQuantity: 1,
+              unit: { cents: observedCents, currency: "USD" },
+              total: { cents: observedCents, currency: "USD" },
+              unitSource: observed === "totalOnly" ? "derived" : "observed",
+              totalSource: observed === "unitOnly" ? "derived" : "observed",
+            },
+          });
+          counts[observed]++;
+        },
+      ),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("all signals say 1: admitted coverage", counts);
+  });
+
+  it("refuses a card quantity other than 1 when one piece was requested", () => {
+    const counts = { qty_missing: 0, qty_mismatch: 0 };
+    const cardQtyArb = fc.oneof(
+      multiQtyArb,
+      fc.constantFrom(null, undefined, 0),
+    );
+    fc.assert(
+      fc.property(cardQtyArb, centsArb, (quantity, observedCents) => {
+        const reason = quantity == null || quantity === 0 ? "qty_missing" : "qty_mismatch";
+        const verdict = admitPrice({
+          requestedQuantity: 1,
+          quantity,
+          pageQuantity: pageQty(1),
+          unit: unitOf(observedCents),
+          total: totalOf(observedCents),
+        });
+        expect(verdict).toMatchObject({ ok: false, reason });
+        counts[reason]++;
       }),
       params,
     );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("card quantity other than 1 coverage", counts);
+  });
+
+  it("refuses both amounts absent with both_derived", () => {
+    const counts = { both_derived: 0 };
+    fc.assert(
+      fc.property(qtyArb, fc.constantFrom(null, undefined), fc.constantFrom(null, undefined), (qty, unit, total) => {
+        expect(admitPrice({ ...priced(1, qty, qty), unit, total })).toEqual({
+          ok: false,
+          reason: "both_derived",
+          detail: { unitObserved: false, totalObserved: false },
+        });
+        counts.both_derived++;
+      }),
+      params,
+    );
+    expect(counts.both_derived).toBeGreaterThanOrEqual(50);
+    console.log("both_derived coverage", counts);
+  });
+
+  it("refuses non-USD observed amounts with currency", () => {
+    const counts = { unit: 0, total: 0, both: 0 };
+    fc.assert(
+      fc.property(
+        qtyArb, centsArb,
+        fc.constantFrom("EUR", "CAD", "usd", ""),
+        fc.constantFrom("unit" as const, "total" as const, "both" as const),
+        (qty, unitCents, currency, side) => {
+          const input = priced(unitCents, unitCents * qty, qty);
+          if (side !== "total") input.unit = { ...unitOf(unitCents), currency };
+          if (side !== "unit") input.total = { ...totalOf(unitCents * qty), currency };
+          expect(admitPrice(input)).toMatchObject({ ok: false, reason: "currency" });
+          counts[side]++;
+        },
+      ),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("currency coverage", counts);
+  });
+
+  it("refuses non-positive or unsafe observed cents with non_positive", () => {
+    const counts = { unit: 0, total: 0, both: 0 };
+    const invalidCentsArb = fc.oneof(
+      fc.integer({ min: -MAX_UNIT_CENTS, max: 0 }),
+      fc.double({ noInteger: true }),
+      fc.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1),
+    );
+    fc.assert(
+      fc.property(
+        qtyArb, centsArb, invalidCentsArb,
+        fc.constantFrom("unit" as const, "total" as const, "both" as const),
+        (qty, unitCents, invalidCents, side) => {
+          const input = priced(unitCents, unitCents * qty, qty);
+          if (side !== "total") input.unit = unitOf(invalidCents);
+          if (side !== "unit") input.total = totalOf(invalidCents);
+          expect(admitPrice(input)).toMatchObject({ ok: false, reason: "non_positive" });
+          counts[side]++;
+        },
+      ),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("non_positive coverage", counts);
+  });
+
+  it("refuses missing or unsupported observed labels with ambiguous_label", () => {
+    const counts = { unit: 0, total: 0 };
+    fc.assert(
+      fc.property(
+        qtyArb, centsArb,
+        fc.constantFrom(undefined, "", "price", "wrongSide"),
+        fc.boolean(),
+        (qty, unitCents, label, onUnit) => {
+          const input = priced(unitCents, unitCents * qty, qty);
+          // Deliberately model malformed runtime labels beyond the static union.
+          if (onUnit) {
+            input.unit = { ...unitOf(unitCents), label: (label === "wrongSide" ? "total" : label) as "each" | undefined };
+          } else {
+            input.total = { ...totalOf(unitCents * qty), label: (label === "wrongSide" ? "each" : label) as "total" | undefined };
+          }
+          expect(admitPrice(input)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+          counts[onUnit ? "unit" : "total"]++;
+        },
+      ),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("ambiguous_label: invalid labels coverage", counts);
+  });
+
+  it("refuses a lone labeled amount for multiple pieces with ambiguous_label", () => {
+    const counts = { unitOnly: 0, totalOnly: 0 };
+    fc.assert(
+      fc.property(multiQtyArb, centsArb, fc.boolean(), (qty, unitCents, unitOnly) => {
+        const input = priced(unitCents, unitCents * qty, qty);
+        if (unitOnly) input.total = null;
+        else input.unit = null;
+        expect(admitPrice(input)).toEqual({
+          ok: false,
+          reason: "ambiguous_label",
+          detail: {
+            unitObserved: unitOnly,
+            totalObserved: !unitOnly,
+            unitLabeled: unitOnly,
+            totalLabeled: !unitOnly,
+            quantity: qty,
+          },
+        });
+        counts[unitOnly ? "unitOnly" : "totalOnly"]++;
+      }),
+      params,
+    );
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    console.log("ambiguous_label: lone amount coverage", counts);
   });
 });
