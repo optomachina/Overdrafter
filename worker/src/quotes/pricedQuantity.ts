@@ -75,7 +75,7 @@ const isQuantity = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
 /**
- * Read only unsigned integer tokens following quantity/qty labels. Every label
+ * Read only canonical unsigned integer tokens following quantity/qty labels. Every label
  * must name the expected value; unrelated numbers cannot supply the quantity.
  * Scan each label and its token once, without a backtracking number search.
  */
@@ -93,12 +93,19 @@ const sourceShowsQuantity = (sourceText: string, value: number) => {
     if (cursor === whitespaceStart) return false;
 
     const start = cursor;
-    while (cursor < sourceText.length && /[0-9,]/.test(sourceText[cursor])) cursor++;
+    while (cursor < sourceText.length && /[0-9]/.test(sourceText[cursor])) cursor++;
     const token = sourceText.slice(start, cursor);
+    let suffix = cursor;
+    while (suffix < sourceText.length && /\s/.test(sourceText[suffix])) suffix++;
+    // Only whitespace, prose or a field delimiter may follow the integer.
+    // A digit after whitespace is still part of an ambiguous numeric form;
+    // never validate just its prefix or normalize grouping separators away.
     if (
-      !/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/.test(token) ||
-      (cursor < sourceText.length && /[\w.+-]/.test(sourceText[cursor])) ||
-      Number(token.replace(/,/g, "")) !== value
+      !/^[1-9][0-9]*$/.test(token) ||
+      (cursor < sourceText.length && !/[\s;]/.test(sourceText[cursor])) ||
+      (suffix < sourceText.length && !/[A-Za-z;]/.test(sourceText[suffix])) ||
+      /^[ex]\s*[+-]?\s*[0-9]/i.test(sourceText.slice(suffix)) ||
+      Number(token) !== value
     ) {
       return false;
     }

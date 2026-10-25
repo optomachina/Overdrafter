@@ -97,8 +97,8 @@ describe("admitPrice admissions", () => {
     expect(admitPrice({ ...input, pageQuantity: page(10) })).toMatchObject({ ok: false, reason: "qty_mismatch" });
   });
 
-  it("reads thousands-separated page quantities", () => {
-    const pageQuantity = { value: 1000, sourceText: "Qty: 1,000 pcs" };
+  it("reads plain integer page quantities", () => {
+    const pageQuantity = { value: 1000, sourceText: "Qty: 1000 pcs" };
     expect(admitPrice({ requestedQuantity: 1000, quantity: 1000, pageQuantity, unit: each(5), total: total(5000) }).ok).toBe(true);
   });
 
@@ -127,6 +127,17 @@ describe("page quantity labeled tokens", () => {
     ["Qty 1; Quantity 10", 1],
     ["Qty 10; Quantity 1", 1],
     ["Qty 1,00", 100],
+    ["Qty 01", 1],
+    ["Qty 1/2", 1],
+    ["Qty 1 / 2", 1],
+    ["Qty 1'000", 1],
+    ["Qty 1_000", 1],
+    ["Qty 1–10", 1],
+    ["Qty 1 - 10", 1],
+    ["Qty 1 e3", 1],
+    ["Qty 1 x 1000", 1],
+    ["Qty 1\u200b000", 1],
+    ["Qty 1\u0660\u0660\u0660", 1],
   ])("rejects %s with page value %i", (sourceText, quantity) => {
     expect(admitPrice({
       requestedQuantity: quantity,
@@ -141,9 +152,30 @@ describe("page quantity labeled tokens", () => {
     });
   });
 
+  it.each(["1 000", "1,000", "1.000", "1\u2009000", "1\u202f000", "1\u00a0000"])(
+    "rejects grouped quantity %s without accepting its prefix or normalizing it",
+    (token) => {
+      for (const quantity of [1, 1000]) {
+        expect(admitPrice({
+          requestedQuantity: quantity,
+          quantity,
+          pageQuantity: { value: quantity, sourceText: `Qty ${token}` },
+          unit: each(5),
+          total: total(5 * quantity),
+        })).toMatchObject({
+          ok: false,
+          reason: "qty_missing",
+          detail: { pageQuantitySourceValid: false },
+        });
+      }
+    },
+  );
+
   it.each([
-    ["Qty: 1,000", 1000],
-    ["qty 1,000", 1000],
+    ["Qty 1", 1],
+    ["Qty 1000", 1000],
+    ["Qty: 1000", 1000],
+    ["qty 1000", 1000],
     ["QUANTITY = 10", 10],
     ["Qty 10; Quantity: 10; part 1", 10],
   ])("admits %s with page value %i", (sourceText, quantity) => {
