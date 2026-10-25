@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,9 +9,11 @@ import { setImmediate } from "node:timers/promises";
 
 const SCRIPT = resolve(fileURLToPath(new URL("./vercel-ignore-build.sh", import.meta.url)));
 const temps = [];
-afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 // Synchronous Git/subprocess fixtures must yield so Vitest can report progress.
-afterEach(() => setImmediate());
+afterEach(async () => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+  await setImmediate();
+});
 
 const git = (cwd, ...args) =>
   execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", ...args], {
