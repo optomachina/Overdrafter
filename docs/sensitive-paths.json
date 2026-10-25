@@ -90,6 +90,8 @@
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
     { "glob": "docs/agent-graph/**", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-graph*", "class": "infra_ci" },
+    { "glob": "docs/agent-graph/model-routing.yaml", "class": "infra_ci" },
+    { "glob": "scripts/model-routing-drift*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-*", "class": "infra_ci" },
     { "glob": "scripts/validate-pr-body.mjs", "class": "infra_ci" },
     { "glob": "scripts/ephemeral-db-apply.mjs", "class": "infra_ci" },
@@ -184,6 +186,8 @@
     { "glob": "scripts/verify-ovd417-*", "class": "infra_ci" },
     { "glob": "scripts/prepare-ovd373-schema-restore*", "class": "infra_ci" },
     { "glob": "scripts/compare-ovd372-app-schema*", "class": "infra_ci" },
+    { "glob": "scripts/vendor-pr-serialization*", "class": "infra_ci" },
+    { "glob": ".github/workflows/vendor-pr-serialization.yml", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },

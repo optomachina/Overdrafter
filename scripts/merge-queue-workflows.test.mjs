@@ -68,6 +68,37 @@ describe("merge queue workflows", () => {
     });
   }
 
+  describe("vendor PR serialization", () => {
+    const text = readWorkflow("vendor-pr-serialization.yml");
+    const steps = jobBlock(text, "vendor-pr-serialization").split(/^ {6}- /m).slice(1);
+    const queuedCheck = steps.find((step) => step.startsWith("name: Check queued vendor PR\n"));
+
+    it("checks out the merge group's base revision separately without persisted credentials", () => {
+      const baseCheckout = steps.find((step) => /^ {10}path: base$/m.test(step));
+      expect(baseCheckout).toBeDefined();
+      expect(baseCheckout).toMatch(/^uses: actions\/checkout@/);
+      expect(baseCheckout).toContain("if: github.event_name == 'merge_group'");
+      expect(baseCheckout).toContain("ref: ${{ github.event.merge_group.base_sha }}");
+      expect(baseCheckout).toContain("persist-credentials: false");
+      expect(baseCheckout).not.toContain("sparse-checkout:");
+      expect(steps.indexOf(baseCheckout)).toBeLessThan(steps.indexOf(queuedCheck));
+    });
+
+    it("imports and executes the queued check from the base copy", () => {
+      expect(queuedCheck).toContain("if: github.event_name == 'merge_group'");
+      expect(queuedCheck).toContain("from './base/scripts/vendor-pr-serialization.mjs'");
+      expect(queuedCheck).toContain("'base/scripts/vendor-pr-serialization.mjs', '--pr', String(pr)");
+      expect(queuedCheck).not.toMatch(/['"](?:\.\/)?scripts\/vendor-pr-serialization\.mjs['"]/);
+    });
+
+    it("keeps only read access to contents and pull requests", () => {
+      expect(text.match(/^permissions:\n((?: {2}.*\n)+)/m)?.[1]).toBe(
+        "  contents: read\n  pull-requests: read\n",
+      );
+      expect(jobBlock(text, "vendor-pr-serialization")).not.toMatch(/^ {4}permissions:/m);
+    });
+  });
+
   it("lists exactly the required checks in the runbook", () => {
     const runbook = read("docs/runbooks/merge-queue.md");
     const names = REQUIRED_CHECKS.map((check) => `\`${check.job}\``).join(", ");

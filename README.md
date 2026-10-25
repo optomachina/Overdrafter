@@ -262,6 +262,7 @@ public-link requirements. Credentials and reviewer accounts must never be commit
 
 ```bash
 npm install
+npm --prefix worker ci
 cp .env.example .env
 npm run generate:favicon
 npm run dev
