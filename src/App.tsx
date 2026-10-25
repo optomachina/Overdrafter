@@ -18,30 +18,31 @@ import { ExportControlDeclarationDialogHost } from "@/components/quotes/ExportCo
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 import { canOpenEngineeringWorkbench } from "@/lib/engineering-workbench-access";
-import Index from "./pages/Index";
-import SignIn from "./pages/SignIn";
-import NotFound from "./pages/NotFound";
-import JobCreate from "./pages/JobCreate";
-import InternalAdmin from "./pages/InternalAdmin";
-import InternalJobDetail from "./pages/InternalJobDetail";
-import CommercialAccounts from "./pages/CommercialAccounts";
-import CommercialAccountDetail from "./pages/CommercialAccountDetail";
-import ClientPackage from "./pages/ClientPackage";
-import AuthCallback from "./pages/AuthCallback";
-import DevLogin from "./pages/DevLogin";
-import ClientProject from "./pages/ClientProject";
-import ClientPart from "./pages/ClientPart";
-import ClientParts from "./pages/ClientParts";
-import ClientQuotes from "./pages/ClientQuotes";
-import ClientQuoteDetail from "./pages/ClientQuoteDetail";
-import ClientSearch from "./pages/ClientSearch";
-import ClientPartReview from "./pages/ClientPartReview";
-import ClientProjectReview from "./pages/ClientProjectReview";
-import SharedInvite from "./pages/SharedInvite";
-import StateGallery from "./pages/StateGallery";
-import LegalPolicies from "./pages/LegalPolicies";
-import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
+
+const Index = lazy(() => import("./pages/Index"));
+const SignIn = lazy(() => import("./pages/SignIn"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const JobCreate = lazy(() => import("./pages/JobCreate"));
+const InternalAdmin = lazy(() => import("./pages/InternalAdmin"));
+const InternalJobDetail = lazy(() => import("./pages/InternalJobDetail"));
+const CommercialAccounts = lazy(() => import("./pages/CommercialAccounts"));
+const CommercialAccountDetail = lazy(() => import("./pages/CommercialAccountDetail"));
+const ClientPackage = lazy(() => import("./pages/ClientPackage"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const DevLogin = lazy(() => import("./pages/DevLogin"));
+const ClientProject = lazy(() => import("./pages/ClientProject"));
+const ClientPart = lazy(() => import("./pages/ClientPart"));
+const ClientParts = lazy(() => import("./pages/ClientParts"));
+const ClientQuotes = lazy(() => import("./pages/ClientQuotes"));
+const ClientQuoteDetail = lazy(() => import("./pages/ClientQuoteDetail"));
+const ClientSearch = lazy(() => import("./pages/ClientSearch"));
+const ClientPartReview = lazy(() => import("./pages/ClientPartReview"));
+const ClientProjectReview = lazy(() => import("./pages/ClientProjectReview"));
+const SharedInvite = lazy(() => import("./pages/SharedInvite"));
+const StateGallery = lazy(() => import("./pages/StateGallery"));
+const LegalPolicies = lazy(() => import("./pages/LegalPolicies"));
+const ConceptsGallery = lazy(() => import("@/concepts/ConceptsGallery").then((m) => ({ default: m.ConceptsGallery })));
 
 const JarvisThreadPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisThreadPreview")) : null;
 const JarvisArPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisArPreview")) : null;
@@ -150,42 +151,44 @@ const App = () => {
           <ExtractionLauncher hideFloatingButton />
           {shouldRenderAgentation() && <AnnotationToolbar />}
           <AppErrorBoundary>
-            <Routes>
-              {JarvisThreadPreview && <Route path="/dev/jarvis-thread" element={<Suspense fallback={<p>Opening thread</p>}><JarvisThreadPreview /></Suspense>} />}
-              {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
-                ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
-                : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
-              {JarvisArPreview && <Route path="/dev/jarvis-ar" element={<Suspense fallback={<p>Opening AR preview</p>}><JarvisArPreview /></Suspense>} />}
-              <Route path="/" element={<Index />} />
-              <Route path="/parts" element={<ClientParts />} />
-              <Route path="/projects/:projectId" element={<ClientProject />} />
-              <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
-              <Route path="/parts/:jobId" element={<ClientPart />} />
-              <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
-              <Route path="/quotes" element={<ClientQuotes />} />
-              <Route path="/quotes/:quoteCode" element={<ClientQuoteDetail />} />
-              <Route path="/search" element={<ClientSearch />} />
-              <Route path="/shared/:inviteToken" element={<SharedInvite />} />
-              <Route path="/jobs/new" element={<JobCreate />} />
-              <Route path="/internal/admin" element={<InternalAdmin />} />
-              <Route path="/internal/commercial" element={<CommercialAccounts />} />
-              <Route
-                path="/internal/commercial/:organizationId"
-                element={<CommercialAccountDetail />}
-              />
-              <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
-              <Route path="/client/packages/:packageId" element={<ClientPackage />} />
-              <Route path="/signin" element={<SignIn />} />
-              <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route path="/legal/terms" element={<LegalPolicies policy="terms" />} />
-              <Route path="/legal/beta-terms" element={<LegalPolicies policy="terms" />} />
-              <Route path="/legal/privacy" element={<LegalPolicies policy="privacy" />} />
-              <Route path="/dev-login" element={<DevLogin />} />
-              <Route path="/debug/state-gallery" element={<StateGallery />} />
-              <Route path="/debug/concepts" element={<ConceptsGallery />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <Suspense fallback={<output className="block p-8">Loading page…</output>}>
+              <Routes>
+                {JarvisThreadPreview && <Route path="/dev/jarvis-thread" element={<Suspense fallback={<p>Opening thread</p>}><JarvisThreadPreview /></Suspense>} />}
+                {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
+                  ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
+                  : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
+                {JarvisArPreview && <Route path="/dev/jarvis-ar" element={<Suspense fallback={<p>Opening AR preview</p>}><JarvisArPreview /></Suspense>} />}
+                <Route path="/" element={<Index />} />
+                <Route path="/parts" element={<ClientParts />} />
+                <Route path="/projects/:projectId" element={<ClientProject />} />
+                <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
+                <Route path="/parts/:jobId" element={<ClientPart />} />
+                <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+                <Route path="/quotes" element={<ClientQuotes />} />
+                <Route path="/quotes/:quoteCode" element={<ClientQuoteDetail />} />
+                <Route path="/search" element={<ClientSearch />} />
+                <Route path="/shared/:inviteToken" element={<SharedInvite />} />
+                <Route path="/jobs/new" element={<JobCreate />} />
+                <Route path="/internal/admin" element={<InternalAdmin />} />
+                <Route path="/internal/commercial" element={<CommercialAccounts />} />
+                <Route
+                  path="/internal/commercial/:organizationId"
+                  element={<CommercialAccountDetail />}
+                />
+                <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
+                <Route path="/client/packages/:packageId" element={<ClientPackage />} />
+                <Route path="/signin" element={<SignIn />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/legal/terms" element={<LegalPolicies policy="terms" />} />
+                <Route path="/legal/beta-terms" element={<LegalPolicies policy="terms" />} />
+                <Route path="/legal/privacy" element={<LegalPolicies policy="privacy" />} />
+                <Route path="/dev-login" element={<DevLogin />} />
+                <Route path="/debug/state-gallery" element={<StateGallery />} />
+                <Route path="/debug/concepts" element={<ConceptsGallery />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </AppErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
