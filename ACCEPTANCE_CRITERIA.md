@@ -168,13 +168,9 @@ go/no-go gates, and every open `TODO(Blaine)` decision are in the
       self-service Pro upgrade during the Founding Beta; billing remains off and
       beta access is described truthfully.
 - [ ] `OVD-206` records five consecutive hosted-worker runs of the controlled
-      validation package defined in `docs/1-0-beta-runbook.md` on one approved
-      scope fingerprint, each returning a real Xometry offer without database
-      repair or staff UI operation. All five may use one Xometry provider
-      session (Blaine, October 13).
-- [ ] `OVD-319` proves a second, separately established Xometry provider
-      session, as defined in the runbook's session rules, before beta
-      enablement.
+      validation package defined in `docs/1-0-beta-runbook.md` over at least two
+      separate sessions, each returning a real Xometry offer without database
+      repair or staff UI operation.
 - [ ] Before the `OVD-206` series begins, the merged `OVD-408` migration and
       worker revision are deployed and the hosted path proves that each run
       preserves every purchasable Xometry variant, not only the first price and

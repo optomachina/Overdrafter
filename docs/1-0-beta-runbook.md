@@ -104,11 +104,11 @@ plus all seven" bar, and the October 11 five-provider plan.
 ### Session rules
 
 - `OVD-206`: the five consecutive runs share one approved scope fingerprint
-  and may all use one Xometry provider session (Blaine, October 13). A second
-  session is not an `OVD-206` requirement.
+  and run over at least two separate Xometry provider sessions, as
+  `ACCEPTANCE_CRITERIA.md` requires.
 - `OVD-319`: a second, separately established Xometry provider session must
-  be proved before beta enablement (moved from `OVD-206` by Blaine on October
-  13). Separately established means a new authentication of the company
+  also be proved before beta enablement, in addition to the `OVD-206`
+  sessions. Separately established means a new authentication of the company
   account through the documented recovery path, seeded as a new profile
   generation. A fresh instance that restores the same snapshot is the same
   session. `TODO(Blaine)` B4: choose the proof. This contract proposes one
@@ -338,14 +338,12 @@ that bounded authorization.
 Before any external vendor work is queued, the signed-in customer must see and
 affirm all of the following in one explicit confirmation step:
 
-1. the exact destination provider set, naming each provider (Xometry alone
-   during `OVD-206`; one confirmation covers the whole set, as decided on
-   `OVD-199`);
+1. exactly one destination provider per confirmation (Xometry is the baseline);
 2. the exact CAD and drawing filenames to be disclosed;
 3. the normalized process, material, finish, tolerance, quantity, and any
    drawing-derived requirements that will be sent;
 4. that the customer has authority to share the files and requirements with
-   each named provider;
+   that provider;
 5. that the package is non-ITAR and not otherwise export-controlled;
 6. that OverDrafter requests a quote only and has no authority to place or pay
    for a manufacturing order; and
@@ -353,7 +351,7 @@ affirm all of the following in one explicit confirmation step:
    links.
 
 The server-side record must preserve the actor, organization, timestamp, notice
-revision, each named provider, exact outbound file identities, normalized
+revision, named provider, exact outbound file identities, normalized
 requirements, and immutable disclosure-scope fingerprint. Changing any of
 those facts requires a new confirmation and a new quote scope.
 
