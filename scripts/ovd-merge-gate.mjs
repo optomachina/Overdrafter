@@ -92,6 +92,15 @@ export const IDENTITY_NOTES = Object.freeze({
 export const GITHUB_ACTIONS_APP_ID = 15368;
 /** Ruling 4: the verifier's model_family. Anything else is a malformed verdict. */
 export const MODEL_FAMILIES = Object.freeze(["claude", "codex", "grok", "jev", "human"]);
+export const MODEL_FAMILY_ALIASES = Object.freeze({ opus: "claude", sonnet: "claude" });
+export function normalizeModelFamily(value) {
+  if (MODEL_FAMILIES.includes(value)) return value;
+  return typeof value === "string" && Object.hasOwn(MODEL_FAMILY_ALIASES, value) ? MODEL_FAMILY_ALIASES[value] : null;
+}
+export const PASS_EVIDENCE_WORKFLOWS = Object.freeze([".github/workflows/ci.yml", ".github/workflows/verify.yml"]);
+// Events whose workflow YAML is read from the default branch. merge_group is
+// excluded: its YAML comes from the queue ref, and its job never writes history.
+const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "workflow_dispatch"]);
 
 /**
  * Verdict history: the durable, append-only record of trusted blocking
@@ -175,7 +184,7 @@ function parseJson(text) {
 
 function familyErrors(verdict) {
   const family = verdict?.verifier?.model_family;
-  if (MODEL_FAMILIES.includes(family)) return [];
+  if (normalizeModelFamily(family) !== null) return [];
   return [`verdict.verifier.model_family: must be one of ${MODEL_FAMILIES.join(", ")} (got ${JSON.stringify(family ?? null)})`];
 }
 
@@ -189,7 +198,7 @@ function readBlock(comment, text, block, headSha) {
   if (!entry) return { rejected: [] };
   const errors = familyErrors(entry.verdict);
   if (errors.length) return { rejected: [{ ...base, reason: "schema_error", errors, text }] };
-  return { entry: { ...base, created_at: comment.created_at, verdict: entry.verdict }, rejected: [] };
+  return { entry: { ...base, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
 }
 
 /**
@@ -582,7 +591,7 @@ function roleReasons({ candidates, deleted, bound, verified }) {
   // Ruling 6: a pass whose evidence does not resolve at its SHA never counts.
   const unverified = new Set([...verifiers, ...reviewers].filter((entry) => PASSING.has(entry.verdict.verdict) && !evidenceVerified(entry.verdict, verified)));
   for (const entry of unverified) {
-    reasons.push({ code: "evidence_unverified", detail: `${entry.verdict.role} comment ${entry.comment_id} cites no https ci-run/verify-run that is a GitHub Actions run of this repository on ${entry.verdict.sha}` });
+    reasons.push({ code: "evidence_unverified", detail: `${entry.verdict.role} comment ${entry.comment_id} cites no https ci-run/verify-run that is a successful allowed CI/Verify workflow run of this repository on ${entry.verdict.sha}` });
   }
   const counted = (entries) => entries.filter((entry) => !unverified.has(entry));
   const verifier = verifierReasons(counted(verifiers), staleVerifier);
@@ -634,10 +643,10 @@ function inputProblems({ headSha, liveHeadSha, diffIdError, comments, commits, p
  */
 function removedReasons({ input, rejected, candidates, trusted, head, bound }) {
   const deletions = carriedDeletions(deletionCandidates(input), trusted);
-  const reasons = staleTrustedEdits({ rejected, unreadableDeletions: deletions.unreadable, entries: candidates.filter(bound), trusted, head });
+  const reasons = staleTrustedEdits({ rejected, unreadableDeletions: deletions.unreadable, entries: candidates.filter((entry) => bound(entry)), trusted, head });
   const deleted = deletions.blocking
     .map((item) => ({ comment_id: item.comment_id ?? null, block: 0, created_at: item.created_at ?? null, author: item.author, verdict: deletedSnapshot(item.verdict_block), deleted: true }))
-    .filter(bound);
+    .filter((entry) => bound(entry));
   for (const entry of deleted.filter((item) => PASSING.has(item.verdict.verdict))) {
     const code = entry.verdict.role === "verifier" ? "no_qa_pass_on_head" : "no_review_on_head";
     reasons.push({ code, detail: `deleted ${entry.verdict.role} comment ${entry.comment_id} had a high note or finding` });
@@ -934,13 +943,25 @@ function jsonFromCheckRun(run) {
 
 const historyItemOk = (item) => isRecord(item) && typeof item.author === "string" && (item.verdict_block === undefined || isRecord(item.verdict_block));
 
-/**
- * Deleted trusted verdicts recorded by earlier gate runs on this head (every
- * run, filter=all). A run whose summary cannot be read fails closed: it may
- * have held a deletion.
- */
+/** Reject foreign writers before interpreting any stored gate data. */
+export async function verifyGateProvenance(client, repo, run) {
+  if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || !Number.isInteger(run?.check_suite?.id)) throw new Error("gate record has no trusted Actions check suite");
+  const repository = await client.json(`/repos/${repo}`);
+  const workflows = await client.paginate(`/repos/${repo}/actions/runs?check_suite_id=${run.check_suite.id}`, (data) => data?.workflow_runs);
+  if (workflows.length !== 1) throw new Error("gate record workflow provenance is ambiguous or missing");
+  const workflow = workflows[0];
+  if (workflow.check_suite_id !== run.check_suite.id || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
+      || !GATE_EVENTS.includes(workflow.event) || typeof repository.default_branch !== "string"
+      // pull_request_target reports the PR's head branch but runs the base branch's YAML.
+      || (workflow.event !== "pull_request_target" && workflow.head_branch !== repository.default_branch)) {
+    throw new Error("gate record is not from the default-branch merge-gate workflow");
+  }
+}
+
+/** Earlier gate summaries, including replaced runs; unreadable provenance fails closed. */
 async function priorDeletions(client, repo, headSha) {
   const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}&filter=all`, (data) => data?.check_runs);
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
   return runs.flatMap((run) => {
     const summary = jsonFromCheckRun(run);
     if (!isRecord(summary) || !Array.isArray(summary.deleted_verdicts) || !summary.deleted_verdicts.every(historyItemOk)) {
@@ -963,6 +984,7 @@ export function parseHistoryRun(run, pr) {
 export async function readHistory(client, repo, pr) {
   const name = encodeURIComponent(historyCheckName(pr));
   const runs = await client.paginate(`/repos/${repo}/commits/${HISTORY_ANCHOR_SHA}/check-runs?check_name=${name}&filter=all`, (data) => data?.check_runs);
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
   return runs.flatMap((run) => parseHistoryRun(run, pr));
 }
 
@@ -997,8 +1019,7 @@ export async function recordHistory({ client, repo, pr, event }) {
   if (!fresh.length) return { written: 0 };
   const action = typeof event?.action === "string" ? event.action : null;
   const batches = historyBatches(fresh, (entries) => jsonBlock({ schema: HISTORY_SCHEMA_ID, pr: Number(pr), event: action, entries }));
-  for (const { entries, text } of batches) {
-    await client.post(`/repos/${repo}/check-runs`, {
+  await batches.reduce((previous, { entries, text }) => previous.then(() => client.post(`/repos/${repo}/check-runs`, {
       name: historyCheckName(pr),
       head_sha: HISTORY_ANCHOR_SHA,
       external_id: `pr-${pr}`,
@@ -1009,8 +1030,7 @@ export async function recordHistory({ client, repo, pr, event }) {
         summary: "Append-only verdict history (OVD-959). Later gate runs carry these forward if the comment is removed; a record never counts as a pass.",
         text,
       },
-    });
-  }
+    })), Promise.resolve());
   return { written: fresh.length };
 }
 
@@ -1060,13 +1080,17 @@ async function actionsRunIdsAt(client, repo, sha) {
       if (id) ids.add(id);
     }
   }
-  return ids;
+  const verified = await Promise.all([...ids].map(async (id) => {
+    const run = await client.json(`/repos/${repo}/actions/runs/${id}`);
+    return run.head_sha === sha && run.conclusion === "success" && PASS_EVIDENCE_WORKFLOWS.includes(run.path) ? id : null;
+  }));
+  return new Set(verified.filter((id) => id !== null));
 }
 
 /**
  * Ruling 6: resolve the ci-run/verify-run links of trusted passes and
  * supersede claims. A link counts only when it is an Actions run URL of this
- * repository whose run reported a check run on the verdict's SHA. Returns
+ * repository whose successful, allowlisted workflow run reported on the verdict's SHA. Returns
  * SHA -> verified URLs; anything unreadable stays unverified.
  */
 async function verifyEvidence({ client, repo, comments, headSha }) {

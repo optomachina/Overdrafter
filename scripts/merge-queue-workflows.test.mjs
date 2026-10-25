@@ -52,13 +52,17 @@ describe("merge queue workflows", () => {
           const block = jobBlock(text, check.writer);
           expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
           // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed).
-          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() }}");
+          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() && github.event_name != 'merge_group' }}");
           expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
           expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
         });
 
         it("writes the check on merge_group as a no op", () => {
-          expect(jobBlock(text, check.writer)).toMatch(/merge_group\)\n\s+exec node scripts\/ovd-merge-gate\.mjs merge-group --sha "\$GITHUB_SHA"/);
+          const queue = jobBlock(text, "ovd-merge-gate-queue");
+          expect(queue).toContain("if: github.event_name == 'merge_group'");
+          expect(queue).toContain("gh api --method POST");
+          expect(queue).toContain("-f name=ovd-merge-gate");
+          expect(queue).not.toContain("checkout");
         });
         return;
       }

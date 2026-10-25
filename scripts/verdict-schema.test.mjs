@@ -130,6 +130,11 @@ describe("validateVerdict", () => {
 });
 
 describe("tagCorroborated", () => {
+  it("does not count opus and claude as independent families", async () => {
+    const { normalizeModelFamily } = await import("./ovd-merge-gate.mjs");
+    const findings = ["opus", "claude", "sonnet"].map((model) => ({ severity: "high", file: "a.ts", line: 3, model }));
+    expect(tagCorroborated(findings, { normalizeFamily: normalizeModelFamily }).map((finding) => finding.corroborated)).toEqual([false, false, false]);
+  });
   it("tags findings raised by two model families on the same location", () => {
     const tagged = tagCorroborated([
       { severity: "high", file: "a.ts", line: 3, model: "opus" },

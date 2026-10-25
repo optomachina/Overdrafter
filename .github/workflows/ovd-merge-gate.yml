@@ -21,8 +21,8 @@ name: OVD merge gate
 # branch.
 #
 # merge_group writes success on github.sha, the queue no-op: the gate was
-# evaluated on the PR head. Its YAML comes from the merge group ref; the step
-# still runs the default-branch script, which only writes success there.
+# evaluated on the PR head. Its YAML comes from the merge group ref; the job
+# uses an inline API call with no checkout or repository code execution.
 #
 # MODE (report) and the trusted-verifier list are constants in the script,
 # never inputs, env or repo variables, so a PR or a variable cannot flip
@@ -39,8 +39,7 @@ name: OVD merge gate
 # that runs started after its own run's record was written, and the last
 # writer to run sees every record. See docs/verdict-format.md.
 #
-# No paths filter and no job-level if: the check must exist on every PR head
-# and every merge group. Writer runs queue per PR and are never cancelled;
+# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR and are never cancelled;
 # each re-reads the head right before writing and writes nothing for a head
 # that moved (the run for the new head writes it).
 
@@ -67,10 +66,7 @@ on:
     types:
       - checks_requested
 
-permissions:
-  checks: write
-  pull-requests: read
-  contents: read
+permissions: {}
 
 jobs:
   ovd-merge-gate-writer:
@@ -79,7 +75,12 @@ jobs:
     # F1: run even when the history job failed, and pass its result in, so a
     # failed history write fails the gate instead of skipping the writer and
     # leaving an earlier (possibly passing) result on the head.
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'merge_group' }}
+    permissions:
+      checks: write
+      actions: read
+      pull-requests: read
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -87,12 +88,17 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      # Refuse non-default dispatch refs before checkout or any token-bearing step.
+      # pull_request_target executes only base/default-branch gate code; never PR code.
+      - name: Require trusted workflow ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+
       - name: Checkout default branch (gate scripts only)
-        # Safe (S7631): the default branch's own files, never the PR head or a PR ref; no
-        # persisted credentials. PR data is fetched as git objects into a separate bare store.
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -117,9 +123,6 @@ jobs:
             exit 0
           fi
           case "$EVENT_NAME" in
-            merge_group)
-              exec node scripts/ovd-merge-gate.mjs merge-group --sha "$GITHUB_SHA"
-              ;;
             pull_request_target)
               pr="$PR_FROM_PULL_REQUEST"
               ;;
@@ -150,16 +153,27 @@ jobs:
 
   ovd-merge-gate-history:
     name: ovd-merge-gate-history
+    if: github.event_name != 'merge_group'
+    permissions:
+      checks: write
+      actions: read
+      pull-requests: read
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
+      # Refuse non-default dispatch refs before checkout or any token-bearing step.
+      # pull_request_target executes only base/default-branch gate code; never PR code.
+      - name: Require trusted workflow ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+
       - name: Checkout default branch (gate scripts only)
-        # Safe (S7631): the default branch's own files, never the PR head or a PR ref; no
-        # persisted credentials. PR data is fetched as git objects into a separate bare store.
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -183,10 +197,6 @@ jobs:
             exit 0
           fi
           case "$EVENT_NAME" in
-            merge_group)
-              echo "merge_group: no verdict history to record."
-              exit 0
-              ;;
             pull_request_target)
               pr="$PR_FROM_PULL_REQUEST"
               ;;
@@ -214,3 +224,21 @@ jobs:
             exit 1
           fi
           node scripts/ovd-merge-gate.mjs record --pr "$pr"
+
+  ovd-merge-gate-queue:
+    name: ovd-merge-gate-queue
+    if: github.event_name == 'merge_group'
+    permissions:
+      checks: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Write merge queue success
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name=ovd-merge-gate -f head_sha="$GITHUB_SHA" \
+            -f status=completed -f conclusion=success \
+            -f 'output[title]=ovd-merge-gate: merge queue no-op' \
+            -f 'output[summary]=The merge gate was evaluated on the PR head.'

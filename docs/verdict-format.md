@@ -38,7 +38,7 @@ Field names follow the OVD-845 §6 schema. This format adds the following:
 | `role` | `verifier` or `reviewer`. `parseVerdictComments` returns only the `verifier` verdict as `verdict`; `reviewer` verdicts come back in `reviews`. **Both roles are `ovd-merge-gate` input:** it needs a verifier PASS and at least one reviewer PASS (see below). |
 | `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `file` is repo-relative (no leading `/`, no drive letter, no `..` segment), like a gate finding. `line` is an integer ≥ 1 or `null` for a file-level finding. |
 | `notes` | Strings prefixed with a severity: `high: `, `medium: `, `low: ` or `info: `. `PASS_NOTES` needs at least one note. Under OVD-845, a `PASS_NOTES` verdict with a `high:` note (`hasHighNote`) can't be merged. |
-| `verifier.model_family` | Lower-case family token. The schema accepts any token; `ovd-merge-gate` accepts only ruling 4's `claude`, `codex`, `grok`, `jev` or `human` and treats anything else (for example `opus`) as a malformed verdict. |
+| `verifier.model_family` | Lower-case family token. The schema accepts any token; `ovd-merge-gate` accepts only ruling 4's `claude`, `codex`, `grok`, `jev` or `human` and the exact lowercase aliases `opus` and `sonnet`, both normalized to `claude`. Other values (including `claude-opus`, `gpt-6`, uppercase variants and empty strings) are rejected with `verdict_schema_error`. The emitter writes the canonical family. |
 | `verifier.github_login` | GitHub login, with an optional `[bot]` suffix. It must match the author of the comment. |
 
 The validator fails closed and reports one message per problem, each prefixed
@@ -166,7 +166,7 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
 The comment has one summary line, the fenced block, and a do-not-edit footer:
 
 ````markdown
-**OverDrafter verdict: PASS** for `<sha>` by astra-verifier (opus).
+**OverDrafter verdict: PASS** for `<sha>` by astra-verifier (claude).
 
 ```overdrafter-verdict
 { ...json... }
@@ -473,3 +473,18 @@ cover:
 - posting only with `--post`, through an injected runner: injected PR numbers
   are refused, the argv is fixed, the body file holds the comment during the
   call, and the temp directory is gone afterwards (also when `gh` fails).
+
+PASS evidence must cite a successful run of `.github/workflows/ci.yml` or
+`.github/workflows/verify.yml` in this repository. The Actions run API must
+report `conclusion: success` and `head_sha` equal to the verdict SHA, including
+when a verdict is carried across a rebase by equal `diff_id`. Failed, cancelled,
+in-progress, unrelated-workflow and unreadable runs do not count.
+
+History and prior gate checks must belong to GitHub Actions app 15368 and a
+check suite from `.github/workflows/ovd-merge-gate.yml` on the repository's
+current default branch, triggered by `pull_request_target`, `issue_comment`,
+`workflow_dispatch` or `merge_group`. Unverifiable provenance blocks with
+`missing_input`. Records exposing distinct `created_at` and `updated_at` are
+rejected. The Checks API does not reliably expose update history; differences
+between `started_at` and `completed_at` do not prove mutation. Provenance alone
+cannot detect an update by another workflow using the same Actions app token.

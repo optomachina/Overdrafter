@@ -581,18 +581,18 @@ describe("workflow YAML (§6 item 5)", () => {
     }
   });
 
-  it("has exactly checks: write, pull-requests: read, contents: read, with no job-level overrides", () => {
-    expect(workflow.permissions).toEqual({ checks: "write", "pull-requests": "read", contents: "read" });
-    for (const [, job] of jobs) expect(job.permissions).toBeUndefined();
+  it("defaults to no permissions and scopes permissions to each job", () => {
+    expect(workflow.permissions).toEqual({});
+    for (const [key, job] of jobs) expect(job.permissions).toEqual(key.endsWith("queue") ? { checks: "write" } : { checks: "write", actions: "read", "pull-requests": "read", contents: "read" });
   });
 
-  it("has the writer and the history recorder (never the check name); only the writer has an if, and it is always()", () => {
-    expect(jobs.map(([key]) => key)).toEqual(["ovd-merge-gate-writer", "ovd-merge-gate-history"]);
+  it("separates PR writer/history from the checkout-free queue job", () => {
+    expect(jobs.map(([key]) => key)).toEqual(["ovd-merge-gate-writer", "ovd-merge-gate-history", "ovd-merge-gate-queue"]);
     for (const [key, job] of jobs) {
       expect(key).not.toBe(CHECK_NAME);
       expect(job.name).toBe(key);
       // F1: the writer must run even when the history job failed; no condition may skip either job.
-      expect(job.if).toBe(key === "ovd-merge-gate-writer" ? "${{ always() }}" : undefined);
+      expect(job.if).toBe(key === "ovd-merge-gate-writer" ? "${{ always() && github.event_name != 'merge_group' }}" : key.endsWith("queue") ? "github.event_name == 'merge_group'" : "github.event_name != 'merge_group'");
     }
   });
 
@@ -617,19 +617,19 @@ describe("workflow YAML (§6 item 5)", () => {
     expect(history.needs).toBeUndefined();
     const run = history.steps.find((step) => step.run?.includes("ovd-merge-gate.mjs")).run;
     expect(run).toContain("node scripts/ovd-merge-gate.mjs record --pr \"$pr\"");
-    expect(run).toMatch(/merge_group\)\n\s+echo [^\n]*\n\s+exit 0/);
+    expect(run).not.toContain("merge_group)");
     for (const event of ["pull_request_target)", "issue_comment)", "workflow_dispatch)"]) expect(run).toContain(event);
     expect(run).toContain("refs/heads/$DEFAULT_BRANCH");
   });
 
   it("checks out only the default branch in each job, never the head ref, and fetches no history into it", () => {
     const checkouts = steps.filter((step) => String(step.uses ?? "").startsWith("actions/checkout"));
-    expect(checkouts).toHaveLength(jobs.length);
-    for (const [, job] of jobs) expect(job.steps.filter((step) => String(step.uses ?? "").startsWith("actions/checkout"))).toHaveLength(1);
+    expect(checkouts).toHaveLength(2);
+    for (const [, job] of jobs) expect(job.steps.filter((step) => String(step.uses ?? "").startsWith("actions/checkout"))).toHaveLength(job.name.endsWith("queue") ? 0 : 1);
     for (const step of checkouts) {
       expect(step.with["fetch-depth"]).toBeUndefined();
       expect(step.if).toBeUndefined();
-      expect(step.with.ref).toBe("${{ github.event.repository.default_branch }}");
+      expect(step.with.ref).toBeUndefined();
       expect(step.with.repository).toBeUndefined();
       expect(step.with["persist-credentials"]).toBe(false);
       expect(JSON.stringify(step)).not.toMatch(/head|pull_request|refs\/pull|merge_group|github\.sha|github\.ref/);
@@ -643,10 +643,9 @@ describe("workflow YAML (§6 item 5)", () => {
     for (const step of steps) expect(step.if).toBeUndefined();
   });
 
-  it("runs the default-branch script for every event, including merge_group, and writes through it", () => {
+  it("runs the default-branch script for PR events", () => {
     const run = steps.find((step) => step.run?.includes("ovd-merge-gate.mjs")).run;
-    expect(run).toContain("merge_group)");
-    expect(run).toContain("node scripts/ovd-merge-gate.mjs merge-group --sha \"$GITHUB_SHA\"");
+
     expect(run).toContain("node scripts/ovd-merge-gate.mjs write --pr \"$pr\"");
     for (const event of ["pull_request_target)", "issue_comment)", "workflow_dispatch)"]) expect(run).toContain(event);
     expect(run).toContain("refs/heads/$DEFAULT_BRANCH");
@@ -667,7 +666,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [] } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -685,8 +684,15 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       // GitHub rejects a check run whose output.text is over 65535 characters.
       if ((posted.output?.text ?? "").length > 65535) return response(422, { message: "output.text too long" });
       posts.push(posted);
-      stored.push({ id: 900 + stored.length, app: { id: 15368 }, ...posted });
+      stored.push({ check_suite: { id: 42 }, id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
+    }
+    if (pathname === "/repos/o/r") return response(200, { default_branch: "main" });
+    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", ...provenance }] });
+    if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
+      const id = Number(pathname.split("/").at(-1));
+      const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
+      return response(200, { head_sha: sha, path: ".github/workflows/ci.yml", conclusion: "success", ...workflowRun });
     }
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
@@ -868,7 +874,7 @@ describe("IO wrapper and CLI", () => {
 describe("deleted verdicts: only blocking ones are carried forward (ruling b)", () => {
   const deletion = (value, id = 1, body = formatVerdictBlock(value)) => ({ action: "deleted", comment: { id, body, created_at: at(id), user: { login: value.verifier.github_login } } });
   const gateClient = (api) => ({ ...api.client, paginate: async (p, pick = (d) => d) => pick(await api.client.json(p)) });
-  const priorRun = (deletedVerdicts) => ({ name: CHECK_NAME, output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: deletedVerdicts })}\n\`\`\`` } });
+  const priorRun = (deletedVerdicts) => ({ app: { id: 15368 }, check_suite: { id: 42 }, name: CHECK_NAME, output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: deletedVerdicts })}\n\`\`\`` } });
   const run = (api, event = null) => runGate({ client: gateClient(api), repo: "o/r", pr: 7, event, git: fakeGit(), diff: () => DIFF, classify: docsClassify });
 
   it("reads a deleted blocking verdict from an issue_comment deleted event, with a snapshot", () => {
@@ -1411,7 +1417,7 @@ describe("medium: an unterminated verdict fence does not disappear", () => {
 });
 
 describe("medium: ruling-4 model families and repo-relative finding paths", () => {
-  it.each(["opus", "gpt-6", "claude-opus", "mallory"])("a trusted verdict with model_family %s is verdict_schema_error", (family) => {
+  it.each(["", "Opus", "gpt-6", "claude-opus", "mallory"])("a trusted verdict with model_family %s is verdict_schema_error", (family) => {
     const comments = [...passingComments(), posted(verdict({ result: "FAIL", family }))];
     const summary = evaluate(baseInput({ comments }));
     expect(reasonCodes(summary)).toEqual(["verdict_schema_error"]);
@@ -1422,7 +1428,7 @@ describe("medium: ruling-4 model families and repo-relative finding paths", () =
     expect(codes(baseInput({ comments: [posted(verdict({ family: "gpt-6" })), posted(verdict({ role: "reviewer" }))] }))).toContain("no_qa_pass_on_head");
   });
 
-  it.each(["claude", "codex", "grok", "jev", "human"])("accepts model_family %s", (family) => {
+  it.each(["opus", "sonnet", "claude", "codex", "grok", "jev", "human"])("accepts model_family %s", (family) => {
     expect(evaluate(baseInput({ comments: [posted(verdict({ family })), posted(verdict({ role: "reviewer", family }))] })).gate).toBe("pass");
   });
 
@@ -1517,5 +1523,64 @@ describe("F1: an oversized history record fails closed, never leaves a stale res
       expect(parsed.deleted_verdicts.length).toBeGreaterThan(0);
       expect(parsed.deleted_verdicts.every((item) => typeof item.author === "string")).toBe(true);
     }
+  });
+});
+
+describe("R2 evidence workflow and revision binding", () => {
+  it.each([
+    ["failed", { conclusion: "failure" }],
+    ["cancelled", { conclusion: "cancelled" }],
+    ["in progress", { conclusion: null, status: "in_progress" }],
+    ["other workflow", { path: ".github/workflows/proof-check.yml" }],
+    ["wrong SHA", { head_sha: OLD }],
+  ])("rejects %s evidence", async (_label, workflowRun) => {
+    const api = fakeGithub({ comments: passingComments(), workflowRun });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    const summary = JSON.parse(out);
+    expect(summary.gate).toBe("fail");
+    expect(reasonCodes(summary)).toContain("evidence_unverified");
+  });
+  it("accepts successful Verify runs", async () => {
+    const api = fakeGithub({ comments: passingComments(), workflowRun: { path: ".github/workflows/verify.yml" } });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(JSON.parse(out).gate).toBe("pass");
+  });
+});
+
+describe("R2 history provenance", () => {
+  const history = (overrides = {}) => ({ name: gate.historyCheckName(7), head_sha: ANCHOR, app: { id: 15368 }, check_suite: { id: 42 }, output: { text: `\`\`\`json\n${JSON.stringify({ schema: gate.HISTORY_SCHEMA_ID, pr: 7, entries: [] })}\n\`\`\`` }, ...overrides });
+  it.each([
+    ["foreign app", { app: { id: 1 } }, {}],
+    ["missing suite", { check_suite: null }, {}],
+    ["other workflow", {}, { path: ".github/workflows/ci.yml" }],
+    ["fork branch", {}, { head_branch: "fork" }],
+    ["wrong event", {}, { event: "pull_request" }],
+    ["merge_group event", {}, { event: "merge_group" }],
+    ["wrong suite", {}, { check_suite_id: 43 }],
+  ])("blocks %s records", async (_label, overrides, provenance) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history(overrides)], provenance });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("applies the same provenance rules to prior gate reads", async () => {
+    const api = fakeGithub({ comments: passingComments(), checkRuns: [{ ...history(), name: CHECK_NAME, app: { id: 1 }, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }] });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a pull_request_target record whatever its head branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: { event: "pull_request_target", head_branch: "feature" } });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("trusts an unchanged default-branch gate record", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+});
+
+describe("R2 model family comparisons", () => {
+  it("normalizes only exact explicit aliases", () => {
+    expect(gate.normalizeModelFamily("opus")).toBe("claude");
+    expect(gate.normalizeModelFamily("sonnet")).toBe("claude");
+    for (const value of ["", "Opus", "claude-opus", "gpt-6", "toString", null]) expect(gate.normalizeModelFamily(value)).toBeNull();
   });
 });
