@@ -1688,7 +1688,7 @@ async function seamFixture() {
   return { directory, live, policy, addressMap, haproxyConfig, dns: path.join(directory, "dns") };
 }
 
-async function runRefreshSeam(fixture, answers, { enabled = true } = {}) {
+async function runRefreshSeam(fixture, answers, { enabled = true, shim = "" } = {}) {
   const record = path.join(fixture.directory, "record.txt");
   await rm(record, { force: true });
   await writeAnswers(fixture.dns, answers);
@@ -1698,6 +1698,7 @@ async function runRefreshSeam(fixture, answers, { enabled = true } = {}) {
       "-c",
       `source "$CONTROL_SCRIPT"
 ${MV_SHIM}
+${shim}
 ${DIG_STUB}
 main "$@"`,
       "control",
@@ -1951,6 +1952,53 @@ describe("OVD-420 pre-launch address refresh (OVD-1064)", { timeout: 20_000 }, (
     expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
   });
 
+  // Crash injection between the config rename and the map rename (plan "Torn pair on crash").
+  const FAIL_MAP_RENAME = `mv() {
+  [[ "\${*: -1}" != *addresses.json ]] || return 1
+  command mv "$@"
+}`;
+  const FAIL_AFTER_FIRST_RENAME = `mv() {
+  [[ ! -e "$TMPDIR/renamed-once" ]] || return 1
+  command mv "$@" && : >"$TMPDIR/renamed-once"
+}`;
+
+  it("restores the previous config when the map rename fails after the config rename", async () => {
+    const fixture = await seamFixture();
+    const before = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const result = await runRefreshSeam(fixture, ROTATED_ANSWERS, { shim: FAIL_MAP_RENAME });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("address_refresh_commit_failed");
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+
+    const retry = await runRefreshSeam(fixture, ROTATED_ANSWERS);
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.stdout).toBe("address-map=replaced\n");
+  });
+
+  it("fails closed on a pair torn between the two renames; refresh refuses it until install rewrites both files", async () => {
+    const fixture = await seamFixture();
+    const result = await runRefreshSeam(fixture, ROTATED_ANSWERS, { shim: FAIL_AFTER_FIRST_RENAME });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("address_refresh_torn_pair");
+    // New config, old map: exactly the state a hard crash between the renames leaves.
+    expect(await readFile(fixture.addressMap, "utf8")).toBe(PINNED_MAP);
+    expect(await readFile(fixture.haproxyConfig, "utf8")).not.toBe(
+      await renderedHaproxyFor(fixture.directory, PINNED_MAP),
+    );
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+
+    const torn = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const retry = await runRefreshSeam(fixture, ROTATED_ANSWERS);
+    expect(retry.status).toBe(1);
+    expect(retry.stderr).toContain("rendered_config_drift");
+    expect(retry.recordText).toBe("");
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(torn);
+  });
+
   it("requires the explicit test-render opt-in", async () => {
     const fixture = await seamFixture();
     const result = await runRefreshSeam(fixture, ROTATED_ANSWERS, { enabled: false });
@@ -1998,7 +2046,16 @@ describe("OVD-420 pre-launch address refresh (OVD-1064)", { timeout: 20_000 }, (
       "ovd420-recovery-egress-addresses.json",
       "ovd420-recovery-egress-policy.json",
     ]);
-    expect((await readdir(fixture.stateDirectory)).sort()).toEqual(["launch.lock", "policy.sha256"]);
+    expect((await readdir(fixture.stateDirectory)).sort()).toEqual([
+      "address-refresh.outcome",
+      "launch.lock",
+      "policy.sha256",
+    ]);
+    const outcome = await readFile(path.join(fixture.stateDirectory, "address-refresh.outcome"), "utf8");
+    expect(outcome).toBe(
+      `outcome=replaced\n< ${REFRESH_HOSTS[0]} 93.184.216.34\n> ${REFRESH_HOSTS[0]} 93.184.216.36,93.184.216.37\n`,
+    );
+    expect((await stat(path.join(fixture.stateDirectory, "address-refresh.outcome"))).mode & 0o777).toBe(0o600);
   });
 
   it("does not restart the gateway when the fresh answers match the pinned map", async () => {
@@ -2064,7 +2121,7 @@ describe("OVD-420 pre-launch address refresh (OVD-1064)", { timeout: 20_000 }, (
           "-c",
           `source "$CONTROL_SCRIPT"
 ready="$TEST_DIRECTORY/holder-ready"
-flock -o "$LAUNCH_LOCK_PATH" -c "touch '$ready'; sleep 10" &
+flock -o "$LAUNCH_LOCK_PATH" -c "touch '$ready'; exec sleep 10" >/dev/null 2>&1 &
 holder="$!"
 for _ in $(seq 1 100); do [[ -e "$ready" ]] && break; sleep 0.05; done
 [[ -e "$ready" ]] || exit 90

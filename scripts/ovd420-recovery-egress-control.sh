@@ -25,6 +25,7 @@ readonly DIGEST_PATH="$STATE_DIR/policy.sha256"
 readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
 readonly LAUNCH_LOCK_PATH="$STATE_DIR/launch.lock"
 readonly ADDRESS_REFRESH_UNCHANGED='3'
+readonly ADDRESS_REFRESH_OUTCOME_PATH="$STATE_DIR/address-refresh.outcome"
 readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'
 readonly RECOVERY_PHASE_DIR='/run/ovd410-recovery-phase'
 readonly RECOVERY_PHASE_PATH="$RECOVERY_PHASE_DIR/last-stage"
@@ -395,16 +396,22 @@ stage_address_map_refresh() {
 # resolved copies. Nothing live changes until every check passes; each file is
 # then swapped by rename. Returns ADDRESS_REFRESH_UNCHANGED when the fresh map
 # equals the live one. The running gateway keeps its old config until the
-# caller restarts it, and a pair torn by a crash fails readiness as drift.
+# caller restarts it. If the map rename fails after the config rename, the
+# previous config is restored so the live pair stays the old consistent pair.
+# A pair torn by a hard crash between the two renames fails readiness and
+# refresh as rendered_config_drift; recover with `install`, which re-resolves
+# and rewrites both files.
 refresh_address_map_files() {
   local policy_path="$1" address_map_path="$2" haproxy_config="$3"
   local resolver_host="$4" resolver_port="$5" check_gateway_config="${6:-0}"
-  local directory staged_map staged_config
+  local directory staged_map='' staged_config='' previous_config=''
   directory="$(dirname "$address_map_path")"
   [[ "$(dirname "$haproxy_config")" == "$directory" ]] || fail 'address_refresh_layout_invalid'
   address_map_matches_pinned_contract "$policy_path" "$address_map_path" || fail 'address_map_contract_invalid'
   haproxy_config_matches_address_map "$policy_path" "$address_map_path" "$haproxy_config" ||
     fail 'rendered_config_drift'
+  # A signal must not leave staged copies behind in the policy directory.
+  trap 'rm -f "$staged_map" "$staged_config" "$previous_config"; trap - INT TERM; exit 130' INT TERM
   staged_map="$(mktemp "$directory/.ovd420-addresses.XXXXXX")" || fail 'address_refresh_staging_failed'
   if ! staged_config="$(mktemp "$directory/.ovd420-haproxy.XXXXXX")"; then
     rm -f "$staged_map"
@@ -417,17 +424,30 @@ refresh_address_map_files() {
   fi
   if cmp -s "$staged_map" "$address_map_path"; then
     rm -f "$staged_map" "$staged_config"
+    trap - INT TERM
     return "$ADDRESS_REFRESH_UNCHANGED"
+  fi
+  if ! previous_config="$(mktemp "$directory/.ovd420-haproxy-previous.XXXXXX")" ||
+    ! cp -p -- "$haproxy_config" "$previous_config"; then
+    rm -f "$staged_map" "$staged_config" "$previous_config"
+    fail 'address_refresh_staging_failed'
   fi
   if ! chmod 0600 "$staged_map" || ! chmod 0644 "$staged_config" ||
     ! mv -fT -- "$staged_config" "$haproxy_config"; then
-    rm -f "$staged_map" "$staged_config"
+    rm -f "$staged_map" "$staged_config" "$previous_config"
     fail 'address_refresh_commit_failed'
   fi
   if ! mv -fT -- "$staged_map" "$address_map_path"; then
     rm -f "$staged_map"
+    # Put the old config back so the live pair matches the old map again.
+    if ! mv -fT -- "$previous_config" "$haproxy_config"; then
+      rm -f "$previous_config"
+      fail 'address_refresh_torn_pair'
+    fi
     fail 'address_refresh_commit_failed'
   fi
+  rm -f "$previous_config"
+  trap - INT TERM
 }
 
 # Re-pin upstream addresses through the controlled resolver right before a
@@ -435,16 +455,46 @@ refresh_address_map_files() {
 # at host setup. The caller holds the launch lock and has verified the full
 # contract, so the network is empty and restarting the gateway drops nothing.
 refresh_pinned_address_map() {
-  local status=0
-  refresh_address_map_files "$POLICY_PATH" "$ADDRESS_MAP_PATH" "$HAPROXY_CONFIG" \
-    "$CONTROLLED_RESOLVER" "$CONTROLLED_RESOLVER_PORT" 1 || status="$?"
+  local status=0 before after errors code
+  before="$(address_map_summary "$ADDRESS_MAP_PATH")"
+  errors="$( ( refresh_address_map_files "$POLICY_PATH" "$ADDRESS_MAP_PATH" "$HAPROXY_CONFIG" \
+    "$CONTROLLED_RESOLVER" "$CONTROLLED_RESOLVER_PORT" 1 ) 2>&1 >/dev/null )" || status="$?"
   if [[ "$status" == "$ADDRESS_REFRESH_UNCHANGED" ]]; then
+    write_address_refresh_outcome unchanged "$before" "$before"
     printf '%s\n' 'OVD-420 recovery egress upstream addresses refreshed: unchanged'
     return 0
   fi
-  [[ "$status" -eq 0 ]] || fail 'address_refresh_failed'
-  systemctl restart "$GATEWAY_SERVICE" || fail 'address_refresh_gateway_restart_failed'
+  if [[ "$status" -ne 0 ]]; then
+    code="$(sed -n 's/^OVD-420 recovery egress control failed: \([a-z_]*\)$/\1/p' <<<"$errors" | head -n 1)"
+    write_address_refresh_outcome "failed:${code:-unknown}" "$before" "$(address_map_summary "$ADDRESS_MAP_PATH")"
+    [[ -z "$errors" ]] || printf '%s\n' "$errors" >&2
+    fail 'address_refresh_failed'
+  fi
+  after="$(address_map_summary "$ADDRESS_MAP_PATH")"
+  if ! systemctl restart "$GATEWAY_SERVICE"; then
+    write_address_refresh_outcome failed:address_refresh_gateway_restart_failed "$before" "$after"
+    fail 'address_refresh_gateway_restart_failed'
+  fi
+  write_address_refresh_outcome replaced "$before" "$after"
   printf '%s\n' 'OVD-420 recovery egress upstream addresses refreshed: replaced'
+}
+
+# One "hostname address,address" line per host. Only public hostnames and
+# addresses from the pinned map are written; nothing else is logged.
+address_map_summary() {
+  jq -r '.hosts[] | "\(.hostname) \(.addresses | join(","))"' "$1" 2>/dev/null || printf '%s\n' 'unreadable'
+}
+
+# Record the last refresh outcome with a before/after map diff (plan Q3) so a
+# collapsed launch failure code can still be diagnosed. Best effort: a write
+# failure never changes the launch result.
+write_address_refresh_outcome() {
+  local outcome="$1" before="$2" after="$3"
+  {
+    printf 'outcome=%s\n' "$outcome"
+    diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | sed -n 's/^\([<>]\) /\1 /p'
+  } >"$ADDRESS_REFRESH_OUTCOME_PATH" 2>/dev/null && chmod 0600 "$ADDRESS_REFRESH_OUTCOME_PATH" 2>/dev/null
+  return 0
 }
 
 acquire_launch_lock() {
