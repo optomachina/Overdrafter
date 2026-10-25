@@ -157,6 +157,46 @@ describe("page quantity labeled tokens", () => {
   });
 });
 
+describe("runtime price label allowlists", () => {
+  // Runtime observations can violate the TypeScript label unions.
+  it.each(["total", "unknown", "", 123, null, undefined, true])("rejects unit label %j", (label) => {
+    const input = {
+      requestedQuantity: 1,
+      quantity: 1,
+      pageQuantity: page(1),
+      unit: { ...each(100), label },
+      total: total(100),
+    } as unknown as AdmitPriceInput;
+    expect(admitPrice(input)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+  });
+
+  it.each(["each", "unknown", "", 123, null, undefined, true])("rejects total label %j", (label) => {
+    const input = {
+      requestedQuantity: 1,
+      quantity: 1,
+      pageQuantity: page(1),
+      unit: each(100),
+      total: { ...total(100), label },
+    } as unknown as AdmitPriceInput;
+    expect(admitPrice(input)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+  });
+
+  it.each([
+    ["each", "total"],
+    ["each", "subtotal"],
+    ["per_part", "total"],
+    ["per_part", "subtotal"],
+  ] as const)("admits unit %s with total %s", (unitLabel, totalLabel) => {
+    expect(admitPrice({
+      requestedQuantity: 10,
+      quantity: 10,
+      pageQuantity: page(10),
+      unit: { ...each(100), label: unitLabel },
+      total: { ...total(1000), label: totalLabel },
+    }).ok).toBe(true);
+  });
+});
+
 describe("admitPrice tolerance", () => {
   const qty = 7;
   const unitCents = 1234;

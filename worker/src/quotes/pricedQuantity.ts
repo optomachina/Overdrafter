@@ -45,14 +45,19 @@ export type ObservedAmount<Label extends string> = {
 
 export type PageQuantity = { value: number; sourceText: string };
 
+export const UNIT_PRICE_LABELS = ["each", "per_part"] as const;
+export const TOTAL_PRICE_LABELS = ["total", "subtotal"] as const;
+export type UnitPriceLabel = (typeof UNIT_PRICE_LABELS)[number];
+export type TotalPriceLabel = (typeof TOTAL_PRICE_LABELS)[number];
+
 export type AdmitPriceInput = {
   requestedQuantity: number | null | undefined;
   /** The quantity the price card states for this price. */
   quantity: number | null | undefined;
   /** The quantity read from the page's quantity control after pricing, and the exact text span it was read from. */
   pageQuantity: PageQuantity | null | undefined;
-  unit?: ObservedAmount<"each" | "per_part"> | null;
-  total?: ObservedAmount<"total" | "subtotal"> | null;
+  unit?: ObservedAmount<UnitPriceLabel> | null;
+  total?: ObservedAmount<TotalPriceLabel> | null;
 };
 
 /** Allowed |unit × qty − total| per piece, for per-piece rounding. */
@@ -141,7 +146,10 @@ export function admitPrice(input: AdmitPriceInput): PriceVerdict {
     unitLabeled: unit?.label !== undefined,
     totalLabeled: total?.label !== undefined,
   };
-  if ((unit && !unit.label) || (total && !total.label)) {
+  if (
+    (unit && !UNIT_PRICE_LABELS.some((label) => label === unit.label)) ||
+    (total && !TOTAL_PRICE_LABELS.some((label) => label === total.label))
+  ) {
     return refuse("ambiguous_label", { ...observed, ...labels });
   }
   // Approved decision: for qty > 1 both unit and total must be read from the page.
