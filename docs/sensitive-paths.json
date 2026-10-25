@@ -88,6 +88,8 @@
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-screen-marker*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
+    { "glob": "docs/agent-graph/model-routing.yaml", "class": "infra_ci" },
+    { "glob": "scripts/model-routing-drift*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-*", "class": "infra_ci" },
     { "glob": "scripts/validate-pr-body.mjs", "class": "infra_ci" },
     { "glob": "scripts/ephemeral-db-apply.mjs", "class": "infra_ci" },
