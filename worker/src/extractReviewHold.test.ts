@@ -76,6 +76,8 @@ type DatabaseOptions = {
   approvedCount: unknown;
   partApproved?: boolean;
   approvalReadError?: { message: string };
+  artifactsPending?: boolean;
+  auditInsertError?: { message: string };
 };
 
 function database(options: DatabaseOptions) {
@@ -87,17 +89,22 @@ function database(options: DatabaseOptions) {
   const from = (table: string) => {
     let inserted: Record<string, unknown> | null = null;
     const filters: Record<string, unknown> = {};
+    let selected: string | null = null;
     const response = () => {
-      if (inserted) return { data: null, error: null };
+      if (inserted) return { data: null, error: table === "audit_events" ? options.auditInsertError ?? null : null };
       if (table === "approved_part_requirements") {
+        // Keyed by the query shape, not call order: only the per-part approval
+        // read (select "id", scoped to the organization) sees the read error.
+        const isPartApprovalRead = selected === "id" && filters.organization_id === part.organization_id;
         return { data: approvals.find((row) => row.part_id === filters.part_id) ?? null,
-          error: rpcCalls.includes("api_auto_approve_job_requirements") ? options.approvalReadError ?? null : null };
+          error: isPartApprovalRead ? options.approvalReadError ?? null : null };
       }
       const data = table === "parts" ? part : table === "job_files" ? [drawing] : null;
       return { data, error: null };
     };
     const query: Record<string, unknown> = {};
-    for (const name of ["select", "neq", "in", "is", "order", "limit", "update", "delete"]) query[name] = () => query;
+    query.select = (columns: string) => { selected ??= columns; return query; };
+    for (const name of ["neq", "in", "is", "order", "limit", "update", "delete"]) query[name] = () => query;
     query.eq = (column: string, value: unknown) => { filters[column] = value; return query; };
     query.upsert = () => { inserted = {}; return query; };
     query.insert = (value: Record<string, unknown>) => {
@@ -119,7 +126,7 @@ function database(options: DatabaseOptions) {
         : { result: "new_version" }, error: null };
     }
     if (name === "api_reuse_trusted_part_version_artifacts") {
-      return { data: { artifactsReady: true }, error: null };
+      return { data: { artifactsReady: !options.artifactsPending }, error: null };
     }
     if (name === "api_auto_approve_job_requirements") {
       return { data: options.approvedCount, error: null };
@@ -235,6 +242,31 @@ describe("part approval read errors fail closed", () => {
       event_type: "worker.extraction_failed",
       payload: expect.objectContaining({ partId: part.id, failureMessage: "approval read failed" }),
     })]);
+  });
+});
+
+describe("extraction_failed audit on errors", () => {
+  it("a retryable failure (canonical artifacts pending) requeues and writes no failed audit", async () => {
+    const db = await run({ trustedReuse: true, approvedCount: 1, artifactsPending: true });
+
+    expect(markTaskQueuedForRetry).toHaveBeenCalledTimes(1);
+    expect(markTaskFailed).not.toHaveBeenCalled();
+    expect(db.auditEvents.some((event) => event.event_type === "worker.extraction_failed")).toBe(false);
+  });
+
+  it("a non-retryable failure writes one failed audit", async () => {
+    const db = await run({ trustedReuse: false, approvedCount: 1, approvalReadError: { message: "approval read failed" } });
+
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+    expect(db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed")).toHaveLength(1);
+  });
+
+  it("a failing audit write does not mask the original error", async () => {
+    const db = await run({ trustedReuse: false, approvedCount: 1,
+      approvalReadError: { message: "approval read failed" }, auditInsertError: { message: "audit insert failed" } });
+
+    expect(markTaskFailed).toHaveBeenCalledExactlyOnceWith(db.client, task, "approval read failed", expect.any(Object));
+    expect(markTaskCompleted).not.toHaveBeenCalled();
   });
 });
 

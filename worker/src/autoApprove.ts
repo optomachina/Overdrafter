@@ -16,6 +16,7 @@ export async function autoApproveJobRequirements(
   supabase: SupabaseClient,
   jobId: string,
   partId: string,
+  organizationId: string,
 ): Promise<AutoApproveResult> {
   const { data, error } = await supabase.rpc("api_auto_approve_job_requirements", {
     p_job_id: jobId,
@@ -36,6 +37,7 @@ export async function autoApproveJobRequirements(
   const { data: approvedPart, error: approvedPartError } = await supabase
     .from("approved_part_requirements")
     .select("id")
+    .eq("organization_id", organizationId)
     .eq("part_id", partId)
     .limit(1)
     .maybeSingle();

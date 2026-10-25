@@ -25,7 +25,7 @@ describe("autoApproveJobRequirements", () => {
   it("calls the auto-approval RPC and returns the approved part count", async () => {
     const { rpc, from, query, client } = clientReturning({ data: 2, error: null });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).resolves.toEqual({
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).resolves.toEqual({
       approvedCount: 2,
       reviewHold: false,
     });
@@ -35,6 +35,7 @@ describe("autoApproveJobRequirements", () => {
     });
     expect(from).toHaveBeenCalledWith("approved_part_requirements");
     expect(query.select).toHaveBeenCalledWith("id");
+    expect(query.eq).toHaveBeenCalledWith("organization_id", "org-123");
     expect(query.eq).toHaveBeenCalledWith("part_id", "part-123");
     expect(query.limit).toHaveBeenCalledWith(1);
     expect(query.maybeSingle).toHaveBeenCalledOnce();
@@ -44,7 +45,7 @@ describe("autoApproveJobRequirements", () => {
   it.each([0, 1])("reports a review hold without this part's approval when RPC returns %i", async (data) => {
     const { client } = clientReturning({ data, error: null }, { data: null, error: null });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).resolves.toEqual({
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).resolves.toEqual({
       approvedCount: data,
       reviewHold: true,
     });
@@ -54,13 +55,13 @@ describe("autoApproveJobRequirements", () => {
     const approvalError = { message: "approval read failed" };
     const { client } = clientReturning({ data: 1, error: null }, { data: null, error: approvalError });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).rejects.toBe(approvalError);
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).rejects.toBe(approvalError);
   });
 
   it("uses an existing part approval even when the RPC returns 0 new approvals", async () => {
     const { client } = clientReturning({ data: 0, error: null });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).resolves.toEqual({
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).resolves.toEqual({
       approvedCount: 0,
       reviewHold: false,
     });
@@ -69,7 +70,7 @@ describe("autoApproveJobRequirements", () => {
   it("accepts a numeric string count from PostgREST", async () => {
     const { client } = clientReturning({ data: "3", error: null });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).resolves.toEqual({
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).resolves.toEqual({
       approvedCount: 3,
       reviewHold: false,
     });
@@ -79,7 +80,7 @@ describe("autoApproveJobRequirements", () => {
     const rpcError = { message: "permission denied", code: "42501" };
     const { client, from } = clientReturning({ data: null, error: rpcError });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).rejects.toBe(rpcError);
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).rejects.toBe(rpcError);
     expect(from).not.toHaveBeenCalled();
   });
 
@@ -97,7 +98,7 @@ describe("autoApproveJobRequirements", () => {
   ])("fails closed on %s instead of treating it as a review hold", async (_label, data) => {
     const { client, from } = clientReturning({ data, error: null });
 
-    await expect(autoApproveJobRequirements(client, "job-123", "part-123")).rejects.toThrow(
+    await expect(autoApproveJobRequirements(client, "job-123", "part-123", "org-123")).rejects.toThrow(
       "Auto-approval returned an invalid approved requirement count for job job-123.",
     );
     expect(from).not.toHaveBeenCalled();

@@ -776,6 +776,15 @@ async function runDrawingExtractionForTask(
   }
 }
 
+// Keep in sync with the extract_part cases in processClaimedTask's shouldRetry.
+function isRetryableExtractError(error: unknown): boolean {
+  return (
+    error instanceof CanonicalArtifactsPendingError ||
+    error instanceof ExportControlLookupError ||
+    error instanceof ExportControlStepScanRetryableError
+  );
+}
+
 async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
   let runDir: string | null = null;
   let organizationIdForError: string | null = null;
@@ -865,7 +874,12 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         }, exportScanOutcomes);
         // A missing approval for this part is a review hold, even when the
         // job-wide RPC count includes approvals for other parts.
-        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!, identityContext.part.id);
+        const autoApproval = await autoApproveJobRequirements(
+          supabase,
+          task.job_id!,
+          identityContext.part.id,
+          identityContext.part.organization_id,
+        );
         await logWorkerAuditEvent(supabase, {
           organizationId: identityContext.part.organization_id,
           jobId: task.job_id!,
@@ -956,7 +970,12 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       }
     }
     // A missing approval for this part is a review hold, not a failure.
-    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!, context.part.id);
+    const autoApproval = await autoApproveJobRequirements(
+      supabase,
+      task.job_id!,
+      context.part.id,
+      context.part.organization_id,
+    );
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
       extraction,
@@ -988,17 +1007,23 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       // The failed task records the STEP outcome with the unread drawing.
       error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };
     }
-    if (organizationIdForError && task.job_id) {
-      await logWorkerAuditEvent(supabase, {
-        organizationId: organizationIdForError,
-        jobId: task.job_id,
-        eventType: "worker.extraction_failed",
-        payload: {
-          partId: partIdForError,
-          failureCode: failureCodeForError(error),
-          failureMessage: summarizeWorkerError(error),
-        },
-      });
+    // A retryable error requeues the task, so it is not an extraction failure.
+    if (organizationIdForError && task.job_id && !isRetryableExtractError(error)) {
+      try {
+        await logWorkerAuditEvent(supabase, {
+          organizationId: organizationIdForError,
+          jobId: task.job_id,
+          eventType: "worker.extraction_failed",
+          payload: {
+            partId: partIdForError,
+            failureCode: failureCodeForError(error),
+            failureMessage: summarizeWorkerError(error),
+          },
+        });
+      } catch (auditError) {
+        // Never let a failed audit write mask the original extraction error.
+        console.warn(`extract_part ${task.id}: extraction_failed audit write failed: ${summarizeWorkerError(auditError)}`);
+      }
     }
     throw error;
   } finally {
