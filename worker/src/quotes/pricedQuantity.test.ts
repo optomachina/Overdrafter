@@ -113,6 +113,90 @@ describe("admitPrice admissions", () => {
   });
 });
 
+describe("page quantity labeled tokens", () => {
+  it.each([
+    ["Quantity 10; part 1", 1],
+    ["part 1", 1],
+    ["Qty -1", 1],
+    ["Qty +1", 1],
+    ["Qty 1.5", 1],
+    ["Qty 1e3", 1],
+    ["Qty 1e3", 1000],
+    ["Qty 1E3", 1],
+    ["Qty 1E3", 1000],
+    ["Qty 1; Quantity 10", 1],
+    ["Qty 10; Quantity 1", 1],
+    ["Qty 1,00", 100],
+  ])("rejects %s with page value %i", (sourceText, quantity) => {
+    expect(admitPrice({
+      requestedQuantity: quantity,
+      quantity,
+      pageQuantity: { value: quantity, sourceText },
+      unit: each(5),
+      total: total(5 * quantity),
+    })).toMatchObject({
+      ok: false,
+      reason: "qty_missing",
+      detail: { pageQuantitySourceValid: false },
+    });
+  });
+
+  it.each([
+    ["Qty: 1,000", 1000],
+    ["qty 1,000", 1000],
+    ["QUANTITY = 10", 10],
+    ["Qty 10; Quantity: 10; part 1", 10],
+  ])("admits %s with page value %i", (sourceText, quantity) => {
+    expect(admitPrice({
+      requestedQuantity: quantity,
+      quantity,
+      pageQuantity: { value: quantity, sourceText },
+      unit: each(5),
+      total: total(5 * quantity),
+    }).ok).toBe(true);
+  });
+});
+
+describe("runtime price label allowlists", () => {
+  // Runtime observations can violate the TypeScript label unions.
+  it.each(["total", "unknown", "", 123, null, undefined, true])("rejects unit label %j", (label) => {
+    const input = {
+      requestedQuantity: 1,
+      quantity: 1,
+      pageQuantity: page(1),
+      unit: { ...each(100), label },
+      total: total(100),
+    } as unknown as AdmitPriceInput;
+    expect(admitPrice(input)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+  });
+
+  it.each(["each", "unknown", "", 123, null, undefined, true])("rejects total label %j", (label) => {
+    const input = {
+      requestedQuantity: 1,
+      quantity: 1,
+      pageQuantity: page(1),
+      unit: each(100),
+      total: { ...total(100), label },
+    } as unknown as AdmitPriceInput;
+    expect(admitPrice(input)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+  });
+
+  it.each([
+    ["each", "total"],
+    ["each", "subtotal"],
+    ["per_part", "total"],
+    ["per_part", "subtotal"],
+  ] as const)("admits unit %s with total %s", (unitLabel, totalLabel) => {
+    expect(admitPrice({
+      requestedQuantity: 10,
+      quantity: 10,
+      pageQuantity: page(10),
+      unit: { ...each(100), label: unitLabel },
+      total: { ...total(1000), label: totalLabel },
+    }).ok).toBe(true);
+  });
+});
+
 describe("admitPrice tolerance", () => {
   const qty = 7;
   const unitCents = 1234;

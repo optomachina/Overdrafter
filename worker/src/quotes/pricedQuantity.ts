@@ -45,14 +45,19 @@ export type ObservedAmount<Label extends string> = {
 
 export type PageQuantity = { value: number; sourceText: string };
 
+export const UNIT_PRICE_LABELS = ["each", "per_part"] as const;
+export const TOTAL_PRICE_LABELS = ["total", "subtotal"] as const;
+export type UnitPriceLabel = (typeof UNIT_PRICE_LABELS)[number];
+export type TotalPriceLabel = (typeof TOTAL_PRICE_LABELS)[number];
+
 export type AdmitPriceInput = {
   requestedQuantity: number | null | undefined;
   /** The quantity the price card states for this price. */
   quantity: number | null | undefined;
   /** The quantity read from the page's quantity control after pricing, and the exact text span it was read from. */
   pageQuantity: PageQuantity | null | undefined;
-  unit?: ObservedAmount<"each" | "per_part"> | null;
-  total?: ObservedAmount<"total" | "subtotal"> | null;
+  unit?: ObservedAmount<UnitPriceLabel> | null;
+  total?: ObservedAmount<TotalPriceLabel> | null;
 };
 
 /**
@@ -69,15 +74,38 @@ export const PRICE_TOLERANCE_CENTS_PER_PIECE = 1;
 const isQuantity = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
-const groupedDigits = (value: number) => String(value).replace(/\B(?=(\d{3})+$)/g, ",?");
-
 /**
- * True when sourceText contains value as a standalone number token: no digit or
- * digit-plus-separator on either side, so "10" does not match 1 and "1.5" does
- * not match 1 or 5. Thousands commas are optional ("1,000" or "1000").
+ * Read only unsigned integer tokens following quantity/qty labels. Every label
+ * must name the expected value; unrelated numbers cannot supply the quantity.
+ * Scan each label and its token once, without a backtracking number search.
  */
-const sourceShowsQuantity = (sourceText: string, value: number) =>
-  new RegExp(`(?<!\\d|\\d[.,])${groupedDigits(value)}(?!\\d|[.,]\\d)`).test(sourceText);
+const sourceShowsQuantity = (sourceText: string, value: number) => {
+  const labels = /\b(?:quantity|qty)\b/gi;
+  let found = false;
+  for (const label of sourceText.matchAll(labels)) {
+    let cursor = label.index + label[0].length;
+    let whitespaceStart = cursor;
+    while (cursor < sourceText.length && /\s/.test(sourceText[cursor])) cursor++;
+    if (sourceText[cursor] === ":" || sourceText[cursor] === "=") {
+      whitespaceStart = ++cursor;
+      while (cursor < sourceText.length && /\s/.test(sourceText[cursor])) cursor++;
+    }
+    if (cursor === whitespaceStart) return false;
+
+    const start = cursor;
+    while (cursor < sourceText.length && /[0-9,]/.test(sourceText[cursor])) cursor++;
+    const token = sourceText.slice(start, cursor);
+    if (
+      !/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/.test(token) ||
+      (cursor < sourceText.length && /[\w.+-]/.test(sourceText[cursor])) ||
+      Number(token.replace(/,/g, "")) !== value
+    ) {
+      return false;
+    }
+    found = true;
+  }
+  return found;
+};
 
 const refuse = (reason: PriceVerdictReason, detail: PriceVerdictDetail): PriceVerdict => ({
   ok: false,
@@ -126,7 +154,10 @@ export function admitPrice(input: AdmitPriceInput): PriceVerdict {
     unitLabeled: unit?.label !== undefined,
     totalLabeled: total?.label !== undefined,
   };
-  if ((unit && !unit.label) || (total && !total.label)) {
+  if (
+    (unit && !UNIT_PRICE_LABELS.some((label) => label === unit.label)) ||
+    (total && !TOTAL_PRICE_LABELS.some((label) => label === total.label))
+  ) {
     return refuse("ambiguous_label", { ...observed, ...labels });
   }
   // Approved decision: for qty > 1 both unit and total must be read from the page.
