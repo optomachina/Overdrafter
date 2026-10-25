@@ -48,6 +48,8 @@ function runLaunchHarness(mode, credentialDirectory, record, verifyStatus = 0) {
       `source "$CONTROL_SCRIPT"
 require_root() { :; }
 credential_directory_for_mode() { printf '%s\\n' "$TEST_CREDENTIAL_DIR"; }
+acquire_launch_lock() { printf 'lock\\n' >>"$TEST_RECORD"; }
+refresh_pinned_address_map() { printf 'refresh\\n' >>"$TEST_RECORD"; }
 verify_control() {
   printf 'verify:%s\\n' "$1" >>"$TEST_RECORD"
   [[ "$TEST_VERIFY_STATUS" == '0' ]] || fail 'test_verification_failed'
@@ -77,6 +79,7 @@ launch_browser "$TEST_MODE" "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
 async function runSanitizedPhaseLaunchHarness({
   commandStatus = 0,
   corruptPhase = false,
+  refreshStatus = 0,
 } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ovd410-phase-launch-"));
   temporaryDirectories.push(directory);
@@ -106,7 +109,13 @@ async function runSanitizedPhaseLaunchHarness({
       `source "$CONTROL_SCRIPT"
 require_root() { :; }
 credential_directory_for_mode() { printf '%s\\n' "$TEST_CREDENTIAL_DIR"; }
+acquire_launch_lock() { :; }
 verify_control() { printf 'verify\\n' >>"$TEST_RECORD"; }
+refresh_pinned_address_map() {
+  printf 'refresh\\n' >>"$TEST_RECORD"
+  printf '%s\\n' 'raw-refresh-detail'
+  [[ "$TEST_REFRESH_STATUS" == '0' ]] || fail 'address_refresh_failed'
+}
 stat() {
   if [[ "$TEST_STAT_STYLE" != 'bsd' ]]; then
     command stat "$@"
@@ -167,6 +176,7 @@ launch_browser classifier-only "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
         TEST_IMAGE: image,
         TEST_PHASE_PATH: phasePath,
         TEST_RECORD: record,
+        TEST_REFRESH_STATUS: String(refreshStatus),
         TEST_STAT_STYLE: process.platform === "darwin" ? "bsd" : "gnu",
         TEST_UID: String(process.getuid()),
       },
@@ -1284,16 +1294,23 @@ exec "$TEST_REAL_JQ" "$@"
     const lines = (await readFile(record, "utf8")).trim().split("\n");
 
     expect(result.status).toBe(0);
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe(`verify:${"b".repeat(64)}`);
-    expect(lines[1]).toContain(`--name ${containerName}`);
-    expect(lines[1]).toContain("--network ovd420-recovery-egress");
+    expect(lines).toHaveLength(6);
+    // The lock is held before anything is checked; addresses are re-pinned
+    // only between two full verifications and before the browser exists.
+    expect(lines.slice(0, 4)).toEqual([
+      "lock",
+      `verify:${"b".repeat(64)}`,
+      "refresh",
+      `verify:${"b".repeat(64)}`,
+    ]);
+    expect(lines[4]).toContain(`--name ${containerName}`);
+    expect(lines[4]).toContain("--network ovd420-recovery-egress");
     // The worker image runs as pwuser by default; recovery must stay uid 0
     // because its phase and credential mounts are root-owned 0700.
-    expect(lines[1]).toMatch(/^docker:run --rm -it --user 0:0 /);
-    expect(lines[1]).toContain("--cap-drop ALL");
-    expect(lines[1]).toContain("--security-opt no-new-privileges");
-    expect(lines[2]).toBe(`verify:${"b".repeat(64)}`);
+    expect(lines[4]).toMatch(/^docker:run --rm -it --user 0:0 /);
+    expect(lines[4]).toContain("--cap-drop ALL");
+    expect(lines[4]).toContain("--security-opt no-new-privileges");
+    expect(lines[5]).toBe(`verify:${"b".repeat(64)}`);
   });
 
   it("maps both launch modes to their production credential directories", () => {
@@ -1328,7 +1345,7 @@ credential_directory_for_mode full-recovery`,
       const recordText = await readFile(record, "utf8");
 
       expect(result.status).toBe(1);
-      expect(recordText).toBe(`verify:${"b".repeat(64)}\n`);
+      expect(recordText).toBe(`lock\nverify:${"b".repeat(64)}\n`);
       expect(result.stderr).toContain("test_verification_failed");
     },
   );
@@ -1367,6 +1384,17 @@ credential_directory_for_mode full-recovery`,
     expect(result.stderr).toContain("recovery-phase=container-start");
     expect(result.stderr).toContain("recovery_phase_invalid");
     expect(result.stderr).not.toContain("hostile-sensitive-content");
+  });
+
+  it("reports only a sanitized phase when the pre-launch address refresh fails", async () => {
+    const result = await runSanitizedPhaseLaunchHarness({ refreshStatus: 1 });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "recovery-phase=control-preverify\nOVD-420 recovery egress control failed: recovery_address_refresh_failed\n",
+    );
+    expect(result.recordText).toBe("verify\nrefresh\n");
   });
 
   it("keeps recovery phase transitions finite and sequential", async () => {
@@ -1438,7 +1466,7 @@ credential_directory_for_mode full-recovery`,
     expect(source).toContain(
       'sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"',
     );
-    expect(source).toContain("Resolution is install-time only.");
+    expect(source).toContain("Readiness never resolves.");
     expect(source).toContain("verify_gateway_resolution");
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");
@@ -1578,4 +1606,482 @@ post_launch`,
       'sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1"',
     );
   });
+});
+
+// OVD-1064: the gateway re-pins upstream addresses right before each browser
+// launch instead of serving addresses resolved at host setup.
+const REFRESH_HOSTS = ["approved-a.recovery.test", "approved-b.recovery.test"];
+const REFRESH_POLICY = JSON.stringify({ version: 1, hostnames: REFRESH_HOSTS });
+const PINNED_MAP = JSON.stringify({
+  version: 1,
+  hosts: [
+    { hostname: REFRESH_HOSTS[0], addresses: ["93.184.216.34"] },
+    { hostname: REFRESH_HOSTS[1], addresses: ["93.184.216.40"] },
+  ],
+});
+const ROTATED_ANSWERS = {
+  [REFRESH_HOSTS[0]]: [
+    `${REFRESH_HOSTS[0]}. 60 IN CNAME edge.recovery.test.`,
+    "edge.recovery.test. 60 IN A 93.184.216.37",
+    "edge.recovery.test. 60 IN A 93.184.216.36",
+  ],
+  [REFRESH_HOSTS[1]]: [`${REFRESH_HOSTS[1]}. 60 IN A 93.184.216.40`],
+};
+const UNCHANGED_ANSWERS = {
+  [REFRESH_HOSTS[0]]: [`${REFRESH_HOSTS[0]}. 60 IN A 93.184.216.34`],
+  [REFRESH_HOSTS[1]]: [`${REFRESH_HOSTS[1]}. 60 IN A 93.184.216.40`],
+};
+// GNU mv -T has no BSD equivalent; developer macOS runs map it to plain -f.
+const MV_SHIM = process.platform === "darwin"
+  ? `mv() {
+  if [[ "\${1:-}" == '-fT' && "\${2:-}" == '--' ]]; then command mv -f "$3" "$4"; else command mv "$@"; fi
+}`
+  : "";
+const DIG_STUB = `dig() {
+  local argument previous='' name=''
+  printf 'dig:%s\\n' "$*" >>"$TEST_RECORD"
+  for argument in "$@"; do
+    [[ "$argument" != 'A' ]] || name="$previous"
+    previous="$argument"
+  done
+  [[ -n "$name" && -f "$TEST_DNS_DIR/$name" ]] || return 9
+  cat "$TEST_DNS_DIR/$name"
+}`;
+
+async function writeAnswers(dnsDirectory, answers) {
+  await rm(dnsDirectory, { force: true, recursive: true });
+  await mkdir(dnsDirectory);
+  for (const [hostname, records] of Object.entries(answers)) {
+    await writeFile(path.join(dnsDirectory, hostname), records.join("\n"));
+  }
+}
+
+async function renderedHaproxyFor(directory, mapBytes) {
+  const policy = path.join(directory, "expected-policy.json");
+  const addressMap = path.join(directory, "expected-addresses.json");
+  const dnsConfig = path.join(directory, "expected-dnsmasq.conf");
+  const haproxyConfig = path.join(directory, "expected-haproxy.cfg");
+  await writeFile(policy, REFRESH_POLICY);
+  await writeFile(addressMap, mapBytes);
+  const result = renderTestConfig(policy, addressMap, dnsConfig, haproxyConfig);
+  expect(result.status, result.stderr).toBe(0);
+  const rendered = await readFile(haproxyConfig, "utf8");
+  await Promise.all([policy, addressMap, dnsConfig, haproxyConfig].map((file) => rm(file)));
+  return rendered;
+}
+
+function withoutBackendServers(config) {
+  return config.split("\n").filter((line) => !line.startsWith("  server upstream_")).join("\n");
+}
+
+async function seamFixture() {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "ovd1064-seam-"));
+  temporaryDirectories.push(directory);
+  const live = path.join(directory, "live");
+  await mkdir(live);
+  const policy = path.join(directory, "policy.json");
+  const addressMap = path.join(live, "addresses.json");
+  const haproxyConfig = path.join(live, "haproxy.cfg");
+  await writeFile(policy, REFRESH_POLICY);
+  await writeFile(addressMap, PINNED_MAP);
+  await writeFile(haproxyConfig, await renderedHaproxyFor(directory, PINNED_MAP));
+  return { directory, live, policy, addressMap, haproxyConfig, dns: path.join(directory, "dns") };
+}
+
+async function runRefreshSeam(fixture, answers, { enabled = true } = {}) {
+  const record = path.join(fixture.directory, "record.txt");
+  await rm(record, { force: true });
+  await writeAnswers(fixture.dns, answers);
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      `source "$CONTROL_SCRIPT"
+${MV_SHIM}
+${DIG_STUB}
+main "$@"`,
+      "control",
+      "test-refresh",
+      fixture.policy,
+      fixture.addressMap,
+      fixture.haproxyConfig,
+      "127.0.0.1",
+      "5353",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CONTROL_SCRIPT: SCRIPT,
+        OVD420_RECOVERY_EGRESS_TEST_RENDER: enabled ? "1" : "",
+        TEST_DNS_DIR: fixture.dns,
+        TEST_RECORD: record,
+        TMPDIR: fixture.directory,
+      },
+    },
+  );
+  const recordText = await readFile(record, "utf8").catch(() => "");
+  return { ...result, recordText };
+}
+
+async function productionLaunchFixture() {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "ovd1064-launch-"));
+  temporaryDirectories.push(directory);
+  const policyDirectory = path.join(directory, "etc");
+  const stateDirectory = path.join(directory, "state");
+  const credentialDirectory = path.join(directory, "credential");
+  await mkdir(policyDirectory, { mode: 0o755 });
+  await mkdir(stateDirectory, { mode: 0o700 });
+  await mkdir(credentialDirectory, { mode: 0o700 });
+  const policy = parseRecoveryEgressPolicy(REFRESH_POLICY);
+  const files = {
+    policy: path.join(policyDirectory, "ovd420-recovery-egress-policy.json"),
+    addressMap: path.join(policyDirectory, "ovd420-recovery-egress-addresses.json"),
+    dnsConfig: path.join(policyDirectory, "ovd420-dnsmasq.conf"),
+    haproxyConfig: path.join(policyDirectory, "ovd420-haproxy.cfg"),
+    digest: path.join(stateDirectory, "policy.sha256"),
+  };
+  await writeFile(files.policy, policy.canonical, { mode: 0o600 });
+  await writeFile(files.addressMap, PINNED_MAP, { mode: 0o600 });
+  await writeFile(files.dnsConfig, "synthetic dnsmasq config\n", { mode: 0o644 });
+  await writeFile(files.haproxyConfig, await renderedHaproxyFor(directory, PINNED_MAP), {
+    mode: 0o644,
+  });
+  await writeFile(files.digest, `${policy.digest}\n`, { mode: 0o600 });
+  const source = await readFile(SCRIPT, "utf8");
+  const policyDirLine = "readonly POLICY_DIR='/etc/overdrafter'";
+  const stateDirLine = "readonly STATE_DIR='/run/ovd420-recovery-egress'";
+  expect(source).toContain(policyDirLine);
+  expect(source).toContain(stateDirLine);
+  const controlCopy = path.join(directory, "control.sh");
+  await writeFile(
+    controlCopy,
+    source
+      .replace(policyDirLine, `readonly POLICY_DIR='${policyDirectory}'`)
+      .replace(stateDirLine, `readonly STATE_DIR='${stateDirectory}'`),
+    { mode: 0o700 },
+  );
+  return {
+    directory,
+    policyDirectory,
+    stateDirectory,
+    credentialDirectory,
+    controlCopy,
+    files,
+    digest: policy.digest,
+    dns: path.join(directory, "dns"),
+    record: path.join(directory, "record.txt"),
+  };
+}
+
+async function runProductionLaunch(
+  fixture,
+  answers,
+  { flockStatus = 0, haproxyStatus = 0, systemctlStatus = 0 } = {},
+) {
+  await rm(fixture.record, { force: true });
+  await writeAnswers(fixture.dns, answers);
+  const image = `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/worker@sha256:${"a".repeat(64)}`;
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      `source "$CONTROL_SCRIPT"
+${MV_SHIM}
+${DIG_STUB}
+require_root() { :; }
+credential_directory_for_mode() { printf '%s\\n' "$TEST_CREDENTIAL_DIR"; }
+flock() { printf 'flock:%s\\n' "$*" >>"$TEST_RECORD"; return "$TEST_FLOCK_STATUS"; }
+verify_control() { printf 'verify:%s\\n' "$1" >>"$TEST_RECORD"; }
+haproxy() { printf 'haproxy:%s\\n' "$*" >>"$TEST_RECORD"; return "$TEST_HAPROXY_STATUS"; }
+systemctl() { printf 'systemctl:%s\\n' "$*" >>"$TEST_RECORD"; return "$TEST_SYSTEMCTL_STATUS"; }
+docker() { printf 'docker:%s\\n' "$1" >>"$TEST_RECORD"; }
+OVD420_RECOVERY_EGRESS_POLICY_SHA256="$TEST_DIGEST"
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256
+launch_browser full-recovery "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CONTROL_SCRIPT: fixture.controlCopy,
+        TEST_CREDENTIAL_DIR: fixture.credentialDirectory,
+        TEST_DIGEST: fixture.digest,
+        TEST_DNS_DIR: fixture.dns,
+        TEST_FLOCK_STATUS: String(flockStatus),
+        TEST_HAPROXY_STATUS: String(haproxyStatus),
+        TEST_IMAGE: image,
+        TEST_RECORD: fixture.record,
+        TEST_SYSTEMCTL_STATUS: String(systemctlStatus),
+      },
+    },
+  );
+  const recordText = await readFile(fixture.record, "utf8").catch(() => "");
+  return { ...result, lines: recordText.trim().split("\n") };
+}
+
+async function liveBytes(files) {
+  const entries = await Promise.all(
+    Object.entries(files).map(async ([name, file]) => [name, await readFile(file, "utf8")]),
+  );
+  return Object.fromEntries(entries);
+}
+
+// Each case spawns several shells and jq processes; loaded runners need headroom.
+describe("OVD-420 pre-launch address refresh (OVD-1064)", { timeout: 20_000 }, () => {
+  it("re-pins rotated public addresses and re-renders only the backend servers", async () => {
+    const fixture = await seamFixture();
+    const before = await readFile(fixture.haproxyConfig, "utf8");
+    const result = await runRefreshSeam(fixture, ROTATED_ANSWERS);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("address-map=replaced\n");
+    expect(result.stderr).toBe("");
+    const refreshedMap = JSON.stringify({
+      version: 1,
+      hosts: [
+        { hostname: REFRESH_HOSTS[0], addresses: ["93.184.216.36", "93.184.216.37"] },
+        { hostname: REFRESH_HOSTS[1], addresses: ["93.184.216.40"] },
+      ],
+    });
+    expect(await readFile(fixture.addressMap, "utf8")).toBe(refreshedMap);
+    const after = await readFile(fixture.haproxyConfig, "utf8");
+    expect(after).toBe(await renderedHaproxyFor(fixture.directory, refreshedMap));
+    expect(after).not.toContain("93.184.216.34");
+    // Same SNI allowlist, same default-deny rules; alias names never become routable.
+    expect(withoutBackendServers(after)).toBe(withoutBackendServers(before));
+    expect(after).toContain("  tcp-request content reject if tls_client_hello\n");
+    expect(after).toContain("  tcp-request content reject if WAIT_END\n");
+    expect(after).not.toContain("edge.recovery.test");
+    // Exactly one query per policy hostname, through the given resolver.
+    expect(result.recordText.trim().split("\n")).toEqual(
+      REFRESH_HOSTS.map(
+        (hostname) => `dig:+time=2 +tries=1 +noall +answer @127.0.0.1 -p 5353 ${hostname} A`,
+      ),
+    );
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+    expect((await stat(fixture.addressMap)).mode & 0o777).toBe(0o600);
+    expect((await stat(fixture.haproxyConfig)).mode & 0o777).toBe(0o644);
+  });
+
+  it("leaves the live pair untouched when the fresh answers match the pinned map", async () => {
+    const fixture = await seamFixture();
+    const before = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const result = await runRefreshSeam(fixture, UNCHANGED_ANSWERS);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("address-map=unchanged\n");
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+  });
+
+  it.each([
+    ["a loopback rebind", ["127.0.0.2"], "dns_address_not_public"],
+    ["an RFC 1918 rebind", ["10.0.0.2"], "dns_address_not_public"],
+    ["a metadata-server rebind", ["169.254.169.254"], "dns_address_not_public"],
+    ["a carrier-grade NAT rebind", ["100.64.0.1"], "dns_address_not_public"],
+    ["a top-of-range carrier-grade NAT rebind", ["100.127.255.254"], "dns_address_not_public"],
+    ["a benchmarking-range rebind", ["198.19.0.1"], "dns_address_not_public"],
+    ["a multicast rebind", ["224.0.0.1"], "dns_address_not_public"],
+    ["a reserved class E rebind", ["240.0.0.1"], "dns_address_not_public"],
+    ["a this-network rebind", ["0.1.2.3"], "dns_address_not_public"],
+    ["one private address among public ones", ["93.184.216.36", "10.0.0.2"], "dns_address_not_public"],
+  ])("fails closed on %s without touching the live pair", async (_label, addresses, failureCode) => {
+    const fixture = await seamFixture();
+    const before = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const result = await runRefreshSeam(fixture, {
+      ...UNCHANGED_ANSWERS,
+      [REFRESH_HOSTS[0]]: addresses.map((address) => `${REFRESH_HOSTS[0]}. 60 IN A ${address}`),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(failureCode);
+    expect(result.stderr).toContain("test_address_refresh_failed");
+    for (const address of addresses) expect(result.stderr).not.toContain(address);
+    expect(result.stderr).not.toContain("recovery.test");
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+  });
+
+  it.each([
+    ["an unavailable resolver", null, "dns_resolution_unavailable"],
+    ["a CNAME loop", [
+      `${REFRESH_HOSTS[0]}. 60 IN CNAME edge.recovery.test.`,
+      `edge.recovery.test. 60 IN CNAME ${REFRESH_HOSTS[0]}.`,
+    ], "dns_cname_loop"],
+    ["a disconnected answer owner", [
+      `${REFRESH_HOSTS[0]}. 60 IN CNAME edge.recovery.test.`,
+      "unrelated.recovery.test. 60 IN A 93.184.216.36",
+    ], "dns_answer_chain_invalid"],
+    ["an AAAA answer", [`${REFRESH_HOSTS[0]}. 60 IN AAAA 2001:db8::1`], "dns_answer_type_invalid"],
+  ])("fails closed on %s without touching the live pair", async (_label, records, failureCode) => {
+    const fixture = await seamFixture();
+    const before = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const answers = { ...UNCHANGED_ANSWERS };
+    if (records === null) delete answers[REFRESH_HOSTS[1]];
+    else answers[REFRESH_HOSTS[0]] = records;
+    const result = await runRefreshSeam(fixture, answers);
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(failureCode);
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
+    expect((await readdir(fixture.live)).sort()).toEqual(["addresses.json", "haproxy.cfg"]);
+  });
+
+  it.each([
+    ["a gateway config that drifted from its pinned map", "config", "rendered_config_drift"],
+    ["a live map outside the pinned contract", "map", "address_map_contract_invalid"],
+  ])("refuses to refresh %s and never queries DNS", async (_label, target, failureCode) => {
+    const fixture = await seamFixture();
+    if (target === "config") {
+      await writeFile(fixture.haproxyConfig, `${await readFile(fixture.haproxyConfig, "utf8")}  server extra 10.0.0.1:443\n`);
+    } else {
+      await writeFile(fixture.addressMap, PINNED_MAP.replace("93.184.216.34", "10.0.0.1"));
+    }
+    const before = await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig });
+    const result = await runRefreshSeam(fixture, ROTATED_ANSWERS);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(failureCode);
+    expect(result.recordText).toBe("");
+    expect(await liveBytes({ map: fixture.addressMap, config: fixture.haproxyConfig })).toEqual(before);
+  });
+
+  it("requires the explicit test-render opt-in", async () => {
+    const fixture = await seamFixture();
+    const result = await runRefreshSeam(fixture, ROTATED_ANSWERS, { enabled: false });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("test_render_not_enabled");
+    expect(result.recordText).toBe("");
+    expect(await readFile(fixture.addressMap, "utf8")).toBe(PINNED_MAP);
+  });
+
+  it("re-pins through the controlled resolver between two full verifications before launch", async () => {
+    const fixture = await productionLaunchFixture();
+    const before = await liveBytes(fixture.files);
+    const result = await runProductionLaunch(fixture, ROTATED_ANSWERS);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("OVD-420 recovery egress upstream addresses refreshed: replaced\n");
+    const verify = `verify:${fixture.digest}`;
+    expect(result.lines[0]).toBe("flock:-n 8");
+    expect(result.lines[1]).toBe(verify);
+    expect(result.lines.slice(2, 4)).toEqual(
+      REFRESH_HOSTS.map(
+        (hostname) => `dig:+time=2 +tries=1 +noall +answer @169.254.169.254 -p 53 ${hostname} A`,
+      ),
+    );
+    expect(result.lines[4]).toMatch(
+      new RegExp(`^haproxy:-c -f ${fixture.policyDirectory}/\\.ovd420-haproxy\\.[A-Za-z0-9]+$`),
+    );
+    expect(result.lines.slice(5)).toEqual([
+      "systemctl:restart ovd420-haproxy.service",
+      verify,
+      "docker:run",
+      verify,
+    ]);
+    const after = await liveBytes(fixture.files);
+    // The digest-pinned policy, its digest and the DNS allowlist are untouched.
+    expect(after.policy).toBe(before.policy);
+    expect(after.digest).toBe(before.digest);
+    expect(after.dnsConfig).toBe(before.dnsConfig);
+    expect(after.addressMap).not.toBe(before.addressMap);
+    expect(after.haproxyConfig).toBe(await renderedHaproxyFor(fixture.directory, after.addressMap));
+    expect((await readdir(fixture.policyDirectory)).sort()).toEqual([
+      "ovd420-dnsmasq.conf",
+      "ovd420-haproxy.cfg",
+      "ovd420-recovery-egress-addresses.json",
+      "ovd420-recovery-egress-policy.json",
+    ]);
+    expect((await readdir(fixture.stateDirectory)).sort()).toEqual(["launch.lock", "policy.sha256"]);
+  });
+
+  it("does not restart the gateway when the fresh answers match the pinned map", async () => {
+    const fixture = await productionLaunchFixture();
+    const before = await liveBytes(fixture.files);
+    const result = await runProductionLaunch(fixture, UNCHANGED_ANSWERS);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("OVD-420 recovery egress upstream addresses refreshed: unchanged\n");
+    expect(result.lines.filter((line) => line.startsWith("systemctl:"))).toEqual([]);
+    expect(result.lines.slice(-3)).toEqual([`verify:${fixture.digest}`, "docker:run", `verify:${fixture.digest}`]);
+    expect(await liveBytes(fixture.files)).toEqual(before);
+  });
+
+  it.each([
+    ["a private rebind", { answers: { ...UNCHANGED_ANSWERS, [REFRESH_HOSTS[1]]: [`${REFRESH_HOSTS[1]}. 60 IN A 10.0.0.2`] } }, "dns_address_not_public"],
+    ["a gateway config HAProxy rejects", { answers: ROTATED_ANSWERS, haproxyStatus: 1 }, "gateway_config_invalid"],
+  ])("blocks the browser on %s with the live gateway untouched", async (_label, options, failureCode) => {
+    const fixture = await productionLaunchFixture();
+    const before = await liveBytes(fixture.files);
+    const result = await runProductionLaunch(fixture, options.answers, options);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(failureCode);
+    expect(result.stderr).toContain("address_refresh_failed");
+    expect(result.stderr).not.toContain("10.0.0.2");
+    expect(result.stderr).not.toContain("recovery.test");
+    expect(result.lines).not.toContain("docker:run");
+    expect(result.lines.filter((line) => line.startsWith("systemctl:"))).toEqual([]);
+    expect(result.lines.filter((line) => line.startsWith("verify:"))).toHaveLength(1);
+    expect(await liveBytes(fixture.files)).toEqual(before);
+    expect(await readdir(fixture.policyDirectory)).toHaveLength(4);
+  });
+
+  it("blocks the browser when the gateway does not restart on the refreshed pair", async () => {
+    const fixture = await productionLaunchFixture();
+    const result = await runProductionLaunch(fixture, ROTATED_ANSWERS, { systemctlStatus: 1 });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("address_refresh_gateway_restart_failed");
+    expect(result.lines).toContain("systemctl:restart ovd420-haproxy.service");
+    expect(result.lines).not.toContain("docker:run");
+  });
+
+  it("refuses a second launch while another holds the launch lock", async () => {
+    const fixture = await productionLaunchFixture();
+    const before = await liveBytes(fixture.files);
+    const result = await runProductionLaunch(fixture, ROTATED_ANSWERS, { flockStatus: 1 });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("launch_in_progress");
+    expect(result.lines).toEqual(["flock:-n 8"]);
+    expect(await liveBytes(fixture.files)).toEqual(before);
+  });
+
+  it.skipIf(spawnSync("bash", ["-c", "command -v flock"]).status !== 0)(
+    "holds a real exclusive lock for the whole launch",
+    async () => {
+      const fixture = await productionLaunchFixture();
+      const result = spawnSync(
+        "bash",
+        [
+          "-c",
+          `source "$CONTROL_SCRIPT"
+ready="$TEST_DIRECTORY/holder-ready"
+flock -o "$LAUNCH_LOCK_PATH" -c "touch '$ready'; sleep 10" &
+holder="$!"
+for _ in $(seq 1 100); do [[ -e "$ready" ]] && break; sleep 0.05; done
+[[ -e "$ready" ]] || exit 90
+if ( acquire_launch_lock ) 2>"$TEST_DIRECTORY/contended.err"; then exit 91; fi
+grep -q 'launch_in_progress' "$TEST_DIRECTORY/contended.err" || exit 92
+kill "$holder"
+wait "$holder" 2>/dev/null || true
+( acquire_launch_lock ) || exit 93`,
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: { ...process.env, CONTROL_SCRIPT: fixture.controlCopy, TEST_DIRECTORY: fixture.directory },
+        },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
 });
