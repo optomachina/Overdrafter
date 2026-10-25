@@ -2,8 +2,9 @@ name: Vendor PR serialization
 
 # Fails a PR that changes a vendor-adapter file (adapters or vendor-named files in tools/src)
 # another open PR also changes, so shared auth/kernel/index edits land in one PR at a time.
-# Informational until "vendor-pr-serialization" is added to branch protection. The script runs
-# from the base copy (HEAD^1) on pull_request so a PR cannot edit it to skip itself.
+# Informational until "vendor-pr-serialization" is added to branch protection. The script
+# and its lib imports run from the base copy so a PR cannot edit its own check:
+# HEAD^1 on pull_request; a separate checkout pinned to merge_group.base_sha on merge_group.
 # schedule and push to main re-check all open vendor PRs (--all). Fails closed on API errors or page caps.
 
 on:
@@ -33,6 +34,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 2
+      - uses: actions/checkout@v5
+        if: github.event_name == 'merge_group'
+        with:
+          ref: ${{ github.event.merge_group.base_sha }}
+          path: base
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -44,11 +51,11 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { spawnSync } from 'node:child_process';
-          import { parseMergeGroupHeadRef } from './scripts/vendor-pr-serialization.mjs';
+          import { parseMergeGroupHeadRef } from './base/scripts/vendor-pr-serialization.mjs';
 
           const pr = parseMergeGroupHeadRef(process.env.MERGE_GROUP_HEAD_REF);
           const result = spawnSync(process.execPath, [
-            'scripts/vendor-pr-serialization.mjs', '--pr', String(pr),
+            'base/scripts/vendor-pr-serialization.mjs', '--pr', String(pr),
             '--repo', process.env.GITHUB_REPOSITORY,
           ], { stdio: 'inherit' });
           process.exitCode = result.status ?? 1;
