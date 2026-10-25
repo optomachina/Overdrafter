@@ -1,4 +1,8 @@
+// @vitest-environment node
+
 import fc from "fast-check";
+import type { Page } from "patchright";
+import { readPricedCardQuantity } from "../adapters/xometry.js";
 import { describe, expect, it } from "vitest";
 import {
   admitPrice,
@@ -27,7 +31,7 @@ const totalOf = (cents: number, label: "total" | "subtotal" = "total") => ({ cen
 
 const tolerance = (qty: number) => PRICE_TOLERANCE_CENTS_PER_PIECE * qty;
 
-const pageQty = (value: number) => ({ value, sourceText: `Quantity ${value}` });
+const pageQty = (value: number) => ({ value, source: "page_dom" as const, sourceText: `Quantity ${value}` });
 
 const priced = (unitCents: number, totalCents: number, qty: number): AdmitPriceInput => ({
   requestedQuantity: qty,
@@ -244,12 +248,12 @@ describe("admitPrice properties", () => {
       fc.oneof(
         fc.constant(undefined),
         fc.constant(null),
-        fc.integer({ min: -MAX_QTY, max: 0 }).map((value) => ({ value, sourceText: `Quantity ${value}` })),
-        fc.double({ noInteger: true }).map((value) => ({ value, sourceText: `Quantity ${value}` })),
+        fc.integer({ min: -MAX_QTY, max: 0 }).map((value) => ({ value, source: "page_dom" as const, sourceText: `Quantity ${value}` })),
+        fc.double({ noInteger: true }).map((value) => ({ value, source: "page_dom" as const, sourceText: `Quantity ${value}` })),
         // A valid value whose source text is blank or does not show that number.
         fc.constantFrom("", "   ", "Quantity", `Quantity ${qty + 1}`, `Quantity ${qty}0`).map((sourceText) => ({
           value: qty,
-          sourceText,
+          source: "page_dom" as const, sourceText,
         })),
       );
     const arb = qtyArb.chain((qty) => fc.tuple(fc.constant(qty), invalidPage(qty)));
@@ -291,7 +295,7 @@ describe("admitPrice properties", () => {
             conflict: `${qty}; qty ${qty + 1}`,
           };
           const input = priced(100, 100 * qty, qty);
-          input.pageQuantity = { value: qty, sourceText: `${label}${separator}${canonical ? qty : badTokens[malformed]}` };
+          input.pageQuantity = { value: qty, source: "page_dom" as const, sourceText: `${label}${separator}${canonical ? qty : badTokens[malformed]}` };
           const verdict = admitPrice(input);
           if (canonical) {
             expect(verdict).toMatchObject({ ok: true, value: { quantity: qty } });
@@ -390,10 +394,10 @@ describe("admitPrice properties", () => {
 
   it("admits the observed multi-piece total when every quantity signal incorrectly says 1", () => {
     // admitPrice cannot detect a stale multi-piece amount when every quantity
-    // signal says 1. This risk is currently UNCOVERED: there is no independent
-    // page-quantity read-back today (readQuoteSummaryText in xometry.ts only
-    // echoes the quantity it was given). Follow-up: OVD-1094. This property
-    // pins the residual risk; it is not a safety guarantee.
+    // signal says 1. OVD-1094's readPricedCardQuantity independently reads the
+    // printed card; the properties below and xometryPricedCardQuantity.test.ts
+    // pin stale-card, provenance and race refusals. This property preserves
+    // the residual limit when even the provider's printed evidence is wrong.
     const counts = { unitOnly: 0, totalOnly: 0, both: 0 };
     fc.assert(
       fc.property(
@@ -567,5 +571,63 @@ describe("admitPrice properties", () => {
     );
     for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
     console.log("ambiguous_label: lone amount coverage", counts);
+  });
+});
+
+
+// A rendered-text-only Page double: any input access throws. It advances one
+// snapshot per read, so properties exercise the adapter's actual retry logic.
+function cardPage(reads: Array<{ quantity: number; price: number }>): Page {
+  let index = 0;
+  return {
+    locator() {
+      const read = reads[Math.min(index++, reads.length - 1)];
+      const node = {
+        isVisible: async () => true,
+        innerText: async () => `Qty ${read.quantity} pcs; $${read.price}`,
+        inputValue: () => { throw new Error("input echo forbidden"); },
+        locator: () => ({ count: async () => 1, nth: () => ({
+          isVisible: async () => true, innerText: async () => `Qty ${read.quantity} pcs`,
+        }) }),
+      };
+      return { count: async () => 1, nth: () => node };
+    },
+    waitForTimeout: async (ms: number) => { expect(ms).toBeGreaterThanOrEqual(250); },
+  } as unknown as Page;
+}
+
+describe("OVD-1094 independent printed quantity properties", () => {
+  it("refuses every N >= 2 printed on the card when requested and parsed quantity are 1", async () => {
+    await fc.assert(fc.asyncProperty(multiQtyArb, fc.integer(), async (quantity, cents) => {
+      const read = await readPricedCardQuantity(cardPage([{ quantity, price: cents }]));
+      expect(read.ok).toBe(true);
+      if (!read.ok) throw new Error(read.reason);
+      expect(admitPrice({
+        requestedQuantity: 1, quantity: 1, pageQuantity: read.value, total: totalOf(cents),
+      })).toMatchObject({ ok: false, reason: "qty_mismatch" });
+    }), params);
+  });
+
+  it("refuses every non-page_dom source for every input", () => {
+    const sourceArb = fc.oneof(fc.constant("input_echo"), fc.string()).filter((source) => source !== "page_dom");
+    fc.assert(fc.property(qtyArb, qtyArb, fc.integer(), sourceArb, (requestedQuantity, quantity, cents, source) => {
+      expect(admitPrice({
+        requestedQuantity, quantity,
+        pageQuantity: { ...pageQty(quantity), source: source as "input_echo" },
+        total: totalOf(cents),
+      })).toMatchObject({ ok: false, reason: "page_qty_unproven" });
+    }), params);
+  });
+
+  it("never admits two reads that differ in quantity or price, including the retry", async () => {
+    await fc.assert(fc.asyncProperty(qtyArb, centsArb, fc.constantFrom("quantity", "price", "both"), async (quantity, price, changed) => {
+      const first = { quantity, price };
+      const second = {
+        quantity: changed === "price" ? quantity : quantity + 1,
+        price: changed === "quantity" ? price : price + 1,
+      };
+      expect(await readPricedCardQuantity(cardPage([first, second, first, second])))
+        .toMatchObject({ ok: false, reason: "page_qty_unstable" });
+    }), params);
   });
 });

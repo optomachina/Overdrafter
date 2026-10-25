@@ -264,6 +264,8 @@ export const XOMETRY_LOCATORS = {
   // page without one fails closed as selector drift; no other element is
   // ever read as an option.
   priceTierCard: ".price-tier",
+  // Rendered commercial summary inside each offered card; never the part stepper.
+  pricedCardQuantity: '.price-tier [kind="discount"]:not(:empty)',
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

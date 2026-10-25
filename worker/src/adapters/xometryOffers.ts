@@ -5,6 +5,7 @@ import {
   type VendorQuoteAdapterOffer,
 } from "../types.js";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
+import { sourceShowsQuantity } from "../quotes/pricedQuantity.js";
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
 import {
   createXometryQuoteObservation,
@@ -508,14 +509,14 @@ const CARD_PRICE_LINES = [
  * or a status ("Fetching new price...") that leaves the amounts beside it in
  * doubt. tierHeaderLine has already found exactly one line before the label.
  */
-function countUnrecognizedCardLines(snapshot: XometryOfferSnapshot) {
+function countUnrecognizedCardLines(snapshot: XometryOfferSnapshot, requestedQuantity: number) {
   const tierText = collapseInlineSpace(snapshot.tierText ?? "").trim();
   const text = collapseInlineSpace(snapshot.text);
   return text
     .slice(text.indexOf(tierText) + tierText.length)
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !CARD_PRICE_LINES.some((pattern) => pattern.test(line)))
+    .filter((line) => line && !CARD_PRICE_LINES.some((pattern) => pattern.test(line)) && !sourceShowsQuantity(line, requestedQuantity))
     .length;
 }
 
@@ -700,7 +701,7 @@ export function parseXometryOfferSnapshots(input: {
         },
       );
     }
-    const unrecognizedCardLines = isCurrentTierLayout(snapshot) ? countUnrecognizedCardLines(snapshot) : 0;
+    const unrecognizedCardLines = isCurrentTierLayout(snapshot) ? countUnrecognizedCardLines(snapshot, input.requestedQuantity) : 0;
     if (unrecognizedCardLines > 0) {
       throw new VendorAutomationError(
         "A Xometry tier card showed a line beside its tier, timing and prices that the parser does not read.",
