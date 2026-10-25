@@ -1,7 +1,7 @@
 // @vitest-environment node
 // OVD-1067: with DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL off, a new drawing
 // part's title-block fields need review, so api_auto_approve_job_requirements
-// approves nothing (returns 0) and holds the job in needs_spec_review. That is
+// approves nothing (returns 0) and leaves the fields for review. That is
 // a review hold, not a failure: the extract_part task must complete.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";

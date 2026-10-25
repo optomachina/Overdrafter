@@ -24,7 +24,7 @@ describe("autoApproveJobRequirements", () => {
     });
   });
 
-  // OVD-1067: 0 means the RPC held the job in needs_spec_review (for example
+  // OVD-1067: 0 means the RPC approved nothing and left fields for review (for example
   // title-block fields while DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL is off).
   it("reports a review hold when the RPC approves no parts", async () => {
     const { client } = clientReturning({ data: 0, error: null });

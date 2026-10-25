@@ -861,8 +861,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
               : null,
           extractText: extractPdfText,
         }, exportScanOutcomes);
-        // OVD-1067: 0 approved is a review hold (the RPC moved the job to
-        // needs_spec_review), so the task completes with reviewRequired.
+        // OVD-1067: 0 approved is a review hold (fields need review; the job
+        // stays 'extracting'), so the task completes with reviewRequired.
         const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,

@@ -5,8 +5,9 @@ export type AutoApproveResult = {
   /**
    * OVD-1067: the RPC approved nothing because a field needs human review
    * (for example title-block fields while DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL
-   * is off). The RPC has already moved the job to needs_spec_review; this is a
-   * held outcome, not a failure.
+   * is off). The extraction stays needs_review. The job is NOT moved to
+   * needs_spec_review here: the RPC runs while this task is still 'running', so
+   * the job stays 'extracting' (OVD-1095). This is a held outcome, not a failure.
    */
   reviewHold: boolean;
 };
