@@ -2,7 +2,8 @@
 /**
  * vendor-pr-serialization: one open PR at a time per shared vendor-adapter file.
  *
- * Fails when a PR changes a vendor-adapter file (worker/src/adapters/**, worker/src/tools/vendor*,
+ * Fails when a PR changes a vendor-adapter file (worker/src/adapters/** or vendor-named files
+ * directly in worker/src/tools/ or worker/src/,
  * old or new path of a rename) that an OLDER open PR (draft or ready; earlier created_at, tie broken
  * by lower number) also changes, so the oldest PR can always merge. Overlaps with newer PRs and other
  * open PRs that touch the vendor tree without shared files are warnings only.
@@ -12,7 +13,7 @@
  * Read-only: GitHub REST API via fetch with GITHUB_TOKEN from the env (never logged). It never
  * comments, labels or merges. Console output carries only PR numbers and counts; shared file paths and
  * error details go to the file named by GITHUB_STEP_SUMMARY when it is set. Fails closed: an API error, a malformed response or a hit page cap
- * fails the check, as does the PR itself missing from the open list, a repeated PR number, a PR
+ * fails a vendor check, as does the PR itself missing from the open list, a repeated PR number, a PR
  * without an integer changed_files, or a file list shorter than changed_files.
  *
  *   node scripts/vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]
@@ -22,8 +23,20 @@ import process from "node:process";
 
 import { isEntryPoint } from "./lib/entry-point.mjs";
 
-export const VENDOR_PATTERNS = [/^worker\/src\/adapters\//, /^worker\/src\/tools\/vendor[^/]*$/];
+export const VENDOR_PATTERNS = [
+  /^worker\/src\/adapters\//,
+  /^worker\/src\/tools\/[^/]*vendor[^/]*$/i,
+  /^worker\/src\/[^/]*vendor[^/]*$/i,
+];
 export const isVendorPath = (path) => VENDOR_PATTERNS.some((re) => re.test(path));
+
+/** Extract the queued PR number; reject unexpected refs rather than skipping the check. */
+export function parseMergeGroupHeadRef(ref) {
+  const match = typeof ref === "string" && /^gh-readonly-queue\/main\/pr-([1-9]\d*)-[a-f0-9]+$/.exec(ref);
+  const number = match ? Number(match[1]) : NaN;
+  if (!Number.isSafeInteger(number) || match[0] !== ref) throw new Error("Invalid merge_group head_ref");
+  return number;
+}
 export const PER_PAGE = 100;
 export const MAX_PR_PAGES = 10; // 1000 open PRs
 export const MAX_FILE_PAGES = 30; // GitHub lists at most 3000 files per PR
@@ -81,19 +94,15 @@ function toFile(prNumber, f) {
 /**
  * All open PRs with all their changed files: [{number, isDraft, createdAt, files: [{path, previousPath?}]}].
  * Each PR is re-read with GET /pulls/{n} (the list endpoint has no changed_files) and its paginated file
- * list must cover changed_files. With prNumber, fails when that PR is not in the open list.
+ * list must cover changed_files. With prNumber, fetch that PR first and skip the open list entirely
+ * when it has no vendor files. Vendor PRs require a complete open list and every other PR's files;
+ * an individual fetch failure must fail closed because it may hide an overlap.
  */
 export async function listOpenPrs({ repo, token, prNumber, fetchImpl = globalThis.fetch }) {
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("missing or invalid --repo / GITHUB_REPOSITORY");
   if (!token) throw new Error("GITHUB_TOKEN is not set");
   const api = `https://api.github.com/repos/${repo}`;
-  const pulls = await fetchAllPages(fetchImpl, `${api}/pulls?state=open`, token, MAX_PR_PAGES);
-  assertUniquePrs(pulls);
-  if (prNumber !== undefined && !pulls.some((p) => p.number === prNumber)) {
-    throw new Error(`PR #${prNumber} is not in the open-PR list; refusing to pass without its files`);
-  }
-  const out = [];
-  for (const { number } of pulls) {
+  const fetchPr = async (number) => {
     const res = await fetchImpl(`${api}/pulls/${number}`, {
       headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
     });
@@ -107,7 +116,20 @@ export async function listOpenPrs({ repo, token, prNumber, fetchImpl = globalThi
     }
     const pr = { number, isDraft: !!detail.draft, createdAt: detail.created_at, files: files.map((f) => toFile(number, f)) };
     createdMs(pr);
-    out.push(pr);
+    return pr;
+  };
+  const self = prNumber === undefined ? undefined : await fetchPr(prNumber);
+  if (self && vendorPaths(self).length === 0) return [self];
+
+  const pulls = await fetchAllPages(fetchImpl, `${api}/pulls?state=open`, token, MAX_PR_PAGES);
+  assertUniquePrs(pulls);
+  if (self && !pulls.some((p) => p.number === prNumber)) {
+    throw new Error(`PR #${prNumber} is not in the open-PR list; refusing to pass without its files`);
+  }
+  const out = [];
+  for (const { number } of pulls) {
+    // Sequential requests bound concurrency to one; reuse the already validated target PR.
+    out.push(number === prNumber ? self : await fetchPr(number));
   }
   return out;
 }

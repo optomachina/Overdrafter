@@ -1,6 +1,6 @@
 name: Vendor PR serialization
 
-# Fails a PR that changes a vendor-adapter file (worker/src/adapters/**, worker/src/tools/vendor*)
+# Fails a PR that changes a vendor-adapter file (adapters or vendor-named files in tools/src)
 # another open PR also changes, so shared auth/kernel/index edits land in one PR at a time.
 # Informational until "vendor-pr-serialization" is added to branch protection. The script runs
 # from the base copy (HEAD^1) on pull_request so a PR cannot edit it to skip itself.
@@ -30,17 +30,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Merge queue no op
-        if: github.event_name == 'merge_group'
-        run: echo "merge_group run, serialization was checked on the pull_request run."
       - uses: actions/checkout@v5
-        if: github.event_name != 'merge_group'
         with:
           fetch-depth: 2
       - uses: actions/setup-node@v4
-        if: github.event_name != 'merge_group'
         with:
           node-version: 20
+      - name: Check queued vendor PR
+        if: github.event_name == 'merge_group'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import { parseMergeGroupHeadRef } from './scripts/vendor-pr-serialization.mjs';
+
+          const pr = parseMergeGroupHeadRef(process.env.MERGE_GROUP_HEAD_REF);
+          const result = spawnSync(process.execPath, [
+            'scripts/vendor-pr-serialization.mjs', '--pr', String(pr),
+            '--repo', process.env.GITHUB_REPOSITORY,
+          ], { stdio: 'inherit' });
+          process.exitCode = result.status ?? 1;
+          NODE
       - name: Check open vendor PRs
         if: github.event_name == 'pull_request'
         env:

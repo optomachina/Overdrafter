@@ -1,8 +1,7 @@
+import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
-import { describe, expect, it } from "vitest";
 
 import {
   runCli,
@@ -12,9 +11,13 @@ import {
   checkSerialization,
   fetchAllPages,
   isVendorPath,
+  parseMergeGroupHeadRef,
   listOpenPrs,
   main,
 } from "./vendor-pr-serialization.mjs";
+
+// Reuse the repository's Vitest globals, or run directly with node --test.
+const { describe, it } = globalThis.describe && globalThis.it ? globalThis : await import("node:test");
 
 const at = (day) => `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`;
 const pr = (number, paths, isDraft = false, createdAt = at(number)) => ({
@@ -25,17 +28,24 @@ const pr = (number, paths, isDraft = false, createdAt = at(number)) => ({
 });
 
 describe("vendor-pr-serialization", () => {
-  it("matches vendor adapter and vendor tool paths only", () => {
-    expect(isVendorPath("worker/src/adapters/index.ts")).toBe(true);
-    expect(isVendorPath("worker/src/tools/vendorAuth.ts")).toBe(true);
-    expect(isVendorPath("worker/src/tools/other.ts")).toBe(false);
-    expect(isVendorPath("src/features/quotes/vendor-colors.ts")).toBe(false);
+  it("matches vendor adapters and vendor-named files directly in tools or src", () => {
+    assert.equal(isVendorPath("worker/src/adapters/index.ts"), true);
+    assert.equal(isVendorPath("worker/src/tools/vendorAuth.ts"), true);
+    assert.equal(isVendorPath("worker/src/tools/_vendorQuoteInputBuilders.ts"), true);
+    assert.equal(isVendorPath("worker/src/tools/enabledPortalVendors.ts"), true);
+    assert.equal(isVendorPath("worker/src/vendorTaskRetry.ts"), true);
+    assert.equal(isVendorPath("worker/src/tools/EnabledPortalVENDORS.ts"), true);
+    assert.equal(isVendorPath("worker/src/tools/other.ts"), false);
+    assert.equal(isVendorPath("worker/src/other.ts"), false);
+    assert.equal(isVendorPath("worker/src/tools/nested/vendor.ts"), false);
+    assert.equal(isVendorPath("worker/src/vendor/nested.ts"), false);
+    assert.equal(isVendorPath("src/features/quotes/vendor-colors.ts"), false);
   });
 
   it("passes a PR with no vendor files", () => {
     const r = checkSerialization(1, [pr(1, ["README.md"]), pr(2, ["worker/src/adapters/index.ts"])]);
-    expect(r.ok).toBe(true);
-    expect(r.vendorFiles).toEqual([]);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.vendorFiles, []);
   });
 
   it("fails when an older open PR, draft included, shares a vendor file", () => {
@@ -43,46 +53,67 @@ describe("vendor-pr-serialization", () => {
       pr(1, ["worker/src/adapters/index.ts"], true),
       pr(2, ["worker/src/adapters/index.ts", "worker/src/adapters/xometry.ts"]),
     ]);
-    expect(r.ok).toBe(false);
-    expect(r.conflicts).toEqual([{ number: 1, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.conflicts, [{ number: 1, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
   });
 
   it("orders overlapping PRs by created_at: the older passes, the newer fails", () => {
     // #8 was opened before #5, so #8 goes first despite its higher number.
     const prs = [pr(5, ["worker/src/adapters/index.ts"], false, at(20)), pr(8, ["worker/src/adapters/index.ts"], true, at(10))];
     const older = checkSerialization(8, prs);
-    expect(older.ok).toBe(true);
-    expect(older.warnings).toEqual([{ number: 5, isDraft: false, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.equal(older.ok, true);
+    assert.deepEqual(older.warnings, [{ number: 5, isDraft: false, shared: ["worker/src/adapters/index.ts"] }]);
     const newer = checkSerialization(5, prs);
-    expect(newer.ok).toBe(false);
-    expect(newer.conflicts).toEqual([{ number: 8, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.equal(newer.ok, false);
+    assert.deepEqual(newer.conflicts, [{ number: 8, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
   });
 
   it("breaks a created_at tie on the lower PR number", () => {
     const prs = [pr(3, ["worker/src/adapters/a.ts"], false, at(1)), pr(4, ["worker/src/adapters/a.ts"], false, at(1))];
-    expect(checkSerialization(3, prs).ok).toBe(true);
-    expect(checkSerialization(4, prs).ok).toBe(false);
+    assert.equal(checkSerialization(3, prs).ok, true);
+    assert.equal(checkSerialization(4, prs).ok, false);
   });
 
   it("fails when the PR itself is missing from the list", () => {
-    expect(() => checkSerialization(9, [pr(1, ["worker/src/adapters/index.ts"])])).toThrow(/#9 is not in the open-PR list/);
+    assert.throws(() => checkSerialization(9, [pr(1, ["worker/src/adapters/index.ts"])]), /#9 is not in the open-PR list/);
   });
 
   it("fails when a PR number repeats", () => {
-    expect(() => checkSerialization(1, [pr(1, ["README.md"]), pr(2, ["x"]), pr(2, ["y"])])).toThrow(/repeats PR #2/);
+    assert.throws(() => checkSerialization(1, [pr(1, ["README.md"]), pr(2, ["x"]), pr(2, ["y"])]), /repeats PR #2/);
   });
 
   it("detects an overlap through a rename's previous path", () => {
     const moved = { ...pr(2, []), files: [{ path: "worker/src/moved.ts", previousPath: "worker/src/adapters/x.ts" }] };
     const r = checkSerialization(2, [pr(1, ["worker/src/adapters/x.ts"]), moved]);
-    expect(r.ok).toBe(false);
-    expect(r.conflicts).toEqual([{ number: 1, isDraft: false, shared: ["worker/src/adapters/x.ts"] }]);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.conflicts, [{ number: 1, isDraft: false, shared: ["worker/src/adapters/x.ts"] }]);
   });
 
   it("only warns when another vendor PR touches different files", () => {
     const r = checkSerialization(1, [pr(1, ["worker/src/adapters/xometry.ts"]), pr(2, ["worker/src/adapters/geomiq.ts"])]);
-    expect(r.ok).toBe(true);
-    expect(r.warnings).toEqual([{ number: 2, isDraft: false }]);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.warnings, [{ number: 2, isDraft: false }]);
+  });
+});
+
+describe("parseMergeGroupHeadRef", () => {
+  it("extracts the PR number from a merge queue head ref", () => {
+    assert.equal(parseMergeGroupHeadRef("gh-readonly-queue/main/pr-929-abc123def"), 929);
+  });
+
+  it("rejects missing, malformed, or unsafe refs", () => {
+    for (const ref of [
+      undefined, "", "refs/heads/main",
+      "gh-readonly-queue/main/pr-0-abc123",
+      "gh-readonly-queue/main/pr-929-",
+      "gh-readonly-queue/main/pr-929-notasha",
+      "gh-readonly-queue/main/pr-929-abc123/extra",
+      "gh-readonly-queue/other/pr-929-abc123",
+      "gh-readonly-queue/main/pr-9007199254740992-abc123",
+      "gh-readonly-queue/main/pr-929-abc123\n",
+    ]) {
+      assert.throws(() => parseMergeGroupHeadRef(ref), /Invalid merge_group head_ref/);
+    }
   });
 });
 
@@ -103,6 +134,51 @@ const github = (pulls, { list = pulls } = {}) => async (url) => {
 const page = (n, start = 0) => Array.from({ length: n }, (_, i) => ({ filename: `f${start + i}`, number: start + i + 1 }));
 
 describe("fetchAllPages / listOpenPrs (fail closed)", () => {
+  it("fetches the target's details and files before listing other PRs", async () => {
+    const calls = [];
+    const shared = { filename: "worker/src/adapters/index.ts" };
+    const mock = github([
+      { number: 1, created_at: at(1), changed_files: 1, files: [shared] },
+      { number: 2, created_at: at(2), changed_files: 1, files: [shared] },
+    ]);
+    await listOpenPrs({ repo: "o/r", token: "t", prNumber: 2, fetchImpl: async (url) => {
+      calls.push(new URL(url).pathname);
+      return mock(url);
+    } });
+    assert.deepEqual(calls, [
+      "/repos/o/r/pulls/2", "/repos/o/r/pulls/2/files", "/repos/o/r/pulls",
+      "/repos/o/r/pulls/1", "/repos/o/r/pulls/1/files",
+    ]);
+  });
+
+  it("passes a non-vendor PR without listing PRs or reaching another PR's failing files endpoint", async () => {
+    const calls = [];
+    const mock = github([
+      { number: 1, created_at: at(1), changed_files: 1, files: [{ filename: "worker/src/adapters/a.ts" }] },
+      { number: 2, created_at: at(2), changed_files: 1, files: [{ filename: "README.md" }] },
+    ]);
+    const code = await main(["--pr", "2"], { repo: "o/r", token: "t", log: () => {}, fetchImpl: async (url) => {
+      const pathname = new URL(url).pathname;
+      calls.push(pathname);
+      if (pathname.endsWith("/pulls/1/files")) return { ok: false, status: 500 };
+      return mock(url);
+    } });
+    assert.equal(code, 0);
+    assert.deepEqual(calls, ["/repos/o/r/pulls/2", "/repos/o/r/pulls/2/files"]);
+  });
+
+  it("fails closed for a vendor PR when another PR's files endpoint fails", async () => {
+    const mock = github([
+      { number: 1, created_at: at(1), changed_files: 1, files: [{ filename: "README.md" }] },
+      { number: 2, created_at: at(2), changed_files: 1, files: [{ filename: "worker/src/vendorTaskRetry.ts" }] },
+    ]);
+    const code = await main(["--pr", "2"], { repo: "o/r", token: "t", log: () => {}, fetchImpl: async (url) => {
+      if (new URL(url).pathname.endsWith("/pulls/1/files")) return { ok: false, status: 500 };
+      return mock(url);
+    } });
+    assert.equal(code, 1);
+  });
+
   it("follows pagination until a short page", async () => {
     const calls = [];
     const fetchImpl = async (url) => {
@@ -110,39 +186,40 @@ describe("fetchAllPages / listOpenPrs (fail closed)", () => {
       return ok(pageOf(url) === 1 ? page(PER_PAGE) : page(3, PER_PAGE));
     };
     const items = await fetchAllPages(fetchImpl, "https://api.github.com/x", "t", 5);
-    expect(items).toHaveLength(PER_PAGE + 3);
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toContain("page=2");
+    assert.equal((items).length, PER_PAGE + 3);
+    assert.equal((calls).length, 2);
+    assert.ok((calls[1]).includes("page=2"));
   });
 
   it("throws when the page cap is hit", async () => {
     const fetchImpl = async () => ok(page(PER_PAGE));
-    await expect(fetchAllPages(fetchImpl, "https://api.github.com/x", "t", 2)).rejects.toThrow(/page cap hit/);
+    await assert.rejects(fetchAllPages(fetchImpl, "https://api.github.com/x", "t", 2), /page cap hit/);
   });
 
   it("throws on an API error or a non-list body", async () => {
-    await expect(fetchAllPages(async () => ({ ok: false, status: 502 }), "u", "t", 2)).rejects.toThrow(/502/);
-    await expect(fetchAllPages(async () => ok({ message: "x" }), "u", "t", 2)).rejects.toThrow(/non-list/);
+    await assert.rejects(fetchAllPages(async () => ({ ok: false, status: 502 }), "u", "t", 2), /502/);
+    await assert.rejects(fetchAllPages(async () => ok({ message: "x" }), "u", "t", 2), /non-list/);
   });
 
   it("caps PR files at MAX_FILE_PAGES and fails on a truncated file list", async () => {
-    expect(MAX_FILE_PAGES * PER_PAGE).toBe(3000);
+    assert.equal(MAX_FILE_PAGES * PER_PAGE, 3000);
     const fetchImpl = github([{ number: 7, draft: true, created_at: at(1), changed_files: 2, files: [{ filename: "worker/src/adapters/a.ts" }] }]);
-    await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl })).rejects.toThrow(/1 of 2 changed files/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", fetchImpl }), /1 of 2 changed files/);
   });
 
   it("reads changed_files from GET /pulls/{n}, not the list, and fails when it is missing", async () => {
     // The list endpoint has no changed_files, so a truncated file list must be caught via the detail call.
     const fetchImpl = github([{ number: 7, draft: false, created_at: at(1), changed_files: 3, files: [{ filename: "a" }] }]);
-    await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl })).rejects.toThrow(/1 of 3 changed files/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", fetchImpl }), /1 of 3 changed files/);
     const noCount = github([{ number: 7, draft: false, created_at: at(1), files: [{ filename: "a" }] }]);
-    await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: noCount })).rejects.toThrow(/no integer changed_files/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: noCount }), /no integer changed_files/);
   });
 
   it("fails when the PR itself is not in the open list or the list repeats a PR", async () => {
     const one = { number: 1, draft: false, created_at: at(1), changed_files: 0, files: [] };
-    await expect(listOpenPrs({ repo: "o/r", token: "t", prNumber: 2, fetchImpl: github([one]) })).rejects.toThrow(/#2 is not in the open-PR list/);
-    await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: github([one], { list: [one, one] }) })).rejects.toThrow(/repeats PR #1/);
+    const target = { ...one, number: 2, changed_files: 1, files: [{ filename: "worker/src/adapters/a.ts" }] };
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", prNumber: 2, fetchImpl: github([one, target], { list: [one] }) }), /#2 is not in the open-PR list/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: github([one], { list: [one, one] }) }), /repeats PR #1/);
   });
 
   it("keeps previous_filename and createdAt, and fails on a file without a string filename", async () => {
@@ -153,11 +230,11 @@ describe("fetchAllPages / listOpenPrs (fail closed)", () => {
       prNumber: 4,
       fetchImpl: github([{ number: 4, draft: true, created_at: at(2), changed_files: 1, files: [renamed] }]),
     });
-    expect(prs).toEqual([
+    assert.deepEqual(prs, [
       { number: 4, isDraft: true, createdAt: at(2), files: [{ path: "worker/src/moved.ts", previousPath: "worker/src/adapters/x.ts" }] },
     ]);
     const bad = github([{ number: 4, draft: false, created_at: at(2), changed_files: 1, files: [{ status: "added" }] }]);
-    await expect(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: bad })).rejects.toThrow(/without a string filename/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "t", fetchImpl: bad }), /without a string filename/);
   });
 
   it("keeps isDraft per PR and still counts an older draft as a conflict", async () => {
@@ -167,19 +244,19 @@ describe("fetchAllPages / listOpenPrs (fail closed)", () => {
       { number: 2, draft: false, created_at: at(2), changed_files: 1, files: [shared] },
     ]);
     const prs = await listOpenPrs({ repo: "o/r", token: "t", prNumber: 2, fetchImpl });
-    expect(prs.map(({ number, isDraft }) => ({ number, isDraft }))).toEqual([
+    assert.deepEqual(prs.map(({ number, isDraft }) => ({ number, isDraft })), [
       { number: 1, isDraft: true },
       { number: 2, isDraft: false },
     ]);
     const r = checkSerialization(2, prs);
-    expect(r.ok).toBe(false);
-    expect(r.conflicts).toEqual([{ number: 1, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
-    expect(checkSerialization(1, prs).warnings).toEqual([{ number: 2, isDraft: false, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.conflicts, [{ number: 1, isDraft: true, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.deepEqual(checkSerialization(1, prs).warnings, [{ number: 2, isDraft: false, shared: ["worker/src/adapters/index.ts"] }]);
   });
 
   it("requires a token and a valid repo", async () => {
-    await expect(listOpenPrs({ repo: "o/r", token: "", fetchImpl: async () => ok([]) })).rejects.toThrow(/GITHUB_TOKEN/);
-    await expect(listOpenPrs({ repo: "bad", token: "t", fetchImpl: async () => ok([]) })).rejects.toThrow(/repo/);
+    await assert.rejects(listOpenPrs({ repo: "o/r", token: "", fetchImpl: async () => ok([]) }), /GITHUB_TOKEN/);
+    await assert.rejects(listOpenPrs({ repo: "bad", token: "t", fetchImpl: async () => ok([]) }), /repo/);
   });
 
   it("returns PRs with all files across pages", async () => {
@@ -189,7 +266,7 @@ describe("fetchAllPages / listOpenPrs (fail closed)", () => {
       return ok([{ number: 9, draft: false }]);
     };
     const prs = await listOpenPrs({ repo: "o/r", token: "t", fetchImpl });
-    expect(prs[0].files).toHaveLength(PER_PAGE + 1);
+    assert.equal((prs[0].files).length, PER_PAGE + 1);
   });
 });
 
@@ -200,13 +277,13 @@ describe("checkAll", () => {
       pr(2, ["worker/src/adapters/index.ts"], true, at(5)),
       pr(3, ["worker/src/adapters/other.ts"]),
     ]);
-    expect(r.ok).toBe(false);
-    expect(r.pairs).toEqual([{ older: 2, newer: 1, shared: ["worker/src/adapters/index.ts"] }]);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.pairs, [{ older: 2, newer: 1, shared: ["worker/src/adapters/index.ts"] }]);
   });
 
   it("passes when no pair overlaps and fails on a repeated PR number", () => {
-    expect(checkAll([pr(1, ["worker/src/adapters/a.ts"]), pr(2, ["worker/src/adapters/b.ts"])]).ok).toBe(true);
-    expect(() => checkAll([pr(1, ["a"]), pr(1, ["b"])])).toThrow(/repeats PR #1/);
+    assert.equal(checkAll([pr(1, ["worker/src/adapters/a.ts"]), pr(2, ["worker/src/adapters/b.ts"])]).ok, true);
+    assert.throws(() => checkAll([pr(1, ["a"]), pr(1, ["b"])]), /repeats PR #1/);
   });
 });
 
@@ -232,47 +309,48 @@ describe("main (CLI output)", () => {
   it("logs a --pr conflict with PR numbers and counts only; paths go to the step summary", async () => {
     const t = setup([pr(1, [ADAPTER, "worker/src/tools/vendorAuth.ts"], true), pr(2, [ADAPTER, "worker/src/tools/vendorAuth.ts"])]);
     const code = await main(["--pr", "2", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log });
-    expect(code).toBe(1);
+    assert.equal(code, 1);
     const out = t.lines.join("\n");
-    expect(out).toContain("::error::Older open PR #1 (draft) changes 2 of the same vendor-adapter files.");
-    expect(out).not.toMatch(/worker\/|adapters|vendorAuth|\.ts\b/);
-    expect(t.summary()).toContain(ADAPTER);
-    expect(t.summary()).toContain("worker/src/tools/vendorAuth.ts");
+    assert.ok((out).includes("::error::Older open PR #1 (draft) changes 2 of the same vendor-adapter files."));
+    assert.doesNotMatch(out, /worker\/|adapters|vendorAuth|\.ts\b/);
+    assert.ok((t.summary()).includes(ADAPTER));
+    assert.ok((t.summary()).includes("worker/src/tools/vendorAuth.ts"));
   });
 
   it("logs no paths for a newer-PR warning", async () => {
     const t = setup([pr(1, [ADAPTER]), pr(2, [ADAPTER])]);
-    expect(await main(["--pr", "1", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(0);
-    expect(t.lines.join("\n")).toContain("::warning::Open PR #2 is newer and waits for this PR (1 shared vendor files).");
-    expect(t.lines.join("\n")).not.toMatch(/worker\/|adapters/);
-    expect(t.summary()).toContain(ADAPTER);
+    assert.equal(await main(["--pr", "1", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 0);
+    assert.ok((t.lines.join("\n")).includes("::warning::Open PR #2 is newer and waits for this PR (1 shared vendor files)."));
+    assert.doesNotMatch(t.lines.join("\n"), /worker\/|adapters/);
+    assert.ok((t.summary()).includes(ADAPTER));
   });
 
   it("logs --all pairs with PR numbers and counts only", async () => {
     const t = setup([pr(1, [ADAPTER], false, at(15)), pr(2, [ADAPTER], true, at(5))]);
-    expect(await main(["--all", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(1);
-    expect(t.lines).toEqual([
+    assert.equal(await main(["--all", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 1);
+    assert.deepEqual(t.lines, [
       "::error::Open PR #1 is blocked by older PR #2 (1 shared vendor files).",
       "Vendor PR serialization failed: 1 overlapping PR pairs.",
     ]);
-    expect(t.summary()).toContain(ADAPTER);
+    assert.ok((t.summary()).includes(ADAPTER));
   });
 
   it("works without a step summary file", async () => {
     const lines = [];
     const t = setup([pr(1, [ADAPTER], true), pr(2, [ADAPTER])]);
-    expect(await main(["--pr", "2", "--prs-json", t.prsJson], { log: (l) => lines.push(l) })).toBe(1);
-    expect(lines.join("\n")).not.toContain(ADAPTER);
+    assert.equal(await main(["--pr", "2", "--prs-json", t.prsJson], { log: (l) => lines.push(l) }), 1);
+    assert.ok(!(lines.join("\n")).includes(ADAPTER));
   });
 
   it("fails closed with a fixed message when the PR itself is missing (prs-json and API paths)", async () => {
     const t = setup([pr(1, [ADAPTER])]);
-    expect(await main(["--pr", "9", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log })).toBe(1);
+    assert.equal(await main(["--pr", "9", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 1);
     const one = { number: 1, draft: false, created_at: at(1), changed_files: 1, files: [{ filename: ADAPTER }] };
-    expect(await main(["--pr", "9"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl: github([one]), log: t.log })).toBe(1);
+    const target = { ...one, number: 9 };
+    assert.equal(await main(["--pr", "9"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl: github([one, target], { list: [one] }), log: t.log }), 1);
     const fixed = "::error::Vendor PR serialization could not complete (failing closed); see the job summary for details.";
-    expect(t.lines).toEqual([fixed, fixed]);
-    expect(t.summary()).toContain("#9 is not in the open-PR list");
+    assert.deepEqual(t.lines, [fixed, fixed]);
+    assert.ok((t.summary()).includes("#9 is not in the open-PR list"));
   });
 
   it("does not echo API-derived error text to the log", async () => {
@@ -280,15 +358,15 @@ describe("main (CLI output)", () => {
     const fetchImpl = async () => {
       throw new Error("boom from worker/src/adapters/leak.ts");
     };
-    expect(await main(["--all"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl, log: t.log })).toBe(1);
-    expect(t.lines.join("\n")).not.toMatch(/boom|leak|adapters/);
-    expect(t.summary()).toContain("boom from worker/src/adapters/leak.ts");
+    assert.equal(await main(["--all"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl, log: t.log }), 1);
+    assert.doesNotMatch(t.lines.join("\n"), /boom|leak|adapters/);
+    assert.ok((t.summary()).includes("boom from worker/src/adapters/leak.ts"));
   });
 
   it("rejects a missing --pr with usage and exit 2", async () => {
     const lines = [];
-    expect(await main([], { log: (l) => lines.push(l) })).toBe(2);
-    expect(lines[0]).toMatch(/^usage:/);
+    assert.equal(await main([], { log: (l) => lines.push(l) }), 2);
+    assert.match(lines[0], /^usage:/);
   });
 });
 
@@ -297,13 +375,13 @@ describe("runCli", () => {
     const errors = [];
     const proc = {};
     await runCli(Promise.reject(new Error("worker/src/adapters/secret.ts detail")), { error: (m) => errors.push(m), proc });
-    expect(proc.exitCode).toBe(1);
-    expect(errors).toEqual(["vendor-pr-serialization failed"]);
+    assert.equal(proc.exitCode, 1);
+    assert.deepEqual(errors, ["vendor-pr-serialization failed"]);
   });
 
   it("passes main's exit code through", async () => {
     const proc = {};
     await runCli(Promise.resolve(2), { error: () => {}, proc });
-    expect(proc.exitCode).toBe(2);
+    assert.equal(proc.exitCode, 2);
   });
 });
