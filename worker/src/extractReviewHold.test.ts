@@ -7,6 +7,7 @@ import { createWorkerRuntimeState } from "./httpServer";
 import { processClaimedTask } from "./index";
 import { finalizeExtractionApproval } from "./extraction/extractionApproval";
 import { markTaskCompleted, markTaskFailed, markTaskQueuedForRetry } from "./queue";
+import { ExportControlLookupError, ExportControlScanRecordError, ExportControlStepScanRetryableError } from "./exportControl";
 import type { QueueTaskRecord, WorkerConfig } from "./types";
 
 vi.mock("./queue.js", async (original) => ({
@@ -267,6 +268,27 @@ describe("extraction_failed audit on errors", () => {
 
     expect(markTaskFailed).toHaveBeenCalledExactlyOnceWith(db.client, task, "approval read failed", expect.any(Object));
     expect(markTaskCompleted).not.toHaveBeenCalled();
+  });
+});
+
+// isRetryableExtractError (skips the failed audit) must agree with the
+// extract_part cases of shouldRetry (requeues): a requeued task writes no
+// extraction_failed audit, and a failed task writes exactly one.
+describe("retry and failed-audit decisions agree for each extract error class", () => {
+  it.each([
+    ["CanonicalArtifactsPendingError", null, true],
+    ["ExportControlLookupError", () => new ExportControlLookupError("extraction"), true],
+    ["ExportControlStepScanRetryableError", () => new ExportControlStepScanRetryableError(), true],
+    ["ExportControlScanRecordError", () => new ExportControlScanRecordError(), false],
+    ["Error", () => new Error("extraction blew up"), false],
+  ] as const)("%s", async (_name, makeError, retryable) => {
+    if (makeError) vi.mocked(runHybridExtraction).mockRejectedValue(makeError());
+    const db = await run({ trustedReuse: !makeError, approvedCount: 1, artifactsPending: !makeError });
+
+    const failedAudits = db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed");
+    expect(vi.mocked(markTaskQueuedForRetry).mock.calls.length).toBe(retryable ? 1 : 0);
+    expect(vi.mocked(markTaskFailed).mock.calls.length).toBe(retryable ? 0 : 1);
+    expect(failedAudits).toHaveLength(retryable ? 0 : 1);
   });
 });
 
