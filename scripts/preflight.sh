@@ -59,22 +59,30 @@ docker_unavailable() {
 worker_deps_problem() {
   node -e '
     const fs = require("node:fs");
-    const read = (p) => JSON.parse(fs.readFileSync(p, "utf8")).packages || {};
+    const read = (p) => {
+      const packages = JSON.parse(fs.readFileSync(p, "utf8")).packages;
+      if (!packages || typeof packages !== "object" || Array.isArray(packages)) throw new Error("invalid packages");
+      return packages;
+    };
     let installed;
     try { installed = read("worker/node_modules/.package-lock.json"); } catch { console.log("missing"); process.exit(0); }
     const wanted = read("worker/package-lock.json");
     for (const [key, entry] of Object.entries(wanted)) {
-      if (!key.startsWith("node_modules/") || entry.optional) continue;
-      if (!installed[key] || installed[key].version !== entry.version) { console.log("stale"); process.exit(0); }
+      if (!key.startsWith("node_modules/")) continue;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("invalid package");
+      if (entry.optional !== undefined && typeof entry.optional !== "boolean") throw new Error("invalid optional flag");
+      if (entry.optional) continue;
+      if (typeof entry.version !== "string" || !entry.version || installed[key]?.version !== entry.version) { console.log("stale"); process.exit(0); }
     }
-  '
+    console.log("fresh");
+  ' 2>/dev/null
 }
 
 for stage in "${stages[@]}"; do
   [ "$stage" = test ] || continue
-  problem="$(worker_deps_problem)"
-  if [ -n "$problem" ]; then
-    echo "preflight: worker dependencies $problem (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci" >&2
+  problem="$(worker_deps_problem)" || problem=unavailable
+  if [ "${problem:-unavailable}" != fresh ]; then
+    echo "preflight: worker dependencies ${problem:-unavailable} (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci" >&2
     exit 1
   fi
 done
