@@ -4,11 +4,12 @@ import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { loadRouting, parseBuiltBy, reviewFamilies } from './built-by.mjs';
+import { assertReviewDispatch, loadRouting, parseBuiltBy, reviewFamilies } from './built-by.mjs';
 
 const fixture = new URL('../fixtures/agent-graph/model-routing.v2.yaml', import.meta.url);
 const routing = loadRouting(fixture);
-const both = ['codex-xhigh', 'claude-sonnet'];
+const freshOpus = { reviewer: 'claude-opus', fresh_session: true };
+const failSafe = [freshOpus, 'claude-sonnet'];
 const tag = (model = 'codex', bot = 'engineer') => `Built-by: bot=${bot} model=model:${model}`;
 const parse = (body, rest = {}) => parseBuiltBy({ body, routing, ...rest });
 const reviewers = parsed => reviewFamilies(parsed, { routing });
@@ -68,6 +69,39 @@ describe('review route families', () => {
     expect(() => load(withRoutes({ grok: 'claude-sonnet' }))).not.toThrow();
     expect(() => load(withRoutes({ openai: 'claude-sonnet' }))).not.toThrow();
   });
+  it.each(['true', 1, null])('rejects malformed fresh_session: %s', fresh_session => {
+    expect(() => load(withRoutes({ claude: { reviewer: 'claude-opus', fresh_session } }))).toThrow();
+  });
+  it.each(['__proto__', 'constructor'])('rejects the %s route key', key => {
+    expect(() => load(withRoutes({ grok: { reviewer: 'claude-opus', [key]: 'invalid' } }))).toThrow();
+  });
+  it('rejects non-string reviewers and inherited route properties', () => {
+    expect(() => load(withRoutes({ grok: { reviewer: 1 } }))).toThrow();
+    const inherited = Object.create({ reviewer: 'claude-opus' });
+    expect(reviewFamilies(parse(tag('grok-overflow')), { routing: withRoutes({ grok: inherited }) })).toEqual(failSafe);
+  });
+  it('rejects a Codex pool mislabeled as Claude', () => {
+    const invalid = { ...withRoutes({ claude: { reviewer: 'codex-xhigh', fresh_session: true } }),
+      pools: { ...routing.pools, 'codex-xhigh': { family: 'claude' } } };
+    expect(() => load(invalid)).toThrow('fail-safe families');
+    expect(reviewFamilies(parse(tag('claude-opus')), { routing: invalid })).toEqual(failSafe);
+  });
+  it.each(['openai', { reviewer: 'openai' }])('resolves the openai alias: %j', target => {
+    const custom = load(withRoutes({ grok: target }));
+    expect(reviewFamilies(parse(tag('grok-overflow')), { routing: custom })).toEqual(['codex-xhigh']);
+  });
+  it('rejects fresh_session on cross-family routes and OpenAI review of Claude', () => {
+    expect(() => load(withRoutes({ grok: { reviewer: 'claude-opus', fresh_session: true } }))).toThrow('Fresh-session');
+    expect(() => load(withRoutes({ claude: { reviewer: 'openai' } }))).toThrow('OpenAI');
+  });
+  it.each(['unknown_builder', 'mixed_builder'])('requires fresh Opus plus Sonnet for %s', field => {
+    for (const entries of [['codex-xhigh', 'claude-sonnet'], ['claude-opus', 'claude-sonnet'],
+      [{ reviewer: 'claude-opus', fresh_session: 'true' }, 'claude-sonnet']]) {
+      const invalid = { ...routing, [field]: entries };
+      expect(() => load(invalid)).toThrow('fail-safe');
+      expect(reviewFamilies(parse(tag('claude-opus')), { routing: invalid })).toEqual(failSafe);
+    }
+  });
   it('keeps the missing-route check', () => {
     const { claude, ...rest } = routing.review_routing;
     expect(claude).toBeDefined();
@@ -79,21 +113,30 @@ describe('builder attribution', () => {
   it('parses canonical tags and cross-family routes', () => {
     expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
     expect(reviewers(parse(tag()))).toEqual(['claude-sonnet']);
-    expect(reviewers(parse(tag('claude-opus')))).toEqual(['claude-opus']);
+    expect(reviewers(parse(tag('claude-opus')))).toEqual([freshOpus]);
     expect(reviewers(parse(tag('grok-overflow')))).toEqual(['claude-opus']);
+  });
+  it.each(['claude-opus', 'claude-sonnet', 'codex', 'codex-xhigh', 'grok-overflow'])('carries freshness only for known Claude builders: %s', model => {
+    expect(reviewers(parse(tag(model))).some(entry => entry.fresh_session === true)).toBe(routing.pools[model].family === 'claude');
+  });
+  it('falls back safely for a Jev builder without a route', () => {
+    const result = parse(tag('jev'));
+    expect(result.status).toBe('ok');
+    expect(reviewers(result)).toEqual(failSafe);
   });
 
   it('retains legacy model-only attribution as unknown', () => {
     const result = parse('Model: model:codex');
     expect(result.builders[0]).toEqual({ bot: 'unknown', model: 'model:codex', family: 'openai' });
     expect(result.status).toBe('unknown');
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
   });
   it('retains Codex then Opus repair (#845) and requests both', () => {
     const result = parse(`${tag()}; bot=architect model=model:claude-opus`);
     expect(result.status).toBe('mixed');
     expect(result.builders.map(builder => builder.model)).toEqual(['model:codex', 'model:claude-opus']);
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
+    expect(reviewers(result)).not.toContain('codex-xhigh');
   });
   it('lets trailers override body bot attribution and model conflicts stay fail-safe', () => {
     const commits = [{ sha: 'a', message: `Repair\n\n${tag('codex', 'architect')}` }];
@@ -102,7 +145,7 @@ describe('builder attribution', () => {
     const result = parse(tag('grok-overflow'), { commits });
     expect(result.status).toBe('conflict');
     expect(result.builders[0].model).toBe('model:codex');
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
   });
   it('reads a commit trailer from a CRLF message the same way as an LF one', () => {
     const commits = [{ sha: 'a', message: `Repair\r\n\r\n${tag('codex', 'architect')}\r\n` }];
@@ -126,18 +169,18 @@ describe('builder attribution', () => {
     const onlyCodex = parse(mixedBody, { commits: [codex, more] });
     expect(onlyCodex.status).toBe('conflict');
     expect(onlyCodex.findings).toContain('Commit trailer model disagrees with body');
-    expect(reviewers(onlyCodex)).toEqual(both);
+    expect(reviewers(onlyCodex)).toEqual(failSafe);
     // The same body squashed into one commit trailered Opus: the Codex build would get same-family review.
     const onlyOpus = parse(mixedBody, { commits: [opus] });
     expect(onlyOpus.status).toBe('conflict');
-    expect(reviewers(onlyOpus)).toEqual(both);
+    expect(reviewers(onlyOpus)).toEqual(failSafe);
     // A middle builder that no trailer names is also a gap.
     const threeStep = `${mixedBody}; ${tag()}`;
     expect(parse(threeStep, { commits: [codex, more] }).status).toBe('conflict');
     // Trailers that cover the whole declared history still agree and stay mixed, even under a different bot.
     const agree = parse(mixedBody, { commits: [codex, opus] });
     expect(agree.status).toBe('mixed');
-    expect(reviewers(agree)).toEqual(both);
+    expect(reviewers(agree)).toEqual(failSafe);
     expect(parse(tag(), { commits: [codex, more] }).status).toBe('ok');
   });
   it('does not narrow review when only some commits carry a trailer and the body has no history', () => {
@@ -145,7 +188,7 @@ describe('builder attribution', () => {
     const result = parse('', { commits });
     expect(result.status).toBe('unknown');
     expect(result.findings).toContain('Commit without Built-by trailer and no body history');
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
     // No attribution anywhere stays "missing", and full trailer coverage stays ok.
     expect(parse('', { commits: [{ sha: 'b', message: 'untagged' }] }).status).toBe('missing');
     expect(parse('', { commits: [commits[0]] }).status).toBe('ok');
@@ -156,7 +199,7 @@ describe('builder attribution', () => {
     const disagree = parse('', { commits, labels: ['model:grok-overflow'] });
     expect(disagree.status).toBe('conflict');
     expect(disagree.findings).toContain('Model label disagrees with builder history: model:grok-overflow');
-    expect(reviewers(disagree)).toEqual(both);
+    expect(reviewers(disagree)).toEqual(failSafe);
     const agree = parse('', { commits, labels: ['model:codex'] });
     expect(agree.status).toBe('ok');
     expect(reviewers(agree)).toEqual(['claude-sonnet']);
@@ -183,7 +226,7 @@ describe('builder attribution', () => {
       expect(reviewers(result)).toEqual(['claude-sonnet']);
     } else {
       if (status !== 'missing') expect(result.findings.length).toBeGreaterThan(0);
-      expect(reviewers(result)).toEqual(both);
+      expect(reviewers(result)).toEqual(failSafe);
     }
   });
   it('never throws on internal errors', () => {
@@ -191,8 +234,8 @@ describe('builder attribution', () => {
     const result = parse(tag(), { routing: throwing });
     expect(result.status).toBe('unknown');
     expect(result.findings.length).toBeGreaterThan(0);
-    expect(reviewers(result)).toEqual(both);
-    expect(reviewFamilies(parse(tag()), { routing: throwing, extra: ['claude-opus'] })).toEqual([...both, 'claude-opus']);
+    expect(reviewers(result)).toEqual(failSafe);
+    expect(reviewFamilies(parse(tag()), { routing: throwing, extra: ['claude-opus'] })).toEqual([...failSafe, 'claude-opus']);
     expect(parseBuiltBy(throwing).status).toBe('unknown');
   });
 });
@@ -200,16 +243,33 @@ describe('builder attribution', () => {
 describe('fail-safe reviewer selection', () => {
   it('handles garbage input and missing or failed routing', () => {
     for (const value of [null, undefined, {}, 'ok', [], { status: 'ok', builders: [] }]) {
-      expect(reviewers(value)).toEqual(both);
+      expect(reviewers(value)).toEqual(failSafe);
     }
-    expect(reviewFamilies(parse(tag()))).toEqual(both);
-    expect(reviewFamilies(parse(tag()), { routing: null })).toEqual(both);
-    expect(reviewFamilies(null, null)).toEqual(both);
+    expect(reviewFamilies(parse(tag()))).toEqual(failSafe);
+    expect(reviewFamilies(parse(tag()), { routing: null })).toEqual(failSafe);
+    expect(reviewFamilies(null, null)).toEqual(failSafe);
   });
   it('queues if no required pool is available, preserving extras', () => {
     expect(reviewFamilies(null, { routing, available: [], extra: ['claude-opus'] })).toEqual(['queue', 'claude-opus']);
     expect(reviewFamilies(parse(tag()), { routing, available: ['codex-xhigh'] })).toEqual(['queue']);
-    expect(reviewFamilies(null, { routing, available: ['codex-xhigh'] })).toEqual(both);
+    expect(reviewFamilies(null, { routing, available: ['codex-xhigh'] })).toEqual(['queue']);
+    expect(reviewFamilies(parse(tag('claude-opus')), { routing, available: ['claude-opus'] })).toEqual([freshOpus]);
+    expect(reviewFamilies(parse(tag('claude-opus')), { routing, available: ['codex-xhigh'] })).toEqual(['queue']);
+    for (const pool of ['claude-opus', 'claude-sonnet']) {
+      expect(reviewFamilies(null, { routing, available: [pool] })).toEqual(failSafe);
+    }
+  });
+  it('queues unsafe Codex extras when Claude built or may have built', () => {
+    for (const parsed of [null, parse(tag('claude-opus')), parse(`${tag()}; bot=architect model=model:claude-opus`)]) {
+      const malformed = { reviewer: 'codex-xhigh', fresh_session: 'true' };
+      const result = reviewFamilies(parsed, { routing, extra: ['codex-xhigh', { reviewer: 'openai' }, malformed, 'claude-sonnet'] });
+      expect(result).toContain('queue');
+      expect(result).toContain('claude-sonnet');
+      expect(result).not.toContain('codex-xhigh');
+      expect(result).not.toContainEqual({ reviewer: 'openai' });
+      expect(result).not.toContainEqual(malformed);
+    }
+    expect(reviewFamilies(parse(tag()), { routing, extra: ['codex-xhigh'] })).toEqual(['claude-sonnet', 'codex-xhigh']);
   });
   it('seeded random inputs never empty the result or discard extras', () => {
     let seed = 938;
@@ -226,7 +286,50 @@ describe('fail-safe reviewer selection', () => {
   });
 });
 
+describe('review dispatch evidence', () => {
+  const evidence = { reviewer: 'claude-opus', session_id: 'review-session', no_persistence: true,
+    builder_session_ids: ['build-1', 'build-2'], inherited_transcript: false };
+  it('accepts a fresh independent review and ordinary cross-family dispatch', () => {
+    expect(() => assertReviewDispatch(freshOpus, evidence)).not.toThrow();
+    expect(() => assertReviewDispatch('claude-sonnet', { reviewer: 'claude-sonnet' })).not.toThrow();
+  });
+  it('rejects missing records, mismatched reviewers, and queue dispatch', () => {
+    for (const value of [undefined, null, {}, { ...evidence, reviewer: 'claude-sonnet' }]) {
+      expect(() => assertReviewDispatch(freshOpus, value)).toThrow();
+    }
+    expect(() => assertReviewDispatch('queue', { reviewer: 'queue' })).toThrow();
+  });
+  it.each(['session_id', 'no_persistence', 'builder_session_ids', 'inherited_transcript'])('requires explicit %s evidence', field => {
+    const missing = { ...evidence };
+    delete missing[field];
+    expect(() => assertReviewDispatch(freshOpus, missing)).toThrow();
+  });
+  it.each([
+    ['session_id', ''], ['session_id', ' '], ['session_id', 1], ['session_id', null],
+    ['no_persistence', false], ['no_persistence', 'true'], ['no_persistence', 1], ['no_persistence', null],
+    ['inherited_transcript', true], ['inherited_transcript', 'false'], ['inherited_transcript', null],
+    ['builder_session_ids', []], ['builder_session_ids', null], ['builder_session_ids', 'build-1'],
+    ['builder_session_ids', ['']], ['builder_session_ids', [null]], ['builder_session_ids', new Array(1)],
+    ['builder_session_ids', ['review-session']], ['builder_session_ids', ['build-1', 'review-session']],
+    ['builder_session_ids', [' review-session ']],
+  ])('rejects malformed or unsafe %s: %j', (field, value) => {
+    expect(() => assertReviewDispatch(freshOpus, { ...evidence, [field]: value })).toThrow();
+  });
+});
+
 describe('report-only CLI', () => {
+  it('emits fresh-session requirements for Claude builds and fail-safe reports', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'ovd-fresh-cli-'));
+    try {
+      const body = join(directory, 'body.txt');
+      for (const model of ['claude-opus', 'codex', 'grok-overflow', 'unlisted']) {
+        writeFileSync(body, tag(model));
+        const child = spawnSync(process.execPath, ['scripts/agent-graph/built-by.mjs', '--body', body, '--json'], { encoding: 'utf8' });
+        expect(child.status).toBe(0);
+        expect(JSON.parse(child.stdout).reviewers).toEqual(reviewers(parse(tag(model))));
+      }
+    } finally { rmSync(directory, { recursive: true }); }
+  });
   it('always exits zero, including errors, and has no check/status writes', () => {
     const directory = mkdtempSync(join(tmpdir(), 'ovd938-cli-'));
     try {
@@ -241,7 +344,10 @@ describe('report-only CLI', () => {
         expect(child.stdout, JSON.stringify({ args, stderr: child.stderr })).not.toBe('');
         const output = JSON.parse(child.stdout);
         expect(output.reviewers.length).toBeGreaterThan(0);
-        if (output.status === 'unknown') expect(output.findings.length).toBeGreaterThan(0);
+        if (output.status === 'unknown') {
+          expect(output.findings.length).toBeGreaterThan(0);
+          expect(output.reviewers).toEqual(failSafe);
+        }
         else expect(output.status).toBe('ok');
       }
       const source = readFileSync(new URL('./built-by.mjs', import.meta.url), 'utf8');
@@ -330,20 +436,20 @@ describe('free-text Built-by form', () => {
     const result = parse(body);
     expect(result.status).toBe('unknown');
     expect(result.findings.length).toBeGreaterThan(0);
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
   });
   it('preserves unknown bot names for the existing finding', () => {
     const result = parse('Built-by: Strange Bot / codex');
     expect(result.builders[0].bot).toBe('strange-bot');
     expect(result.findings).toContain('Unknown bot: strange-bot');
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
   });
   it('requires the mapped pool to exist', () => {
     const pools = { ...routing.pools };
     delete pools.codex;
     const result = parse('Built-by: Engineer / codex', { routing: { ...routing, pools } });
     expect(result.status).toBe('unknown');
-    expect(reviewers(result)).toEqual(both);
+    expect(reviewers(result)).toEqual(failSafe);
   });
   it('preserves canonical bot=... model=... parsing unchanged', () => {
     expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
@@ -357,7 +463,7 @@ describe('free-text Built-by form', () => {
     expect(reviewers(result)).toEqual(['claude-sonnet']);
     const partial = parse('', { commits: [...commits, { sha: 'b', message: 'untagged follow-up' }] });
     expect(partial.status).toBe('unknown');
-    expect(reviewers(partial)).toEqual(both);
+    expect(reviewers(partial)).toEqual(failSafe);
   });
   it('parses hostile free-text input in linear time and fails safe', () => {
     const started = performance.now();
@@ -368,7 +474,7 @@ describe('free-text Built-by form', () => {
       `Built-by: Engineer / ${' '.repeat(50_000)}x`,
       `Built-by: Engineer / codex${'+'.repeat(50_000)}`,
     ]) {
-      expect(reviewers(parse(body))).toEqual(both);
+      expect(reviewers(parse(body))).toEqual(failSafe);
     }
     expect(performance.now() - started).toBeLessThan(2000);
   });
@@ -382,8 +488,8 @@ describe('free-text Built-by form', () => {
     const started = performance.now();
     const result = parse(`Built-by: Engineer / claude ${'xgpt xopus-codexy '.repeat(50_000)}`);
     expect(result.status).toBe('ok');
-    expect(reviewers(parse(`Built-by: Engineer / claude ${'xgpt '.repeat(50_000)}gpt`))).toEqual(both);
-    expect(reviewers(parse(`Built-by: Engineer / claude${'-x'.repeat(50_000)}gpt`))).toEqual(both);
+    expect(reviewers(parse(`Built-by: Engineer / claude ${'xgpt '.repeat(50_000)}gpt`))).toEqual(failSafe);
+    expect(reviewers(parse(`Built-by: Engineer / claude${'-x'.repeat(50_000)}gpt`))).toEqual(failSafe);
     expect(performance.now() - started).toBeLessThan(2000);
   });
 });

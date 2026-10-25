@@ -22,6 +22,6 @@
     "grok": "claude-opus",
     "openai": "claude-sonnet"
   },
-  "unknown_builder": ["codex-xhigh", "claude-sonnet"],
-  "mixed_builder": ["codex-xhigh", "claude-sonnet"]
+  "unknown_builder": [{ "reviewer": "claude-opus", "fresh_session": true }, "claude-sonnet"],
+  "mixed_builder": [{ "reviewer": "claude-opus", "fresh_session": true }, "claude-sonnet"]
 }
