@@ -161,7 +161,7 @@ export function buildXometryDriverBinding(input: XometryDriverRequirement & {
 function surfaceFor(page: Page, binding: DriverBinding, origin: string) {
   return createPlaywrightSurface(page, {
     vocabulary: [...binding.vocabulary],
-    excludeSelectors: XOMETRY_LOCATORS.offerContainers,
+    excludeSelectors: [XOMETRY_LOCATORS.priceTierCard],
     frameAllowed: (url) => { try { return new URL(url).origin === origin; } catch { return false; } },
     routeAllowed: binding.routeAllowed,
   });
