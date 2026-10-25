@@ -154,10 +154,14 @@ export const XOMETRY_LOCATORS = {
   // has not finished). The uploader/geometry text above is not one: it says
   // nothing about pricing, so a page showing only that stays selector_drift.
   // Synthetic phrasing, not captured from the live page; add a pattern only
-  // from reviewed quote-page evidence.
+  // from reviewed quote-page evidence. The loading/refreshing phrasing comes
+  // from the OVD-1052 review of React re-pricing states, as does "Updating
+  // your quote..." in the order summary beside the parts list; no captured
+  // quote page shows any of it.
   quotePricingInProgressSignals: [
     /\b(?:re)?calculating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
-    /\bupdating (?:the |your )?(?:price|prices|pricing)\b/i,
+    /\bupdating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
+    /\b(?:loading|refreshing) (?:the |your )?(?:price|prices|pricing|quote)\b/i,
   ],
   quantityInputs: [
     'input[aria-label="Quantity"]',
@@ -254,15 +258,12 @@ export const XOMETRY_LOCATORS = {
     // selector key doesn't collide with priceText[0] in the unit-test mock.
     '[data-testid="tierAndLeadTime"]',
   ],
-  // Every supported entry must scope one complete purchasable tier. The
-  // adapter reads only container text so a price cannot be paired with a lead
-  // time or sourcing label from another option.
-  offerContainers: [
-    ".price-tier",
-    'button:has([data-testid="tierAndLeadTime"])',
-    'label:has([data-testid="tierAndLeadTime"])',
-    '[role="button"]:has([data-testid="tierAndLeadTime"])',
-  ],
+  // OVD-1052: the only offer container. Each tier Xometry quotes is one
+  // card, and the adapter reads only that card's text so a price cannot be
+  // paired with a lead time or sourcing label from another option. A quote
+  // page without one fails closed as selector drift; no other element is
+  // ever read as an option.
+  priceTierCard: ".price-tier",
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

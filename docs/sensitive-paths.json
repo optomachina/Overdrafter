@@ -26,6 +26,14 @@
     { "glob": "**/*session*{,/**}", "class": "auth" },
     { "glob": "**/*,rls*{,/**}", "class": "auth" },
     { "glob": "scripts/run-supabase-policy-tests*", "class": "auth" },
+    { "glob": "supabase/functions/job-archive-fallback/**", "class": "auth" },
+    { "glob": "supabase/functions/create-project-fallback/**", "class": "auth" },
+    { "glob": "supabase/functions/dev-login/**", "class": "auth" },
+    { "glob": "supabase/functions/engineering-interpretation/**", "class": "auth" },
+    { "glob": "supabase/functions/engineering-worker/**", "class": "auth" },
+    { "glob": "supabase/functions/engineering-worker-task/**", "class": "auth" },
+    { "glob": "api/admin-operations.ts", "class": "auth" },
+    { "glob": "server/admin-operations/**", "class": "auth" },
 
     { "glob": "**/*payment*{,/**}", "class": "payments" },
     { "glob": "**/*billing*{,/**}", "class": "payments" },
@@ -80,6 +88,8 @@
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-screen-marker*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
+    { "glob": "docs/agent-graph/model-routing.yaml", "class": "infra_ci" },
+    { "glob": "scripts/model-routing-drift*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-*", "class": "infra_ci" },
     { "glob": "scripts/validate-pr-body.mjs", "class": "infra_ci" },
     { "glob": "scripts/ephemeral-db-apply.mjs", "class": "infra_ci" },
@@ -180,6 +190,7 @@
     { "glob": "**/requirements*.txt", "class": "deps" },
     { "glob": "**/{pyproject.toml,uv.lock,poetry.lock}", "class": "deps" },
     { "glob": "**/{Cargo.toml,Cargo.lock,go.mod,go.sum}", "class": "deps" },
-    { "glob": "**/{bun.lock,Pipfile,Pipfile.lock,Gemfile,Gemfile.lock}", "class": "deps" }
+    { "glob": "**/{bun.lock,Pipfile,Pipfile.lock,Gemfile,Gemfile.lock}", "class": "deps" },
+    { "glob": "supabase/functions/deno.json", "class": "deps" }
   ]
 }
