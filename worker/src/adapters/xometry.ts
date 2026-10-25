@@ -3711,15 +3711,9 @@ export class XometryAdapter extends VendorAdapter {
       // commercial and timing evidence before parsing the complete option set.
       // OVD-1052: a timed-out wait is kept, not swallowed: the cards that did
       // render are then never published as the complete option set.
-      // Staged display names can differ from sanitized local basenames, so
-      // strip both from the loading-text check.
       const fileNames = uploadedFileNames.map((filePath) => path.basename(filePath));
-      if (input.stagedCadFile.originalName) fileNames.push(input.stagedCadFile.originalName);
       if (input.stagedDrawingFile) {
-        fileNames.push(
-          liveEvaluationUploadFiles?.drawing?.name ?? path.basename(input.stagedDrawingFile.localPath),
-          input.stagedDrawingFile.originalName,
-        );
+        fileNames.push(liveEvaluationUploadFiles?.drawing?.name ?? path.basename(input.stagedDrawingFile.localPath));
       }
       const priceTiersSettled = await page
         .waitForFunction(xometryPriceTiersSettled, fileNames, { timeout: this.config.browserTimeoutMs })

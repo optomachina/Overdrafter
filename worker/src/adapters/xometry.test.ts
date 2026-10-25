@@ -4626,11 +4626,12 @@ describe("XometryAdapter", () => {
       expect(labelledQuantitySelector).toBeDefined();
       const workerTempDir = await makeTempDir();
       let bodyText = fixture.bodyText;
+      const uploadCad = vi.fn();
       const page = createFakePage({
         bodyText: () => bodyText,
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
         selectorBehaviors: {
-          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: uploadCad },
           [labelledQuantitySelector ?? "missing"]: {
             count: fixture.quantityInputs.length,
             inputValue: () => fixture.quantityInputs[0]?.getAttribute("value") ?? "",
@@ -4671,7 +4672,7 @@ describe("XometryAdapter", () => {
         "xometry",
         makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
-      return { fixture, input, requestedSelectors, result: await adapter.quote(input) };
+      return { fixture, input, requestedSelectors, uploadCad, result: await adapter.quote(input) };
     }
 
     const expectedTierOffers = [
@@ -6355,26 +6356,25 @@ describe("XometryAdapter", () => {
         expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(expectedTierOffers.map(({ id }) => id));
       });
 
-      it("publishes the three tiers when the staged originalName, unlike the sanitized local basename, holds a calculating word", async () => {
+      it("publishes the three tiers when the uploaded sanitized basename holds a calculating word", async () => {
         const originalName = "Calculating Fixture Plate (rev B).step";
         const localFileName = "calculating-fixture-plate-rev-b.step";
         const mutate = (document: Document) => {
           const title = document.querySelector('[data-testid="part-card-title"] > span');
           if (!title) throw new Error("fixture lost its part title");
-          title.textContent = originalName;
+          title.textContent = localFileName;
         };
         const fixture = await loadCurrentQuotePage(mutate);
-        // Cutting out only the local basename leaves "Calculating" behind: the wait would stay pending.
-        expect(settledOnDocument(fixture.document, [localFileName])).toBe(false);
-        expect(settledOnDocument(fixture.document, [localFileName, originalName])).toBe(true);
-        // The original name is cut out exactly, so status text around it still holds the wait.
+        expect(settledOnDocument(fixture.document, [localFileName])).toBe(true);
+        // Removing the uploaded basename still preserves the surrounding price status.
         const busy = await loadCurrentQuotePage((document) => {
           mutate(document);
           addToPartCard(document, "<div>Calculating price...</div>");
         });
-        expect(settledOnDocument(busy.document, [localFileName, originalName])).toBe(false);
+        expect(settledOnDocument(busy.document, [localFileName])).toBe(false);
 
-        const { result } = await quoteCurrentPage({ mutate, cadFileName: originalName, cadLocalFileName: localFileName });
+        const { input, uploadCad, result } = await quoteCurrentPage({ mutate, cadFileName: originalName, cadLocalFileName: localFileName });
+        expect(uploadCad).toHaveBeenCalledWith([input.stagedCadFile!.localPath]);
         expect(result.offers?.map((offer) => offer.providerOptionId)).toEqual(expectedTierOffers.map(({ id }) => id));
       });
 
