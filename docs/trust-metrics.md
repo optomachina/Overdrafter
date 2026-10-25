@@ -236,17 +236,20 @@ older snapshot means it was not computed.
 | `qaFamilies.perPr[].prNumber` | integer | Merged PR number. |
 | `qaFamilies.perPr[].qaHead` | string or null | SHA from the latest QA verdict's first line (`on <sha>` or `at <sha>`, optionally `head` before the SHA). When absent, uses the PR's `headRefOid` or `head.sha`. Null without a verdict or a known judged head. |
 | `qaFamilies.perPr[].reviewers` | array or `"none"` | Kept model reviews as `{family, model, sha, verdict}`. `"none"` means the PR had a QA verdict but no kept model review; `[]` means no QA verdict. |
-| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the lowercased pool token from a case-insensitive PR-body line `Built on <pool>`; otherwise `"unknown"`. |
+| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the model named by PR-body `Built-by:` lines (`model=model:<x>` tokens, else a known model name; must be unanimous) or else the first `Model:` line; otherwise the lowercased pool token from a case-insensitive `Built on <pool>` line; otherwise `"unknown"`. |
 | `qaFamilies.summary.qaJudged` | integer | Merged PRs with a QA verdict, including those without a known head. Equals `qa.pass + qa.fail`. |
 | `qaFamilies.summary.reviewersNone` | integer | QA-judged PRs with no kept model review. |
 | `qaFamilies.summary.prs` | integer | All merged PRs in the window. Equals `merges.total`. |
 | `qaFamilies.summary.builderUnknown` | integer | Merged PRs whose builder remains `"unknown"`. |
 
-An Architect model review must have this exact first line (a full, lowercase
-40-character hexadecimal SHA), followed by a later `VERDICT: <word>` line:
+An Architect model review must start with this first line (a full, lowercase
+40-character hexadecimal SHA). The line may end with `: VERDICT` and/or
+qualifiers such as `(round 2)`; the verdict is the uppercase word in that
+suffix, or a later `VERDICT: <word>` line (which wins). Short SHAs, other
+header shapes, and headers with no verdict are rejected:
 
 ```text
-Architect review (<model>) @ <sha>
+Architect review (<model>) @ <sha>[ qualifiers][: VERDICT]
 ```
 
 The model is preserved in the row; the verdict is lowercased. Family mapping

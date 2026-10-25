@@ -150,13 +150,36 @@ describe("QA families", () => {
 
   each([
     architect("opus", "abcdef0"),
-    architect("opus").replace(`@ ${QA_SHA}`, `@ ${QA_SHA} extra`),
+    architect("opus").replace(`@ ${QA_SHA}`, `@ ${QA_SHA}0`),
+    `Architect review (opus) @ ${QA_SHA.slice(0, 8)}: PASS_NOTES`,
+    `Engineer review (opus) @ ${QA_SHA}: PASS`,
+    `## Architect review (Codex review mode, gpt-6-astra) at ${QA_SHA}`,
+    `Architect review (opus) @ ${QA_SHA}: looks fine`,
     architect("opus").replace("Architect", "Engineer"),
     `\n${architect("opus")}`,
     `Architect review (opus) @ ${QA_SHA}`,
     undefined,
   ])("rejects a missing or nonstandard Architect header/verdict: %s", (body) => {
     assert.equal(parseArchitectReviewHeader(body), null);
+  });
+
+  each([
+    [`Architect review (Codex) @ ${QA_SHA}: PASS_NOTES`, "Codex", "pass_notes"],
+    [`Architect review (Opus) @ ${QA_SHA}: CHANGES_REQUIRED\r\nbody`, "Opus", "changes_required"],
+    [`Architect review (opus) @ ${QA_SHA} (round 2): FAIL`, "opus", "fail"],
+    [`Architect review (opus) @ ${QA_SHA} \u2014 PASS (comments-only delta)`, "opus", "pass"],
+    [`Architect review (grok) @ ${QA_SHA} (delta re-review)\nVERDICT: PASS`, "grok", "pass"],
+  ])("accepts tolerant Architect header forms: %s", (body, model, verdict) => {
+    assert.deepEqual(parseArchitectReviewHeader(body), { model, sha: QA_SHA, verdict });
+  });
+
+  it("reads builders from Built-by:/Model: lines after bot attribution and before Built on", () => {
+    assert.equal(qaFamilyBuilder({ labels: ["model:codex"], body: "Built-by: bot=engineer model=model:opus" }), "codex");
+    assert.equal(qaFamilyBuilder({ body: "Built-by: bot=engineer model=model:claude-opus\nBuilt on cursor" }), "claude-opus");
+    assert.equal(qaFamilyBuilder({ body: "Built-by: Engineer / grok-4.7 via Cursor cloud agent" }), "grok-4.7");
+    assert.equal(qaFamilyBuilder({ body: "Model: model:codex (effort=high)\nBuilt on cursor" }), "codex");
+    assert.equal(qaFamilyBuilder({ body: "Built-by: bot=engineer model=model:claude-opus; follow-up bot=engineer model=model:codex\nBuilt on cursor" }), "cursor");
+    assert.equal(qaFamilyBuilder({ body: "Built-by: bot=engineer (hand-written, no model)\nBuilt on cursor" }), "cursor");
   });
 
   each([

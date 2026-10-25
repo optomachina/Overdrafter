@@ -225,12 +225,19 @@ export function parseReviewVerdict(body) {
   return { bot: match[1].toLowerCase(), round: match[2].toLowerCase(), sha: match[3].toLowerCase(), verdict: match[4].toLowerCase().replace(" ", "_") };
 }
 
-/** Architect comments use an exact first-line header and a later verdict line. */
+/**
+ * Architect comments start with `Architect review (<model>) @ <40-hex sha>`. The header may carry a
+ * trailing `: VERDICT` and/or qualifiers (e.g. `(round 2)`, `— notes`). The verdict comes from the
+ * header suffix or a later `VERDICT:` line. Short shas and non-Architect comments are rejected.
+ */
 export function parseArchitectReviewHeader(body) {
   const [header, ...lines] = (body ?? "").split(/\r?\n/);
-  const match = /^Architect review \((?<model>[^)]+)\) @ (?<sha>[0-9a-f]{40})$/.exec(header);
+  const match = /^Architect review \((?<model>[^)]+)\) @ (?<sha>[0-9a-f]{40})(?![0-9a-z])(?<rest>.*)$/.exec(header.trimEnd());
+  if (!match) return null;
+  const inline = /^\s*(?:[:\-\u2014]\s*)?(?:\([^)]*\)\s*[:\-\u2014]?\s*)?([A-Z][A-Z_]+)\b/.exec(match.groups.rest);
   const verdict = lines.map((line) => /^VERDICT:\s+(\w+)\b/.exec(line)).find(Boolean);
-  return match && verdict ? { ...match.groups, verdict: verdict[1].toLowerCase() } : null;
+  const value = verdict?.[1] ?? inline?.[1];
+  return value ? { model: match.groups.model, sha: match.groups.sha, verdict: value.toLowerCase() } : null;
 }
 
 export function modelFamily(model) {
@@ -246,9 +253,28 @@ export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = (
   return reviewSha === qaHead || isCommentsOnlyAncestor(reviewSha, qaHead) === true;
 }
 
+const BUILDER_MODEL = /\b(codex|opus|sonnet|claude(?:-opus|-sonnet)?|grok(?:-[0-9][0-9.]*)?|gpt-[0-9][a-z0-9.-]*|jev)\b/gi;
+
+/** Model named by `Built-by:` lines (unanimous across lines) or else the first `Model:` line. */
+export function builderFromBodyLines(body) {
+  const text = body ?? "";
+  const built = new Set();
+  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:\s*(.*)$/gim)) {
+    const tagged = [...line.matchAll(/model[:=](?:model:)?([a-z0-9._-]+)/gi)].map((m) => m[1]);
+    const found = tagged.length ? tagged : [...line.matchAll(BUILDER_MODEL)].map((m) => m[1]);
+    for (const model of found) built.add(model.toLowerCase().replace(/[.,;]+$/, ""));
+  }
+  if (built.size === 1) return [...built][0];
+  if (built.size > 1) return null;
+  const model = /^[\t >*-]*Model:\s*(?:model:)?([a-z0-9._-]+)/im.exec(text)?.[1];
+  return model ? model.toLowerCase().replace(/[.,;]+$/, "") : null;
+}
+
 export function qaFamilyBuilder(pr) {
   const { bot } = attributePullRequest(pr);
   if (bot !== "unknown") return bot;
+  const fromLines = builderFromBodyLines(pr.body);
+  if (fromLines) return fromLines;
   return /^[\t ]*Built on[\t ]+(\S+)/im.exec(pr.body ?? "")?.[1].toLowerCase() ?? "unknown";
 }
 
