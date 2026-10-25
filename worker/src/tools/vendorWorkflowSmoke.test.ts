@@ -1546,7 +1546,36 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+  it("gates the Quickparts batch on the kill switch before staging (OVD-1059)", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
+
+    await expect(runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({}),
+    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
+    expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
+    expect(stageFiles).not.toHaveBeenCalled();
+  });
+
+  it("evaluates Quickparts through the production portal definition that reaches the provider", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(OFFLINE_EVALUATION_PORTAL_VENDORS.has("quickparts")).toBe(false);
+    expect((registry.quickparts as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider)
+      .toBe(true);
+  });
+
+  it.each(["weerg", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
