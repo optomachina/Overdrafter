@@ -45,7 +45,7 @@ const refusals: Array<[string, AdmitPriceInput, PriceVerdictReason]> = [
   ["labeled unit beside unlabeled total", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), unit: each(4321), total: bare(43210) }, "ambiguous_label"],
   ["total relabeled as unit at qty 10", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), unit: each(43210), total: total(43210) }, "invariant_failed"],
   ["unit relabeled as total at qty 10", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), unit: each(4321), total: total(4321) }, "invariant_failed"],
-  ["overflowing unit × qty", { requestedQuantity: 1_000_000, quantity: 1_000_000, pageQuantity: page(1_000_000), unit: each(Number.MAX_SAFE_INTEGER), total: total(Number.MAX_SAFE_INTEGER) }, "invariant_failed"],
+  ["overflowing unit \u00d7 qty", { requestedQuantity: 1_000_000, quantity: 1_000_000, pageQuantity: page(1_000_000), unit: each(Number.MAX_SAFE_INTEGER), total: total(Number.MAX_SAFE_INTEGER) }, "invariant_failed"],
 ];
 
 describe("admitPrice refusals", () => {
@@ -133,7 +133,7 @@ describe("page quantity labeled tokens", () => {
     ["Qty 1 / 2", 1],
     ["Qty 1'000", 1],
     ["Qty 1_000", 1],
-    ["Qty 1–10", 1],
+    ["Qty 1\u201310", 1],
     ["Qty 1 - 10", 1],
     ["Qty 1 e3", 1],
     ["Qty 1 x 1000", 1],
@@ -231,18 +231,18 @@ describe("page quantity near-labels and non-ASCII", () => {
     "QTY_5",
     "qty-5",
     // Look-alike and non-ASCII characters fail the whole text, even beside a valid label.
-    "Qту 5",
-    "Ԛту 5",
-    "Qτy 5",
-    "Qty 5; Qту 5",
-    "Ｑｔｙ 5",
-    "Qty 5 Ｑｔｙ 5",
-    "Qty​5",
-    "Qty ​5",
-    "Qty 5",
-    "Qty 5 ",
-    "Qty 5 ",
-    "﻿Qty 5",
+    "Q\u0442\u0443 5",
+    "\u051a\u0442\u0443 5",
+    "Q\u03c4y 5",
+    "Qty 5; Q\u0442\u0443 5",
+    "\uff31\uff54\uff59 5",
+    "Qty 5 \uff31\uff54\uff59 5",
+    "Qty\u200b5",
+    "Qty \u200b5",
+    "Qty\u00a05",
+    "Qty 5\u2028",
+    "Qty 5\u2029",
+    "\ufeffQty 5",
     "Qty 5\r",
     "Qty 5\r\n",
     // N2: a newline between the label and its number fails.
@@ -276,7 +276,7 @@ describe("page quantity near-labels and non-ASCII", () => {
     const random = seededRandom(0x1092);
     const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
     const nearLabels = ["qtys", "Qtys", "Quantities", "quantitative", "max_qty", "MaxQty", "q.t.y", "Q T Y", "q-ty", "QTY_", "_qty", "qty2", "xqty"];
-    const fixedNonAscii = ["т", "у", "τ", "Ｑ", "​", "‍", " ", " ", " ", "﻿", "\r", "\u000b", "\u000c", "\u0000", "\u007f", "é", "٠"];
+    const fixedNonAscii = ["\u0442", "\u0443", "\u03c4", "\uff31", "\u200b", "\u200d", "\u00a0", "\u2028", "\u2029", "\ufeff", "\r", "\u000b", "\u000c", "\u0000", "\u007f", "\u00e9", "\u0660"];
     const nonAscii = () =>
       random() < 0.5 ? pick(fixedNonAscii) : String.fromCharCode(0x80 + Math.floor(random() * (0xffff - 0x80)));
     const bases = (quantity: number) => [
