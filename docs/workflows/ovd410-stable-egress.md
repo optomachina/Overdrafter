@@ -250,6 +250,7 @@ exercise these diagnostics without production credentials or profile data.
 For navigation/inspection failures, `navigationOrInspection` adds a fixed
 `subStage` (`goto`, `inspection` or `fingerprint`) and a closed `cause`
 (`timeout`, `navigation_aborted`, `context_destroyed`, `net_error` or `other`).
+The `fingerprint` sub-stage covers the whole tail after classification, including building the result.
 The cause is derived from the browser error's name and first message line and
 never carries that text, URLs or page content. `timeout` means a browser
 deadline expired; a network-level timeout code is `net_error`. The guarded cold

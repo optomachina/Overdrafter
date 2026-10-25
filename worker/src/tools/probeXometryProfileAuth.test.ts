@@ -23,6 +23,29 @@ vi.mock("../adapters/persistentProfileLock.js", () => ({
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
+function setupHostedProbeFixture(
+  userDataDir: string,
+  runProbe: (options: { onDashboardNotConfirmed?: (value: unknown) => void }) => Promise<unknown>,
+) {
+  vi.doMock("../xometryProfileSnapshot.js", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
+    restoreXometryProfileSnapshot: async () => ({
+      xometryBrowserEngine: "playwright", xometryUserDataDir: userDataDir,
+      xometryProfileSnapshotGeneration: "41", xometryProfileLockWaitMs: 0,
+      playwrightHeadless: true, playwrightDisableSandbox: false,
+      playwrightDisableDevShmUsage: false, xometryBrowserChannel: null, browserTimeoutMs: 1_000,
+    }),
+    withXometryProfileSnapshotLock: (operation: () => Promise<unknown>) => operation(),
+  }));
+  vi.doMock("../xometryAuthProbe.js", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../xometryAuthProbe.js")>()),
+    withClosingXometryAuthProbeContext: (_context: unknown, operation: () => Promise<unknown>) => operation(),
+    runBoundedXometryAuthProbe: (_context: unknown, options: Parameters<typeof runProbe>[0]) => runProbe(options),
+  }));
+  mocks.lock.mockImplementation(() => undefined);
+  mocks.launch.mockResolvedValueOnce({ setDefaultTimeout: vi.fn(), setDefaultNavigationTimeout: vi.fn() });
+}
+
 describe("hosted probe restore failure output", () => {
   it.each([
     ["credential", "credential_unavailable"],
@@ -112,26 +135,10 @@ describe("hosted probe drift fingerprint line", () => {
       authenticated, reason, url: "https://www.xometry.com/quoting/home/", blockedNonReadMethods: [],
       dashboardUploadButtonVisible: false, fileSelectionPerformed: false, userInputInteractionPerformed: false,
     };
-    vi.doMock("../xometryProfileSnapshot.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
-      restoreXometryProfileSnapshot: async () => ({
-        xometryBrowserEngine: "playwright", xometryUserDataDir: userDataDir,
-        xometryProfileSnapshotGeneration: "41", xometryProfileLockWaitMs: 0,
-        playwrightHeadless: true, playwrightDisableSandbox: false,
-        playwrightDisableDevShmUsage: false, xometryBrowserChannel: null, browserTimeoutMs: 1_000,
-      }),
-      withXometryProfileSnapshotLock: (operation: () => Promise<unknown>) => operation(),
-    }));
-    vi.doMock("../xometryAuthProbe.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("../xometryAuthProbe.js")>()),
-      withClosingXometryAuthProbeContext: (_context: unknown, operation: () => Promise<unknown>) => operation(),
-      runBoundedXometryAuthProbe: async (_context: unknown, options: { onDashboardNotConfirmed?: (value: unknown) => void }) => {
-        if (!authenticated) options.onDashboardNotConfirmed?.(fingerprintLine);
-        return bounded;
-      },
-    }));
-    mocks.lock.mockImplementation(() => undefined);
-    mocks.launch.mockResolvedValueOnce({ setDefaultTimeout: vi.fn(), setDefaultNavigationTimeout: vi.fn() });
+    setupHostedProbeFixture(userDataDir, async (options) => {
+      if (!authenticated) options.onDashboardNotConfirmed?.(fingerprintLine);
+      return bounded;
+    });
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const logs = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const exitCode = process.exitCode;
@@ -165,25 +172,9 @@ describe("hosted probe navigation failure output", () => {
   it("reports the navigation sub-stage and cause without browser diagnostics", async () => {
     vi.resetModules();
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "probe-navigation-"));
-    vi.doMock("../xometryProfileSnapshot.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
-      restoreXometryProfileSnapshot: async () => ({
-        xometryBrowserEngine: "playwright", xometryUserDataDir: userDataDir,
-        xometryProfileSnapshotGeneration: "41", xometryProfileLockWaitMs: 0,
-        playwrightHeadless: true, playwrightDisableSandbox: false,
-        playwrightDisableDevShmUsage: false, xometryBrowserChannel: null, browserTimeoutMs: 1_000,
-      }),
-      withXometryProfileSnapshotLock: (operation: () => Promise<unknown>) => operation(),
-    }));
-    vi.doMock("../xometryAuthProbe.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("../xometryAuthProbe.js")>()),
-      withClosingXometryAuthProbeContext: (_context: unknown, operation: () => Promise<unknown>) => operation(),
-      runBoundedXometryAuthProbe: async () => {
-        throw new Error("Xometry authentication probe navigation or inspection failed. subStage=goto cause=net_error.");
-      },
-    }));
-    mocks.lock.mockImplementation(() => undefined);
-    mocks.launch.mockResolvedValueOnce({ setDefaultTimeout: vi.fn(), setDefaultNavigationTimeout: vi.fn() });
+    setupHostedProbeFixture(userDataDir, async () => {
+      throw new Error("Xometry authentication probe navigation or inspection failed. subStage=goto cause=net_error.");
+    });
     const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("test exit"); });

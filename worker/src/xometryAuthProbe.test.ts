@@ -546,26 +546,28 @@ describe("Xometry authentication probe", () => {
   const named = (name: string, message: string) => Object.assign(new Error(message), { name });
 
   it.each([
-    ["timeout", named("TimeoutError", `page.goto: Timeout 30000ms exceeded.${callLog}`)],
-    ["timeout", new Error(`page.goto: Timeout 30000ms exceeded.${callLog}`)],
-    ["navigation_aborted", new Error(`page.goto: net::ERR_ABORTED at ${syntheticUrl}${callLog}`)],
-    ["navigation_aborted", new Error(`page.goto: NS_BINDING_ABORTED${callLog}`)],
-    ["navigation_aborted", new Error(`page.goto: Navigation to "${syntheticUrl}" is interrupted by another navigation to "https://www.xometry.com/login?next=synthetic"`)],
-    ["context_destroyed", new Error("page.goto: Execution context was destroyed, most likely because of a navigation")],
-    ["context_destroyed", new Error("page.goto: Target page, context or browser has been closed")],
-    ["net_error", new Error(`page.goto: net::ERR_NAME_NOT_RESOLVED at ${syntheticUrl}${callLog}`)],
-    ["net_error", new Error(`page.goto: NS_ERROR_NET_TIMEOUT${callLog}`)],
-    ["net_error", new Error(`page.goto: net::ERR_CONNECTION_RESET at ${syntheticUrl}\nCall log:\n  - Timeout 30000ms exceeded`)],
-    ["other", new Error("<html>synthetic provider error body</html>")],
-    ["other", "synthetic thrown string"],
-  ])("reports a goto %s failure in the cold-relaunch line and failure evidence", async (cause, gotoError) => {
-    const { context, events } = fakeProbeContext({ bodyText: "unused", gotoError });
+    ["goto", "timeout", { gotoError: named("TimeoutError", `page.goto: Timeout 30000ms exceeded.${callLog}`) }],
+    ["goto", "timeout", { gotoError: new Error(`page.goto: Timeout 30000ms exceeded.${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: net::ERR_ABORTED at ${syntheticUrl}${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: NS_BINDING_ABORTED${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: NS_ERROR_ABORT${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: Navigation to "${syntheticUrl}" is interrupted by another navigation to "https://www.xometry.com/login?next=synthetic"`) }],
+    ["goto", "context_destroyed", { gotoError: new Error("page.goto: Execution context was destroyed, most likely because of a navigation") }],
+    ["goto", "context_destroyed", { gotoError: new Error("page.goto: Target page, context or browser has been closed") }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: net::ERR_NAME_NOT_RESOLVED at ${syntheticUrl}${callLog}`) }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: NS_ERROR_NET_TIMEOUT${callLog}`) }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: net::ERR_CONNECTION_RESET at ${syntheticUrl}\nCall log:\n  - Timeout 30000ms exceeded`) }],
+    ["goto", "other", { gotoError: new Error("<html>synthetic provider error body</html>") }],
+    ["goto", "other", { gotoError: "synthetic thrown string" }],
+    ["inspection", "timeout", { bodyTextError: named("TimeoutError", `locator.innerText: Timeout 30000ms exceeded.${callLog}`) }],
+  ])("reports a %s %s failure in the cold-relaunch line and failure evidence", async (subStage, cause, failure) => {
+    const { context, events } = fakeProbeContext({ bodyText: "unused", ...failure });
     const thrown = await requireAuthenticatedXometryColdRelaunch({ launchContext: async () => context })
       .catch((error: unknown) => error);
 
     expect(thrown).toBeInstanceOf(Error);
     const line = (thrown as Error).message;
-    expect(line).toBe(`Xometry authentication probe navigation or inspection failed. subStage=goto cause=${cause}.`);
+    expect(line).toBe(`Xometry authentication probe navigation or inspection failed. subStage=${subStage} cause=${cause}.`);
     expect((thrown as Error).cause).toBeUndefined();
     const evidence = buildXometryAuthProbeFailureEvidence(
       classifyXometryAuthProbeFailureStage(thrown, "bounded_probe"),
@@ -575,7 +577,7 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "probe_failed",
       failureStage: "navigation_or_inspection",
-      navigationOrInspection: { subStage: "goto", cause },
+      navigationOrInspection: { subStage, cause },
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
       snapshotPersisted: false,

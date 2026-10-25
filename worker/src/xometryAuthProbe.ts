@@ -234,12 +234,12 @@ export function classifyXometryAuthProbeFailureStage(
   return fallback;
 }
 
-// Ordered: net::ERR_ABORTED also matches the generic net:: shape below.
+// Ordered: net::ERR_ABORTED and NS_ERROR_ABORT also match generic network errors below.
 const NAVIGATION_CAUSE_PATTERNS: ReadonlyArray<
   readonly [RegExp, XometryAuthProbeNavigationCause]
 > = [
   [/\bTimeout \d+ms exceeded\b/, "timeout"],
-  [/\bnet::ERR_ABORTED\b|\bNS_BINDING_ABORTED\b|\binterrupted by another navigation\b/, "navigation_aborted"],
+  [/\bnet::ERR_ABORTED\b|\bNS_BINDING_ABORTED\b|\bNS_ERROR_ABORT\b|\binterrupted by another navigation\b/, "navigation_aborted"],
   [
     /\bExecution context was destroyed\b|\bTarget page, context or browser has been closed\b|\bTarget (?:closed|crashed)\b|\bframe was detached\b/,
     "context_destroyed",
