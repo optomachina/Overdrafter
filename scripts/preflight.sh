@@ -80,7 +80,9 @@ worker_deps_problem() {
 
 for stage in "${stages[@]}"; do
   [ "$stage" = test ] || continue
-  problem="$(worker_deps_problem)" || problem=unavailable
+  # Forward only successful output, even if a failed helper printed "fresh".
+  # Keep the capture scoped here to avoid another conditional variable in the guard.
+  problem="$(checked_problem="$(worker_deps_problem)" && printf '%s' "$checked_problem")"
   if [ "${problem:-unavailable}" != fresh ]; then
     echo "preflight: worker dependencies ${problem:-unavailable} (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci" >&2
     exit 1
