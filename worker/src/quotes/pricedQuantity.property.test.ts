@@ -162,9 +162,14 @@ describe("admitPrice properties", () => {
   });
 
   it("refuses total = unit × qty ÷ k for integer k >= 2 once the gap exceeds tolerance", () => {
-    const counts = { admitted: 0, invariant_failed: 0 };
+    const counts = { admitted: 0, invariant_failed: 0, unitOneAdmitted: 0 };
     const dividedArb = fc.oneof(
       fc.tuple(qtyArb, fc.constant(2), fc.constant(2)), // Exactly at tolerance.
+      // unit = 1, qty >= k: gap = qty − floor(qty / k) <= qty, so admitted for
+      // any k and qty, not just one hand-built edge input.
+      fc
+        .integer({ min: 2, max: MAX_SCALE })
+        .chain((k) => fc.tuple(fc.integer({ min: k, max: MAX_QTY }), fc.constant(1), fc.constant(k))),
       fc.tuple(
         qtyArb,
         fc.integer({ min: MAX_SCALE, max: MAX_UNIT_CENTS }),
@@ -182,12 +187,12 @@ describe("admitPrice properties", () => {
         } else {
           expect(verdict).toMatchObject({ ok: true, value: { total: { cents: divided } } });
           counts.admitted++;
+          if (unitCents === 1 && k > 2) counts.unitOneAdmitted++;
         }
       }),
       params,
     );
-    expect(counts.admitted).toBeGreaterThanOrEqual(50);
-    expect(counts.invariant_failed).toBeGreaterThanOrEqual(50);
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
     console.log("÷k coverage", counts);
   });
 
@@ -264,14 +269,16 @@ describe("admitPrice properties", () => {
   });
 
   it("admits canonical labeled page tokens and refuses malformed tokens with qty_missing", () => {
-    const counts = { admitted: 0, qty_missing: 0 };
+    const counts: Record<string, number> = { admitted: 0 };
+    const kinds = ["leadingZero", "grouping", "exponent", "hex", "spacedDigit", "fraction", "nonAscii", "conflict"] as const;
+    for (const kind of kinds) counts[kind] = 0;
     fc.assert(
       fc.property(
         qtyArb,
         fc.constantFrom("Quantity", "qty", "QTY"),
         fc.constantFrom(" ", ": ", " = "),
-        fc.boolean(),
-        fc.constantFrom("leadingZero", "grouping", "exponent", "hex", "spacedDigit", "fraction", "nonAscii", "conflict"),
+        fc.integer({ min: 0, max: 4 }).map((n) => n === 0),
+        fc.constantFrom(...kinds),
         (qty, label, separator, canonical, malformed) => {
           const badTokens: Record<string, string> = {
             leadingZero: `0${qty}`,
@@ -291,32 +298,46 @@ describe("admitPrice properties", () => {
             counts.admitted++;
           } else {
             expect(verdict).toMatchObject({ ok: false, reason: "qty_missing" });
-            counts.qty_missing++;
+            counts[malformed]++;
           }
         },
       ),
       params,
     );
-    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
+    // Floor per malformed kind so no single kind can silently stop being generated.
+    expect(counts.admitted).toBeGreaterThanOrEqual(50);
+    for (const kind of kinds) expect(counts[kind]).toBeGreaterThanOrEqual(30);
     console.log("page token coverage", counts);
   });
 
   it("refuses unit × quantity overflow with invariant_failed", () => {
-    const counts = { invariant_failed: 0 };
+    // Straddles the boundary: offset 0 keeps unit × qty safe (ordinary gap refusal),
+    // offset >= 1 overflows. Both arms must be reached.
+    const counts = { overflow: 0, safeAtBoundary: 0 };
     fc.assert(
-      fc.property(multiQtyArb, (qty) => {
-        // Both observed amounts remain safe integers; only their product overflows.
-        const unitCents = Math.floor(Number.MAX_SAFE_INTEGER / qty) + 1;
-        expect(admitPrice(priced(unitCents, 1, qty))).toEqual({
-          ok: false,
-          reason: "invariant_failed",
-          detail: { unitCents, totalCents: 1, quantity: qty, overflow: true },
-        });
-        counts.invariant_failed++;
+      fc.property(multiQtyArb, fc.integer({ min: 0, max: 3 }), (qty, offset) => {
+        // Both observed amounts remain safe integers; only their product may overflow.
+        const unitCents = Math.floor(Number.MAX_SAFE_INTEGER / qty) + offset;
+        const verdict = admitPrice(priced(unitCents, 1, qty));
+        if (offset === 0) {
+          expect(verdict).toEqual({
+            ok: false,
+            reason: "invariant_failed",
+            detail: { unitCents, totalCents: 1, quantity: qty, toleranceCents: tolerance(qty) },
+          });
+          counts.safeAtBoundary++;
+        } else {
+          expect(verdict).toEqual({
+            ok: false,
+            reason: "invariant_failed",
+            detail: { unitCents, totalCents: 1, quantity: qty, overflow: true },
+          });
+          counts.overflow++;
+        }
       }),
       params,
     );
-    expect(counts.invariant_failed).toBeGreaterThanOrEqual(50);
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
     console.log("overflow coverage", counts);
   });
 
@@ -369,8 +390,10 @@ describe("admitPrice properties", () => {
 
   it("admits the observed multi-piece total when every quantity signal incorrectly says 1", () => {
     // admitPrice cannot detect a stale multi-piece amount when every quantity
-    // signal says 1. Accurate page-quantity read-back belongs to the adapter /
-    // collector; this property documents the residual risk rather than safety.
+    // signal says 1. This risk is currently UNCOVERED: there is no independent
+    // page-quantity read-back today (readQuoteSummaryText in xometry.ts only
+    // echoes the quantity it was given). Follow-up: OVD-1094. This property
+    // pins the residual risk; it is not a safety guarantee.
     const counts = { unitOnly: 0, totalOnly: 0, both: 0 };
     fc.assert(
       fc.property(
@@ -432,7 +455,8 @@ describe("admitPrice properties", () => {
   });
 
   it("refuses both amounts absent with both_derived", () => {
-    const counts = { both_derived: 0 };
+    // Count each absent-amount shape (null/undefined per side) so every combination is hit.
+    const counts: Record<string, number> = { "null/null": 0, "null/undefined": 0, "undefined/null": 0, "undefined/undefined": 0 };
     fc.assert(
       fc.property(qtyArb, fc.constantFrom(null, undefined), fc.constantFrom(null, undefined), (qty, unit, total) => {
         expect(admitPrice({ ...priced(1, qty, qty), unit, total })).toEqual({
@@ -440,11 +464,11 @@ describe("admitPrice properties", () => {
           reason: "both_derived",
           detail: { unitObserved: false, totalObserved: false },
         });
-        counts.both_derived++;
+        counts[`${unit}/${total}`]++;
       }),
       params,
     );
-    expect(counts.both_derived).toBeGreaterThanOrEqual(50);
+    for (const count of Object.values(counts)) expect(count).toBeGreaterThanOrEqual(50);
     console.log("both_derived coverage", counts);
   });
 
