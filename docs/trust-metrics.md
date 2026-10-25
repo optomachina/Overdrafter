@@ -1,4 +1,4 @@
-# Trust metrics (OVD-785, OVD-786)
+# Trust metrics (OVD-785, OVD-786, OVD-1098)
 
 `scripts/trust-metrics.mjs` builds a versioned JSON snapshot of delivery trust
 metrics and writes it to `docs/trust/snapshot-<window-end>.json`. The OVD-787
@@ -20,13 +20,17 @@ npm run trust:metrics -- --window-end 2026-10-15 --weeks 8 --artifact-root ~/ove
 | `--repo owner/name` | GitHub repository (default `optomachina/Overdrafter`). |
 | `--base BRANCH` | Only PRs merged into this branch count (default `main`). |
 | `--prs-json FILE` / `--comments-json FILE` | Offline inputs used instead of `gh api`. Pass both or neither. |
+| `--commits-json FILE` | Optional offline object mapping `"<reviewSha>...<qaHead>"` to a comments-only ancestor boolean. Only literal `true` keeps an ancestor review; missing entries are false. |
 | `--results-jsonl FILE` | A live harness `results.jsonl` file. Repeatable. |
 | `--artifact-root DIR` | Reads every `<DIR>/<runId>/results.jsonl`. A missing directory counts as zero files. |
 | `--out FILE` / `--stdout` | Output path (default `docs/trust/snapshot-<window-end>.json`), or print instead. |
 
 Without offline inputs the script reads GitHub through `gh api` and only
-reads: closed PRs (`GET /repos/{repo}/pulls?state=closed`) and issue comments
-since 60 days before the window start (`GET /repos/{repo}/issues/comments`).
+reads: closed PRs (`GET /repos/{repo}/pulls?state=closed`), issue comments
+since 60 days before the window start (`GET /repos/{repo}/issues/comments`),
+and comparisons needed for QA reviewer attribution
+(`GET /repos/{repo}/compare/{reviewSha}...{qaHead}`). Offline PR/comment inputs
+never fetch comparisons; without `--commits-json`, only equal SHAs are kept.
 It needs an authenticated `gh` CLI. It never writes to GitHub.
 
 **Determinism.** Output depends only on inputs and flags. `generatedAt` never
@@ -219,6 +223,49 @@ created before the window's end. A later FAIL supersedes an earlier PASS, and
 the other way round. Verdicts on PRs that are not merged in the window are
 ignored. Comments from any author count. Only issue comments are read, not
 review bodies or review comments.
+
+### QA reviewer families and builders (OVD-1098)
+
+`qaFamilies` is an additive, report-only section in `trust-snapshot.v1`.
+Existing fields and attribution rules are unchanged. A missing section in an
+older snapshot means it was not computed.
+
+| Path | Type | Definition |
+|---|---|---|
+| `qaFamilies.perPr[]` | array | One row for every merged PR in the window, sorted by `prNumber`. |
+| `qaFamilies.perPr[].prNumber` | integer | Merged PR number. |
+| `qaFamilies.perPr[].qaHead` | string or null | SHA from the latest QA verdict's first line (`on <sha>` or `at <sha>`, optionally `head` before the SHA). When absent, uses the PR's `headRefOid` or `head.sha`. Null without a verdict or a known judged head. |
+| `qaFamilies.perPr[].reviewers` | array or `"none"` | Kept model reviews as `{family, model, sha, verdict}`. `"none"` means the PR had a QA verdict but no kept model review; `[]` means no QA verdict. |
+| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the lowercased pool token from a case-insensitive PR-body line `Built on <pool>`; otherwise `"unknown"`. |
+| `qaFamilies.summary.qaJudged` | integer | Merged PRs with a QA verdict, including those without a known head. Equals `qa.pass + qa.fail`. |
+| `qaFamilies.summary.reviewersNone` | integer | QA-judged PRs with no kept model review. |
+| `qaFamilies.summary.prs` | integer | All merged PRs in the window. Equals `merges.total`. |
+| `qaFamilies.summary.builderUnknown` | integer | Merged PRs whose builder remains `"unknown"`. |
+
+An Architect model review must have this exact first line (a full, lowercase
+40-character hexadecimal SHA), followed by a later `VERDICT: <word>` line:
+
+```text
+Architect review (<model>) @ <sha>
+```
+
+The model is preserved in the row; the verdict is lowercased. Family mapping
+ignores case: `opus` and `sonnet` map to `claude`; `codex`, `gpt`, and `gpt-*`
+map to `openai`; `grok` maps to `xai`. `git`, `git delta`, and other model names
+are not model reviews. Duplicate review tuples are collapsed and the array is
+sorted by family, model, SHA, then verdict. Review comments must have a valid
+timestamp before the window end; comments before the window start can count.
+
+A review is kept only if its SHA equals `qaHead`, or comparison evidence proves
+it is an ancestor with only comment or blank lines changed. Online comparisons
+must have status `ahead` or `identical`. Every changed file must have a complete
+text patch containing only changed comment/blank lines. Supported comment forms
+are `//`, `#`, `--`, `/* ... */`, and `<!-- ... -->`; block context is tracked
+separately on each patch side. Missing/binary/truncated patches, file renames,
+and comparisons at GitHub's 300-file cap are rejected conservatively. Equal SHAs
+need no comparison. Abbreviated QA SHAs are preserved as recorded; they are not
+matched to full review SHAs by prefix. Offline ancestry comes exclusively from
+`--commits-json`; absent entries are false.
 
 ### Reverts and rollbacks
 
