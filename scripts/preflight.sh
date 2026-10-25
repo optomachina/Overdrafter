@@ -55,7 +55,8 @@ docker_unavailable() {
 # The test stage runs worker suites, which import worker/node_modules. A missing or
 # stale worker install makes those suites fail as if the code were broken, so stop
 # before any stage starts and name the fix. npm writes worker/node_modules/.package-lock.json
-# on install; every package version in worker/package-lock.json must match it.
+# on install; every package version in worker/package-lock.json must match it, and
+# each required package must still have its package.json on disk.
 worker_deps_problem() {
   node -e '
     const fs = require("node:fs");
@@ -72,7 +73,7 @@ worker_deps_problem() {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("invalid package");
       if (entry.optional !== undefined && typeof entry.optional !== "boolean") throw new Error("invalid optional flag");
       if (entry.optional) continue;
-      if (typeof entry.version !== "string" || !entry.version || installed[key]?.version !== entry.version) { console.log("stale"); process.exit(0); }
+      if (typeof entry.version !== "string" || !entry.version || installed[key]?.version !== entry.version || !fs.existsSync(`worker/${key}/package.json`)) { console.log("stale"); process.exit(0); }
     }
     console.log("fresh");
   ' 2>/dev/null

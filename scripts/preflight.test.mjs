@@ -12,12 +12,16 @@ const dirnamePath = process.env.PATH.split(":").map((dir) => join(dir, "dirname"
 const nodePath = process.execPath;
 const lockfile = (version) => JSON.stringify({ packages: { "": {}, "node_modules/left-pad": { version }, "node_modules/fsevents": { version: "9.9.9", optional: true } } });
 
-function runPreflight({ args = ["test"], docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false, stderr = "", workerDeps = "1.0.0", workerLock = lockfile("1.0.0"), installedLock = lockfile(workerDeps).replace(/,"node_modules\/fsevents".*?\}/, ""), nodeStub } = {}) {
+function runPreflight({ args = ["test"], docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false, stderr = "", workerDeps = "1.0.0", workerLock = lockfile("1.0.0"), installedLock = lockfile(workerDeps).replace(/,"node_modules\/fsevents".*?\}/, ""), nodeStub, packageDirs = ["left-pad"] } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ovd909-preflight-"));
   // A copy of preflight.sh in a fake repo root, so the worker-deps check reads fixture lockfiles.
   mkdirSync(join(root, "scripts"));
   copyFileSync(preflightPath, join(root, "scripts", "preflight.sh"));
   mkdirSync(join(root, "worker", "node_modules"), { recursive: true });
+  for (const name of packageDirs) {
+    mkdirSync(join(root, "worker", "node_modules", name));
+    writeFileSync(join(root, "worker", "node_modules", name, "package.json"), "{}");
+  }
   for (const [path, content] of [["worker/package-lock.json", workerLock], ["worker/node_modules/.package-lock.json", workerDeps === "missing" ? "missing" : installedLock]]) {
     // A directory causes a deterministic read error even when tests run as root.
     if (content === "unreadable") mkdirSync(join(root, path));
@@ -227,6 +231,16 @@ describe("preflight stage arguments", () => {
     expect(result.output).toBe("");
     expect(result.npmCalls).toBe("");
     expect(result.dockerCalls).toBe("");
+  });
+
+  it("stops before any stage when a required package directory is absent", () => {
+    const result = runPreflight({
+      args: ["test"], ci: true, packageDirs: [],
+      stderr: "preflight: worker dependencies stale (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci\n",
+    });
+    expect(result.status).toBe(1);
+    expect(result.npmCalls).toBe("");
+    expect(result.output).toBe("");
   });
 
   it("does not check worker dependencies for lint or typecheck only", () => {
