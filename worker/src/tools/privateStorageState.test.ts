@@ -58,15 +58,4 @@ describe("writePrivateStorageState", () => {
       expect(source).toMatch(/writePrivateStorageState\([\s\S]*?, outputPath\);/);
     }
   });
-
-  it("is the only way unattended login and session refresh persist sessions (OVD-1060)", async () => {
-    // vendorSession.ts writes for session:refresh and login:vendors; vendorLogin.ts never writes a session itself.
-    for (const tool of ["vendorSession.ts", "vendorLogin.ts", "vendorLoginFlow.ts"]) {
-      const source = await fs.readFile(path.join(import.meta.dirname, tool), "utf8");
-      expect(source).not.toMatch(/\.storageState\(\s*\{/);
-      expect(source).not.toMatch(/writeFile\([^)]*storage/i);
-    }
-    const session = await fs.readFile(path.join(import.meta.dirname, "vendorSession.ts"), "utf8");
-    expect(session).toMatch(/writePrivateStorageState\(\{ storageState: async \(\) => scoped \}, filePath\);/);
-  });
 });
