@@ -120,7 +120,7 @@ go/no-go gates, and every open `TODO(Blaine)` decision are in the
       or any supplier order.
 - [ ] Customer-visible errors contain no credentials, storage-state material,
       internal stack traces, or unnecessary personal data.
-- [ ] Before each dispatch, the customer sees each named provider, the exact outbound filenames,
+- [ ] Before each dispatch, the customer sees the named provider, the exact outbound filenames,
       and normalized requirements; affirms authority to disclose them and their
       non-ITAR/export-control status; and accepts the applicable notice revision.
 - [ ] The server preserves the actor, organization, time, notice revision,
