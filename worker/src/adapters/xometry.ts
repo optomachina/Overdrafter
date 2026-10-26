@@ -2861,35 +2861,247 @@ async function detectManualReview(page: Page, bodyText: string) {
  * timing evidence. Playwright serializes it into the page, so it must stay
  * self-contained: no module references and no named inner functions.
  *
- * OVD-1052: each card's text nodes are joined with spaces. textContent runs
- * adjacent elements together when the markup has no whitespace between them
- * ("least expensivearrives by nov 3"), which defeats every word boundary below
- * and left each quote waiting out the full timeout.
+ * OVD-1052: each card is read as collectXometryOffers reads it, by its
+ * rendered text (innerText), which breaks lines between block elements.
+ * textContent ran adjacent elements together when the markup had no
+ * whitespace between them ("least expensivearrives by nov 3"), which defeated
+ * every word boundary below and left each quote waiting out the full timeout;
+ * it also read hidden text, so a hidden "Not available" note in every card
+ * held a priced page to its timeout.
+ *
+ * OVD-1052: a card counts as withdrawn exactly when collectXometryOffers can
+ * withdraw it. A blank card never is: it is a skeleton still being priced,
+ * whatever marks it carries, so the page keeps waiting. A card that shows text
+ * but no price and timing is withdrawn only by its own unavailability text, or
+ * by a line in the price panel, outside every card, that says with a tier as
+ * its subject and without a condition that the tier is unavailable ("Fastest
+ * is not available for this part.") when one of the card's rendered lines is
+ * exactly that tier name, as its header slot shows it. A statement with a
+ * condition ("Fastest is not available for quantities over 50.") withdraws
+ * nothing, as it need not apply to the requested quantity. A disabled mark on such a card, around it
+ * or in it withdraws nothing: it can be a tier still loading, so the page
+ * keeps waiting for it. A card that shows its price and timing counts as
+ * priced, unless a mark (disabled, aria-disabled/data-disabled "true",
+ * data-available "false", or a disabled/unavailable class token, values
+ * compared case-insensitively) sits on it or on an element that encloses it,
+ * up to and including its part card (the child of #draggable-parts). The
+ * collector withdraws such a card only when no card is left to publish, and
+ * refuses it otherwise, so the page settles only once some card counts as
+ * priced. A mark above the part card (a "scroll-disabled" class on <body>,
+ * say) is not read. A card the page hides (display:none on it or an
+ * enclosing element, or a hidden visibility on it) is skipped as the
+ * collector skips it, when it is a copy of a shown card: the same text
+ * content, ignoring whitespace (its innerText cannot say so, as a browser
+ * returns a display:none element's text content). Any other hidden card keeps
+ * the page waiting, as it may be a tier the page has not shown yet.
+ *
+ * OVD-1052: the price panel is located as the collector's locatePricePanel
+ * locates it: the innermost element that encloses every card the page shows
+ * (a hidden copy elsewhere in the part card does not widen it) and whose
+ * rendered lines outside the cards include the "Price and Lead Time" heading.
+ * Those lines are read as the collector's checkPartCard reads them: the
+ * element's rendered text with each card's rendered text cut out. So a
+ * statement split across elements or text nodes ("<strong>Fastest</strong> is
+ * not available") counts, and a hidden one does not. When a card's text is
+ * not where the element shows it, or no element up to the part card shows
+ * the heading, the collector refuses the page and this predicate keeps
+ * waiting. A line elsewhere in the part card withdraws nothing: the collector
+ * refuses it as ambiguous, as a tier's name there can be a requirement's
+ * value ("Finish: Standard"). A card that only mentions the name ("Slower
+ * than Fastest") is not withdrawn either. A card with another tier's name as
+ * a line of its own would still be withdrawn here and not by the collector,
+ * which then refuses that card if it is unpriced.
+ *
+ * OVD-1052: the page keeps waiting while the collector would refuse what the
+ * part card shows, as it may still be changing: loading, saving or
+ * re-pricing text anywhere in the part card, cards included ("Loading...",
+ * "Refreshing prices", "Fetching new price...", "Saving...", "Please wait"),
+ * read once each CAD or drawing file name (the part's file name) is cut out of
+ * its line, so "Fetching new price for bracket.step..." still counts;
+ * aria-busy on the part card or an element around it; a busy region, progress
+ * indicator, spinning icon, active spinner, or spinner, skeleton or shimmer
+ * placeholder the page shows in the part card; an element in the panel
+ * outside the cards that renders nothing and encloses no card (a tier's
+ * placeholder without the card's class); or a panel line that is neither the
+ * heading nor an unavailability statement.
+ *
+ * OVD-1052: the price and timing a card must show are what the collector's
+ * parser reads: a "$" or "USD" amount (parsePrices), and "N business days",
+ * "Lead time: N days" (parseLeadTime) or an arrival date ("Arrives by Nov 3",
+ * "Receive by", "Delivery on"; parseArrivalText). A timed-out wait is refused
+ * as pending, so a card the parser prices but this predicate did not
+ * ("USD 101.25", "Lead Time: 7 Days") held a priced page pending.
  */
-export function xometryPriceTiersSettled(): boolean {
+export function xometryPriceTiersSettled(fileNames: string[] = []): boolean {
   const cards = [...document.querySelectorAll(".price-tier")];
   if (cards.length > 0) {
-    let availableCardCount = 0;
-    for (const card of cards) {
-      const parts: string[] = [];
-      // 4 is NodeFilter.SHOW_TEXT.
-      const walker = document.createTreeWalker(card, 4);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        parts.push(node.nodeValue ?? "");
+    const view = document.defaultView;
+    const shownCards = cards.filter((card) => {
+      if (["hidden", "collapse"].includes(view?.getComputedStyle(card).visibility ?? "")) return false;
+      for (let element: Element | null = card; element; element = element.parentElement) {
+        if (view?.getComputedStyle(element).display === "none") return false;
       }
-      const text = parts.join(" ");
-      const explicitlyUnavailable =
-        card.matches('[disabled], [aria-disabled="true"], [data-disabled="true"], [data-available="false"]')
-        || card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
-        || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text);
-      if (explicitlyUnavailable) continue;
-      availableCardCount += 1;
-      const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
-      const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
-      const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
-      const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
-      const hasTiming = hasBusinessDays || hasArrival;
-      if (!hasPrice || !hasTiming) return false;
+      return true;
+    });
+    // A hidden card is skipped only as a copy of a shown card (the same text
+    // content, ignoring whitespace), as the collector skips it; it refuses any
+    // other, which may be a tier the page has not shown yet.
+    const shownContents = shownCards.map((card) => (card.textContent ?? "").replaceAll(/\s+/g, ""));
+    if (cards.some((card) => !shownCards.includes(card)
+      && !shownContents.includes((card.textContent ?? "").replaceAll(/\s+/g, "")))) {
+      return false;
+    }
+    // Rendered text, as the collector reads it (Playwright's innerText).
+    const renderedCards = shownCards.map((card) => ((card as HTMLElement).innerText ?? "").trim());
+    // The part card (the child of #draggable-parts around the cards), and
+    // what marks it busy: aria-busy on it or around it, or a busy region,
+    // progress indicator, spinner or placeholder skeleton in it.
+    let partCard: Element | null = shownCards[0] ?? null;
+    while (partCard && partCard.parentElement?.id !== "draggable-parts") partCard = partCard.parentElement;
+    for (let element = partCard; element; element = element.parentElement) {
+      if (element.getAttribute("aria-busy")?.toLowerCase() === "true") return false;
+    }
+    // Loading, saving or re-pricing text anywhere in the part card, once each
+    // known uploaded file name is cut out exactly, including spaces. Keep
+    // surrounding status text and the token fallback, as the collector does.
+    const withoutFileNames = fileNames.filter(Boolean).sort((a, b) => b.length - a.length)
+      .reduce((remaining, fileName) => remaining.replaceAll(fileName, " "), (partCard as HTMLElement | null)?.innerText ?? "");
+    for (const line of withoutFileNames.split(/\r?\n/)) {
+      const status = line.replaceAll(
+        /(?<![\w\-+~#().])[\w\-+~#()]{0,255}(?:\.[\w\-+~#()]{1,255}){0,16}\.(?:step|stp|iges|igs|sldprt|x_t|x_b|stl|3mf|obj|ipt|prt|catpart|par|dxf|dwg|pdf)\b/gi,
+        " ",
+      );
+      if (/\b(?:loading|refreshing|updating|(?:re)?calculating|re-?pricing|fetching|saving|please\s+wait)\b/i.test(status)) {
+        return false;
+      }
+    }
+    // The price panel: the innermost element around every card the page
+    // shows whose rendered lines outside the cards include the "Price and
+    // Lead Time" heading, as the collector's locatePricePanel finds it. A
+    // hidden copy is not counted, so it cannot widen the panel to the part
+    // card. The search never leaves the part card.
+    let panel: Element | null = null;
+    let panelLines: string[] = [];
+    for (let candidate = shownCards[0]?.parentElement ?? null; candidate && !panel; candidate = candidate.parentElement) {
+      if ([...candidate.querySelectorAll(".price-tier")].filter((card) => shownCards.includes(card)).length === shownCards.length) {
+        const candidateText = ((candidate as HTMLElement).innerText ?? "").trim();
+        // The element's rendered lines outside every card, cut out as the
+        // collector's linesOutside does.
+        const outside: string[] = [];
+        let cursor = 0;
+        for (const cardText of renderedCards) {
+          if (!cardText) continue;
+          const at = candidateText.indexOf(cardText, cursor);
+          // A card's text that is not where the element shows it: the
+          // collector refuses the page.
+          if (at < 0) return false;
+          outside.push(candidateText.slice(cursor, at));
+          cursor = at + cardText.length;
+        }
+        outside.push(candidateText.slice(cursor));
+        const lines = outside.join("\n").split(/\r?\n/).map((line) => line.replaceAll(/\s+/g, " ").trim()).filter(Boolean);
+        if (lines.some((line) => /^price\s+and\s+lead\s+time:?$/i.test(line))) {
+          panel = candidate;
+          panelLines = lines;
+        }
+      }
+      if (candidate.parentElement?.id === "draggable-parts") break;
+    }
+    // No element up to the part card shows the heading: the collector refuses the page.
+    if (!panel) return false;
+    const busyElements = partCard
+      ? [...partCard.querySelectorAll([
+        '[aria-busy="true" i]',
+        '[role="progressbar"]',
+        "progress",
+        ".fa-spin",
+        ".fa-pulse",
+        ".fa-spin-pulse",
+        ".ant-spin-spinning",
+        '[class*="spinner" i]',
+        '[class*="skeleton" i]',
+        '[class*="shimmer" i]',
+      ].join(", "))]
+      : [];
+    // Every element in the panel outside the cards that encloses no card,
+    // outermost only, as the collector's PANEL_OTHER_ELEMENT_SELECTOR reads them.
+    const panelElements: Element[] = [];
+    const enclosing: Element[] = [panel];
+    for (let next = enclosing.shift(); next; next = enclosing.shift()) {
+      for (const child of next.children) {
+        if (child.matches(".price-tier")) continue;
+        if (child.querySelector(".price-tier")) enclosing.push(child);
+        else panelElements.push(child);
+      }
+    }
+    // A busy element, or a panel element that renders nothing (a placeholder
+    // without the card's class), the page shows keeps the wait going.
+    const shownSignals = [...busyElements, ...panelElements].filter((element) => {
+      if (["hidden", "collapse"].includes(view?.getComputedStyle(element).visibility ?? "")) return false;
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        if (view?.getComputedStyle(node).display === "none") return false;
+      }
+      return busyElements.includes(element) || ((element as HTMLElement).innerText ?? "").trim() === "";
+    });
+    if (shownSignals.length > 0) return false;
+    const statedUnavailable: string[] = [];
+    for (const line of panelLines) {
+      if (/^price\s+and\s+lead\s+time:?$/i.test(line)) continue;
+      const statement = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)\b/i
+        .exec(line);
+      // Any other panel line (a "Show more options" control, say) is one the
+      // collector refuses, so the page is not taken as settled.
+      if (!statement) return false;
+      // A statement with a condition ("Fastest is not available for
+      // quantities over 50.") withdraws nothing, as the collector never
+      // withdraws a card on it: only "for this part", "for this quote", "at
+      // this time" or "right now" may follow.
+      const unconditional = /^(?:the )?(.+?)(?: (?:tier|option))? is (?:currently )?(?:unavailable|not available|not offered)(?: (?:for this (?:part|quote)|at this time|right now))? ?[.!]?$/i
+        .exec(line);
+      if (unconditional) statedUnavailable.push(unconditional[1].toLowerCase());
+    }
+    let availableCardCount = 0;
+    for (const [index, card] of shownCards.entries()) {
+      const text = renderedCards[index];
+      // A blank card is a skeleton still being priced, whatever marks it carries.
+      if (text === "") return false;
+      // What parsePrices, parseLeadTime and parseArrivalText read.
+      const normalizedText = text.replaceAll(/\s+/g, " ").toLowerCase();
+      const hasPrice = /\$\s*\d|\bUSD[^\S\r\n]*\d/.test(text);
+      const leadTimeText = normalizedText.replaceAll(":", "");
+      const hasLeadTime = /\b\d{1,4} (?:business|working) days?\b|\blead time \d{1,4} days?\b/.test(leadTimeText);
+      const hasArrival = /\b(?:arrives?|received?|delivery) (?:by|on) [a-z]+ \d{1,2}/.test(normalizedText);
+      if (hasPrice && (hasLeadTime || hasArrival)) {
+        // A priced card counts unless a mark on it or around it withdraws it.
+        let withdrawn = false;
+        for (
+          let element: Element | null = card;
+          element && !withdrawn;
+          element = element.parentElement?.id === "draggable-parts" ? null : element.parentElement
+        ) {
+          let classMarked = false;
+          for (const token of (element.getAttribute("class") ?? "").split(/\s+/)) {
+            if (/^(?:is-)?(?:disabled|unavailable)$|[-_](?:disabled|unavailable)$/i.test(token)) classMarked = true;
+          }
+          withdrawn = element.hasAttribute("disabled")
+            || element.getAttribute("aria-disabled")?.toLowerCase() === "true"
+            || element.getAttribute("data-disabled")?.toLowerCase() === "true"
+            || element.getAttribute("data-available")?.toLowerCase() === "false"
+            || classMarked;
+        }
+        if (!withdrawn) availableCardCount += 1;
+        continue;
+      }
+      // An unpriced card is withdrawn only by its own unavailability text or
+      // a panel line that names its tier; anything else keeps the wait going.
+      const lines = text.split(/\r?\n/).map((line) => line.replaceAll(/\s+/g, " ").trim().toLowerCase());
+      if (
+        /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text)
+        || statedUnavailable.some((name) => lines.includes(name))
+      ) {
+        continue;
+      }
+      return false;
     }
     return availableCardCount > 0;
   }
@@ -3497,9 +3709,15 @@ export class XometryAdapter extends VendorAdapter {
       // Xometry recomputes prices after quantity changes. Tier cards can finish
       // at different times, so wait until every available card exposes both
       // commercial and timing evidence before parsing the complete option set.
-      await page
-        .waitForFunction(xometryPriceTiersSettled, undefined, { timeout: this.config.browserTimeoutMs })
-        .catch(() => undefined);
+      // OVD-1052: a timed-out wait is kept, not swallowed: the cards that did
+      // render are then never published as the complete option set.
+      const fileNames = uploadedFileNames.map((filePath) => path.basename(filePath));
+      if (input.stagedDrawingFile) {
+        fileNames.push(liveEvaluationUploadFiles?.drawing?.name ?? path.basename(input.stagedDrawingFile.localPath));
+      }
+      const priceTiersSettled = await page
+        .waitForFunction(xometryPriceTiersSettled, fileNames, { timeout: this.config.browserTimeoutMs })
+        .then(() => true, () => false);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readQuoteSummaryText(page);
@@ -3563,7 +3781,16 @@ export class XometryAdapter extends VendorAdapter {
       }
       const offers = manualReviewResult.manualReview
         ? []
-        : await collectXometryOffers(page, normalizedQuantity(input), this.providerObserver ?? this.operationalProviderObserver);
+        : await collectXometryOffers(
+          page,
+          normalizedQuantity(input),
+          this.providerObserver ?? this.operationalProviderObserver,
+          {
+            fileNames,
+            priceTiersSettled,
+            pricingInProgress: isXometryPricingInProgress({ url: page.url(), bodyText }),
+          },
+        );
       const compatibilityOffer = selectCompatibilityOffer(offers);
       const priceResult = compatibilityOffer
         ? {
@@ -3622,8 +3849,10 @@ export class XometryAdapter extends VendorAdapter {
           {
             vendor: "xometry",
             reason: "xometry_offer_containers_missing",
-            // OVD-1052: no option container matched (a renamed .price-tier,
-            // say), so the adapter's contract with the page is broken.
+            // OVD-1052: the collector fails closed on a page without tier
+            // cards, so this is a page whose every card is unavailable while
+            // a fallback locator still reads an amount: a finite stop that
+            // publishes no price.
             terminalState: "selector_drift",
             url: page.url(),
             detectedFlow,

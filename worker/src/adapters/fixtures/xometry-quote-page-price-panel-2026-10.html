@@ -17,8 +17,15 @@
   - The part row's quantity stepper input has no aria-label="Quantity"; its
     label is a sibling <span>Quantity</span>.
   - The whole part card sits inside a drag handle,
-    #draggable-parts > div[role="button"][tabindex="0"], which matches the
-    role=button offer-container selector while wrapping every tier card.
+    #draggable-parts > div[role="button"][tabindex="0"], that wraps every
+    tier card. The collector reads only the .price-tier cards, so the handle
+    matters only as an enclosing element whose availability marks count.
+  - The cards share one price panel <div> whose only other text is its
+    "Price and Lead Time" heading. Elsewhere in the part card a Repeat Part
+    note ends "Pricing and lead time for Repeat Parts may vary.". Those two
+    are the only part-card lines outside the cards that mention timing; the
+    collector checks the whole part card's text outside the cards and nothing
+    wider.
 -->
 <html lang="en">
 <head><title>Quote</title></head>
@@ -31,6 +38,10 @@
           <span>synthetic-bracket.step</span>
           <button type="button">Revise CAD</button>
           <button type="button" id="uploadFileButton">Upload Drawings</button>
+        </div>
+        <div>
+          <span>Repeat Part</span>
+          <div><div>Mark as a Repeat Part if you have previously ordered this part with your personal Xometry account, even if the geometry has been slightly revised. Pricing and lead time for Repeat Parts may vary.</div></div>
         </div>
         <div>
           <div>
