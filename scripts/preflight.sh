@@ -52,6 +52,44 @@ docker_unavailable() {
   ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1
 }
 
+# The test stage runs worker suites, which import worker/node_modules. A missing or
+# stale worker install makes those suites fail as if the code were broken, so stop
+# before any stage starts and name the fix. npm writes worker/node_modules/.package-lock.json
+# on install; every package version in worker/package-lock.json must match it, and
+# each required package must still have its package.json on disk.
+worker_deps_problem() {
+  node -e '
+    const fs = require("node:fs");
+    const read = (p) => {
+      const packages = JSON.parse(fs.readFileSync(p, "utf8")).packages;
+      if (!packages || typeof packages !== "object" || Array.isArray(packages)) throw new Error("invalid packages");
+      return packages;
+    };
+    let installed;
+    try { installed = read("worker/node_modules/.package-lock.json"); } catch { console.log("missing"); process.exit(0); }
+    const wanted = read("worker/package-lock.json");
+    for (const [key, entry] of Object.entries(wanted)) {
+      if (!key.startsWith("node_modules/")) continue;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("invalid package");
+      if (entry.optional !== undefined && typeof entry.optional !== "boolean") throw new Error("invalid optional flag");
+      if (entry.optional) continue;
+      if (typeof entry.version !== "string" || !entry.version || installed[key]?.version !== entry.version || !fs.existsSync(`worker/${key}/package.json`)) { console.log("stale"); process.exit(0); }
+    }
+    console.log("fresh");
+  ' 2>/dev/null
+}
+
+for stage in "${stages[@]}"; do
+  [ "$stage" = test ] || continue
+  # Forward only successful output, even if a failed helper printed "fresh".
+  # Keep the capture scoped here to avoid another conditional variable in the guard.
+  problem="$(checked_problem="$(worker_deps_problem)" && printf '%s' "$checked_problem")"
+  if [ "${problem:-unavailable}" != fresh ]; then
+    echo "preflight: worker dependencies ${problem:-unavailable} (worker/node_modules does not match worker/package-lock.json); run: npm --prefix worker ci" >&2
+    exit 1
+  fi
+done
+
 status=0
 for stage in "${stages[@]}"; do
   echo "preflight: $stage start$note"

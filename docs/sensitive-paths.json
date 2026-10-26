@@ -16,6 +16,7 @@
     { "glob": "supabase/config.toml", "class": "schema" },
     { "glob": "docs/migration-drafts/**", "class": "schema" },
     { "glob": "**/*.{pgsql,psql}", "class": "schema" },
+    { "glob": "scripts/check-lock-order.mjs", "class": "schema" },
 
     { "glob": "supabase/migrations/**", "class": "migrations" },
 
