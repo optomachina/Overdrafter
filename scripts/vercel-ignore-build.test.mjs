@@ -1,14 +1,19 @@
 // @vitest-environment node
-import { afterAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setImmediate } from "node:timers/promises";
 
 const SCRIPT = resolve(fileURLToPath(new URL("./vercel-ignore-build.sh", import.meta.url)));
 const temps = [];
-afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+// Synchronous Git/subprocess fixtures must yield so Vitest can report progress.
+afterEach(async () => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+  await setImmediate();
+});
 
 const git = (cwd, ...args) =>
   execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", ...args], {
@@ -41,12 +46,38 @@ function fixtureRepo(changed, { withMain = false } = {}) {
   return { dir, base };
 }
 
-function runScript(cwd, env) {
+const pullRequest = (overrides = {}) => ({
+  state: "open", draft: false,
+  head: { ref: "feature", repo: { full_name: "optomachina/Overdrafter" } },
+  ...overrides,
+});
+
+function runScript(cwd, env, { response = JSON.stringify([pullRequest()]), curlStatus = 0 } = {}) {
   // Drop inherited Vercel/git context so only the case's env is in play.
   const baseEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !/^(VERCEL_|GIT_)/i.test(key)),
+    Object.entries(process.env).filter(([key]) => !/^(VERCEL_|GIT_|GITHUB_|GH_|VIB_)/i.test(key)),
   );
-  return spawnSync("bash", [SCRIPT], { cwd, env: { ...baseEnv, ...env }, encoding: "utf8" });
+  const bin = join(cwd, "mock-bin");
+  const request = join(cwd, "mock-request.json");
+  mkdirSync(bin, { recursive: true });
+  // Every test uses a fake curl, so no test can call GitHub or read real tokens.
+  writeFileSync(join(bin, "curl"), `#!${process.execPath}
+const { writeFileSync } = require("node:fs");
+writeFileSync(process.env.VIB_REQUEST, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(process.env.VIB_RESPONSE);
+if (process.env.VIB_CURL_STATUS !== "0") process.stderr.write("synthetic-sensitive-error");
+process.exit(Number(process.env.VIB_CURL_STATUS));
+`, { mode: 0o755 });
+  const result = spawnSync("/bin/bash", [SCRIPT], {
+    cwd,
+    env: {
+      ...baseEnv, VERCEL_GIT_REPO_OWNER: "optomachina", VERCEL_GIT_REPO_SLUG: "Overdrafter",
+      ...env, PATH: `${bin}:${env.PATH ?? baseEnv.PATH}`,
+      VIB_REQUEST: request, VIB_RESPONSE: response, VIB_CURL_STATUS: String(curlStatus),
+    },
+    encoding: "utf8",
+  });
+  return { ...result, request: existsSync(request) ? JSON.parse(readFileSync(request, "utf8")) : null };
 }
 
 const CASES = [
@@ -69,6 +100,93 @@ const CASES = [
 ];
 
 describe("vercel-ignore-build.sh", () => {
+  it("is wired to Vercel's ignored build step", () => {
+    const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+    expect(config.ignoreCommand).toBe("bash scripts/vercel-ignore-build.sh");
+  });
+
+  it.each([
+    { name: "no open PR", prs: [] },
+    { name: "draft PR", prs: [pullRequest({ draft: true })] },
+    { name: "multiple draft PRs", prs: [pullRequest({ draft: true }), pullRequest({ draft: true })] },
+  ])("skips app changes with $name", ({ prs }) => {
+    const { dir } = fixtureRepo(["src/app.ts"]);
+    const result = runScript(dir, { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature" }, { response: JSON.stringify(prs) });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/SKIP - (no open|draft)/);
+  });
+
+  it.each([
+    { name: "ready PR", prs: [pullRequest()] },
+    { name: "mixed ready and draft PRs", prs: [pullRequest({ draft: true }), pullRequest()] },
+  ])("builds app changes with $name", ({ prs }) => {
+    const { dir, base } = fixtureRepo(["src/app.ts"]);
+    const result = runScript(dir, { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_PREVIOUS_SHA: base }, { response: JSON.stringify(prs) });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(/BUILD - app-affecting/);
+  });
+
+  it.each([
+    { VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "feature" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "main" },
+    { VERCEL_ENV: "development", VERCEL_GIT_COMMIT_REF: "feature" },
+    { VERCEL_GIT_COMMIT_REF: "feature" },
+    { VERCEL_ENV: "preview" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_REPO_OWNER: "" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_REPO_SLUG: "" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_PROVIDER: "gitlab" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_REPO_OWNER: "evil/owner" },
+    { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", PATH: "/nonexistent" },
+  ])("builds without a lookup for protected or incomplete context %#", (env) => {
+    const { dir } = fixtureRepo(["docs/guide.txt"]);
+    const result = runScript(dir, env, { response: "[]" });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.request).toBeNull();
+  });
+
+  it.each([
+    { name: "network timeout", curlStatus: 28 },
+    { name: "HTTP error (authentication, rate limit, or server failure)", curlStatus: 22 },
+    { name: "empty body", response: "" },
+    { name: "malformed JSON", response: "not json" },
+    { name: "API error object", response: '{"message":"Bad credentials"}' },
+    { name: "null response", response: "null" },
+    { name: "null row", response: "[null]" },
+    { name: "missing draft flag", response: JSON.stringify([pullRequest({ draft: undefined })]) },
+    { name: "string draft flag", response: JSON.stringify([pullRequest({ draft: "true" })]) },
+    { name: "closed PR", response: JSON.stringify([pullRequest({ state: "closed" })]) },
+    { name: "different branch", response: JSON.stringify([pullRequest({ head: { ref: "other", repo: { full_name: "optomachina/Overdrafter" } } })]) },
+    { name: "fork with same branch", response: JSON.stringify([pullRequest({ head: { ref: "feature", repo: { full_name: "someone/Overdrafter" } } })]) },
+    { name: "deleted head repo", response: JSON.stringify([pullRequest({ head: { ref: "feature", repo: null } })]) },
+    { name: "possibly paginated response", response: JSON.stringify(Array.from({ length: 100 }, () => pullRequest({ draft: true }))) },
+  ])("fails open even for docs-only changes: $name", ({ name: _name, ...options }) => {
+    const { dir, base } = fixtureRepo(["docs/guide.txt"]);
+    const result = runScript(dir, { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_PREVIOUS_SHA: base }, options);
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(/BUILD - GitHub/);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).not.toContain("synthetic-sensitive-error");
+  });
+
+  it.each(["GITHUB_TOKEN", "GH_TOKEN", null])("requests only open PRs for the encoded branch (auth: %s)", (tokenName) => {
+    const { dir } = fixtureRepo(["src/app.ts"]);
+    const branch = "feature/quote&draft=true";
+    const result = runScript(dir, {
+      VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: branch,
+      ...(tokenName ? { [tokenName]: "synthetic-test-token" } : {}),
+    }, { response: "[]" });
+    expect(result.status).toBe(0);
+    expect(result.request).toContain("https://api.github.com/repos/optomachina/Overdrafter/pulls");
+    expect(result.request).toContain("state=open");
+    expect(result.request).toContain(`head=optomachina:${branch}`);
+    expect(result.request).toContain("--data-urlencode");
+    expect(result.request).toContain("--fail");
+    expect(result.request).toContain("--max-time");
+    expect(result.request.includes("Authorization: Bearer synthetic-test-token")).toBe(Boolean(tokenName));
+    expect(result.stdout + result.stderr).not.toContain("synthetic-test-token");
+    expect(result.stdout + result.stderr).not.toContain(branch);
+  });
+
   it.each(CASES)("$name (vs VERCEL_GIT_PREVIOUS_SHA)", ({ changed, env = {}, expected }) => {
     const { dir, base } = fixtureRepo(changed);
     const result = runScript(dir, { VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_PREVIOUS_SHA: base, ...env });
