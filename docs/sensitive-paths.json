@@ -118,6 +118,7 @@
     { "glob": "scripts/agent-graph/built-by*", "class": "infra_ci" },
     { "glob": "scripts/fixtures/agent-graph/model-routing*", "class": "infra_ci" },
     { "glob": "scripts/preflight.sh", "class": "infra_ci" },
+    { "glob": "scripts/ci-rerun-once.mjs", "class": "infra_ci" },
     { "glob": "scripts/symphony-preflight.sh", "class": "infra_ci" },
     { "glob": "scripts/symphony-agent.sh", "class": "infra_ci" },
     { "glob": "scripts/validate-pr-body*", "class": "infra_ci" },
