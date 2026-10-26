@@ -5,6 +5,8 @@
     { "path": "supabase/tests/supplier_directory_foundation_rls.sql", "classes": ["schema", "auth"] },
     { "path": "supabase/config.toml", "classes": ["schema"] },
     { "path": "docs/migration-drafts/ovd707/providers.md", "classes": ["schema", "provider_dispatch"] },
+    { "path": "scripts/check-lock-order.mjs", "classes": ["schema"] },
+    { "path": "scripts/check-lock-order.test.mjs", "classes": [] },
     { "path": "docs/release/window-2/apply.sql", "classes": ["schema"] },
     { "path": "scripts/fixtures/security-definer/compliant.sql", "classes": ["schema"] },
     { "path": "db/café.sql", "classes": ["schema"] },
