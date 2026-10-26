@@ -2,7 +2,8 @@ import { readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BOTH = ['codex-xhigh', 'claude-sonnet'];
+const FRESH_OPUS = Object.freeze({ reviewer: 'claude-opus', fresh_session: true });
+const FAIL_SAFE = [FRESH_OPUS, 'claude-sonnet'];
 const FAMILIES = new Set(['claude', 'openai', 'grok', 'jev']);
 const DEFAULT_ROUTING = new URL('../fixtures/agent-graph/model-routing.v2.yaml', import.meta.url);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -35,12 +36,37 @@ function validateBots(bots) {
   }
 }
 
+// A route is a pool id string, or { reviewer, fresh_session } when the review
+// must run in a fresh session with no build context. The alias `openai`
+// resolves to `codex-xhigh`.
+function resolveRoute(target) {
+  if (typeof target === 'string') return { pool: target === 'openai' ? 'codex-xhigh' : target, fresh: false };
+  if (record(target) && [Object.prototype, null].includes(Object.getPrototypeOf(target)) &&
+      own(target, 'reviewer') && typeof target.reviewer === 'string' &&
+      Reflect.ownKeys(target).every(key => key === 'reviewer' || key === 'fresh_session') &&
+      (!own(target, 'fresh_session') || typeof target.fresh_session === 'boolean')) {
+    return { pool: target.reviewer === 'openai' ? 'codex-xhigh' : target.reviewer, fresh: target.fresh_session === true };
+  }
+  return null;
+}
+
+// The only same-family route allowed: claude builds reviewed by a claude pool,
+// and only when the route is marked fresh_session. Every other same-family
+// route still throws.
 function validateReviewRoutes(routing) {
   for (const [family, target] of Object.entries(routing.review_routing)) {
-    if (!FAMILIES.has(family) || typeof target !== 'string') throw new Error('Invalid review route');
-    const pool = target === 'openai' ? 'codex-xhigh' : target;
-    if (!own(routing.pools, pool) || routing.pools[pool].family === family) {
+    const route = resolveRoute(target);
+    if (!FAMILIES.has(family) || !route) throw new Error('Invalid review route');
+    if (!own(routing.pools, route.pool)) throw new Error('Review route must name a cross-family pool');
+    const sameFamily = routing.pools[route.pool].family === family;
+    if (family === 'claude' && routing.pools[route.pool].family === 'openai') {
+      throw new Error('OpenAI must not review Claude builds');
+    }
+    if (sameFamily && !(family === 'claude' && route.fresh)) {
       throw new Error('Review route must name a cross-family pool');
+    }
+    if (route.fresh && !(family === 'claude' && sameFamily)) {
+      throw new Error('Fresh-session routes are limited to claude reviewing claude');
     }
   }
   for (const family of ['claude', 'grok', 'openai']) {
@@ -51,11 +77,16 @@ function validateReviewRoutes(routing) {
 function validateFailSafe(routing) {
   for (const field of ['unknown_builder', 'mixed_builder']) {
     if (!Array.isArray(routing[field]) || routing[field].length !== 2 ||
-        !BOTH.every(pool => routing[field].includes(pool) && own(routing.pools, pool))) {
+        !FAIL_SAFE.every(required => routing[field].some(entry => {
+          const route = resolveRoute(entry);
+          const expected = resolveRoute(required);
+          return route?.pool === expected.pool && route.fresh === expected.fresh && own(routing.pools, route.pool);
+        }))) {
       throw new Error('Invalid fail-safe pools');
     }
   }
-  if (routing.pools['codex-xhigh'].family !== 'openai' ||
+  if (routing.pools['codex-xhigh']?.family !== 'openai' ||
+      routing.pools['claude-opus'].family !== 'claude' ||
       routing.pools['claude-sonnet'].family !== 'claude') throw new Error('Invalid fail-safe families');
 }
 
@@ -71,6 +102,27 @@ function validateRouting(routing) {
 // JSON-compatible YAML only: no undeclared YAML dependency or custom YAML grammar.
 export function loadRouting(path) {
   return validateRouting(JSON.parse(readFileSync(path, 'utf8')));
+}
+
+// Call before dispatch with launcher evidence, never PR-supplied metadata.
+export function assertReviewDispatch(requiredEntry, reviewRecord) {
+  const route = resolveRoute(requiredEntry);
+  if (!route || !ID_PATTERN.test(route.pool) || route.pool === 'queue' ||
+      !record(reviewRecord) || reviewRecord.reviewer !== route.pool) {
+    throw new Error('Invalid review dispatch');
+  }
+  if (!route.fresh) return;
+  if (!['session_id', 'no_persistence', 'builder_session_ids', 'inherited_transcript'].every(key => own(reviewRecord, key))) {
+    throw new Error('Missing fresh-session evidence');
+  }
+  const { session_id: session, no_persistence: noPersistence,
+    builder_session_ids: builders, inherited_transcript: inherited } = reviewRecord;
+  const sessionId = value => typeof value === 'string' && value.trim().length > 0;
+  if (!sessionId(session) || noPersistence !== true || inherited !== false ||
+      !Array.isArray(builders) || !builders.length ||
+      ![...builders].every(builder => sessionId(builder) && builder.trim() !== session.trim())) {
+    throw new Error('Fresh review requires an independent session, no persistence, and no inherited transcript');
+  }
 }
 
 const FREE_TEXT_POOLS = [
@@ -320,7 +372,8 @@ export function parseBuiltBy(input) {
 export function reviewFamilies(parsed, options = {}) {
   let extra = [];
   let available;
-  let required = [...BOTH];
+  let required = [...FAIL_SAFE];
+  let allowCodex = false;
   try {
     // Read extras first so routing/parser errors cannot discard additional review.
     if (Array.isArray(options?.extra)) extra = [...options.extra];
@@ -333,18 +386,30 @@ export function reviewFamilies(parsed, options = {}) {
           typeof builder.model === 'string' && builder.model.startsWith('model:') &&
           own(routing.pools, builder.model.slice(6)) &&
           routing.pools[builder.model.slice(6)].family === builder.family)) {
-      const target = routing.review_routing[parsed.builders[0].family];
-      const pool = target === 'openai' ? 'codex-xhigh' : target;
-      if (own(routing.pools, pool)) required = [pool];
+      const route = resolveRoute(routing.review_routing[parsed.builders[0].family]);
+      if (route && own(routing.pools, route.pool)) {
+        required = [route.fresh ? { reviewer: route.pool, fresh_session: true } : route.pool];
+        allowCodex = parsed.builders[0].family !== 'claude';
+      }
     }
-  } catch { /* Report-only fail-safe: retain both reviewers and any extras. */ }
+  } catch {
+    required = [...FAIL_SAFE];
+    allowCodex = false;
+  }
   try {
     if (available !== undefined) {
       const pools = new Set(available);
-      if (!required.some(pool => pools.has(pool))) required = ['queue'];
+      if (!required.some(entry => pools.has(typeof entry === 'string' ? entry : entry.reviewer))) required = ['queue'];
     }
   } catch { required = ['queue']; }
-  return [...new Set([...required, ...extra])];
+  // An extra must not reintroduce Codex when Claude built or may have built.
+  const safeExtras = extra.map(entry => {
+    try {
+      const route = resolveRoute(entry);
+      return !route || (!allowCodex && ['codex', 'codex-xhigh'].includes(route.pool)) ? 'queue' : entry;
+    } catch { return 'queue'; }
+  });
+  return [...new Set([...required, ...safeExtras])];
 }
 
 function cli(args) {
