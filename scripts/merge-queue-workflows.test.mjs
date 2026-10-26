@@ -9,7 +9,12 @@ const REQUIRED_CHECKS = [
   { workflow: "ci.yml", job: "ci", noOp: false },
   { workflow: "pr-body-gate.yml", job: "provider-go-live", noOp: true },
 ];
-const FUTURE_REQUIRED_CHECKS = [{ workflow: "proof-check.yml", job: "proof-check", noOp: true }];
+// A writer check is not a job's own status: the job (named differently on
+// purpose) writes the check run through the Checks API, also on merge_group.
+const FUTURE_REQUIRED_CHECKS = [
+  { workflow: "proof-check.yml", job: "proof-check", noOp: true },
+  { workflow: "ovd-merge-gate.yml", job: "ovd-merge-gate", writer: "ovd-merge-gate-writer" },
+];
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readWorkflow = (file) => read(`.github/workflows/${file}`);
@@ -41,6 +46,26 @@ describe("merge queue workflows", () => {
       it("triggers on merge_group", () => {
         expect(onBlock(text)).toMatch(/^ {2}merge_group:/m);
       });
+
+      if (check.writer) {
+        it("writes the check from a job with another name and no job-level if", () => {
+          const block = jobBlock(text, check.writer);
+          expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
+          // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed).
+          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() && github.event_name != 'merge_group' }}");
+          expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
+          expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
+        });
+
+        it("writes the check on merge_group as a no op", () => {
+          const queue = jobBlock(text, "ovd-merge-gate-queue");
+          expect(queue).toContain("if: github.event_name == 'merge_group'");
+          expect(queue).toContain("gh api --method POST");
+          expect(queue).toContain("-f name=ovd-merge-gate");
+          expect(queue).not.toContain("checkout");
+        });
+        return;
+      }
 
       it("reports the check under the bare job name", () => {
         expect(jobBlock(text, check.job)).toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
