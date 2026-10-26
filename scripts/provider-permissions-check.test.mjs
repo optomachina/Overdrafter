@@ -232,7 +232,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
     expect(row.notes).toBe(fullNotes);
     expect(row.notes.indexOf("2026-10-22 owner override")).toBeGreaterThan(0);
     expect(row.owner_override.orders_allowed).toBe(false);
-    const section = markdown.split(`- displayName: ${displayName}\n`)[1];
+    const section = markdown.split(`- displayName: ${displayName}\n`)[1]?.split("\n### ")[0];
     expect(section).toBeDefined();
     const markdownNotes = section.match(/^- notes: (.*)$/m)[1];
     expect(markdownNotes).toBe(row.notes);
