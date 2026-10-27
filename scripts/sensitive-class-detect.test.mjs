@@ -30,6 +30,7 @@ import {
   classifySql,
   compileConfig,
   detect,
+  doorTier,
   detectGateLoosening,
   fetchPullRequest,
   formatSummary,
@@ -567,14 +568,17 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     expect(sql(text).classes).toEqual([]);
   });
 
-  it("does not read a docs .md file outside the SQL paths", async () => {
+  it("reads docs for the door scan without adding legacy SQL classes", async () => {
     const read = [];
     const result = await detect({
       files: [modified("docs/database-notes.md")],
       readHeadFile: async (file) => (read.push(file), "ALTER ROLE x BYPASSRLS; SET row_security = off;"),
+      readBaseFile: async () => "",
+      sha: "a".repeat(40),
       config,
     });
-    expect(read).toEqual([]);
+    expect(read).toEqual(["docs/database-notes.md"]);
+    expect(result.door).toBe("one-way");
     expect(result.files[0]).toMatchObject({ classes: [], category: "docs" });
   });
 });
@@ -1524,6 +1528,7 @@ describe("detect", () => {
     const result = await detect({ files, readHeadFile: slowRead, config });
     expect(result.status).toBe("ok");
     expect(peak).toBe(1);
+    // The SQL files are one-way by class, so the door scan skips further content reads.
     expect(order).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "supabase/tests/c.sql"]);
   });
 
@@ -2576,5 +2581,89 @@ describe("gate_loosening: the base copy judges", () => {
     expect(result).toMatchObject({ status: "ok", classes: ["infra_ci"] });
     expect(result.gate_loosening.detected).toBe(true);
     expect(kinds(result.gate_loosening).sort()).toEqual(["category_narrowed", "gate_changed", "glob_removed", "matcher_changed"]);
+  });
+});
+
+
+describe("door tier: report-only", () => {
+  const fixtures = JSON.parse(readFileSync(new URL("./fixtures/sensitive-paths/doors.json", import.meta.url), "utf8")).cases;
+  const run = (files, content = "export const pure = true;", base = "") => detect({
+    files, config, sha: "a".repeat(40), readHeadFile: async () => content, readBaseFile: async () => base,
+  });
+  it.each(fixtures)("$name", async (fixture) => {
+    const result = await run([{ filename: fixture.path, status: "added" }], fixture.content);
+    expect(result.door).toBe(fixture.door);
+    if (fixture.expected_class) expect(result.classes).toContain(fixture.expected_class);
+    if (fixture.code) expect(result.door_reasons.map((reason) => reason.code)).toContain(fixture.code);
+    expect(result.status).toBe("ok");
+  });
+  it("includes the door and reason codes in the existing summary", async () => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")]);
+    expect(formatSummary(result)).toContain("Door (report only): revertable");
+  });
+  it("caps content scans and fails closed past the cap instead of reading more", async () => {
+    let reads = 0;
+    const files = Array.from({ length: 201 }, (_, index) => modified(`worker/src/dispatchLogic${index}.ts`));
+    const result = await detect({
+      files, config, sha: "a".repeat(40),
+      readHeadFile: async () => (reads += 1, "export const pure = true;"), readBaseFile: async () => "export const pure = true;",
+    });
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_cap");
+    expect(reads).toBe(200);
+  });
+  it("any one-way file dominates docs and revertable logic", async () => {
+    expect((await run([modified("docs/notes.md"), modified("worker/src/dispatchLogic.ts"), modified("supabase/migrations/example.sql")])).door).toBe("one-way");
+  });
+  it("counts a migration renamed outside its directory and sensitive deletions", async () => {
+    for (const file of [
+      { filename: "docs/old.md", previous_filename: "supabase/migrations/20261027000000_example.sql", status: "renamed" },
+      { filename: "worker/src/providerParser.ts", status: "removed" },
+    ]) {
+      const result = await run([file]);
+      expect(result.door).toBe("one-way");
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("O-RM");
+    }
+  });
+  it("renaming between a provider and safe category fails closed", async () => {
+    const result = await run([{ filename: "docs/parser.md", previous_filename: "worker/src/providerParser.ts", status: "renamed" }]);
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("rename_mixed_doors");
+  });
+  it("deleting a test, workflow job or required section is one-way", async () => {
+    expect((await run([{filename: "e2e/example.test.ts", status: "removed"}])).door).toBe("one-way");
+    for (const base of ["name: ci", "test('checks', () => {});", 'const REQUIRED_SECTIONS = ["Summary"];']) {
+      const result = await run([modified("scripts/example.mjs")], "", base);
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("O-GATE");
+    }
+  });
+  it("ignores an existing literal RPC name and existing secret name", async () => {
+    const base = 'db.rpc("existing"); const name = process.env.EXAMPLE;';
+    const result = await run([modified("worker/src/providerParser.ts")], base + "\nconst pure = true;", base);
+    expect(result.door).toBe("revertable");
+  });
+  it("a base string mentioning a new RPC name cannot exempt a new call", async () => {
+    const result = await run([modified("worker/src/providerParser.ts")], 'db.rpc("new_function")', 'const unrelated = "new_function";');
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("O-SQL");
+  });
+  it("fails closed on stale SHA, partial coverage, errors, throws and timeouts without changing old fields", async () => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")]);
+    const reads = { readHeadFile: async () => "", readBaseFile: async () => "", config };
+    for (const [value, options] of [
+      [{...result, status:"error"}, reads], [result, {...reads, headSha:"b".repeat(40)}],
+      [result, {...reads, changedFiles:2}], [result, {...reads, files:[]}],
+      [result, {...reads, config:{}}], [result, {...reads, readHeadFile:async () => {throw new Error("unreadable");}}],
+      [result, {...reads, readHeadFile:() => new Promise(() => {}), timeoutMs:1}],
+    ]) {
+      const output = await doorTier(value, options);
+      expect(output.door).toBe("one-way");
+      expect(output.door_reasons.map((reason) => reason.code)).toContain("classifier_error");
+      const withoutDoor = ({door: _door, door_reasons: _reasons, ...legacy}) => legacy;
+      expect(withoutDoor(output)).toEqual(withoutDoor(value));
+    }
+  });
+  it("removed sensitive globs and door rule changes remain gate loosening", () => {
+    const head = structuredClone(rawConfig);
+    head.door.classes.infra_ci = "revertable";
+    expect(detectGateLoosening({baseRaw:rawConfig,headRaw:head,gateFiles:[{path:CONFIG_REPO_PATH,status:"modified"}]}).reasons.map((reason) => reason.kind)).toContain("door_changed");
   });
 });

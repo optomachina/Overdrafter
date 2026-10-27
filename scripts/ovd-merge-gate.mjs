@@ -76,6 +76,10 @@ import { FENCE_INFO, extractVerdictBlocks, hasHighNote, parseVerdictComments } f
 export const CHECK_NAME = "ovd-merge-gate";
 export const MODE = "report";
 export const IDENTITY = "shared-account";
+// Kill switch: only a separate Blaine-carded PR may flip this. Reporting only.
+export const DOOR_AUTOMERGE = false;
+export const CROSS_FAMILY = Object.freeze({ claude: ["codex", "grok"], codex: ["claude"], grok: ["claude"] });
+const DOOR_REQUIRED_CHECKS = ["ci", "provider-go-live", "secret-scan"];
 /** Stage A trust list. A constant in the default-branch script: optomachina can edit repo variables. */
 export const TRUSTED_VERIFIERS = Object.freeze(["optomachina"]);
 /** Stage B (IDENTITY "app", PR-G5): only the private App's bot counts. */
@@ -674,6 +678,7 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
     approval_comment_id: null,
     automerge: "needs_blaine",
     sensitive_classes: [],
+    door_report: { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "head input has not been validated" }] },
     reasons: [],
     warnings: [],
     ignored: [],
@@ -697,6 +702,9 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
  * @param {string} input.prAuthor PR author login
  * @param {Array<object|string>} input.changedFiles PR files ({ filename, status, previous_filename })
  * @param {object} input.classification the default-branch sensitive-class detector result
+ * @param {object[]} [input.requiredChecks] trusted check runs at head_sha (door report only)
+ * @param {object} [input.reviewThreads] complete {sha, complete, threads:[{isResolved}]} snapshot; unknown fails the door report
+ * @param {object} [input.revertPlan] trusted {sha, ok, required, errors} validation result; unknown fails the door report
  * @param {"report"|"enforce"} input.mode
  * @param {"shared-account"|"app"} input.identity
  */
@@ -740,7 +748,63 @@ export function evaluate(given = {}) {
   addBuilderReasons(summary, roles.live, input.prBody);
   summary.reasons = dedupeReasons(reasons);
   summary.gate = summary.reasons.length === 0 ? "pass" : "fail";
+  try { summary.door_report = revertableOk(input, { summary, candidates }); } catch {
+    summary.door_report = { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "door evaluation failed closed" }] };
+  }
   return summary;
+}
+
+/**
+ * Shadow evaluation only. These reasons never enter the legacy gate reasons.
+ * Checks, thread state and the validator result are trusted caller inputs bound
+ * to this SHA; missing/unknown inputs fail closed. No labels are consulted.
+ */
+export function revertableOk(ctx, { summary, candidates } = {}) {
+  if (!summary) return evaluate(ctx).door_report;
+  const reasons = [];
+  const add = (code, detail) => reasons.push({ code, detail });
+  const classification = ctx.classification;
+  const door = classification?.door === "revertable" ? "revertable" : "one-way";
+  if (classification?.door === undefined || classification?.door === null) add("door_missing", "missing door defaults to one-way");
+  if (door === "one-way") add("door_one_way", "only a classified revertable door can qualify");
+  const problem = classifierProblem(classification, ctx.headSha, list(ctx.changedFiles));
+  if (problem || !Array.isArray(ctx.changedFiles)) add("classifier_error", problem ?? "missing changed files");
+  if (ctx.liveHeadSha !== ctx.headSha) add("stale_sha", "the PR head moved");
+  // Preserve all existing evidence/failure constraints, excluding only approval:
+  // the shadow branch reports whether a card could be waived in a later rollout.
+  reasons.push(...summary.reasons.filter((reason) => !reason.code.startsWith("approval_missing:")));
+  const parsed = routing && parseBuiltBy({ body: typeof ctx.prBody === "string" ? builderLines(ctx.prBody).join("\n") : "", routing });
+  const families = [...new Set(list(parsed?.builders).map((builder) => builder.family === "openai" ? "codex" : builder.family))];
+  if (!["ok", "mixed"].includes(parsed?.status) || !families.length || families.some((family) => !Object.hasOwn(CROSS_FAMILY, family))) add("builder_unattributed", "every builder must have a known model family");
+  reasons.push(...builderReasons(list(candidates).filter((entry) => entry.verdict.sha === ctx.headSha), ctx.prBody));
+  const exact = list(candidates).filter((entry) => entry.verdict.sha === ctx.headSha && PASSING.has(entry.verdict.verdict)
+    && !isHigh(entry.verdict) && evidenceVerified(entry.verdict, ctx.verifiedEvidence));
+  const reviewers = exact.filter((entry) => entry.verdict.role === "reviewer");
+  const crossFamily = (reviewer) => {
+    const family = normalizeModelFamily(reviewer.verdict.verifier.model_family);
+    if (!families.length || families.includes(family) || !Object.hasOwn(CROSS_FAMILY, family)) return false;
+    // A single-family build uses the CROSS_FAMILY table. A mixed build needs a
+    // reviewer outside every builder family (plan section 5, condition 3), and any
+    // Grok builder still needs Claude (Blaine, 2026-10-27), so claude+grok fails closed.
+    if (families.length === 1) return CROSS_FAMILY[families[0]].includes(family);
+    return !families.includes("grok") || family === "claude";
+  };
+  if (!reviewers.length) add("no_review_on_head", "no verified reviewer PASS at this exact SHA");
+  else if (!reviewers.some(crossFamily)) add("reviewer_same_family", "no reviewer belongs to an allowed family outside every builder family");
+  if (!exact.some((entry) => entry.verdict.role === "verifier" && entry.verdict.readiness?.checks === "green")) add("no_qa_pass_on_head", "no verified QA PASS at this exact SHA");
+  for (const name of DOOR_REQUIRED_CHECKS) {
+    const runs = list(ctx.requiredChecks).filter((run) => run?.name === name && run.head_sha === ctx.headSha);
+    const latest = runs.toSorted((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+    if (!latest || latest.status !== "completed" || latest.conclusion !== "success") add("required_check_not_green", `${name} is not proven green at this SHA`);
+  }
+  // Report-only rollout deliberately does not fetch GraphQL reviewThreads.
+  // A future trusted caller must supply a complete snapshot for this exact head.
+  if (ctx.reviewThreads?.sha !== ctx.headSha || ctx.reviewThreads?.complete !== true
+      || !Array.isArray(ctx.reviewThreads?.threads) || ctx.reviewThreads.threads.some((thread) => thread?.isResolved !== true)) add("threads_unresolved", "review threads are unresolved or unknown");
+  if (!ctx.revertPlan) add("revert_plan_missing", "no Revert plan validation result");
+  else if (ctx.revertPlan.sha !== ctx.headSha || ctx.revertPlan.ok !== true || ctx.revertPlan.required !== true
+      || !Array.isArray(ctx.revertPlan.errors) || ctx.revertPlan.errors.length) add("revert_plan_invalid", "Revert plan is invalid, unknown or stale");
+  return { door, ok: reasons.length === 0, automerge_enabled: DOOR_AUTOMERGE, reasons: dedupeReasons(reasons) };
 }
 
 function dedupeReasons(reasons) {
@@ -790,7 +854,16 @@ export function formatSummary(summary) {
     for (const warning of warnings) lines.push(`- \`${warning.code}\` (warning): ${oneLine(warning.detail)}`);
     lines.push("");
   }
-  return lines.join("\n");
+  const legacy = lines.join("\n");
+  if (!summary.door_report) return legacy;
+  const report = [
+    `Door report (auto-merge off): \`${summary.door_report.door}\`; revertable conditions: ${summary.door_report.ok ? "pass" : "fail"}`,
+    "",
+    ...summary.door_report.reasons.map((reason) => `- door \`${reason.code}\`: ${oneLine(reason.detail)}`),
+    "",
+  ].join("\n");
+  // Optional reporting cannot make a previously writable summary exceed the API cap.
+  return legacy + report.slice(0, Math.max(0, Math.min(4000, MAX_OUTPUT_TEXT - legacy.length)));
 }
 
 // ----------------------------------------------------------------- IO
@@ -918,7 +991,13 @@ export async function classifyPull({ client, repo, pr, headSha, root, loadConfig
     const result = await detectImpl({ ...pull, config, allowEmpty: pull.changedFiles === 0 });
     const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
     const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
+    if (loosening.gateLoosening.detected) {
+      result.door = "one-way";
+      (result.door_reasons ??= []).push({ code: "O-GATE" });
+    }
     if (loosening.errors.length) {
+      result.door = "one-way";
+      (result.door_reasons ??= []).push({ code: "classifier_error" });
       result.errors.push(...loosening.errors);
       result.status = "error";
     }
@@ -1119,13 +1198,17 @@ async function readCommits(client, repo, pr, pull) {
 function failClosed(summary, detail) {
   summary.reasons.push(missing(detail));
   summary.gate = "fail";
+  if (summary.door_report) {
+    summary.door_report.ok = false;
+    summary.door_report.reasons.push(missing(detail));
+  }
 }
 
 /**
  * Read everything evaluate() needs for one PR and evaluate it.
  * Never throws for missing data: an unreadable input becomes a fail reason.
  */
-export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull, historyResult }) {
+export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull, historyResult, reviewThreads }) {
   const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
   const liveHeadSha = pull?.head?.sha ?? null;
   const headSha = sha ?? liveHeadSha;
@@ -1138,7 +1221,18 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];
   const { diffId, error: diffIdError } = headDiffId({ pr, repo, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
   const { classification, files } = await classify({ client, repo, pr, headSha, root });
+  const requiredChecks = validHead ? await attempt(() => client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?filter=all`, (data) => data?.check_runs)) : undefined;
+  // Lazy import: this gate runs without npm install. The PR-body validator's
+  // existing TypeScript dependency may be unavailable; that only fails the
+  // door report closed and cannot prevent the legacy gate from running.
+  const revertPlan = await attempt(async () => {
+    const { validateRevertPlan } = await import("./validate-pr-body.mjs");
+    return { sha: headSha, ...validateRevertPlan(pull?.body, classification?.door) };
+  });
   const summary = evaluate({
+    reviewThreads,
+    requiredChecks,
+    revertPlan,
     headSha,
     liveHeadSha,
     headDiffId: diffId,
@@ -1175,12 +1269,16 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
  * turns a blocking summary into a passing one: reasons are kept until last,
  * and a summary that still does not fit is replaced by a failing stub.
  */
-export function summaryText(summary, max = MAX_OUTPUT_TEXT) {
+export function summaryText(given, max = MAX_OUTPUT_TEXT) {
+  const { door_report: _doorReport, ...summary } = given;
+  // Drop optional door output before any existing history/reason truncation.
+  // A report must never reduce the durable verdict history that fits today.
   const truncatedIgnored = [{ code: "truncated", detail: `${list(summary.ignored).length} ignored entries omitted to fit the check run` }];
   const deleted = list(summary.deleted_verdicts);
   const marker = { comment_id: null, author: "ovd-merge-gate", created_at: null, sha: null, diff_id: null, role: null, truncated: deleted.length };
   const stripped = deleted.map(({ comment_id: commentId, author, created_at: createdAt, sha, diff_id: diffId, role }) => ({ comment_id: commentId ?? null, author: typeof author === "string" ? author.slice(0, 100) : "unknown", created_at: createdAt ?? null, sha: sha ?? null, diff_id: diffId ?? null, role: role ?? null }));
   const steps = [
+    given,
     summary,
     { ...summary, ignored: truncatedIgnored },
     { ...summary, ignored: truncatedIgnored, deleted_verdicts: stripped },

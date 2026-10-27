@@ -1584,3 +1584,116 @@ describe("R2 model family comparisons", () => {
     for (const value of ["", "Opus", "claude-opus", "gpt-6", "toString", null]) expect(gate.normalizeModelFamily(value)).toBeNull();
   });
 });
+
+describe("door branch: report only", () => {
+  const files = [{filename:"worker/src/dispatchLogic.ts",status:"modified"}];
+  const green = (overrides = {}) => baseInput({
+    mode: "report",
+    classification: {...okClassification(files,["provider_dispatch"]), door:"revertable"},
+    changedFiles: files,
+    requiredChecks: ["ci","provider-go-live","secret-scan"].map((name,id) => ({name,id,head_sha:HEAD,status:"completed",conclusion:"success"})),
+    reviewThreads: {sha:HEAD,complete:true,threads:[]},
+    revertPlan: {sha:HEAD,ok:true,required:true,errors:[]},
+    ...overrides,
+  });
+  const doorCodes = (input) => gate.revertableOk(input).reasons.map((reason) => reason.code);
+  it("has the exact code kill switch and cross-family policy", () => {
+    expect(gate.DOOR_AUTOMERGE).toBe(false);
+    expect(gate.CROSS_FAMILY).toEqual({claude:["codex","grok"],codex:["claude"],grok:["claude"]});
+    expect(Object.isFrozen(gate.CROSS_FAMILY)).toBe(true);
+  });
+  it("a fully green revertable PR never waives the approval record", () => {
+    const input = green();
+    const summary = evaluate(input);
+    expect(summary.door_report.ok).toBe(true);
+    expect(summary.gate).toBe("fail");
+    expect(summary.automerge).toBe("needs_blaine");
+    expect(reasonCodes(summary)).toEqual(["approval_missing:provider_dispatch"]);
+    expect(conclusionFor(summary).conclusion).toBe("neutral");
+    expect(formatSummary(summary)).toContain("Door report (auto-merge off)");
+    expect(evaluate({...input, comments:[...input.comments, approvalComment()]}).gate).toBe("pass");
+  });
+  it.each([undefined,null,"typo","one-way"])("door %s fails closed and ignores labels", (door) => {
+    const input = green();
+    input.classification.door = door;
+    input.labels = ["tier:revertable"];
+    expect(gate.revertableOk(input).door).toBe("one-way");
+    expect(doorCodes(input)).toContain("door_one_way");
+    if (door === undefined || door === null) expect(doorCodes(input)).toContain("door_missing");
+  });
+  it("same-family reviewer is reviewer_same_family, and Jev is never cross-family", () => {
+    for (const family of ["codex","jev","human"]) {
+      expect(doorCodes(green({comments:[posted(verdict()),posted(verdict({role:"reviewer",family}))]}))).toContain("reviewer_same_family");
+    }
+  });
+  it("mixed Claude + Codex build permits Grok outside both builders, and refuses Codex", () => {
+    const prBody = "Built-by: bot=engineer model=model:codex; bot=architect model=model:claude-opus";
+    for (const [family,ok] of [["grok",true],["codex",false],["claude",false]]) {
+      const report = gate.revertableOk(green({prBody,comments:[posted(verdict()),posted(verdict({role:"reviewer",family}))]}));
+      expect(report.ok).toBe(ok);
+      if (!ok) expect(report.reasons.map((reason) => reason.code)).toContain("reviewer_same_family");
+    }
+  });
+  it("Grok builds require Claude review; Codex cannot review them", () => {
+    for (const [family,ok] of [["claude",true],["codex",false]]) {
+      expect(gate.revertableOk(green({prBody:"Built-by: bot=cursor-cloud model=model:grok-overflow",comments:[posted(verdict()),posted(verdict({role:"reviewer",family}))]})).ok).toBe(ok);
+    }
+  });
+  it("a mixed build with a Grok builder still needs Claude, so Codex cannot review it", () => {
+    const prBody = "Built-by: bot=architect model=model:claude-opus; bot=cursor-cloud model=model:grok-overflow";
+    expect(doorCodes(green({prBody,comments:[posted(verdict()),posted(verdict({role:"reviewer",family:"codex"}))]}))).toContain("reviewer_same_family");
+  });
+  it("requires exact-head reviewer and QA even when old diff ids are equal", () => {
+    for (const role of ["reviewer","verifier"]) {
+      const comments = [posted(verdict({sha:role === "verifier" ? OLD : HEAD})),posted(verdict({role:"reviewer",sha:role === "reviewer" ? OLD : HEAD}))];
+      expect(doorCodes(green({comments}))).toContain(role === "reviewer" ? "no_review_on_head" : "no_qa_pass_on_head");
+    }
+  });
+  it("rejects absent QA, high QA notes, unknown builders, unresolved threads and invalid plans", () => {
+    for (const [overrides,code] of [
+      [{comments:[posted(verdict({role:"reviewer"}))]},"no_qa_pass_on_head"],
+      [{comments:[posted(verdict({notes:["high: unresolved"]})),posted(verdict({role:"reviewer"}))]},"no_qa_pass_on_head"],
+      [{prBody:""},"builder_unattributed"],
+      [{reviewThreads:undefined},"threads_unresolved"],
+      [{reviewThreads:{sha:HEAD,complete:true,threads:[{isResolved:false}]}},"threads_unresolved"],
+      [{reviewThreads:{sha:OLD,complete:true,threads:[]}},"threads_unresolved"],
+      [{revertPlan:undefined},"revert_plan_missing"],
+      [{revertPlan:{sha:OLD,ok:true,required:true,errors:[]}},"revert_plan_invalid"],
+      [{revertPlan:{sha:HEAD,ok:false,required:true,errors:["missing Owner"]}},"revert_plan_invalid"],
+    ]) expect(doorCodes(green(overrides))).toContain(code);
+  });
+  it.each(["ci","provider-go-live","secret-scan"])("requires %s green at this head", (name) => {
+    const input = green();
+    input.requiredChecks.find((check) => check.name === name).status = "in_progress";
+    expect(doorCodes(input)).toContain("required_check_not_green");
+    input.requiredChecks.find((check) => check.name === name).head_sha = OLD;
+    expect(doorCodes(input)).toContain("required_check_not_green");
+  });
+  it("head movement still writes nothing, with door reporting enabled", async () => {
+    const input = green();
+    const api = fakeGithub({comments:input.comments,headAfter:OLD});
+    const result = await runCli(["write","--pr","7"],api,{classify:async () => ({classification:input.classification,files})});
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("not writing");
+    expect(api.posts).toEqual([]);
+  });
+  it("door reports do not change any existing conclusion, reason or approval requirement", () => {
+    for (const input of [green(),green({comments:[]}),green({classification:{status:"error"}}),green({liveHeadSha:OLD})]) {
+      const before = evaluate(input);
+      const after = evaluate({...input,classification:{...input.classification,door:"one-way"},requiredChecks:undefined,reviewThreads:undefined,revertPlan:undefined});
+      const legacy = ({door_report:_door,...rest}) => rest;
+      expect(legacy(after)).toEqual(legacy(before));
+      expect(conclusionFor(after)).toEqual(conclusionFor(before));
+    }
+  });
+});
+
+
+it("optional door reporting never crowds out existing history or changes a check conclusion", () => {
+  const original = evaluate(baseInput());
+  delete original.door_report;
+  const expanded = {...original, door_report:{door:"one-way",ok:false,reasons:[{code:"classifier_error",detail:"x".repeat(100000)}]}};
+  expect(gate.summaryText(expanded, 4000)).toBe(gate.summaryText(original, 4000));
+  expect(formatSummary(expanded).length).toBeLessThanOrEqual(formatSummary(original).length + 4000);
+  expect(conclusionFor(expanded)).toEqual(conclusionFor(original));
+});

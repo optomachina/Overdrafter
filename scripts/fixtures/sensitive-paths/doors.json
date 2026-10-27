@@ -1,0 +1,288 @@
+{
+  "cases": [
+    {
+      "name": "schema",
+      "path": "docs/draft.sql",
+      "door": "one-way",
+      "content": "",
+      "expected_class": "schema"
+    },
+    {
+      "name": "migrations",
+      "path": "supabase/migrations/20261027000000_example.sql",
+      "door": "one-way",
+      "content": "",
+      "expected_class": "migrations"
+    },
+    {
+      "name": "auth",
+      "path": "src/auth.ts",
+      "door": "one-way",
+      "content": "",
+      "expected_class": "auth"
+    },
+    {
+      "name": "payments",
+      "path": "src/pricing.ts",
+      "door": "one-way",
+      "content": "",
+      "expected_class": "payments"
+    },
+    {
+      "name": "provider_dispatch",
+      "path": "worker/src/dispatchLogic.ts",
+      "door": "revertable",
+      "content": "export const pure = true;",
+      "expected_class": "provider_dispatch"
+    },
+    {
+      "name": "secrets",
+      "path": "config/credentials.json",
+      "door": "one-way",
+      "content": "",
+      "expected_class": "secrets"
+    },
+    {
+      "name": "infra_ci",
+      "path": "AGENTS.md",
+      "door": "one-way",
+      "content": "prose only",
+      "expected_class": "infra_ci"
+    },
+    {
+      "name": "deps",
+      "path": "package-lock.json",
+      "door": "revertable",
+      "content": "{\"lockfileVersion\":3}",
+      "expected_class": "deps"
+    },
+    {
+      "name": "rls",
+      "path": "scripts/example.sql",
+      "door": "one-way",
+      "content": "CREATE POLICY p ON t USING (true);",
+      "expected_class": "rls"
+    },
+    {
+      "name": "definer",
+      "path": "scripts/example.sql",
+      "door": "one-way",
+      "content": "SECURITY DEFINER",
+      "expected_class": "definer"
+    },
+    {
+      "name": "unclassified",
+      "path": "unknown/logic.ts",
+      "door": "one-way",
+      "content": "export const pure = true;",
+      "expected_class": "unclassified"
+    },
+    {
+      "name": "sql template",
+      "path": "src/components/Parser.ts",
+      "door": "one-way",
+      "content": "const sqlText = `CREATE POLICY p ON t`;",
+      "code": "O-SQL"
+    },
+    {
+      "name": "definer template",
+      "path": "src/components/Parser.ts",
+      "door": "one-way",
+      "content": "const text = `SECURITY DEFINER`;",
+      "code": "O-SQL"
+    },
+    {
+      "name": "SQL tag",
+      "path": "src/components/Parser.ts",
+      "door": "one-way",
+      "content": "const result = sql`select 1`;",
+      "code": "O-SQL"
+    },
+    {
+      "name": "new rpc",
+      "path": "worker/src/providerRead.ts",
+      "door": "one-way",
+      "content": "db.rpc(\"new_function\")",
+      "code": "O-SQL"
+    },
+    {
+      "name": "secret fixture",
+      "path": "e2e/example.test.ts",
+      "door": "one-way",
+      "content": "EXAMPLE_SECRET_KEY=fixture-only",
+      "code": "O-SECRET"
+    },
+    {
+      "name": "infra test",
+      "path": "scripts/ovd-merge-gate.test.mjs",
+      "door": "one-way",
+      "content": "test only",
+      "code": "class:infra_ci"
+    },
+    {
+      "name": "workflow case",
+      "path": ".GitHub/Workflows/ci.yml",
+      "door": "one-way",
+      "content": "name: example",
+      "code": "O-GATE"
+    },
+    {
+      "name": "unicode github",
+      "path": "\uff0egithub/workflows/ci.yml",
+      "door": "one-way",
+      "content": "name: example",
+      "code": "O-GATE"
+    },
+    {
+      "name": "read-only adapter",
+      "path": "worker/src/adapters/example.ts",
+      "door": "revertable",
+      "content": "fetch(\"https://quote.example.test/prices\")",
+      "code": "net_read_only_new_host"
+    },
+    {
+      "name": "GET adapter",
+      "path": "worker/src/adapters/example.ts",
+      "door": "revertable",
+      "content": "fetch(\"https://quote.example.test/prices\", { method: \"GET\" })",
+      "code": "net_read_only_new_host"
+    },
+    {
+      "name": "navigation",
+      "path": "worker/src/adapters/example.ts",
+      "door": "revertable",
+      "content": "page.goto(\"https://quote.example.test/prices\")",
+      "code": "net_read_only_new_host"
+    },
+    {
+      "name": "send adapter",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "fetch(\"https://quote.example.test\", { method: \"POST\" })",
+      "code": "O-NET"
+    },
+    {
+      "name": "axios send",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "axios.post(\"https://quote.example.test\", data)",
+      "code": "O-NET"
+    },
+    {
+      "name": "submit adapter",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "page.getByRole(\"button\", {name: \"Request quote\"}).click()",
+      "code": "O-NET"
+    },
+    {
+      "name": "submit selector",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "page.click(\"button[type=submit]\")",
+      "code": "O-NET"
+    },
+    {
+      "name": "request submit",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "form.requestSubmit()",
+      "code": "O-NET"
+    },
+    {
+      "name": "email adapter",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "import mail from \"nodemailer\"",
+      "code": "O-NET"
+    },
+    {
+      "name": "ambiguous client",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "fetch(url, options)",
+      "code": "net_ambiguous"
+    },
+    {
+      "name": "install script",
+      "path": "package-lock.json",
+      "door": "one-way",
+      "content": "{\"hasInstallScript\":true}",
+      "code": "O-DEP"
+    },
+    {
+      "name": "git dependency",
+      "path": "package.json",
+      "door": "one-way",
+      "content": "{\"dependencies\":{\"x\":\"git+https://example.test/x.git\"}}",
+      "code": "O-DEP"
+    },
+    {
+      "name": "foreign resolved",
+      "path": "package-lock.json",
+      "door": "one-way",
+      "content": "{\"resolved\":\"https://example.test/x.tgz\"}",
+      "code": "O-DEP"
+    },
+    {
+      "name": "npm tarball",
+      "path": "package-lock.json",
+      "door": "revertable",
+      "content": "{\"resolved\":\"https://registry.npmjs.org/x/-/x-1.tgz\"}"
+    },
+    {
+      "name": "funding URL",
+      "path": "package-lock.json",
+      "door": "revertable",
+      "content": "{\"funding\":\"https://opencollective.com/example\"}"
+    },
+    {
+      "name": "timestamp",
+      "path": "src/components/Parser.ts",
+      "door": "one-way",
+      "content": "// migration: 20261027000000\nexport const x=1;",
+      "code": "O-MIGDIR"
+    },
+    {
+      "name": "plain safe docs",
+      "path": "docs/notes.md",
+      "door": null,
+      "content": "Document a parser correction."
+    },
+    {
+      "name": "DDL with comment separator",
+      "path": "src/components/Parser.ts",
+      "door": "one-way",
+      "content": "const q = `CREATE /* spacer */ POLICY p ON t`;",
+      "code": "O-SQL"
+    },
+    {
+      "name": "quoted HTTP method",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "fetch(url, {\"method\": \"PATCH\"})",
+      "code": "O-NET"
+    },
+    {
+      "name": "computed HTTP method",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "fetch(url, {[\"method\"]: \"POST\"})",
+      "code": "O-NET"
+    },
+    {
+      "name": "indirect HTTP options",
+      "path": "worker/src/adapters/example.ts",
+      "door": "one-way",
+      "content": "fetch(url,\n options)",
+      "code": "net_ambiguous"
+    },
+    {
+      "name": "inline npm install script",
+      "path": "package-lock.json",
+      "door": "one-way",
+      "content": "{\"resolved\":\"https://registry.npmjs.org/x/-/x-1.tgz\",\"hasInstallScript\":true}",
+      "code": "O-DEP"
+    }
+  ]
+}
