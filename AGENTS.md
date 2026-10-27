@@ -112,12 +112,12 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - One writer per PR owns every repair. Total budget is 2 repair rounds across local and CI combined; each round gets all current failure logs at once, not one check at a time.
 - Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
 - A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk, and the [agent graph spec](docs/agent-graph/graph.v1.yaml) owns the reviewer sequence and families (Sonnet, then Opus). A PR that touches provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus`, `model:sonnet`, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
+- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs), as documented in [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A PR that touches provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus`, `model:sonnet`, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Merge gate
 
-The merge gate, verdict types, reviewer families and landing rules are owned by [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml). This file owns approvals, the auto-merge allowlist and sensitive paths. Changes that loosen the gate need a countersign from the root agent and Blaine's OK.
+The merge gate, verdict types and landing rules are owned by [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml). Reviewer routing remains owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and [built-by.mjs](scripts/agent-graph/built-by.mjs); the draft graph's reviewer section is non-authoritative until it models builder-family routing. This file owns approvals, the auto-merge allowlist and sensitive paths. Changes that loosen the gate need a countersign from the root agent and Blaine's OK.
 
 ## Completion and failure
 
@@ -143,4 +143,4 @@ Keep provider work behind `docs/provider-integration.md`, database releases behi
 
 ## Agent graph
 
-Routing between agents is defined in [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml) (draft). This file keeps the rules; the spec holds the structure.
+Routing between agents is defined in [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml) (draft), except reviewer routing, whose authoritative sources are listed above. This file keeps the rules; the spec holds the structure.
