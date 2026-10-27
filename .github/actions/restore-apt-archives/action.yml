@@ -1,0 +1,56 @@
+name: Restore apt package archives
+description: >-
+  Restore the .deb files that earlier runs installing the same packages downloaded,
+  and point apt-get at them, so the job's later apt-get installs (including Playwright's --with-deps)
+  only download what the cache does not hold. The Ubuntu mirror has served these
+  files at 45 kB/s (OVD-1062), which alone pushed the test job past its cap. apt
+  still resolves versions from fresh package indexes and reuses a cached file only
+  when its name (package, version, architecture) and size match the index; any
+  other file is deleted and downloaded again. apt does not re-hash a reused file,
+  so the cache scope is the trust boundary: only runs on main or on the same PR
+  write caches that a run restores, as with the Playwright browser cache. Pair
+  with save-apt-archives right after the job's last apt install.
+
+inputs:
+  name:
+    description: Cache name, one per set of packages. Jobs that install the same packages may share it; jobs that install different ones must not, or each overwrites the newest cache.
+    required: true
+
+outputs:
+  key-prefix:
+    description: Prefix of this job's cache keys. Pass it to save-apt-archives.
+    value: ${{ steps.prefix.outputs.prefix }}
+  matched-key:
+    description: Key of the restored cache, empty on a miss. Pass it to save-apt-archives.
+    value: ${{ steps.restore.outputs.cache-matched-key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute apt cache key prefix
+      id: prefix
+      shell: bash
+      env:
+        CACHE_NAME: ${{ inputs.name }}
+      run: |
+        . /etc/os-release
+        echo "prefix=apt-archives-v1-${CACHE_NAME}-${ID}${VERSION_ID}-${RUNNER_ARCH}-" >> "$GITHUB_OUTPUT"
+
+    # Saved keys end in a digest of the file names, so the exact key never
+    # matches and the newest cache under the prefix is restored.
+    - name: Restore apt package archives
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/ovd-apt-archives/*.deb
+        key: ${{ steps.prefix.outputs.prefix }}newest
+        restore-keys: ${{ steps.prefix.outputs.prefix }}
+
+    - name: Point apt at the restored archives
+      shell: bash
+      run: |
+        dir="$HOME/.cache/ovd-apt-archives"
+        mkdir -p "$dir/partial"
+        sudo chown _apt "$dir/partial"
+        echo "Dir::Cache::Archives \"$dir/\";" | sudo tee /etc/apt/apt.conf.d/99ovd-apt-archives > /dev/null
+        echo "Restored $(find "$dir" -maxdepth 1 -name '*.deb' | wc -l) cached .deb files."

@@ -15,14 +15,18 @@ import {
   withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
+  xometryRouteClass,
 } from "./xometryAuthProbe.js";
+import type { PageFingerprint } from "./fixtureHeal/fingerprint.js";
 import type { BrowserContext } from "playwright";
+import anonymousQuoteHome from "./adapters/fixtures/xometry-anonymous-quote-home.json";
 
 function fakeProbeContext(input: {
   url?: string;
   bodyText: string | (() => string);
   dashboardUploadButtonVisible?: boolean;
   bodyTextError?: Error;
+  gotoError?: unknown;
   networkIdleError?: Error;
   routeSetupError?: Error;
   webSocketSetupError?: Error;
@@ -32,6 +36,11 @@ function fakeProbeContext(input: {
   offlineIsolationHangs?: boolean;
   closeError?: Error;
   closeHangs?: boolean;
+  domStructure?: unknown;
+  domStructureError?: Error;
+  domStructureHangs?: boolean;
+  selectorCounts?: Record<string, number>;
+  urlAfterStructureWalk?: string;
   requests?: Array<{
     method: string;
     url: string;
@@ -66,7 +75,7 @@ function fakeProbeContext(input: {
     | null = null;
   let webSocketHandler: ((route: { close: () => void }) => void) | null = null;
   let openRestoredPages = 1;
-  const pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
+  let pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
   const context = {
     pages: () => [
       {
@@ -122,7 +131,14 @@ function fakeProbeContext(input: {
         throw new Error("persistent context lost its last page");
       }
       return {
-        evaluate: async () => {
+        evaluate: async (script: unknown) => {
+          if (typeof script === "string") {
+            events.setupOrder.push("collect-page-structure");
+            if (input.urlAfterStructureWalk) pageUrl = input.urlAfterStructureWalk;
+            if (input.domStructureError) throw input.domStructureError;
+            if (input.domStructureHangs) await new Promise<void>(() => undefined);
+            return input.domStructure ?? null;
+          }
           events.setupOrder.push("verify-page-transport-guards");
           events.transportGuardsVerified = true;
           return !input.transportGuardVerificationFails;
@@ -130,6 +146,7 @@ function fakeProbeContext(input: {
         goto: async (url: string) => {
           events.setupOrder.push("navigate");
           events.navigatedTo = url;
+          if (input.gotoError !== undefined) throw input.gotoError;
           for (const request of input.requests ?? []) {
             if (!routeHandler)
               throw new Error("route handler was not installed");
@@ -176,6 +193,7 @@ function fakeProbeContext(input: {
               isVisible: async () =>
                 input.dashboardUploadButtonVisible ?? false,
             }),
+            count: async () => input.selectorCounts?.[selector] ?? 0,
           };
         },
         waitForTimeout: async () => undefined,
@@ -260,6 +278,32 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
     });
+  });
+
+  it.each([
+    ["", "anonymous_quote_home"],
+    [anonymousQuoteHome.errorBanner, "anonymous_quote_home"],
+    ["My Account", "anonymous_quote_home"],
+    ["Welcome back. Recent quotes", "authenticated_dashboard"],
+    ["My Account Part Library", "authenticated_dashboard"],
+    ["Sign in", "login_required"],
+    ["Sign in Verify you are human", "captcha"],
+    [`Welcome back ${anonymousQuoteHome.errorBanner}`, "provider_error"],
+    ["Welcome back Already have an account?", "anonymous_quote_home"],
+  ])("classifies the upload prompt with %s as %s", (extra, reason) => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/quoting/home/",
+      bodyText: `${anonymousQuoteHome.uploadPrompt} ${anonymousQuoteHome.uploadButton} ${extra}`,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: reason === "authenticated_dashboard", reason });
+  });
+
+  it("does not classify the upload prompt away from quote home as anonymous", () => {
+    expect(classifyXometryAuthProbe({
+      url: "https://www.xometry.com/resources/",
+      bodyText: anonymousQuoteHome.uploadPrompt,
+      dashboardUploadButtonVisible: true,
+    })).toEqual({ authenticated: false, reason: "authenticated_dashboard_not_confirmed" });
   });
 
   it.each([
@@ -495,6 +539,98 @@ describe("Xometry authentication probe", () => {
     );
     expect(events.closed).toBe(true);
     expect(events.offlineTransitions).toEqual([false, true]);
+  });
+
+  const syntheticUrl = "https://www.xometry.com/quoting/home/?session=synthetic-secret";
+  const callLog = `\nCall log:\n  - navigating to "${syntheticUrl}", waiting until "domcontentloaded"`;
+  const named = (name: string, message: string) => Object.assign(new Error(message), { name });
+
+  it.each([
+    ["goto", "timeout", { gotoError: named("TimeoutError", `page.goto: Timeout 30000ms exceeded.${callLog}`) }],
+    ["goto", "timeout", { gotoError: new Error(`page.goto: Timeout 30000ms exceeded.${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: net::ERR_ABORTED at ${syntheticUrl}${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: NS_BINDING_ABORTED${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: NS_ERROR_ABORT${callLog}`) }],
+    ["goto", "navigation_aborted", { gotoError: new Error(`page.goto: Navigation to "${syntheticUrl}" is interrupted by another navigation to "https://www.xometry.com/login?next=synthetic"`) }],
+    ["goto", "context_destroyed", { gotoError: new Error("page.goto: Execution context was destroyed, most likely because of a navigation") }],
+    ["goto", "context_destroyed", { gotoError: new Error("page.goto: Target page, context or browser has been closed") }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: net::ERR_NAME_NOT_RESOLVED at ${syntheticUrl}${callLog}`) }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: NS_ERROR_NET_TIMEOUT${callLog}`) }],
+    ["goto", "net_error", { gotoError: new Error(`page.goto: net::ERR_CONNECTION_RESET at ${syntheticUrl}\nCall log:\n  - Timeout 30000ms exceeded`) }],
+    ["goto", "other", { gotoError: new Error("<html>synthetic provider error body</html>") }],
+    ["goto", "other", { gotoError: "synthetic thrown string" }],
+    ["inspection", "timeout", { bodyTextError: named("TimeoutError", `locator.innerText: Timeout 30000ms exceeded.${callLog}`) }],
+  ])("reports a %s %s failure in the cold-relaunch line and failure evidence", async (subStage, cause, failure) => {
+    const { context, events } = fakeProbeContext({ bodyText: "unused", ...failure });
+    const thrown = await requireAuthenticatedXometryColdRelaunch({ launchContext: async () => context })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(Error);
+    const line = (thrown as Error).message;
+    expect(line).toBe(`Xometry authentication probe navigation or inspection failed. subStage=${subStage} cause=${cause}.`);
+    expect((thrown as Error).cause).toBeUndefined();
+    const evidence = buildXometryAuthProbeFailureEvidence(
+      classifyXometryAuthProbeFailureStage(thrown, "bounded_probe"),
+      thrown,
+    );
+    expect(evidence).toEqual({
+      authenticated: false,
+      reason: "probe_failed",
+      failureStage: "navigation_or_inspection",
+      navigationOrInspection: { subStage, cause },
+      fileSelectionPerformed: false,
+      userInputInteractionPerformed: false,
+      snapshotPersisted: false,
+    });
+    expect(`${line} ${JSON.stringify(evidence)}`).not.toMatch(/synthetic|https?:|\?|Call log|html/);
+    expect(events.closed).toBe(true);
+  });
+
+  it("names the inspection sub-stage and keeps it when cleanup also fails", async () => {
+    const { context } = fakeProbeContext({
+      bodyText: "unused",
+      bodyTextError: new Error("locator.innerText: Execution context was destroyed, most likely because of a navigation"),
+      closeError: new Error("synthetic close diagnostics"),
+    });
+    const thrown = await requireAuthenticatedXometryColdRelaunch({ launchContext: async () => context })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).message).toBe(
+      "Xometry authentication probe navigation or inspection failed. subStage=inspection cause=context_destroyed. Probe cleanup also failed closed.",
+    );
+    expect(
+      buildXometryAuthProbeFailureEvidence(classifyXometryAuthProbeFailureStage(thrown), thrown)
+        .navigationOrInspection,
+    ).toEqual({ subStage: "inspection", cause: "context_destroyed" });
+  });
+
+  it("names the fingerprint sub-stage for a failure after classification", async () => {
+    // Drift capture is fail-soft, so a throwing option accessor stands in for a defect in that tail.
+    const { context } = fakeProbeContext({ bodyText: "Synthetic page without dashboard signals" });
+    await expect(
+      runBoundedXometryAuthProbe(context, {
+        get onDashboardNotConfirmed(): (fingerprint: PageFingerprint | null) => void {
+          throw named("TimeoutError", "synthetic accessor failure");
+        },
+      }),
+    ).rejects.toThrow(
+      /^Xometry authentication probe navigation or inspection failed\. subStage=fingerprint cause=timeout\.$/,
+    );
+  });
+
+  it("omits the navigation detail when the fixed message does not carry one", () => {
+    const evidence = buildXometryAuthProbeFailureEvidence(
+      "navigation_or_inspection",
+      new Error("Xometry authentication probe navigation or inspection failed. subStage=private cause=private."),
+    );
+    expect(evidence).not.toHaveProperty("navigationOrInspection");
+    expect(
+      buildXometryAuthProbeFailureEvidence(
+        "operation_timeout",
+        new Error("Xometry authentication probe navigation or inspection failed. subStage=goto cause=timeout."),
+      ),
+    ).not.toHaveProperty("navigationOrInspection");
   });
 
   it("closes while still offline when probe guard installation fails", async () => {
@@ -956,6 +1092,120 @@ describe("Xometry authentication probe", () => {
   });
 });
 
+
+describe("drift fingerprint on authenticated_dashboard_not_confirmed", () => {
+  const privatePage = {
+    bodyText: "Your quotes · Jordan Okafor · jordan@example.com · Q24-1234-5678 · $252.97",
+    domStructure: {
+      landmarks: { banner: 1, navigation: 1, main: 1, dialog: 0 },
+      headings: ["Your quotes", "Welcome, Jordan Okafor"],
+      buttons: ["New quote", "Q24-1234-5678", "jordan@example.com"],
+      links: ["Orders", "Account settings for Jordan"],
+      testIds: ["QuoteListView-new-quote", "quote-row-Q24-1234-5678"],
+    },
+    selectorCounts: { 'button:has-text("Start a New")': 1 },
+  };
+
+  it("hands over one scrubbed fingerprint and leaves the evidence unchanged", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const withCallback = fakeProbeContext(privatePage);
+    const evidence = await runBoundedXometryAuthProbe(withCallback.context, {
+      onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint),
+    });
+    const plain = await runBoundedXometryAuthProbe(fakeProbeContext(privatePage).context);
+
+    expect(evidence).toEqual(plain);
+    expect(evidence).toMatchObject({ authenticated: false, reason: "authenticated_dashboard_not_confirmed" });
+    expect(Object.keys(evidence)).not.toContain("fingerprint");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      provider: "xometry",
+      page: "upload",
+      source: "session_probe",
+      routeClass: "quote_home",
+      headings: { count: 2, labels: ["your quotes"] },
+      buttons: { count: 3, labels: ["new quote"] },
+      links: { count: 2, labels: ["orders"] },
+      testIds: { values: [], withheld: 2 },
+      signalGroups: { dashboardSignals: { matched: 0, total: 3 } },
+      selectorGroups: {
+        startNewQuoteButtons: {
+          matched: 1,
+          total: 4,
+          selectors: [{ count: 0, visible: false }, { count: 0, visible: false }, { count: 0, visible: false }, { count: 1, visible: false }],
+        },
+        dashboardUploadButtons: { matched: 0, total: 1, selectors: [{ count: 0, visible: false }] },
+      },
+    });
+    expect(JSON.stringify(seen[0])).not.toMatch(/jordan|okafor|example\.com|q24|252/i);
+    expect(withCallback.events.setupOrder.filter((step) => step === "collect-page-structure")).toHaveLength(1);
+  });
+
+  it.each([
+    ["Welcome back. Recent quotes", "https://www.xometry.com/quoting/home/"],
+    ["Sign in to continue", "https://www.xometry.com/login/"],
+  ])("takes no fingerprint for a classified page (%s)", async (bodyText, url) => {
+    const callback = vi.fn();
+    const { context, events } = fakeProbeContext({ ...privatePage, bodyText, url });
+    await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: callback });
+    expect(callback).not.toHaveBeenCalled();
+    expect(events.setupOrder).not.toContain("collect-page-structure");
+  });
+
+  it("reports the classified URL even when the page redirects during the capture", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const plain = await runBoundedXometryAuthProbe(fakeProbeContext(privatePage).context);
+    const { context } = fakeProbeContext({ ...privatePage, urlAfterStructureWalk: "https://www.xometry.com/login/" });
+    const evidence = await runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) });
+    expect(evidence).toEqual(plain);
+    expect(evidence.url).toBe("https://www.xometry.com/quoting/home/");
+    expect(seen[0]?.routeClass).toBe("quote_home");
+  });
+
+  it("reports an unavailable capture without changing the classification", async () => {
+    const seen: Array<PageFingerprint | null> = [];
+    const { context } = fakeProbeContext({ ...privatePage, domStructureError: new Error("private DOM detail") });
+    await expect(
+      runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) }),
+    ).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+    expect(seen).toEqual([null]);
+  });
+
+  it("gives up on a hung capture after its own bound", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: Array<PageFingerprint | null> = [];
+      const { context } = fakeProbeContext({ ...privatePage, domStructureHangs: true });
+      const probe = runBoundedXometryAuthProbe(context, { onDashboardNotConfirmed: (fingerprint) => seen.push(fingerprint) });
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(probe).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+      expect(seen).toEqual([null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the classification when the drift callback throws", async () => {
+    const { context } = fakeProbeContext(privatePage);
+    await expect(
+      runBoundedXometryAuthProbe(context, {
+        onDashboardNotConfirmed: () => {
+          throw new Error("reporting failed");
+        },
+      }),
+    ).resolves.toMatchObject({ reason: "authenticated_dashboard_not_confirmed" });
+  });
+
+  it("classifies the final URL as a path class only", () => {
+    expect(xometryRouteClass("https://www.xometry.com/quoting/home/?ref=abc")).toBe("quote_home");
+    expect(xometryRouteClass("https://www.xometry.com/login/?next=/quoting")).toBe("login");
+    expect(xometryRouteClass("https://www.xometry.com/quoting/quote/Q24-1234-5678/")).toBe("quote_page");
+    expect(xometryRouteClass("https://www.xometry.com/quoting/new")).toBe("quote_new");
+    expect(xometryRouteClass("https://get.xometry.com/welcome")).toBe("provider_other");
+    expect(xometryRouteClass("https://evil.example/xometry.com")).toBe("external");
+    expect(xometryRouteClass("not a url")).toBe("invalid");
+  });
+});
 
 describe("bounded restore failure reasons", () => {
   it.each([

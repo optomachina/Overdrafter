@@ -255,7 +255,7 @@ function escapeRegExp(value: string) {
 const CORPUS_DIR = resolveCorpusDir();
 const manifest = loadManifest(CORPUS_DIR);
 const expectedVariantIds = manifest?.variants.map((variant) => variant.id) ?? [];
-// CI installs poppler-utils for the test job but has no corpus. Without poppler the text
+// CI installs poppler-utils for the unit job but has no corpus. Without poppler the text
 // layer cannot be read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
 const skipReason = !hasPoppler

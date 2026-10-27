@@ -1,0 +1,133 @@
+<!doctype html>
+<!--
+  OVD-1052 structural fixture: Xometry's authenticated quote page as observed
+  in the 2026-10-23 quote-only live evaluation. HAND-BUILT, not captured. It
+  reproduces only the structure the adapter relies on (tags, nesting,
+  data-testid hooks, the .price-tier class, hidden dialog templates). Every
+  value is synthetic: no account names, emails, addresses, quote IDs or
+  provider URLs. Never replace this file with a captured page.
+
+  Drift it pins against the selectors the adapter used before OVD-1052:
+  - Each .price-tier card names its tier in a header slot before the
+    [data-testid="tierAndLeadTime"] label ("Least Expensive" / "Standard" /
+    "Fastest"); that label now holds only the arrival date. The earlier
+    layout put "<Tier> - Lead Time: ..." inside the label itself.
+  - The struck-through list total and its "(Save $X)" note sit in
+    [data-testid="part-discount"] after the current total.
+  - The part row's quantity stepper input has no aria-label="Quantity"; its
+    label is a sibling <span>Quantity</span>.
+  - The whole part card sits inside a drag handle,
+    #draggable-parts > div[role="button"][tabindex="0"], that wraps every
+    tier card. The collector reads only the .price-tier cards, so the handle
+    matters only as an enclosing element whose availability marks count.
+  - The cards share one price panel <div> whose only other text is its
+    "Price and Lead Time" heading. Elsewhere in the part card a Repeat Part
+    note ends "Pricing and lead time for Repeat Parts may vary.". Those two
+    are the only part-card lines outside the cards that mention timing; the
+    collector checks the whole part card's text outside the cards and nothing
+    wider.
+-->
+<html lang="en">
+<head><title>Quote</title></head>
+<body>
+<div id="root">
+  <div id="draggable-parts">
+    <div role="button" tabindex="0" onkeydown="return true">
+      <div class="part-card">
+        <div data-testid="part-card-title">
+          <span>synthetic-bracket.step</span>
+          <button type="button">Revise CAD</button>
+          <button type="button" id="uploadFileButton">Upload Drawings</button>
+        </div>
+        <div>
+          <span>Repeat Part</span>
+          <div><div>Mark as a Repeat Part if you have previously ordered this part with your personal Xometry account, even if the geometry has been slightly revised. Pricing and lead time for Repeat Parts may vary.</div></div>
+        </div>
+        <div>
+          <div>
+            <span id="synthetic-quantity-label">Quantity</span>
+            <div>
+              <button type="button" disabled=""><i class="fal fa-minus"></i></button>
+              <input type="number" id="synthetic-quantity-input" aria-labelledby="synthetic-quantity-label" pattern="^[0-9]*$" value="1">
+              <button type="button"><i class="fal fa-plus"></i></button>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span title="Edit Configuration"><button type="button" data-testid="navigate-to-configuration-button">Edit Configuration</button></span>
+        </div>
+        <div>
+          <div class="requirement" data-testid="requirement-Process"><span><span class="requirement-name">Process: </span><span>CNC Machining</span></span></div>
+          <div class="requirement" data-testid="requirement-Material"><span><span class="requirement-name">Material: </span><span>Aluminum 6061-T6x (Best Available)</span></span></div>
+          <div class="requirement" data-testid="requirement-Measurement"><span><span class="requirement-name">Measurement: </span><span>30.00 mm × 20.00 mm × 5.00 mm</span></span></div>
+          <div class="requirement" data-testid="requirement-Preferred Subprocess"><span><span class="requirement-name">Preferred Subprocess: </span><span>No Preference</span></span></div>
+          <div class="requirement" data-testid="requirement-Finish"><span><span class="requirement-name">Finish: </span><span>Standard</span></span></div>
+          <div class="requirement" data-testid="requirement-Threads and Tapped Holes"><span><span class="requirement-name">Threads and Tapped Holes: </span><span>0</span></span></div>
+          <div class="requirement" data-testid="requirement-Inserts"><span><span class="requirement-name">Inserts: </span><span>0</span></span></div>
+          <div class="requirement" data-testid="requirement-Precision Tolerance"><span><span class="requirement-name">Precision Tolerance: </span><span>±.005″ (±0.13mm)</span></span></div>
+          <div class="requirement" data-testid="requirement-Inspection"><span><span class="requirement-name">Inspection: </span><span>Standard Inspection</span></span></div>
+        </div>
+        <div>
+          <label><div>Price and Lead Time</div></label>
+          <div class="price-tier">
+            <div kind="outlineWhite">
+              <div>
+                <div>
+                  <div><div><div scale="small"><span><i class="far fa-dollar-sign"></i>&nbsp;Least Expensive</span></div></div></div>
+                  <div><label scale="small" data-testid="tierAndLeadTime"><div>Arrives by Nov 3</div></label></div>
+                </div>
+                <div kind="discount">
+                  <span kind="body-sm">$101.25 ea.</span>
+                  <div>$101.25</div>
+                  <div data-testid="part-discount"><span>$146.80</span> (Save $45.55)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="price-tier">
+            <div kind="outlineWhite">
+              <div>
+                <div>
+                  <div><div><div scale="small"><span><i class="far fa-balance-scale"></i>&nbsp;Standard</span></div></div></div>
+                  <div><label scale="small" data-testid="tierAndLeadTime"><div>Arrives by Nov 6</div></label></div>
+                </div>
+                <div kind="discount">
+                  <span kind="body-sm">$106.40 ea.</span>
+                  <div>$106.40</div>
+                  <div data-testid="part-discount"><span>$139.95</span> (Save $33.55)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="price-tier">
+            <div kind="outlineWhite">
+              <div>
+                <div>
+                  <div><div><div scale="small"><span><i class="fas fa-rocket"></i>&nbsp;Fastest</span></div></div></div>
+                  <div><label scale="small" data-testid="tierAndLeadTime"><div>Arrives by Oct 30</div></label></div>
+                </div>
+                <div kind="discount">
+                  <span kind="body-sm">$117.10 ea.</span>
+                  <div>$117.10</div>
+                  <div data-testid="part-discount"><span>$171.85</span> (Save $54.75)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <dialog style="display: none;"><div style="display: none;"><span>Delete Drawing</span><span>Are you sure?</span><button type="button">Cancel</button><button type="button">Delete</button></div></dialog>
+      </div>
+    </div>
+  </div>
+  <div class="order-summary">
+    <div kind="warning"><span>Order within the next 2 hours to arrive by <span>Nov 6.</span></span></div>
+    <div kind="primary"><div>All orders in this synthetic fixture ship free.</div></div>
+    <div>
+      <button type="button" kind="primary">Continue to Checkout</button><button type="button" kind="neutral">Forward to Purchaser</button>
+    </div>
+  </div>
+  <dialog style="display: none;"><div style="display: none;"><span>Your Quote Was Not Automatically Saved</span><span>Synthetic hidden template text.</span><button type="button">Okay</button></div></dialog>
+  <dialog style="display: none;"><div style="display: none;"><span>Quote limit exceeded</span><span>Synthetic hidden template text.</span><button type="button">Okay</button></div></dialog>
+</div>
+</body>
+</html>

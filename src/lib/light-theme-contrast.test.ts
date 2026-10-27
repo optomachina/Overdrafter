@@ -143,6 +143,60 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
     if (rule.selector !== ":root" && rule.selector !== ".dark") return;
     rule.walkDecls(/^--/, (decl) => { themes[rule.selector === ":root" ? "light" : "dark"][decl.prop] = decl.value; });
   });
+  // Every theme token muted text can sit on (OVD-1040). A new surface token must be added here.
+  const mutedTextSurfaces = [
+    "bg", "surface", "surface-2",
+    "background", "card", "popover", "secondary", "muted", "accent", "input-background", "surface-elevated",
+    "sidebar", "sidebar-accent",
+    "ws-surface-base", "ws-surface-card", "ws-surface-inset", "ws-surface-raised",
+    "ws-surface-shell", "ws-surface-deep", "ws-surface-overlay", "ws-accent-surface",
+  ];
+  // A family word anywhere in the name counts, in any case: --bg2, --surface_3,
+  // --warning-surface, --ws-warning-surface, --warningSurface, --panelbg, --surfacealt.
+  // Never exempt foreground/border/etc. by suffix: each exception needs review.
+  // Name-only limit: a surface with an unrelated name (e.g. --panel) cannot be detected
+  // here; add such a token to mutedTextSurfaces by hand.
+  const surfaceFamilies = ["bg", "surface", "background", "card", "popover", "secondary", "muted", "accent", "sidebar", "base", "inset", "raised", "shell", "deep", "overlay"];
+  const surfaceToken = new RegExp(`^--.*(?:${surfaceFamilies.join("|")})`, "i");
+  for (const name of ["--ws-warning-surface", "--warning-surface", "--surface3", "--surface_3", "--bg2", "--warningSurface", "--panelbg", "--bgcolor", "--surfacealt", "--surfaces"]) {
+    expect(surfaceToken.test(name), `${name}: surface guard must catch this name`).toBe(true);
+  }
+  const nonSurfaceTokens: Record<string, string> = {
+    "radius-surface-sm": "Small surface corner radius length, not a color.",
+    "radius-surface-lg": "Large surface corner radius length, not a color.",
+    "card-foreground": "Card text ink.",
+    "popover-foreground": "Popover text ink.",
+    "secondary-foreground": "Secondary text ink.",
+    "muted-foreground": "Muted text ink being measured.",
+    "muted-ink": "Primitive graphite text ink.",
+    "accent-foreground": "Accent text ink.",
+    "accent-red": "Emphasis ink and destructive color, not a muted-text surface.",
+    "ws-accent-border": "Workspace accent border color.",
+    "sidebar-foreground": "Sidebar text ink.",
+    "sidebar-primary": "Sidebar primary emphasis color, paired with its own foreground rather than muted text.",
+    "sidebar-primary-foreground": "Sidebar primary text ink.",
+    "sidebar-accent-foreground": "Sidebar accent text ink.",
+    "sidebar-border": "Sidebar border color.",
+    "sidebar-ring": "Sidebar focus ring color.",
+  };
+  const definedTokens = new Set(Object.values(themes).flatMap((variables) => Object.keys(variables)));
+  for (const [token, reason] of Object.entries(nonSurfaceTokens)) {
+    expect(definedTokens, `--${token}: stale non-surface exception; remove it from nonSurfaceTokens`).toContain(`--${token}`);
+    expect(surfaceToken.test(`--${token}`), `--${token}: exception must belong to a guarded family`).toBe(true);
+    expect(mutedTextSurfaces, `--${token}: covered surface cannot also be a non-surface exception`).not.toContain(token);
+    expect(reason.trim().length).toBeGreaterThan(10);
+  }
+  for (const [theme, variables] of Object.entries(themes)) {
+    for (const token of Object.keys(variables).filter((name) => surfaceToken.test(name))) {
+      if (Object.prototype.hasOwnProperty.call(nonSurfaceTokens, token.slice(2))) continue;
+      expect(mutedTextSurfaces, `${theme} ${token}: add surface to muted text contrast coverage (mutedTextSurfaces), or document a reviewed non-surface exception in nonSurfaceTokens`).toContain(token.slice(2));
+    }
+  }
+  for (const surface of mutedTextSurfaces) {
+    expect(themes.light, `--${surface}: covered surface must exist in :root`).toHaveProperty(`--${surface}`);
+  }
+  expect(themes.light["--muted-ink"]).toBe("#686359");
+  expect(themes.dark["--muted-foreground"]).toBe("oklch(0.708 0 0)");
   const pairs: Record<string, string> = { ...STATUS_TONE, "stat-label": "bg-ws-inset text-foreground" };
   for (const status of ["not_requested", "queued", "requesting", "received", "failed", "canceled"] as const) {
     pairs[`request-${status}`] = getQuoteRequestStatusBadgeClassName(status);
@@ -260,9 +314,9 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
       const placeholder = compiled(classes.split(" ").filter((c) => c.startsWith("placeholder:")).join(" "));
       expect(resolve(placeholder.color)).not.toBe(resolve(value.color));
       const contrast = ratio(placeholder.color, value["background-color"]);
-      reports.push(`${theme} org-placeholder (OVD-1040): ${contrast.toFixed(3)}:1`);
-      // Explicit user-approved global muted-token exception, never value ink.
-      expect(contrast).toBeGreaterThanOrEqual(theme === "light" ? 4.35 : 4.5);
+      reports.push(`${theme} org-placeholder: ${contrast.toFixed(3)}:1`);
+      // Placeholders use the muted token, which clears AA on every surface since OVD-1040; never value ink.
+      expect(contrast).toBeGreaterThanOrEqual(4.5);
     }
     for (const classes of skeletonClasses) {
       const fill = channels(resolve(compiled(classes)["background-color"]));
@@ -289,8 +343,11 @@ it("keeps compiled status, assignee and stat-label pairs above AA in both themes
         }
       }
     }
-    for (const surface of ["background", "card", "accent"]) {
-      reports.push(`${theme} muted-foreground on ${surface}: ${ratio("var(--muted-foreground)", `var(--${surface})`).toFixed(3)}:1`);
+    for (const surface of mutedTextSurfaces) {
+      const contrast = ratio("var(--muted-foreground)", `var(--${surface})`);
+      const reportLine = `${theme} muted-foreground on ${surface}: ${contrast.toFixed(3)}:1`;
+      reports.push(reportLine);
+      expect.soft(contrast, reportLine).toBeGreaterThanOrEqual(4.5);
     }
   }
   console.info(reports.join("\n"));

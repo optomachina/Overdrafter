@@ -79,7 +79,7 @@ Add `evals/skills/<skill>/spec.json` in the same change. `validate` fails for a 
 
 ## What CI enforces
 
-The repo's vitest suite runs in the CI `test` job, which the required `ci` check depends on. `scripts/skill-evals.test.mjs` includes a "committed specs" test that runs `validate` against the real repo. So the rules above are CI-enforced: a PR fails CI if it adds a tracked skill without a spec, retires a skill but leaves its spec, uses one skill name in two roots, or breaks a spec. CI does not run the model loop or check any scores.
+The repo's vitest suite runs in the CI `unit` job (three shards), which the required `ci` check depends on. `scripts/skill-evals.test.mjs` includes a "committed specs" test that runs `validate` against the real repo. So the rules above are CI-enforced: a PR fails CI if it adds a tracked skill without a spec, retires a skill but leaves its spec, uses one skill name in two roots, or breaks a spec. CI does not run the model loop or check any scores.
 
 ## Not in scope
 

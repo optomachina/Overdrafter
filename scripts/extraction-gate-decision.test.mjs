@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -37,8 +38,8 @@ describe("extraction gate decision", () => {
     const expectations = modeName === "enforce" ? EXPECTED.enforce : EXPECTED.report;
     for (const [outputName, output] of Object.entries(OUTPUTS)) {
       const [exitCode, level] = expectations[outputName];
-      it(`${outputName} output in ${modeName} mode exits ${exitCode} with ${level}`, () => {
-        const decision = decideExtractionGate({ mode, output, corpusPresent: "true" });
+      it.each([undefined, "", "success"])(`${outputName} output in ${modeName} mode with job result %s exits ${exitCode} with ${level}`, (jobResult) => {
+        const decision = decideExtractionGate({ mode, output, corpusPresent: "true", jobResult });
         expect(decision.exitCode).toBe(exitCode);
         expect(decision.annotation.startsWith(`::${level} `)).toBe(true);
         expect(decision.summary).toContain("### Extraction gate");
@@ -94,17 +95,39 @@ describe("extraction gate job failure", () => {
     expect(workflow).toContain('test -s "$RUNNER_TEMP/provider-check.json"');
   });
 
-  it("fails ci in report mode (and every mode) whatever the parsed line says", () => {
+  it.each(["failure", "cancelled", "skipped", "unknown"])("fails ci for job result %s in every mode whatever the parsed line says", (jobResult) => {
     for (const mode of Object.values(MODES)) {
       for (const output of Object.values(OUTPUTS)) {
-        const decision = decideExtractionGate({ mode, output, corpusPresent: "true", jobResult: "failure" });
-        expect(decision.exitCode).toBe(1);
-        expect(decision.annotation.startsWith("::error ")).toBe(true);
+        for (const corpusPresent of ["true", "false"]) {
+          const decision = decideExtractionGate({ mode, output, corpusPresent, jobResult });
+          expect(decision.exitCode).toBe(1);
+          expect(decision.result).toBe(parseGateResult(output).result);
+          expect(decision.annotation).toBe(`::error title=Extraction gate (${normalizeMode(mode)})::Extraction gate job failed; ci fails in every mode.`);
+          expect(decision.summary).toContain("ci failed");
+        }
       }
     }
   });
 
-  it("ci.yml keeps the unconditional job-failure check in Check dependency results", () => {
+  it.each(Object.entries(MODES))("the CLI fails a cancelled job with decision evidence in %s mode", (_modeName, mode) => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./extraction-gate-decision.mjs", import.meta.url))], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EXTRACTION_GATE_MODE: mode ?? "",
+        EXTRACTION_GATE_OUTPUT: "",
+        EXTRACTION_GATE_CORPUS: "",
+        EXTRACTION_GATE_JOB_RESULT: "cancelled",
+        GITHUB_STEP_SUMMARY: "",
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(`extraction-gate mode=${normalizeMode(mode)} result=error exit=1\n`);
+    expect(result.stdout).toContain(`::error title=Extraction gate (${normalizeMode(mode)})::Extraction gate job failed; ci fails in every mode.`);
+  });
+
+  it("ci.yml unconditionally requires job success in Check dependency results", () => {
     const workflow = readFileSync(fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)), "utf8");
     const start = workflow.indexOf("- name: Check dependency results");
     const end = workflow.indexOf("- name:", start + 1);
@@ -112,7 +135,7 @@ describe("extraction gate job failure", () => {
     const step = workflow.slice(start, end);
     expect(step).toContain("EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}");
     expect(step).toMatch(
-      /\n {10}if \[ "\$EXTRACTION_GATE_RESULT" = "failure" \]; then\n {12}exit 1\n {10}fi\n/,
+      /\n {10}if \[ "\$EXTRACTION_GATE_RESULT" != "success" \]; then\n {12}exit 1\n {10}fi\n/,
     );
     // The check must not depend on the mode: the step neither reads it nor is skipped by it.
     expect(step).not.toContain("EXTRACTION_GATE_MODE");

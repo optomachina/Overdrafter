@@ -20,9 +20,10 @@ function requirement(revision = "B", material = "secret-grade") {
 async function collect(texts: string[], tier = "Least Expensive - Lead Time: 5 business days", attributes: Record<string, string> = {}) {
   const observations: XometryProviderObservation[] = [];
   const page = { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
-    locator: (selector: string) => ({ count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? texts.length : 0,
+    locator: (selector: string) => ({ count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0,
       nth: (index: number) => ({ innerText: async () => texts[index], getAttribute: async (name: string) => attributes[name] ?? null,
-        locator: (selector: string) => selector.includes("disabled") ? { count: async () => 0 } : { first: () => ({ innerText: async () => tier }) } }) }) } as unknown as Page;
+        locator: (selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${texts.join("\n")}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
+          : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tier }) } }) }) } as unknown as Page;
   await collectXometryOffers(page, 2, (observation) => { observations.push(observation); }).catch(() => undefined);
   return observations;
 }
@@ -56,7 +57,7 @@ describe("complete collector quote document aggregate", () => {
     const span = result.candidate.span;
     expect(span).toEqual({ id: "candidate-0", start: positive.indexOf(firm), end: positive.indexOf(firm) + firm.length,
       text: firm, amount: 40, currency: "USD", basis: "total", firmness: "firm", quantity: 2, revision: "B", source: "selector",
-      selector: XOMETRY_LOCATORS.offerContainers[0] });
+      selector: XOMETRY_LOCATORS.priceTierCard });
     expect(result.documents[0].lines.map((line) => line.role.kind)).toEqual([
       "presentation", "unit", "auxiliary_total", "presentation", "firm_total", "reference",
     ]);

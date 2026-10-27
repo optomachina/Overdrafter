@@ -79,7 +79,7 @@ function hasBinary(name: string, args: string[]): boolean {
   }
 }
 
-// CI installs poppler-utils for the test job. Without it the text layer cannot be
+// CI installs poppler-utils for the unit job. Without it the text layer cannot be
 // read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
 const fullyRead = hasBinary("tesseract", ["-v"]);

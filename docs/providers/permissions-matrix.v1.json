@@ -139,7 +139,14 @@
       "written_permission": null,
       "enabled_for_paid_automation": false,
       "replies": [],
-      "notes": "Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set."
+      "notes": "Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-22",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "geomiq",
@@ -163,9 +170,16 @@
         "pointer": "private.provider_kill_switches row for geomiq; flip with npm run provider:kill -- geomiq --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal. Ask for partner API access and written permission."
+      "notes": "User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal. Ask for partner API access and written permission. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. The partner-API and written-permission ask above stays open.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-22",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "rmfg",
@@ -215,9 +229,16 @@
         "pointer": "private.provider_kill_switches row for oshcut; flip with npm run provider:kill -- oshcut --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "Sales terms are silent on automation. Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. This is not a matrix clearance, so enabled_for_paid_automation stays derived false."
+      "notes": "Sales terms are silent on automation. Ask for partner API access and written permission. Historical admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15; the planned OVD-677 go-live was superseded by the 2026-10-20 default-off decision. OSH Cut remains liveAdapter:false with no session secrets and egress:none. This is not a matrix clearance, so enabled_for_paid_automation stays derived false. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors. It supersedes the \"not a matrix clearance\" sentence above: the override is the matrix clearance; runtime gates (liveAdapter, session secrets, egress, admission) are unchanged. The partner-API and written-permission ask above stays open.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-22",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "sendcutsend",
@@ -241,9 +262,16 @@
         "pointer": "private.provider_kill_switches row for sendcutsend; flip with npm run provider:kill -- sendcutsend --on|--off --reason \"...\""
       },
       "written_permission": null,
-      "enabled_for_paid_automation": false,
+      "enabled_for_paid_automation": true,
       "replies": [],
-      "notes": "Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it."
+      "notes": "Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it. 2026-10-22 owner override (appended): Owner explicitly cleared quote-only automated quoting on his own accounts on 2026-10-22, accepting ToS risk until a cease-and-desist; no orders. The silent ToS stance is unchanged. No vendor was contacted; agents never contact vendors.",
+      "owner_override": {
+        "recorded_by": "Blaine Wilson",
+        "recorded_on": "2026-10-22",
+        "scope": "quote-only on owner accounts",
+        "tos_risk_accepted_until": "cease_and_desist",
+        "orders_allowed": false
+      }
     },
     {
       "key": "protolabs",

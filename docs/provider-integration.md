@@ -184,9 +184,43 @@ Stop without further mutation on login refresh, CAPTCHA, missing session, manual
 
 ## Selector repair
 
+The auth-probe reason `anonymous_quote_home` also covers the current instant-pricing upload-prompt page when authenticated dashboard signals are absent, even if a generic error banner is present. Re-authenticate the expired session through the governed hosted session-recovery procedure; this reason calls for session recovery, not selector repair.
+
 Repair starts from a finite drift result. Compare the smallest scrubbed current-state fixture with the last reviewed selector/reference state. Roles, stable labels, test IDs, route class, and terminal signals may be retained when they contain no account/customer data. Raw whole-page captures, provider-account or customer identifiers, quote data tied to a customer, secrets, cookies, tokens, and CAD/drawing bytes may not be committed. Non-sensitive stable offer/option identifiers may appear only in local evaluation evidence; they do not belong in committed repair fixtures.
 
 Selector and terminal-signal changes are proposals until human-reviewed. Confidence never permits automatic application. After review, run the kernel tests, reusable adapter contract, affected provider tests, `provider:check`, and the required worker/full verification lane. Until revalidation passes, changed selectors and observed prices remain untrusted. A provider-interacting retest requires a fresh exact-file live approval.
+
+### Auth probe result `authenticated_dashboard_not_confirmed`
+
+When the hosted Xometry authentication probe (the OVD-419 in-job guard reports `stage=probe_result`, `probeReason=authenticated_dashboard_not_confirmed`) ends this way, treat it as possible site drift and start selector repair. The probe saw none of its login, CAPTCHA, anonymous-page or provider-error signals, and it also missed its dashboard markers. Its signals no longer describe the page, so this is not an expired session. Do not route it to OVD-763 session refresh. The session results the probe does classify (`login_required`, `captcha`, `anonymous_quote_home`) stay on the session path.
+
+On this result only, the probe writes one extra JSON line to stderr in the same job log. The line is keyed `fixtureHealFingerprint` and holds a scrubbed page fingerprint (`worker/src/fixtureHeal/fingerprint.ts`, OVD-796 slice 5). It contains:
+
+- the classified URL as a route class, never the URL;
+- landmark counts and heading, button, link and test ID counts;
+- the heading, button and link labels that are, in full, reviewed UI phrases (generic chrome plus the literal text in `XOMETRY_LOCATORS`);
+- the exact test IDs that `XOMETRY_LOCATORS` relies on;
+- per text-signal group, how many patterns matched, and per selector, its element count (capped at 20) and whether the first match is visible;
+- a hash of the listed labels and test IDs;
+- `vocabularyDigest`, the first 16 hex characters of SHA-256 over the canonical reviewed vocabulary (signal patterns and flags, ordered selectors, labels and test IDs), computed at module load with no page-derived data. The log envelope also carries this digest when capture is unavailable.
+
+A label or test ID that is not, in full, on the reviewed list is only counted. Filtering word by word would not be safe, because ordinary words such as "An", "Go" or "More" can also be names. The line never contains other page text, input values, URLs, emails, names, quote numbers or other identifiers. The stdout evidence line, its `domCaptured: false` attestation (no raw DOM, HTML or page text) and the guard's pass/fail rule are unchanged. If capture failed or exceeded its 3-second bound, the line carries `"fingerprint": null`.
+
+To turn that line into the finite drift result, run these read-only steps. The first reads the job log and keeps the file outside the repository. Run the second, offline step from a checkout of the deployed worker image's commit, as pinned by the OVD-419 digest record. Merging a PR does not redeploy that image; the operator's current branch may have a different vocabulary.
+
+```bash
+gcloud logging read 'resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="<execution>"' --project <project> --limit=100 --format=json > "${TMPDIR:-/tmp}/xometry-probe-log.json"
+cd worker && npx tsx src/tools/xometryDriftResult.ts "${TMPDIR:-/tmp}/xometry-probe-log.json" [--baseline <reviewed-fingerprint.json>]
+```
+
+The tool first checks the vocabulary digest on the log line, then on any baseline. `drift_fingerprint_vocabulary_mismatch` names the fingerprint and checkout digests and means the log line's reviewed vocabulary differs from this checkout: run the drift tool from the deployed image's commit. `drift_baseline_vocabulary_mismatch` names the baseline and checkout digests. It is reported only after the log line matched this checkout, so the baseline is stale: use a reviewed baseline captured with the deployed vocabulary, or drop `--baseline`. Switching commits would only make the log line mismatch instead. Missing or malformed digests are invalid, including older artifacts with no digest. Only matching digests proceed to strict validation. Any other label, test ID or group name, a malformed tally, or a stale hash rejects the line as `drift_fingerprint_invalid` (or `drift_baseline_invalid` for a baseline), so an edited line cannot carry text into the result. A tally is malformed unless its `total` is the vocabulary group's size and `matched` is an integer from 0 to `total`; each selector count must be an integer from 0 to 20, and a selector group's `matched` must equal the number of its selectors with a match. Malformed tallies are rejected, never clamped; landmark, heading, button, link and test-ID counts are still clamped to their bounds and carry only numbers. The digest identifies the vocabulary; it does not authenticate the log. The tool prints `fixture-drift-result.v1`, which contains:
+
+- `nextStep: "selector_repair"`;
+- a `driftClass` (`route`, `selector`, `label`, `cosmetic`, `none`, or `unknown` when capture failed);
+- `findings` from a closed list: `route_unexpected`, `confirming_group_unmatched`, `confirming_group_partial`, `terminal_group_partial`, `entry_selectors_unmatched`, `dialog_present`, `page_sparse` and `fingerprint_unavailable`;
+- the `repairTargets`, which are the locator groups to review first.
+
+With a reviewed baseline fingerprint, `driftClass` comes from `diff()`. Without one, it comes from what `classifyXometryAuthProbe` needs to see (`XOMETRY_AUTH_PROBE_DRIFT_REFERENCE`). The repair proposal then follows the rules above. A `terminal_group_partial` finding on the anonymous-page groups suggests the session is logged out and the anonymous page's wording drifted. The fix is still a signal update. Once the probe classifies that page as `anonymous_quote_home`, the normal session path applies. The drift result may go on the repair issue. The log file may not. A scrubbed fingerprint becomes a committed baseline only through OVD-796 slice 5.
 
 ## Three-stage provider lifecycle
 

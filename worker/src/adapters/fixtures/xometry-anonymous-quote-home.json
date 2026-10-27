@@ -1,0 +1,5 @@
+{
+  "uploadPrompt": "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+  "uploadButton": "Upload 3D Files",
+  "errorBanner": "There was an error, please try again."
+}

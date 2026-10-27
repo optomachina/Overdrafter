@@ -62,10 +62,10 @@ jobs:
       - name: Typecheck
         run: bash scripts/preflight.sh typecheck
 
+  # The contract, database and integration checks. The vitest suite runs in the
+  # unit job. Only this job needs ovd591-qualification (for the policy tests).
   test:
     needs: ovd591-qualification
-    # Pinned to noble: the OCR step below installs exact noble package versions,
-    # so an ubuntu-latest image change must not break every PR.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -91,15 +91,6 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
-      # The worker OCR suite (pdfDrawing.ocr.test.ts) skips without these tools.
-      # Versions match worker/Dockerfile so CI reads the stamp the way production does.
-      - name: Install poppler and tesseract for OCR tests
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -q --no-install-recommends poppler-utils \
-            libtesseract5=5.3.4-1build5 tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2
-          tesseract --list-langs | grep -qx eng
-
       - name: Test portable Node contracts
         run: npm run test:portable-node
 
@@ -116,22 +107,6 @@ jobs:
         run: |
           node --test scripts/generate-free-quote-fixtures.node-test.mjs scripts/run-supabase-policy-tests.node-test.mjs
           node scripts/generate-free-quote-fixtures.mjs --check
-
-      - name: Resolve Playwright version
-        id: playwright-version
-        run: |
-          version="$(node -p "require('playwright/package.json').version")"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Chromium for DOM recovery tests
-        run: node ./node_modules/playwright/cli.js install --with-deps chromium
 
       - name: Test Edge Functions
         run: npm run test:functions
@@ -150,18 +125,92 @@ jobs:
       - name: Seed local database
         run: npm run seed:dev
 
-      - name: Run tests
-        run: bash scripts/preflight.sh test
-
       - name: Validate agent control plane
         run: npm run test:agent-control-plane
 
       - name: Test quote integration
         run: npm run test:integration:quote
 
+  # The vitest suite in three shards. --shard deals files out by a hash of their
+  # path, so the OCR and real-browser suites can land in any shard and every
+  # shard installs the same tools. No vitest file uses the local Supabase stack;
+  # the one suite that does (test:integration:quote) runs in the test job.
+  unit:
+    # Pinned to noble: the OCR step below installs exact noble package versions,
+    # so an ubuntu-latest image change must not break every PR.
+    runs-on: ubuntu-24.04
+    # A shard runs about 5 minutes of tests, but on a cold apt cache with a slow
+    # mirror its setup alone has taken about 15 (OVD-1062).
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js and install root dependencies
+        uses: ./.github/actions/setup-root-dependencies
+
+      # As in extraction-gate, no install scripts: the worker's only ones are
+      # esbuild's binary check, impit's package-manager check, and the native
+      # build of better-sqlite3, which only camoufox-js reaches at browser launch.
+      - name: Install worker dependencies
+        run: npm --prefix worker ci --ignore-scripts
+
+      - name: Restore apt package archives
+        id: apt-archives
+        uses: ./.github/actions/restore-apt-archives
+        with:
+          name: ocr-and-chromium-deps
+
+      # The worker OCR suite (pdfDrawing.ocr.test.ts) skips without these tools.
+      # Versions match worker/Dockerfile so CI reads the stamp the way production does.
+      - name: Install poppler and tesseract for OCR tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -q --no-install-recommends poppler-utils \
+            libtesseract5=5.3.4-1build5 tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2
+          tesseract --list-langs | grep -qx eng
+
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: |
+          version="$(node -p "require('playwright/package.json').version")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Chromium for DOM recovery tests
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Save apt package archives
+        uses: ./.github/actions/save-apt-archives
+        with:
+          key-prefix: ${{ steps.apt-archives.outputs.key-prefix }}
+          matched-key: ${{ steps.apt-archives.outputs.matched-key }}
+
+      - name: Run tests
+        run: bash scripts/preflight.sh test -- --shard=${{ matrix.shard }}/3
+
+  # Three lanes on separate runners. Each lane installs the same browser tooling;
+  # only the authenticated lane starts the local Supabase stack.
   browser-test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [synthetic, fixture, authenticated]
 
     steps:
       - name: Checkout
@@ -182,6 +231,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci --ignore-scripts
 
+      - name: Restore apt package archives
+        id: apt-archives
+        uses: ./.github/actions/restore-apt-archives
+        with:
+          name: chromium-deps
+
       - name: Resolve Playwright version
         id: playwright-version
         run: |
@@ -198,16 +253,23 @@ jobs:
       - name: Install Chromium
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
 
+      - name: Save apt package archives
+        uses: ./.github/actions/save-apt-archives
+        with:
+          key-prefix: ${{ steps.apt-archives.outputs.key-prefix }}
+          matched-key: ${{ steps.apt-archives.outputs.matched-key }}
+
       - name: Verify installed sandbox-capable Chrome
         run: test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version
 
       - name: Test admin operations browser workflows
+        if: ${{ matrix.lane == 'synthetic' }}
         env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: admin-operations-results/report.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: admin-operations-results/report.json
         run: node ./node_modules/playwright/cli.js test --config e2e/admin-operations.config.ts --output=admin-operations-results --reporter=line,json
 
       - name: Retain admin operations browser evidence
-        if: ${{ always() }}
+        if: ${{ always() && matrix.lane == 'synthetic' }}
         uses: actions/upload-artifact@v4
         with:
           name: admin-operations-browser-evidence
@@ -216,12 +278,13 @@ jobs:
           if-no-files-found: warn
 
       - name: Test Free quote confirmation and replay in browser
+        if: ${{ matrix.lane == 'synthetic' }}
         env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: quote-confirmation-results/report.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: quote-confirmation-results/report.json
         run: npm run e2e:quote-confirmation -- --output=quote-confirmation-results --reporter=line,json
 
       - name: Retain Free quote confirmation browser evidence
-        if: ${{ always() }}
+        if: ${{ always() && matrix.lane == 'synthetic' }}
         uses: actions/upload-artifact@v4
         with:
           name: quote-confirmation-browser-evidence
@@ -230,22 +293,27 @@ jobs:
           if-no-files-found: warn
 
       - name: Test fixture browser workflows
+        if: ${{ matrix.lane == 'fixture' }}
         run: npm run e2e:fixture
 
       - name: Start local Supabase
+        if: ${{ matrix.lane == 'authenticated' }}
         run: npm run db:start
 
       - name: Reset local database
+        if: ${{ matrix.lane == 'authenticated' }}
         run: npm run db:reset
 
       - name: Seed local database
+        if: ${{ matrix.lane == 'authenticated' }}
         run: npm run seed:dev
 
       - name: Test authenticated browser workflows
+        if: ${{ matrix.lane == 'authenticated' }}
         run: npm run e2e:authenticated -- --output=authenticated-results
 
       - name: Retain authenticated browser evidence
-        if: ${{ failure() }}
+        if: ${{ failure() && matrix.lane == 'authenticated' }}
         uses: actions/upload-artifact@v4
         with:
           name: authenticated-browser-evidence
@@ -593,6 +661,7 @@ jobs:
       - lint
       - typecheck
       - test
+      - unit
       - browser-test
       - build
       - verify-worker
@@ -610,6 +679,7 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
           BROWSER_TEST_RESULT: ${{ needs.browser-test.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WORKER_RESULT: ${{ needs.verify-worker.result }}
@@ -622,6 +692,7 @@ jobs:
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
           echo "test=$TEST_RESULT"
+          echo "unit=$UNIT_RESULT"
           echo "browser-test=$BROWSER_TEST_RESULT"
           echo "build=$BUILD_RESULT"
           echo "verify-worker=$WORKER_RESULT"
@@ -634,6 +705,7 @@ jobs:
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
              [ "$TEST_RESULT" != "success" ] || \
+             [ "$UNIT_RESULT" != "success" ] || \
              [ "$BROWSER_TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
              [ "$WORKER_RESULT" != "success" ] || \
@@ -644,9 +716,9 @@ jobs:
             exit 1
           fi
 
-          # The gate legitimately skips when no corpus or provider key exists,
-          # but a real failure must block the merge.
-          if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
+          # Internal step skips still leave the job successful. Any other job
+          # result, including a timeout reported as cancelled, must block the merge.
+          if [ "$EXTRACTION_GATE_RESULT" != "success" ]; then
             exit 1
           fi
 
@@ -671,7 +743,7 @@ jobs:
       # Values: report (default; unset or anything else) or enforce. Flipping
       # the variable to enforce requires Blaine's approval. The mode governs
       # only the parsed result line (fail/error: warning in report, fail in
-      # enforce); a failed extraction-gate job fails ci above in every mode.
+      # enforce); any unsuccessful extraction-gate job fails ci above in every mode.
       - name: Decide extraction gate
         if: ${{ always() }}
         env:

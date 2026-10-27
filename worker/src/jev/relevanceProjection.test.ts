@@ -22,14 +22,15 @@ async function observeBadge(tierText: string) {
   const option = {
     innerText: async () => text,
     getAttribute: async (name: string) => name === "data-option-id" ? "option-0" : null,
-    locator: (selector: string) => selector.includes("disabled")
+    locator: (selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${text}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? 1 : 0 }) }) } : selector.includes("disabled")
       ? { count: async () => 0 }
-      : { first: () => ({ innerText: async () => tierText }) },
+      // One visible tier label; no nested option container or list-price slot.
+      : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tierText }) },
   };
   const page = {
     url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
     locator: (selector: string) => ({
-      count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? 1 : 0,
+      count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? 1 : 0,
       nth: () => option,
     }),
   } as unknown as Page;

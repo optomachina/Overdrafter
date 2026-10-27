@@ -106,7 +106,7 @@ node scripts/check-rls-deny-coverage.mjs --write-baseline
 ```
 
 The vitest suite (`scripts/check-rls-deny-coverage.test.mjs`) runs in the
-blocking `test` job, so it checks only that the baseline does not hold too
+blocking `unit` job, so it checks only that the baseline does not hold too
 much: it fails when the committed baseline lists an entry that is now covered
 or no longer exists (a stale entry). It does not fail on a new uncovered policy
 or RLS-enabled table; that is a report-only finding from the `rls-deny-coverage`

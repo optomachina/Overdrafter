@@ -64,8 +64,8 @@ persistence is not claimed or introduced by this repair.
 
 Run `npm run e2e:quote-confirmation`. It first typechecks the fixture and its real
 imports, then builds a synthetic-only static app and runs all browser cases. CI
-runs it as an unconditional step in the required `browser-test` job; failures
-block aggregate `ci`. There are no conditional skips or browser fallbacks. The
+runs it in every run of the required `browser-test` job, in its `synthetic`
+lane; failures block aggregate `ci`. There are no conditional skips or browser fallbacks. The
 ordinary Playwright discovery does not select the dedicated `*.browser.ts` file.
 
 CI retains `quote-confirmation-results/report.json`, Playwright failure evidence

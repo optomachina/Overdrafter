@@ -11,14 +11,15 @@ function quotePage(texts: string[], tierText = "Standard", disabled?: { parent: 
   const options = texts.map((text, index) => ({
     innerText: vi.fn(async () => text),
     getAttribute: vi.fn(async (name: string) => name === "data-option-id" ? `option-${index}` : name === "data-disabled" ? disabled?.parent ?? null : null),
-    locator: vi.fn((selector: string) => selector.includes("disabled")
+    locator: vi.fn((selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${texts.join("\n")}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? texts.length : 0 }) }) } : selector.includes("disabled")
       ? { count: async () => disabled?.descendant ? 1 : 0 }
-      : { first: () => ({ innerText: async () => tierText }) }),
+      // One visible tier label; no nested option container or list-price slot.
+      : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0, first: () => ({ innerText: async () => tierText }) }),
   }));
   return {
     url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC",
     locator: (selector: string) => ({
-      count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? options.length : 0,
+      count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? options.length : 0,
       nth: (index: number) => options[index],
     }),
   } as unknown as Page;
@@ -204,9 +205,11 @@ describe("actual Xometry source observations", () => {
     await expect(chooseOptionByTerms(failed.page, ["6061"], [".option"], "material", "#control", callback)).rejects.toBe(originalError);
   });
 
-  it.each([null, "false"])("keeps actual parent data-disabled=%s separate from descendant-derived parser flags", async (parent) => {
+  it.each([null, "false"])("keeps actual parent data-disabled=%s separate from the collector's withdrawal", async (parent) => {
     const records: XometryProviderObservation[] = [];
-    const page = () => quotePage([text], "Standard", { parent, descendant: true });
+    // OVD-1052: a card that shows no price and timing is withdrawn only by
+    // its own unavailability text; a disabled descendant alone says nothing.
+    const page = () => quotePage([text.replace("\n5 business days", "\nNot available")], "Standard", { parent, descendant: true });
     const baseline = await collectXometryOffers(page(), 2);
     expect(baseline).toEqual([]);
     expect(await collectXometryOffers(page(), 2, (record) => { records.push(record); })).toEqual(baseline);
