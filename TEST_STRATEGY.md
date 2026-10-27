@@ -86,23 +86,31 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 ### Explicit execution boundaries
 
 - `scripts/test-lane-contract.test.mjs` enforces ownership of every tracked
-  `.node-test.[cm]?js` suite: a failure-propagating Node invocation in an enabled
-  workflow run step, a package script reachable from root `verify` or a counted
-  workflow step, or a reasoned manual exception. Discovery uses the suffix only,
-  including filenames with spaces, punctuation or Unicode.
+  `.node-test.[cm]?js` suite: a failure-propagating Node invocation in a credited
+  workflow run step, a package script reached from such a step, or a reasoned
+  manual exception. Discovery uses the suffix only, including filenames with
+  spaces, punctuation or Unicode.
+  A workflow is credited only if it has an automatic `pull_request`, `push` or
+  `merge_group` trigger, or if it is a `workflow_call` workflow called through
+  `uses: ./.github/workflows/<file>` from a credited job. Dispatch-only,
+  schedule-only, `pull_request_target`, uncalled reusable and trigger-less
+  workflows do not count. A job is credited only if it and every job in its
+  `needs` chain are enabled. Root `verify` counts only when a credited step
+  runs it.
   Ownership accepts complete simple command bodies: one AND-list, or standalone
   lines under workflow Bash/sh errexit. npm bodies must be one logical line.
   Unknown conditions, custom shells and shell control flow fail closed; only
-  absent/literal-true conditions count. The Windows form is one Node command
-  followed by `exit $LASTEXITCODE`. Preflight's dynamic shell dispatch is not
-  inferred; its current stages are independently reached from root `verify`.
+  absent/literal-true conditions count. Workflow, job or step `env` that sets
+  `NODE_OPTIONS`, `NODE_TEST_CONTEXT` or `npm_config_*` fails closed. The
+  Windows form is one Node command followed by `exit $LASTEXITCODE`.
+  Preflight's dynamic shell dispatch is not inferred.
   Suite arguments, workflow working directories and npm prefixes must be literal
   repository-relative paths. Absolute/drive/UNC paths, parent traversal, platform
   aliases and ambiguous options fail closed; quoted spaces and `+` are supported.
-  Conditional and dispatch-only workflows are not categorically excluded: a
-  dispatch workflow with no step/job condition counts. Unknown expressions need
-  an explicit proven lane or a narrowly tested grammar extension; the guard does
-  not claim to evaluate GitHub expressions or arbitrary shell programs.
+  Not modelled (accepted limits): trigger `branches`/`paths` filters,
+  `$GITHUB_ENV` writes, `.npmrc` settings and GitHub expressions in general.
+  Unknown expressions need an explicit proven lane or a narrowly tested grammar
+  extension.
   Text mentions, unreachable npm scripts and failure-swallowing commands do not
   establish ownership. New suites must join an owning lane or document why they
   cannot run automatically, with operator instructions in the exception map.

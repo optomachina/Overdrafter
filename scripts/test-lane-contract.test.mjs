@@ -63,13 +63,70 @@ function requiredCommands(source, npmScript = false) {
     .map((token) => token.replace(/^(["'])(.*)\1$/, "$2")));
 }
 
-function countedWorkflowCommands(source) {
-  const workflow = parse(source);
-  const enabled = (entry) => (entry.if === undefined || entry.if === true
-    || /^\$\{\{\s*true\s*\}\}$/.test(entry.if))
-    && (entry["continue-on-error"] === undefined || entry["continue-on-error"] === false);
-  return Object.values(workflow?.jobs ?? {}).flatMap((job) => !enabled(job) ? []
-    : (job.steps ?? []).filter((step) => enabled(step) && typeof step.run === "string")
+// Only these events run a workflow automatically for a change. Dispatch,
+// schedule, a missing `on:` and pull_request_target (base checkout) never do.
+const automaticEvents = new Set(["pull_request", "push", "merge_group"]);
+
+function workflowEvents(workflow) {
+  const on = workflow?.on;
+  if (typeof on === "string") return [on];
+  if (Array.isArray(on)) return on;
+  return on && typeof on === "object" ? Object.keys(on) : [];
+}
+
+const enabled = (entry) => (entry.if === undefined || entry.if === true
+  || /^\$\{\{\s*true\s*\}\}$/.test(entry.if))
+  && (entry["continue-on-error"] === undefined || entry["continue-on-error"] === false);
+
+// Environment that lets a failing Node test or npm script exit 0 without
+// running it (for example NODE_TEST_CONTEXT=child, NODE_OPTIONS=--test-only,
+// npm_config_script_shell=true). Any such key fails closed.
+const masksExecution = (env) => Object.keys(env ?? {})
+  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|npm_config_\w+)$/i.test(key));
+
+// workflows: [{ path, source }] or bare sources. Credit starts at workflows with
+// an automatic trigger; a workflow_call-only workflow is credited only through
+// a credited caller job (`uses: ./.github/workflows/<file>`). A job is credited
+// only if it and every job in its `needs` chain are enabled.
+function countedWorkflowCommands(workflows) {
+  const parsed = workflows.map((entry) => {
+    const { path, source } = typeof entry === "string" ? { source: entry } : entry;
+    return { path, workflow: parse(source) };
+  });
+  const byPath = new Map(parsed.filter(({ path }) => path).map((entry) => [entry.path, entry]));
+  const credited = new Set(parsed.filter(({ workflow }) => workflowEvents(workflow).some((event) => automaticEvents.has(event))));
+  const queue = [...credited];
+  const commands = [];
+  while (queue.length) {
+    const { workflow } = queue.shift();
+    if (masksExecution(workflow?.env)) continue;
+    const jobs = workflow?.jobs ?? {};
+    const memo = new Map();
+    const jobCredited = (id, path = new Set()) => {
+      if (memo.has(id)) return memo.get(id);
+      const job = Object.hasOwn(jobs, id) ? jobs[id] : undefined;
+      if (!job || path.has(id) || !enabled(job) || masksExecution(job.env)) return false;
+      const needs = job.needs === undefined ? [] : [job.needs].flat();
+      const result = needs.every((need) => typeof need === "string" && jobCredited(need, new Set(path).add(id)));
+      memo.set(id, result);
+      return result;
+    };
+    for (const [id, job] of Object.entries(jobs)) {
+      if (!jobCredited(id)) continue;
+      const callee = typeof job.uses === "string" && /^\.\/(\.github\/workflows\/[\w.-]+\.ya?ml)$/.exec(job.uses);
+      const target = callee && byPath.get(callee[1]);
+      if (target && !credited.has(target) && workflowEvents(target.workflow).includes("workflow_call")) {
+        credited.add(target);
+        queue.push(target);
+      }
+      commands.push(...jobCommands(workflow, job));
+    }
+  }
+  return commands;
+}
+
+function jobCommands(workflow, job) {
+  return (job.steps ?? []).filter((step) => enabled(step) && typeof step.run === "string" && !masksExecution(step.env))
       .flatMap((step) => {
         const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell
           ?? (/^(ubuntu|macos)-[\w.-]+$/.test(job["runs-on"]) ? "bash" : undefined);
@@ -86,7 +143,7 @@ function countedWorkflowCommands(source) {
           cwd: step["working-directory"] ?? job.defaults?.run?.["working-directory"]
             ?? workflow.defaults?.run?.["working-directory"] ?? ".",
         }];
-      }));
+      });
 }
 
 // Only portable, repository-relative literal paths establish ownership. Reject
@@ -142,12 +199,10 @@ function runnerReferences(manifests, workflows) {
       }
     }
   }
-  visitScript(".", "verify");
-  for (const workflow of workflows) {
-    for (const { source, cwd } of countedWorkflowCommands(workflow)) visitCommands(source, cwd);
-  }
-  // Do not infer execution inside preflight's shell control flow. Its current
-  // lint/typecheck/test scripts are already reached through root verify.
+  // Package scripts count only when a credited workflow step reaches them; no
+  // workflow runs root `verify`, so it is not an ownership root by itself.
+  for (const { source, cwd } of countedWorkflowCommands(workflows)) visitCommands(source, cwd);
+  // Do not infer execution inside preflight's shell control flow.
   return references;
 }
 
@@ -183,7 +238,7 @@ describe("explicit test execution lanes", () => {
     const workflows = [];
     for (const path of tracked) {
       if (/(^|\/)package\.json$/.test(path)) manifests[path] = JSON.parse(readFileSync(join(repoRoot, path), "utf8"));
-      else if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) workflows.push(readFileSync(join(repoRoot, path), "utf8"));
+      else if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) workflows.push({ path, source: readFileSync(join(repoRoot, path), "utf8") });
     }
     const references = runnerReferences(manifests, workflows);
     for (const [suite, instructions] of Object.entries(manuallyRunNodeSuites)) {
@@ -198,7 +253,10 @@ describe("explicit test execution lanes", () => {
 
   const dummySuite = "scripts/unowned.node-test.cjs";
   const invocation = `node --test ${dummySuite}`;
-  const workflowWith = (step, job = {}) => JSON.stringify({ jobs: { test: { "runs-on": "ubuntu-latest", ...job, steps: [step] } } });
+  const workflowWith = (step, job = {}) => JSON.stringify({
+    on: { pull_request: {} }, jobs: { test: { "runs-on": "ubuntu-latest", ...job, steps: [step] } },
+  });
+  const verifyStep = workflowWith({ run: "npm run verify" });
 
   it.each(["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs", "scripts/測試.node-test.js"])(
     "discovers %s even when no supported invocation owns it", (suite) => {
@@ -236,14 +294,99 @@ describe("explicit test execution lanes", () => {
       .toEqual([dummySuite]);
   });
 
-  it("admits dispatch-only workflows but does not infer event expressions", () => {
+  it("does not infer event expressions", () => {
     const workflow = JSON.parse(workflowWith({ run: invocation }));
-    workflow.on = { workflow_dispatch: {} };
-    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
-    workflow.on = { pull_request: {} };
     workflow.jobs.test.if = "github.event_name == 'workflow_dispatch'";
     expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
   });
+
+  it.each([
+    ["pull_request map", { pull_request: {} }], ["push map", { push: { branches: ["main"] } }],
+    ["merge_group", { merge_group: {} }], ["string form", "pull_request"], ["list form", ["workflow_dispatch", "push"]],
+  ])("credits a workflow with an automatic %s trigger", (_label, on) => {
+    const workflow = { ...JSON.parse(workflowWith({ run: invocation })), on };
+    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
+  });
+
+  it.each([
+    ["dispatch-only", { workflow_dispatch: {} }], ["schedule-only", { schedule: [{ cron: "0 0 * * *" }] }],
+    ["pull_request_target", { pull_request_target: {} }], ["uncalled workflow_call", { workflow_call: {} }],
+    ["missing on", undefined], ["empty list", []],
+  ])("does not count a %s workflow as CI execution", (_label, on) => {
+    const workflow = { ...JSON.parse(workflowWith({ run: invocation })), on };
+    if (on === undefined) delete workflow.on;
+    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
+  });
+
+  const graph = (jobs, on = { pull_request: {} }) => JSON.stringify({ on, jobs });
+  const owner = (extra = {}) => ({ "runs-on": "ubuntu-latest", steps: [{ run: invocation }], ...extra });
+  const plain = (extra = {}) => ({ "runs-on": "ubuntu-latest", steps: [{ run: "echo ok" }], ...extra });
+
+  it.each([
+    ["an if:false job", { never: plain({ if: false }), test: owner({ needs: "never" }) }],
+    ["an unknown-condition job", { maybe: plain({ if: "${{ inputs.go }}" }), test: owner({ needs: ["maybe"] }) }],
+    ["a missing job", { test: owner({ needs: ["absent"] }) }],
+    ["a transitively disabled job", { never: plain({ if: false }), mid: plain({ needs: "never" }), test: owner({ needs: "mid" }) }],
+    ["an allowed-failure job", { soft: plain({ "continue-on-error": true }), test: owner({ needs: "soft" }) }],
+    ["a dependency cycle", { a: plain({ needs: "test" }), test: owner({ needs: "a" }) }],
+  ])("does not credit a job whose needs chain reaches %s", (_label, jobs) => {
+    expect([...runnerReferences({}, [graph(jobs)])]).toEqual([]);
+  });
+
+  it("credits a job whose whole needs chain is enabled", () => {
+    const jobs = { a: plain(), b: plain({ needs: "a" }), test: owner({ needs: ["a", "b"] }) };
+    expect([...runnerReferences({}, [graph(jobs)])]).toEqual([dummySuite]);
+  });
+
+  const reusable = { path: ".github/workflows/reusable.yml", source: graph({ test: owner() }, { workflow_call: {} }) };
+  const caller = (job = {}, on = { pull_request: {} }) => ({
+    path: ".github/workflows/caller.yml",
+    source: graph({ setup: plain(), call: { uses: "./.github/workflows/reusable.yml", ...job } }, on),
+  });
+
+  it("credits a workflow_call workflow only through a credited caller job", () => {
+    expect([...runnerReferences({}, [reusable])]).toEqual([]);
+    expect([...runnerReferences({}, [reusable, caller()])]).toEqual([dummySuite]);
+    expect([...runnerReferences({}, [reusable, caller({ needs: "setup" })])]).toEqual([dummySuite]);
+  });
+
+  it.each([
+    ["a disabled caller job", caller({ if: false })],
+    ["a caller job needing a disabled job", { path: ".github/workflows/caller.yml",
+      source: graph({ never: plain({ if: false }), call: { uses: "./.github/workflows/reusable.yml", needs: "never" } }) }],
+    ["a dispatch-only caller workflow", caller({}, { workflow_dispatch: {} })],
+    ["a caller of another file", { path: ".github/workflows/caller.yml",
+      source: graph({ call: { uses: "./.github/workflows/other.yml" } }) }],
+    ["a remote ref", { path: ".github/workflows/caller.yml",
+      source: graph({ call: { uses: "optomachina/Overdrafter/.github/workflows/reusable.yml@main" } }) }],
+  ])("does not credit a workflow_call workflow through %s", (_label, callerWorkflow) => {
+    expect([...runnerReferences({}, [reusable, callerWorkflow])]).toEqual([]);
+  });
+
+  it.each([
+    ["workflow", (w) => { w.env = { NODE_TEST_CONTEXT: "child" }; }],
+    ["job", (w) => { w.jobs.test.env = { NODE_OPTIONS: "--test-only" }; }],
+    ["step", (w) => { w.jobs.test.steps[0].env = { npm_config_script_shell: "true" }; }],
+    ["step (upper case npm config)", (w) => { w.jobs.test.steps[0].env = { NPM_CONFIG_IGNORE_SCRIPTS: "true" }; }],
+  ])("does not count execution under %s env that can mask a failing suite", (_label, mutate) => {
+    const workflow = JSON.parse(workflowWith({ run: invocation }));
+    mutate(workflow);
+    expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
+  });
+
+  it("proves NODE_TEST_CONTEXT=child makes a failing Node suite exit 0", () => {
+    const root = mkdtempSync(join(tmpdir(), "lane-env-mask-"));
+    try {
+      writeFileSync(join(root, "fail.node-test.cjs"), "require('node:test')('fails', () => { throw new Error('masked'); });\n");
+      const run = (env) => spawnSync(process.execPath, ["--test", "fail.node-test.cjs"], {
+        cwd: root, encoding: "utf8", timeout: 15_000, env: { ...process.env, ...env },
+      }).status;
+      expect(run({})).toBe(1);
+      expect(run({ NODE_TEST_CONTEXT: "child" })).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("owns quoted paths with spaces or plus signs without narrowing discovery", () => {
     const suites = ["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs"];
@@ -350,7 +493,7 @@ describe("explicit test execution lanes", () => {
     ["AND-list followed by success", workflowWith({ run: `${invocation} && echo passed\necho final-success` })],
     ["custom bash shell", workflowWith({ run: invocation, shell: "bash {0}" })],
     ["custom job shell", workflowWith({ run: invocation }, { defaults: { run: { shell: "bash {0}" } } })],
-    ["custom workflow shell", JSON.stringify({ defaults: { run: { shell: "bash {0}" } }, jobs: { test: { steps: [{ run: invocation }] } } })],
+    ["custom workflow shell", JSON.stringify({ on: "pull_request", defaults: { run: { shell: "bash {0}" } }, jobs: { test: { "runs-on": "ubuntu-latest", steps: [{ run: invocation }] } } })],
     ["PowerShell without exit handoff", workflowWith({ run: invocation, shell: "powershell" })],
     ["PowerShell resets exit status", workflowWith({ run: `${invocation}\nnode other.mjs\nexit $LASTEXITCODE`, shell: "powershell" })],
     ["unknown implicit shell", workflowWith({ run: invocation }, { "runs-on": "self-hosted" })],
@@ -379,13 +522,19 @@ describe("explicit test execution lanes", () => {
   );
 
   it.each(["|| true", "; true", "|| :"])("does not count swallowed npm script failure (%s)", (suffix) => {
-    expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [], "")]).toEqual([]);
+    expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [verifyStep], "")]).toEqual([]);
   });
 
   it("rejects multiline npm bodies and shell wrappers instead of inferring preflight control flow", () => {
     for (const source of [`${invocation}\necho final-success`, `if false; then\n${invocation}\nfi`, "bash scripts/preflight.sh"]) {
-      expect([...runnerReferences({ "package.json": { scripts: { verify: source } } }, [])]).toEqual([]);
+      expect([...runnerReferences({ "package.json": { scripts: { verify: source } } }, [verifyStep])]).toEqual([]);
     }
+  });
+
+  it("does not treat root verify as an owner unless a credited workflow runs it", () => {
+    const manifests = { "package.json": { scripts: { verify: invocation } } };
+    expect([...runnerReferences(manifests, [])]).toEqual([]);
+    expect([...runnerReferences(manifests, [verifyStep])]).toEqual([dummySuite]);
   });
 
   it("follows required npm chains, npm test and package-relative paths", () => {
@@ -399,12 +548,12 @@ describe("explicit test execution lanes", () => {
       } },
       "worker/package.json": { scripts: { checks: "node --test scripts/worker.node-test.mjs" } },
     };
-    expect([...runnerReferences(manifests, [workflowWith({ run: "npm test" })])].sort())
+    expect([...runnerReferences(manifests, [workflowWith({ run: "npm test" }), verifyStep])].sort())
       .toEqual([dummySuite, "scripts/default.node-test.js", "scripts/preflight.node-test.mjs", "worker/scripts/worker.node-test.mjs"].sort());
   });
 
   it("reads YAML run bodies, continuations, quotes and workflow working directories", () => {
-    const workflow = `jobs:\n  test:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
+    const workflow = `on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
     expect([...runnerReferences({}, [workflow], "")]).toEqual(["worker/a.node-test.cjs", "worker/b.node-test.js"]);
   });
 
