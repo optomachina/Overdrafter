@@ -113,7 +113,7 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   absent/literal-true conditions count. Workflow, job, step and job-container
   `env` must be absent or a literal plain mapping (null, arrays and whole-map
   expressions are rejected). Keys matching `NODE_OPTIONS`, `NODE_TEST_CONTEXT`,
-  `BASH_ENV`, `ENV`, `PATH`, or the `npm_config_` prefix are rejected, ignoring
+  `BASH_ENV`, `ENV`, `PATH`, `SHELLOPTS`, `BASHOPTS`, or the `npm_config_` prefix are rejected, ignoring
   case and treating hyphens as underscores. Expression values under other
   literal keys are allowed. A job `container` must be absent, a literal image
   string without `${{`, or a plain mapping. Arrays, null, numbers and other
@@ -128,6 +128,10 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   `node` function that turns a failing suite's exit 1 into exit 0. `ENV` is a
   startup hook for interactive POSIX `sh` (including Bash invoked as `sh`),
   not noninteractive Bash/sh; it is still conservatively rejected across shells.
+  A hermetic Bash regression also proves `SHELLOPTS=noexec` skips a failing
+  Node suite, turning exit 1 into exit 0. `BASHOPTS=noexec` does not mask that
+  failure on its own; this startup option channel is conservatively rejected.
+  Round 5 pins expression and non-string elements in `branches`/`paths` lists.
   Plain mappings require prototype `Object.prototype`; YAML `!!omap`/`!!set`
   Map/Set values are rejected at container, env and strategy/matrix boundaries.
   A matrix must be a nonempty literal plain mapping of nonempty arrays, without

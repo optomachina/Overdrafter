@@ -109,8 +109,10 @@ const enabled = (entry) => (entry.if === undefined || entry.if === true
 // running it (for example NODE_TEST_CONTEXT=child, NODE_OPTIONS=--test-only,
 // npm_config_script_shell=true). Unknown env maps and these keys are rejected;
 // expressions in values under other literal keys do not mask execution.
+// SHELLOPTS=noexec skips the suite. BASHOPTS is rejected conservatively as
+// another startup option channel; BASHOPTS=noexec alone does not enable noexec.
 const masksExecution = (env) => env !== undefined && (!isMapping(env) || Object.keys(env)
-  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|BASH_ENV|ENV|PATH)$|^npm_config_/i.test(key.replaceAll("-", "_"))));
+  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|BASH_ENV|ENV|PATH|SHELLOPTS|BASHOPTS)$|^npm_config_/i.test(key.replaceAll("-", "_"))));
 
 // Deliberately avoid matrix expansion: include/exclude, empty dimensions and
 // expressions need a separately proven lane, even if some combinations survive.
@@ -446,6 +448,63 @@ describe("explicit test execution lanes", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  describe("round 5 shell options and filter elements", () => {
+    const scopes = [
+      ["workflow", (w) => w], ["job", (w) => w.jobs.test],
+      ["step", (w) => w.jobs.test.steps[0]],
+      ["container", (w) => (w.jobs.test.container = { image: "node:20" })],
+    ];
+    describe.each(["SHELLOPTS", "shellopts", "BASHOPTS", "bashopts"])("%s", (key) => {
+      it.each(scopes)("rejects shell-option env at %s scope, directly and in a reusable callee", (_label, scope) => {
+        const workflow = JSON.parse(workflowWith({ run: invocation }));
+        scope(workflow).env = { [key]: "noexec" };
+        expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
+        workflow.on = "workflow_call";
+        expect([...runnerReferences({}, [caller(), { ...reusable, source: JSON.stringify(workflow) }])]).toEqual([]);
+      });
+    });
+    it.each(["SHELLOPTS", "BASHOPTS"])("rejects %s in a matrix-sourced container", (key) => {
+      const strategy = { matrix: { c: [{ image: "node:20", env: { [key]: "noexec" } }] } };
+      expect([...runnerReferences({}, [workflowWith({ run: invocation }, {
+        container: "${{ matrix.c }}", strategy,
+      })])]).toEqual([]);
+    });
+    it("rejects the reviewer's SHELLOPTS container with a Bash default", () => {
+      expect([...runnerReferences({}, [workflowWith({ run: invocation }, {
+        container: { image: "node:20", env: { SHELLOPTS: "noexec" } }, defaults: { run: { shell: "bash" } },
+      })])]).toEqual([]);
+    });
+    it.each([["SHELLOPTS", 0], ["BASHOPTS", 1]])(
+      "hermetically checks %s=noexec against a failing suite and rejects that owner", (key, status) => {
+        const root = mkdtempSync(join(tmpdir(), "lane-shellopts-"));
+        try {
+          writeFileSync(join(root, "fail.node-test.cjs"), "require('node:test')('fails', () => { throw new Error('masked'); });\n");
+          const env = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: root };
+          const run = (extra) => spawnSync("bash", ["--norc", "--noprofile", "-e", "-o", "pipefail", "-c", "node --test fail.node-test.cjs"], {
+            cwd: root, encoding: "utf8", timeout: 15_000, env: { ...env, ...extra },
+          });
+          const control = run({});
+          expect(control.error).toBeUndefined();
+          expect(control.status, control.stderr).toBe(1);
+          const configured = run({ [key]: "noexec" });
+          expect(configured.error).toBeUndefined();
+          expect(configured.status, configured.stderr).toBe(status);
+          expect([...runnerReferences({}, [workflowWith({ run: invocation, env: { [key]: "noexec" } })])]).toEqual([]);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      }, 30_000,
+    );
+    it.each([
+      ["branches expression", { push: { branches: ["main", "release/${{ vars.BRANCH }}"] } }],
+      ["paths expression", { pull_request: { paths: ["scripts/**", "${{ vars.PATH }}"] } }],
+      ["branches non-string", { push: { branches: ["main", 42] } }],
+      ["paths non-string", { pull_request: { paths: ["scripts/**", null] } }],
+    ])("rejects a filter list containing %s", (_label, on) => {
+      expect([...runnerReferences({}, [graph({ test: owner() }, on)])]).toEqual([]);
+    });
+  });
 
   describe("round 4 container boundaries", () => {
     it.each(["-ieNODE_TEST_CONTEXT=child", "-te X=1", "-ite X=1", "-teX=1", "--cpus 1", "", null, 1, []])(
