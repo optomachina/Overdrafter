@@ -1120,8 +1120,32 @@ function classifySqlTokens(text, config, path) {
 // ---------------------------------------------------------------- door report (never changes legacy classification)
 
 const DOOR_RULE_IDS = ["O-SQL", "O-MIGDIR", "O-SECRET", "O-NET", "O-DEP", "O-GATE", "O-RM"];
+const MAX_DOOR_FILE_BYTES = 256 * 1024;
 const MAX_DOOR_BYTES = 4 * 1024 * 1024;
 const MAX_DOOR_SCANS = 200;
+const MAX_DOOR_MS = 1000;
+
+class DoorScanBudgetError extends Error {}
+
+function doorBudget() {
+  const deadline = performance.now() + MAX_DOOR_MS;
+  let bytes = 0;
+  const check = () => {
+    if (performance.now() >= deadline) throw new DoorScanBudgetError();
+  };
+  return {
+    check,
+    deadline,
+    consume(text) {
+      check();
+      // Bound input length before walking it to measure UTF-8 bytes.
+      if (text.length > MAX_DOOR_FILE_BYTES) throw new DoorScanBudgetError();
+      const size = Buffer.byteLength(text);
+      bytes += size;
+      if (size > MAX_DOOR_FILE_BYTES || bytes > MAX_DOOR_BYTES) throw new DoorScanBudgetError();
+    },
+  };
+}
 
 function doorConfig(config) {
   const door = config?.door;
@@ -1138,15 +1162,18 @@ function doorConfig(config) {
   return { classes: door.classes, rules };
 }
 
-async function doorText(reader, file, timeoutMs) {
+async function doorText(reader, file, timeoutMs, budget) {
+  budget.check();
   if (!reader) throw new Error("missing content reader");
+  const remaining = budget.deadline - performance.now();
   let timer;
   try {
     const text = await Promise.race([
       Promise.resolve().then(() => reader(file)),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("door read timeout")), timeoutMs); }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(remaining <= timeoutMs ? new DoorScanBudgetError() : new Error("door read timeout")), Math.min(timeoutMs, remaining)); }),
     ]);
-    if (typeof text !== "string" || Buffer.byteLength(text) > MAX_DOOR_BYTES) throw new Error("unscannable content");
+    if (typeof text !== "string") throw new Error("unscannable content");
+    budget.consume(text);
     return text;
   } finally {
     clearTimeout(timer);
@@ -1172,25 +1199,47 @@ const hostsIn = (text) => [...text.matchAll(/https?:\/\/[^\s"'`<>\\)]+/gi)].flat
 const networkCall = /\b(?:fetch|axios|request)\s*(?:\.[a-z]+\s*)?\(|\bpage\s*\.\s*goto\s*\(/i;
 const submitWords = /submit|place[\s_-]*order|checkout|send|confirm|request[\s_-]*quote/i;
 
-function scanDoorContent({ text, base, added, removed, file, rules, add }) {
+// Each search resumes after the previous comment. An unclosed comment runs to EOF.
+function stripDoorComments(text) {
+  const chunks = [];
+  let cursor = 0;
+  let start;
+  while ((start = text.indexOf("/*", cursor)) !== -1) {
+    chunks.push(text.slice(cursor, start), " ");
+    const end = text.indexOf("*/", start + 2);
+    if (end === -1) return chunks.join("");
+    cursor = end + 2;
+  }
+  chunks.push(text.slice(cursor));
+  return chunks.join("");
+}
+
+function scanDoorContent({ text, base, added, removed, file, rules, add, budget }) {
+  const test = (pattern, source) => {
+    budget.check();
+    const matched = pattern.test(source);
+    budget.check();
+    return matched;
+  };
   const head = text;
   const changed = added + "\n" + removed;
   for (const id of ["O-SQL", "O-MIGDIR", "O-SECRET", "O-GATE"]) {
+    budget.check();
     const rule = rules.get(id);
     const source = rule.scope === "changed" ? changed : rule.scope === "removed" ? removed : head;
     // Existing literal RPC names are not new functions. A computed name cannot be proved safe.
     const patterns = id === "O-SQL" ? rule.patterns.slice(0, -1) : rule.patterns;
-    const sqlSpacing = id === "O-SQL" ? source.replaceAll(/\/\*[\s\S]*?\*\//g, " ") : source;
-    if (patterns.some((pattern) => pattern.test(source) || pattern.test(sqlSpacing))) add(id, file.path);
+    const sqlSpacing = id === "O-SQL" ? stripDoorComments(source) : source;
+    if (patterns.some((pattern) => test(pattern, source) || test(pattern, sqlSpacing))) add(id, file.path);
   }
-  if (rules.get("O-SQL").patterns.at(-1).test(head)) {
+  if (test(rules.get("O-SQL").patterns.at(-1), head)) {
     const calls = [...head.matchAll(/\.rpc\s*\(\s*([^\n,)]+)/g)].map((match) => match[1].trim());
     const literal = /^["'][a-z_][a-z0-9_]*["']$/i;
     const baseNames = new Set([...base.matchAll(/\.rpc\s*\(\s*(["'][a-z_][a-z0-9_]*["'])/gi)].map((match) => match[1].slice(1, -1)));
     if (/\bsql\s*`/i.test(head) || !calls.length || calls.some((call) => !literal.test(call) || !baseNames.has(call.slice(1, -1)))) add("O-SQL", file.path);
   }
   // Scanning the entire head is deliberately conservative: comments and existing sends count.
-  const sends = rules.get("O-NET").patterns.some((pattern) => pattern.test(head))
+  const sends = rules.get("O-NET").patterns.some((pattern) => test(pattern, head))
     || (networkCall.test(head) && /["'`](?:POST|PUT|PATCH|DELETE)["'`]/i.test(head));
   const click = /\bclick\s*\(/i.test(head) && submitWords.test(head);
   if (sends || click) add("O-NET", file.path);
@@ -1209,7 +1258,7 @@ function scanDoorContent({ text, base, added, removed, file, rules, add }) {
   if (file.classes.includes("deps")) {
     // Only registry.npmjs.org tarballs are exempt. Funding URLs are not dependency sources.
     const depText = added.replaceAll(/https?:\/\/registry\.npmjs\.org\/[^\s"']+/g, "npm-registry-source");
-    const install = rules.get("O-DEP").patterns.some((pattern) => pattern.test(depText));
+    const install = rules.get("O-DEP").patterns.some((pattern) => test(pattern, depText));
     const resolved = [...added.matchAll(/["']?resolved["']?\s*:\s*["']([^"']+)["']/gi)].map((match) => match[1]);
     const foreign = resolved.some((url) => {
       try { return new URL(url).hostname !== "registry.npmjs.org"; } catch { return true; }
@@ -1218,6 +1267,7 @@ function scanDoorContent({ text, base, added, removed, file, rules, add }) {
   }
   // Removing a required section entry often removes only its quoted name.
   if (removed && /\bREQUIRED_SECTIONS\b/.test(base)) add("O-GATE", file.path);
+  budget.check();
 }
 
 /**
@@ -1232,6 +1282,7 @@ export async function doorTier(result, options = {}) {
     if (blocking) oneWay = true;
     if (!reasons.some((reason) => reason.code === code && reason.path === path)) reasons.push({ code, ...(path ? { path } : {}) });
   };
+  const budget = doorBudget();
   try {
     const { config = loadConfig().config, headSha = result.sha, files = result.files.map((file) => ({ filename: file.path, previous_filename: file.previous_path, status: file.status })), changedFiles = files.length, readHeadFile, readBaseFile, timeoutMs = 5000 } = options;
     const { classes, rules } = doorConfig(config);
@@ -1242,6 +1293,7 @@ export async function doorTier(result, options = {}) {
     for (const name of result.classes) if (classes[name] !== "revertable") add(`class:${name}`);
     let scanned = 0;
     for (const file of result.files) {
+      budget.check();
       for (const name of file.classes) if (classes[name] !== "revertable") add(`class:${name}`, file.path);
       const paths = [file.path, file.previous_path].filter(Boolean);
       const forms = paths.flatMap(doorPathForms);
@@ -1264,16 +1316,17 @@ export async function doorTier(result, options = {}) {
         continue;
       }
       try {
-        const text = file.status === "removed" ? "" : await doorText(readHeadFile, file.path, timeoutMs);
-        const base = file.status === "added" ? "" : await doorText(readBaseFile, file.previous_path ?? file.path, timeoutMs);
-        scanDoorContent({ text, base, added: unmatchedLines(text, base), removed: unmatchedLines(base, text), file, rules, add });
-      } catch {
-        add("classifier_error", file.path);
+        const text = file.status === "removed" ? "" : await doorText(readHeadFile, file.path, timeoutMs, budget);
+        const base = file.status === "added" ? "" : await doorText(readBaseFile, file.previous_path ?? file.path, timeoutMs, budget);
+        budget.check();
+        scanDoorContent({ text, base, added: unmatchedLines(text, base), removed: unmatchedLines(base, text), file, rules, add, budget });
+      } catch (error) {
+        add(error instanceof DoorScanBudgetError ? "door_scan_budget" : "classifier_error", file.path);
       }
     }
     return { ...result, door: oneWay ? "one-way" : result.classes.length ? "revertable" : null, door_reasons: reasons };
-  } catch {
-    add("classifier_error");
+  } catch (error) {
+    add(error instanceof DoorScanBudgetError ? "door_scan_budget" : "classifier_error");
     return { ...result, door: "one-way", door_reasons: reasons };
   }
 }

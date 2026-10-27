@@ -55,7 +55,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
   6. Agent skills and prompts: `.codex/skills/**`, `.claude/agents/**`.
   7. New code in the categories above behind a feature flag that defaults off.
 - Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
-- Door split (report-only, Blaine 2026-10-27): CI computes a door (`tier:one-way` / `tier:revertable`) in `scripts/sensitive-class-detect.mjs` for reporting only. It changes no approval: every sensitive PR still needs Blaine's OK. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
+- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` computes and reports a door (`one-way` / `revertable`) only; no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
 - Rollback for an auto-merged PR is `git revert` of its squash commit.
 
 ## Sensitive paths (single shared list)

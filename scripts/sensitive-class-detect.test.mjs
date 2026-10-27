@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GATE_CODE_FILES, GATE_LOOSENING_REQUIRES, MATCHER_PATH, SENSITIVE_CLASSES, SENSITIVE_PATHS_FILE, createMatcher, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 import {
@@ -2611,6 +2611,95 @@ describe("door tier: report-only", () => {
     expect(result.door).toBe("one-way");
     expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_cap");
     expect(reads).toBe(200);
+  });
+  const withoutDoor = ({door: _door, door_reasons: _reasons, ...legacy}) => legacy;
+  it.each([
+    ["input length", "x".repeat(256 * 1024 + 1)],
+    ["UTF-8 bytes", "é".repeat(128 * 1024 + 1)],
+  ])("fails closed at the per-file %s cap without changing legacy fields", async (_, content) => {
+    const files = [modified("worker/src/dispatchLogic.ts")];
+    const baseline = await run(files);
+    const result = await run(files, content);
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it("counts both head and base bytes against one total budget", async () => {
+    const files = Array.from({length: 9}, (_, index) => modified("worker/src/dispatchLogic" + index + ".ts"));
+    const baseline = await run(files);
+    let reads = 0;
+    const result = await detect({
+      files, config, sha: "a".repeat(40),
+      readHeadFile: async () => (reads++, "x".repeat(256 * 1024)),
+      readBaseFile: async () => (reads++, "x".repeat(256 * 1024)),
+    });
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(reads).toBe(17);
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it.each(["before files", "between patterns"])("checks the total deadline %s", async (boundary) => {
+    const baseline = await run([modified("worker/src/dispatchLogic.ts")]);
+    let elapsed = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const timedConfig = {...config, door: structuredClone(config.door)};
+    try {
+      if (boundary === "between patterns") {
+        timedConfig.door.rules[0].patterns[0] = "door_deadline_probe";
+        const originalTest = RegExp.prototype.test;
+        vi.spyOn(RegExp.prototype, "test").mockImplementation(function (text) {
+          const matched = originalTest.call(this, text);
+          if (this.source === "door_deadline_probe") elapsed = 1001;
+          return matched;
+        });
+      } else clock.mockReturnValueOnce(0).mockReturnValue(1001);
+      const result = await doorTier(baseline, {
+        config: timedConfig, readHeadFile: async () => "", readBaseFile: async () => "",
+      });
+      expect(result.door).toBe("one-way");
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+      expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+  it("bounds a stalled read by the total deadline", async () => {
+    const baseline = await run([modified("worker/src/dispatchLogic.ts")]);
+    const start = performance.now();
+    const result = await doorTier(baseline, {
+      config, readHeadFile: () => new Promise(() => {}), readBaseFile: async () => "",
+    });
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(result.door).toBe("one-way");
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it.each([
+    ["blank lines before a timestamp", "\n".repeat(200_000) + "// migration: 20261027000000", "", "O-MIGDIR"],
+    ["blank lines without a timestamp", "\n".repeat(200_000) + "pure code", "", null],
+    ["unclosed comment starts", "/* ".repeat(50_000), "", null],
+    ["removed blank lines before a job", "", "\n".repeat(200_000) + "name: ci", "O-GATE"],
+  ])("%s completes under two seconds", async (_, content, base, code) => {
+    const start = performance.now();
+    const result = await run([modified("worker/src/dispatchLogic.ts")], content, base);
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(result.door_reasons.map((reason) => reason.code)).not.toContain("door_scan_budget");
+    expect(result.door).toBe(code ? "one-way" : "revertable");
+    if (code) expect(result.door_reasons.map((reason) => reason.code)).toContain(code);
+  });
+  it.each([
+    [" \t// migration: 20261027000000_example", "O-MIGDIR"],
+    ["20261027000000", "O-MIGDIR"],
+    ["const timestamp = 20261027000000;", null],
+    ["// migration: 2026102700000", null],
+    ["CREATE /* spacer */ POLICY p ON t", "O-SQL"],
+    ["CREATE /* first */ /* second */ TABLE t (id int)", "O-SQL"],
+    ["CREATE /* unclosed POLICY p ON t", null],
+    ["CREATE /* spacer */ ordinary text", null],
+  ])("preserves normal content classification for %s", async (content, code) => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")], content);
+    expect(result.door).toBe(code ? "one-way" : "revertable");
+    if (code) expect(result.door_reasons.map((reason) => reason.code)).toContain(code);
   });
   it("any one-way file dominates docs and revertable logic", async () => {
     expect((await run([modified("docs/notes.md"), modified("worker/src/dispatchLogic.ts"), modified("supabase/migrations/example.sql")])).door).toBe("one-way");

@@ -222,7 +222,7 @@
       {
         "id": "O-MIGDIR",
         "patterns": [
-          "^\\s*(?:(?:--|//|#)\\s*)?(?:migration[\\s:_-]*)?\\d{14}(?:\\b|_)"
+          "^[ \\t]*(?:(?:--|//|#)\\s*)?(?:migration[\\s:_-]*)?\\d{14}(?:\\b|_)"
         ],
         "scope": "head",
         "reason": "Migration directory on either rename side or a migration timestamp header"
@@ -258,7 +258,7 @@
       {
         "id": "O-GATE",
         "patterns": [
-          "^\\s*name\\s*:",
+          "^[ \\t]*name\\s*:",
           "\\b(?:REQUIRED_SECTIONS|provider-go-live|secret-scan)\\b",
           "\\b(?:it|test|describe)\\s*(?:\\.|\\()",
           "[\\x22\\x27]ci[\\x22\\x27]"

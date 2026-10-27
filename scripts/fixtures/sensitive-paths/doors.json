@@ -120,6 +120,30 @@
       "code": "class:infra_ci"
     },
     {
+      "name": "door gate fixtures",
+      "path": "scripts/fixtures/sensitive-paths/doors.json",
+      "door": "one-way",
+      "content": "{}",
+      "expected_class": "infra_ci",
+      "code": "class:infra_ci"
+    },
+    {
+      "name": "other sensitive path gate fixtures",
+      "path": "scripts/fixtures/sensitive-paths/another-fixture.json",
+      "door": "one-way",
+      "content": "{}",
+      "expected_class": "infra_ci",
+      "code": "class:infra_ci"
+    },
+    {
+      "name": "model routing gate fixture",
+      "path": "scripts/fixtures/agent-graph/model-routing.v2.yaml",
+      "door": "one-way",
+      "content": "version: 2",
+      "expected_class": "infra_ci",
+      "code": "class:infra_ci"
+    },
+    {
       "name": "workflow case",
       "path": ".GitHub/Workflows/ci.yml",
       "door": "one-way",
