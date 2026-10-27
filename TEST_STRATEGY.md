@@ -90,27 +90,66 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   workflow run step, a package script reached from such a step, or a reasoned
   manual exception. Discovery uses the suffix only, including filenames with
   spaces, punctuation or Unicode.
-  A workflow is credited only if it has an automatic `pull_request`, `push` or
-  `merge_group` trigger, or if it is a `workflow_call` workflow called through
-  `uses: ./.github/workflows/<file>` from a credited job. Dispatch-only,
+  A workflow is credited only if it has a supported automatic `pull_request` or
+  `push` trigger, or if it is a `workflow_call` workflow called through
+  `uses: ./.github/workflows/<file>` (`.yml` or `.yaml`) from a credited job. Dispatch-only,
   schedule-only, `pull_request_target`, uncalled reusable and trigger-less
   workflows do not count. A job is credited only if it and every job in its
-  `needs` chain are enabled. Root `verify` counts only when a credited step
-  runs it.
+  `needs` chain are enabled. A reusable caller additionally requires a nonempty
+  callee whose every job meets the same rules, recursively; missing targets and
+  cycles are rejected. This is static eligibility, not proof that jobs succeed.
+  Root `verify` counts only when a credited step runs it.
+  `merge_group` does not count: this repository has no configured merge queue;
+  revisit this rule if a queue is configured.
+  A declared `pull_request` trigger takes precedence over `push` for ownership:
+  `types` must be absent or include `synchronize`. Push-only coverage rejects
+  `tags`/`tags-ignore` without `branches`. Both reject all `branches-ignore` and
+  `paths-ignore` filters. Present `branches`/`paths` must be nonempty literal
+  string lists with at least one non-negated pattern; their glob matching and
+  ordering are not evaluated. Null event configuration means no filters.
   Ownership accepts complete simple command bodies: one AND-list, or standalone
   lines under workflow Bash/sh errexit. npm bodies must be one logical line.
   Unknown conditions, custom shells and shell control flow fail closed; only
-  absent/literal-true conditions count. Workflow, job or step `env` that sets
-  `NODE_OPTIONS`, `NODE_TEST_CONTEXT` or `npm_config_*` fails closed. The
+  absent/literal-true conditions count. Workflow, job, step and job-container
+  `env` must be absent or a literal mapping (null, arrays and whole-map
+  expressions are rejected). Keys matching `NODE_OPTIONS`, `NODE_TEST_CONTEXT`,
+  `BASH_ENV`, `ENV`, `PATH`, or the `npm_config_` prefix are rejected, ignoring
+  case and treating hyphens as underscores. Expression values under other
+  literal keys are allowed. Container options with `--env`, `--env-file`, `-e`
+  or expressions are rejected. Service-container env is separate from the
+  run-step environment and is not flagged merely for these keys (see
+  [GitHub's service env scope](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idservicesservice_idenv)).
+  The Bash spawn regression demonstrates `BASH_ENV` sourcing a replacement
+  `node` function that turns a failing suite's exit 1 into exit 0. `ENV` is a
+  startup hook for interactive POSIX `sh` (including Bash invoked as `sh`),
+  not noninteractive Bash/sh; it is still conservatively rejected across shells.
+  A matrix must be a nonempty literal mapping of nonempty arrays, without
+  expressions or `include`/`exclude`; all such expansion directives are rejected,
+  even if some combinations would survive. YAML merge keys anywhere in the
+  parsed workflow are rejected. The
   Windows form is one Node command followed by `exit $LASTEXITCODE`.
   Preflight's dynamic shell dispatch is not inferred.
   Suite arguments, workflow working directories and npm prefixes must be literal
   repository-relative paths. Absolute/drive/UNC paths, parent traversal, platform
   aliases and ambiguous options fail closed; quoted spaces and `+` are supported.
-  Not modelled (accepted limits): trigger `branches`/`paths` filters,
-  `$GITHUB_ENV` writes, `.npmrc` settings and GitHub expressions in general.
-  Unknown expressions need an explicit proven lane or a narrowly tested grammar
-  extension.
+  Not modelled (accepted limits):
+  - Actual branch/path glob matching, negation ordering, combined filters and
+    whether a specific change matches them; accepted lists can still match no
+    relevant changes. All ignore filters are conservatively rejected instead.
+  - Runtime environment changes through `$GITHUB_ENV`, `$GITHUB_PATH`, earlier
+    steps/actions, runner/container image defaults or shell startup files not
+    named by an inspected env key; service behavior/shared-volume side effects.
+  - `.npmrc` settings (including `worker/.npmrc`), npm lifecycle hooks and
+    runtime modification of scripts or executables.
+  - GitHub expression evaluation, dynamic matrix expansion, inputs/secrets,
+    runtime success, external action behavior, runner availability, permissions
+    and cancellation. Reusable-workflow checks prove only the documented static
+    job eligibility; remote/ref-qualified reusable calls are not credited.
+  - Arbitrary shell semantics: backslash-newline handling remains a simplified
+    join; leading `set -euo pipefail` and other unsupported bodies are uncredited.
+  Unknown expressions at inspected conditions, env-map, matrix, container-options
+  and path boundaries need an explicit proven lane or a tested grammar extension;
+  this guard does not claim to detect every way execution can be masked.
   Text mentions, unreachable npm scripts and failure-swallowing commands do not
   establish ownership. New suites must join an owning lane or document why they
   cannot run automatically, with operator instructions in the exception map.

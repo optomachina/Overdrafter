@@ -63,9 +63,14 @@ function requiredCommands(source, npmScript = false) {
     .map((token) => token.replace(/^(["'])(.*)\1$/, "$2")));
 }
 
-// Only these events run a workflow automatically for a change. Dispatch,
-// schedule, a missing `on:` and pull_request_target (base checkout) never do.
-const automaticEvents = new Set(["pull_request", "push", "merge_group"]);
+const isMapping = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+// YAML merge keys are not interpreted. Reject them anywhere, including aliases.
+function hasMergeKey(value, seen = new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  return Object.hasOwn(value, "<<") || Object.values(value).some((child) => hasMergeKey(child, seen));
+}
 
 function workflowEvents(workflow) {
   const on = workflow?.on;
@@ -74,48 +79,99 @@ function workflowEvents(workflow) {
   return on && typeof on === "object" ? Object.keys(on) : [];
 }
 
+function automaticallyTriggered(workflow) {
+  const events = workflowEvents(workflow);
+  // No merge queue is configured here: revisit merge_group if one is enabled.
+  // A push trigger must not hide a declared but ineffective PR trigger.
+  const event = events.includes("pull_request") ? "pull_request" : "push";
+  if (!events.includes(event)) return false;
+  const filters = isMapping(workflow.on) ? workflow.on[event] : null;
+  if (filters === null) return true;
+  if (!isMapping(filters)) return false;
+  if (event === "pull_request" && Object.hasOwn(filters, "types")
+    && (!Array.isArray(filters.types) || !filters.types.includes("synchronize"))) return false;
+  // Conservatively reject all ignore filters, not just the all-matching glob.
+  if (["branches-ignore", "paths-ignore"].some((key) => Object.hasOwn(filters, key))) return false;
+  if (event === "push" && (Object.hasOwn(filters, "tags") || Object.hasOwn(filters, "tags-ignore"))
+    && !Object.hasOwn(filters, "branches")) return false;
+  return ["branches", "paths"].every((key) => !Object.hasOwn(filters, key)
+    || (Array.isArray(filters[key]) && filters[key].length > 0
+      && filters[key].every((pattern) => typeof pattern === "string" && !pattern.includes("${{"))
+      && filters[key].some((pattern) => pattern.length > 0 && !pattern.startsWith("!"))));
+}
+
 const enabled = (entry) => (entry.if === undefined || entry.if === true
   || /^\$\{\{\s*true\s*\}\}$/.test(entry.if))
   && (entry["continue-on-error"] === undefined || entry["continue-on-error"] === false);
 
 // Environment that lets a failing Node test or npm script exit 0 without
 // running it (for example NODE_TEST_CONTEXT=child, NODE_OPTIONS=--test-only,
-// npm_config_script_shell=true). Any such key fails closed.
-const masksExecution = (env) => Object.keys(env ?? {})
-  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|npm_config_\w+)$/i.test(key));
+// npm_config_script_shell=true). Unknown env maps and these keys are rejected;
+// expressions in values under other literal keys do not mask execution.
+const masksExecution = (env) => env !== undefined && (!isMapping(env) || Object.keys(env)
+  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|BASH_ENV|ENV|PATH)$|^npm_config_/i.test(key.replaceAll("-", "_"))));
+
+// Deliberately avoid matrix expansion: include/exclude, empty dimensions and
+// expressions need a separately proven lane, even if some combinations survive.
+const runnableMatrix = (job) => job.strategy === undefined || (isMapping(job.strategy)
+  && (!Object.hasOwn(job.strategy, "matrix") || (isMapping(job.strategy.matrix)
+    && Object.keys(job.strategy.matrix).length > 0
+    && !JSON.stringify(job.strategy.matrix).includes("${{")
+    && Object.entries(job.strategy.matrix).every(([key, values]) => !["include", "exclude"].includes(key)
+      && Array.isArray(values) && values.length > 0))));
+
+const masksContainer = (container) => masksExecution(container?.env)
+  || (container?.options !== undefined && (typeof container.options !== "string"
+    || /--env\b|(?:^|\s|["'])-e|\$\{\{/.test(container.options)));
 
 // workflows: [{ path, source }] or bare sources. Credit starts at workflows with
 // an automatic trigger; a workflow_call-only workflow is credited only through
 // a credited caller job (`uses: ./.github/workflows/<file>`). A job is credited
-// only if it and every job in its `needs` chain are enabled.
+// only if it and every job in its `needs` chain are enabled. A reusable caller
+// also requires every callee job to be credited recursively (not a runtime proof).
 function countedWorkflowCommands(workflows) {
   const parsed = workflows.map((entry) => {
     const { path, source } = typeof entry === "string" ? { source: entry } : entry;
-    return { path, workflow: parse(source) };
+    const workflow = parse(source);
+    return { path, workflow: hasMergeKey(workflow) ? null : workflow };
   });
   const byPath = new Map(parsed.filter(({ path }) => path).map((entry) => [entry.path, entry]));
-  const credited = new Set(parsed.filter(({ workflow }) => workflowEvents(workflow).some((event) => automaticEvents.has(event))));
+  const reusableTarget = (job) => {
+    const callee = typeof job.uses === "string" && /^\.\/(\.github\/workflows\/[\w.-]+\.ya?ml)$/.exec(job.uses);
+    const target = callee && byPath.get(callee[1]);
+    return target && workflowEvents(target.workflow).includes("workflow_call") ? target : null;
+  };
+  const memo = new Map();
+  const jobCredited = (entry, id, path = new Set()) => {
+    const { workflow } = entry;
+    const jobs = workflow?.jobs ?? {};
+    const job = Object.hasOwn(jobs, id) ? jobs[id] : undefined;
+    if (!job || path.has(job) || !enabled(job) || masksExecution(workflow?.env)
+      || masksExecution(job.env) || masksContainer(job.container) || !runnableMatrix(job)) return false;
+    if (memo.has(job)) return memo.get(job);
+    const next = new Set(path).add(job);
+    const needs = job.needs === undefined ? [] : [job.needs].flat();
+    let result = needs.every((need) => typeof need === "string" && jobCredited(entry, need, next));
+    if (job.uses !== undefined) {
+      const target = reusableTarget(job);
+      const ids = Object.keys(target?.workflow?.jobs ?? {});
+      result = result && Boolean(target) && ids.length > 0 && ids.every((key) => jobCredited(target, key, next));
+    }
+    memo.set(job, result);
+    return result;
+  };
+  const credited = new Set(parsed.filter(({ workflow }) => automaticallyTriggered(workflow)));
   const queue = [...credited];
   const commands = [];
   while (queue.length) {
-    const { workflow } = queue.shift();
+    const entry = queue.shift();
+    const { workflow } = entry;
     if (masksExecution(workflow?.env)) continue;
     const jobs = workflow?.jobs ?? {};
-    const memo = new Map();
-    const jobCredited = (id, path = new Set()) => {
-      if (memo.has(id)) return memo.get(id);
-      const job = Object.hasOwn(jobs, id) ? jobs[id] : undefined;
-      if (!job || path.has(id) || !enabled(job) || masksExecution(job.env)) return false;
-      const needs = job.needs === undefined ? [] : [job.needs].flat();
-      const result = needs.every((need) => typeof need === "string" && jobCredited(need, new Set(path).add(id)));
-      memo.set(id, result);
-      return result;
-    };
     for (const [id, job] of Object.entries(jobs)) {
-      if (!jobCredited(id)) continue;
-      const callee = typeof job.uses === "string" && /^\.\/(\.github\/workflows\/[\w.-]+\.ya?ml)$/.exec(job.uses);
-      const target = callee && byPath.get(callee[1]);
-      if (target && !credited.has(target) && workflowEvents(target.workflow).includes("workflow_call")) {
+      if (!jobCredited(entry, id)) continue;
+      const target = reusableTarget(job);
+      if (target && !credited.has(target)) {
         credited.add(target);
         queue.push(target);
       }
@@ -302,7 +358,7 @@ describe("explicit test execution lanes", () => {
 
   it.each([
     ["pull_request map", { pull_request: {} }], ["push map", { push: { branches: ["main"] } }],
-    ["merge_group", { merge_group: {} }], ["string form", "pull_request"], ["list form", ["workflow_dispatch", "push"]],
+    ["string form", "pull_request"], ["list form", ["workflow_dispatch", "push"]],
   ])("credits a workflow with an automatic %s trigger", (_label, on) => {
     const workflow = { ...JSON.parse(workflowWith({ run: invocation })), on };
     expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
@@ -387,6 +443,135 @@ describe("explicit test execution lanes", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  describe("round 3 ownership gaps", () => {
+    const scopes = [
+      ["workflow", (w) => w], ["job", (w) => w.jobs.test],
+      ["step", (w) => w.jobs.test.steps[0]],
+      ["container", (w) => (w.jobs.test.container = { image: "node:20" })],
+    ];
+    it.each(scopes)("rejects masking keys and non-mapping env at %s scope", (_label, scope) => {
+      for (const env of [
+        ...["npm_config_script-shell", "NPM_CONFIG_SCRIPT-SHELL", "npm-config-script_shell",
+          "npm_config_", "BASH_ENV", "ENV", "PATH", "NODE_OPTIONS", "NODE_TEST_CONTEXT"]
+          .map((key) => ({ [key]: "masked" })),
+        "${{ fromJSON(vars.X) }}", [], null,
+      ]) {
+        const workflow = JSON.parse(workflowWith({ run: invocation }));
+        scope(workflow).env = env;
+        expect([...runnerReferences({}, [JSON.stringify(workflow)])], JSON.stringify(env)).toEqual([]);
+      }
+    });
+    it.each(scopes)("allows expression values under harmless literal env keys at %s scope", (_label, scope) => {
+      const workflow = JSON.parse(workflowWith({ run: invocation }));
+      scope(workflow).env = { BUILD_LABEL: "${{ vars.LABEL }}" };
+      expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
+    });
+    it.each(["--env NODE_TEST_CONTEXT=child", "--env=PATH=/tmp", "-e PATH=/tmp", "-ePATH=/tmp",
+      "--env-file=/tmp/env", "${{ vars.OPTIONS }}"])("rejects container options %s", (options) => {
+      expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container: { image: "node:20", options } })])])
+        .toEqual([]);
+    });
+    it("does not treat service-container env as run-step env", () => {
+      expect([...runnerReferences({}, [workflowWith({ run: invocation }, {
+        container: { image: "node:20", options: "--cpus 1" },
+        services: { db: { image: "postgres", env: { PATH: "/service-only", NODE_TEST_CONTEXT: "child" } } },
+      })])]).toEqual([dummySuite]);
+    });
+    it("proves BASH_ENV can hide a failing suite and rejects that owner", () => {
+      const root = mkdtempSync(join(tmpdir(), "lane-bash-env-"));
+      try {
+        writeFileSync(join(root, "fail.node-test.cjs"), "require('node:test')('fails', () => { throw new Error('masked'); });\n");
+        const startup = join(root, "startup.sh");
+        writeFileSync(startup, "node() { return 0; }\n");
+        const env = { ...process.env };
+        delete env.BASH_ENV;
+        const run = (extra) => spawnSync("bash", ["-e", "-c", "node --test fail.node-test.cjs"], {
+          cwd: root, encoding: "utf8", timeout: 15_000, env: { ...env, ...extra },
+        });
+        const control = run({});
+        const masked = run({ BASH_ENV: startup });
+        expect(control.error).toBeUndefined();
+        expect(control.status, control.stderr).toBe(1);
+        expect(masked.error).toBeUndefined();
+        expect(masked.status, masked.stderr).toBe(0);
+        expect([...runnerReferences({}, [workflowWith({ run: invocation, env: { BASH_ENV: startup } })])]).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 30_000);
+    it.each([
+      ["merge_group only", { merge_group: {} }],
+      ["closed PR", { pull_request: { types: ["closed"] } }],
+      ["labeled PR", { pull_request: { types: ["labeled"] } }],
+      ["opened-only PR", { pull_request: { types: ["opened"] } }],
+      ["closed PR plus push", { pull_request: { types: ["closed"] }, push: null, merge_group: null }],
+      ["tag-only push", { push: { tags: ["v*"] } }],
+      ["tag-ignore-only push", { push: { "tags-ignore": ["v*"] } }],
+      ["ignored branches", { push: { "branches-ignore": ["**"] } }],
+      ["ignored paths", { pull_request: { "paths-ignore": ["**"] } }],
+      ["empty branches", { push: { branches: [] } }],
+      ["negative-only branches", { push: { branches: ["!**"] } }],
+      ["empty paths", { pull_request: { paths: [] } }],
+      ["expression filters", { push: "${{ vars.FILTERS }}" }],
+    ])("rejects ineffective trigger: %s", (_label, on) => {
+      expect([...runnerReferences({}, [graph({ test: owner() }, on)])]).toEqual([]);
+    });
+    it.each([{ pull_request: { types: ["synchronize"], paths: ["scripts/**"] } },
+      { push: { branches: ["main"], tags: ["v*"] } }, { pull_request: null, merge_group: null }])(
+      "credits supported trigger filters %j", (on) => {
+        expect([...runnerReferences({}, [graph({ test: owner() }, on)])]).toEqual([dummySuite]);
+      },
+    );
+    it.each([
+      ["disabled callee", { check: plain({ if: false }) }],
+      ["partially disabled callee", { check: plain(), off: plain({ if: false }) }],
+      ["empty callee", {}],
+      ["masked callee", { check: plain({ env: { PATH: "/tmp" } }) }],
+      ["callee cycle", { call: { uses: "./.github/workflows/reusable.yml" } }],
+    ])("rejects a dependent owner behind a %s", (_label, jobs) => {
+      const root = { path: ".github/workflows/root.yml", source: graph({
+        call: { uses: "./.github/workflows/reusable.yml" }, test: owner({ needs: "call" }),
+      }) };
+      expect([...runnerReferences({}, [root, { ...reusable, source: graph(jobs, "workflow_call") }])]).toEqual([]);
+    });
+    it("checks nested reusable prerequisites and credits their enabled control", () => {
+      const root = { path: ".github/workflows/root.yml", source: graph({
+        call: { uses: "./.github/workflows/reusable.yml" }, test: owner({ needs: "call" }),
+      }) };
+      const middle = { ...reusable, source: graph({ call: { uses: "./.github/workflows/leaf.yaml" } }, "workflow_call") };
+      const leaf = (extra) => ({ path: ".github/workflows/leaf.yaml", source: graph({ check: plain(extra) }, "workflow_call") });
+      expect([...runnerReferences({}, [root, middle, leaf({ if: false })])]).toEqual([]);
+      expect([...runnerReferences({}, [root, middle, leaf({})])]).toEqual([dummySuite]);
+    });
+    it.each([null, [], "${{ fromJSON(vars.MATRIX) }}", {}, { os: [] }, { os: "${{ vars.OS }}" },
+      { os: ["${{ vars.OS }}"] }, { os: ["linux"], exclude: [{ os: "linux" }] },
+      { os: ["linux", "macos"], exclude: [{ os: "linux" }] }, { include: [{ os: "linux" }] }])(
+      "rejects unsupported or empty matrix %j", (matrix) => {
+        expect([...runnerReferences({}, [workflowWith({ run: invocation }, { strategy: { matrix } })])]).toEqual([]);
+      },
+    );
+    it("credits a literal nonempty matrix", () => {
+      expect([...runnerReferences({}, [workflowWith({ run: invocation }, { strategy: { matrix: { os: ["linux", "macos"] } } })])])
+        .toEqual([dummySuite]);
+    });
+    it("requires workflow_call on a referenced callee", () => {
+      expect([...runnerReferences({}, [caller(), { ...reusable, source: graph({ test: owner() }, "workflow_dispatch") }])])
+        .toEqual([]);
+    });
+    it("credits the .yaml reusable extension", () => {
+      expect([...runnerReferences({}, [caller({ uses: "./.github/workflows/reusable.yaml" }),
+        { ...reusable, path: ".github/workflows/reusable.yaml" }])]).toEqual([dummySuite]);
+    });
+    it("does not resolve inherited Object.prototype jobs", () => {
+      expect([...runnerReferences({}, [graph({ test: owner({ needs: "constructor" }) })])]).toEqual([]);
+    });
+    it.each(scopes)("rejects YAML merge keys at %s scope", (_label, scope) => {
+      const workflow = JSON.parse(workflowWith({ run: invocation }));
+      scope(workflow)["<<"] = { env: { PATH: "/tmp" } };
+      expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([]);
+    });
+  });
 
   it("owns quoted paths with spaces or plus signs without narrowing discovery", () => {
     const suites = ["scripts/new suite.node-test.mjs", "scripts/new+suite.node-test.cjs"];
@@ -512,17 +697,17 @@ describe("explicit test execution lanes", () => {
     ["subshell", workflowWith({ run: `( ${invocation} )` })],
     ["argument to another Node entrypoint", workflowWith({ run: `node helper.mjs ${dummySuite}` })],
   ])("does not count a workflow %s as suite execution", (_label, workflow) => {
-    expect([...runnerReferences({}, [workflow], "")]).toEqual([]);
+    expect([...runnerReferences({}, [workflow])]).toEqual([]);
   });
 
   it.each(["", "echo npm run test:orphan", "npm run test:orphan || true", "npm run test:orphan; true", "npm run test:orphan || :"])(
     "does not reach an orphan npm script from %j", (run) => {
-      expect([...runnerReferences({ "package.json": { scripts: { "test:orphan": invocation } } }, [workflowWith({ run })], "")]).toEqual([]);
+      expect([...runnerReferences({ "package.json": { scripts: { "test:orphan": invocation } } }, [workflowWith({ run })])]).toEqual([]);
     },
   );
 
   it.each(["|| true", "; true", "|| :"])("does not count swallowed npm script failure (%s)", (suffix) => {
-    expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [verifyStep], "")]).toEqual([]);
+    expect([...runnerReferences({ "package.json": { scripts: { verify: "npm run suite", suite: `${invocation} ${suffix}` } } }, [verifyStep])]).toEqual([]);
   });
 
   it("rejects multiline npm bodies and shell wrappers instead of inferring preflight control flow", () => {
@@ -554,7 +739,7 @@ describe("explicit test execution lanes", () => {
 
   it("reads YAML run bodies, continuations, quotes and workflow working directories", () => {
     const workflow = `on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: worker\n    steps:\n      - run: |\n          node --test \\\n            './a.node-test.cjs' b.node-test.js\n`;
-    expect([...runnerReferences({}, [workflow], "")]).toEqual(["worker/a.node-test.cjs", "worker/b.node-test.js"]);
+    expect([...runnerReferences({}, [workflow])]).toEqual(["worker/a.node-test.cjs", "worker/b.node-test.js"]);
   });
 
   it("requires the portable Node allowlist in root verification and the CI test job", () => {
