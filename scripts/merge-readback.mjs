@@ -5,7 +5,7 @@
 // The rebased read-back runs `git merge-tree --write-tree` (git >= 2.38), which
 // writes loose tree/blob objects into the object store but no refs.
 // Exit codes: 0 ok, 1 tree mismatch / unverified / refused / log rewritten,
-// 2 usage error.
+// 2 usage, platform or git error.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -401,6 +401,10 @@ function readBackPlanned({ repo, merge, plan, mainRef, rows = [] }) {
     const prior = rows.findLast((row) => row.action === "readback" && row.tree_match === "true" && row.pr === String(lower.pr) && row.head_sha === lower.head_sha);
     const commit = resolveCommit(repo, merge.merge_sha);
     const parent = commit ? resolveCommit(repo, `${commit}^1`) : null;
+    // A logged lower merge missing from this clone is a recorded STOP, not a git error.
+    if (prior && !resolveCommit(repo, prior.merge_sha)) {
+      return { tree_match: false, reason: `lower-merge-missing: PR ${lower.pr} below ${merge.pr}` };
+    }
     // Array order cannot prove landing order: the lower squash must precede this parent.
     if (!prior || !isAncestor(repo, prior.merge_sha, parent)) {
       return { tree_match: false, reason: `lower-merge-not-ancestor-of-parent: PR ${lower.pr} below ${merge.pr}` };

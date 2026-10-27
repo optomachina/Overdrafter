@@ -371,6 +371,36 @@ describe("git failures are errors, never a missing commit or a no", () => {
     expect(() => isAncestor(repo, verifiedHead, mergeSha)).toThrow(/simulated failure/);
   });
 
+  it("throws when git exits 1 with an error message instead of reading it as no", () => {
+    const { verifiedHead, mergeSha } = landed();
+    const shim = path.join(dir, "xcrun-git");
+    fs.writeFileSync(shim, "#!/bin/sh\necho 'xcrun: error: invalid active developer path' >&2\nexit 1\n", { mode: 0o755 });
+    setGitBinaryForTesting(shim);
+    expect(() => readBack({ repo, mergeSha, verifiedHead })).toThrow(/xcrun: error/);
+    expect(() => isAncestor(repo, verifiedHead, mergeSha)).toThrow(/xcrun: error/);
+  });
+
+  it("records a lower-merge-missing stop when the logged lower merge is not in this clone", () => {
+    const base = g("rev-parse", "main");
+    const head1 = branchWith("pr1", "main", "a.txt", "a\n");
+    const head2 = branchWith("pr2", "pr1", "b.txt", "b\n");
+    const merge1 = squashMerge("pr1", "PR 1 (#1)");
+    const plan = { base, land: [{ pr: 1, head_sha: head1, verdict_ref: "v1" }, { pr: 2, head_sha: head2, verdict_ref: "v2" }], stop: null };
+    const logPath = path.join(dir, "missing-lower.tsv");
+    logPlan(logPath, plan);
+    expect(readBackRun({ repo, plan, logPath, merges: [{ pr: 1, merge_sha: merge1 }] }).landed).toMatchObject([{ pr: 1 }]);
+    // Rewrite main and prune, so the logged lower squash no longer exists here.
+    g("reset", "-q", "--hard", base);
+    fs.rmSync(path.join(repo, ".git", "ORIG_HEAD"), { force: true });
+    g("reflog", "expire", "--expire=now", "--all");
+    g("gc", "-q", "--prune=now");
+    expect(() => g("cat-file", "-e", merge1)).toThrow();
+    const merge2 = squashMerge("pr2", "PR 2 (#2)");
+    const run = readBackRun({ repo, plan, logPath, merges: [{ pr: 2, merge_sha: merge2 }] });
+    expect(run.stop).toMatchObject({ pr: 2, tree_match: false, reason: expect.stringMatching(/^lower-merge-missing/) });
+    expect(openStop(readDecisions(logPath))).toEqual(readbackRows(logPath).find((row) => row.pr === "2"));
+  });
+
   it("still reports a commit that really is missing, and a real non-ancestor", () => {
     const { verifiedHead, mergeSha } = landed();
     expect(readBack({ repo, mergeSha: "0".repeat(40), verifiedHead })).toMatchObject({ reason: "merge-commit-missing" });
