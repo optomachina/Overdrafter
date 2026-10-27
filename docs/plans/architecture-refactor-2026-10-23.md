@@ -10,6 +10,10 @@
   - `main` is green again: run 40054865802 took 9 min 10 s, against a 19.7-minute median before, and every job is under 8 min.
   - The 575 s Chromium setup delay was apt downloads; the browser cache itself hit. The recorded green run above is supplied evidence, not a new claim about live hosted status.
   - OVD-1073 records the focused Q11 review and the Phase 0/governance decisions below. S0.3 is deferred and S7.1 is dropped; neither blocks the remaining source work.
+- Progress (2026-10-27), rechecked against `origin/main` at `3d7dd8d5`. Code citations below stay pinned to `426df5ea`; this note records what has changed since.
+  - The Phase 0 CI/guard follow-ups merged: OVD-1066 (#922, the extraction gate treats a cancelled job as a failure), OVD-1069 (#923, Playwright JSON evidence path), OVD-1070 (#924, `test.only` rejected in every Playwright config) and OVD-1072 (#926). OVD-1071 (#925, wire the OVD-510 recovery suites and guard unwired Node tests) is still open.
+  - OVD-1072 classifies Edge Functions with elevated database access as auth-sensitive, so the S7.1 rebuttal's "superuser-connection delete function matched none" is historical.
+  - OVD-1067 (#948) makes zero auto-approved requirements a review hold instead of a task failure. The R3-06 and S1.1c finding is unchanged: reuse still calls the claimless RPC (now `worker/src/index.ts:827`) and auto-approval (`:866`, `worker/src/autoApprove.ts:19-21`) before completion, while the task is running. Later `worker/src/index.ts` citations are about 3–5 lines lower on current `main`.
 - Scope: analysis and planning only. No product code, PR, Linear or protected action is part of this document.
 
 Every problem statement cites `file:line`, a doc section, a test, a git-history pattern or a measurement. Each is labelled **observed** (seen in code, data or a run) or **inferred** (a hypothesis, with the evidence that would settle it). Jev (TypeSafe `jev-1.13.0`) outputs are advisory. They can only raise a priority or risk tier, and they are never cited as evidence.
