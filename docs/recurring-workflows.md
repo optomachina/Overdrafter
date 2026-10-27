@@ -194,7 +194,11 @@ before `gh pr merge --match-head-commit`.
 Every Release bot merge plan carries a show-me-your-work TSV decision log
 (OVD-857). `scripts/merge-readback.mjs` builds the plan and the read-back rows
 from local git only. It never merges, pushes, fetches, moves a ref, or touches a
-remote, so run `git fetch origin main` yourself before reading back. The rebased
+remote, so run `git fetch origin main` yourself before reading back.
+It runs on Linux or macOS only: git is resolved from `/usr/bin`, `/bin` or
+`/usr/local/bin`, never from `PATH`. On Windows it refuses to start; run it
+inside WSL. A missing or failing git is an error (exit 2, and no row is written
+for that read-back), never a `merge-commit-missing` or not-an-ancestor result. The rebased
 read-back uses `git merge-tree --write-tree` (git 2.38 or later), which writes
 loose objects but no refs.
 

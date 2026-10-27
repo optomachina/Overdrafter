@@ -8,6 +8,7 @@ import {
   DECISION_HEADER,
   appendDecision,
   assertRef,
+  assertSupportedPlatform,
   checkMergesAgainstPlan,
   gitEnv,
   isAncestor,
@@ -21,6 +22,7 @@ import {
   readDecisions,
   resolveBinary,
   runCli,
+  setGitBinaryForTesting,
   verifyAppendOnly,
 } from "./merge-readback.mjs";
 
@@ -341,6 +343,46 @@ describe("resolveBinary", () => {
     expect(seen).toEqual(["/usr/bin/git", "/bin/git"]);
     expect(() => resolveBinary("git", { dirs: ["/nonexistent"], exists: () => false })).toThrow(/git not found in \/nonexistent/);
     expect(path.isAbsolute(resolveBinary("git"))).toBe(true);
+  });
+});
+
+// OVD-1072 #926: on Windows git was "not found", the error was swallowed and a
+// merge commit that existed was reported as merge-commit-missing.
+describe("git failures are errors, never a missing commit or a no", () => {
+  afterEach(() => setGitBinaryForTesting(null));
+
+  function landed() {
+    const verifiedHead = branchWith("pr1", "main", "a.txt", "a\n");
+    return { verifiedHead, mergeSha: squashMerge("pr1", "PR 1 (#1)") };
+  }
+
+  it("throws when git is missing instead of reporting merge-commit-missing", () => {
+    const { verifiedHead, mergeSha } = landed();
+    setGitBinaryForTesting(path.join(dir, "no-such-git"));
+    expect(() => readBack({ repo, mergeSha, verifiedHead })).toThrow(/ENOENT/);
+  });
+
+  it("throws when git fails instead of reporting not-an-ancestor", () => {
+    const { verifiedHead, mergeSha } = landed();
+    const broken = path.join(dir, "broken-git");
+    fs.writeFileSync(broken, "#!/bin/sh\necho 'fatal: simulated failure' >&2\nexit 128\n", { mode: 0o755 });
+    setGitBinaryForTesting(broken);
+    expect(() => readBack({ repo, mergeSha, verifiedHead })).toThrow(/simulated failure/);
+    expect(() => isAncestor(repo, verifiedHead, mergeSha)).toThrow(/simulated failure/);
+  });
+
+  it("still reports a commit that really is missing, and a real non-ancestor", () => {
+    const { verifiedHead, mergeSha } = landed();
+    expect(readBack({ repo, mergeSha: "0".repeat(40), verifiedHead })).toMatchObject({ reason: "merge-commit-missing" });
+    expect(isAncestor(repo, mergeSha, verifiedHead)).toBe(false);
+  });
+
+  it("fails fast on Windows with a clear instruction, before running git", () => {
+    expect(() => assertSupportedPlatform("win32")).toThrow(/Linux or macOS only; on Windows run it inside WSL/);
+    expect(() => assertSupportedPlatform("linux")).not.toThrow();
+    expect(() => assertSupportedPlatform("darwin")).not.toThrow();
+    expect(() => runCli(["digest", "--log", path.join(dir, "log.tsv")], { write() {} }, "win32"))
+      .toThrow(/Linux or macOS only/);
   });
 });
 
