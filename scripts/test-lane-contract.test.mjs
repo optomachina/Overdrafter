@@ -105,14 +105,21 @@ const enabled = (entry) => (entry.if === undefined || entry.if === true
   || /^\$\{\{\s*true\s*\}\}$/.test(entry.if))
   && (entry["continue-on-error"] === undefined || entry["continue-on-error"] === false);
 
-// Environment that lets a failing Node test or npm script exit 0 without
-// running it (for example NODE_TEST_CONTEXT=child, NODE_OPTIONS=--test-only,
-// npm_config_script_shell=true). Unknown env maps and these keys are rejected;
-// expressions in values under other literal keys do not mask execution.
-// SHELLOPTS=noexec skips the suite. BASHOPTS is rejected conservatively as
-// another startup option channel; BASHOPTS=noexec alone does not enable noexec.
+// Inert application/config keys inventoried from suite-owning jobs at 704cca56,
+// including reached reusable callees. These do not configure shell/Node/npm/
+// loader startup. New keys need an explicit review, not another denylist entry.
+const allowedExecutionEnvKeys = new Set([
+  "OVD591_PSQL_QUALIFIED", // ci.yml / test
+  "OVD_EXPECTED_SHA", "OVD_INERT_RESULTS", // companion-inert-qualified.yml / windows-desktop-inert
+  "POSTGRES_IMAGE", "STORAGE_IMAGE", "AUTH_IMAGE", "REVIEWED_MANIFEST", "HEAD_SHA", // native-sql-proofs.yml / staged-native-sql
+  "IMAGES", // ovd591-qualification.yml / capability-sql; ovd591-retention-qualification.yml / retention-sql;
+  // free-quote-sql-qualification.yml / free-quote-sql
+]);
+// Exact case-insensitive matching only: hyphens are NOT normalized to underscores,
+// since that would grant new spellings credit. Unknown keys/maps fail closed;
+// expression values under an allowlisted literal key remain accepted.
 const masksExecution = (env) => env !== undefined && (!isMapping(env) || Object.keys(env)
-  .some((key) => /^(?:NODE_OPTIONS|NODE_TEST_CONTEXT|BASH_ENV|ENV|PATH|SHELLOPTS|BASHOPTS)$|^npm_config_/i.test(key.replaceAll("-", "_"))));
+  .some((key) => !allowedExecutionEnvKeys.has(key.toUpperCase())));
 
 // Deliberately avoid matrix expansion: include/exclude, empty dimensions and
 // expressions need a separately proven lane, even if some combinations survive.
@@ -449,6 +456,83 @@ describe("explicit test execution lanes", () => {
     }
   }, 30_000);
 
+  describe("round 6 env allowlist", () => {
+    const scopes = [
+      ["workflow", (w) => w], ["job", (w) => w.jobs.test],
+      ["step", (w) => w.jobs.test.steps[0]],
+      ["container", (w) => (w.jobs.test.container = { image: "node:20" })],
+    ];
+    const allowedKeys = ["OVD591_PSQL_QUALIFIED", "OVD_EXPECTED_SHA", "OVD_INERT_RESULTS",
+      "POSTGRES_IMAGE", "STORAGE_IMAGE", "AUTH_IMAGE", "REVIEWED_MANIFEST", "HEAD_SHA", "IMAGES"];
+    describe.each(["direct", "reusable callee"])("%s", (route) => {
+      const references = (scope, env) => {
+        const workflow = JSON.parse(workflowWith({ run: "npm run suite" }));
+        scope(workflow).env = env;
+        if (route === "reusable callee") workflow.on = "workflow_call";
+        const workflows = route === "direct" ? [JSON.stringify(workflow)]
+          : [caller(), { ...reusable, source: JSON.stringify(workflow) }];
+        return [...runnerReferences({ "package.json": { scripts: { suite: invocation } } }, workflows)];
+      };
+      describe.each(scopes)("%s scope", (_label, scope) => {
+        it.each([
+          ["BASH_FUNC_npm%%", "() { return 0; }"], ["BASH_FUNC_node%%", "() { return 0; }"],
+          ...["LD_PRELOAD", "LD_AUDIT", "SOME_UNKNOWN_KEY", "bash_func_npm%%", "ld_preload", "Ld_Audit",
+            "NODE_OPTIONS", "NODE_TEST_CONTEXT", "node_options", "NODE-OPTIONS", "NODE_EXTRA_CA_CERTS",
+            "npm_config_script-shell", "NPM_CONFIG_SCRIPT-SHELL", "npm-config-script_shell", "npm_config_",
+            "NPM_CONFIG_IGNORE_SCRIPTS", "BASH_ENV", "bash-env", "BASHOPTS", "bashopts", "BASH_COMPAT",
+            "ENV", "env", "SHELLOPTS", "shellopts", "PATH", "path", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+            "GCONV_PATH", "LOCPATH", "HOME", "TMPDIR", "IFS", "PS4", "GIT_EXEC_PATH", "GIT_SSH_COMMAND"]
+            .map((key) => [key, "masked"]),
+        ])("rejects unallowlisted key %s", (key, value) => {
+          expect(references(scope, { [key]: value })).toEqual([]);
+        });
+        it.each(allowedKeys)("accepts allowlisted %s in upper, lower and mixed case", (key) => {
+          for (const spelling of [key, key.toLowerCase(), key[0] + key.slice(1).toLowerCase()]) {
+            expect(references(scope, { [spelling]: "${{ vars.VALUE }}" }), spelling).toEqual([dummySuite]);
+          }
+        });
+        it.each([undefined, {}])("accepts absent or empty env: %j", (env) => {
+          expect(references(scope, env)).toEqual([dummySuite]);
+        });
+        it.each([null, [], "${{ matrix.env }}", "${{ fromJSON(vars.ENV) }}"])(
+          "rejects non-mapping env: %j", (env) => { expect(references(scope, env)).toEqual([]); },
+        );
+        it("does not normalize hyphens or accept prefixes, suffixes or a mixed unknown key", () => {
+          for (const key of allowedKeys) {
+            for (const unknown of [key.replaceAll("_", "-"), `${key}_EXTRA`, `EXTRA_${key}`].filter((k) => k !== key)) {
+              expect(references(scope, { [unknown]: "value" }), unknown).toEqual([]);
+            }
+          }
+          expect(references(scope, { IMAGES: "safe", SOME_UNKNOWN_KEY: "masked" })).toEqual([]);
+        });
+      });
+    });
+    it("hermetically proves BASH_FUNC_npm%% hides a failing npm-script suite and rejects that owner", () => {
+      const root = mkdtempSync(join(tmpdir(), "lane-bash-function-"));
+      try {
+        writeFileSync(join(root, "fail.node-test.cjs"), "require('node:test')('fails', () => { throw new Error('exported-function sentinel'); });\n");
+        writeFileSync(join(root, "package.json"), JSON.stringify({ private: true, scripts: { suite: "node --test fail.node-test.cjs" } }));
+        const env = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: root };
+        const run = (extra) => spawnSync("bash", ["--norc", "--noprofile", "-e", "-o", "pipefail", "-c", "npm run suite"], {
+          cwd: root, encoding: "utf8", timeout: 15_000, env: { ...env, ...extra },
+        });
+        const control = run({});
+        expect(control.error).toBeUndefined();
+        expect(control.status, control.stderr).toBe(1);
+        expect(control.stdout).toContain("exported-function sentinel");
+        const maskingEnv = { "BASH_FUNC_npm%%": "() { return 0; }" };
+        const masked = run(maskingEnv);
+        expect(masked.error).toBeUndefined();
+        expect(masked.status, masked.stderr).toBe(0);
+        expect(masked.stdout).toBe("");
+        expect([...runnerReferences({ "package.json": { scripts: { suite: invocation } } },
+          [workflowWith({ run: "npm run suite", env: maskingEnv })])]).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 30_000);
+  });
+
   describe("round 5 shell options and filter elements", () => {
     const scopes = [
       ["workflow", (w) => w], ["job", (w) => w.jobs.test],
@@ -464,7 +548,7 @@ describe("explicit test execution lanes", () => {
         expect([...runnerReferences({}, [caller(), { ...reusable, source: JSON.stringify(workflow) }])]).toEqual([]);
       });
     });
-    it.each(["SHELLOPTS", "BASHOPTS"])("rejects %s in a matrix-sourced container", (key) => {
+    it.each(["SHELLOPTS", "BASHOPTS"])("rejects an expression container regardless of its matrix %s key", (key) => {
       const strategy = { matrix: { c: [{ image: "node:20", env: { [key]: "noexec" } }] } };
       expect([...runnerReferences({}, [workflowWith({ run: invocation }, {
         container: "${{ matrix.c }}", strategy,
@@ -519,12 +603,12 @@ describe("explicit test execution lanes", () => {
         expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container, strategy })])]).toEqual([]);
       },
     );
-    it.each([undefined, "node:20", { image: "node:20" }, { image: "node:20", env: { BUILD_LABEL: "${{ vars.LABEL }}" } }])(
+    it.each([undefined, "node:20", { image: "node:20" }, { image: "node:20", env: { IMAGES: "${{ vars.LABEL }}" } }])(
       "credits absent or literal container: %j", (container) => {
         expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container })])]).toEqual([dummySuite]);
       },
     );
-    it.each(["!!omap [{BUILD_LABEL: safe}]", "!!set {BUILD_LABEL: null}"])(
+    it.each(["!!omap [{IMAGES: safe}]", "!!set {IMAGES: null}"])(
       "rejects tagged mappings at container, env and matrix boundaries: %s", (tagged) => {
         const placements = [
           `env: ${tagged}\njobs:\n  test:`,
@@ -564,7 +648,7 @@ describe("explicit test execution lanes", () => {
     });
     it.each(scopes)("allows expression values under harmless literal env keys at %s scope", (_label, scope) => {
       const workflow = JSON.parse(workflowWith({ run: invocation }));
-      scope(workflow).env = { BUILD_LABEL: "${{ vars.LABEL }}" };
+      scope(workflow).env = { IMAGES: "${{ vars.LABEL }}" };
       expect([...runnerReferences({}, [JSON.stringify(workflow)])]).toEqual([dummySuite]);
     });
     it.each(["--env NODE_TEST_CONTEXT=child", "--env=PATH=/tmp", "-e PATH=/tmp", "-ePATH=/tmp",

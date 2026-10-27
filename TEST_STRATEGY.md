@@ -112,11 +112,16 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   Unknown conditions, custom shells and shell control flow fail closed; only
   absent/literal-true conditions count. Workflow, job, step and job-container
   `env` must be absent or a literal plain mapping (null, arrays and whole-map
-  expressions are rejected). Keys matching `NODE_OPTIONS`, `NODE_TEST_CONTEXT`,
-  `BASH_ENV`, `ENV`, `PATH`, `SHELLOPTS`, `BASHOPTS`, or the `npm_config_` prefix are rejected, ignoring
-  case and treating hyphens as underscores. Expression values under other
-  literal keys are allowed. A job `container` must be absent, a literal image
-  string without `${{`, or a plain mapping. Arrays, null, numbers and other
+  expressions are rejected). Every key must be in `allowedExecutionEnvKeys`,
+  the single allowlist in the guard, with its owning workflows/jobs cited.
+  It contains only inventoried inert application/config keys; unknown keys fail
+  closed, including exported `BASH_FUNC_*` functions, `LD_*`/`DYLD_*` loader hooks
+  and shell/Node/npm startup settings. Matching is exact and case-insensitive;
+  hyphens are not normalized to underscores. Expression values under an
+  allowlisted literal key are allowed. These rules also apply to reusable callees.
+  A job `container` must be absent, a string without `${{`, or a plain mapping;
+  the string-form expression check does not inspect `image` inside a mapping.
+  Arrays, null, numbers and other
   non-string/non-plain-mapping values are rejected. Any `options` key in a job
   container mapping is rejected, regardless of its value. Container mappings
   still apply the env rules above. Container-env bypasses via bundled short
@@ -131,6 +136,9 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   A hermetic Bash regression also proves `SHELLOPTS=noexec` skips a failing
   Node suite, turning exit 1 into exit 0. `BASHOPTS=noexec` does not mask that
   failure on its own; this startup option channel is conservatively rejected.
+  A hermetic npm-script regression proves `BASH_FUNC_npm%%` can replace npm,
+  skipping a failing suite and turning exit 1 into exit 0 under the runner's
+  Bash arguments. The allowlist rejects that owner at every inspected env scope.
   Round 5 pins expression and non-string elements in `branches`/`paths` lists.
   Plain mappings require prototype `Object.prototype`; YAML `!!omap`/`!!set`
   Map/Set values are rejected at container, env and strategy/matrix boundaries.
@@ -151,6 +159,9 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   - Actual branch/path glob matching, negation ordering, combined filters and
     whether a specific change matches them; accepted lists can still match no
     relevant changes. All ignore filters are conservatively rejected instead.
+  - Container mappings may contain an expression in `image`; only string-form
+    containers are checked for image expressions. Container `credentials`,
+    `ports` and `volumes` are not inspected.
   - Runtime environment changes through `$GITHUB_ENV`, `$GITHUB_PATH`, earlier
     steps/actions, runner/container image defaults or shell startup files not
     named by an inspected env key; service behavior/shared-volume side effects.
