@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  forbidOnly: !!process.env.CI,
   testDir: ".", testMatch: "*.browser.ts", workers: 1, fullyParallel: false,
   use: {
     baseURL: "http://127.0.0.1:4175", headless: true, serviceWorkers: "block",
