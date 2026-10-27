@@ -85,6 +85,112 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 
 ### Explicit execution boundaries
 
+- `scripts/test-lane-contract.test.mjs` enforces ownership of every tracked
+  `.node-test.[cm]?js` suite: a failure-propagating Node invocation in a credited
+  workflow run step, a package script reached from such a step, or a reasoned
+  manual exception. Discovery uses the suffix only, including filenames with
+  spaces, punctuation or Unicode.
+  A workflow is credited only if it has a supported automatic `pull_request` or
+  `push` trigger, or if it is a `workflow_call` workflow called through
+  `uses: ./.github/workflows/<file>` (`.yml` or `.yaml`) from a credited job. Dispatch-only,
+  schedule-only, `pull_request_target`, uncalled reusable and trigger-less
+  workflows do not count. A job is credited only if it and every job in its
+  `needs` chain are enabled. A reusable caller additionally requires a nonempty
+  callee whose every job meets the same rules, recursively; missing targets and
+  cycles are rejected. This is static eligibility, not proof that jobs succeed.
+  Root `verify` counts only when a credited step runs it.
+  `merge_group` does not count: this repository has no configured merge queue;
+  revisit this rule if a queue is configured.
+  A declared `pull_request` trigger takes precedence over `push` for ownership:
+  `types` must be absent or include `synchronize`. Push-only coverage rejects
+  `tags`/`tags-ignore` without `branches`. Both reject all `branches-ignore` and
+  `paths-ignore` filters. Present `branches`/`paths` must be nonempty literal
+  string lists with at least one non-negated pattern; their glob matching and
+  ordering are not evaluated. Null event configuration means no filters.
+  Ownership accepts complete simple command bodies: one AND-list, or standalone
+  lines under workflow Bash/sh errexit. npm bodies must be one logical line.
+  Unknown conditions, custom shells and shell control flow fail closed; only
+  absent/literal-true conditions count. Workflow, job, step and job-container
+  `env` must be absent or a literal plain mapping (null, arrays and whole-map
+  expressions are rejected). Every key must be in `allowedExecutionEnvKeys`,
+  the single allowlist in the guard, with its owning workflows/jobs cited.
+  It contains only inventoried inert application/config keys; unknown keys fail
+  closed, including exported `BASH_FUNC_*` functions, `LD_*`/`DYLD_*` loader hooks
+  and shell/Node/npm startup settings. Matching is exact and case-insensitive;
+  hyphens are not normalized to underscores. Expression values under an
+  allowlisted literal key are allowed. These rules also apply to reusable callees.
+  A job `container` must be absent, a string without `${{`, or a plain mapping;
+  the string-form expression check does not inspect `image` inside a mapping.
+  Arrays, null, numbers and other
+  non-string/non-plain-mapping values are rejected. Any `options` key in a job
+  container mapping is rejected, regardless of its value. Container mappings
+  still apply the env rules above. Container-env bypasses via bundled short
+  flags and whole-container expressions were open at `79e4e4c6` and are closed
+  in round 4. Service-container env is separate from the
+  run-step environment and is not flagged merely for these keys (see
+  [GitHub's service env scope](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idservicesservice_idenv)).
+  The Bash spawn regression demonstrates `BASH_ENV` sourcing a replacement
+  `node` function that turns a failing suite's exit 1 into exit 0. `ENV` is a
+  startup hook for interactive POSIX `sh` (including Bash invoked as `sh`),
+  not noninteractive Bash/sh; it is still conservatively rejected across shells.
+  A hermetic Bash regression also proves `SHELLOPTS=noexec` skips a failing
+  Node suite, turning exit 1 into exit 0. `BASHOPTS=noexec` does not mask that
+  failure on its own; this startup option channel is conservatively rejected.
+  A hermetic npm-script regression proves `BASH_FUNC_npm%%` can replace npm,
+  skipping a failing suite and turning exit 1 into exit 0 under the runner's
+  Bash arguments. The allowlist rejects that owner at every inspected env scope.
+  Round 5 pins expression and non-string elements in `branches`/`paths` lists.
+  Plain mappings require prototype `Object.prototype`; YAML `!!omap`/`!!set`
+  Map/Set values are rejected at container, env and strategy/matrix boundaries.
+  A matrix must be a nonempty literal plain mapping of nonempty arrays, without
+  expressions or `include`/`exclude`; all such expansion directives are rejected,
+  even if some combinations would survive. YAML merge keys anywhere in the
+  parsed workflow are rejected. The
+  Windows form is one Node command followed by `exit $LASTEXITCODE`.
+  Preflight's dynamic shell dispatch is not inferred.
+  Suite arguments, workflow working directories and npm prefixes must be literal
+  repository-relative paths. Absolute/drive/UNC paths, parent traversal, platform
+  aliases and ambiguous options fail closed; quoted spaces and `+` are supported.
+  Not modelled (accepted limits):
+  - `defaults.run` set from an expression is not inspected; it can change the
+    assumed shell or working directory.
+  - `pull_request` with `types: [synchronize]` alone is credited even though it
+    does not cover the initial `opened` event.
+  - Actual branch/path glob matching, negation ordering, combined filters and
+    whether a specific change matches them; accepted lists can still match no
+    relevant changes. All ignore filters are conservatively rejected instead.
+  - Container mappings may contain an expression in `image`; only string-form
+    containers are checked for image expressions. Container `credentials`,
+    `ports` and `volumes` are not inspected.
+  - Runtime environment changes through `$GITHUB_ENV`, `$GITHUB_PATH`, earlier
+    steps/actions, runner/container image defaults or shell startup files not
+    named by an inspected env key; service behavior/shared-volume side effects.
+  - `.npmrc` settings (including `worker/.npmrc`), npm lifecycle hooks and
+    runtime modification of scripts or executables.
+  - GitHub expression evaluation, dynamic matrix expansion, inputs/secrets,
+    runtime success, external action behavior, runner availability, permissions
+    and cancellation. Reusable-workflow checks prove only the documented static
+    job eligibility; remote/ref-qualified reusable calls are not credited.
+  - Arbitrary shell semantics: backslash-newline handling remains a simplified
+    join; leading `set -euo pipefail` and other unsupported bodies are uncredited.
+  Unknown expressions at inspected conditions, env-map, matrix, whole-container
+  and path boundaries need an explicit proven lane or a tested grammar extension;
+  this guard does not claim to detect every way execution can be masked.
+  Text mentions, unreachable npm scripts and failure-swallowing commands do not
+  establish ownership. New suites must join an owning lane or document why they
+  cannot run automatically, with operator instructions in the exception map.
+- `scripts/check-compiled-worker-scope.node-test.mjs` is a manual exception:
+  it requires Node 22 type stripping (CI uses Node 20) and the pinned historical
+  revision's populated npm cache. Instructions and prerequisites are in
+  `scripts/fixtures/compiled-worker-scope.md`.
+- `scripts/test-support/source-only-network.node-test.cjs` is a manual exception
+  while its transport-probe execution-review boundary remains unresolved, as
+  recorded in `scripts/test-support/README.md` under Current validation status.
+  That README contains its offline commands and containment prerequisites;
+  listing them does not establish a pass or resolve the execution boundary.
+  The separate filesystem-only
+  `scripts/test-support/source-only-network-marker.node-test.cjs` is owned by
+  `test:portable-node` and needs no transport probes.
 - The default suite's browser-recovery tests exercise real Chromium DOM behavior.
   CI provisions Playwright Chromium in the unit job. Local runners may select an
   already installed browser with `OVD_TEST_CHROMIUM_EXECUTABLE_PATH=/absolute/path`;
