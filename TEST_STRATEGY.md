@@ -111,19 +111,26 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   lines under workflow Bash/sh errexit. npm bodies must be one logical line.
   Unknown conditions, custom shells and shell control flow fail closed; only
   absent/literal-true conditions count. Workflow, job, step and job-container
-  `env` must be absent or a literal mapping (null, arrays and whole-map
+  `env` must be absent or a literal plain mapping (null, arrays and whole-map
   expressions are rejected). Keys matching `NODE_OPTIONS`, `NODE_TEST_CONTEXT`,
   `BASH_ENV`, `ENV`, `PATH`, or the `npm_config_` prefix are rejected, ignoring
   case and treating hyphens as underscores. Expression values under other
-  literal keys are allowed. Container options with `--env`, `--env-file`, `-e`
-  or expressions are rejected. Service-container env is separate from the
+  literal keys are allowed. A job `container` must be absent, a literal image
+  string without `${{`, or a plain mapping. Arrays, null, numbers and other
+  non-string/non-plain-mapping values are rejected. Any `options` key in a job
+  container mapping is rejected, regardless of its value. Container mappings
+  still apply the env rules above. Container-env bypasses via bundled short
+  flags and whole-container expressions were open at `79e4e4c6` and are closed
+  in round 4. Service-container env is separate from the
   run-step environment and is not flagged merely for these keys (see
   [GitHub's service env scope](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idservicesservice_idenv)).
   The Bash spawn regression demonstrates `BASH_ENV` sourcing a replacement
   `node` function that turns a failing suite's exit 1 into exit 0. `ENV` is a
   startup hook for interactive POSIX `sh` (including Bash invoked as `sh`),
   not noninteractive Bash/sh; it is still conservatively rejected across shells.
-  A matrix must be a nonempty literal mapping of nonempty arrays, without
+  Plain mappings require prototype `Object.prototype`; YAML `!!omap`/`!!set`
+  Map/Set values are rejected at container, env and strategy/matrix boundaries.
+  A matrix must be a nonempty literal plain mapping of nonempty arrays, without
   expressions or `include`/`exclude`; all such expansion directives are rejected,
   even if some combinations would survive. YAML merge keys anywhere in the
   parsed workflow are rejected. The
@@ -133,6 +140,10 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   repository-relative paths. Absolute/drive/UNC paths, parent traversal, platform
   aliases and ambiguous options fail closed; quoted spaces and `+` are supported.
   Not modelled (accepted limits):
+  - `defaults.run` set from an expression is not inspected; it can change the
+    assumed shell or working directory.
+  - `pull_request` with `types: [synchronize]` alone is credited even though it
+    does not cover the initial `opened` event.
   - Actual branch/path glob matching, negation ordering, combined filters and
     whether a specific change matches them; accepted lists can still match no
     relevant changes. All ignore filters are conservatively rejected instead.
@@ -147,7 +158,7 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
     job eligibility; remote/ref-qualified reusable calls are not credited.
   - Arbitrary shell semantics: backslash-newline handling remains a simplified
     join; leading `set -euo pipefail` and other unsupported bodies are uncredited.
-  Unknown expressions at inspected conditions, env-map, matrix, container-options
+  Unknown expressions at inspected conditions, env-map, matrix, whole-container
   and path boundaries need an explicit proven lane or a tested grammar extension;
   this guard does not claim to detect every way execution can be masked.
   Text mentions, unreachable npm scripts and failure-swallowing commands do not

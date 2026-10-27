@@ -63,7 +63,8 @@ function requiredCommands(source, npmScript = false) {
     .map((token) => token.replace(/^(["'])(.*)\1$/, "$2")));
 }
 
-const isMapping = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const isMapping = (value) => value !== null && typeof value === "object"
+  && Object.getPrototypeOf(value) === Object.prototype;
 
 // YAML merge keys are not interpreted. Reject them anywhere, including aliases.
 function hasMergeKey(value, seen = new Set()) {
@@ -120,9 +121,11 @@ const runnableMatrix = (job) => job.strategy === undefined || (isMapping(job.str
     && Object.entries(job.strategy.matrix).every(([key, values]) => !["include", "exclude"].includes(key)
       && Array.isArray(values) && values.length > 0))));
 
-const masksContainer = (container) => masksExecution(container?.env)
-  || (container?.options !== undefined && (typeof container.options !== "string"
-    || /--env\b|(?:^|\s|["'])-e|\$\{\{/.test(container.options)));
+// No repository workflow needs Docker options. Reject the key outright rather
+// than partially interpreting Docker's bundled short flags or expression values.
+const masksContainer = (container) => container !== undefined && (typeof container === "string"
+  ? container.includes("${{")
+  : !isMapping(container) || Object.hasOwn(container, "options") || masksExecution(container.env));
 
 // workflows: [{ path, source }] or bare sources. Credit starts at workflows with
 // an automatic trigger; a workflow_call-only workflow is credited only through
@@ -444,6 +447,44 @@ describe("explicit test execution lanes", () => {
     }
   }, 30_000);
 
+  describe("round 4 container boundaries", () => {
+    it.each(["-ieNODE_TEST_CONTEXT=child", "-te X=1", "-ite X=1", "-teX=1", "--cpus 1", "", null, 1, []])(
+      "rejects any container options key: %j", (options) => {
+        expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container: { image: "node:20", options } })])])
+          .toEqual([]);
+      },
+    );
+    it.each(["${{ fromJSON(vars.C) }}", "${{ matrix.c }}", "node:${{ vars.VERSION }}", [], null, 20])(
+      "rejects expression or non-mapping/non-string container: %j", (container) => {
+        const strategy = { matrix: { c: [{ image: "node:20", env: { NODE_TEST_CONTEXT: "child" } }] } };
+        expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container, strategy })])]).toEqual([]);
+      },
+    );
+    it.each([undefined, "node:20", { image: "node:20" }, { image: "node:20", env: { BUILD_LABEL: "${{ vars.LABEL }}" } }])(
+      "credits absent or literal container: %j", (container) => {
+        expect([...runnerReferences({}, [workflowWith({ run: invocation }, { container })])]).toEqual([dummySuite]);
+      },
+    );
+    it.each(["!!omap [{BUILD_LABEL: safe}]", "!!set {BUILD_LABEL: null}"])(
+      "rejects tagged mappings at container, env and matrix boundaries: %s", (tagged) => {
+        const placements = [
+          `env: ${tagged}\njobs:\n  test:`,
+          `jobs:\n  test:\n    env: ${tagged}`,
+          `jobs:\n  test:\n    container: ${tagged}`,
+          `jobs:\n  test:\n    container:\n      image: node:20\n      env: ${tagged}`,
+          `jobs:\n  test:\n    strategy: ${tagged}`,
+          `jobs:\n  test:\n    strategy:\n      matrix: ${tagged}`,
+        ];
+        for (const placement of placements) {
+          const source = `on: pull_request\n${placement}\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${invocation}\n`;
+          expect([...runnerReferences({}, [source])], placement).toEqual([]);
+        }
+        const source = `on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${invocation}\n        env: ${tagged}\n`;
+        expect([...runnerReferences({}, [source])]).toEqual([]);
+      },
+    );
+  });
+
   describe("round 3 ownership gaps", () => {
     const scopes = [
       ["workflow", (w) => w], ["job", (w) => w.jobs.test],
@@ -474,19 +515,18 @@ describe("explicit test execution lanes", () => {
     });
     it("does not treat service-container env as run-step env", () => {
       expect([...runnerReferences({}, [workflowWith({ run: invocation }, {
-        container: { image: "node:20", options: "--cpus 1" },
+        container: { image: "node:20" },
         services: { db: { image: "postgres", env: { PATH: "/service-only", NODE_TEST_CONTEXT: "child" } } },
       })])]).toEqual([dummySuite]);
     });
-    it("proves BASH_ENV can hide a failing suite and rejects that owner", () => {
+    it("round 4: hermetically proves BASH_ENV can hide a failing suite and rejects that owner", () => {
       const root = mkdtempSync(join(tmpdir(), "lane-bash-env-"));
       try {
         writeFileSync(join(root, "fail.node-test.cjs"), "require('node:test')('fails', () => { throw new Error('masked'); });\n");
         const startup = join(root, "startup.sh");
         writeFileSync(startup, "node() { return 0; }\n");
-        const env = { ...process.env };
-        delete env.BASH_ENV;
-        const run = (extra) => spawnSync("bash", ["-e", "-c", "node --test fail.node-test.cjs"], {
+        const env = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: root };
+        const run = (extra) => spawnSync("bash", ["--norc", "--noprofile", "-e", "-c", "node --test fail.node-test.cjs"], {
           cwd: root, encoding: "utf8", timeout: 15_000, env: { ...env, ...extra },
         });
         const control = run({});
