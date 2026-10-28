@@ -26,6 +26,9 @@ const portableSuites = [
   "scripts/check-migration-immutability.node-test.mjs",
   "scripts/check-secret-paths.node-test.mjs",
   "scripts/check-migration-function-collisions.node-test.mjs",
+  "scripts/ovd510-boundary-recovery.node-test.mjs",
+  "scripts/ovd510-immutable-source.node-test.mjs",
+  "scripts/test-support/source-only-network-marker.node-test.cjs",
 ];
 
 function portableCommand() {
