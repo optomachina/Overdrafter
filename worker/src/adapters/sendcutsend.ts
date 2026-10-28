@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { VendorAdapter } from "./base.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { resolveRequirementProcess } from "../partContext.js";
@@ -7,10 +9,27 @@ import {
   UNKNOWN_WORKER_ERROR_MESSAGE,
 } from "../errorSummary.js";
 import {
+  VendorAutomationError,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
+  type VendorArtifact,
+  type WorkerConfig,
 } from "../types.js";
+import {
+  captureScrubbedProviderEvidence,
+  PROVIDER_PORTAL_KERNEL_REVISION,
+  runProviderPortalKernel,
+  scrubProviderEvidenceText,
+  type ProviderPortalKernelResult,
+  type ProviderPortalTerminalState,
+  type RunProviderPortalKernelDependencies,
+} from "./providerPortalKernel.js";
+import {
+  buildSendCutSendSheetPortalDefinition,
+  SENDCUTSEND_SHEET_ADAPTER_REVISION,
+  SENDCUTSEND_SHEET_ENVELOPE_REVISION,
+} from "./sendcutsendPortal.js";
 import {
   evaluateSendCutSendCncEnvelope,
   inspectSendCutSendStepGeometry,
@@ -642,6 +661,57 @@ function manifestMatchesAuthorizedInput(
     && input.requirement.tightest_tolerance_inch === manifest.tightestToleranceInch;
 }
 
+const SENDCUTSEND_TEXT_EVIDENCE_LIMIT = 6_000;
+
+/**
+ * Operator-local page text for a sheet run that stopped without an offer,
+ * through the shared redaction. It stays in the worker temp directory and
+ * is never uploaded; it exists so selector drift can be repaired from what
+ * the page actually showed.
+ */
+async function writeSendCutSendTextEvidence(
+  config: WorkerConfig,
+  diagnostic: { terminalState: string; reason: string; bodyText: string },
+): Promise<VendorArtifact[]> {
+  const baseDir = path.join(config.workerTempDir, "provider-portal-evidence", "sendcutsend");
+  await fs.mkdir(baseDir, { recursive: true, mode: 0o700 });
+  const evidenceDir = await fs.mkdtemp(path.join(baseDir, "diagnostic-"));
+  const textPath = path.join(evidenceDir, "portal-text.json");
+  await fs.writeFile(textPath, JSON.stringify({
+    schemaVersion: "sendcutsend-portal-text.v1",
+    adapterRevision: SENDCUTSEND_SHEET_ADAPTER_REVISION,
+    terminalState: diagnostic.terminalState,
+    reason: diagnostic.reason,
+    capturedAt: new Date().toISOString(),
+    textExcerpt: scrubProviderEvidenceText(diagnostic.bodyText, SENDCUTSEND_TEXT_EVIDENCE_LIMIT),
+  }, null, 2), { encoding: "utf8", mode: 0o600 });
+  return [{
+    kind: "json",
+    label: "SendCutSend scrubbed portal text",
+    localPath: textPath,
+    contentType: "application/json",
+  }];
+}
+
+function sheetKernelDependencies(
+  config: WorkerConfig,
+  base: RunProviderPortalKernelDependencies,
+): RunProviderPortalKernelDependencies {
+  return {
+    ...base,
+    captureEvidence: async (definition, workerConfig, state, snapshot, portalBoundary) => {
+      const artifacts = await captureScrubbedProviderEvidence(definition, workerConfig, state, snapshot, portalBoundary);
+      if (state === "offers_extracted") return artifacts;
+      const text = await writeSendCutSendTextEvidence(config, {
+        terminalState: state,
+        reason: state,
+        bodyText: snapshot.bodyText,
+      }).catch(() => []);
+      return [...artifacts, ...text];
+    },
+  };
+}
+
 export class SendCutSendAdapter extends VendorAdapter {
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
@@ -649,6 +719,10 @@ export class SendCutSendAdapter extends VendorAdapter {
     }
     if (input.executionContext !== "live_evaluation") {
       return this.emptyResult(input, null, "provider_neutral_authorization_unavailable");
+    }
+
+    if (input.providerPortalApproval?.providerKey === "sendcutsend") {
+      return this.quoteSheetPortal(input);
     }
 
     const files = getAuthorizedLiveEvaluationFiles(input);
@@ -689,6 +763,145 @@ export class SendCutSendAdapter extends VendorAdapter {
     } catch (error) {
       return this.emptyResult(input, null, "evaluation_preflight_failed", error);
     }
+  }
+
+  /**
+   * OVD-1056 quote-only sheet lane: an operator approval for SendCutSend
+   * selects the provider-portal kernel instead of the local CNC manifest.
+   * The kernel re-checks the approval, file binding and envelope before
+   * launch, and the harness wraps this call in the kill-switch guard.
+   */
+  private async quoteSheetPortal(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    const snapshot = input.requirement.spec_snapshot;
+    if (isRecord(snapshot) && snapshot.evaluationManifest !== undefined) {
+      throw new VendorAutomationError(
+        "SendCutSend received both a CNC manifest and a sheet portal approval.",
+        "unexpected_ui_state",
+        this.sheetPayload(input, "sendcutsend_evaluation_lane_ambiguous", "unsupported", false),
+      );
+    }
+    let result: ProviderPortalKernelResult;
+    try {
+      result = await runProviderPortalKernel(
+        buildSendCutSendSheetPortalDefinition({
+          writeDiagnostic: (diagnostic) => writeSendCutSendTextEvidence(this.config, diagnostic),
+        }),
+        this.config,
+        input,
+        sheetKernelDependencies(this.config, { operationalJev: this.operationalJev }),
+      );
+    } catch (error) {
+      // The sheet hooks' own follow-up stops get the same output shape as the
+      // kernel-classified ones; everything else (kill switch, refusals, drift) propagates.
+      const state = error instanceof VendorAutomationError ? error.payload.terminalState : null;
+      const reason = error instanceof VendorAutomationError ? error.payload.reason : null;
+      if (error instanceof VendorAutomationError && typeof reason === "string" && reason.startsWith("sendcutsend_")
+        && (state === "configuration_required" || state === "manual_review")) {
+        return this.sheetFollowUp(input, {
+          reason,
+          url: typeof error.payload.url === "string" ? error.payload.url : null,
+          artifacts: error.artifacts,
+          providerMutationPossible: error.payload.providerMutationPossible === true,
+        }, state, {});
+      }
+      throw error;
+    }
+    return this.outputForSheetResult(input, result);
+  }
+
+  private outputForSheetResult(
+    input: VendorQuoteAdapterInput,
+    result: ProviderPortalKernelResult,
+  ): VendorQuoteAdapterOutput {
+    const boundary = result.portalBoundary ? { portalBoundary: result.portalBoundary } : {};
+    if (result.state === "offers_extracted" && result.offers[0]) {
+      const first = result.offers[0];
+      return {
+        vendor: "sendcutsend",
+        status: "instant_quote_received",
+        unitPriceUsd: first.unitPriceUsd,
+        totalPriceUsd: first.totalPriceUsd,
+        leadTimeBusinessDays: first.leadTimeBusinessDays,
+        quoteUrl: result.url,
+        validUntil: first.validUntil,
+        validityDurationDays: first.validityDurationDays,
+        validitySource: first.validitySource,
+        validityTerms: first.validityTerms,
+        offers: result.offers,
+        dfmIssues: [],
+        notes: ["SendCutSend priced the reviewed sheet stock from the quote summary; nothing was added to the cart."],
+        artifacts: result.artifacts,
+        rawPayload: this.sheetPayload(input, result.reason, "offers_extracted", result.providerMutationPossible, boundary),
+      };
+    }
+    if (result.state === "manual_review" || result.state === "configuration_required" || result.state === "unsupported") {
+      return this.sheetFollowUp(input, result, result.state, boundary);
+    }
+    const state: ProviderPortalTerminalState = result.state === "offers_extracted" || result.state === "native_offers_extracted"
+      ? "selector_drift"
+      : result.state;
+    const reason = state === result.state ? result.reason : "anchored_usd_offer_not_found";
+    throw new VendorAutomationError(
+      `SendCutSend sheet evaluation stopped in ${state}.`,
+      state === "login_required" || state === "missing_session" ? "login_required"
+        : state === "captcha" ? "captcha"
+          : state === "selector_drift" ? "selector_failure"
+            : "unexpected_ui_state",
+      this.sheetPayload(input, reason, state, result.providerMutationPossible, { url: result.url, ...boundary }),
+      result.artifacts,
+    );
+  }
+
+  private sheetFollowUp(
+    input: VendorQuoteAdapterInput,
+    result: Pick<ProviderPortalKernelResult, "reason" | "url" | "artifacts" | "providerMutationPossible">,
+    state: "manual_review" | "configuration_required" | "unsupported",
+    extra: Record<string, unknown>,
+  ): VendorQuoteAdapterOutput {
+    return {
+      vendor: "sendcutsend",
+      status: state === "manual_review" ? "manual_review_pending" : "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: result.url,
+      offers: [],
+      dfmIssues: [],
+      notes: [`SendCutSend sheet evaluation stopped in ${state} (${result.reason}).`],
+      artifacts: result.artifacts,
+      rawPayload: this.sheetPayload(input, result.reason, state, result.providerMutationPossible, extra),
+    };
+  }
+
+  private sheetPayload(
+    input: VendorQuoteAdapterInput,
+    reason: string,
+    terminalState: ProviderPortalTerminalState | "offers_extracted",
+    providerMutationPossible: boolean,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      vendor: "sendcutsend",
+      source: "sendcutsend-sheet-portal",
+      executionContext: input.executionContext ?? "production_dispatch",
+      kernelRevision: PROVIDER_PORTAL_KERNEL_REVISION,
+      manifestRevision: "provider-manifest.v1",
+      envelopeRevision: SENDCUTSEND_SHEET_ENVELOPE_REVISION,
+      adapterRevision: SENDCUTSEND_SHEET_ADAPTER_REVISION,
+      accountMode: "existing_authenticated_account",
+      terminalState,
+      reason,
+      detectedFlow: reason,
+      requestedQuantity: input.requestedQuantity,
+      providerMutationPossible,
+      quoteOnly: true,
+      orderProhibited: true,
+      orderAttempted: false,
+      evidenceTrust: "evaluation_only_untrusted",
+      customerLiveOfferEligible: false,
+      persistenceEligible: false,
+      ...extra,
+    };
   }
 
   private emptyResult(
