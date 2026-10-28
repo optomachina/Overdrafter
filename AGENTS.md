@@ -52,9 +52,9 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ## Standing approvals and the Blaine channel
 
-- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) route decisions only through Grok Bot; relayed approvals from Blaine count as Blaine's own.
+- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
 - Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
-- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it as soon as ready via one card: commit SHA, passing checks, merge and production migration as separate actions.
+- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it, as soon as the item is ready, with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
 
 ### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
 
@@ -110,7 +110,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 - Use the maintained guarded launcher/assignment protocol in `docs/agent-development-control-plane.md` before controlled dispatch; launch prerequisites only with evidence-bound dependency relevance. Reuse valid terminal results and equivalent review results.
 - Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
-- Host disconnection never proves a process stopped. Destructive cleanup remains protected.
+- Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
 
 ## Issue and PR ownership
 
@@ -125,7 +125,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; if indivisible and within standing authorization, continue with independent Astra xhigh review required before integration.
 
 - Prefer the smallest change achieving the requested outcome without silent narrowing.
-- Plan verification from [observable failures](TEST_STRATEGY.md#verification-planning); use its layered coverage and test-retirement criteria. Run targeted checks first; run the repo integration gate at the PR boundary.
+- Plan verification from the observable failures in [TEST_STRATEGY.md](TEST_STRATEGY.md#verification-planning); use its layered coverage and test-retirement criteria. Run targeted checks first; run the repo integration gate at the PR boundary.
 - Material UI behavior needs real browser evidence. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims need real native evidence.
 - Bind acceptance to the exact source revision, check definition, fixture/toolchain identity, owner, and timestamp.
 - Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.
@@ -138,10 +138,10 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 
 - Triage: before any LLM, ovd-auto-triage asks jev (pinned jev-1.13.0, via scripts/jev-client.mjs) for route/tier; jev may only raise tiers; errors/low confidence require the conservative tier.
 - Pools: heavy builds rotate across Codex, Claude Code and Cursor cloud agents by availability and budget; the dispatcher logs which pool it chose and why.
-- One writer per PR owns every repair. Budget: 2 local/CI repair rounds total, each with all current failure logs at once, never check by check.
+- One writer per PR owns every repair. Budget: 2 repair rounds across local and CI combined, each with all current failure logs at once, never check by check.
 - Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Rerun infra failures without using repair rounds; never "fix" them in code.
 - After the budget, failing PRs become drafts with diagnostics comments: failing checks, log excerpts, each round's changes, and suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk. [Reviewer routing](scripts/fixtures/agent-graph/model-routing.v2.yaml) is enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. Provider/customer data PRs also require Opus review regardless of Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus` for Opus, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
+- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A PR that touches provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus` for Opus, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Merge gate
@@ -168,7 +168,7 @@ Use a skill only when it materially improves the task:
 
 Keep tool adapters thin and load conditional procedures only when relevant. Astra medium: routine orchestration; high: difficult architecture/causal recovery; xhigh: independent high-impact review. The dispatcher selects actual model and effort.
 
-Follow `docs/provider-integration.md` for provider work, applicable runbooks for database releases, and engineering control-plane/native qualification documents for CAD. Product runtime retry rules do not automatically limit disposable development-test retries.
+Keep provider work behind `docs/provider-integration.md`, database releases behind the applicable runbook, and CAD work behind the engineering control-plane and native qualification documents. Product runtime retry rules do not automatically limit disposable development-test retries.
 
 ## Agent graph
 
