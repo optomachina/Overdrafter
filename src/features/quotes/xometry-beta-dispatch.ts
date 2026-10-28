@@ -118,7 +118,9 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_special_delivery_date_not_supported"
   | "xometry_beta_special_requirements_not_supported"
   | "provider_dispatch_special_requirements_not_supported"
-  | "provider_dispatch_exact_scope_required";
+  | "provider_dispatch_exact_scope_required"
+  // OVD-1068: the generic path's missing confirmed destination, resolved inline like Xometry's.
+  | "provider_dispatch_confirmed_destination_required";
 
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
@@ -128,6 +130,7 @@ const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_special_requirements_not_supported",
   "provider_dispatch_special_requirements_not_supported",
   "provider_dispatch_exact_scope_required",
+  "provider_dispatch_confirmed_destination_required",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -538,7 +541,8 @@ export function getXometryBetaScopeFailureMessage(
   const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
   switch (getXometryBetaScopeDenialCode(error)) {
     case "xometry_beta_confirmed_sourcing_address_required":
-      return "Xometry needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.";
+    case "provider_dispatch_confirmed_destination_required":
+      return `${label} needs a confirmed shipping address for supplier quotes. Review and confirm your organization's shipping address.`;
     case "xometry_beta_standard_tolerance_required":
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
     case "xometry_beta_quantity_one_required":
