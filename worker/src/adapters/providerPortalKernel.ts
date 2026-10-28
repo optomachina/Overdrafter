@@ -230,9 +230,11 @@ export type ProviderPortalDefinition = {
     assessEligibility: (
       input: VendorQuoteAdapterInput,
     ) => ProviderPortalEligibility | Promise<ProviderPortalEligibility>;
+    /** `reader` lets a definition verify the page it is about to mutate between configuration steps. */
     configure: (
       configuration: ProviderPortalConfigurationCapability,
       input: VendorQuoteAdapterInput,
+      reader: ProviderPortalReadCapability,
     ) => void | Promise<void>;
     classifyPortalState: (
       snapshot: ProviderPortalSnapshot,
@@ -1840,6 +1842,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
   await definition.hooks.configure(
     buildConfigurationCapability(definition, session.page, session.boundary, input.providerKillSwitchCheckpoint),
     input,
+    buildReadCapability(definition, session.page, session.boundary),
   );
   assertPortalBoundary(definition, session.page, session.boundary);
   await session.page.waitForLoadState("networkidle", { timeout: config.browserTimeoutMs }).catch(() => undefined);
