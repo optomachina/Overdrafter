@@ -1,6 +1,6 @@
 # OverDrafter agent contract
 
-This file governs agent execution. Product intent lives in the maintained product documents, and detailed controller mechanics live in [docs/agent-development-control-plane.md](docs/agent-development-control-plane.md). Tool adapters may point here but may not create competing policy.
+This file governs agent execution. Maintained product docs hold intent; [the control plane](docs/agent-development-control-plane.md) details controller mechanics. Tool adapters may point here but may not create competing policy.
 
 ## Read what the task needs
 
@@ -12,13 +12,13 @@ Use the narrowest applicable source:
 - specialized behavior: the closest maintained domain document;
 - directory-specific checks: the closest `AGENTS.override.md`.
 
-Verify repository identity when selection is ambiguous or before a consequential mutation. Do not read the full documentation stack for routine localized work.
+Verify repo identity if selection is ambiguous or before a consequential mutation. Do not read all docs for routine localized work.
 
 ## Standing development authorization
 
-Blaine authorizes the recorded sole owner of OverDrafter 1.0 and JARVIS work to continue reversible, scoped development without repeated approval. This includes inspection, isolated branches or worktrees, editing, local tests and fixtures, correction of relevant failures, commits, pushes, GitHub PR and Linear maintenance, automated review response, and merge after current-head hosted gates and actionable review findings pass.
+Blaine authorizes the recorded sole OverDrafter 1.0/JARVIS owner's scoped, reversible development without repeat approval. This covers inspection, isolated branches/worktrees, edits, local tests/fixtures, relevant fixes, commits/pushes, GitHub PR/Linear upkeep, automated review response, and merge after current-head hosted gates and actionable review findings pass.
 
-The authorization survives goal continuation, corrected attempts, replacement tasks, and recorded ownership transfers within the named objectives. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval stops for reversible development. A failed check remains evidence but does not revoke authority to diagnose and correct the bounded unit.
+Authorization survives continued goals, corrected attempts, replacement tasks, and recorded ownership transfers within these objectives. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval stops for reversible development. A failed check remains evidence but does not revoke authority to diagnose and correct the bounded unit.
 
 ### Synthetic-fixture lane
 
@@ -48,13 +48,13 @@ Blaine's standing authorization covers read-only repair recapture (`npm run fixt
 
 Login, MFA, CAPTCHA, block or terms-of-service signals stop the run and go to a human. Envelope and admit stages, worker deploys, releasing a human-engaged kill switch, and any class other than S stay protected.
 
-Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repository access, and broad project approval do not expand into these actions.
+Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repo access and broad project approval do not authorize these actions.
 
 ## Standing approvals and the Blaine channel
 
-- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
+- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) route decisions only through Grok Bot; relayed approvals from Blaine count as Blaine's own.
 - Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
-- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it, as soon as the item is ready, with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
+- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it as soon as ready via one card: commit SHA, passing checks, merge and production migration as separate actions.
 
 ### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
 
@@ -68,7 +68,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
   6. Agent skills and prompts: `.codex/skills/**`, `.claude/agents/**`.
   7. New code in the categories above behind a feature flag that defaults off.
 - Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
-- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` computes and reports a door (`one-way` / `revertable`) only; no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
+- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` computes and reports a door (`one-way` / `revertable`) only; no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK, apart from the class S exception below. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
 - Rollback for an auto-merged PR is `git revert` of its squash commit.
 
 ### Fixture-heal class S auto-merge (OVD-796 D8, OVD-816)
@@ -103,29 +103,29 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 
 ## Ownership and durable state
 
-Repository state and the controller's durable run store are authoritative. Plans, chat narration, Linear comments, heartbeat summaries, and Markdown status pages are projections.
+Repository state and the controller's durable run store are authoritative. Plans, chat, Linear comments, heartbeats, and Markdown status pages are projections.
 
 - One writer owns each mutable target; read-only reviewers may run in parallel.
 - Record the owner task, host, worktree, branch, source revision, completion condition, allowed actions, verification, budget, and failure family for nontrivial units.
-- Before controlled dispatch, use the maintained guarded launcher and assignment protocol in `docs/agent-development-control-plane.md`; a dependency must earn evidence-bound relevance before its prerequisite is launched. Reuse valid terminal results and equivalent review results.
+- Use the maintained guarded launcher/assignment protocol in `docs/agent-development-control-plane.md` before controlled dispatch; launch prerequisites only with evidence-bound dependency relevance. Reuse valid terminal results and equivalent review results.
 - Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
-- Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
+- Host disconnection never proves a process stopped. Destructive cleanup remains protected.
 
 ## Issue and PR ownership
 
-- Give each implementation issue one bounded, independently testable change and normally one main PR. Before implementation, confirm that the proposed change can satisfy that issue's source acceptance criteria; a merged PR does not complete an issue with remaining post-merge criteria.
-- Put a separate, independently mergeable change or distinct acceptance criteria in a child issue before opening its PR. A direct review or CI repair of the same change stays on its PR. If that PR has already merged, a narrowly scoped follow-up PR may use the same issue only when it repairs that issue's original acceptance criteria; record the reason in the PR and issue.
-- Use release-outcome parent issues to coordinate qualification and live gates, not as the issue ID for source-change PRs. Name the bounded child issue on each new source PR, while preserving historical links.
-- Keep PRs small: aim for about 200 changed lines or fewer, excluding generated files, fixtures and lockfiles. Split larger work into stacked or sequential PRs, each independently reviewable and revertible. Land risky or user-visible behavior behind a feature flag (default off) so it can merge early and be turned on, or rolled back, without a revert. A PR over the guideline states why it cannot be split.
-- At the final PR head, inspect the Sonar issue list and actual bot-review coverage and threads. A green quality gate, rate-limit notice, or stale review is not evidence that no actionable finding remains; record the gap and its disposition.
+- Give each implementation issue one bounded, independently testable change and normally one main PR. Before implementation, confirm the change can meet source acceptance criteria; merging cannot complete issues with post-merge criteria remaining.
+- Put a separate, independently mergeable change or distinct acceptance criteria in a child issue before opening its PR. A direct review or CI repair of the same change stays on its PR. After merge, a narrow follow-up PR may reuse the issue only to repair its original acceptance criteria; record why in both.
+- Release-outcome parents coordinate qualification/live gates; never use their IDs for source-change PRs. Name the bounded child issue on new source PRs; preserve historical links.
+- Aim for PRs of about 200 changed lines or fewer, excluding generated files, fixtures and lockfiles. Split larger work into stacked or sequential PRs, each independently reviewable and revertible. Feature-flag risky or user-visible behavior (default off) for early merge, activation or rollback without a revert. A PR over the guideline states why it cannot be split.
+- At final PR head, inspect Sonar issues, actual bot-review coverage and threads. Green quality gates, rate-limit notices, or stale reviews aren't evidence of no actionable findings; record the gap and disposition.
 
 ## Complexity and verification
 
-Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; when an indivisible High-complexity change remains within standing authorization, continue and require independent Astra xhigh review before integration.
+Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; if indivisible and within standing authorization, continue with independent Astra xhigh review required before integration.
 
-- Prefer the smallest change that achieves the requested outcome without silently narrowing it.
-- Plan verification from the observable failures in [TEST_STRATEGY.md](TEST_STRATEGY.md#verification-planning); use its layered coverage and test-retirement criteria. Run targeted checks first and the repository integration gate at the PR boundary.
+- Prefer the smallest change achieving the requested outcome without silent narrowing.
+- Plan verification from [observable failures](TEST_STRATEGY.md#verification-planning); use its layered coverage and test-retirement criteria. Run targeted checks first; run the repo integration gate at the PR boundary.
 - Material UI behavior needs real browser evidence. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims need real native evidence.
 - Bind acceptance to the exact source revision, check definition, fixture/toolchain identity, owner, and timestamp.
 - Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.
@@ -136,23 +136,23 @@ Independent review is required for cross-cutting architecture, security-sensitiv
 
 Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) before opening or updating a PR. CI calls the same script for those stages, so a local pass predicts the hosted result. Paste its stage lines into the PR.
 
-- Triage: ovd-auto-triage asks jev (pinned jev-1.13.0, via scripts/jev-client.mjs) for route and model tier before any LLM; jev may only raise a tier; on errors or low confidence, fall back to the conservative tier.
+- Triage: before any LLM, ovd-auto-triage asks jev (pinned jev-1.13.0, via scripts/jev-client.mjs) for route/tier; jev may only raise tiers; errors/low confidence require the conservative tier.
 - Pools: heavy builds rotate across Codex, Claude Code and Cursor cloud agents by availability and budget; the dispatcher logs which pool it chose and why.
-- One writer per PR owns every repair. Total budget is 2 repair rounds across local and CI combined; each round gets all current failure logs at once, not one check at a time.
-- Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
-- A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs), as documented in [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A PR that touches provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus` for Opus, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
+- One writer per PR owns every repair. Budget: 2 local/CI repair rounds total, each with all current failure logs at once, never check by check.
+- Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Rerun infra failures without using repair rounds; never "fix" them in code.
+- After the budget, failing PRs become drafts with diagnostics comments: failing checks, log excerpts, each round's changes, and suspected cause. Do not weaken tests or checks to pass.
+- Review is sized by risk. [Reviewer routing](scripts/fixtures/agent-graph/model-routing.v2.yaml) is enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. Provider/customer data PRs also require Opus review regardless of Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus` for Opus, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Merge gate
 
-The merge gate, verdict types and landing rules are owned by [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml). Reviewer routing retains the authoritative owners and draft-graph limitation specified above. This file owns approvals, the auto-merge allowlist and sensitive paths. Changes that loosen the gate need a countersign from the root agent and Blaine's OK.
+[The graph](docs/agent-graph/graph.v1.yaml) owns the merge gate, verdict types and landing rules. Reviewer routing keeps the above authoritative owners and draft-graph limitation. This file owns approvals, auto-merge allowlist and sensitive paths. Gate loosening needs root agent countersign and Blaine's OK.
 
 ## Completion and failure
 
-Work is complete only when the requested behavior exists, acceptance criteria and required current-revision verification pass, artifacts are recorded, and no required action remains. A draft, commit, PR, narrow test, or agent declaration alone is not completion.
+Completion requires requested behavior, passing acceptance criteria and required current-revision verification, recorded artifacts, and no required action remaining. A draft, commit, PR, narrow test, or agent declaration alone is not completion.
 
-At each checkpoint produce a durable artifact, verified state change, causal blocker, or bounded wait tied to a live handle. After two checkpoints without durable progress or three materially similar failures, stop only the affected unit and replan with stronger reasoning or independent review. Preserve accepted siblings.
+At each checkpoint produce a durable artifact, verified state change, causal blocker, or bounded wait tied to a live handle. After 2 checkpoints without durable progress or 3 materially similar failures, stop only that unit; replan with stronger reasoning or independent review. Preserve accepted siblings.
 
 Stop immediately for ownership collision, uncertain destructive target, possible secret exposure, unauthorized production/provider/customer scope, or evidence that the requested approach cannot satisfy product intent.
 
@@ -166,10 +166,10 @@ Use a skill only when it materially improves the task:
 - `overnight-run`: sustained unattended work;
 - `agent-skill-eval`: consequential workflow changes.
 
-Keep tool adapters thin and load conditional procedures only when relevant. Routine orchestration uses Astra medium; difficult architecture or causal recovery uses high; independent high-impact review uses xhigh. The dispatcher selects actual model and effort.
+Keep tool adapters thin and load conditional procedures only when relevant. Astra medium: routine orchestration; high: difficult architecture/causal recovery; xhigh: independent high-impact review. The dispatcher selects actual model and effort.
 
-Keep provider work behind `docs/provider-integration.md`, database releases behind the applicable runbook, and CAD work behind the engineering control-plane and native qualification documents. Product runtime retry rules do not automatically constrain disposable development-test retries.
+Follow `docs/provider-integration.md` for provider work, applicable runbooks for database releases, and engineering control-plane/native qualification documents for CAD. Product runtime retry rules do not automatically limit disposable development-test retries.
 
 ## Agent graph
 
-Routing between agents is defined in [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml) (draft), except reviewer routing, whose authoritative sources are listed above. This file keeps the rules; the spec holds the structure.
+[The draft graph](docs/agent-graph/graph.v1.yaml) defines agent routing, except reviewer routing, whose authoritative sources are above. This file keeps the rules; the spec holds the structure.
