@@ -197,6 +197,8 @@
     { "glob": ".github/workflows/vendor-pr-serialization.yml", "class": "infra_ci" },
     { "glob": "**/.gitleaks.toml", "class": "infra_ci" },
     { "glob": "**/.gitleaksignore", "class": "infra_ci" },
+    { "glob": "scripts/test-support/source-only-network-marker*", "class": "infra_ci" },
+    { "glob": "scripts/test-support/source-only-network.cjs", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
