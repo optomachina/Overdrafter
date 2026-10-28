@@ -3,6 +3,7 @@ import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { STATUS_TONE } from "@/components/quotes/status-tone";
 import {
   confirmSourcingDestination,
   fetchSourcingDestination,
@@ -197,7 +198,7 @@ export function QuoteShippingAddressPanel({ organizationId, providerLabel, onCon
       ) : null}
 
       {error ? (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <p role="alert" className={`mt-2 text-sm ${STATUS_TONE.error}`}>
           {error}
         </p>
       ) : null}
