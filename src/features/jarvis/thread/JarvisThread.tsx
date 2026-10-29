@@ -132,7 +132,7 @@ function Decision({ event, resolved, client, offline, stopped }: Readonly<{ even
   if (resolved) {
     body = <>
       <p>{decisionLabel(resolved)} · {resolved.choice}</p>
-      <p>{resolved.rationale}</p>
+      <p className="jt-muted jt-rationale">{resolved.rationale}</p>
       <a href="#jarvis-message" onClick={() => document.getElementById("jarvis-message")?.focus()}>Change</a>
     </>;
   } else if (stopped) {
