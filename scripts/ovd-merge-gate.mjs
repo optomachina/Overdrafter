@@ -1027,39 +1027,51 @@ const historyItemOk = (item) => isRecord(item) && typeof item.author === "string
 /**
  * pull_request_target runs the base branch's workflow file. Its head_branch is
  * the PR head, so that field cannot prove the YAML was the default branch's.
- * GitHub records the base on workflow_run.pull_requests[].base.ref while the
- * PR is open. Every associated PR must target the default branch. A missing
- * or empty list fails closed: a non-default base can ship a modified
- * ovd-merge-gate.yml and forge history or prior-gate records (OVD-1109).
+ * workflow_run.pull_requests is computed when the API is read, not when the
+ * run happened, so a run on a non-default base whose PR was later retargeted
+ * (or re-opened) into the default branch would show the default base. Trust is
+ * therefore tied to the trigger (OVD-1109):
+ * - pull_requests is exactly [the PR being evaluated], based on the default branch;
+ * - that PR (still based on the default branch) was created no later than the run;
+ * - the PR timeline has no base_ref_changed event.
+ * Anything else, including a missing list (closed or fork PRs), fails closed.
  */
-function pullRequestTargetOnDefaultBranch(workflow, defaultBranch) {
+async function pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr) {
   const pulls = workflow?.pull_requests;
-  if (!Array.isArray(pulls) || pulls.length === 0 || typeof defaultBranch !== "string") return false;
-  return pulls.every((pull) => isRecord(pull) && isRecord(pull.base) && pull.base.ref === defaultBranch);
+  if (!Array.isArray(pulls) || pulls.length !== 1 || typeof defaultBranch !== "string" || !PR_NUMBER.test(String(pr ?? ""))) return false;
+  const [listed] = pulls;
+  if (!isRecord(listed) || Number(listed.number) !== Number(pr) || !isRecord(listed.base) || listed.base.ref !== defaultBranch) return false;
+  const pull = await client.json(`/repos/${repo}/pulls/${Number(pr)}`);
+  const pullCreated = Date.parse(pull?.created_at);
+  const runCreated = Date.parse(workflow?.created_at);
+  if (pull?.base?.ref !== defaultBranch || !Number.isFinite(pullCreated) || !Number.isFinite(runCreated) || pullCreated > runCreated) return false;
+  const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
+  if (!Array.isArray(timeline)) return false;
+  return !timeline.some((item) => !isRecord(item) || item.event === "base_ref_changed");
 }
 
-/** Reject foreign writers before interpreting any stored gate data. */
-export async function verifyGateProvenance(client, repo, run) {
+/** Reject foreign writers before interpreting any stored gate data. `pr` is the PR the record is read for. */
+export async function verifyGateProvenance(client, repo, run, pr) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || !Number.isInteger(run?.check_suite?.id)) throw new Error("gate record has no trusted Actions check suite");
   const repository = await client.json(`/repos/${repo}`);
   const workflows = await client.paginate(`/repos/${repo}/actions/runs?check_suite_id=${run.check_suite.id}`, (data) => data?.workflow_runs);
   if (workflows.length !== 1) throw new Error("gate record workflow provenance is ambiguous or missing");
   const workflow = workflows[0];
   const defaultBranch = repository.default_branch;
-  const onDefaultBranch = workflow.event === "pull_request_target"
-    ? pullRequestTargetOnDefaultBranch(workflow, defaultBranch)
-    : workflow.head_branch === defaultBranch;
   if (workflow.check_suite_id !== run.check_suite.id || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
-      || !GATE_EVENTS.includes(workflow.event) || typeof defaultBranch !== "string"
-      || !onDefaultBranch) {
+      || !GATE_EVENTS.includes(workflow.event) || typeof defaultBranch !== "string") {
     throw new Error("gate record is not from the default-branch merge-gate workflow");
   }
+  const onDefaultBranch = workflow.event === "pull_request_target"
+    ? await pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr)
+    : workflow.head_branch === defaultBranch;
+  if (!onDefaultBranch) throw new Error("gate record is not from the default-branch merge-gate workflow");
 }
 
 /** Earlier gate summaries, including replaced runs; unreadable provenance fails closed. */
-async function priorDeletions(client, repo, headSha) {
+async function priorDeletions(client, repo, headSha, pr) {
   const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => {
     const summary = jsonFromCheckRun(run);
     if (!isRecord(summary) || !Array.isArray(summary.deleted_verdicts) || !summary.deleted_verdicts.every(historyItemOk)) {
@@ -1082,7 +1094,7 @@ export function parseHistoryRun(run, pr) {
 export async function readHistory(client, repo, pr) {
   const name = encodeURIComponent(historyCheckName(pr));
   const runs = await client.paginate(`/repos/${repo}/commits/${HISTORY_ANCHOR_SHA}/check-runs?check_name=${name}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => parseHistoryRun(run, pr));
 }
 
@@ -1234,7 +1246,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const validHead = HEX40.test(String(headSha));
   const comments = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
   const commits = await attempt(() => readCommits(client, repo, pr, pull));
-  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha)) : [];
+  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha, pr)) : [];
   const history = await attempt(() => readHistory(client, repo, pr));
   const verifiedEvidence = validHead && Array.isArray(comments) ? await verifyEvidence({ client, repo, comments, headSha }) : {};
   const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];

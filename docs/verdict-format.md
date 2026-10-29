@@ -485,12 +485,19 @@ check suite from `.github/workflows/ovd-merge-gate.yml`, triggered by
 `pull_request_target`, `issue_comment` or `workflow_dispatch` (`merge_group`
 is not a trusted writer: its YAML comes from the queue ref). For
 `issue_comment` and `workflow_dispatch`, `head_branch` must be the
-repository's current default branch. A `pull_request_target` run is trusted
-only when every `workflow_run.pull_requests[].base.ref` equals that default
-branch. That event executes the base branch's YAML, and its `head_branch` is
-the PR head, so a non-default base could forge these records. A missing or
-empty `pull_requests` list fails closed (GitHub fills it for an open pull
-request and drops it once the pull request is closed). Unverifiable
+repository's current default branch. A `pull_request_target` run executes
+the base branch's YAML and its `head_branch` is the PR head, so a non-default
+base could forge these records. `workflow_run.pull_requests` is computed when
+the API is read, not when the run happened, so a base retargeted after the run
+would still look like the default branch. A `pull_request_target` record is
+therefore trusted only when all hold: `pull_requests` is exactly the PR being
+evaluated, based on the default branch; that PR is still based on the default
+branch and was created no later than the run; and its timeline has no
+`base_ref_changed` event. This fails closed by design: fork PRs (empty
+`pull_requests`), closed PRs, PRs sharing a head branch with another open PR,
+and any PR whose base was ever changed cannot have `pull_request_target`
+records read and get `missing_input`.
+This is not a gate bug. Unverifiable
 provenance blocks with `missing_input`. The Checks API does not reliably
 expose update history; differences between `started_at` and `completed_at` do
 not prove mutation. Provenance alone cannot detect an update by another
