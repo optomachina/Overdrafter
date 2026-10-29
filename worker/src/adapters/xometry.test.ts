@@ -446,6 +446,19 @@ function makeSingleLocator(behavior: LocatorBehavior = {}) {
   };
 }
 
+/** A part-row quantity input that reads back whatever the adapter fills into it. */
+function quantityInputBehavior(initialValue = ""): LocatorBehavior {
+  let value = initialValue;
+  return {
+    count: 1,
+    fill: (next: string) => {
+      value = next;
+    },
+    press: vi.fn(),
+    inputValue: () => value,
+  };
+}
+
 function createFakePage(options: FakePageOptions) {
   const selectorBehaviors = options.selectorBehaviors ?? {};
   const responseQueue = [...(options.responses ?? [])];
@@ -911,8 +924,21 @@ afterEach(async () => {
  * The reviewed live evaluation flow: dashboard upload, quote redirect, then
  * quantity, material, finish, tolerance and Save Configuration.
  */
-function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
+function createLiveConfigureFlow(
+  input: VendorQuoteAdapterInput,
+  options: {
+    /**
+     * Production job 8c17931b (2026-10-24): the part-row stepper is on the quote
+     * page only. Edit Configuration opens a configure view whose quantity box
+     * is an unlabelled text input and which has no number input at all.
+     */
+    configureViewHidesStepper?: boolean;
+  } = {},
+) {
   const saveConfiguration = vi.fn();
+  const events: string[] = [];
+  const fillConfigureViewText = vi.fn();
+  let configureViewOpen = false;
   const setTolerance = vi.fn();
   let materialControlRendered = false;
   let finishControlRendered = false;
@@ -975,14 +1001,29 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
         count: 1,
         setInputFiles: toolLibraryUpload,
       },
-      [XOMETRY_LOCATORS.quantityInputs[0]]: {
-        count: 1,
+      [options.configureViewHidesStepper
+        ? partRowStepperSelector
+        : XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
+        count: () => (configureViewOpen ? 0 : 1),
         fill: (value: string) => {
           lineItemQuantity = value;
+          events.push(`fill-quantity:${value}`);
         },
         press: vi.fn(),
         inputValue: () => lineItemQuantity,
       },
+      ...(options.configureViewHidesStepper
+        ? {
+          [XOMETRY_LOCATORS.editConfigurationButtons[0]]: {
+            count: 1,
+            click: () => {
+              configureViewOpen = true;
+              events.push("edit-configuration");
+            },
+          },
+          'input[type="text"]': { count: () => (configureViewOpen ? 1 : 0), fill: fillConfigureViewText, press: vi.fn() },
+        }
+        : {}),
       [XOMETRY_LOCATORS.materialButtons[0]]: {
         count: 1,
         click: hiddenMaterialControl,
@@ -1020,7 +1061,11 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
       },
       [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
         count: 1,
-        click: saveConfiguration,
+        click: () => {
+          // Save Configuration returns to the quote page and its part row.
+          configureViewOpen = false;
+          saveConfiguration();
+        },
       },
       [XOMETRY_LOCATORS.toleranceOptions.standard]: {
         count: 1,
@@ -1042,8 +1087,13 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
   return {
     page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish, clickMaterialControl,
     clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+    events, fillConfigureViewText,
   };
 }
+
+/** The quote page's part-row stepper, labelled by a sibling <span>Quantity</span> (OVD-1052). */
+const partRowStepperSelector = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
+  selector.includes('span:text-is("Quantity")')) ?? "missing-part-row-stepper-selector";
 
 type XometryAutoSelection = { process: string; material: string; finish: string };
 
@@ -1096,7 +1146,7 @@ function createAutoSelectionFlow(options: {
     responseWaitDelayMs: options.drawing ? 20 : undefined,
     selectorBehaviors: {
       [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
-      [XOMETRY_LOCATORS.quantityInputs[0]]: {
+      [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
         count: 1,
         inputValue: () => "10",
         fill: vi.fn(),
@@ -1563,7 +1613,7 @@ describe("XometryAdapter", () => {
             getAttribute: (name) => name === "accept" ? currentAccept : null,
             setInputFiles: standaloneUpload,
           },
-          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: { count: 1, inputValue: () => "2" },
           [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: summaryText },
         },
       });
@@ -2276,7 +2326,7 @@ describe("XometryAdapter", () => {
       const page = createFakePage({
         bodyText: "Configure part",
         selectorBehaviors: {
-          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, fill: () => { engaged = true; }, press },
+          [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: { count: 1, fill: () => { engaged = true; }, press },
         },
       });
       const beforeSubmit = async () => {
@@ -2387,7 +2437,7 @@ describe("XometryAdapter", () => {
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-SUMMARY-0722",
         selectorBehaviors: {
           [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: uploadCad },
-          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: { count: 1, inputValue: () => "2" },
           [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: autoSummaryText },
         },
       });
@@ -2422,7 +2472,7 @@ describe("XometryAdapter", () => {
         responseWaitDelayMs: 20,
         selectorBehaviors: {
           [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
-          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+          [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
           [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
           [XOMETRY_LOCATORS.toleranceOptions.standard]: { count: 1, click: vi.fn() },
           [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: { count: 1, click: vi.fn() },
@@ -2477,7 +2527,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: uploadCad,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2532,7 +2582,7 @@ describe("XometryAdapter", () => {
     for (const binding of [undefined, { session, scope, observations }]) {
       const page = createFakePage({ bodyText: summary, uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-SOURCE-0001",
         selectorBehaviors: { [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
-          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: { count: 1, inputValue: () => "2" },
           [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: summary },
           [XOMETRY_LOCATORS.priceTierCard]: { count: 1, text: source } } });
       playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -2615,7 +2665,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2690,7 +2740,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: genericUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2748,7 +2798,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: genericUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2815,7 +2865,7 @@ describe("XometryAdapter", () => {
           getAttribute: (name) => name === "accept" ? ".step,.stp" : null,
           setInputFiles: standaloneUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2894,7 +2944,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: genericUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -2972,7 +3022,7 @@ describe("XometryAdapter", () => {
           },
           click: startInstantQuote,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -3204,7 +3254,7 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
           count: () => modalOpened ? 1 : 0,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -3271,7 +3321,7 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
           count: () => modalOpened ? 1 : 0,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -3679,7 +3729,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: toolLibraryUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -3743,7 +3793,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: toolLibraryUpload,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -3800,7 +3850,7 @@ describe("XometryAdapter", () => {
             dashboardInputReady = true;
           },
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -4236,7 +4286,7 @@ describe("XometryAdapter", () => {
           getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
           fill: vi.fn(),
@@ -4260,6 +4310,124 @@ describe("XometryAdapter", () => {
       payload: {
         field: "material",
       },
+    });
+  });
+
+  describe("quantity is set on the quote page's part row, before Edit Configuration", () => {
+    // Production job 8c17931b (build 6b613eab, 2026-10-24) failed with
+    // "Xometry quantity input was not found." on the quote page: the adapter
+    // clicked Edit Configuration first, and the configure view had no number
+    // input, no aria-label="Quantity" input and no quantity-named input the
+    // generic fallbacks could match. The stepper on the quote page's part row
+    // (observed live on 2026-10-23, OVD-1052) is where the line-item quantity
+    // lives, so it is set there before the configure view opens.
+    it("fills the part-row stepper before Edit Configuration and never touches the configure view's text box", async () => {
+      const workerTempDir = await makeTempDir();
+      const input = await makeLiveEvaluationInput();
+      const flow = createLiveConfigureFlow(input, { configureViewHidesStepper: true });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(flow.page));
+      const adapter = makeLiveEvaluationAdapter(
+        makeConfig({
+          workerTempDir,
+          xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+          xometryBrowserEngine: "playwright",
+        }),
+      );
+
+      const result = await adapter.quote(input);
+
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.totalPriceUsd).toBe(120);
+      expect(flow.events).toEqual(["fill-quantity:2", "edit-configuration"]);
+      expect(flow.fillConfigureViewText).not.toHaveBeenCalled();
+      expect(flow.saveConfiguration).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a stepper that already shows the requested quantity untouched", async () => {
+      const stepper = quantityInputBehavior("1");
+      const fill = vi.fn();
+      stepper.fill = fill;
+      const page = createFakePage({ bodyText: "Quantity", selectorBehaviors: { [partRowStepperSelector]: stepper } });
+
+      await expect(setQuantity(page as never, 1)).resolves.toEqual({ selector: partRowStepperSelector, filled: false });
+
+      expect(fill).not.toHaveBeenCalled();
+      expect(stepper.press).not.toHaveBeenCalled();
+    });
+
+    it("fills the stepper, checks the kill switch, presses Enter and reads the quantity back", async () => {
+      const stepper = quantityInputBehavior("1");
+      const order: string[] = [];
+      stepper.press = vi.fn(() => { order.push("enter"); });
+      const page = createFakePage({ bodyText: "Quantity", selectorBehaviors: { [partRowStepperSelector]: stepper } });
+
+      const outcome = await setQuantity(page as never, 5, undefined, async () => { order.push("before-submit"); });
+
+      expect(outcome).toEqual({ selector: partRowStepperSelector, filled: true });
+      expect(order).toEqual(["before-submit", "enter"]);
+      expect(stepper.press).toHaveBeenCalledWith("Enter");
+    });
+
+    it("fails closed when the stepper does not read back the filled quantity", async () => {
+      const fill = vi.fn();
+      const page = createFakePage({
+        bodyText: "Quantity",
+        selectorBehaviors: { [partRowStepperSelector]: { count: 1, fill, press: vi.fn(), inputValue: () => "1" } },
+      });
+
+      const failure = await setQuantity(page as never, 5).catch((error: unknown) => error);
+
+      expect(fill).toHaveBeenCalledWith("5");
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          reason: "quantity_fill_unverified",
+          terminalState: "configuration_required",
+          requestedQuantity: 5,
+          observedLineItemQuantities: [1],
+          lineItemQuantitySelector: partRowStepperSelector,
+        },
+      });
+    });
+
+    it("fails closed without filling when the page shows two part-row steppers", async () => {
+      const first = quantityInputBehavior("1");
+      const second = quantityInputBehavior("3");
+      const fills = [first, second].map((stepper) => vi.spyOn(stepper, "fill"));
+      const page = createFakePage({
+        bodyText: "Quantity",
+        selectorBehaviors: { [partRowStepperSelector]: { items: [first, second] } },
+      });
+
+      const failure = await setQuantity(page as never, 5).catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        code: "selector_failure",
+        payload: {
+          reason: "quantity_input_ambiguous",
+          failedSelector: partRowStepperSelector,
+          requestedQuantity: 5,
+          observedLineItemQuantities: [1, 3],
+        },
+      });
+      for (const fill of fills) expect(fill).not.toHaveBeenCalled();
+    });
+
+    it("reports the row-anchored selectors it tried when no stepper is on the page, for the repair candidate", async () => {
+      const page = createFakePage({ bodyText: "Part Specification Quantity", selectorBehaviors: { 'input[type="text"]': { count: 1 } } });
+
+      const failure = await setQuantity(page as never, 1).catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        code: "selector_failure",
+        message: "Xometry quantity input was not found.",
+        payload: {
+          failedSelector: XOMETRY_LOCATORS.lineItemQuantityInputs[0],
+          attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+        },
+      });
+      expect(XOMETRY_LOCATORS.lineItemQuantityInputs.some((selector) => selector === 'input[type="number"]')).toBe(false);
     });
   });
 
@@ -4850,6 +5018,31 @@ describe("XometryAdapter", () => {
       for (const template of fixture.hiddenTemplates) {
         expect(fixture.bodyText).not.toContain(template);
       }
+    });
+
+    it("sets a five-piece quantity on the 2026-10-23 page's stepper and leaves a one-piece request alone", async () => {
+      const fixture = await loadCurrentQuotePage();
+      const [stepper] = fixture.quantityInputs as HTMLInputElement[];
+      expect(stepper?.value).toBe("1");
+      const press = vi.fn();
+      const page = createFakePage({
+        bodyText: fixture.bodyText,
+        selectorBehaviors: {
+          [partRowStepperSelector]: {
+            count: 1,
+            inputValue: () => stepper?.value ?? "",
+            fill: (value: string) => { if (stepper) stepper.value = value; },
+            press,
+          },
+        },
+      });
+
+      await expect(setQuantity(page as never, 1)).resolves.toEqual({ selector: partRowStepperSelector, filled: false });
+      expect(press).not.toHaveBeenCalled();
+
+      await expect(setQuantity(page as never, 5)).resolves.toEqual({ selector: partRowStepperSelector, filled: true });
+      expect(stepper?.value).toBe("5");
+      expect(press).toHaveBeenCalledWith("Enter");
     });
 
     it("collects exactly the three tier cards, never the drag handle around them", async () => {
@@ -7631,7 +7824,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -7674,7 +7867,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -7726,7 +7919,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -7828,7 +8021,7 @@ describe("XometryAdapter", () => {
             await fs.writeFile(drawingPath, "replacement-after-cad-upload");
           }),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -7932,7 +8125,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -7991,7 +8184,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -8046,7 +8239,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -8134,7 +8327,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           inputValue: () => "2",
         },
@@ -8255,7 +8448,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           fill: vi.fn(),
           press: vi.fn(),
@@ -8355,11 +8548,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: uploadFilesMock,
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -8449,11 +8638,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -8505,11 +8690,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -8556,7 +8737,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: {
           count: 1,
           fill: fillQuantity,
         },
@@ -8652,11 +8833,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -8704,11 +8881,7 @@ describe("XometryAdapter", () => {
           count: 1,
           setInputFiles: vi.fn(),
         },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
+        [XOMETRY_LOCATORS.lineItemQuantityInputs[4]]: quantityInputBehavior(),
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
@@ -9010,7 +9183,8 @@ describe("XometryAdapter", () => {
       name: "VendorAutomationError",
       code: "selector_failure",
       payload: {
-        failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
+        failedSelector: XOMETRY_LOCATORS.lineItemQuantityInputs[0],
+        attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
       },
     });
   });
