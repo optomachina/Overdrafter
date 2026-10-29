@@ -16,7 +16,8 @@ and `built-by.mjs`.
 Claude runs with `--restricted --safe-mode` and no MCP servers. Its only
 working directories are the PR checkout and a per-PR dir holding the body,
 diff and prompt. It gets path-scoped Read/Grep/Glob for those two dirs and a
-deny list for home credential paths. See the header of `run.sh`.
+deny list for home credential paths. The PR head is checked out with
+`core.symlinks=false`, so symlinks land as plain text files. See the header of `run.sh`.
 
 Runs on the Mac mini through launchd every 10 minutes:
 
@@ -28,8 +29,8 @@ Dry run (reviews but never posts): `OVD_REVIEW_DRY=1 OVD_REVIEW_ONLY=<pr> ovd-cl
 Print the claude argv and settings without network or git: `run.sh --print-argv <checkout> <files-dir>`.
 
 Log: `/tmp/ovd-claude-review.log`. State and worktrees: `~/.cache/ovd-claude-review`.
-The state dir must not be under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Library`
-or `~/.config`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run.
+The state dir must not be under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Library`,
+`~/.config`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube` or `~/.docker`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run.
 Needs `gh` and Claude Code signed in on the mini, plus `node`. No repository-level credentials.
 Uninstall: `launchctl bootout gui/$(id -u)/com.optomachina.ovd-claude-review`. Nothing else depends on it.
 

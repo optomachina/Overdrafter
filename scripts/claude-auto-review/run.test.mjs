@@ -67,7 +67,15 @@ describe("claude-auto-review run.sh argv", () => {
   });
 
   it("refuses a state dir under a denied home path", () => {
-    const { res } = printArgv(path.join(state, "Documents", "x"), { HOME: state });
-    expect(res.status).toBe(2);
+    for (const root of ["Documents", ".ssh", ".aws", ".gnupg", ".kube", ".docker"]) {
+      const { res } = printArgv(path.join(state, root, "x"), { HOME: state });
+      expect(res.status, root).toBe(2);
+    }
+  });
+
+  it("checks out the PR head with core.symlinks=false", () => {
+    const lines = readFileSync(SCRIPT, "utf8").split("\n").filter((l) => /\bgit -C "\$(SRC|wt)".*\b(worktree add|checkout)\b.*\$(wt|sha)\b/.test(l));
+    expect(lines.length).toBe(2);
+    for (const l of lines) expect(l).toContain("-c core.symlinks=false");
   });
 });

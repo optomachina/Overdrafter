@@ -27,7 +27,9 @@
 #     over allow in Claude Code, so "deny ~/** and allow two dirs back" cannot
 #     be written; confinement to the working dirs is the default-deny layer.
 # Only same-repo, non-draft PRs are reviewed, git hooks are disabled for
-# checkouts, and the posted text is redacted for token patterns and has HTML
+# checkouts, the PR head is checked out with core.symlinks=false (symlinks
+# become plain text files, so a hostile link cannot point the reader outside
+# the checkout), and the posted text is redacted for token patterns and has HTML
 # comments escaped so it cannot forge the review marker. No secrets are printed.
 #
 # OVD_REVIEW_DRY=1 runs everything except `gh pr comment` and prints the path
@@ -80,7 +82,7 @@ claude_argv() {
 # Refuse a state dir under a denied root: the deny list would then hide the
 # checkout from the reviewer.
 case "$STATE/" in
-  "$HOME"/Documents/*|"$HOME"/Desktop/*|"$HOME"/Downloads/*|"$HOME"/Library/*|"$HOME"/.config/*|"$HOME"/.claude/*|"$HOME"/.local/share/*)
+  "$HOME"/Documents/*|"$HOME"/Desktop/*|"$HOME"/Downloads/*|"$HOME"/Library/*|"$HOME"/.config/*|"$HOME"/.claude/*|"$HOME"/.local/share/*|"$HOME"/.ssh/*|"$HOME"/.aws/*|"$HOME"/.gnupg/*|"$HOME"/.kube/*|"$HOME"/.docker/*)
     echo "OVD_REVIEW_STATE must not be under a denied home path" >&2; exit 2 ;;
 esac
 
@@ -159,8 +161,8 @@ while read -r pr sha; do
   FILES="$STATE/files-$pr"; rm -rf "$FILES"; mkdir -p "$FILES"
   {
     git -C "$SRC" fetch -q origin "+refs/pull/$pr/head:refs/ovd-review/pr-$pr" &&
-    { [ -d "$wt" ] || git -C "$SRC" -c core.hooksPath=/dev/null worktree add -q --detach "$wt" "refs/ovd-review/pr-$pr"; } &&
-    git -C "$wt" -c core.hooksPath=/dev/null checkout -q --detach "$sha" &&
+    { [ -d "$wt" ] || git -C "$SRC" -c core.hooksPath=/dev/null -c core.symlinks=false worktree add -q --detach "$wt" "refs/ovd-review/pr-$pr"; } &&
+    git -C "$wt" -c core.hooksPath=/dev/null -c core.symlinks=false checkout -q --detach "$sha" &&
     git -C "$SRC" diff "$base_sha...$sha" > "$FILES/diff.patch" &&
     gh pr view "$pr" -R "$REPO" --json title,body -q '"# " + .title + "\n\n" + (.body // "")' > "$FILES/body.md"
   } || { fail "prep failed"; continue; }
