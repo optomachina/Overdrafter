@@ -1,15 +1,17 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: September 28, 2026
+Last updated: October 23, 2026
 
 ## Purpose
 
 Dates, checkpoints, cuts and the critical path are in
 [`docs/plans/beta-launch-plan.md`](plans/beta-launch-plan.md) (approved
-October 11, 2026).
+October 11, 2026). Its provider scope was superseded on October 20; the
+[1.0 launch contract](#10-launch-contract) below is current.
 
 This runbook turns the 1.0 product boundary into an operable release contract.
-It is the shared reference for `OVD-206`, `OVD-359`, `OVD-199`, `OVD-319`, and `OVD-358`.
+It is the shared reference for `OVD-206`, `OVD-359`, `OVD-199`, `OVD-319`,
+`OVD-358`, and `OVD-686`.
 The customer-research cohort, limits, evidence, and operating protocol are in
 [`docs/founding-beta-program.md`](founding-beta-program.md).
 
@@ -28,6 +30,225 @@ and `ACCEPTANCE_CRITERIA.md` for the release gates. This runbook defines the
 first CNC validation package, disclosure checkpoint, evidence record, and
 operating procedure for that scope. Process-specific provider routes require
 their own exact qualified envelopes before customer enablement.
+
+## 1.0 launch contract
+
+Reconciled on October 23, 2026 from Blaine's recorded decisions. This section
+is the one launch contract for `OVD-199`, `OVD-206`, `OVD-319`, `OVD-358`, and
+`OVD-686`. `ACCEPTANCE_CRITERIA.md`, `PLAN.md`,
+`docs/founding-beta-program.md`, and `docs/plans/beta-launch-plan.md` point
+here; where an older line in one of them disagrees, this section wins until
+Blaine changes it. Each `TODO(Blaine)` marks a decision that belongs to Blaine.
+This section records the options and does not make the decision.
+
+### Demo readiness vs launch readiness
+
+These are two different bars. Read every gate, checkbox and date in the 1.0
+docs against the bar it belongs to.
+
+- **Demo readiness** means the product can be shown: a walkthrough on staging
+  or a local full stack, with simulated or seeded offers allowed (for example
+  the October 24–25 friends demonstration and the `OVD-1011` journey on seeded
+  data). Demo readiness enables no customer, sends no invitation, and does not
+  satisfy any launch gate.
+- **Launch readiness** means a customer beta can be enabled. It requires every
+  [launch gate](#launch-gates) to pass on the frozen release candidate in
+  production. Only launch readiness lets `OVD-319` enable the beta or
+  `OVD-358` send an invitation.
+
+**Current launch-readiness verdict: NO-GO for a customer beta.** The Codex
+readiness review's no-go stands. There are zero priced production runs, and
+`OVD-206` has not started. A successful demo does not change this verdict. Only
+the launch gates below, followed by Blaine's explicit release decision, can
+change it.
+
+### Provider scope
+
+The controlling decisions are Blaine's October 13 decision (recorded on
+`OVD-206`) and his October 20 decision (recorded on `OVD-199` and `OVD-319`).
+They supersede the September 28 seven-provider list, the October 3 "Xometry
+plus all seven" bar, and the October 11 five-provider plan.
+
+| Package                                                                           | Automatic providers                   | Provider runs per package |
+| --------------------------------------------------------------------------------- | ------------------------------------- | ------------------------- |
+| CNC validation package ([envelope](#exact-cnc-first-validation-package-envelope)) | Xometry, Fictiv and Quickparts        | 3                         |
+| Sheet-metal validation package                                                    | RMFG, through its published quote API | 1                         |
+
+- 1.0 ships only when all four providers are independently admitted and
+  production-certified, each for its own envelope. The beta-enablement
+  preflight fails unless all four qualify. A provider that fails is never
+  dropped or replaced silently. `TODO(Blaine)` B1: if one of the four cannot
+  certify on the release candidate, choose between slipping, substituting a
+  provider that passes the same gates, and shipping a narrower set.
+- Weerg, Geomiq and OSH Cut are 1.1, as are SendCutSend and the other
+  providers 6+. A quote-only owner clearance, a merged adapter, or a local live
+  evaluation does not add any of them to the launch set or count toward it.
+- Send-to-all-applicable stays behind a default-off flag. It never sends a
+  sheet-metal package to a CNC-only provider or a CNC package to RMFG.
+- eMachineShop stays a default-on manual RFQ source and never counts as an
+  automatic provider.
+- `TODO(Blaine)` B2: this repository does not record the sheet-metal validation
+  package or its exact envelope (process, material, thickness, file format,
+  quantity). Approve both. Also decide whether participants may bring their
+  own sheet-metal parts in 1.0, or whether RMFG is proved only on the
+  sheet-metal validation part.
+- `TODO(Blaine)` B3: on October 22 Blaine directed that every adapter ship,
+  and open PR #913 records quote-only owner clearance for Weerg, Geomiq, OSH
+  Cut and SendCutSend. The provider permissions matrix and the registry
+  `oneDotZero` list still mark Geomiq, OSH Cut and SendCutSend as 1.0. Confirm
+  that the directive means merged adapters and local live evaluations in the
+  1.1 project and does not widen the four-provider launch set. `OVD-1004` then
+  narrows those flags under an exact-head review. This change does not touch
+  them.
+
+### Session rules
+
+- `OVD-206`: the five consecutive runs share one approved scope fingerprint
+  and run over at least two separate Xometry provider sessions, as
+  `ACCEPTANCE_CRITERIA.md` requires.
+- `OVD-319`: a second, separately established Xometry provider session must
+  also be proved before beta enablement, in addition to the `OVD-206`
+  sessions. Separately established means a new authentication of the company
+  account through the documented recovery path, seeded as a new profile
+  generation. A fresh instance that restores the same snapshot is the same
+  session. `TODO(Blaine)` B4: choose the proof. This contract proposes one
+  priced run of the CNC validation package on the new session (one Xometry
+  run). The alternative is two no-upload authentication probes, which every
+  `OVD-419` promotion already runs and which do not show that the session can
+  quote.
+- Fictiv and Quickparts certification each record one named session owner and
+  the session age on the company-controlled account. RMFG has no browser
+  session; its certification records the API key owner and rotation date
+  instead.
+- Every certification window also follows the session-owner, session-age, and
+  fresh-instance probe rules in
+  [Operating and rollback rules](#operating-and-rollback-rules).
+
+### Run budget
+
+Counting rule, proposed for `TODO(Blaine)` B5: one provider run is one provider
+task that reaches adapter invocation for one provider and one package. Failed
+runs and retries count. A denial before the adapter, a kill-switch no-traffic
+check, and an `OVD-723` export walk send nothing and do not count.
+
+Certification runs happen before participant activation and do not draw on the
+participant cap:
+
+| Certification step                        | Provider runs                                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `OVD-206` series                          | 5 Xometry, plus 1 if the forced failure uses a real run                                                     |
+| `OVD-319` second-session proof            | 1 Xometry, if B4 chooses the priced run                                                                     |
+| `OVD-319` walk                            | 3 per CNC attempt and 1 per sheet-metal attempt: 4 for one of each, 8 if both repeat after the restore step |
+| Fictiv, Quickparts and RMFG certification | not defined; `TODO(Blaine)` B6                                                                              |
+
+The participant program (`OVD-358`) keeps the default cap of twenty
+automatic-provider runs or four weeks, whichever comes first. With
+send-to-all-applicable routing, a CNC package uses 3 runs and a sheet-metal
+package uses 1:
+
+| Program size                                                     | Provider runs | Fits the 20-run cap                         |
+| ---------------------------------------------------------------- | ------------- | ------------------------------------------- |
+| Release minimum: 5 attempts, all CNC                             | 15            | Yes, with 5 left for retries or sheet metal |
+| Research target: 10 packages, all CNC                            | 30            | No                                          |
+| Research target: 10 packages, `c` CNC and `10 - c` sheet metal   | `10 + 2c`     | Only when `c` is 5 or less                  |
+| October 11 cohort: about 10 teams with 2 to 3 jobs each, all CNC | 60 to 90      | No                                          |
+
+`TODO(Blaine)` B7: before participant activation, choose one option and record
+it in `PLAN.md` and `ACCEPTANCE_CRITERIA.md`:
+
+- **A (proposed):** keep the twenty-run cap and set the research target to six
+  CNC packages (18 runs, 2 in reserve). Each sheet-metal package used in place
+  of a CNC package frees 2 runs.
+- **B:** approve a separately approved experiment with a cap of at least
+  thirty runs plus a retry reserve and a recorded spend ceiling, so ten CNC
+  packages fit.
+
+`TODO(Blaine)` B8: the October 11 cohort does not fit a twenty- or thirty-run
+program. Decide whether it becomes a post-1.0 experiment with its own cap.
+
+### Launch gates
+
+**Launch readiness.** These are the go/no-go gates. A demo, a staging run or a seeded journey does not pass any of them. Every gate below must pass on the frozen release candidate before `OVD-319`
+enables the beta and before `OVD-358` sends an invitation. Evidence goes in the
+owning issue's rolling comment, as in [Evidence record](#evidence-record).
+
+1. **Security closure.** `OVD-1018` (restrict `project_jobs` writes to the RPC
+   path) has forward and rollback SQL, a pgTAP regression, a staging drill, and
+   a production apply in a Blaine window. The other open 1.0 security
+   findings are each fixed and deployed, or accepted in writing by Blaine:
+   `OVD-746` (verified auth gate on client write RPCs; it targets migration
+   window 2, about November 9), `OVD-949` (rollback files that re-grant
+   `anon`), and `OVD-734` (durable permit consumption). `TODO(Blaine)` B9:
+   decide which of those three must be fixed rather than accepted.
+2. **Extraction (`OVD-1067`).** On production, a new part uploaded with the
+   approved drawing either gets approved requirements or lands in a review
+   hold. It never fails `extract_part` because zero requirements were
+   auto-approved, and the part page shows the stored suggestions instead of
+   "Unknown material". `TODO(Blaine)` B10: choose the fix. One option is the
+   production setting `DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL=1`, which
+   reverses the PR #884 default while `OVD-1034` is open and must also be
+   passed by the deploy script. The other is the code fix that turns a zero
+   approval count into a review hold.
+3. **Wake on submit.** Stable egress pins the production worker to
+   scale-to-zero (`min-instances=0`, `max-instances=1`), so a customer's queued
+   task waits until something wakes the worker. On the release candidate, a
+   customer submission must start worker processing without an operator wake
+   request, and the worker must return to zero after the queue drains. No
+   Linear issue is filed yet. `TODO(Blaine)` B11: set the longest acceptable
+   time from submission to first claim.
+4. **Shipping destination (`OVD-1068`).** A customer whose shipping address is
+   missing or unconfirmed confirms it inside the quote confirmation dialog;
+   the scope check then re-runs and the request continues without leaving the
+   flow.
+5. **Xometry baseline (`OVD-206`).** Five consecutive hosted runs of the
+   approved validation package on one scope fingerprint return real Xometry
+   offers that pass the live-offer gate. A forced failure ends in a finite
+   safe state, and rollback is executed. Prerequisites: the `OVD-419` retry
+   (`OVD-527`, then `OVD-528`, then `OVD-529`), `OVD-416` reconciliation, and
+   Blaine's separate go for the window.
+6. **Provider certification (`OVD-199`).** Fictiv (`OVD-395`, `OVD-566`) and
+   Quickparts (`OVD-396`, `OVD-429`, `OVD-430`) are admitted and
+   production-certified for the CNC envelope, and RMFG (`OVD-580`) for the
+   sheet-metal envelope, through the provider-neutral permit and preflight
+   (`OVD-380`). `docs/providers/acceptance-tables.md` records each provider's
+   `OVD-722` kill-switch result and `OVD-723` export walk.
+7. **Real-stack UI (`OVD-1011`).** The steps 1 to 7 browser journey passes on
+   the real stack, then again after the live quantity-one run with real offers.
+8. **Launch audit (`OVD-686`).** The three-day audit runs on the frozen
+   candidate after gate 6 and before the `OVD-319` walk. Every High finding is
+   fixed and verified, or accepted by Blaine through Grok Bot.
+   `TODO(Blaine)` B12: Linear lists `OVD-319` as a blocker of `OVD-686`, but
+   the October 11 plan runs the audit before the `OVD-319` walk. Confirm the
+   order so the Linear relation can be corrected.
+9. **Certification walk and release decision (`OVD-319`).** The walk passes,
+   including the second-session proof above, one CNC attempt with offers from
+   all three CNC providers, one RMFG sheet-metal attempt, forced failure,
+   rollout disablement, restore, and a repeat. The run-budget decision (B7) is
+   recorded, and Blaine makes the explicit release decision.
+
+`TODO(Blaine)` B13: the October 23 checkpoint no longer decides the provider
+count (October 20). Record its outcome, and confirm or move the October 31
+release candidate, the November 6 Xometry certification, and the November 13
+beta target. On October 23, `OVD-206` had not started: the `OVD-419` retry
+stopped at its first no-upload probe on October 21 and rolled back.
+
+### Decision register
+
+| ID  | Decision for Blaine                                                                              |
+| --- | ------------------------------------------------------------------------------------------------ |
+| B1  | What to do if one of the four providers cannot certify                                           |
+| B2  | Sheet-metal validation package and envelope; whether participants bring sheet-metal parts        |
+| B3  | Whether the October 22 "every adapter ships" directive widens the launch set; the `in_1_0` flags |
+| B4  | Form of the second-session proof                                                                 |
+| B5  | Provider-run counting rule                                                                       |
+| B6  | Certification runs for Fictiv, Quickparts and RMFG                                               |
+| B7  | Run cap and research package count (option A or B)                                               |
+| B8  | The October 11 cohort                                                                            |
+| B9  | Fix or accept `OVD-746`, `OVD-949` and `OVD-734`                                                 |
+| B10 | `OVD-1067` fix path                                                                              |
+| B11 | Wake-on-submit time bound                                                                        |
+| B12 | `OVD-686` and `OVD-319` order                                                                    |
+| B13 | October 23 checkpoint outcome and the later dates                                                |
 
 ## Exact CNC-first validation package envelope
 
@@ -55,10 +276,11 @@ be resolved before dispatch or end in a truthful provider-guidance or
 unsupported state. The system never drops a drawing requirement merely to make
 the package appear eligible.
 
-The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
-and OSH Cut. RMFG and OSH Cut require separately qualified process-specific
-envelopes; neither is a CNC quote source without evidence and certification
-for this exact CNC package. Until a route is qualified and admitted, it remains
+The 1.0 launch set is Xometry, Fictiv and Quickparts for this CNC package and
+RMFG for the sheet-metal validation package (see
+[Provider scope](#provider-scope)). RMFG has a separately qualified
+process-specific envelope and is never a CNC quote source. Weerg, Geomiq and
+OSH Cut are 1.1. Until a route is qualified and admitted, it remains
 unsupported or provider guidance rather than a live automatic offer.
 
 This CNC package envelope is not a universal provider capability claim.
@@ -138,28 +360,30 @@ those facts requires a new confirmation and a new quote scope.
 `OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
 then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. The CNC-first release proof requires
-Xometry plus at least four additional independently admitted and production-
-certified automatic quote sources from the named 1.0 portfolio for the same
-disclosed package.
+additional provider certifications. The release proof requires Xometry,
+Fictiv and Quickparts to be independently admitted and production-certified
+automatic quote sources for the same disclosed CNC package, and RMFG for the
+sheet-metal package. The full contract, including the go/no-go gates, is the
+[1.0 launch contract](#10-launch-contract).
 
 Every automatic source must independently support its applicable 1.0 envelope
 and have provider-specific disclosure authority, session
 ownership, certification, monitoring, rollback, and no-order evidence. Manual
-RFQ sources and standalone evaluation results do not count toward the CNC
-minimum or establish RMFG/OSH Cut process-specific qualification.
+RFQ sources and standalone evaluation results do not count toward the launch
+set or establish RMFG process-specific qualification.
 
 Certification alone is not the customer-path proof. Before release, at least
 one unaided eligible CNC participant attempt must return one current,
-independently traceable live offer from at least five CNC-qualified providers
-in the named 1.0 portfolio for the same disclosed package and scope. RMFG and
-OSH Cut are verified separately on their qualified process-specific packages;
-manual review or inapplicable routing never counts as a CNC live offer.
+independently traceable live offer from each of Xometry, Fictiv and Quickparts
+for the same disclosed package and scope. At least one sheet-metal attempt,
+on a participant's part or the sheet-metal validation part (B2), must return a
+current, independently traceable live RMFG offer inside its envelope. Manual
+review or inapplicable routing never counts as a live offer.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
-is disabled. RapidDirect is outside the named 1.0 portfolio and is not a
-release gate.
+is disabled. RapidDirect is outside the 1.0 launch set and is not a release
+gate.
 Production and certification runs perform no login automation, session capture,
 selector discovery, upload, or quote request before the provider is admitted.
 The owner-approved `OVD-407` exception permits those actions only
