@@ -8,7 +8,7 @@
     "payments": { "label": "Payments, pricing, billing", "description": "payment, billing, Stripe, pricing, invoice and checkout paths" },
     "provider_dispatch": { "label": "Provider dispatch", "description": "any provider, adapter or dispatch path, worker adapters, provider admission and upload" },
     "secrets": { "label": "Secrets and env", "description": "secrets, credentials, keys, tokens, vaults and env files" },
-    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, the scripts CI runs, agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md, GEMINI.md in any directory), the agent contract and agent configuration (WORKFLOW.md and its Symphony scripts, Codex and Claude config, settings, hooks and MCP servers), git hook directories, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
+    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, the scripts CI runs, agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md, GEMINI.md in any directory), the agent contract and agent configuration (WORKFLOW.md and its Symphony scripts, Codex and Claude config, settings, hooks and MCP servers), git hook directories, the gitleaks config and ignore files, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
     "deps": { "label": "Dependencies", "description": "package manifests and lockfiles" }
   },
   "globs": [
@@ -16,6 +16,7 @@
     { "glob": "supabase/config.toml", "class": "schema" },
     { "glob": "docs/migration-drafts/**", "class": "schema" },
     { "glob": "**/*.{pgsql,psql}", "class": "schema" },
+    { "glob": "scripts/check-lock-order.mjs", "class": "schema" },
 
     { "glob": "supabase/migrations/**", "class": "migrations" },
 
@@ -68,6 +69,8 @@
     { "glob": "**/.env*", "class": "secrets" },
     { "glob": "**/env.{ts,js,json}", "class": "secrets" },
     { "glob": "**/.env*/**/*", "class": "secrets" },
+    { "glob": "worker/src/tools/vendorLogin*", "class": "secrets" },
+    { "glob": "worker/scripts/launchd/**", "class": "secrets" },
 
     { "glob": ".github/workflows/**", "class": "infra_ci" },
     { "glob": ".github/actions/**", "class": "infra_ci" },
@@ -88,6 +91,8 @@
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-screen-marker*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
+    { "glob": "docs/agent-graph/**", "class": "infra_ci" },
+    { "glob": "scripts/validate-agent-graph*", "class": "infra_ci" },
     { "glob": "docs/agent-graph/model-routing.yaml", "class": "infra_ci" },
     { "glob": "scripts/model-routing-drift*", "class": "infra_ci" },
     { "glob": "scripts/lib/jev-*", "class": "infra_ci" },
@@ -110,6 +115,12 @@
     { "glob": "**/*.Dockerfile", "class": "infra_ci" },
     { "glob": "scripts/sensitive-class*", "class": "infra_ci" },
     { "glob": "scripts/proof-check*", "class": "infra_ci" },
+    { "glob": "scripts/ovd-merge-gate*", "class": "infra_ci" },
+    { "glob": "scripts/approval-record*", "class": "infra_ci" },
+    { "glob": "scripts/verdict-schema*", "class": "infra_ci" },
+    { "glob": "scripts/emit-verdict*", "class": "infra_ci" },
+    { "glob": "scripts/agent-graph/built-by*", "class": "infra_ci" },
+    { "glob": "scripts/fixtures/agent-graph/model-routing*", "class": "infra_ci" },
     { "glob": "scripts/preflight.sh", "class": "infra_ci" },
     { "glob": "scripts/symphony-preflight.sh", "class": "infra_ci" },
     { "glob": "scripts/symphony-agent.sh", "class": "infra_ci" },
@@ -186,6 +197,10 @@
     { "glob": "scripts/compare-ovd372-app-schema*", "class": "infra_ci" },
     { "glob": "scripts/vendor-pr-serialization*", "class": "infra_ci" },
     { "glob": ".github/workflows/vendor-pr-serialization.yml", "class": "infra_ci" },
+    { "glob": "**/.gitleaks.toml", "class": "infra_ci" },
+    { "glob": "**/.gitleaksignore", "class": "infra_ci" },
+    { "glob": "scripts/test-support/source-only-network-marker*", "class": "infra_ci" },
+    { "glob": "scripts/test-support/source-only-network.cjs", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
