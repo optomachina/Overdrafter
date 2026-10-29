@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: September 28, 2026
+Last updated: October 20, 2026
 
 ## Purpose
 
@@ -48,6 +48,10 @@ with all of the following properties:
 - customer attestation that the package is non-ITAR, is not otherwise export-
   controlled, and may legally be disclosed to the named quote provider
 
+Quantity `1` belongs to this validation package. A participant's own
+controlled-beta request follows the quantity amendment below, which does not
+change the package.
+
 An optional PDF drawing may be uploaded only when it describes the same part
 and does not add a requirement outside this envelope. A conflict, an unknown
 unit, a tighter tolerance, a special finish, or another extra requirement must
@@ -67,6 +71,67 @@ verified process, material, file-format/size, drawing, quantity, geography, and
 compliance limits. A provider receives only the exact source or conversion-
 derivative bytes named by the customer's current confirmation and permit; the
 original remains preserved. Conversion never silently broadens eligibility.
+
+### Quantity in controlled-beta requests
+
+The validation package above stays at quantity `1`, and so does every `OVD-206`
+run. The approved `quote-lane-scope.v1` fingerprint includes the quantity, so a
+different quantity is a different scope and restarts the series.
+
+A participant's own Xometry controlled-beta request is different. The customer
+chooses the quantity, the default is `1`, and there is no product cap (the
+database integer range is the only bound). The server admits exactly one quote
+quantity that is a positive integer, and only while quantity enablement covers
+that request. Otherwise the quantity must be exactly `1`. The denials are
+named:
+
+- `xometry_beta_single_quantity_required`: enablement covers the request, but
+  several quantities, or none after normalization, were sent.
+- `xometry_beta_quantity_one_required`: enablement does not cover the request
+  and the quantity is anything other than exactly `1`.
+- `dispatch_quantity_not_admitted`: a lane above `1` reached its worker
+  preflight after enablement was turned off. The worker reports it as the
+  generic `dispatch_authorization_denied` until a worker change names it.
+
+The first two denials happen at preview or request and create no lane, task,
+permit or upload. The third happens after a lane exists: the task fails before
+any browser launch. A new quantity is a new quote request, with its own lane,
+task, upload, provider quote, scope fingerprint and disclosure confirmation.
+There are no price-break quantities, no interpolated prices and no quantity
+change on a live provider quote. Every other gate keeps its place and meaning:
+the kill switch, export control, tolerance, need-by, special-requirements and
+destination checks, and the exact-scope fingerprint. The envelope revision
+string stays `xometry-controlled-beta-envelope.v1`. This
+amendment, the audited reason on each enablement change and the quantity inside
+every permit's scope fingerprint are the record of the widening.
+
+This amendment is for the Xometry controlled-beta path only. It does not widen
+any other provider's versioned envelope, and a provider that is not admitted
+stays unadmitted whatever quantity it could accept.
+
+**Rollout rule (owner decision, 2026-10-20).** The global production switch
+stays off. A quantity above `1` is admitted only through a scoped enablement
+that names one participant organization or one single request, and a scoped
+enablement never admits another participant or request. The quantity-10 live
+run, when it is separately authorized, therefore uses a single-request scope
+and not the global switch. The first live Xometry run stays at quantity `1`
+with the approved validation package.
+
+**Status of the mechanism.** Migration
+`20261020100000_ovd987_controlled_beta_user_quantity` adds only the global
+control `controlled_beta_user_quantity`, seeded off. It has no per-participant
+or per-request grant. Until a reviewed scoped mechanism is applied and
+verified in an environment, no quantity above `1` is admitted there for anyone,
+and this runbook has no procedure for granting a scoped enablement. Do not turn
+the global control on in production to stand in for it. Whatever form the grant
+takes, it is enforced on the server, defaults to off, is audited like the other
+rollout controls, and stops a lane above `1` with the turn-off behavior in
+[Controlled beta user quantity](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity).
+
+Before any production enablement, scoped or not, the customer copy for the new
+denials (`OVD-998`) and the client metadata projection fix (`OVD-978`) must be
+live, and the single Quantity field (`OVD-997`) must be on with it. A customer
+then sees one Quantity field and a named reason for every denial.
 
 ### Geometry boundary
 
@@ -321,6 +386,15 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   idempotency key, and preflight evidence in the owning issue: `OVD-206` for
   the Xometry baseline window, the relevant `OVD-199` certification child for
   each additional provider window, and `OVD-319` for beta enablement.
+- Quantity enablement is a separate rollout control,
+  `controlled_beta_user_quantity` (see
+  [Quantity in controlled-beta requests](#quantity-in-controlled-beta-requests)).
+  Once its migration is applied it stays off in production, and its revision is
+  recorded with the other control revisions in the owning issue. A certification
+  window runs at the approved quantity `1`, so it needs no quantity enablement.
+  The operator procedure, including what turning it off does and does not stop,
+  is in
+  [Controlled beta user quantity](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity).
 - Before each certification session, confirm the named session owner and age.
   Camoufox remains the anti-bot compatibility engine proven in PR #236 after
   Patchright sessions were silently degraded by Cloudflare. PR #277 later made
