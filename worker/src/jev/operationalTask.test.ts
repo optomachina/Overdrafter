@@ -73,9 +73,10 @@ function sessionFixture() {
 function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement,
   failStatusReadAfterPersist = false, { persistAckLost = false } = {}) {
   const writes: unknown[] = [];
-  const persisted = () => writes.some((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  const persisted = () => writes.some((write) => (write as { rpc?: string }).rpc === "accept_vendor_quote_result");
   // The lane row's status, so a compare and set update matches only what the database would match.
   let laneStatus = "queued";
+  let acceptanceCalls = 0;
   const from = (table: string) => {
     let columns = ""; let mutation = false; let one = false; let statusIn: unknown[] | null = null; let write: unknown = null;
     const response = () => {
@@ -114,15 +115,18 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
   };
   const rpc = (name: string, args: unknown) => {
     writes.push({ rpc: name, args: structuredClone(args) });
-    if (name === "reconcile_vendor_quote_offers") {
+    if (name === "accept_vendor_quote_result") {
       // The function commits; with persistAckLost its response is lost on the way back.
       laneStatus = (args as { p_result: { status: string } }).p_result.status;
-      if (persistAckLost) {
+      acceptanceCalls += 1;
+      if (persistAckLost && acceptanceCalls === 1) {
         const lost = Promise.resolve({ data: null, error: { message: "TypeError: fetch failed" } });
         return Object.assign(lost, { abortSignal: () => lost });
       }
     }
-    const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
+    const data = name === "accept_vendor_quote_result"
+      ? (persistAckLost ? { outcome: "replayed", original_outcome: "accepted" } : { outcome: "accepted" })
+      : name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
         : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" }
@@ -135,7 +139,10 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
                 // OVD-829: the supplier settings gate reserves one dispatch before launch.
                 : name === "api_worker_reserve_provider_dispatch"
                   ? providerDispatchReservation((args as { p_provider: string }).p_provider) : null;
-    const result = Promise.resolve({ data, error: null });
+    const result = (async () => {
+      if (name === "accept_vendor_quote_result") await queueAck?.();
+      return { data, error: null };
+    })();
     return Object.assign(result, { abortSignal: () => result });
   };
   return { client: { from, rpc } as unknown as SupabaseClient, writes };
@@ -144,7 +151,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); genericRoute.run = n
 
 /** Every write that came after the atomic result and offer write. */
 function writesAfterPersist(writes: unknown[]) {
-  const index = writes.findIndex((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  const index = writes.findIndex((write) => (write as { rpc?: string }).rpc === "accept_vendor_quote_result");
   expect(index).toBeGreaterThanOrEqual(0);
   return writes.slice(index + 1);
 }
@@ -157,8 +164,8 @@ describe("actual worker operational advisory seam", () => {
     const fixture = sessionFixture(); const shadow = database();
     await handleVendorQuoteTask(shadow.client, task, config, fixture.capability);
     expect(shadow.writes).toEqual(baseline.writes); expect(off.writes).toEqual(baseline.writes);
-    expect(shadow.writes).toEqual(expect.arrayContaining([expect.objectContaining({ rpc: "reconcile_vendor_quote_offers" }),
-      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "completed" }) })]));
+    expect(shadow.writes).toEqual(expect.arrayContaining([expect.objectContaining({ rpc: "accept_vendor_quote_result" }),
+      expect.objectContaining({ rpc: "drain_quote_run_rollup_followups" })]));
     expect(fixture.caps.authorize).not.toHaveBeenCalled(); expect(fixture.caps.audit).not.toHaveBeenCalled();
     await fixture.capability.observations.drain();
     const receipts = fixture.caps.audit.mock.calls.map(([receipt]) => receipt);
@@ -268,7 +275,7 @@ describe("actual worker operational advisory seam", () => {
     await handleVendorQuoteTask(db.client, generic, live);
     const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
     expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
-    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(rpcs).not.toContain("accept_vendor_quote_result");
     expect(db.writes).toEqual(expect.arrayContaining([
       { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
         raw_payload: expect.objectContaining({ failureCode: "session_lease_unavailable", adapterStarted: false }) }) },
@@ -312,7 +319,7 @@ describe("actual worker operational advisory seam", () => {
       { table: "work_queue", update: expect.objectContaining({ status: "queued" }) },
     ]));
     const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
-    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(rpcs).not.toContain("accept_vendor_quote_result");
   });
 
   it("reads the claim RPC attempts and settles a generic task past the cap without a preflight or adapter (OVD-464)", async () => {
@@ -340,7 +347,7 @@ describe("actual worker operational advisory seam", () => {
     await handleVendorQuoteTask(exhausted.client, claimed(3), live);
     const rpcs = exhausted.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
     expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
-    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(rpcs).not.toContain("accept_vendor_quote_result");
     expect(exhausted.writes).toEqual(expect.arrayContaining([
       { table: "vendor_quote_results", update: expect.objectContaining({ status: "failed",
         raw_payload: expect.objectContaining({ failureCode: "attempts_exhausted", adapterStarted: false }) }) },
@@ -356,17 +363,16 @@ describe("actual worker operational advisory seam", () => {
       const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
         leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
         rawPayload: { source: "fictiv-live-adapter" } };
-      const { artifactCount } = await route.persist(output);
+      const { artifactCount, acceptance } = await route.persist(output, { offerCount: 1 });
       return { disposition: "persisted", code: "persisted", stage: "persist", adapterStarted: true, retryAt: null,
-        providerDisabledForDay: false, rejection: null, persisted: { status: output.status, offerCount: 1, artifactCount },
+        providerDisabledForDay: false, rejection: null, persisted: { status: output.status, offerCount: 1, artifactCount, acceptance },
         evidence: { adapterError: null, artifacts: [] } };
     };
     const db = database(false, false, undefined, requirement, true);
     await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
   });
 
   // OVD-723 x OVD-464: the generic route asks the export gate right before
@@ -470,17 +476,17 @@ describe("actual worker operational advisory seam", () => {
       const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
         leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
         rawPayload: { source: "fictiv-live-adapter" } };
-      // What the pipeline returns when persist throws.
-      await expect(route.persist(output)).rejects.toThrow();
-      return { disposition: "failed", code: "persistence_failure", stage: "persist", adapterStarted: true, retryAt: null,
-        providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
+      const { artifactCount, acceptance } = await route.persist(output, { offerCount: 1 });
+      expect(acceptance).toEqual({ outcome: "replayed", original_outcome: "accepted" });
+      return { disposition: "persisted", code: "persisted", stage: "persist", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, killSwitch: null,
+        persisted: { status: output.status, offerCount: 1, artifactCount, acceptance }, evidence: { adapterError: null, artifacts: [] } };
     };
     const db = database(false, false, undefined, requirement, false, { persistAckLost: true });
     await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
+    expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
     expect(after).not.toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }]));
   });
 
@@ -489,8 +495,7 @@ describe("actual worker operational advisory seam", () => {
     await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
+    expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
   });
 
   it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
@@ -498,8 +503,7 @@ describe("actual worker operational advisory seam", () => {
     await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {
@@ -560,7 +564,7 @@ describe("actual worker operational advisory seam", () => {
     const db = database(false, false, () => ack);
     const captureTask = vi.fn(() => fixture.capability);
     const running = processClaimedTask(db.client, task, config, createWorkerRuntimeState(), { captureTask });
-    await vi.waitFor(() => expect(db.writes).toEqual(expect.arrayContaining([expect.objectContaining({ table: "work_queue" })])));
+    await vi.waitFor(() => expect(db.writes).toEqual(expect.arrayContaining([expect.objectContaining({ rpc: "accept_vendor_quote_result" })])));
     expect(fixture.caps.authorize).not.toHaveBeenCalled(); expect(fixture.caps.reserve).not.toHaveBeenCalled();
     expect(fixture.caps.audit).not.toHaveBeenCalled(); expect(fixture.caps.decide).not.toHaveBeenCalled();
     acknowledge(); await running;
@@ -677,7 +681,7 @@ describe("actual worker operational advisory seam", () => {
     const controller = new AbortController(); const fixture = sessionFixture();
     const db = database(false, false, async () => { controller.abort(); });
     await processClaimedTask(db.client, task, config, createWorkerRuntimeState(), { captureTask: () => fixture.capability }, controller.signal);
-    expect(db.writes).toEqual(expect.arrayContaining([expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "completed" }) })]));
+    expect(db.writes).toEqual(expect.arrayContaining([expect.objectContaining({ rpc: "drain_quote_run_rollup_followups" })]));
     expect(fixture.caps.audit).not.toHaveBeenCalled(); expect(fixture.caps.authorize).not.toHaveBeenCalled();
     expect(fixture.caps.reserve).not.toHaveBeenCalled(); expect(fixture.caps.decide).not.toHaveBeenCalled();
     await fixture.capability.observations.drain(); // Even a later explicit call cannot resurrect canceled admission.

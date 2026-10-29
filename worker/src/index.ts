@@ -104,7 +104,7 @@ import {
   scanStagedDrawingForExportMarkings,
 } from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
-import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
+import { acceptVendorQuoteResult, requireSuccessfulVendorQuoteAcceptance } from "./vendorQuoteOfferPersistence.js";
 import {
   enqueueCadPreviewGenerationTask,
   ensurePersistentCadPreview,
@@ -1377,7 +1377,11 @@ export async function handleVendorQuoteTask(
   const handleLaneFailure = async (error: unknown): Promise<void> => {
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     if (resultPersisted) {
-      await settlePostPersistBookkeepingFailure(supabase, task, error);
+      console.warn(JSON.stringify({
+        service: "overdrafter-cad-worker", level: "warn", source: "worker.vendor_quote.post_persist",
+        message: `Bookkeeping failed after task acceptance: ${summarizeWorkerError(error)}`,
+        context: { taskId: task.id },
+      }));
       return;
     }
     // OVD-722: an engaged switch at any checkpoint (before launch, or inside
@@ -1831,7 +1835,7 @@ export async function handleVendorQuoteTask(
         pause: fixtureHealSupplierPause,
         sanity: (output, sanityContext) =>
           fixtureSanityGateFor(supabase)(output, { ...sanityContext, requirement: approvedRequirement }),
-        persist: async (output) => {
+        persist: async (output, { offerCount }) => {
           output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
           const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
             vendorQuoteResultId: currentResult.id,
@@ -1841,8 +1845,9 @@ export async function handleVendorQuoteTask(
             vendor,
             artifacts: output.artifacts,
           });
-          await finalizeVendorQuoteResult(
+          const acceptance = await acceptVendorQuoteResult(
             supabase,
+            task,
             currentResult.id,
             {
               status: output.status,
@@ -1874,9 +1879,11 @@ export async function handleVendorQuoteTask(
                 result: output,
               }),
             ),
+            { vendorStatus: output.status, artifactCount: artifactStoragePaths.length, offerCount },
           );
-          resultPersisted = true;
-          return { artifactCount: artifactStoragePaths.length };
+          requireSuccessfulVendorQuoteAcceptance(acceptance);
+          resultPersisted = acceptance.outcome !== "stale";
+          return { artifactCount: artifactStoragePaths.length, acceptance };
         },
       });
       // Once the adapter ran, nothing later in this task may be retried by the
@@ -1935,7 +1942,7 @@ export async function handleVendorQuoteTask(
     });
 
     // OVD-813: Xometry bypasses runProviderTaskPipeline, so the same sanity
-    // gate runs here, before finalizeVendorQuoteResult and before routing
+    // gate runs here, before acceptVendorQuoteResult and before routing
     // scores. Live results only; simulate output is not a supplier price.
     // A gate that throws never lets the unchecked price through: the result is
     // held (fixture_sanity_failed) and persisted, so the task is not retried.
@@ -1990,8 +1997,9 @@ export async function handleVendorQuoteTask(
       result: gatedResult,
     });
 
-    await finalizeVendorQuoteResult(
+    const acceptance = await acceptVendorQuoteResult(
       supabase,
+      task,
       currentResult.id,
       {
         status: gatedResult.status,
@@ -2012,7 +2020,13 @@ export async function handleVendorQuoteTask(
         },
       },
       offerPayloads,
+      { vendorStatus: gatedResult.status, artifactCount: artifactStoragePaths.length },
     );
+    requireSuccessfulVendorQuoteAcceptance(acceptance);
+    if (acceptance.outcome === "stale") {
+      logLostVendorClaim(task);
+      return;
+    }
     resultPersisted = true;
 
     // Compute and store routing scores for this quote run.
@@ -2039,23 +2053,6 @@ export async function handleVendorQuoteTask(
         }),
       );
     }
-
-    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
-
-    if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-          vendorStatus: gatedResult.status,
-        artifactCount: artifactStoragePaths.length,
-        ignoredDueToCanceledRequest: true,
-      });
-      return;
-    }
-
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task, {
-      vendorStatus: gatedResult.status,
-      artifactCount: artifactStoragePaths.length,
-    });
   } catch (error) {
     await handleLaneFailure(error);
   } finally {
@@ -2117,19 +2114,11 @@ export async function handleExportMarkingRescanTask(
   }
 }
 
-/**
- * A failure after the atomic result write (request status read, job status
- * sync, task completion). The persisted result and its offers stay as they
- * are; the task is marked failed with a stable code, best effort, and the
- * failure is logged. Never rethrown, so the generic catch cannot overwrite the
- * result and the generic task retry cannot rerun a completed provider quote.
- */
-async function settlePostPersistBookkeepingFailure(
-  supabase: SupabaseClient,
-  task: QueueTaskRecord,
-  error: unknown,
-) {
-  await settlePersistedResultTask(supabase, task, error, "post_persist_bookkeeping_failed");
+function logLostVendorClaim(task: QueueTaskRecord) {
+  console.warn(JSON.stringify({
+    service: "overdrafter-cad-worker", level: "warn", source: "worker.vendor_quote.acceptance",
+    message: "Vendor quote acceptance skipped: claim lost.", context: { taskId: task.id },
+  }));
 }
 
 /**
@@ -2288,6 +2277,10 @@ async function recordGenericProviderOutcome(
   const { job_id: jobId, quote_run_id: quoteRunId } = task;
   if (!jobId || !quoteRunId) throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
   if (outcome.disposition === "persisted") {
+    if (outcome.persisted?.acceptance.outcome === "stale") {
+      logLostVendorClaim(task);
+      return;
+    }
     try {
       // OVD-813: a result the sanity gate held carries no price to score.
       if (!outcome.persisted?.held) await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
@@ -2302,21 +2295,6 @@ async function recordGenericProviderOutcome(
         }),
       );
     }
-    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
-    if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-        vendorStatus: outcome.persisted?.status ?? null,
-        artifactCount: outcome.persisted?.artifactCount ?? 0,
-        ignoredDueToCanceledRequest: true,
-      });
-      return;
-    }
-    await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
-    await markTaskCompleted(supabase, task, {
-      vendorStatus: outcome.persisted?.status ?? null,
-      artifactCount: outcome.persisted?.artifactCount ?? 0,
-      offerCount: outcome.persisted?.offerCount ?? 0,
-    });
     return;
   }
 

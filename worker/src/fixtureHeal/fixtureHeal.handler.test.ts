@@ -79,9 +79,9 @@ function database(options: { historyError?: boolean; laneSettled?: boolean; mate
     return query;
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
-    if (name === "reconcile_vendor_quote_offers") events.push("finalize");
+    if (name === "accept_vendor_quote_result") events.push("finalize");
     rpcArgs[name] = args;
-    const data = name === "api_worker_provider_kill_switch_state"
+    const data = name === "accept_vendor_quote_result" ? { outcome: "accepted" } : name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: false, globalEngaged: false }
       : name === "api_authorize_xometry_beta_worker_dispatch" ? xometryAuthorized
         : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
@@ -118,6 +118,7 @@ function scoringRecordsInto(events: string[]) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   fixtureHealSupplierPause.release("xometry", { via: "reverify", evidenceRef: "test-cleanup" });
   vi.restoreAllMocks();
 });
@@ -132,7 +133,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
     // Gate (own and peer history reads) first, then the atomic finalize, then routing scores.
     expect(db.events).toEqual(["sanity_history", "sanity_history", "finalize", "routing_scores"]);
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_result).toMatchObject({
       status: "instant_quote_received",
       unit_price_usd: 45.56,
@@ -150,7 +151,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
     await handleVendorQuoteTask(db.client, task, live);
 
-    expect(db.rpcArgs.reconcile_vendor_quote_offers.p_result).toMatchObject({
+    expect(db.rpcArgs.accept_vendor_quote_result.p_result).toMatchObject({
       status: "instant_quote_received",
       raw_payload: { fixtureSanity: { verdict: "pass", held: false, findings: [] } },
     });
@@ -168,7 +169,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     // Held: finalized without prices or offers, and no routing scores computed from it.
     expect(db.events).toEqual(["sanity_history", "sanity_history", "finalize"]);
     expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_offers).toEqual([]);
     expect(finalize.p_result).toMatchObject({
       status: "manual_review_pending",
@@ -191,7 +192,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     const next = database();
     await handleVendorQuoteTask(next.client, task, live);
     expect(quote).toHaveBeenCalledOnce();
-    expect(next.rpcArgs.reconcile_vendor_quote_offers).toBeUndefined();
+    expect(next.rpcArgs.accept_vendor_quote_result).toBeUndefined();
     expect(next.writes).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
         status: "manual_vendor_followup",
@@ -213,7 +214,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     await handleVendorQuoteTask(db.client, task, live);
 
     expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_offers).toEqual([]);
     expect(finalize.p_result).toMatchObject({
       status: "manual_review_pending",
@@ -230,7 +231,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     await handleVendorQuoteTask(db.client, task, live);
 
     expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_offers).toEqual([]);
     expect(finalize.p_result).toMatchObject({
       status: "manual_review_pending",
@@ -256,7 +257,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
     // Persisted held, never the unchecked price, and the task is completed (no retry).
     expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_offers).toEqual([]);
     expect(finalize.p_result).toMatchObject({
       status: "manual_review_pending",
@@ -267,9 +268,8 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
         withheldResult: { unitPriceUsd: 45.56, totalPriceUsd: 45.56 } } },
     });
     expect(warn.mock.calls.some(([line]) => String(line).includes("fixture_sanity_failed"))).toBe(true);
-    expect(db.writes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "completed" }) }),
-    ]));
+    expect(db.writes.filter((write) => write.table === "work_queue")).toEqual([]);
+    expect(db.rpcArgs.accept_vendor_quote_result.p_task_payload_patch).toMatchObject({ vendorStatus: "manual_review_pending" });
   });
 
   it("xometry_paused_claim_write_is_compare_and_set", async () => {
@@ -302,7 +302,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
     // Checked, not skipped: the drifting price is withheld, so no offer row is written.
     expect(db.events[0]).toBe("sanity_history");
-    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    const finalize = db.rpcArgs.accept_vendor_quote_result;
     expect(finalize.p_offers).toEqual([]);
     expect(finalize.p_result).toMatchObject({
       status: "manual_review_pending",
@@ -318,5 +318,71 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
       },
     });
     expect(fixtureHealSupplierPause.isPaused("xometry")).toBe(true);
+  });
+});
+
+
+describe("claim-fenced acceptance route", () => {
+  const scenarios = [
+    { name: "accepted", replies: [{ outcome: "accepted" }], drain: true },
+    { name: "request_canceled", replies: [{ outcome: "request_canceled" }], drain: true },
+    { name: "stale", replies: [{ outcome: "stale" }], drain: false },
+    { name: "fenced", replies: [{ outcome: "fenced" }], drain: false, failed: true },
+    { name: "payload_mismatch", replies: [{ outcome: "payload_mismatch" }], drain: false, failed: true },
+    { name: "busy then accepted", replies: [{ outcome: "busy" }, { outcome: "accepted" }], drain: true },
+    { name: "busy exhausted", replies: [{ outcome: "busy" }], drain: false, failed: true, attempts: 10 },
+    { name: "lost response then replayed", replies: [new Error("lost response"), { outcome: "replayed", original_outcome: "accepted" }], drain: true },
+    { name: "replayed cancellation", replies: [{ outcome: "replayed", original_outcome: "request_canceled" }], drain: true },
+    { name: "drain failure", replies: [{ outcome: "accepted" }], drain: true, drainError: true },
+  ];
+  it.each(scenarios)("$name preserves the claim boundary", async (scenario) => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(1);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue(xometryOutput("6061-T6"));
+    const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    const acceptanceArgs: Record<string, unknown>[] = [];
+    let drains = 0;
+    (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
+      if (name !== "accept_vendor_quote_result" && name !== "drain_quote_run_rollup_followups") return rpc(name, args);
+      return (async () => {
+      if (name === "accept_vendor_quote_result") {
+        const reply = scenario.replies[Math.min(acceptanceArgs.length, scenario.replies.length - 1)];
+        acceptanceArgs.push(structuredClone(args));
+        if (reply instanceof Error) throw reply;
+        return { data: reply, error: null };
+      }
+      if (name === "drain_quote_run_rollup_followups") {
+        drains += 1;
+        if (scenario.drainError) throw new Error("drain failed");
+        return { data: {}, error: null };
+      }
+      return rpc(name, args);
+      })();
+    }) as typeof rpc;
+    const claimed = { ...task, locked_by: "worker", locked_at: "2026-10-29T12:34:56.123456+00:00" };
+    const run = handleVendorQuoteTask(db.client, claimed, live);
+    const assertion = scenario.failed
+      ? expect(run).rejects.toMatchObject({ code: "persistence_failure" })
+      : expect(run).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(18000);
+    await assertion;
+    expect(acceptanceArgs).toHaveLength(scenario.attempts ?? scenario.replies.length);
+    expect(acceptanceArgs[0]).toMatchObject({
+      p_task_id: claimed.id, p_locked_by: claimed.locked_by, p_locked_at: claimed.locked_at,
+      p_attempts: claimed.attempts, p_task_payload_patch: { vendorStatus: "instant_quote_received", artifactCount: 0  },
+    });
+    for (const args of acceptanceArgs) expect(args).toEqual(acceptanceArgs[0]);
+    expect(drains).toBe(scenario.drain ? 1 : 0);
+    if (!scenario.failed) {
+      expect(db.writes.filter((write) => write.table === "work_queue")).toEqual([]);
+    }
+    if (scenario.name === "stale") {
+      expect(db.writes.filter((write) => write.table === "vendor_quote_results" &&
+        (write.update as { status?: string })?.status !== "running")).toEqual([]);
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("claim lost"));
+    }
   });
 });
