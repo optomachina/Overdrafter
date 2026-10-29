@@ -58,3 +58,14 @@ unavailable, the script emits a stderr note. No check statuses are rewritten.
 Part B is not built yet: the optional ci.yml run_attempt summary step requires
 card C1. It must not introduce job-level `if:` or `continue-on-error`. Box watcher
 and builder prompt wiring are outside PR-A1.
+
+## Supabase image registry
+
+`supabase/setup-cli` v1.6.0 unconditionally exports
+`SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` to `GITHUB_ENV` for CLI >= 1.28.0, so
+`supabase start` pulls from ghcr.io and can fail with `toomanyrequests`. Every
+workflow therefore runs a "Pull Supabase images from public ECR" step right after
+setup-cli that writes `SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws` to
+`GITHUB_ENV`; the later write wins. public.ecr.aws is the CLI's own default
+registry (`internal/utils/docker.go` `GetRegistry`, v2.78.1), so keep that step
+next to any new or bumped setup-cli step until the action stops overriding it.

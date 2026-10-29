@@ -111,6 +111,13 @@ jobs:
         with:
           version: 2.78.1
 
+      - name: Pull Supabase images from public ECR
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        # setup-cli v1.6.0 exports SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io to GITHUB_ENV,
+        # which rate-limits supabase start. A later GITHUB_ENV write wins; public.ecr.aws is
+        # the CLI's own default registry (internal/utils/docker.go, v2.78.1).
+        run: echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws" >> "$GITHUB_ENV"
+
       - name: Setup Node.js
         if: ${{ steps.harness.outputs.present == 'true' }}
         continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
