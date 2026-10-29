@@ -492,13 +492,15 @@ the API is read, not when the run happened, so a base retargeted after the run
 would still look like the default branch. A `pull_request_target` record is
 therefore trusted only when all hold: `pull_requests` is exactly the PR being
 evaluated, based on the default branch; that PR is still based on the default
-branch and was created no later than the run; and its timeline has no
-`base_ref_changed` event. This fails closed by design: fork PRs (empty
-`pull_requests`), closed PRs, PRs sharing a head branch with another open PR,
-and any PR whose base was ever changed cannot have `pull_request_target`
-records read and get `missing_input`.
-This is not a gate bug. Unverifiable
-provenance blocks with `missing_input`. The Checks API does not reliably
+branch and was created no later than the run; the run was created after the
+PR's last `base_ref_changed` event (so a PR retargeted to the default branch
+is trusted again for runs after the retarget); and every PR, open or closed,
+from the same head branch targets the default branch (a closed sibling drops
+out of `pull_requests` but could have triggered the run). Anything else fails
+closed with `missing_input`, by design: fork PRs (empty `pull_requests`),
+closed PRs, PRs sharing a head branch with another open PR, records written
+before a retarget, and head branches ever used for a PR to another base.
+Unverifiable provenance blocks with `missing_input`. The Checks API does not reliably
 expose update history; differences between `started_at` and `completed_at` do
 not prove mutation. Provenance alone cannot detect an update by another
 workflow using the same Actions app token.

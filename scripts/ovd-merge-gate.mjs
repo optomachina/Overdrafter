@@ -1033,21 +1033,52 @@ const historyItemOk = (item) => isRecord(item) && typeof item.author === "string
  * therefore tied to the trigger (OVD-1109):
  * - pull_requests is exactly [the PR being evaluated], based on the default branch;
  * - that PR (still based on the default branch) was created no later than the run;
- * - the PR timeline has no base_ref_changed event.
+ * - the run was created after the PR's last base_ref_changed event, so the PR
+ *   already targeted the default branch when the run happened;
+ * - no other PR, open or closed, from the same head branch targets another base
+ *   (a closed sibling drops out of pull_requests but could have triggered the run).
  * Anything else, including a missing list (closed or fork PRs), fails closed.
+ * PR, timeline and sibling reads are cached per client and PR.
  */
+const prFactsCache = new WeakMap();
+function prFacts(client, repo, pr) {
+  let byPr = prFactsCache.get(client);
+  if (!byPr) prFactsCache.set(client, (byPr = new Map()));
+  const key = `${repo}#${Number(pr)}`;
+  if (!byPr.has(key)) {
+    const facts = (async () => {
+      const pull = await client.json(`/repos/${repo}/pulls/${Number(pr)}`);
+      const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
+      const owner = pull?.head?.repo?.owner?.login;
+      const ref = pull?.head?.ref;
+      const siblings = typeof owner === "string" && typeof ref === "string"
+        ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(`${owner}:${ref}`)}`, (data) => data)
+        : null;
+      return { pull, timeline, siblings };
+    })();
+    facts.catch(() => byPr.delete(key));
+    byPr.set(key, facts);
+  }
+  return byPr.get(key);
+}
+
 async function pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr) {
   const pulls = workflow?.pull_requests;
   if (!Array.isArray(pulls) || pulls.length !== 1 || typeof defaultBranch !== "string" || !PR_NUMBER.test(String(pr ?? ""))) return false;
   const [listed] = pulls;
   if (!isRecord(listed) || Number(listed.number) !== Number(pr) || !isRecord(listed.base) || listed.base.ref !== defaultBranch) return false;
-  const pull = await client.json(`/repos/${repo}/pulls/${Number(pr)}`);
+  const { pull, timeline, siblings } = await prFacts(client, repo, pr);
   const pullCreated = Date.parse(pull?.created_at);
   const runCreated = Date.parse(workflow?.created_at);
   if (pull?.base?.ref !== defaultBranch || !Number.isFinite(pullCreated) || !Number.isFinite(runCreated) || pullCreated > runCreated) return false;
-  const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
-  if (!Array.isArray(timeline)) return false;
-  return !timeline.some((item) => !isRecord(item) || item.event === "base_ref_changed");
+  if (!Array.isArray(timeline) || timeline.some((item) => !isRecord(item))) return false;
+  for (const item of timeline) {
+    if (item.event !== "base_ref_changed") continue;
+    const changed = Date.parse(item.created_at);
+    if (!Number.isFinite(changed) || changed >= runCreated) return false;
+  }
+  if (!Array.isArray(siblings) || !siblings.some((s) => isRecord(s) && Number(s.number) === Number(pr))) return false;
+  return siblings.every((s) => isRecord(s) && isRecord(s.base) && s.base.ref === defaultBranch);
 }
 
 /** Reject foreign writers before interpreting any stored gate data. `pr` is the PR the record is read for. */

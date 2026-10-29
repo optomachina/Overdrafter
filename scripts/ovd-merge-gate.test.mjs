@@ -666,7 +666,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [] } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -690,6 +690,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r") return response(200, { default_branch: defaultBranch });
     if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", created_at: "2026-01-02T00:00:00Z", ...provenance }] });
     if (pathname === "/repos/o/r/issues/7/timeline") return response(200, timeline);
+    if (pathname === "/repos/o/r/pulls" && searchParams.get("head") === "o:feature") return response(200, siblings ?? [{ number: 7, base: { ref: pullBase } }]);
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
       const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
@@ -698,7 +699,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha, ref: "feature", repo: { owner: { login: "o" } } }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
     }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
@@ -1602,11 +1603,22 @@ describe("R2 history provenance", () => {
     ["a run listing another PR", { provenance: { ...prt, pull_requests: [{ number: 8, base: { ref: "main" } }] } }],
     ["a run listing several PRs", { provenance: { ...prt, pull_requests: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }] } }],
     ["a run with no created_at", { provenance: { ...prt, created_at: null } }],
+    ["a base change at an unknown time", { timeline: [{ event: "base_ref_changed" }] }],
+    ["a closed sibling PR from the same head branch on another base", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "release" } }] }],
+    ["a sibling list that does not include this PR", { siblings: [] }],
   ])("rejects a pull_request_target record with %s", async (_label, options) => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, ...options });
     await expect(gate.readHistory(gateClientFor(api), "o/r", 7)).rejects.toThrow(/default-branch/);
     const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
     expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a run made after the PR was retargeted to the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, timeline: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("trusts sibling PRs that all target the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
   });
   it("compares that base to the repository default branch", async () => {
     const trusted = fakeGithub({
