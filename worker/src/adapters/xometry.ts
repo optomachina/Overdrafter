@@ -1,3 +1,4 @@
+import { xometryCardFingerprint } from "./xometryOffers.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 import fs from "node:fs/promises";
@@ -2230,16 +2231,17 @@ type PageQuantityRead =
  * The selector scopes printed fields and price text to the commercial summary.
  * Neither whitespace nor tokens are normalized for the shared validator.
  */
-export async function readPricedCardQuantity(page: Page): Promise<PageQuantityRead> {
+export async function readPricedCardQuantity(page: Page, offers?: readonly VendorQuoteAdapterOffer[]): Promise<PageQuantityRead> {
   const read = async () => {
-    const cards = page.locator(XOMETRY_LOCATORS.pricedCardQuantity);
-    const texts: Array<{ quantityTexts: string[]; priceText: string }> = [];
+    const cards = page.locator(XOMETRY_LOCATORS.priceTierCard);
+    const texts: Array<{ quantityTexts: string[]; priceText: string; fingerprint: string }> = [];
     for (let index = 0; index < await cards.count(); index++) {
       const card = cards.nth(index);
-      if (!await card.isVisible()) continue;
-      const fields = card.locator(":scope > *");
+      const summaries = card.locator('[kind="discount"]');
+      const visible = await card.isVisible() && await summaries.count() === 1 && await summaries.first().isVisible();
+      const fields = summaries.first().locator(":scope > *");
       const quantityTexts: string[] = [];
-      for (let fieldIndex = 0; fieldIndex < await fields.count(); fieldIndex++) {
+      for (let fieldIndex = 0; visible && fieldIndex < await fields.count(); fieldIndex++) {
         const field = fields.nth(fieldIndex);
         if (!await field.isVisible()) continue;
         const text = await field.innerText();
@@ -2247,7 +2249,8 @@ export async function readPricedCardQuantity(page: Page): Promise<PageQuantityRe
       }
       texts.push({
         quantityTexts,
-        priceText: await card.innerText(),
+        priceText: visible ? await summaries.first().innerText() : "",
+        fingerprint: xometryCardFingerprint(await card.innerText()),
       });
     }
     return texts;
@@ -2262,6 +2265,10 @@ export async function readPricedCardQuantity(page: Page): Promise<PageQuantityRe
       if (second.length === 0 || second.some(({ quantityTexts }) => quantityTexts.length === 0 || quantityTexts.some((text) => text.trim() === ""))) {
         return { ok: false, reason: "page_qty_missing", detail: {} };
       }
+      if (offers && (offers.length !== second.length || second.some((card, index) =>
+        card.fingerprint !== offers[index].rawPayload.cardFingerprint))) {
+        return { ok: false, reason: "page_qty_unstable", detail: {} };
+      }
       const fields = second.flatMap(({ quantityTexts }) => quantityTexts);
       const quantities = fields.flatMap((text) => [...text.matchAll(/[0-9]+/g)].map((hit) => Number(hit[0])));
       const distinct = new Set(quantities);
@@ -2272,11 +2279,31 @@ export async function readPricedCardQuantity(page: Page): Promise<PageQuantityRe
       }
       const sourceText = fields[0];
       return { ok: true, value: { value, sourceText, source: "page_dom" } };
-    } catch {
+    } catch (error) {
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError ||
+          (error instanceof Error && (error.name === "AbortError" || /(?:target|page|context|browser).*closed/i.test(error.message)))) throw error;
       // Retry a detached/rerendered card once, then fail closed.
     }
   }
   return { ok: false, reason: "page_qty_unstable", detail: {} };
+}
+
+/** The live adapter and regression tests use the same independent evidence wiring. */
+export async function admitXometryPricedOffers(page: Page, offers: readonly VendorQuoteAdapterOffer[], requestedQuantity: number): Promise<{ ok: true } | Extract<PriceVerdict, { ok: false }>> {
+  const read = await readPricedCardQuantity(page, offers);
+  if (!read.ok) return read;
+  for (const offer of offers) {
+    const verdict = admitPrice({
+      requestedQuantity,
+      quantity: offer.quantity,
+      pageQuantity: read.value,
+      unit: offer.rawPayload.unitPriceExplicit === true
+        ? { cents: Math.round(offer.unitPriceUsd * 100), currency: "USD", label: "each" } : null,
+      total: { cents: Math.round(offer.totalPriceUsd * 100), currency: "USD", label: "total" },
+    });
+    if (!verdict.ok) return verdict;
+  }
+  return { ok: true };
 }
 
 async function openPartConfigurationIfNeeded(
@@ -3836,31 +3863,20 @@ export class XometryAdapter extends VendorAdapter {
             pricingInProgress: isXometryPricingInProgress({ url: page.url(), bodyText }),
           },
         );
-      if (!manualReviewResult.manualReview && offers.length > 0) {
-        const pageQuantity = await readPricedCardQuantity(page);
-        for (const offer of offers) {
-          const verdict = pageQuantity.ok
-            ? admitPrice({
-                requestedQuantity: normalizedQuantity(input),
-                quantity: offer.quantity ?? pageQuantity.value.value,
-                pageQuantity: pageQuantity.value,
-                unit: { cents: Math.round(offer.unitPriceUsd * 100), currency: "USD", label: "each" },
-                total: { cents: Math.round(offer.totalPriceUsd * 100), currency: "USD", label: "total" },
-              })
-            : pageQuantity;
-          if (!verdict.ok) {
-            throw new VendorAutomationError(
-              "Xometry priced-card quantity did not establish a publishable price.",
-              "unexpected_ui_state",
-              {
-                vendor: "xometry",
-                reason: verdict.reason,
-                terminalState: verdict.reason === "qty_mismatch" ? "configuration_required" : "selector_drift",
-                ...verdict.detail,
-              },
-              await capturePageArtifacts(page, runDir, "priced-quantity-unverified"),
-            );
-          }
+      if (this.config.xometryPricedCardReadbackEnabled === true && !manualReviewResult.manualReview && offers.length > 0) {
+        const verdict = await admitXometryPricedOffers(page, offers, normalizedQuantity(input));
+        if (!verdict.ok) {
+          throw new VendorAutomationError(
+            "Xometry priced-card quantity did not establish a publishable price.",
+            "unexpected_ui_state",
+            {
+              vendor: "xometry",
+              reason: verdict.reason,
+              terminalState: verdict.reason === "qty_mismatch" ? "configuration_required" : "selector_drift",
+              ...verdict.detail,
+            },
+            await capturePageArtifacts(page, runDir, "priced-quantity-unverified"),
+          );
         }
       }
       const compatibilityOffer = selectCompatibilityOffer(offers);

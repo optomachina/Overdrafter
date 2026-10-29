@@ -608,6 +608,9 @@ function createFakePage(options: FakePageOptions) {
         const summaryBehavior = selectorBehaviors[XOMETRY_LOCATORS.priceText[0]];
         return makeLocator({
           ...summaryBehavior,
+          children: { '[kind="discount"]': { count: 1, text: "$100 each", children: {
+            ":scope > *": { items: [{ count: 1, text: options.pricedCardQuantityText ?? "Qty 2" }] },
+          } } },
           getAttribute: (name) => name === "data-option-id" ? "test-option" : null,
         });
       }
@@ -4316,6 +4319,7 @@ describe("XometryAdapter", () => {
       strayQuantity?: string;
       summaryQuantity?: string;
       pricedCardQuantityText?: string;
+      readbackEnabled?: boolean;
     }) {
       const workerTempDir = await makeTempDir();
       const bodyText = t1QuotePageText(input.each, input.total, input.summaryQuantity ?? "Quantity");
@@ -4323,7 +4327,7 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
-          text: `Least Expensive\nArrives by Nov 6\nUSD $${input.each} ea.\nUSD $${input.total}`,
+          text: `Least Expensive\nArrives by Nov 6\n${input.readbackEnabled ? "Qty 1\n" : ""}USD $${input.each} ea.\nUSD $${input.total}`,
         },
       };
       if (input.lineItemQuantity !== undefined) {
@@ -4351,7 +4355,7 @@ describe("XometryAdapter", () => {
       launchMock.mockResolvedValue(createFakeBrowser(page));
       const adapter = new XometryAdapter(
         "xometry",
-        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+        makeConfig({ workerTempDir, xometryPricedCardReadbackEnabled: input.readbackEnabled, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
       return adapter.quote(makeInput({ requestedQuantity: 1 }));
     }
@@ -4370,7 +4374,7 @@ describe("XometryAdapter", () => {
       ["Qty 1; Qty 10", "page_qty_ambiguous", "selector_drift"],
     ])("publishes no price with independent printed card %j", async (pricedCardQuantityText, reason, terminalState) => {
       const failure = await quoteT1Page({
-        each: "41.41", total: "41.41", lineItemQuantity: "1", pricedCardQuantityText,
+        each: "41.41", total: "41.41", lineItemQuantity: "1", pricedCardQuantityText, readbackEnabled: true,
       }).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(VendorAutomationError);
       expect(failure).toMatchObject({ payload: { reason, terminalState } });
@@ -4651,14 +4655,7 @@ describe("XometryAdapter", () => {
       /** The price-tier settle wait times out whatever the predicate says. */
       priceTiersTimeOut?: boolean;
     } = {}) {
-      const fixture = await loadCurrentQuotePage((document) => {
-        for (const summary of document.querySelectorAll('.price-tier [kind="discount"]')) {
-          const field = document.createElement("div");
-          field.textContent = "Qty 1 pc";
-          summary.prepend(field);
-        }
-        options.mutate?.(document);
-      });
+      const fixture = await loadCurrentQuotePage(options.mutate);
       const labelledQuantitySelector = XOMETRY_LOCATORS.lineItemQuantityInputs.find((selector) =>
         selector.includes('span:text-is("Quantity")'));
       expect(labelledQuantitySelector).toBeDefined();

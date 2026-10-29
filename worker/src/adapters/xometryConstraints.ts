@@ -265,7 +265,7 @@ export const XOMETRY_LOCATORS = {
   // ever read as an option.
   priceTierCard: ".price-tier",
   // Rendered commercial summary inside each offered card; never the part stepper.
-  pricedCardQuantity: '.price-tier [kind="discount"]:not(:empty)',
+  pricedCardQuantity: '.price-tier [kind="discount"]',
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

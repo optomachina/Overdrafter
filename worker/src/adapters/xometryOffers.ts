@@ -5,7 +5,14 @@ import {
   type VendorQuoteAdapterOffer,
 } from "../types.js";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
-import { sourceShowsQuantity } from "../quotes/pricedQuantity.js";
+import { createHash } from "node:crypto";
+
+export const xometryCardFingerprint = (text: string) => createHash("sha256").update(text.trim()).digest("hex");
+const printedQuantityLine = /^(?:Qty|Quantity):?[ \t]+([1-9][0-9]*)(?:[ \t]+(?:pc|pcs))?$/i;
+const statedCardQuantity = (text: string) => {
+  const values = text.split(/\r?\n/).map(line => printedQuantityLine.exec(line.trim())?.[1]).filter(Boolean).map(Number);
+  return values.length > 0 && values.every(value => Number.isSafeInteger(value) && value === values[0]) ? values[0] : undefined;
+};
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
 import {
   createXometryQuoteObservation,
@@ -516,7 +523,7 @@ function countUnrecognizedCardLines(snapshot: XometryOfferSnapshot, requestedQua
     .slice(text.indexOf(tierText) + tierText.length)
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !CARD_PRICE_LINES.some((pattern) => pattern.test(line)) && !sourceShowsQuantity(line, requestedQuantity))
+    .filter((line) => line && !CARD_PRICE_LINES.some((pattern) => pattern.test(line)) && !(printedQuantityLine.test(line) && Number(printedQuantityLine.exec(line)?.[1]) === requestedQuantity))
     .length;
 }
 
@@ -722,6 +729,7 @@ export function parseXometryOfferSnapshots(input: {
       providerLabel,
       quoteRef: quoteReference(input.quoteUrl),
       quoteUrl: input.quoteUrl,
+      quantity: statedCardQuantity(snapshot.text),
       unitPriceUsd: prices.unitPriceUsd,
       totalPriceUsd: prices.totalPriceUsd,
       leadTimeBusinessDays,
@@ -739,6 +747,8 @@ export function parseXometryOfferSnapshots(input: {
       },
       rawPayload: {
         providerText: snapshot.text.slice(0, 1000),
+        cardFingerprint: xometryCardFingerprint(snapshot.text),
+        unitPriceExplicit: prices.unitPriceExplicit,
         providerAttributes: snapshot.attributes,
       },
     } satisfies VendorQuoteAdapterOffer;

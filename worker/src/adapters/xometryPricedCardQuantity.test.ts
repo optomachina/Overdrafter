@@ -6,7 +6,8 @@ import type { Page } from "patchright";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sandboxedChromiumLaunchOptions } from "../../test-support/localPortalBrowserFixture.js";
 import { admitPrice } from "../quotes/pricedQuantity.js";
-import { readPricedCardQuantity } from "./xometry.js";
+import { parseXometryOfferSnapshots } from "./xometryOffers.js";
+import { admitXometryPricedOffers, readPricedCardQuantity } from "./xometry.js";
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
 
 const summary = (quantity: string, price = "$43.21") =>
@@ -30,7 +31,8 @@ const cases = [
 describe("OVD-1094 priced-card quantity design table (offline Chromium)", () => {
   let browser: Browser;
   beforeAll(async () => { browser = await chromium.launch({ headless: true, ...sandboxedChromiumLaunchOptions() }); });
-  afterAll(async () => { await browser?.close(); });
+  // Chromium process teardown takes ~30s on the macOS runner; assertions keep their normal deadlines.
+  afterAll(async () => { await browser?.close(); }, 45_000);
 
   it.each(cases)("row $row", async (testCase) => {
     const page = await browser.newPage();
@@ -70,6 +72,7 @@ describe("OVD-1094 priced-card quantity design table (offline Chromium)", () => 
 
   it("refuses the original price panel, which prints no card quantity", async () => {
     const page = await browser.newPage();
+    await page.route("**/*", route => route.abort());
     try {
       await page.setContent(await readFile(new URL("./fixtures/xometry-quote-page-price-panel-2026-10.html", import.meta.url), "utf8"));
       expect(await readPricedCardQuantity(page as unknown as Page)).toMatchObject({ ok: false, reason: "page_qty_missing" });
@@ -78,6 +81,7 @@ describe("OVD-1094 priced-card quantity design table (offline Chromium)", () => 
 
   it("retries one changing pair, then returns the exact second stable text", async () => {
     const page = await browser.newPage();
+    await page.route("**/*", route => route.abort());
     try {
       await page.setContent(summary("Qty 10"));
       const wait = page.waitForTimeout.bind(page);
@@ -93,4 +97,54 @@ describe("OVD-1094 priced-card quantity design table (offline Chromium)", () => 
       expect(await page.locator(XOMETRY_LOCATORS.pricedCardQuantity).locator("span").first().innerText()).toBe("Qty:\t1 pc");
     } finally { await page.close(); }
   });
+  // Synthetic layouts below are contracts for the disabled experiment, not live capture evidence.
+  async function pricedPage(quantity = 10, explicitUnit = true, count = 1) {
+    const page = await browser.newPage();
+    await page.route("**/*", route => route.abort());
+    await page.setContent(Array.from({ length: count }, (_, i) => `<div class="price-tier" data-option-id="tier-${i}"><div>Standard</div><div>5 business days</div><div kind="discount"><div>Qty ${quantity}</div>${explicitUnit ? '<div>$43.21 ea.</div>' : ''}<div>$${(43.21 * quantity).toFixed(2)}</div></div></div>`).join(""));
+    const snapshots = await page.locator(".price-tier").evaluateAll(cards => cards.map((card, i) => ({
+      selector: ".price-tier", text: (card as HTMLElement).innerText.trim(), attributes: { "data-option-id": `tier-${i}` },
+    })));
+    const offers = parseXometryOfferSnapshots({ requestedQuantity: quantity, quoteUrl: "https://www.xometry.com/quoting/quote/Q00-TEST", snapshots });
+    return { page, offers };
+  }
+
+  it("admits parser-produced witnesses and refuses a missing or mismatched offer quantity", async () => {
+    const { page, offers } = await pricedPage();
+    try {
+      expect(offers[0].quantity).toBe(10);
+      expect(await admitXometryPricedOffers(page as unknown as Page, offers, 10)).toEqual({ ok: true });
+      expect(await admitXometryPricedOffers(page as unknown as Page, [{ ...offers[0], quantity: undefined }], 10)).toMatchObject({ ok: false, reason: "qty_missing" });
+      expect(await admitXometryPricedOffers(page as unknown as Page, [{ ...offers[0], quantity: 1 }], 10)).toMatchObject({ ok: false, reason: "qty_mismatch" });
+    } finally { await page.close(); }
+  });
+
+  it("does not present a derived unit as observed for a multi-piece price", async () => {
+    const { page, offers } = await pricedPage(10, false);
+    try {
+      expect(offers[0].rawPayload.unitPriceExplicit).toBe(false);
+      expect(await admitXometryPricedOffers(page as unknown as Page, offers, 10)).toMatchObject({ ok: false, reason: "ambiguous_label" });
+    } finally { await page.close(); }
+  });
+
+  it.each(["empty", "hidden", "changed", "removed"])("refuses a third offered card whose evidence is %s", async mode => {
+    const { page, offers } = await pricedPage(1, true, 3);
+    try {
+      await page.locator('.price-tier').nth(2).evaluate((card, mode) => {
+        const summary = card.querySelector('[kind="discount"]') as HTMLElement;
+        if (mode === "empty") summary.textContent = "";
+        if (mode === "hidden") summary.style.display = "none";
+        if (mode === "changed") summary.lastElementChild!.textContent = "$99.00";
+        if (mode === "removed") card.remove();
+      }, mode);
+      expect(await admitXometryPricedOffers(page as unknown as Page, offers, 1)).toMatchObject({ ok: false });
+    } finally { await page.close(); }
+  });
+
+  it("propagates a closed page instead of reporting selector drift", async () => {
+    const page = await browser.newPage();
+    await page.close();
+    await expect(readPricedCardQuantity(page as unknown as Page)).rejects.toThrow(/closed/i);
+  });
+
 });
