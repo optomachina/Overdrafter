@@ -1,6 +1,7 @@
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 
 import { detectProviderEnablement } from "./provider-enablement-detect.mjs";
@@ -539,7 +540,7 @@ function setextGoLiveFlags(lines, hidden) {
  * HTML headings outside a fence. The sticky copy only runs at a real `<hN`
  * start, and only while a `>` is still ahead, so an unclosed `<h1` cannot retry.
  */
-function countHtmlGoLiveHeadings(unfenced) {
+function countHtmlGoLiveHeadings(unfenced, matches = isGoLiveHeading) {
   const lastGt = unfenced.lastIndexOf(">");
   if (lastGt === -1) return 0;
   let count = 0;
@@ -554,7 +555,7 @@ function countHtmlGoLiveHeadings(unfenced) {
       searchFrom = start.index + 1;
       continue;
     }
-    if (isGoLiveHeading(html[1])) count += 1;
+    if (matches(html[1])) count += 1;
     const next = HTML_HEADING.lastIndex;
     searchFrom = next > start.index ? next : start.index + 1;
   }
@@ -573,17 +574,30 @@ function isGoLiveHeading(text) {
   return squashed.length <= 40 && squashed.includes("provider") && squashed.includes("live");
 }
 
-function collectSections(body) {
+function collectSections(body, { revertPlan = false } = {}) {
   const normalizedBody = normalizeText(body);
   const fences = fencedCodeRanges(normalizedBody);
   const lines = normalizedBody.split("\n");
   const hidden = hiddenLineFlags(lines);
   const headings = [];
   let goLiveHeadings = 0;
+  let revertHeadings = 0;
+  let detailsDepth = 0;
+  const details = [];
   let offset = 0;
   const setextGoLive = setextGoLiveFlags(lines, hidden);
 
   lines.forEach((line, index) => {
+    if (revertPlan) {
+      const tags = line.match(/<details\b|<\/details\s*>/gi) ?? [];
+      details[index] = detailsDepth > 0 || tags.length > 0;
+      if (!hidden.fenced[index] && !hidden.comment[index]) for (const tag of tags) detailsDepth = Math.max(0, detailsDepth + (tag.startsWith("</") ? -1 : 1));
+      if (!hidden.fenced[index] || hidden.uncertain[index]) {
+        const text = anyHeadingText(lines, index);
+        const setext = index + 1 < lines.length && SETEXT_UNDERLINE.test(lines[index + 1]);
+        if ((text !== null && squashHeading(text) === "revertplan") || (setext && squashHeading(line) === "revertplan")) revertHeadings += 1;
+      }
+    }
     const match = line.match(SECTION_HEADING_LINE);
     const visibleToCount = !hidden.fenced[index] || hidden.uncertain[index];
     // Every heading outside a code fence that mentions Provider go-live counts toward
@@ -596,8 +610,8 @@ function collectSections(body) {
     // A heading after an unresolved fence still splits sections so ordinary PR
     // bodies keep working; its checkboxes stay hidden.
     if (match && visibleToCount) {
-      const key = normalizeHeading(match[1]);
-      if (!hidden.comment[index] && !isInsideRange(fences, offset)) {
+      const key = revertPlan && squashHeading(match[1]) === "revertplan" ? normalizeHeading(REVERT_PLAN_HEADING) : normalizeHeading(match[1]);
+      if (!hidden.comment[index] && !isInsideRange(fences, offset) && !(revertPlan && key === "revert plan" && details[index])) {
         headings.push({ index, key, heading: match[1].trim() });
       }
     }
@@ -608,6 +622,7 @@ function collectSections(body) {
   // a code fence (an unclosed tag runs to the end).
   const unfenced = lines.map((line, index) => (hidden.fenced[index] && !hidden.uncertain[index] ? "" : line)).join("\n");
   goLiveHeadings += countHtmlGoLiveHeadings(unfenced);
+  if (revertPlan) revertHeadings += countHtmlGoLiveHeadings(unfenced, (text) => squashHeading(text) === "revertplan");
 
   const sections = new Map();
   headings.forEach((entry, position) => {
@@ -616,11 +631,11 @@ function collectSections(body) {
     const content = sectionLines.join("\n").trim();
     const parsedLines = sectionLines.map((line, offsetInSection) => ({
       line,
-      hidden: hidden.fenced[entry.index + 1 + offsetInSection] || hidden.comment[entry.index + 1 + offsetInSection],
+      hidden: hidden.fenced[entry.index + 1 + offsetInSection] || hidden.comment[entry.index + 1 + offsetInSection] || (revertPlan && details[entry.index + 1 + offsetInSection]),
     }));
     // Only the Provider go-live section uses `count`: every heading whose visible
     // text mentions "provider go-live", in any form, counts toward it.
-    const count = entry.key === normalizeHeading(PROVIDER_GO_LIVE_HEADING) ? goLiveHeadings : 1;
+    const count = entry.key === normalizeHeading(PROVIDER_GO_LIVE_HEADING) ? goLiveHeadings : revertPlan && entry.key === "revert plan" ? revertHeadings : 1;
     sections.set(entry.key, { heading: entry.heading, content, lines: parsedLines, count });
   });
 
@@ -841,6 +856,76 @@ export { detectProviderEnablement };
  */
 export function enablesProvider(options = {}) {
   return detectProviderEnablement(options).some((finding) => finding.kind === "provider");
+}
+
+export const REVERT_PLAN_HEADING = "Revert plan";
+export const REVERT_PLAN_FIELDS = Object.freeze(["Revert", "State effects", "Kill switch", "Owner", "Verify after revert", "Blast radius"]);
+const REVERT_TEMPLATE_TEXT = /\b(?:todo|tbd|n\/a|replace me|fill (?:in|out)|template text|affected surfaces or users|a command or check run)\b/i;
+
+function revertOwners() {
+  // The maintained YAML names model labels; its bot roster is the same
+  // JSON-compatible routing fixture the existing Built-by parser consumes.
+  const labels = readFileSync(new URL("../docs/agent-graph/model-routing.yaml", import.meta.url), "utf8");
+  const roster = JSON.parse(readFileSync(new URL("./fixtures/agent-graph/model-routing.v2.yaml", import.meta.url), "utf8"));
+  if (!Array.isArray(roster.bots)) throw new Error("missing owner roster");
+  return new Set(["blaine", ...roster.bots.map((bot) => bot.id), ...[...labels.matchAll(/label:\s*"model:([a-z0-9-]+)"/g)].map((match) => match[1])]);
+}
+
+function revertFields(section) {
+  const fields = new Map();
+  const errors = [];
+  for (const { line, hidden } of section.lines) {
+    // Hidden or partially hidden field values cannot provide evidence.
+    if (hidden || line.includes("<!--") || /<\/?details\b/i.test(line)) continue;
+    const text = normalizeNfkc(decodeEntities(line)).replaceAll(/[\u200B-\u200F\u2060\uFEFF]/g, "");
+    if (!/^ {0,3}-[ \t]/.test(text)) continue;
+    const colon = text.indexOf(":");
+    if (colon < 0 || colon > 40) continue;
+    const match = [text, text.slice(text.indexOf("-") + 1, colon).trim(), text.slice(colon + 1).trim()];
+    const key = squashHeading(match[1]);
+    if (![...REVERT_PLAN_FIELDS, "Why none"].some((name) => squashHeading(name) === key)) continue;
+    if (fields.has(key)) errors.push(`duplicate field "${match[1]}" in "${REVERT_PLAN_HEADING}"`);
+    const value = match[2].replaceAll(/[`*]/g, "").trim();
+    fields.set(key, value);
+    if (!value || value === "-" || REVERT_TEMPLATE_TEXT.test(value)
+        || /<[^>]+>/.test(value.replaceAll("<squash-sha>", ""))) errors.push(`placeholder or empty field "${match[1]}" in "${REVERT_PLAN_HEADING}"`);
+  }
+  return { fields, errors };
+}
+
+/** Optional until enforcement: callers must explicitly supply a door. */
+export function validateRevertPlan(body, door, { owners, maxMs = 1000 } = {}) {
+  if (door === "one-way") return { ok: true, required: false, errors: [] };
+  const errors = [];
+  const finish = () => ({ ok: errors.length === 0, required: true, errors });
+  try {
+    const started = performance.now();
+    if (typeof body !== "string" || body.length > 256 * 1024) throw new Error("unscannable PR body");
+    if (door !== "revertable") errors.push("unknown door; Revert plan is required (fail closed)");
+    const section = collectSections(body, { revertPlan: true }).get(normalizeHeading(REVERT_PLAN_HEADING));
+    if (!section) errors.push(`missing required section "${REVERT_PLAN_HEADING}"`);
+    else {
+      if (section.count !== 1) errors.push(`duplicate section "${REVERT_PLAN_HEADING}"`);
+      const parsed = revertFields(section);
+      errors.push(...parsed.errors);
+      const get = (name) => parsed.fields.get(squashHeading(name)) ?? "";
+      for (const field of REVERT_PLAN_FIELDS) if (!get(field)) errors.push(`missing field "${field}" in "${REVERT_PLAN_HEADING}"`);
+      if (!/^(?:git revert (?:<squash-sha>|[a-f0-9]{7,40})(?:\s|$)|(?:revert )?(?:PR|branch)\s+\S+|https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$)/i.test(get("Revert"))) errors.push("Revert must name git revert <squash-sha>, a revert PR or a branch");
+      const state = get("State effects").split(/;[ \t]*Why none:/i);
+      if (state[0].trim().toLowerCase() !== "none") errors.push("State effects must be none; other state effects are one-way");
+      const why = get("Why none") || state[1]?.trim() || "";
+      if (why.length < 20 || REVERT_TEMPLATE_TEXT.test(why)) errors.push("Why none needs at least 20 characters explaining the absence of state effects");
+      const kill = get("Kill switch");
+      if (!/^(?:none\s*[-:;(]\s*[A-Za-z0-9][^\n]{11,}|[A-Za-z][A-Za-z0-9_.-]*\s*[,;:( -]+\s*default\s*(?:[:=]|is)?\s*off\b)/i.test(kill)) errors.push("Kill switch must name a flag with default off, or none with a reason");
+      if (!(owners ?? revertOwners()).has(get("Owner").toLowerCase().replace(/^@/, ""))) errors.push("Owner must be a known routing id or blaine");
+      if (!/^(?:[A-Za-z0-9_./-]+(?:\s+\S+)+|(?:check|run)\s*:\s*\S+|ci|provider-go-live|secret-scan)$/i.test(get("Verify after revert"))) errors.push("Verify after revert must name a command or check run");
+      if (get("Blast radius").length < 12) errors.push("Blast radius needs at least 12 characters naming affected surfaces or users");
+    }
+    if (performance.now() - started > maxMs) throw new Error("parse timeout");
+  } catch {
+    errors.push("Revert plan parse error or timeout (fail closed)");
+  }
+  return finish();
 }
 
 export const GATE_CHANGE_HEADING = "Gate change review";
@@ -1344,6 +1429,7 @@ export function validatePrBody(body, options = {}) {
     errors.push(...validateGateChangeNote(body, gateFindings));
   }
 
+  if (Object.hasOwn(options, "door")) errors.push(...validateRevertPlan(body, options.door).errors);
   return {
     ok: errors.length === 0,
     errors,
@@ -1369,6 +1455,7 @@ const VALUE_FLAGS = new Map([
   ["--diff-from", "diffFrom"],
   ["--base-ref", "baseRef"],
   ["--head-ref", "headRef"],
+  ["--door", "door"],
 ]);
 
 const BOOLEAN_FLAGS = new Map([
@@ -1387,6 +1474,9 @@ function parseCliArgs(argv) {
     const arg = argv[index];
     if (BOOLEAN_FLAGS.has(arg)) {
       flags.add(BOOLEAN_FLAGS.get(arg));
+    } else if (arg === "--door") {
+      if (Object.hasOwn(values, "door")) throw new Error("duplicate --door");
+      values.door = argv[index + 1]?.startsWith("--") ? "" : (argv[++index] ?? "");
     } else if (VALUE_FLAGS.has(arg)) {
       values[VALUE_FLAGS.get(arg)] = argv[index + 1];
       index += 1;
@@ -1438,7 +1528,11 @@ function gitShowReader(baseRef, headRef) {
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env, deps = {}) {
-  const parsed = parseCliArgs(argv);
+  let parsed;
+  try { parsed = parseCliArgs(argv); } catch {
+    console.error("Revert plan argument parse error (fail closed)");
+    return 1;
+  }
   const useStdin = parsed.flags.has("stdin");
   const filePath = useStdin ? null : parsed.positional[0];
 
@@ -1460,15 +1554,20 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
   const changedFiles = parsed.values.changedFilesFrom ? await readLines(parsed.values.changedFilesFrom) : [];
   const diffText = parsed.values.diffFrom ? await fs.readFile(parsed.values.diffFrom, "utf8") : "";
   const readFile = deps.readFile ?? gitShowReader(parsed.values.baseRef ?? "HEAD^1", parsed.values.headRef ?? "HEAD");
-  const detection = { changedFiles, diffText, readFile };
+  const detection = { changedFiles, diffText, readFile, ...(Object.hasOwn(parsed.values, "door") ? { door: parsed.values.door } : {}) };
   const findings = detectProviderEnablement(detection);
 
-  if (parsed.flags.has("skipUnlessEnabling") && findings.length === 0) {
+  if (parsed.flags.has("skipUnlessEnabling") && findings.length === 0 && !Object.hasOwn(parsed.values, "door")) {
     console.log("No provider enablement or gate edit in this diff; no extra PR section required.");
     return 0;
   }
 
-  const result = validatePrBody(body, detection);
+  let result;
+  try { result = validatePrBody(body, detection); } catch (error) {
+    if (!Object.hasOwn(parsed.values, "door")) throw error;
+    console.error("Revert plan parse error or timeout (fail closed)");
+    return 1;
+  }
   const errors = [...result.errors];
 
   if (errors.length === 0 && findings.length > 0 && parsed.flags.has("verifyLinks")) {
@@ -1486,6 +1585,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
   }
 
   const sectionNames = REQUIRED_SECTIONS.map((section) => section.heading);
+  if (Object.hasOwn(parsed.values, "door") && parsed.values.door !== "one-way") sectionNames.push(REVERT_PLAN_HEADING);
   for (const finding of findings) {
     console.log(`${finding.kind === "gate" ? "Gate edit" : "Provider enablement"} detected: ${finding.file}: ${finding.reason}`);
   }

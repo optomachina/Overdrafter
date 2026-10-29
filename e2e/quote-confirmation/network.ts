@@ -1,9 +1,10 @@
 import type { BrowserContext, Route } from "@playwright/test";
-import { access, ID, POLICY, queued, scope } from "./data";
+import { access, ID, POLICY, queued, scope, SHIPPING } from "./data";
 
 export const ORIGIN = "http://127.0.0.1:4175";
 export type RpcCall = { name: string; input: Record<string, unknown> };
 type ReplyMode = "success" | "lost-after-commit" | "lost-before-commit" | "denied";
+type Address = { street: string | null; city: string | null; region: string | null; postalCode: string | null; country: string | null };
 const cors = { "access-control-allow-origin": ORIGIN };
 
 /** This ledger models only HTTP responses, NOT real SQL admission or worker execution. */
@@ -17,6 +18,8 @@ export class QuoteBrowserBackend {
   changed = false;
   nextReply: ReplyMode = "success";
   denialCode = "xometry_beta_scope_changed";
+  /** OVD-1068: the organization's effective quote shipping destination. Confirmed by default. */
+  destination: { address: Address; confirmed: boolean } = { address: { ...SHIPPING }, confirmed: true };
   /** Optional status and PostgREST body for every failing RPC reply; null keeps the default P0001 400. */
   failureReply: { status: number; body: Record<string, unknown> } | null = null;
   private pendingGate: Promise<void> | null = null;
@@ -98,9 +101,30 @@ export class QuoteBrowserBackend {
       case "api_get_quote_lane_eligibility":
         return this.json(route, [{ vendor: "xometry", partId: ID.part, requestedQuantity: 1,
           state: "requestable", currentOfferId: null, validUntil: null, retryAt: null }]);
+      case "api_get_sourcing_destination":
+        if (input.p_organization_id !== ID.organization) return this.denyUnexpected(route);
+        return this.json(route, { address: this.destination.address, state: this.destination.confirmed ? "confirmed" : "inferred" });
+      case "api_update_organization_addresses": {
+        // Models the SQL contract: changing the effective address revokes its confirmation.
+        const patch = input.p_patch as Record<string, string | null | boolean>;
+        if (input.p_organization_id !== ID.organization || patch.shippingSameAsBilling !== false) return this.denyUnexpected(route);
+        const address = { street: patch.shippingStreet, city: patch.shippingCity, region: patch.shippingState,
+          postalCode: patch.shippingZip, country: patch.shippingCountry } as Address;
+        if (JSON.stringify(address) !== JSON.stringify(this.destination.address)) this.destination = { address, confirmed: false };
+        return route.fulfill({ status: 204, headers: { ...cors, "cache-control": "no-store" } });
+      }
+      case "api_confirm_sourcing_destination":
+        if (input.p_organization_id !== ID.organization) return this.denyUnexpected(route);
+        if (JSON.stringify(input.p_expected_address) !== JSON.stringify(this.destination.address)) {
+          return this.denial(route, "sourcing_destination_changed");
+        }
+        this.destination.confirmed = true;
+        return this.json(route, 2);
       case "api_get_xometry_beta_dispatch_scope": {
         if (this.scopeMode === "error") return this.denial(route, "Synthetic scope lookup unavailable");
-        const value = scope(input.p_declared_model_units === "millimeter" ? "millimeter" : "inch", this.changed);
+        if (!this.destination.confirmed) return this.denial(route, "xometry_beta_confirmed_sourcing_address_required");
+        const value = scope(input.p_declared_model_units === "millimeter" ? "millimeter" : "inch", this.changed,
+          this.destination.address as typeof SHIPPING);
         return this.json(route, this.scopeMode === "malformed" ? { ...value, scopeFingerprint: "invalid" } : value);
       }
       case "api_request_xometry_beta_dispatch": {
