@@ -105,6 +105,7 @@ export const PASS_EVIDENCE_WORKFLOWS = Object.freeze([".github/workflows/ci.yml"
 // Events whose workflow YAML is read from the default branch. merge_group is
 // excluded: its YAML comes from the queue ref, and its job never writes history.
 const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "workflow_dispatch"]);
+const RUN_ID = /^[1-9]\d{0,19}$/;
 
 /**
  * Verdict history: the durable, append-only record of trusted blocking
@@ -127,6 +128,10 @@ const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "work
  * repository's root commit, which exists forever and is never a PR head), not
  * on a head SHA, so a new head with the same diff_id still sees them.
  * Reading fails closed: an unreadable list or record is missing_input.
+ * Provenance is external_id plus the details_url Actions run id (OVD-1110),
+ * not the check suite: a post onto a SHA this workflow did not run on is not
+ * attached to the workflow run, and a suite lookup then sticks every later
+ * read on missing_input.
  */
 export const HISTORY_ANCHOR_SHA = "a1cd387a57f7441a0c498ac6365148b04c39f724";
 export const HISTORY_SCHEMA_ID = "overdrafter.gate-history/v1";
@@ -1022,14 +1027,44 @@ function jsonFromCheckRun(run) {
 
 const historyItemOk = (item) => isRecord(item) && typeof item.author === "string" && (item.verdict_block === undefined || isRecord(item.verdict_block));
 
-/** Reject foreign writers before interpreting any stored gate data. */
-export async function verifyGateProvenance(client, repo, run) {
-  if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || !Number.isInteger(run?.check_suite?.id)) throw new Error("gate record has no trusted Actions check suite");
+/**
+ * Fields that bind a gate check run to the workflow run that wrote it.
+ * GITHUB_RUN_ID is the Actions-provided run id; it is not a CLI flag.
+ */
+export function gateRecordFields(repo, pr, runId) {
+  const prText = String(pr);
+  const id = typeof runId === "string" ? runId : "";
+  if (!REPO.test(String(repo)) || !PR_NUMBER.test(prText) || !RUN_ID.test(id)) throw new Error("gate record needs GITHUB_RUN_ID");
+  return {
+    external_id: `pr-${prText}:run-${id}`,
+    details_url: `https://github.com/${repo}/actions/runs/${id}`,
+  };
+}
+
+/**
+ * Reject foreign writers before interpreting any stored gate data.
+ *
+ * OVD-1110: the check suite is not the key. A check run posted with
+ * GITHUB_TOKEN onto a SHA this workflow did not run on (the history anchor,
+ * or a head whose suite another workflow already owns) is not attached to
+ * the ovd-merge-gate run. Looking the suite up then throws on every later
+ * read and the gate stays on missing_input. Provenance is the pair
+ * external_id `pr-<N>:run-<id>` and details_url
+ * `https://github.com/<repo>/actions/runs/<id>`. The cited run must be this
+ * workflow, on an allowed event, on the default branch (pull_request_target
+ * excepted: it reports the PR head branch and runs the base YAML). Records
+ * written before this key stay unverifiable and fail closed.
+ */
+export async function verifyGateProvenance(client, repo, run, pr) {
+  if (run?.app?.id !== GITHUB_ACTIONS_APP_ID) throw new Error("gate record has no trusted Actions app");
+  const runId = actionsRunId(run?.details_url, repo);
+  const match = /^pr-([1-9]\d{0,6}):run-([1-9]\d{0,19})$/.exec(typeof run?.external_id === "string" ? run.external_id : "");
+  if (!runId || !match || match[2] !== runId || (pr !== undefined && pr !== null && match[1] !== String(pr))) {
+    throw new Error("gate record external_id does not match its details_url run");
+  }
   const repository = await client.json(`/repos/${repo}`);
-  const workflows = await client.paginate(`/repos/${repo}/actions/runs?check_suite_id=${run.check_suite.id}`, (data) => data?.workflow_runs);
-  if (workflows.length !== 1) throw new Error("gate record workflow provenance is ambiguous or missing");
-  const workflow = workflows[0];
-  if (workflow.check_suite_id !== run.check_suite.id || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
+  const workflow = await client.json(`/repos/${repo}/actions/runs/${runId}`);
+  if (String(workflow?.id) !== runId || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
       || !GATE_EVENTS.includes(workflow.event) || typeof repository.default_branch !== "string"
       // pull_request_target reports the PR's head branch but runs the base branch's YAML.
       || (workflow.event !== "pull_request_target" && workflow.head_branch !== repository.default_branch)) {
@@ -1038,9 +1073,9 @@ export async function verifyGateProvenance(client, repo, run) {
 }
 
 /** Earlier gate summaries, including replaced runs; unreadable provenance fails closed. */
-async function priorDeletions(client, repo, headSha) {
+async function priorDeletions(client, repo, headSha, pr) {
   const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => {
     const summary = jsonFromCheckRun(run);
     if (!isRecord(summary) || !Array.isArray(summary.deleted_verdicts) || !summary.deleted_verdicts.every(historyItemOk)) {
@@ -1063,7 +1098,7 @@ export function parseHistoryRun(run, pr) {
 export async function readHistory(client, repo, pr) {
   const name = encodeURIComponent(historyCheckName(pr));
   const runs = await client.paginate(`/repos/${repo}/commits/${HISTORY_ANCHOR_SHA}/check-runs?check_name=${name}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => parseHistoryRun(run, pr));
 }
 
@@ -1081,7 +1116,7 @@ async function attempt(task) {
  * already recorded. Unreadable live comments or history only mean more is
  * written; a failed write throws (the job fails visibly).
  */
-export async function recordHistory({ client, repo, pr, event }) {
+export async function recordHistory({ client, repo, pr, event, runId }) {
   const sources = [];
   const eventPr = event?.issue?.number;
   if (isRecord(event?.comment) && (eventPr === undefined || Number(eventPr) === Number(pr))) sources.push(event.comment);
@@ -1098,10 +1133,11 @@ export async function recordHistory({ client, repo, pr, event }) {
   if (!fresh.length) return { written: 0 };
   const action = typeof event?.action === "string" ? event.action : null;
   const batches = historyBatches(fresh, (entries) => jsonBlock({ schema: HISTORY_SCHEMA_ID, pr: Number(pr), event: action, entries }));
+  const provenance = gateRecordFields(repo, pr, runId);
   await batches.reduce((previous, { entries, text }) => previous.then(() => client.post(`/repos/${repo}/check-runs`, {
       name: historyCheckName(pr),
       head_sha: HISTORY_ANCHOR_SHA,
-      external_id: `pr-${pr}`,
+      ...provenance,
       status: "completed",
       conclusion: "neutral",
       output: {
@@ -1215,7 +1251,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const validHead = HEX40.test(String(headSha));
   const comments = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
   const commits = await attempt(() => readCommits(client, repo, pr, pull));
-  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha)) : [];
+  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha, pr)) : [];
   const history = await attempt(() => readHistory(client, repo, pr));
   const verifiedEvidence = validHead && Array.isArray(comments) ? await verifyEvidence({ client, repo, comments, headSha }) : {};
   const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];
@@ -1292,11 +1328,12 @@ export function summaryText(given, max = MAX_OUTPUT_TEXT) {
 }
 
 /** POST the ovd-merge-gate check run. */
-export async function writeCheckRun({ client, repo, sha, summary }) {
+export async function writeCheckRun({ client, repo, sha, summary, pr, runId }) {
   const { conclusion, title } = conclusionFor(summary);
   return client.post(`/repos/${repo}/check-runs`, {
     name: CHECK_NAME,
     head_sha: sha,
+    ...gateRecordFields(repo, pr, runId),
     status: "completed",
     conclusion,
     output: { title, summary: formatSummary(summary), text: summaryText(summary) },
@@ -1341,6 +1378,12 @@ function parseCli(argv) {
 
 const USAGE = "usage: ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch] | record --pr N [--repo o/r] | write --pr N [--history-result R] [--repo o/r] | merge-group --sha S [--repo o/r]";
 
+/** Actions sets GITHUB_RUN_ID. A missing or forged-looking value cannot stamp a record. */
+function workflowRunId(env) {
+  const value = env?.GITHUB_RUN_ID;
+  return typeof value === "string" && RUN_ID.test(value) ? value : undefined;
+}
+
 function readEvent(env) {
   if (!env.GITHUB_EVENT_PATH) return null;
   try {
@@ -1365,7 +1408,7 @@ async function writeGate({ client, options, summary, stdout }) {
     stdout.write(`ovd-merge-gate: head moved from ${summary.sha} to ${now}; not writing (the run for the new head writes it)\n`);
     return 0;
   }
-  await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
+  await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary, pr: options.pr, runId: options.runId });
   stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
   return 0;
 }
@@ -1373,13 +1416,13 @@ async function writeGate({ client, options, summary, stdout }) {
 async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout }) {
   if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
   if (options.command === "record") {
-    const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env) });
+    const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env), runId: workflowRunId(env) });
     stdout.write(`ovd-merge-gate: recorded ${written} blocking verdict(s) in the history of PR #${options.pr}\n`);
     return 0;
   }
   const event = options.command === "write" ? readEvent(env) : null;
   const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
-  if (options.command === "write") return writeGate({ client, options, summary, stdout });
+  if (options.command === "write") return writeGate({ client, options: { ...options, runId: workflowRunId(env) }, summary, stdout });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
 }

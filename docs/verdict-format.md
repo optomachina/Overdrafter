@@ -376,8 +376,11 @@ can update it, and they are listed with `filter=all`.
   which exists forever and is never a PR head. They are keyed on the PR, not
   a head SHA, and bound to the head like live verdicts (by `sha` or
   `diff_id`), so a new head with the same `diff_id` still sees a deleted FAIL.
-- Reading fails closed: if the history list cannot be read, or any record is
-  not valid JSON of that schema for that PR, the result is `missing_input`.
+- Reading fails closed: if the history list cannot be read, any record's
+  provenance does not resolve, or any record is not valid JSON of that schema
+  for that PR, the result is `missing_input`. Provenance is the pair
+  `external_id` (`pr-<N>:run-<id>`) and `details_url`
+  (`https://github.com/<this repo>/actions/runs/<id>`), not the check suite.
   The same holds for the gate's own earlier check runs on the head: a run
   without a readable JSON summary holding a `deleted_verdicts` list is
   `missing_input`, never empty history.
@@ -480,11 +483,19 @@ report `conclusion: success` and `head_sha` equal to the verdict SHA, including
 when a verdict is carried across a rebase by equal `diff_id`. Failed, cancelled,
 in-progress, unrelated-workflow and unreadable runs do not count.
 
-History and prior gate checks must belong to GitHub Actions app 15368 and a
-check suite from `.github/workflows/ovd-merge-gate.yml` on the repository's
-current default branch, triggered by `pull_request_target`, `issue_comment`,
-`workflow_dispatch` or `merge_group`. Unverifiable provenance blocks with
-`missing_input`. Records exposing distinct `created_at` and `updated_at` are
-rejected. The Checks API does not reliably expose update history; differences
+History and prior gate checks must belong to GitHub Actions app 15368.
+Provenance is `external_id` (`pr-<N>:run-<id>`) plus a `details_url` of
+`https://github.com/<this repo>/actions/runs/<id>` (OVD-1110). The check suite
+is not the key: a check run posted to a SHA this workflow did not run on can
+land in a suite with no workflow run, or in another workflow's suite, and a
+suite lookup then sticks every later read on `missing_input`. The cited Actions
+run must be `.github/workflows/ovd-merge-gate.yml`, triggered by
+`pull_request_target`, `issue_comment`, or `workflow_dispatch`.
+`pull_request_target` is accepted whatever head branch it reports, because that
+event runs the base branch's YAML. Any other event, including `merge_group`,
+is not a provenance event. Unverifiable provenance blocks with
+`missing_input`. Records written before this key (external id `pr-<N>` and a
+`/runs/<check_run_id>` details URL) stay unverifiable. Records exposing distinct
+`created_at` and `updated_at` are rejected. The Checks API does not reliably expose update history; differences
 between `started_at` and `completed_at` do not prove mutation. Provenance alone
 cannot detect an update by another workflow using the same Actions app token.
