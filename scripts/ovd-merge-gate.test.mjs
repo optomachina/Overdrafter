@@ -666,7 +666,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main" } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -687,7 +687,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       stored.push({ check_suite: { id: 42 }, id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
     }
-    if (pathname === "/repos/o/r") return response(200, { default_branch: "main" });
+    if (pathname === "/repos/o/r") return response(200, { default_branch: defaultBranch });
     if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", ...provenance }] });
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
@@ -1567,9 +1567,63 @@ describe("R2 history provenance", () => {
     const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
     expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
-  it("trusts a pull_request_target record whatever its head branch", async () => {
-    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: { event: "pull_request_target", head_branch: "feature" } });
+  it("accepts a prior gate pull_request_target record on the default base", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(JSON.parse(out).gate).toBe("pass");
+  });
+  it("rejects a prior gate pull_request_target record whose base is not the default branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "release" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a pull_request_target record whose every pull request targets the default branch, whatever its head branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "main" } }, { base: { ref: "main", sha: BASE } }] },
+    });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("compares that base to the repository default branch", async () => {
+    const trusted = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "trunk" } }] },
+    });
+    expect(await gate.readHistory(gateClientFor(trusted), "o/r", 7)).toEqual([]);
+    const hardcodedMain = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], hardcodedMain);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it.each([
+    ["absent pull_requests and a feature head branch", { event: "pull_request_target", head_branch: "feature" }],
+    ["absent pull_requests, even when head_branch is the default", { event: "pull_request_target", head_branch: "main" }],
+    ["empty pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: [] }],
+    ["a non-array pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: { base: { ref: "main" } } }],
+    ["a pull request with no base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{}] }],
+    ["a pull request whose base is not a record", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: "main" }] }],
+    ["a non-default base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "release" } }] }],
+    ["one non-default base among several", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ base: { ref: "main" } }, { base: { ref: "release" } }] }],
+    ["a non-record pull request", { event: "pull_request_target", head_branch: "feature", pull_requests: [null] }],
+  ])("rejects a pull_request_target record with %s", async (_label, provenance) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
   it("trusts an unchanged default-branch gate record", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()] });

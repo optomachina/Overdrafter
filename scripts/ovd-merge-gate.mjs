@@ -102,8 +102,10 @@ export function normalizeModelFamily(value) {
   return typeof value === "string" && Object.hasOwn(MODEL_FAMILY_ALIASES, value) ? MODEL_FAMILY_ALIASES[value] : null;
 }
 export const PASS_EVIDENCE_WORKFLOWS = Object.freeze([".github/workflows/ci.yml", ".github/workflows/verify.yml"]);
-// Events whose workflow YAML is read from the default branch. merge_group is
+// Events whose workflow YAML must come from the default branch. merge_group is
 // excluded: its YAML comes from the queue ref, and its job never writes history.
+// pull_request_target uses the PR base's YAML; verifyGateProvenance requires
+// that base to be the default branch (OVD-1109).
 const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "workflow_dispatch"]);
 
 /**
@@ -1022,6 +1024,20 @@ function jsonFromCheckRun(run) {
 
 const historyItemOk = (item) => isRecord(item) && typeof item.author === "string" && (item.verdict_block === undefined || isRecord(item.verdict_block));
 
+/**
+ * pull_request_target runs the base branch's workflow file. Its head_branch is
+ * the PR head, so that field cannot prove the YAML was the default branch's.
+ * GitHub records the base on workflow_run.pull_requests[].base.ref while the
+ * PR is open. Every associated PR must target the default branch. A missing
+ * or empty list fails closed: a non-default base can ship a modified
+ * ovd-merge-gate.yml and forge history or prior-gate records (OVD-1109).
+ */
+function pullRequestTargetOnDefaultBranch(workflow, defaultBranch) {
+  const pulls = workflow?.pull_requests;
+  if (!Array.isArray(pulls) || pulls.length === 0 || typeof defaultBranch !== "string") return false;
+  return pulls.every((pull) => isRecord(pull) && isRecord(pull.base) && pull.base.ref === defaultBranch);
+}
+
 /** Reject foreign writers before interpreting any stored gate data. */
 export async function verifyGateProvenance(client, repo, run) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || !Number.isInteger(run?.check_suite?.id)) throw new Error("gate record has no trusted Actions check suite");
@@ -1029,10 +1045,13 @@ export async function verifyGateProvenance(client, repo, run) {
   const workflows = await client.paginate(`/repos/${repo}/actions/runs?check_suite_id=${run.check_suite.id}`, (data) => data?.workflow_runs);
   if (workflows.length !== 1) throw new Error("gate record workflow provenance is ambiguous or missing");
   const workflow = workflows[0];
+  const defaultBranch = repository.default_branch;
+  const onDefaultBranch = workflow.event === "pull_request_target"
+    ? pullRequestTargetOnDefaultBranch(workflow, defaultBranch)
+    : workflow.head_branch === defaultBranch;
   if (workflow.check_suite_id !== run.check_suite.id || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
-      || !GATE_EVENTS.includes(workflow.event) || typeof repository.default_branch !== "string"
-      // pull_request_target reports the PR's head branch but runs the base branch's YAML.
-      || (workflow.event !== "pull_request_target" && workflow.head_branch !== repository.default_branch)) {
+      || !GATE_EVENTS.includes(workflow.event) || typeof defaultBranch !== "string"
+      || !onDefaultBranch) {
     throw new Error("gate record is not from the default-branch merge-gate workflow");
   }
 }

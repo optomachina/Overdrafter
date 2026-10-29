@@ -481,10 +481,17 @@ when a verdict is carried across a rebase by equal `diff_id`. Failed, cancelled,
 in-progress, unrelated-workflow and unreadable runs do not count.
 
 History and prior gate checks must belong to GitHub Actions app 15368 and a
-check suite from `.github/workflows/ovd-merge-gate.yml` on the repository's
-current default branch, triggered by `pull_request_target`, `issue_comment`,
-`workflow_dispatch` or `merge_group`. Unverifiable provenance blocks with
-`missing_input`. Records exposing distinct `created_at` and `updated_at` are
-rejected. The Checks API does not reliably expose update history; differences
-between `started_at` and `completed_at` do not prove mutation. Provenance alone
-cannot detect an update by another workflow using the same Actions app token.
+check suite from `.github/workflows/ovd-merge-gate.yml`, triggered by
+`pull_request_target`, `issue_comment` or `workflow_dispatch` (`merge_group`
+is not a trusted writer: its YAML comes from the queue ref). For
+`issue_comment` and `workflow_dispatch`, `head_branch` must be the
+repository's current default branch. A `pull_request_target` run is trusted
+only when every `workflow_run.pull_requests[].base.ref` equals that default
+branch. That event executes the base branch's YAML, and its `head_branch` is
+the PR head, so a non-default base could forge these records. A missing or
+empty `pull_requests` list fails closed (GitHub fills it for an open pull
+request and drops it once the pull request is closed). Unverifiable
+provenance blocks with `missing_input`. The Checks API does not reliably
+expose update history; differences between `started_at` and `completed_at` do
+not prove mutation. Provenance alone cannot detect an update by another
+workflow using the same Actions app token.
