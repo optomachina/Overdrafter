@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 160,
+  "migrationCount": 161,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -163,7 +163,8 @@
     "supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql",
     "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql",
     "supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql",
-    "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql"
+    "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql",
+    "supabase/migrations/20261029152002_ovd1018_restrict_project_jobs_writes.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -301,6 +302,11 @@
       "path": "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql",
       "issue": "OVD-1097",
       "sha256": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef"
+    },
+    {
+      "path": "supabase/migrations/20261029152002_ovd1018_restrict_project_jobs_writes.sql",
+      "issue": "OVD-1018",
+      "sha256": "c7537b9798a15298a8c6d8ea613ae32235a95237eb1b4ea0a6959d1bd7e7c9d7"
     }
   ],
   "baselineSuites": [
@@ -723,6 +729,7 @@
     "supabase/migrations/20261016002932_ovd769_reconcile_job_parts_guard.sql": "c20052fc842f1377be330118d5da2e474eddfef42e1d6cf406839c0b55c73b47",
     "supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql": "e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b",
     "supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql": "73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f",
-    "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef"
+    "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef",
+    "supabase/migrations/20261029152002_ovd1018_restrict_project_jobs_writes.sql": "c7537b9798a15298a8c6d8ea613ae32235a95237eb1b4ea0a6959d1bd7e7c9d7"
   }
 }
