@@ -25,16 +25,24 @@ const RELATIVE_DATE_PATTERN = new RegExp(
   "i",
 );
 
+// Digits with optional dots, joined by "/" or ","; dots are kept so "12.5" is seen whole and rejected
+// later instead of being read as 12. A trailing sentence period is stripped in parseQuantityRun.
 const QUANTITY_RUN = String.raw`\d[\d.]*(?:(?:\s*\/\s*|,\s*)\d[\d.]*)*`;
-// (?=(x))\1 is an atomic group: backtracking can never shorten the run, so a quantity is never truncated.
-const WHOLE_QUANTITY_RUN = String.raw`(?=(${QUANTITY_RUN}))\1(?![\w-])(?!\s*(?:days?|weeks?|months?)\b)`;
+// (?=(?<run>x))\k<run> is an atomic group: backtracking can never shorten the run, so a quantity is
+// never truncated. The guards reject a run that continues as a part number or alloy (6061-T6), a
+// space-grouped number or range (10 000, 10 - 20, 10 to 20) or a lead time (2 weeks).
+const WHOLE_QUANTITY_RUN =
+  String.raw`(?=(?<run>${QUANTITY_RUN}))\k<run>(?![\w-])(?!\s*(?:[-–']\s*)?\d)(?!\s+to\s+\d)(?!\s*(?:days?|weeks?|months?)\b)`;
+const QUANTITY_UNIT_PATTERN = String.raw`(?:of|these|pcs|pieces|parts|units|ea)`;
 
 const QUANTITY_INTENT_PATTERNS = [
-  new RegExp(String.raw`\bneed\s+${WHOLE_QUANTITY_RUN}(?=\s+(?:of|these|pcs|pieces|parts|units|ea)\b)`, "gi"),
+  new RegExp(String.raw`\bneed\s+${WHOLE_QUANTITY_RUN}(?=\s+${QUANTITY_UNIT_PATTERN}\b)`, "gi"),
   new RegExp(
-    String.raw`\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants)\b[^0-9]{0,20}${WHOLE_QUANTITY_RUN}`,
+    String.raw`\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants|price|prices|pricing)\b[^0-9]{0,20}${WHOLE_QUANTITY_RUN}`,
     "gi",
   ),
+  // A slash list with no keyword counts only when a unit follows it ("10/25/50 pcs please").
+  new RegExp(String.raw`(?<![\w-])(?=\d[\d.]*\s*\/)${WHOLE_QUANTITY_RUN}(?=\s+${QUANTITY_UNIT_PATTERN}\b)`, "gi"),
 ];
 
 const THOUSANDS_GROUPED_PATTERN = /^\d{1,3}(?:,\d{3})+$/;
@@ -310,34 +318,41 @@ function parseQuantityNumber(token: string): number | null {
 
 /**
  * One comma-joined chunk as quantities, or null when it is malformed or ambiguous. "1,000" can only be
- * a thousands group, "10,25,50" can only be a list, but "250,500" reads both ways so the intent is unknowable.
+ * a thousands group and "10,25,50" can only be a list, but "250,500" reads both ways, so the intent is
+ * unknowable. This is the same rule validateRequestedQuoteQuantitiesInput applies to the editor field.
  */
 function parseCommaChunk(chunk: string): number[] | null {
-  const listed = chunk.split(",").map(parseRequestQuantityText);
-  const isList = listed.every((quantity) => quantity !== null);
+  const pieces = chunk.split(",").map(parseRequestQuantityText);
+  const piecesAreQuantities = pieces.every((quantity) => quantity !== null);
   if (!THOUSANDS_GROUPED_PATTERN.test(chunk)) {
-    return isList ? (listed as number[]) : null;
+    return piecesAreQuantities ? (pieces as number[]) : null;
   }
   const grouped = parseQuantityNumber(chunk);
-  return grouped !== null && !isList ? [grouped] : null;
+  return grouped !== null && !piecesAreQuantities ? [grouped] : null;
 }
 
-/** All quantities in a run, or none when any part is malformed or ambiguous. */
-function parseQuantityRun(run: string): number[] {
+/** All quantities in a run, or null when any part is malformed or ambiguous. */
+function parseQuantityRun(run: string): number[] | null {
   const text = run.replace(/\.+$/, "");
+  // With a slash present, commas inside an item can only be thousands groups ("1,000 / 2,000").
   const parts = text.includes("/")
     ? text.split(/\s*\/\s*/).map((segment) => {
         const quantity = parseQuantityNumber(segment);
         return quantity === null ? null : [quantity];
       })
     : text.split(/,\s+/).map(parseCommaChunk);
-  return parts.every((part) => part !== null) ? parts.flat() : [];
+  return parts.every((part) => part !== null) ? parts.flat() : null;
 }
 
-function collectQuantityCandidates(value: string): number[] {
-  return QUANTITY_INTENT_PATTERNS.flatMap((pattern) =>
-    Array.from(value.matchAll(pattern)).flatMap((match) => parseQuantityRun(match[1] ?? "")),
+/**
+ * Quantities from every quantity-intent run in the prompt, or null when any run was present but
+ * unreadable, so a caller leaves the quantities unfilled instead of filling a default.
+ */
+function collectQuantityCandidates(value: string): number[] | null {
+  const runs = QUANTITY_INTENT_PATTERNS.flatMap((pattern) =>
+    Array.from(value.matchAll(pattern), (match) => parseQuantityRun(match.groups?.run ?? "")),
   );
+  return runs.every((run) => run !== null) ? runs.flat() : null;
 }
 
 function parseServiceIntent(prompt: string): RequestedServiceIntent {
@@ -497,11 +512,12 @@ export function parseRequestIntake(prompt: string, now = new Date()): ParsedRequ
     ? replaceRangeWithSpaces(trimmedPrompt, dateMatch.start, dateMatch.end)
     : trimmedPrompt;
   const serviceIntent = parseServiceIntent(trimmedPrompt);
-  const requestedQuoteQuantities = normalizeRequestedQuoteQuantities(collectQuantityCandidates(quantitySource));
+  const quantityCandidates = collectQuantityCandidates(quantitySource);
+  const requestedQuoteQuantities = normalizeRequestedQuoteQuantities(quantityCandidates ?? []);
   const wantsQuantityPricing = QUANTITY_PRICING_PATTERNS.some((pattern) => pattern.test(trimmedPrompt));
   let resolvedQuoteQuantities = requestedQuoteQuantities;
 
-  if (requestedQuoteQuantities.length === 0 && wantsQuantityPricing) {
+  if (quantityCandidates !== null && requestedQuoteQuantities.length === 0 && wantsQuantityPricing) {
     resolvedQuoteQuantities = [...DEFAULT_QUANTITY_PRICING_LADDER];
   }
 

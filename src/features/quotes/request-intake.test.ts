@@ -180,6 +180,23 @@ describe("prompt intake quantity tokens (OVD-1036)", () => {
     ["quote 1,000.5x", []],
     ["quote 25 weeks", []],
     ["quote 3 days", []],
+    ["quote 250,500 with qty breaks", []],
+    ["Please quote 1,500 with quantity pricing", []],
+    ["quote 10 000 pcs", []],
+    ["quote 1 000", []],
+    ["quote 1'000", []],
+    ["quote 10 - 20 pcs", []],
+    ["quote 10\u201320 pcs", []],
+    ["quote 10 to 20 pcs", []],
+    ["quote 25, 2 weeks lead time", []],
+    ["quote 25 delivered 12/15", [25]],
+    ["quote 10/25 by 12/1", [10, 25]],
+    ["Need pricing at 100/500/1000", [100, 500, 1000]],
+    ["Can I get prices for 10/25/50?", [10, 25, 50]],
+    ["Pricing for 100 / 250 / 500 pcs", [100, 250, 500]],
+    ["10/25/50 pcs please", [10, 25, 50]],
+    ["drawing 12/15 attached", []],
+    ["1/4 inch plate, quote 25", [25]],
   ])("parses %j as %j", (prompt, quantities) => {
     expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
   });
