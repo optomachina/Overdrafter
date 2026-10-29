@@ -64,6 +64,7 @@
     { "path": "scripts/jev-pr-screen.mjs", "classes": ["infra_ci"] },
     { "path": "scripts/jev-client.mjs", "classes": ["infra_ci"] },
     { "path": "scripts/validate-agent-contract.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/test-lane-contract.test.mjs", "classes": ["infra_ci"] },
     { "path": "AGENTS.override.md", "classes": ["infra_ci"] },
     { "path": "CLAUDE.md", "classes": ["infra_ci"] },
     { "path": "CLAUDE.local.md", "classes": ["infra_ci"] },
