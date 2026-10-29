@@ -21,6 +21,7 @@ import {
   isReviewShaValid,
   isCommentsOnlyComparison,
   qaFamilyBuilder,
+  builderFromBodyLines,
   computeBots,
   computeLiveQuotes,
   computeMerges,
@@ -182,11 +183,29 @@ describe("QA families", () => {
     assert.equal(qaFamilyBuilder({ body: "Built-by: bot=engineer (hand-written, no model)\nBuilt on cursor" }), "cursor");
   });
 
+  it("never reads a builder from the line after a blank Built-by:/Model: and ignores a literal unknown", () => {
+    assert.equal(builderFromBodyLines("Built-by:\nCodex review pending"), null);
+    assert.equal(builderFromBodyLines("Model:\nopus"), null);
+    assert.equal(qaFamilyBuilder({ body: "Built-by:\nCodex review pending\nBuilt on cursor" }), "cursor");
+    assert.equal(qaFamilyBuilder({ body: "Model:\nopus\nBuilt on cursor" }), "cursor");
+    assert.equal(qaFamilyBuilder({ body: "Model: unknown\nBuilt on cursor" }), "cursor");
+    assert.equal(qaFamilyBuilder({ body: "Built-by: bot=engineer model=model:unknown\nBuilt on cursor" }), "cursor");
+    assert.equal(qaFamilyBuilder({ body: "Model: unknown" }), "unknown");
+    assert.equal(qaFamilyBuilder({ body: "Built-by:  \t model=model:opus" }), "opus");
+  });
+
   each([
     ["Opus", "claude"], ["SONNET", "claude"], ["codex", "openai"], ["gpt", "openai"],
-    ["GPT-6.1", "openai"], ["grok", "xai"], ["git", null], ["git delta", null],
-    ["unknown", null], ["gptish", null], [undefined, null],
-  ])("maps model family: %s", (model, family) => {
+    ["GPT-6.1", "openai"], ["grok", "xai"], ["claude fable 5.1", "claude"],
+    ["opus delta 71b15c2d..94090be4", "claude"], ["sonnet delta 9ac028d4..57238331", "claude"],
+    ["Codex gpt-6-astra xhigh, delta since 3473bcd8", "openai"], ["Opus, delta since 3473bcd8", "claude"],
+    ["Claude Code, Opus", "claude"], ["claude-opus, fresh session, no build context", "claude"],
+    ["git + claude-opus", "claude"], ["opus+git", "claude"], ["Opus, merge-resolution delta since 3473bcd8", "claude"],
+    ["grok-4.7 via Cursor", "xai"],
+    ["git", null], ["git delta", null], ["Claude Code + git", null], ["git (comments-only delta)", null],
+    ["codex + opus", null], ["Opus, then grok", null], ["unknown", null], ["gptish", null], ["opusish", null],
+    ["", null], [undefined, null],
+  ])("maps model family by known tokens: %s", (model, family) => {
     assert.equal(modelFamily(model), family);
   });
 
@@ -260,10 +279,28 @@ describe("QA families", () => {
 });
 
 describe("comments-only comparisons", () => {
-  const comparison = (patch, extra = {}) => ({ status: "ahead", files: [{ status: "modified", additions: 1, deletions: 1, patch, ...extra }] });
+  const comparison = (patch, extra = {}) => ({ status: "ahead", files: [{ filename: "src/a.js", status: "modified", additions: 1, deletions: 1, patch, ...extra }] });
 
-  each(["// comment", "# comment", "-- comment", "/* comment */", "<!-- comment -->", "   "])("accepts changed comment or blank lines: %s", (line) => {
+  each(["// comment", "/* comment */", "<!-- comment -->", "   "])("accepts changed comment or blank lines: %s", (line) => {
     assert.equal(isCommentsOnlyComparison(comparison(`@@ -1 +1 @@\n-// old\n+${line}`)), true);
+  });
+
+  each([
+    ["scripts/a.py", "#"], ["bin/run.sh", "#"], ["ci.yml", "#"], [".github/x.yaml", "#"], ["pyproject.toml", "#"], ["Gemfile.rb", "#"],
+    ["db/q.sql", "--"], ["init.lua", "--"],
+  ])("accepts # and -- line comments only where the file type uses them: %s", (filename, prefix) => {
+    assert.equal(isCommentsOnlyComparison(comparison(`@@ -1 +1 @@\n-${prefix} old\n+${prefix} new`, { filename })), true);
+  });
+
+  each([
+    ["README.md", "@@ -1,2 +1,3 @@\n-# Old heading\n+# New heading\n+---", 2, 1],
+    ["styles/a.css", "@@ -1 +1 @@\n---bg: #fff\n+--bg: #000", 1, 1],
+    ["src/a.js", "@@ -1 +1 @@\n-# old\n+# new", 1, 1],
+    ["db/q.sql", "@@ -1 +1 @@\n-# old\n+# new", 1, 1],
+    ["scripts/a.py", "@@ -1 +1 @@\n--- old\n+-- new", 1, 1],
+    [undefined, "@@ -1 +1 @@\n-# old\n+# new", 1, 1],
+  ])("rejects # and -- changes in files where they are content: %s", (filename, patch, additions, deletions) => {
+    assert.equal(isCommentsOnlyComparison(comparison(patch, { filename, additions, deletions })), false);
   });
 
   it("recognizes block comment context on each side of the patch", () => {
@@ -491,6 +528,33 @@ describe("cli", () => {
     });
     assert.deepEqual(calls, [["example/project", REVIEW_SHA, QA_SHA]]);
     assert.equal(JSON.parse(fs.readFileSync(out, "utf8")).qaFamilies.perPr[0].reviewers.length, 2);
+  });
+
+  it("treats a failed online comparison as not comments-only, logs the pair without the error, and finishes", () => {
+    const dir = tempDir("trust-metrics-comparison-failure-");
+    const out = path.join(dir, "snapshot.json");
+    const logs = [];
+    const calls = [];
+    const code = runCli(["--window-end", "2026-10-15", "--out", out], {
+      fetchInputs: () => ({ pullRequests: [familyPr(1), familyPr(2)], comments: [
+        familyComment(1, `QA: PASS on ${QA_SHA}`), familyComment(1, architect("opus", REVIEW_SHA)), familyComment(1, architect("sonnet", REVIEW_SHA)),
+        familyComment(2, `QA: PASS on ${QA_SHA}`), familyComment(2, architect("codex", REVIEW_SHA)),
+      ] }),
+      compareCommits: (repository, base, head) => {
+        calls.push([base, head]);
+        if (calls.length === 1) throw new Error("gh: Not Found (HTTP 404) token=SECRET");
+        return true;
+      },
+      log: (line) => logs.push(line),
+    });
+    assert.equal(code, 0);
+    assert.deepEqual(calls, [[REVIEW_SHA, QA_SHA]]);
+    const { qaFamilies } = JSON.parse(fs.readFileSync(out, "utf8"));
+    assert.equal(qaFamilies.perPr[0].reviewers, "none");
+    assert.equal(qaFamilies.perPr[1].reviewers, "none");
+    assert.equal(qaFamilies.summary.reviewersNone, 2);
+    assert.deepEqual(logs.filter((line) => line.includes(REVIEW_SHA)), [`Comparison ${REVIEW_SHA}...${QA_SHA} unavailable; treated as not comments-only.`]);
+    assert.ok(logs.every((line) => !line.includes("SECRET") && !line.includes("404")));
   });
 
   it("validates arguments", () => {
