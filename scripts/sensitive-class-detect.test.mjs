@@ -1792,7 +1792,8 @@ describe("detect: strict file list", () => {
 //   script reached;
 // - the scripts/ files those package.json scripts name;
 // - in each script reached: every scripts/ reference (except a ** glob, which
-//   is prose) and every relative import, require or new URL.
+//   is prose), every relative import, require or new URL, and literal
+//   path.resolve/path.join calls rooted at __dirname (including preloads).
 // JavaScript files are not read for npm runs; a test checks that none starts
 // npm. Python files are not read for imports; CI names their directory.
 // Vitest's own discovery (`vitest run` with no file) is not followed, nor are
@@ -1861,7 +1862,12 @@ function ciRunScripts(root) {
     }
   };
   const addImports = (text, from) => {
-    for (const [, specifier] of text.matchAll(/(?:\bfrom|\bimport|\brequire|\bnew URL)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+    const specifiers = [
+      ...text.matchAll(/(?:\bfrom|\bimport|\brequire|\bnew URL)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g),
+      ...text.matchAll(/\bpath\.(?:resolve|join)\s*\(\s*__dirname\s*,\s*(["'])([^"'\\]+)\1\s*\)/g),
+    ];
+    for (const match of specifiers) {
+      const specifier = match[2] ?? match[1];
       const target = relative(path.resolve(path.dirname(path.join(root, from)), specifier));
       const hits = scripts.filter((file) => [target, `${target}.mjs`, `${target}.js`, `${target}.ts`].includes(file) || file.startsWith(`${target}/`));
       for (const file of hits) queue.push([file, from]);
@@ -1942,6 +1948,28 @@ describe("drift: scripts CI runs are infra_ci on the shared list", () => {
     expect(walked.problems).toEqual([
       "scripts/b.sh: npm run $x takes its name from a variable; list its names in DYNAMIC_NPM_RUNS",
       "scripts/b.sh: npm run missing has no script in ./package.json",
+    ]);
+  });
+
+  it("follows literal __dirname paths for preloads, excluding dynamic paths", () => {
+    const probe = tempDir("sensitive-class-paths-");
+    mkdirSync(path.join(probe, ".github"), { recursive: true });
+    mkdirSync(path.join(probe, "scripts", "support"), { recursive: true });
+    writeFileSync(path.join(probe, ".github", "ci.yml"), "run: node scripts/support/entry.cjs\n");
+    writeFileSync(path.join(probe, "scripts", "support", "entry.cjs"), `
+      path.resolve(__dirname, "resolved.cjs");
+      path.join(__dirname, '../joined.cjs');
+      path.resolve(__dirname, "dynamic.cjs" + suffix);
+      path.join(__dirname, "dynamic.cjs", variable);
+    `);
+    for (const file of ["support/resolved.cjs", "joined.cjs", "support/dynamic.cjs"]) {
+      writeFileSync(path.join(probe, "scripts", file), "");
+    }
+    const walked = ciRunScripts(probe);
+    expect([...walked.scripts].sort()).toEqual([
+      ["scripts/joined.cjs", "scripts/support/entry.cjs"],
+      ["scripts/support/entry.cjs", ".github/ci.yml"],
+      ["scripts/support/resolved.cjs", "scripts/support/entry.cjs"],
     ]);
   });
 
