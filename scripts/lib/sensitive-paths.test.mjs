@@ -686,6 +686,30 @@ describe("gate loosening", () => {
     expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
   });
 
+  it("puts the agent graph and its validator on the list, so editing the merge gate spec is sensitive", () => {
+    const graphFiles = [
+      "docs/agent-graph/graph.v1.yaml",
+      "docs/agent-graph/graph.schema.json",
+      "docs/agent-graph/README.md",
+      "scripts/validate-agent-graph.mjs",
+      "scripts/validate-agent-graph.node-test.mjs",
+    ];
+    const matcher = createMatcher(config);
+    for (const file of graphFiles) expect(matcher.classify(file), file).toContain("infra_ci");
+    // A PR that edits only the graph (for example drops a merge gate requirement) is sensitive, not docs-only.
+    expect(classifyPaths(["docs/agent-graph/graph.v1.yaml"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
+    // Adding these globs did not loosen anything.
+    const graphGlobs = ["docs/agent-graph/**", "scripts/validate-agent-graph*"];
+    expect(config.globs.filter((entry) => graphGlobs.includes(entry.glob))).toEqual(graphGlobs.map((glob) => ({ glob, class: "infra_ci" })));
+    const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !graphGlobs.includes(entry.glob))));
+    expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
+    // Removing either glob is gate_loosening.
+    for (const glob of graphGlobs) {
+      const without = withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === glob), 1));
+      expect(findGateLoosening({ baseText: configText, headText: without }).reasons, glob).toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob })]);
+    }
+  });
+
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
     const dir = tempDir("sensitive-report-");
     git(dir, "init", "-q");
