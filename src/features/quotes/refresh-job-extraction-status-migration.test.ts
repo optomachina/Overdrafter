@@ -34,7 +34,9 @@ describe("OVD-1097 extraction status refresh migration", () => {
     expect(rollback.replace(/--[^\n]*/g, "").trim()).toBe(drop);
     expect(readdirSync(path.join(root, "docs/migration-drafts")).filter((name) => /ovd-?1097/.test(name)))
       .toEqual(["ovd-1097.rollback.sql"]);
-    const earlier = readdirSync(path.join(root, "supabase/migrations")).filter((name) => name !== filename);
-    expect(earlier.every((name) => name < filename)).toBe(true);
+    const later = readdirSync(path.join(root, "supabase/migrations")).filter((name) => name > filename);
+    for (const name of later) {
+      expect(readFileSync(path.join(root, "supabase/migrations", name), "utf8")).not.toContain("api_refresh_job_extraction_status");
+    }
   });
 });
