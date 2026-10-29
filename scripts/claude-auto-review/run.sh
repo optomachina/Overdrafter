@@ -14,7 +14,11 @@
 # empty directory with the checkout added via --add-dir, user settings only
 # (--setting-sources user, so the PR's .claude/settings.json, hooks and
 # permissions are never loaded), no MCP servers (--strict-mcp-config with an
-# empty config), Read/Grep/Glob allowed and Bash/Edit/Write/Web tools denied.
+# empty config), Read limited to the checkout and this PR's state files,
+# Grep/Glob allowed, Read denied for home secrets, and Bash/Edit/Write/Web
+# denied. Only same-repo PRs (no forks) are reviewed, git hooks are disabled
+# for checkouts, and the posted text is redacted for token patterns and has
+# HTML comments stripped so it cannot forge the review marker.
 # The prompt goes in on stdin from a file, so the PR loop's input is never
 # consumed. No secrets are printed.
 set -euo pipefail
@@ -42,11 +46,14 @@ git -C "$MAIN" checkout -q --detach origin/main
 [ -d "$MAIN/node_modules" ] || ln -s "$SRC/node_modules" "$MAIN/node_modules"
 NEUTRAL="$STATE/neutral"; mkdir -p "$NEUTRAL"
 printf '{"mcpServers":{}}\n' > "$STATE/empty-mcp.json"
+cat > "$STATE/settings.json" <<'JSON'
+{"permissions":{"deny":["Read(~/.ssh/**)","Read(~/.config/**)","Read(~/.claude/**)","Read(~/.claude.json)","Read(~/.aws/**)","Read(~/.netrc)","Read(~/.gitconfig)","Read(~/Library/**)","Read(**/.env)","Read(**/.env.*)"]},"hooks":{}}
+JSON
 
 GH_TOKEN_VALUE="$(gh auth token)"
 
-prs="$(gh pr list -R "$REPO" --state open -L 100 --json number,headRefName,headRefOid,isDraft,labels \
-  -q '.[] | select((.headRefName|test("^(cursor|grok)/")) or ([.labels[].name]|index("grok-built"))) | "\(.number) \(.headRefOid)"')"
+prs="$(gh pr list -R "$REPO" --state open -L 100 --json number,headRefName,headRefOid,isDraft,isCrossRepository,labels \
+  -q '.[] | select(.isCrossRepository == false and .isDraft == false) | select((.headRefName|test("^(cursor|grok)/")) or ([.labels[].name]|index("grok-built"))) | "\(.number) \(.headRefOid)"')"
 
 done_count=0
 while read -r pr sha; do
@@ -56,6 +63,9 @@ while read -r pr sha; do
   # Only our own comments count, so nobody else can suppress a review by faking the marker.
   seen="$(gh api --paginate "repos/$REPO/issues/$pr/comments" -q ".[] | select(.user.login == \"$ME\") | .body" 2>/dev/null)" || { echo "comment read failed for #$pr; skipping" >&2; continue; }
   if grep -qF "$MARK sha=$sha" <<< "$seen"; then continue; fi
+  # At most 2 failed attempts per head SHA; failures count toward the per-run cap.
+  tries="$STATE/tries-$pr-$sha"
+  [ "$(cat "$tries" 2>/dev/null || echo 0)" -lt 2 ] || continue
 
   cls="$STATE/class-$pr.json"
   rm -f "$cls"
@@ -71,9 +81,9 @@ while read -r pr sha; do
   wt="$STATE/pr-$pr"
   {
     git -C "$SRC" fetch -q origin "+refs/pull/$pr/head:refs/ovd-review/pr-$pr" &&
-    { [ -d "$wt" ] || git -C "$SRC" worktree add -q --detach "$wt" "refs/ovd-review/pr-$pr"; } &&
-    git -C "$wt" checkout -q --detach "$sha" &&
-    gh pr diff "$pr" -R "$REPO" > "$STATE/diff-$pr.patch" &&
+    { [ -d "$wt" ] || git -C "$SRC" -c core.hooksPath=/dev/null worktree add -q --detach "$wt" "refs/ovd-review/pr-$pr"; } &&
+    git -C "$wt" -c core.hooksPath=/dev/null checkout -q --detach "$sha" &&
+    git -C "$SRC" diff "$base_sha...$sha" > "$STATE/diff-$pr.patch" &&
     gh pr view "$pr" -R "$REPO" --json title,body -q '"# " + .title + "\n\n" + (.body // "")' > "$STATE/body-$pr.md"
   } || { echo "prep failed for #$pr; will retry next run" >&2; continue; }
 
@@ -88,20 +98,21 @@ Then list Blocking findings (if any) and Non-blocking notes. Keep it under 600 w
   out="$STATE/review-$pr.md"
   printf '%s\n' "$prompt" > "$STATE/prompt-$pr.txt"
   if ! (cd "$NEUTRAL" && perl -e 'alarm shift; exec @ARGV' 1500 claude -p --model "$model" \
-        --setting-sources user --strict-mcp-config --mcp-config "$STATE/empty-mcp.json" \
-        --allowedTools "Read,Grep,Glob" --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch" \
-        --add-dir "$wt" "$STATE" < "$STATE/prompt-$pr.txt" > "$out" 2>"$STATE/review-$pr.err"); then
-    echo "claude review failed for #$pr; will retry next run" >&2
-    continue
+        --setting-sources user --settings "$STATE/settings.json" --strict-mcp-config --mcp-config "$STATE/empty-mcp.json" \
+        --allowedTools "Read(/$wt/**)" "Read(/$STATE/*-$pr.*)" Grep Glob --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch" \
+        --add-dir "$wt" --add-dir "$STATE" < "$STATE/prompt-$pr.txt" > "$out" 2>"$STATE/review-$pr.err"); then
+    echo "claude review failed for #$pr" >&2
+    echo $(( $(cat "$tries" 2>/dev/null || echo 0) + 1 )) > "$tries"; done_count=$((done_count + 1)); continue
   fi
-  grep -qE '^VERDICT: (PASS|CHANGES_REQUIRED)' "$out" || { echo "no verdict line for #$pr; will retry" >&2; continue; }
+  grep -qE '^VERDICT: (PASS|CHANGES_REQUIRED)' "$out" || { echo "no verdict line for #$pr" >&2; echo $(( $(cat "$tries" 2>/dev/null || echo 0) + 1 )) > "$tries"; done_count=$((done_count + 1)); continue; }
 
   # Skip posting if the head moved while reviewing; the next run reviews the new head.
   now="$(gh pr view "$pr" -R "$REPO" --json headRefOid -q .headRefOid)" || continue
   [ "$now" = "$sha" ] || continue
   {
     printf 'Claude auto-review (%s, %s tier) @ %s\n\n' "$model" "$tier" "$sha"
-    cat "$out"
+    # Strip HTML comments (no forged markers) and redact token-shaped strings.
+    perl -0pe 's/<!--/&lt;!--/g; s/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/[REDACTED]/g; s/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/[REDACTED KEY]/gs' "$out"
     printf '\n\n%s sha=%s model=%s -->\n' "$MARK" "$sha" "$model"
   } > "$STATE/comment-$pr.md"
   gh pr comment "$pr" -R "$REPO" --body-file "$STATE/comment-$pr.md" >/dev/null || { echo "post failed for #$pr" >&2; continue; }
