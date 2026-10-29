@@ -4,7 +4,8 @@ import type { EventSource } from './event-source';
 import isoUrl from './preview-assets/iso.png?url';
 import topUrl from './preview-assets/top.png?url';
 import glbUrl from './preview-assets/plate.glb?url';
-import stepUrl from './preview-assets/plate.step?url';
+// Raw text + blob URL: keeps a .step file out of dist, which verify-public-assets forbids.
+import stepText from './preview-assets/plate.step?raw';
 
 /** Exclusively synthetic preview. Every artifact is a local generated plate fixture. */
 /** `prompt` is the request the sample answers. `answerWithinMs` lets an unanswered choice fall back to the best guess, like a real run's timeout. */
@@ -18,6 +19,7 @@ export function createPreview({ prompt = 'Make a 4 inch square plate.', answerWi
   const later = (fn: () => void) => { const timer = setTimeout(() => { timers.delete(timer); fn(); }, 800); timers.add(timer); };
   const files = ['iso.png', 'top.png', 'plate.glb', 'plate.step'];
   const kinds = ['png', 'png', 'glb', 'step'] as const, mimeTypes = ['image/png', 'image/png', 'model/gltf-binary', 'model/step'];
+  const stepUrl = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(new Blob([stepText], { type: 'model/step' })) : 'blob:plate.step';
   const artifacts = [isoUrl, topUrl, glbUrl, stepUrl].map((uri, i) => ({ kind: kinds[i], uri }));
   const result = () => {
     artifacts.forEach((a, i) => publish({ ...envelope(), type: 'artifact', nodeId: 'domain_agent', agentId: 'cad', ...a, name: files[i], mimeType: mimeTypes[i], dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } }));
