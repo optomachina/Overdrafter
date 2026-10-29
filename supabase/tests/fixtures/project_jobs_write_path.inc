@@ -35,9 +35,9 @@
 
 -- The policy drop takes ACCESS EXCLUSIVE on project_jobs. Fail fast behind a
 -- long running reader instead of queueing every read; on a timeout the whole
--- migration rolls back and is rerun at lower traffic. SET LOCAL binds when the
--- file runs as one transaction (psql -1, MCP execute_sql, the pgTAP copy); the
--- Supabase CLI runs statements one by one, warns and keeps the default timeout.
+-- migration rolls back and is rerun at lower traffic. SET LOCAL is scoped to
+-- the transaction that runs this file (psql -1, MCP execute_sql, the pgTAP
+-- copy, or the Supabase CLI batch, which also prints a 25P01 notice for it).
 set local lock_timeout = '3s';
 
 revoke insert, update, delete, truncate on table public.project_jobs from public, anon, authenticated;
