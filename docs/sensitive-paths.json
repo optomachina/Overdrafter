@@ -69,6 +69,8 @@
     { "glob": "**/.env*", "class": "secrets" },
     { "glob": "**/env.{ts,js,json}", "class": "secrets" },
     { "glob": "**/.env*/**/*", "class": "secrets" },
+    { "glob": "worker/src/tools/vendorLogin*", "class": "secrets" },
+    { "glob": "worker/scripts/launchd/**", "class": "secrets" },
 
     { "glob": ".github/workflows/**", "class": "infra_ci" },
     { "glob": ".github/actions/**", "class": "infra_ci" },

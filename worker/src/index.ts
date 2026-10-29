@@ -5,6 +5,7 @@ import { captureOperationalJevConsumer, observeBoundOperationalFailure, type Ope
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
 import { autoApproveJobRequirements } from "./autoApprove.js";
+import { refreshJobExtractionStatus } from "./refreshJobExtractionStatus.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
@@ -2617,6 +2618,11 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         });
       }
     } finally {
+      // F2/F4: one separate request after the awaited completion/failure/retry
+      // update, including updates that no-op because another actor settled it.
+      if (acknowledged) {
+        await refreshJobExtractionStatus(supabase, task, (event) => logWorkerEvent(runtimeState, event));
+      }
       runtimeState.currentTask = null;
     }
 

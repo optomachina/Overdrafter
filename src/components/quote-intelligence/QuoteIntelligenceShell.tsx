@@ -6,6 +6,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { OverDrafterMark } from "@/components/OverDrafterMark";
 import { FixturePanel } from "@/components/debug/FixturePanel";
@@ -331,6 +332,14 @@ function WorkspaceHeader({
       </h1>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
+        <NavLink
+          to="/jarvis"
+          aria-label="Jarvis"
+          className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[2px] px-2 font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-paper-muted transition-colors hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
+        >
+          <Sparkles className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          <span className="hidden sm:inline">Jarvis</span>
+        </NavLink>
         {uploadSlot}
         {accountSlot}
       </div>
