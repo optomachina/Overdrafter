@@ -228,24 +228,30 @@ export function parseReviewVerdict(body) {
 /**
  * Architect comments start with `Architect review (<model>) @ <40-hex sha>`. The header may carry a
  * trailing `: VERDICT` and/or qualifiers (e.g. `(round 2)`, `— notes`). The verdict comes from the
- * header suffix or a later `VERDICT:` line. Short shas and non-Architect comments are rejected.
+ * header suffix or a later `Verdict:` line in any case, optionally bold. Short shas and
+ * non-Architect comments are rejected.
  */
 export function parseArchitectReviewHeader(body) {
   const [header, ...lines] = (body ?? "").split(/\r?\n/);
   const match = /^Architect review \((?<model>[^)]+)\) @ (?<sha>[0-9a-f]{40})(?![0-9a-z])(?<rest>.*)$/.exec(header.trimEnd());
   if (!match) return null;
   const inline = /^\s*(?:[:\-\u2014]\s*)?(?:\([^)]*\)\s*[:\-\u2014]?\s*)?([A-Z][A-Z_]+)\b/.exec(match.groups.rest);
-  const verdict = lines.map((line) => /^VERDICT:\s+(\w+)\b/.exec(line)).find(Boolean);
+  const verdict = lines.map((line) => /^\**Verdict:\**[\t ]+(\w+)\b/i.exec(line)).find(Boolean);
   const value = verdict?.[1] ?? inline?.[1];
   return value ? { model: match.groups.model, sha: match.groups.sha, verdict: value.toLowerCase() } : null;
 }
 
+const MODEL_FAMILY_BY_TOKEN = { opus: "claude", sonnet: "claude", claude: "claude", codex: "openai", gpt: "openai", grok: "xai" };
+
+/**
+ * Family of an Architect header's model field, read from its known tokens so qualifiers such as
+ * `delta since <sha>`, `Claude Code, Opus` or `git + claude-opus` still attribute. A field naming
+ * two families, or none (`git`, `git delta`), is not a model review.
+ */
 export function modelFamily(model) {
-  const key = (model ?? "").trim().toLowerCase();
-  if (key === "opus" || key === "sonnet") return "claude";
-  if (key === "codex" || /^gpt(?:$|-)/.test(key)) return "openai";
-  if (key === "grok") return "xai";
-  return null;
+  const tokens = (model ?? "").toLowerCase().split(/[^a-z0-9]+/);
+  const families = new Set(tokens.map((token) => MODEL_FAMILY_BY_TOKEN[token]).filter(Boolean));
+  return families.size === 1 ? [...families][0] : null;
 }
 
 export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = () => false } = {}) {
@@ -255,19 +261,26 @@ export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = (
 
 const BUILDER_MODEL = /\b(codex|opus|sonnet|claude(?:-opus|-sonnet)?|grok(?:-[0-9][0-9.]*)?|gpt-[0-9][a-z0-9.-]*|jev)\b/gi;
 
-/** Model named by `Built-by:` lines (unanimous across lines) or else the first `Model:` line. */
+const UNKNOWN_BUILDER = "unknown";
+const builderKey = (model) => model.toLowerCase().replace(/[.,;]+$/, "");
+
+/**
+ * Model named on `Built-by:` lines (unanimous across lines) or else on the first `Model:` line.
+ * Only the rest of the same line counts, so a blank template line never credits the next line,
+ * and a literal `unknown` names no model.
+ */
 export function builderFromBodyLines(body) {
   const text = body ?? "";
   const built = new Set();
-  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:\s*(.*)$/gim)) {
+  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:[\t ]*(.*)$/gim)) {
     const tagged = [...line.matchAll(/model[:=](?:model:)?([a-z0-9._-]+)/gi)].map((m) => m[1]);
     const found = tagged.length ? tagged : [...line.matchAll(BUILDER_MODEL)].map((m) => m[1]);
-    for (const model of found) built.add(model.toLowerCase().replace(/[.,;]+$/, ""));
+    for (const model of found.map(builderKey)) if (model !== UNKNOWN_BUILDER) built.add(model);
   }
   if (built.size === 1) return [...built][0];
   if (built.size > 1) return null;
-  const model = /^[\t >*-]*Model:\s*(?:model:)?([a-z0-9._-]+)/im.exec(text)?.[1];
-  return model ? model.toLowerCase().replace(/[.,;]+$/, "") : null;
+  const model = /^[\t >*-]*Model:[\t ]*(?:model:)?([a-z0-9._-]+)/im.exec(text)?.[1];
+  return model && builderKey(model) !== UNKNOWN_BUILDER ? builderKey(model) : null;
 }
 
 export function qaFamilyBuilder(pr) {
@@ -275,7 +288,7 @@ export function qaFamilyBuilder(pr) {
   if (bot !== "unknown") return bot;
   const fromLines = builderFromBodyLines(pr.body);
   if (fromLines) return fromLines;
-  return /^[\t ]*Built on[\t ]+(\S+)/im.exec(pr.body ?? "")?.[1].toLowerCase() ?? "unknown";
+  return /^[\t ]*Built on[\t ]+(\S+)/im.exec(pr.body ?? "")?.[1].toLowerCase() ?? UNKNOWN_BUILDER;
 }
 
 export function computeQaFamilies(merged, comments, window, options = {}) {
@@ -578,8 +591,21 @@ export function serializeSnapshot(snapshot) {
 
 // ---------- inputs ----------
 
+// `//` reads as a line comment everywhere; `#` and `--` only where the file type uses them, since
+// they are headings in Markdown, custom properties in CSS and content elsewhere.
+const LINE_COMMENT_PREFIXES = [
+  { prefix: "//" },
+  { prefix: "#", extensions: new Set([".py", ".sh", ".bash", ".zsh", ".yml", ".yaml", ".toml", ".rb", ".ini", ".cfg"]) },
+  { prefix: "--", extensions: new Set([".sql", ".pgsql", ".psql", ".lua"]) },
+];
+
+function lineCommentPrefixes(filename) {
+  const extension = path.extname(filename ?? "").toLowerCase();
+  return LINE_COMMENT_PREFIXES.filter(({ extensions }) => !extensions || extensions.has(extension)).map(({ prefix }) => prefix);
+}
+
 // Track block comments separately on each side of a patch, using context lines.
-function commentLine(line, block) {
+function commentLine(line, block, prefixes) {
   let text = line.trim();
   while (text) {
     if (block) {
@@ -587,7 +613,7 @@ function commentLine(line, block) {
       if (end === -1) return { onlyComment: true, block };
       text = text.slice(end + block.length).trim();
       block = null;
-    } else if (/^(\/\/|#|--)/.test(text)) {
+    } else if (prefixes.some((prefix) => text.startsWith(prefix))) {
       return { onlyComment: true, block: null };
     } else if (text.startsWith("/*") || text.startsWith("<!--")) {
       block = text.startsWith("/*") ? "*/" : "-->";
@@ -604,6 +630,7 @@ function isCommentsOnlyPatch(file) {
   let added = 0;
   let removed = 0;
   const blocks = { "+": null, "-": null };
+  const prefixes = lineCommentPrefixes(file.filename);
   for (const line of file.patch.split("\n")) {
     if (line.startsWith("@@")) {
       blocks["+"] = null;
@@ -613,7 +640,7 @@ function isCommentsOnlyPatch(file) {
     const prefix = line[0];
     if (!["+", "-", " "].includes(prefix)) continue;
     for (const side of prefix === " " ? ["+", "-"] : [prefix]) {
-      const result = commentLine(line.slice(1), blocks[side]);
+      const result = commentLine(line.slice(1), blocks[side], prefixes);
       if (prefix !== " " && !result.onlyComment) return false;
       blocks[side] = result.block;
     }
@@ -745,10 +772,18 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, compareCommits =
   const window = resolveWindow(windowInput);
   const commits = options.commitsJson ? readJson(options.commitsJson) : null;
   const comparisons = new Map();
+  const compare = (base, head) => {
+    try {
+      return compareCommits(repository, base, head);
+    } catch {
+      log(`Comparison ${base}...${head} unavailable; treated as not comments-only.`);
+      return false;
+    }
+  };
   const isCommentsOnlyAncestor = (base, head) => {
     const key = `${base}...${head}`;
     if (commits || options.prsJson) return commits?.[key] === true;
-    if (!comparisons.has(key)) comparisons.set(key, compareCommits(repository, base, head));
+    if (!comparisons.has(key)) comparisons.set(key, compare(base, head));
     return comparisons.get(key);
   };
   const { pullRequests, comments } = options.prsJson

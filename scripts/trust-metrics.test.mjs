@@ -159,6 +159,8 @@ describe("QA families", () => {
     architect("opus").replace("Architect", "Engineer"),
     `\n${architect("opus")}`,
     `Architect review (opus) @ ${QA_SHA}`,
+    `Architect review (opus) @ ${QA_SHA}\nVerdict:  \nDelta from x`,
+    `Architect review (opus) @ ${QA_SHA}\nThe verdict: PASS`,
     undefined,
   ])("rejects a missing or nonstandard Architect header/verdict: %s", (body) => {
     assert.equal(parseArchitectReviewHeader(body), null);
@@ -170,6 +172,9 @@ describe("QA families", () => {
     [`Architect review (opus) @ ${QA_SHA} (round 2): FAIL`, "opus", "fail"],
     [`Architect review (opus) @ ${QA_SHA} \u2014 PASS (comments-only delta)`, "opus", "pass"],
     [`Architect review (grok) @ ${QA_SHA} (delta re-review)\nVERDICT: PASS`, "grok", "pass"],
+    [`Architect review (opus) @ ${QA_SHA}\nScope ok.\nVerdict: PASS_NOTES (same diff as the reviewed head)`, "opus", "pass_notes"],
+    [`Architect review (Codex) @ ${QA_SHA}\n**Verdict: CHANGES_REQUIRED**\n- [high] x`, "Codex", "changes_required"],
+    [`Architect review (opus) @ ${QA_SHA}\nModel: claude-opus\nVerdict:  \nVERDICT: PASS`, "opus", "pass"],
   ])("accepts tolerant Architect header forms: %s", (body, model, verdict) => {
     assert.deepEqual(parseArchitectReviewHeader(body), { model, sha: QA_SHA, verdict });
   });
@@ -200,9 +205,9 @@ describe("QA families", () => {
     ["opus delta 71b15c2d..94090be4", "claude"], ["sonnet delta 9ac028d4..57238331", "claude"],
     ["Codex gpt-6-astra xhigh, delta since 3473bcd8", "openai"], ["Opus, delta since 3473bcd8", "claude"],
     ["Claude Code, Opus", "claude"], ["claude-opus, fresh session, no build context", "claude"],
-    ["git + claude-opus", "claude"], ["opus+git", "claude"], ["Opus, merge-resolution delta since 3473bcd8", "claude"],
-    ["grok-4.7 via Cursor", "xai"],
-    ["git", null], ["git delta", null], ["Claude Code + git", null], ["git (comments-only delta)", null],
+    ["git + claude-opus", "claude"], ["opus+git", "claude"], ["Claude Code + git", "claude"],
+    ["Opus, merge-resolution delta since 3473bcd8", "claude"], ["grok-4.7 via Cursor", "xai"],
+    ["git", null], ["git delta", null], ["git (comments-only delta)", null],
     ["codex + opus", null], ["Opus, then grok", null], ["unknown", null], ["gptish", null], ["opusish", null],
     ["", null], [undefined, null],
   ])("maps model family by known tokens: %s", (model, family) => {

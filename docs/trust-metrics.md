@@ -236,7 +236,7 @@ older snapshot means it was not computed.
 | `qaFamilies.perPr[].prNumber` | integer | Merged PR number. |
 | `qaFamilies.perPr[].qaHead` | string or null | SHA from the latest QA verdict's first line (`on <sha>` or `at <sha>`, optionally `head` before the SHA). When absent, uses the PR's `headRefOid` or `head.sha`. Null without a verdict or a known judged head. |
 | `qaFamilies.perPr[].reviewers` | array or `"none"` | Kept model reviews as `{family, model, sha, verdict}`. `"none"` means the PR had a QA verdict but no kept model review; `[]` means no QA verdict. |
-| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the model named by PR-body `Built-by:` lines (`model=model:<x>` tokens, else a known model name; must be unanimous) or else the first `Model:` line; otherwise the lowercased pool token from a case-insensitive `Built on <pool>` line; otherwise `"unknown"`. |
+| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the model named on PR-body `Built-by:` lines (`model=model:<x>` tokens, else a known model name; must be unanimous) or else on the first `Model:` line; otherwise the lowercased pool token from a case-insensitive `Built on <pool>` line; otherwise `"unknown"`. Only the rest of the same line counts, and a literal `unknown` names no model. |
 | `qaFamilies.summary.qaJudged` | integer | Merged PRs with a QA verdict, including those without a known head. Equals `qa.pass + qa.fail`. |
 | `qaFamilies.summary.reviewersNone` | integer | QA-judged PRs with no kept model review. |
 | `qaFamilies.summary.prs` | integer | All merged PRs in the window. Equals `merges.total`. |
@@ -245,17 +245,21 @@ older snapshot means it was not computed.
 An Architect model review must start with this first line (a full, lowercase
 40-character hexadecimal SHA). The line may end with `: VERDICT` and/or
 qualifiers such as `(round 2)`; the verdict is the uppercase word in that
-suffix, or a later `VERDICT: <word>` line (which wins). Short SHAs, other
-header shapes, and headers with no verdict are rejected:
+suffix, or a later `Verdict: <word>` line in any case, optionally bold (which
+wins). Short SHAs, other header shapes, and headers with no verdict are
+rejected:
 
 ```text
 Architect review (<model>) @ <sha>[ qualifiers][: VERDICT]
 ```
 
 The model is preserved in the row; the verdict is lowercased. Family mapping
-ignores case: `opus` and `sonnet` map to `claude`; `codex`, `gpt`, and `gpt-*`
-map to `openai`; `grok` maps to `xai`. `git`, `git delta`, and other model names
-are not model reviews. Duplicate review tuples are collapsed and the array is
+reads the model field's tokens (split on anything but letters and digits,
+ignoring case): `opus`, `sonnet`, and `claude` map to `claude`; `codex` and
+`gpt` map to `openai`; `grok` maps to `xai`. Qualifiers such as `delta since
+<sha>`, `Claude Code, Opus`, or `git + claude-opus` keep the family. A field
+naming two families (`codex + opus`) or none (`git`, `git delta`) is not a
+model review. Duplicate review tuples are collapsed and the array is
 sorted by family, model, SHA, then verdict. Review comments must have a valid
 timestamp before the window end; comments before the window start can count.
 
@@ -263,12 +267,17 @@ A review is kept only if its SHA equals `qaHead`, or comparison evidence proves
 it is an ancestor with only comment or blank lines changed. Online comparisons
 must have status `ahead` or `identical`. Every changed file must have a complete
 text patch containing only changed comment/blank lines. Supported comment forms
-are `//`, `#`, `--`, `/* ... */`, and `<!-- ... -->`; block context is tracked
-separately on each patch side. Missing/binary/truncated patches, file renames,
-and comparisons at GitHub's 300-file cap are rejected conservatively. Equal SHAs
-need no comparison. Abbreviated QA SHAs are preserved as recorded; they are not
-matched to full review SHAs by prefix. Offline ancestry comes exclusively from
-`--commits-json`; absent entries are false.
+are `//`, `/* ... */`, and `<!-- ... -->` in any file, `#` only in `.py`, `.sh`,
+`.bash`, `.zsh`, `.yml`, `.yaml`, `.toml`, `.rb`, `.ini`, and `.cfg` files, and
+`--` only in `.sql`, `.pgsql`, `.psql`, and `.lua` files (elsewhere they are
+headings, custom properties, or content). Block context is tracked separately
+on each patch side. Missing/binary/truncated patches, file renames, and
+comparisons at GitHub's 300-file cap are rejected conservatively. A comparison
+that cannot be fetched (unknown or force-pushed SHA, API error) counts as not
+comments-only for that pair, is logged by SHA pair only, and never stops the
+run. Equal SHAs need no comparison. Abbreviated QA SHAs are preserved as
+recorded; they are not matched to full review SHAs by prefix. Offline ancestry
+comes exclusively from `--commits-json`; absent entries are false.
 
 ### Reverts and rollbacks
 
