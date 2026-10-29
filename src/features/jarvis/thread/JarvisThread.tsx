@@ -162,7 +162,8 @@ function absoluteUrl(uri: string): string {
 /** `onSend` makes the composer live; without it the composer stays a labelled preview. `request` echoes what the user asked. */
 export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate", onSend, request, note }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode; onSend?: (message: string) => void; request?: string; note?: ReactNode }>) {
   const [draft, setDraft] = useState('');
-  const submit = () => { const message = draft.trim(); if (!message || !onSend) return; onSend(message); setDraft(''); };
+  const submit = () => { const message = draft.trim(); if (!message || !onSend) return; onSend(message); setDraft(''); composeRef.current?.focus(); };
+  const composeRef = useRef<HTMLTextAreaElement>(null);
   const [events, setEvents] = useState<GraphEvent[]>([]), [offline, setOffline] = useState(false);
   const [viewer, setViewer] = useState(false), [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -249,8 +250,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     <header>
       <h1 ref={heading} tabIndex={-1}>Jarvis</h1>
     </header>
-    <div className="jt-state" role="status" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <p aria-live="polite" className="sr-only">{announcement(result, failure, status, deciding, state)}</p>
+    <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
+    <p role="status" aria-live="polite" className="sr-only">{announcement(result, failure, status, deciding, state)}</p>
     <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{request && <p className="jt-request" aria-label="Your request">{request}</p>}{!events.length && !request && <p className="jt-empty">No requests yet. Try “design a 4 inch square plate”.</p>}{status && !result && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map(node => <li key={node}>
         <span>{nodeNames[node]}</span>
@@ -263,7 +264,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       {onSend ? <form className="jt-compose" onSubmit={e => { e.preventDefault(); submit(); }}>
-        <textarea id="jarvis-message" placeholder="Describe the part you need" rows={2} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
+        <textarea ref={composeRef} id="jarvis-message" placeholder="Describe the part you need" rows={2} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
         <button type="submit" className="jt-primary" disabled={!draft.trim()}>SEND</button>
       </form> : <textarea id="jarvis-message" placeholder="Describe the part you need" />}
       {note ?? <p className="jt-muted">Preview only. Messages are not sent.</p>}
