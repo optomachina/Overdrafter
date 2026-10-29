@@ -1049,7 +1049,7 @@ describe("verifier independence from the PR builder (ruling 1, stage A warning)"
 describe("headDiffId", () => {
   it("fetches the PR head and base as data into a separate bare store, with the token only in the git child env", () => {
     const calls = [];
-    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
     let diffCwd;
     const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), makeStore: () => store, diff: ({ base, head, cwd }) => { diffCwd = cwd; return base === BASE && head === HEAD ? DIFF : "wrong"; } });
     expect(result).toEqual({ diffId: DIFF, error: null });
@@ -1068,7 +1068,7 @@ describe("headDiffId", () => {
   });
 
   it("still returns the computed diff_id when removing the store fails (ENOTEMPTY)", () => {
-    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
     const warnings = [];
     const write = process.stderr.write;
     process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
@@ -1080,6 +1080,26 @@ describe("headDiffId", () => {
       rmSync(store, { recursive: true, force: true });
     }
     expect(result).toEqual({ diffId: DIFF, error: null });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
+  });
+
+  it("returns the fetch error, not the cleanup error, when the fetch and the store removal both fail", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    const git = (args) => {
+      if (args.includes("fetch")) throw new Error("fatal: could not read from remote repository");
+      return "";
+    };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git, makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: null, error: "fatal: could not read from remote repository" });
     expect(warnings.join("")).toContain("ENOTEMPTY");
   });
 
