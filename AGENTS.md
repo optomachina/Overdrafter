@@ -18,11 +18,11 @@ Verify repo identity if selection is ambiguous or before a consequential mutatio
 
 Blaine authorizes the recorded sole OverDrafter 1.0/JARVIS owner's scoped, reversible development without repeat approval. This covers inspection, isolated branches/worktrees, edits, local tests/fixtures, relevant fixes, commits/pushes, GitHub PR/Linear upkeep, automated review response, and merge after current-head hosted gates and actionable review findings pass.
 
-Authorization survives continued goals, corrected attempts, replacement tasks, and recorded ownership transfers within these objectives. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval stops for reversible development. A failed check remains evidence but does not revoke authority to diagnose and correct the bounded unit.
+Authorization survives continued goals, corrected attempts, replacement tasks, and recorded ownership transfers within these objectives. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval stops for reversible development. A failed check is evidence; it does not revoke authority to diagnose and correct the bounded unit.
 
 ### Synthetic-fixture lane
 
-The sole owner may create, repair, rerun, and remove exclusively owned disposable local fixtures using repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Read [the fixture contract](docs/agent-development-control-plane.md#synthetic-development-fixtures) before operating the lane. It defines isolation, resource ceilings, ownership, retry, and cleanup requirements. Complexity alone never requires human approval.
+The sole owner may create, repair, rerun, and remove exclusively owned disposable local fixtures from repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Read [the fixture contract](docs/agent-development-control-plane.md#synthetic-development-fixtures) first; it defines isolation, resource ceilings, ownership, retry, and cleanup. Complexity alone never requires human approval.
 
 ## Protected actions
 
@@ -54,7 +54,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 - Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
 - Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
-- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it, as soon as the item is ready, with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
+- Protected actions (above) still need Blaine's exact OK: Grok Bot requests it as soon as the item is ready, with one approval card naming the commit SHA and the passing checks, merge and production migration listed as separate actions.
 
 ### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
 
@@ -68,7 +68,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
   6. Agent skills and prompts: `.codex/skills/**`, `.claude/agents/**`.
   7. New code in the categories above behind a feature flag that defaults off.
 - Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
-- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` computes and reports a door (`one-way` / `revertable`) only; no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK, apart from the class S exception below. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
+- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` only computes and reports a door (`one-way` / `revertable`); no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK, apart from the class S exception below. AGENTS.md, gate scripts (tests included) and unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
 - Rollback for an auto-merged PR is `git revert` of its squash commit.
 
 ### Fixture-heal class S auto-merge (OVD-796 D8, OVD-816)
@@ -84,11 +84,11 @@ A fixture-repair PR auto-merges (squash) without a Blaine card only when all hol
 
 Classes P, F, E, C and H, missing or failing `heal-guard`, or any other changed file go to Blaine's approval card. Until `heal-guard` runs in hosted CI (OVD-823) and the eligibility check (OVD-845) reads its verdict, no PR qualifies.
 
-Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on the standing-approval row also revokes it. Rollback is `git revert` of the squash commit. Operator procedure: [docs/runbooks/fixture-heal.md](docs/runbooks/fixture-heal.md).
+Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on the standing-approval row also revokes it. Rollback is `git revert` of the squash commit. Operator procedure: [fixture-heal runbook](docs/runbooks/fixture-heal.md).
 
 ## Sensitive paths (single shared list)
 
-`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs` and never copy its globs; gates read the base checkout's copy. A Linear issue whose scope touches it is routed architect-first (the Architect/Release `release` node in the agent graph); a PR that touches it gets Opus review regardless of the Jev score. Globs use picomatch semantics with dotfiles included and case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR that edits them is sensitive. A base ref given to the matcher must resolve to a commit, or the call fails instead of falling back to the PR's own copy. The PR report (`npm run sensitive-paths:report`, also run inside `npm run test:portable-node`) is report only and never fails; a dedicated workflow running the base copy of the matcher is a future card item.
+`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs`, never copying its globs; gates read the base checkout's copy. A Linear issue touching it routes architect-first (the Architect/Release `release` graph node); a PR touching it gets Opus review whatever the Jev score. Globs use picomatch semantics, dotfiles included, case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR editing them is sensitive. Matcher mechanics: [control plane](docs/agent-development-control-plane.md#classifying-new-gate-files).
 
 <!-- sensitive-paths:begin -->
 - **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`, `**/*.{pgsql,psql}`, `scripts/check-lock-order.mjs`
@@ -101,7 +101,7 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 - **deps** (new dependencies): `**/package.json`, `**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}`, `**/requirements*.txt`, `**/{pyproject.toml,uv.lock,poetry.lock}`, `**/{Cargo.toml,Cargo.lock,go.mod,go.sum}`, `**/{bun.lock,Pipfile,Pipfile.lock,Gemfile,Gemfile.lock}`, `supabase/functions/deno.json`
 <!-- sensitive-paths:end -->
 
-Classify a new gate, safety, or infra file in the same PR that adds it. Adding a glob is free; a later classification PR leaves the file auto-mergeable as a repo script. `scripts/lib/sensitive-paths.test.mjs` fails a new top-level `scripts/{check,validate,lint,guard,verify}-*` script, and a non-test `api/**`, `server/**`, or Edge Function `index.ts` that reads `SUPABASE_SERVICE_ROLE_KEY`, `SERVICE_ROLE_KEY`, or `SUPABASE_DB_URL`, when it has no class (`auth`, or `payments` for a billing function). CI-run scripts must be `infra_ci` (`scripts/sensitive-class-detect.test.mjs`). Do not extend the recorded baseline. Mirror the glob here. `.gitleaks.toml` and `.gitleaksignore` are already `infra_ci`.
+Classify a new gate, safety, or infra file in the PR that adds it ([details](docs/agent-development-control-plane.md#classifying-new-gate-files)).
 
 ## Ownership and durable state
 
@@ -120,8 +120,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 - Put a separate, independently mergeable change or distinct acceptance criteria in a child issue before opening its PR. A direct review or CI repair of the same change stays on its PR. After merge, a narrow follow-up PR may reuse the issue only to repair its original acceptance criteria; record why in both.
 - Release-outcome parents coordinate qualification/live gates; never use their IDs for source-change PRs. Name the bounded child issue on new source PRs; preserve historical links.
 - Aim for PRs of about 200 changed lines or fewer, excluding generated files, fixtures and lockfiles. Split larger work into stacked or sequential PRs, each independently reviewable and revertible. Feature-flag risky or user-visible behavior (default off) for early merge, activation or rollback without a revert. A PR over the guideline states why it cannot be split.
-- Land a sensitive-path or CI-drift stack before it spends days absorbing `main`. Merge `main` into the parent only, then downward. Do not rebase a stack that already has review evidence.
-- One open PR at a time may change a vendor-adapter file (`worker/src/adapters/**`, `worker/src/tools/vendor*`), drafts included. `vendor-pr-serialization` fails the newer PR.
+- Land a sensitive-path or CI-drift stack before it spends days absorbing `main` (merge `main` parent-first; never rebase a reviewed stack). One open PR at a time, drafts included, per vendor-adapter file (`worker/src/adapters/**`, `worker/src/tools/vendor*`); `vendor-pr-serialization` fails the newer.
 - At final PR head, inspect Sonar issues, actual bot-review coverage and threads. Green quality gates, rate-limit notices, or stale reviews aren't evidence of no actionable findings; record the gap and disposition.
 
 ## Complexity and verification
@@ -143,14 +142,14 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - Triage: before any LLM, ovd-auto-triage asks jev (pinned jev-1.13.0, via scripts/jev-client.mjs) for route/tier; jev may only raise tiers; errors/low confidence require the conservative tier.
 - Pools: heavy builds rotate across Codex, Claude Code and Cursor cloud agents by availability and budget; the dispatcher logs which pool it chose and why.
 - One writer per PR owns every repair. Budget: 2 repair rounds across local and CI combined, each with all current failure logs at once, never check by check.
-- Separate a one-off infrastructure failure from a code failure and from a structural CI failure. The decision table is in [docs/agent-development-control-plane.md](docs/agent-development-control-plane.md#failure-classes-and-recovery). Run `node scripts/ci-rerun-once.mjs` once for a runner loss or a real throttle line (`429 Too Many Requests`, `toomanyrequests`, `rate limit exceeded`) with no `preflight: <stage> FAIL`. That rerun does not consume a repair round. A `cancelled` conclusion (the `timeout-minutes` cap), a `preflight: <stage> FAIL` line, and a second attempt are not reruns. A repeated structural failure gets a bounded reliability change that keeps every check. Never weaken an assertion or treat `cancelled` as success.
+- Separate one-off infrastructure failures from code failures and structural CI failures per the [decision table](docs/agent-development-control-plane.md#failure-classes-and-recovery): `node scripts/ci-rerun-once.mjs` reruns infra once without a repair round; `cancelled` is never a pass; a repeated structural failure gets a bounded reliability change that keeps every check.
 - After the budget, failing PRs become drafts with diagnostics comments: failing checks, log excerpts, each round's changes, and suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A PR that touches provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus` for Opus, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each one routes to.
-- Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
+- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A PR touching provider/customer data also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus`, `model:sonnet`, `model:codex`, `model:grok-overflow`) and the provider and model each routes to.
+- Track cost per accepted PR and founder interventions as in [agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
-## Merge gate
+## Merge gate and agent graph
 
-[The graph](docs/agent-graph/graph.v1.yaml) owns the merge gate, verdict types and landing rules. Reviewer routing keeps the above authoritative owners and draft-graph limitation. This file owns approvals, auto-merge allowlist and sensitive paths. Gate loosening needs root agent countersign and Blaine's OK.
+[The draft graph](docs/agent-graph/graph.v1.yaml) owns the merge gate, verdict types, landing rules and agent routing, except reviewer routing, whose authoritative owners are above. This file owns approvals, the auto-merge allowlist and sensitive paths: it keeps the rules; the spec holds the structure. Gate loosening needs root agent countersign and Blaine's OK.
 
 ## Completion and failure
 
@@ -173,7 +172,3 @@ Use a skill only when it materially improves the task:
 Keep tool adapters thin and load conditional procedures only when relevant. Astra medium: routine orchestration; high: difficult architecture/causal recovery; xhigh: independent high-impact review. The dispatcher selects actual model and effort.
 
 Keep provider work behind `docs/provider-integration.md`, database releases behind the applicable runbook, and CAD work behind the engineering control-plane and native qualification documents. Product runtime retry rules do not automatically limit disposable development-test retries.
-
-## Agent graph
-
-[The draft graph](docs/agent-graph/graph.v1.yaml) defines agent routing, except reviewer routing, whose authoritative sources are above. This file keeps the rules; the spec holds the structure.

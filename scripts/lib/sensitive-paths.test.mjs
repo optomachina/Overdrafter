@@ -827,8 +827,8 @@ const KNOWN_UNCLASSIFIED_GATE_SCRIPTS = [
 ];
 
 const isGateScript = (name) => {
-  if (name.endsWith(".test.mjs") || name.endsWith(".node-test.mjs")) return false;
-  return /^(?:check|validate|lint|guard|verify)-[^/]+\.mjs$/.test(name) || name === "ci-rerun-once.mjs" || name === "preflight.sh";
+  if (/\.(?:test|node-test)\.(?:mjs|sh)$/.test(name)) return false;
+  return /^(?:check|validate|lint|guard|verify)-[^/]+\.(?:mjs|sh)$/.test(name) || name === "ci-rerun-once.mjs" || name === "preflight.sh";
 };
 
 const privilegedEnv = /SUPABASE_SERVICE_ROLE_KEY|SERVICE_ROLE_KEY|SUPABASE_DB_URL/;
