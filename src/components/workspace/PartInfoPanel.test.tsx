@@ -51,3 +51,15 @@ describe("PartInfoPanel", () => {
     expect(screen.getByText("Request editor")).toBeInTheDocument();
   });
 });
+
+describe("PartInfoPanel generated tag", () => {
+  it("shows the Generated badge for agent-created parts", () => {
+    renderPartInfoPanel({ jobTags: ["source:generated", "generator:cad-monkey"] });
+    expect(screen.getByTestId("generated-part-badge")).toBeInTheDocument();
+  });
+
+  it("shows no badge for uploaded parts", () => {
+    renderPartInfoPanel({ jobTags: [] });
+    expect(screen.queryByTestId("generated-part-badge")).toBeNull();
+  });
+});
