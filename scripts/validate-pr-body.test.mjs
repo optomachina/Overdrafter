@@ -14,6 +14,8 @@ import {
   parseNameStatus,
 } from "./provider-enablement-detect.mjs";
 import {
+  REVERT_PLAN_FIELDS,
+  validateRevertPlan,
   ANY_ATX_HEADING,
   CHECKBOX_LINE,
   CONTAINER_PREFIX,
@@ -1682,4 +1684,84 @@ describe("adversarial ReDoS bounds", { timeout: 30_000 }, () => {
       expect(row.ratio, name).toBeLessThan(8);
     }
   });
+});
+
+describe("Revert plan: explicit report-only opt-in", () => {
+  const plan = `## Revert plan
+- Revert: git revert <squash-sha>
+- State effects: none
+- Why none: Only pure parsing code changes; no persistent or external writes occur.
+- Kill switch: none: a code revert restores the parser
+- Owner: engineer
+- Verify after revert: npm test -- scripts/example.test.mjs
+- Blast radius: Provider quote parsing for internal fixture users.
+`;
+  it("accepts a valid plan only when opted in and permits no plan for one-way", () => {
+    expect(validateRevertPlan(plan, "revertable")).toMatchObject({ok:true, required:true});
+    expect(validateRevertPlan("", "one-way")).toMatchObject({ok:true, required:false});
+    expect(validatePrBody(buildValidPrBody()).ok).toBe(true);
+    expect(validatePrBody(buildValidPrBody(), {door:"revertable"}).ok).toBe(false);
+    expect(validatePrBody(buildValidPrBody()+plan, {door:"revertable"}).ok).toBe(true);
+  });
+  it.each(REVERT_PLAN_FIELDS)("requires the visible %s field", (field) => {
+    const line = plan.split("\n").find((value) => value.startsWith(`- ${field}:`));
+    for (const replacement of ["", `<!-- ${line} -->`, `<details>\n${line}\n</details>`, `<details\nopen>\n${line}\n</details>`, `~~~\n${line}\n~~~`]) {
+      expect(validateRevertPlan(plan.replace(line, replacement), "revertable").ok).toBe(false);
+    }
+  });
+  it.each(REVERT_PLAN_FIELDS)("rejects placeholders and duplicates for %s", (field) => {
+    const line = plan.split("\n").find((value) => value.startsWith(`- ${field}:`));
+    for (const value of ["TODO", "TBD", "n/a", "-", "template text", "<replace me>"]) {
+      expect(validateRevertPlan(plan.replace(line, `- ${field}: ${value}`), "revertable").ok).toBe(false);
+    }
+    expect(validateRevertPlan(plan + line, "revertable").ok).toBe(false);
+  });
+  it("requires state effects none with a meaningful reason, default off and a known owner", () => {
+    for (const [from,to] of [["State effects: none","State effects: some"],["Why none: Only pure parsing code changes; no persistent or external writes occur.","Why none: short"],["Owner: engineer","Owner: random-person"],["none: a code revert restores the parser","EXAMPLE_FLAG default on"]]) {
+      expect(validateRevertPlan(plan.replace(from,to), "revertable").ok).toBe(false);
+    }
+    expect(validateRevertPlan(plan.replace("none: a code revert restores the parser", "EXAMPLE_FLAG default off"), "revertable").ok).toBe(true);
+    expect(validateRevertPlan(plan.replace("Owner: engineer", "Owner: blaine"), "revertable").ok).toBe(true);
+  });
+  it("normalizes encoded headings and rejects duplicate headings, even hidden ones", () => {
+    expect(validateRevertPlan(plan.replace("## Revert plan", "## R&#101;vert plan"), "revertable").ok).toBe(true);
+    for (const duplicate of ["## Revert plan", "## R&#101;vert plan", "<!--\n## Revert plan\n-->", "<h2>Revert plan</h2>", "Revert plan\n---", "### Revert plan", "> ## Revert plan"]) {
+      expect(validateRevertPlan(plan + duplicate, "revertable").ok, duplicate).toBe(false);
+    }
+    expect(validateRevertPlan(plan + "~~~\n## Revert plan\n~~~", "revertable").ok).toBe(true);
+    expect(validateRevertPlan("<details>\n"+plan+"</details>", "revertable").ok).toBe(false);
+  });
+  it.each(["", "unknown", null, undefined])("unknown door %s fails closed", (door) => {
+    expect(validateRevertPlan(plan, door).ok).toBe(false);
+  });
+  it("fails closed on parse errors, a timeout or missing routing", () => {
+    expect(validateRevertPlan(null, "revertable").ok).toBe(false);
+    expect(validateRevertPlan(plan, "revertable", {maxMs:-1}).ok).toBe(false);
+    expect(validateRevertPlan(plan, "revertable", {owners:{has(){throw new Error("routing unreadable");}}}).ok).toBe(false);
+  });
+  it("CLI no-door output is unchanged, and explicit door bypasses the skip", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "revert-plan-cli-"));
+    const file = path.join(dir, "body.md");
+    writeFileSync(file, buildValidPrBody());
+    try {
+      expect(await main([file,"--skip-unless-enabling"], {})).toBe(0);
+      expect(await main([file,"--skip-unless-enabling","--door","revertable"], {})).toBe(1);
+      expect(await main([file,"--door",""], {})).toBe(1);
+      expect(await main([file,"--door"], {})).toBe(1);
+      expect(await main([file,"--door","one-way"], {})).toBe(0);
+      expect(await main([file,"--door","one-way","--door","revertable"], {})).toBe(1);
+      writeFileSync(file, buildValidPrBody()+plan);
+      expect(await main([file,"--door","revertable"], {})).toBe(0);
+    } finally { rmSync(dir, {recursive:true, force:true}); }
+  });
+});
+
+
+it("Revert plan parser remains bounded in the existing ReDoS child", () => {
+  const result = spawnSync(process.execPath, [REDOS_CHILD, "revert"], {timeout:5000, encoding:"utf8"});
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(0);
+  const report = JSON.parse(result.stdout);
+  expect(report.ms).toBeLessThan(1000);
+  expect(report.value.ok).toBe(false);
 });

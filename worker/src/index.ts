@@ -861,12 +861,15 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
               : null,
           extractText: extractPdfText,
         }, exportScanOutcomes);
-        const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+        // OVD-1067: 0 approved is a review hold (fields need review; the job
+        // stays 'extracting'), so the task completes with reviewRequired.
+        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
           sourcePartId,
-          autoApprovedPartCount,
+          autoApprovedPartCount: autoApproval.approvedCount,
+          reviewRequired: autoApproval.reviewHold,
           exportScanOutcomes,
         });
         return;
@@ -938,7 +941,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         logCadPreviewWarning(task, enqueueError);
       }
     }
-    const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+    // OVD-1067: 0 approved is a review hold, not a failure (see above).
+    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
       extraction,
@@ -946,7 +950,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       extractorVersion,
       workerBuildVersion: config.workerBuildVersion,
       previewAssetCount: previewAssets.length,
-      autoApprovedPartCount,
+      autoApprovedPartCount: autoApproval.approvedCount,
+      reviewRequired: autoApproval.reviewHold,
       completedAt,
     });
     await logWorkerAuditEvent(supabase, {
