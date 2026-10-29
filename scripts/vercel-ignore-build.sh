@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vercel "Ignored Build Step" (vercel.json ignoreCommand). OVD-890.
 # Vercel semantics: exit 0 = SKIP the build, exit 1 = BUILD.
-# Skips only when every changed file is docs/tooling-only; any error builds.
+# Skips draft/no-PR previews, then docs/tooling-only changes; uncertainty builds.
 set -u
 
 build() {
@@ -20,6 +20,68 @@ fi
 if [ "${VERCEL_GIT_COMMIT_REF:-}" = "main" ]; then
   build "main branch"
 fi
+
+if [ "${VERCEL_ENV:-}" != "preview" ]; then
+  build "not a preview deployment"
+fi
+if [ "${VERCEL_GIT_PROVIDER:-github}" != "github" ]; then
+  build "not a GitHub deployment"
+fi
+owner="${VERCEL_GIT_REPO_OWNER:-}"
+repo="${VERCEL_GIT_REPO_SLUG:-}"
+branch="${VERCEL_GIT_COMMIT_REF:-}"
+if [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$branch" ]; then
+  build "missing GitHub branch metadata"
+fi
+case "$owner/$repo" in
+  *[!a-zA-Z0-9_./-]*) build "invalid GitHub repository metadata" ;;
+esac
+# Keep the destination fixed: credentials must only go to GitHub.
+case "$owner$repo" in
+  */*) build "invalid GitHub repository metadata" ;;
+esac
+if ! command -v curl >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1; then
+  build "GitHub lookup tools unavailable"
+fi
+
+# The ignore step runs before npm install. Use only curl and the Node runtime.
+# Tokens are optional for public repos; private repos need pull requests:read.
+headers=(-H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
+if [ -n "${GITHUB_TOKEN:-${GH_TOKEN:-}}" ]; then
+  headers+=(-H "Authorization: Bearer ${GITHUB_TOKEN:-${GH_TOKEN:-}}")
+fi
+if ! response="$(curl --disable --silent --fail --connect-timeout 3 --max-time 10 \
+  "${headers[@]}" --get --data-urlencode 'state=open' \
+  --data-urlencode "head=$owner:$branch" --data-urlencode 'per_page=100' \
+  "https://api.github.com/repos/$owner/$repo/pulls" 2>/dev/null)"; then
+  build "GitHub lookup failed"
+fi
+if ! pr_state="$(printf '%s' "$response" | node -e '
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", chunk => { input += chunk; });
+  process.stdin.on("end", () => {
+    try {
+      const prs = JSON.parse(input);
+      const [repository, branch] = process.argv.slice(1);
+      // A full page may omit a ready PR. Any incomplete/foreign row is uncertain.
+      if (!Array.isArray(prs) || prs.length >= 100 || prs.some(pr =>
+        pr?.state !== "open" || typeof pr.draft !== "boolean" ||
+        pr.head?.ref !== branch ||
+        pr.head?.repo?.full_name?.toLowerCase() !== repository.toLowerCase()
+      )) process.exit(1);
+      console.log(prs.length === 0 ? "none" : prs.every(pr => pr.draft) ? "draft" : "ready");
+    } catch { process.exit(1); }
+  });
+' "$owner/$repo" "$branch" 2>/dev/null)"; then
+  build "GitHub response uncertain"
+fi
+case "$pr_state" in
+  none) skip "no open pull request" ;;
+  draft) skip "draft pull request" ;;
+  ready) ;; # Preserve the existing docs/tooling-only optimization below.
+  *) build "GitHub response uncertain" ;;
+esac
 
 export GIT_TERMINAL_PROMPT=0
 

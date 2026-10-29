@@ -9,7 +9,12 @@ const REQUIRED_CHECKS = [
   { workflow: "ci.yml", job: "ci", noOp: false },
   { workflow: "pr-body-gate.yml", job: "provider-go-live", noOp: true },
 ];
-const FUTURE_REQUIRED_CHECKS = [{ workflow: "proof-check.yml", job: "proof-check", noOp: true }];
+// A writer check is not a job's own status: the job (named differently on
+// purpose) writes the check run through the Checks API, also on merge_group.
+const FUTURE_REQUIRED_CHECKS = [
+  { workflow: "proof-check.yml", job: "proof-check", noOp: true },
+  { workflow: "ovd-merge-gate.yml", job: "ovd-merge-gate", writer: "ovd-merge-gate-writer" },
+];
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readWorkflow = (file) => read(`.github/workflows/${file}`);
@@ -42,6 +47,26 @@ describe("merge queue workflows", () => {
         expect(onBlock(text)).toMatch(/^ {2}merge_group:/m);
       });
 
+      if (check.writer) {
+        it("writes the check from a job with another name and no job-level if", () => {
+          const block = jobBlock(text, check.writer);
+          expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
+          // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed).
+          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() && github.event_name != 'merge_group' }}");
+          expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
+          expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
+        });
+
+        it("writes the check on merge_group as a no op", () => {
+          const queue = jobBlock(text, "ovd-merge-gate-queue");
+          expect(queue).toContain("if: github.event_name == 'merge_group'");
+          expect(queue).toContain("gh api --method POST");
+          expect(queue).toContain("-f name=ovd-merge-gate");
+          expect(queue).not.toContain("checkout");
+        });
+        return;
+      }
+
       it("reports the check under the bare job name", () => {
         expect(jobBlock(text, check.job)).toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
       });
@@ -67,6 +92,37 @@ describe("merge queue workflows", () => {
       }
     });
   }
+
+  describe("vendor PR serialization", () => {
+    const text = readWorkflow("vendor-pr-serialization.yml");
+    const steps = jobBlock(text, "vendor-pr-serialization").split(/^ {6}- /m).slice(1);
+    const queuedCheck = steps.find((step) => step.startsWith("name: Check queued vendor PR\n"));
+
+    it("checks out the merge group's base revision separately without persisted credentials", () => {
+      const baseCheckout = steps.find((step) => /^ {10}path: base$/m.test(step));
+      expect(baseCheckout).toBeDefined();
+      expect(baseCheckout).toMatch(/^uses: actions\/checkout@/);
+      expect(baseCheckout).toContain("if: github.event_name == 'merge_group'");
+      expect(baseCheckout).toContain("ref: ${{ github.event.merge_group.base_sha }}");
+      expect(baseCheckout).toContain("persist-credentials: false");
+      expect(baseCheckout).not.toContain("sparse-checkout:");
+      expect(steps.indexOf(baseCheckout)).toBeLessThan(steps.indexOf(queuedCheck));
+    });
+
+    it("imports and executes the queued check from the base copy", () => {
+      expect(queuedCheck).toContain("if: github.event_name == 'merge_group'");
+      expect(queuedCheck).toContain("from './base/scripts/vendor-pr-serialization.mjs'");
+      expect(queuedCheck).toContain("'base/scripts/vendor-pr-serialization.mjs', '--pr', String(pr)");
+      expect(queuedCheck).not.toMatch(/['"](?:\.\/)?scripts\/vendor-pr-serialization\.mjs['"]/);
+    });
+
+    it("keeps only read access to contents and pull requests", () => {
+      expect(text.match(/^permissions:\n((?: {2}.*\n)+)/m)?.[1]).toBe(
+        "  contents: read\n  pull-requests: read\n",
+      );
+      expect(jobBlock(text, "vendor-pr-serialization")).not.toMatch(/^ {4}permissions:/m);
+    });
+  });
 
   it("lists exactly the required checks in the runbook", () => {
     const runbook = read("docs/runbooks/merge-queue.md");

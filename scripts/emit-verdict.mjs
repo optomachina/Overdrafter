@@ -31,8 +31,10 @@
  *     [--findings findings.json] [--base-sha <40-hex>] \
  *     [--supersedes <comment id> --reason infra] [--pr 123 --post]
  *
+ * --model-family opus and sonnet normalize to claude. Other unknown families are rejected.
  * See docs/verdict-format.md.
  */
+import { normalizeModelFamily } from "./ovd-merge-gate.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -281,7 +283,7 @@ function isGateFinding(finding) {
  */
 function prepareFindings(findings) {
   if (!Array.isArray(findings)) throw new Error("findings must be a JSON array of finding objects");
-  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)));
+  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)), { normalizeFamily: normalizeModelFamily });
   let next = 0;
   return findings.map((finding) => (isGateFinding(finding) ? finding : tagged[next++]));
 }
@@ -299,6 +301,8 @@ const parseEvidence = (entry) => {
  */
 export function buildVerdict(input, { cwd, now = new Date() } = {}) {
   if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
+  const modelFamily = normalizeModelFamily(input.modelFamily);
+  if (modelFamily === null) throw new Error("verdict_schema_error: unknown --model-family");
   // Diff the exact head commit, so sha, patch_id and diff_id always describe the same tree.
   const sha = input.sha ?? assertSha(input.head, "--head");
   // Optional keys are spread only when the caller set them, so a verdict that
@@ -311,7 +315,7 @@ export function buildVerdict(input, { cwd, now = new Date() } = {}) {
     ...(input.baseSha !== undefined ? { base_sha: input.baseSha } : {}),
     patch_id: input.patchId ?? computePatchId({ base: input.base, head: sha, cwd }),
     diff_id: input.diffId ?? computeDiffId({ base: input.base, head: sha, cwd }),
-    verifier: { id: input.verifierId, model_family: input.modelFamily, github_login: input.githubLogin },
+    verifier: { id: input.verifierId, model_family: modelFamily, github_login: input.githubLogin },
     evidence: input.evidence ?? [],
     notes: input.notes ?? [],
     readiness: input.readiness,
