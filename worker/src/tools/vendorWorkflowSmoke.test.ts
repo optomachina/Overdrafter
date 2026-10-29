@@ -1546,8 +1546,8 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  /** Runs one vendor's batch through the real startup gate with an unreadable switch; staging always throws. */
-  async function batchWithUnreadableSwitch(vendor: string) {
+  // Runs the batch with the real startup gate and an unreadable kill switch.
+  async function runWithUnreadableKillSwitch(vendor: string) {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
@@ -1556,18 +1556,19 @@ describe("runEvaluationBatch", () => {
     vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
     const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
     const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
-    const outcome = runEvaluationBatch(args, {
+    const result = runEvaluationBatch(args, {
       killSwitchReader,
       stageFiles,
       makeVendorConfig: () => ({} as WorkerConfig),
       buildRegistry: () => ({}),
     });
-    return { outcome, killSwitchReader, stageFiles };
+    return { result, killSwitchReader, stageFiles };
   }
 
   it("gates the Quickparts batch on the kill switch before staging (OVD-1059)", async () => {
-    const { outcome, killSwitchReader, stageFiles } = await batchWithUnreadableSwitch("quickparts");
-    await expect(outcome)
+    const { result, killSwitchReader, stageFiles } = await runWithUnreadableKillSwitch("quickparts");
+
+    await expect(result)
       .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
     expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
     expect(stageFiles).not.toHaveBeenCalled();
@@ -1583,8 +1584,9 @@ describe("runEvaluationBatch", () => {
   });
 
   it.each(["weerg", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
-    const { outcome, killSwitchReader } = await batchWithUnreadableSwitch(vendor);
-    await expect(outcome).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    const { result, killSwitchReader } = await runWithUnreadableKillSwitch(vendor);
+
+    await expect(result).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
     expect(killSwitchReader).not.toHaveBeenCalled();
   });
 
