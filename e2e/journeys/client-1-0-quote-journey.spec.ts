@@ -64,10 +64,10 @@ test.describe("1.0 client journey", () => {
           page.locator(".border").filter({ has: page.getByRole("heading", { name, exact: true }) }).last();
         for (const name of ["Lowest cost", "Fastest delivery", "Balanced"]) await expect(card(name)).toBeVisible({ timeout: 30_000 });
         const lowest = card("Lowest cost");
-        if (await lowest.getByRole("button", { name: "Save note", exact: true }).count() === 0) {
+        if (await lowest.getByRole("button", { name: "Save decision note", exact: true }).count() === 0) {
           await lowest.getByRole("button", { name: /Select (this|another) option/ }).click();
         }
-        await expect(lowest.getByRole("button", { name: "Save note", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expect(lowest.getByRole("button", { name: "Save decision note", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("heading", { name: "Selection received" }).last()).toBeVisible();
         await shot("4-chosen");
       });
