@@ -92,3 +92,59 @@ describe("buildGeneratedTags", () => {
     expect(buildGeneratedTags("CAD Monkey")).toEqual(["source:generated", "generator:cad-monkey"]);
   });
 });
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  EXPORT_CONTROL_TERMS_VERSION,
+  GENERATED_SOURCE_TAG,
+  GENERATOR_TAG_PREFIX,
+  isStorageObjectExistsError,
+  parseArgs,
+  thumbnailMimeType,
+} from "./ingest-generated-part.mjs";
+import * as appTags from "../src/features/generated-parts/generated-part-tags.ts";
+
+describe("ingest constants stay in sync with the app", () => {
+  it("matches the export-control terms version and tag contract", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/features/quotes/export-control.ts"), "utf8");
+    expect(source).toContain(`EXPORT_CONTROL_TERMS_VERSION = "${EXPORT_CONTROL_TERMS_VERSION}"`);
+    expect(GENERATED_SOURCE_TAG).toBe(appTags.GENERATED_SOURCE_TAG);
+    expect(GENERATOR_TAG_PREFIX).toBe(appTags.GENERATOR_TAG_PREFIX);
+  });
+});
+
+describe("ingest failure paths", () => {
+  it("throws on a real storage error and tolerates already-exists", async () => {
+    const failing = fakeClient();
+    failing.storage.from = () => ({ upload: async () => ({ error: { message: "bucket not found", statusCode: "404" } }) });
+    await expect(ingestGeneratedPart({ ...base, client: failing, files: [step] })).rejects.toThrow(/storage upload/);
+    expect(failing.calls.map((c) => c.name)).not.toContain("api_finalize_job_file_upload");
+
+    expect(isStorageObjectExistsError({ message: "The resource already exists", statusCode: "409" })).toBe(true);
+    expect(isStorageObjectExistsError({ message: "Object does not exist" })).toBe(false);
+  });
+
+  it.each(["api_declare_job_export_status", "api_finalize_job_file_upload", "api_reconcile_job_parts", "api_request_extraction"])(
+    "surfaces %s errors",
+    async (rpc) => {
+      const client = fakeClient({ [rpc]: { data: null, error: { message: "boom" } } });
+      await expect(ingestGeneratedPart({ ...base, client, files: [step] })).rejects.toThrow(/boom/);
+    },
+  );
+
+  it("skips files already attached to the job", async () => {
+    const client = fakeClient({ api_prepare_job_file_upload: { data: { status: "duplicate_in_job" }, error: null } });
+    const result = await ingestGeneratedPart({ ...base, client, files: [step] });
+    expect(result.files[0].status).toBe("duplicate_in_job");
+    expect(client.uploads).toHaveLength(0);
+  });
+
+  it("rejects missing argument values and non-image thumbnails", () => {
+    expect(() => parseArgs(["--step"])).toThrow(/Missing value/);
+    expect(() => parseArgs(["--step", "--name", "x"])).toThrow(/Missing value/);
+    expect(parseArgs(["--step", "a.step", "--name", "A"])).toEqual({ step: "a.step", name: "A" });
+    expect(thumbnailMimeType("a.PNG")).toBe("image/png");
+    expect(() => thumbnailMimeType("a.exe")).toThrow(/png/);
+  });
+});

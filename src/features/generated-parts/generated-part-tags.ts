@@ -5,6 +5,9 @@
  * Tags written by scripts/ingest-generated-part.mjs:
  *   - "source:generated"         always
  *   - "generator:<agent-name>"   e.g. generator:cad-monkey
+ *
+ * Display only: users can edit tags, so these must never gate permissions or
+ * behavior.
  */
 export const GENERATED_SOURCE_TAG = "source:generated";
 export const GENERATOR_TAG_PREFIX = "generator:";

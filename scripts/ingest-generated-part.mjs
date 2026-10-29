@@ -19,13 +19,19 @@
  *     [--spec-file spec.json | --spec "text"] [--thumbnail part.png] \
  *     [--project-id <uuid>] [--generator cad-monkey] --export-control not_controlled
  *
+ * Export control: the browser asks the human. Here the user attests once, by
+ * setting OVERDRAFTER_EXPORT_ATTESTATION=not_controlled in the environment the
+ * agent runs in; the --export-control flag must match it. An agent cannot
+ * attest on its own. If any step after the draft is created fails, the empty
+ * draft stays in the workspace and can be archived and deleted like any draft.
+ *
  * Environment: OVERDRAFTER_SUPABASE_URL, OVERDRAFTER_SUPABASE_ANON_KEY (public),
  * OVERDRAFTER_USER_SESSION_FILE: a JSON file holding the user's refresh_token.
  * The rotated refresh token is written back to that file (mode 0600). Tokens
  * are never printed.
  */
 import { createHash } from "node:crypto";
-import { readFile, writeFile, chmod } from "node:fs/promises";
+import { readFile, writeFile, rename, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -42,6 +48,22 @@ export function buildGeneratedTags(generator) {
 
 export function sha256Hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Same rule as isStorageObjectExistsError in uploads-api.ts. */
+export function isStorageObjectExistsError(error) {
+  if (!error || typeof error !== "object") return false;
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const errorCode = typeof error.error === "string" ? error.error.toLowerCase() : "";
+  const statusCode = typeof error.statusCode === "string" ? error.statusCode : "";
+  return statusCode === "409" || message.includes("already exists") || message.includes("duplicate") || errorCode.includes("duplicate");
+}
+
+export function thumbnailMimeType(fileName) {
+  const ext = extname(fileName).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  throw new Error("Thumbnail must be a .png or .jpg file.");
 }
 
 function unwrap(response, step) {
@@ -124,7 +146,7 @@ export async function ingestGeneratedPart(input) {
     const { error: storageError } = await client.storage
       .from(prepared.storageBucket)
       .upload(prepared.storagePath, file.bytes, { upsert: false, contentType: file.mimeType ?? undefined });
-    if (storageError && !/exists|duplicate/i.test(String(storageError.message ?? ""))) {
+    if (storageError && !isStorageObjectExistsError(storageError)) {
       throw new Error(`storage upload ${file.name} failed: ${storageError.message}`);
     }
     unwrap(
@@ -143,12 +165,14 @@ export async function ingestGeneratedPart(input) {
   return { jobId, files: uploaded };
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (!key.startsWith("--")) throw new Error(`Unexpected argument: ${key}`);
-    out[key.slice(2)] = argv[i + 1];
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) throw new Error(`Missing value for ${key}`);
+    out[key.slice(2)] = value;
     i += 1;
   }
   return out;
@@ -164,17 +188,27 @@ async function main() {
   }
   if (!args.step || !args.name) throw new Error("--step and --name are required.");
 
+  if (process.env.OVERDRAFTER_EXPORT_ATTESTATION !== "not_controlled" || args["export-control"] !== "not_controlled") {
+    throw new Error("Export-control attestation missing: the user must set OVERDRAFTER_EXPORT_ATTESTATION=not_controlled and pass --export-control not_controlled.");
+  }
+  const sessionStat = await stat(sessionFile);
+  if (process.platform !== "win32" && (sessionStat.mode & 0o077) !== 0) {
+    throw new Error("The session file must be readable only by its owner (chmod 600).");
+  }
+
   const { createClient } = await import("@supabase/supabase-js");
   const client = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const stored = JSON.parse(await readFile(sessionFile, "utf8"));
   const { data, error } = await client.auth.refreshSession({ refresh_token: stored.refresh_token });
   if (error || !data.session) throw new Error("Could not sign in as the user; re-create the session file.");
-  await writeFile(sessionFile, JSON.stringify({ refresh_token: data.session.refresh_token }), { mode: 0o600 });
-  await chmod(sessionFile, 0o600);
+  // Write the rotated token atomically so a failed write cannot lose it.
+  const tmpFile = `${sessionFile}.tmp`;
+  await writeFile(tmpFile, JSON.stringify({ refresh_token: data.session.refresh_token }), { mode: 0o600 });
+  await rename(tmpFile, sessionFile);
 
   const files = [{ name: basename(args.step), bytes: await readFile(args.step), kind: "cad", mimeType: "model/step" }];
   if (args.thumbnail) {
-    files.push({ name: basename(args.thumbnail), bytes: await readFile(args.thumbnail), kind: "other", mimeType: "image/png" });
+    files.push({ name: basename(args.thumbnail), bytes: await readFile(args.thumbnail), kind: "other", mimeType: thumbnailMimeType(args.thumbnail) });
   }
   const specText = args["spec-file"] ? await readFile(args["spec-file"], "utf8") : (args.spec ?? null);
 
