@@ -1565,8 +1565,11 @@ describe("OVD-1110 history provenance", () => {
   });
   it.each([
     ["foreign app", { app: { id: 1 } }, {}],
-    ["missing details_url", { details_url: undefined }, {}],
-    ["legacy suite-only record", { external_id: "pr-7", details_url: "https://github.com/o/r/runs/99", check_suite: { id: 99 } }, {}],
+    ["missing external_id", { external_id: undefined }, {}],
+    ["external_id with extra parts", { external_id: "pr-7:run-4242:x" }, {}],
+    ["external_id with a padded PR", { external_id: "pr-07:run-4242" }, {}],
+    ["details_url citing another run", { details_url: runUrl(4243) }, {}],
+    ["legacy suite-only record",{ external_id: "pr-7", details_url: "https://github.com/o/r/runs/99", check_suite: { id: 99 } }, {}],
     ["other workflow", {}, { path: ".github/workflows/ci.yml" }],
     ["fork branch", {}, { head_branch: "fork" }],
     ["wrong event", {}, { event: "pull_request" }],
@@ -1591,6 +1594,15 @@ describe("OVD-1110 history provenance", () => {
   it("trusts an unchanged default-branch gate record", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()] });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it.each([
+    ["missing", undefined],
+    ["replaced by the check run's own URL", "https://github.com/o/r/runs/99"],
+    ["a job URL of the cited run", `${runUrl(4242)}/job/7`],
+  ])("keys provenance on external_id when details_url is %s", async (_label, detailsUrl) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history({ details_url: detailsUrl })] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+    expect(api.requests).toContain("GET /repos/o/r/actions/runs/4242");
   });
   it("trusts external_id plus details_url when the suite has no workflow or belongs to another workflow", async () => {
     for (const checkSuite of [null, { id: 99 }, { id: 42 }]) {

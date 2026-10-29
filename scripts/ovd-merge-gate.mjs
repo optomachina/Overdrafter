@@ -128,8 +128,8 @@ const RUN_ID = /^[1-9]\d{0,19}$/;
  * repository's root commit, which exists forever and is never a PR head), not
  * on a head SHA, so a new head with the same diff_id still sees them.
  * Reading fails closed: an unreadable list or record is missing_input.
- * Provenance is external_id plus the details_url Actions run id (OVD-1110),
- * not the check suite: a post onto a SHA this workflow did not run on is not
+ * Provenance is the Actions run id in external_id (OVD-1110), not the check
+ * suite: a post onto a SHA this workflow did not run on is not
  * attached to the workflow run, and a suite lookup then sticks every later
  * read on missing_input.
  */
@@ -1041,6 +1041,14 @@ export function gateRecordFields(repo, pr, runId) {
   };
 }
 
+/** The PR number and Actions run id of a gateRecordFields external_id, else null. */
+function parseGateExternalId(value) {
+  const [prPart, runPart, ...rest] = typeof value === "string" ? value.split(":") : [];
+  if (rest.length || !prPart?.startsWith("pr-") || !runPart?.startsWith("run-")) return null;
+  const stamp = { pr: prPart.slice(3), runId: runPart.slice(4) };
+  return PR_NUMBER.test(stamp.pr) && RUN_ID.test(stamp.runId) ? stamp : null;
+}
+
 /**
  * Reject foreign writers before interpreting any stored gate data.
  *
@@ -1048,20 +1056,23 @@ export function gateRecordFields(repo, pr, runId) {
  * GITHUB_TOKEN onto a SHA this workflow did not run on (the history anchor,
  * or a head whose suite another workflow already owns) is not attached to
  * the ovd-merge-gate run. Looking the suite up then throws on every later
- * read and the gate stays on missing_input. Provenance is the pair
- * external_id `pr-<N>:run-<id>` and details_url
- * `https://github.com/<repo>/actions/runs/<id>`. The cited run must be this
- * workflow, on an allowed event, on the default branch (pull_request_target
- * excepted: it reports the PR head branch and runs the base YAML). Records
- * written before this key stay unverifiable and fail closed.
+ * read and the gate stays on missing_input. Provenance is external_id
+ * `pr-<N>:run-<id>` alone. details_url is informational: GitHub may replace
+ * it with the check run's own URL for Actions-created runs, and the writer
+ * asserts it just like external_id, so it adds no trust. It is a cross-check
+ * only when it is an Actions run URL, which must then be this repository's
+ * run <id>. The cited run must be this workflow, on an allowed event, on the
+ * default branch (pull_request_target excepted: it reports the PR head branch
+ * and runs the base YAML). Records written before this key stay unverifiable
+ * and fail closed.
  */
 export async function verifyGateProvenance(client, repo, run, pr) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID) throw new Error("gate record has no trusted Actions app");
-  const runId = actionsRunId(run?.details_url, repo);
-  const match = /^pr-([1-9]\d{0,6}):run-([1-9]\d{0,19})$/.exec(typeof run?.external_id === "string" ? run.external_id : "");
-  if (!runId || !match || match[2] !== runId || (pr !== undefined && pr !== null && match[1] !== String(pr))) {
-    throw new Error("gate record external_id does not match its details_url run");
-  }
+  const stamp = parseGateExternalId(run?.external_id);
+  if (!stamp || (pr !== undefined && pr !== null && stamp.pr !== String(pr))) throw new Error("gate record external_id is not pr-<N>:run-<id> for this PR");
+  const { runId } = stamp;
+  const linked = typeof run?.details_url === "string" && run.details_url.includes("/actions/runs/");
+  if (linked && actionsRunId(run.details_url, repo) !== runId) throw new Error("gate record details_url cites another Actions run");
   const repository = await client.json(`/repos/${repo}`);
   const workflow = await client.json(`/repos/${repo}/actions/runs/${runId}`);
   if (String(workflow?.id) !== runId || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
@@ -1393,7 +1404,11 @@ function readEvent(env) {
   }
 }
 
-/** The queue no-op: the rule was evaluated on the PR head; the queue only needs the check to exist. */
+/**
+ * The queue no-op: the rule was evaluated on the PR head; the queue only needs the check to exist.
+ * It carries no gateRecordFields stamp: merge-group SHAs are never PR heads,
+ * so priorDeletions never reads this check run.
+ */
 async function writeMergeGroup({ client, options, stdout }) {
   const summary = { gate: "pass", sha: options.sha, mode: MODE, identity: IDENTITY, identity_note: IDENTITY_NOTES[IDENTITY], automerge: "needs_release", reasons: [], warnings: [{ code: "merge_group", detail: "merge queue no-op; the gate ran on the PR head" }], ignored: [], deleted_verdicts: [] };
   await client.post(`/repos/${options.repo}/check-runs`, { name: CHECK_NAME, head_sha: options.sha, status: "completed", conclusion: "success", output: { title: "ovd-merge-gate: merge queue no-op", summary: "The merge gate was evaluated on the PR head.", text: jsonBlock(summary) } });
