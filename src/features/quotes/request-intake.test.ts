@@ -132,6 +132,52 @@ describe("prompt intake main compatibility", () => {
   });
 });
 
+describe("prompt intake quantity tokens (OVD-1036)", () => {
+  it.each([
+    ["Please quote 1,000 of these", [1000]],
+    ["quote 1,000/2,000", [1000, 2000]],
+    ["qty 12.5", []],
+    ["Please quote 25.", [25]],
+    ["Please quote 25 of these in 6061-T6/T651.", [25]],
+    ["Need these in 2 weeks", []],
+    ["Please quote, need these in 2 weeks", []],
+    ["quote 10,25,50", [10, 25, 50]],
+    ["quote 10, 25, 50", [10, 25, 50]],
+    ["quote 100, 250, 500", [100, 250, 500]],
+    ["quote 250,500", []],
+    ["quote 1,500", []],
+    ["quote 2,500", []],
+    ["quote 1,500, 25", []],
+    ["quote 1,000, 2,000", [1000, 2000]],
+    ["quote 1,000,25", []],
+    ["quote 10,25/50", []],
+    ["quote 1,0", []],
+    ["quote 1.5", []],
+    ["quote 1,000.5", []],
+    ["quote 10/12.5/25", []],
+    ["quote 1,000/2,00", []],
+    ["quote 10 / 1,000", [10, 1000]],
+    ["quote 12,500 / 25,000", [12500, 25000]],
+    ["qty: 1,000 / 2,000 / 5,000", [1000, 2000, 5000]],
+    ["Need 1,000 of these", [1000]],
+    ["Need 1.5 of these", []],
+    ["need 12.5 of these", []],
+    ["Quantity: 1,000.", [1000]],
+    ["Quantity: 12.5.", []],
+    ["Quote 1,000,000", [1000000]],
+    ["quote 2147483648", []],
+    ["quote 0", []],
+    ["Please quote in 6061-T6", []],
+    ["quote these parts in 6061-T6", []],
+    ["Please quote 10/25/50 in 6061-T6/T651", [10, 25, 50]],
+    ["quote 10-20 pcs", []],
+    ["Need a quote for 3D printing", []],
+    ["drawing 12-345/678, ship 4/15", []],
+  ])("parses %j as %j", (prompt, quantities) => {
+    expect(parseRequestIntake(prompt as string).requestedQuoteQuantities).toEqual(quantities);
+  });
+});
+
 describe("validateRequestedQuoteQuantitiesInput", () => {
   it.each([
     ["1,000/2,000", [1000, 2000]],
