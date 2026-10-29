@@ -24,6 +24,7 @@ REPO="${OVD_REVIEW_REPO:-optomachina/Overdrafter}"
 SRC="${OVD_REVIEW_SRC:-$HOME/Documents/GitHub/Overdrafter}"
 STATE="${OVD_REVIEW_STATE:-$HOME/.cache/ovd-claude-review}"
 MAX_PER_RUN="${OVD_REVIEW_MAX:-3}"
+ONLY="${OVD_REVIEW_ONLY:-}"  # optional space-separated PR numbers, for manual runs
 MARK="<!-- claude-auto-review"
 ME="$(gh api user -q .login)"
 
@@ -50,6 +51,7 @@ prs="$(gh pr list -R "$REPO" --state open -L 100 --json number,headRefName,headR
 done_count=0
 while read -r pr sha; do
   [ -n "${pr:-}" ] || continue
+  if [ -n "$ONLY" ] && [[ " $ONLY " != *" $pr "* ]]; then continue; fi
   [ "$done_count" -lt "$MAX_PER_RUN" ] || break
   # Only our own comments count, so nobody else can suppress a review by faking the marker.
   seen="$(gh api --paginate "repos/$REPO/issues/$pr/comments" -q ".[] | select(.user.login == \"$ME\") | .body" 2>/dev/null)" || { echo "comment read failed for #$pr; skipping" >&2; continue; }
