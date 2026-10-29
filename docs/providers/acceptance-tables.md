@@ -13,11 +13,11 @@ Canonical matrix: [permissions-matrix.md](permissions-matrix.md) and
 | xometry | OVD-206 / controlled beta | true | owner override 2026-10-21; quote-only on owner accounts (`prohibited`) | `docs/1-0-beta-runbook.md` |
 | fictiv | OVD-395 | true | owner override 2026-10-21; quote-only on owner accounts (`prior-consent`) | [ovd673-fictiv-live-readiness.md](../workflows/ovd673-fictiv-live-readiness.md) |
 | quickparts | OVD-396 | true | owner override 2026-10-21; quote-only on owner accounts (`silent`) | [ovd674-quickparts-live-readiness.md](../workflows/ovd674-quickparts-live-readiness.md) |
-| weerg | OVD-397 | true | not cleared (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
-| geomiq | OVD-398 | true | not cleared (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
+| weerg | OVD-397 | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
+| geomiq | OVD-398 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
 | rmfg | OVD-678 / OVD-580 | true | cleared on published agent/API only | [rmfg-public-capability-recon.md](../rmfg-public-capability-recon.md) |
-| oshcut | process-specific 1.0 | true | not cleared (`silent`) | `provider-integrations/oshcut/manifest.v1.json` |
-| sendcutsend | named in OVD-724 | true | not cleared (`silent`) | `provider-integrations/sendcutsend/manifest.v1.json` |
+| oshcut | process-specific 1.0 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/oshcut/manifest.v1.json` |
+| sendcutsend | named in OVD-724 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/sendcutsend/manifest.v1.json` |
 | protolabs | not in 1.0 | false | never cleared | `provider-integrations/protolabs/manifest.v1.json` |
 
 Kill-switch certification for every 1.0 provider is an OVD-722 / OVD-319
@@ -85,12 +85,20 @@ See also [Quickparts live readiness](../workflows/ovd674-quickparts-live-readine
 
 ### weerg
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#weerg). See also
+Permissions: [permissions-matrix.md](permissions-matrix.md#weerg). Cleared by
+Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
+his own provider accounts, ToS risk accepted until a cease-and-desist, no
+orders. ToS stance remains `silent`. No vendor was contacted; agents never
+contact vendors. Runtime gates are unchanged. See also
 [Weerg live readiness](../workflows/ovd675-weerg-live-readiness.md).
 
 ### geomiq
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#geomiq). Offline
+Permissions: [permissions-matrix.md](permissions-matrix.md#geomiq). Cleared by
+Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
+his own provider accounts, ToS risk accepted until a cease-and-desist, no
+orders. ToS stance remains `silent`. No vendor was contacted; agents never
+contact vendors. Runtime gates are unchanged. Offline
 evaluation notes stay in `provider-integrations/geomiq/offline-evaluation.md`.
 
 ### rmfg
@@ -101,13 +109,21 @@ OVD-678 live wiring are not duplicated here.
 
 ### oshcut
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#oshcut). Process-
-specific 1.0 route. Not matrix-cleared for paid automated quoting; the OVD-677
-admission basis is `owner_approved` (OVD-641).
+Permissions: [permissions-matrix.md](permissions-matrix.md#oshcut). Cleared by
+Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
+his own provider accounts, ToS risk accepted until a cease-and-desist, no
+orders. ToS stance remains `silent`. No vendor was contacted; agents never
+contact vendors. Runtime gates are unchanged. Process-
+specific 1.0 route. The OVD-677 admission basis
+remains `owner_approved` (OVD-641).
 
 ### sendcutsend
 
-Permissions: [permissions-matrix.md](permissions-matrix.md#sendcutsend). Named
+Permissions: [permissions-matrix.md](permissions-matrix.md#sendcutsend). Cleared by
+Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
+his own provider accounts, ToS risk accepted until a cease-and-desist, no
+orders. ToS stance remains `silent`. No vendor was contacted; agents never
+contact vendors. Runtime gates are unchanged. Named
 in OVD-724. No outreach draft until Blaine adds it to the ask list.
 
 ### protolabs
