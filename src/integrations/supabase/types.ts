@@ -4805,6 +4805,10 @@ export type Database = {
         }
         Returns: Json
       }
+      api_refresh_job_extraction_status: {
+        Args: { p_job_id: string }
+        Returns: string
+      }
       api_register_part_geometry_candidate: {
         Args: {
           p_algorithm_version: string
