@@ -1008,7 +1008,10 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };
     }
     // A retryable error requeues the task, so it is not an extraction failure.
-    if (organizationIdForError && task.job_id && !isRetryableExtractError(error)) {
+    // Once the retry schedule is exhausted the task is failed instead, and
+    // that terminal failure is audited like any other.
+    const requeued = isRetryableExtractError(error) && nextRetryAt(task.attempts) !== null;
+    if (organizationIdForError && task.job_id && !requeued) {
       try {
         await logWorkerAuditEvent(supabase, {
           organizationId: organizationIdForError,

@@ -8,6 +8,7 @@ import { processClaimedTask } from "./index";
 import { finalizeExtractionApproval } from "./extraction/extractionApproval";
 import { markTaskCompleted, markTaskFailed, markTaskQueuedForRetry } from "./queue";
 import { ExportControlLookupError, ExportControlScanRecordError, ExportControlStepScanRetryableError } from "./exportControl";
+import { VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 import type { QueueTaskRecord, WorkerConfig } from "./types";
 
 vi.mock("./queue.js", async (original) => ({
@@ -137,9 +138,9 @@ function database(options: DatabaseOptions) {
   return { client: { from, rpc } as unknown as SupabaseClient, rpcCalls, auditEvents, auditInsert };
 }
 
-async function run(options: DatabaseOptions) {
+async function run(options: DatabaseOptions, runTask: QueueTaskRecord = task) {
   const db = database(options);
-  await expect(processClaimedTask(db.client, task, config, createWorkerRuntimeState())).resolves.toBeUndefined();
+  await expect(processClaimedTask(db.client, runTask, config, createWorkerRuntimeState())).resolves.toBeUndefined();
   return db;
 }
 
@@ -289,6 +290,19 @@ describe("retry and failed-audit decisions agree for each extract error class", 
     expect(vi.mocked(markTaskQueuedForRetry).mock.calls.length).toBe(retryable ? 1 : 0);
     expect(vi.mocked(markTaskFailed).mock.calls.length).toBe(retryable ? 0 : 1);
     expect(failedAudits).toHaveLength(retryable ? 0 : 1);
+  });
+
+  // The retry schedule has VENDOR_TASK_RETRY_DELAYS_MS.length slots. Past
+  // them a retryable error class fails the task, so it is audited as failed.
+  it("audits a retryable error class as failed once the retry schedule is exhausted", async () => {
+    vi.mocked(runHybridExtraction).mockRejectedValue(new ExportControlLookupError("extraction"));
+    const exhaustedTask = { ...task, attempts: VENDOR_TASK_RETRY_DELAYS_MS.length + 1 } as QueueTaskRecord;
+    const db = await run({ trustedReuse: false, approvedCount: 1 }, exhaustedTask);
+
+    const failedAudits = db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed");
+    expect(vi.mocked(markTaskQueuedForRetry)).not.toHaveBeenCalled();
+    expect(vi.mocked(markTaskFailed)).toHaveBeenCalledOnce();
+    expect(failedAudits).toEqual([expect.objectContaining({ payload: expect.objectContaining({ partId: part.id }) })]);
   });
 });
 
