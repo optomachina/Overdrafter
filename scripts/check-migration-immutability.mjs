@@ -41,7 +41,7 @@
  * Import only Node built-ins: CI copies this file out of the base commit into
  * a temp directory and runs it there, where relative imports do not resolve.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -369,12 +369,19 @@ export function formatHuman(result) {
 export const GIT = "/usr/bin/git";
 const GIT_OPTIONS = { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] };
 
-const git = (cwd, args) => execFileSync(GIT, args, { ...GIT_OPTIONS, cwd });
+const git = (cwd, args) => {
+  assertGitPlatform();
+  return execFileSync(GIT, args, { ...GIT_OPTIONS, cwd });
+};
+function assertGitPlatform() {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+}
 
 /** A file's content at a ref, or null when it does not exist there. */
-function gitShow(cwd, ref, path) {
-  const shown = spawnSync(GIT, ["show", `${ref}:${path}`], { ...GIT_OPTIONS, cwd });
-  return shown.status === 0 ? shown.stdout : null;
+export function gitShow(cwd, ref, path, { binary = GIT } = {}) {
+  assertGitPlatform();
+  const entry = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${path}`], { ...GIT_OPTIONS, cwd });
+  return entry ? execFileSync(binary, ["show", `${ref}:${path}`], { ...GIT_OPTIONS, cwd }) : null;
 }
 
 /**

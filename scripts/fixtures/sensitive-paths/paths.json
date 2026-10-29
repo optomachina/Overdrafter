@@ -37,6 +37,7 @@
     { "path": "src/config/token.json", "classes": ["secrets"] },
     { "path": "src/lib/env.ts", "classes": ["secrets"] },
     { "path": "docs/vault-notes.md", "classes": ["secrets"] },
+    { "path": "scripts/lib/fixed-binaries.mjs", "classes": ["infra_ci"] },
     { "path": ".github/workflows/ci.yml", "classes": ["infra_ci"] },
     { "path": ".github/workflows/café.yml", "classes": ["infra_ci"] },
     { "path": ".github/workflows/tab\tname.yml", "classes": ["infra_ci"] },

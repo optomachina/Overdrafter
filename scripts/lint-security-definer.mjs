@@ -1020,17 +1020,11 @@ function parseArgs(argv, allowReport) {
   return options;
 }
 
-export function readRefFile(root, ref, file) {
-  try {
-    return execFileSync("/usr/bin/git", ["show", `${ref}:${file}`], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  } catch {
-    return null;
-  }
+export function readRefFile(root, ref, file, { binary = "/usr/bin/git" } = {}) {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+  const options = { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 };
+  const entry = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${file}`], options);
+  return entry ? execFileSync(binary, ["show", `${ref}:${file}`], options) : null;
 }
 
 export const toJsonText = (value) => `${JSON.stringify(value, null, 2)}\n`;

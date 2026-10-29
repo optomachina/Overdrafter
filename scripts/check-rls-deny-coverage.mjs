@@ -576,14 +576,14 @@ export function formatHuman(result) {
 // Input loading (git refs or working tree)
 // ---------------------------------------------------------------------------
 
-const git = (cwd, args) => execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+const git = (cwd, args, binary = "/usr/bin/git") => {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+  return execFileSync(binary, args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+};
 
-function gitShow(cwd, ref, path) {
-  try {
-    return git(cwd, ["show", `${ref}:${path}`]);
-  } catch {
-    return null;
-  }
+export function gitShow(cwd, ref, path, { binary = "/usr/bin/git" } = {}) {
+  const entry = git(cwd, ["ls-tree", "-z", ref, "--", `:(literal)${path}`], binary);
+  return entry ? git(cwd, ["show", `${ref}:${path}`], binary) : null;
 }
 
 function listTree(cwd, ref, dir, pattern) {

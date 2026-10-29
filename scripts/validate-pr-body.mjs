@@ -1,5 +1,5 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync } from "node:child_process";
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import process from "node:process";
@@ -1512,18 +1512,13 @@ async function readLines(filePath) {
 // GIT_EXECUTABLE where git lives elsewhere (for example macOS).
 const GIT_EXECUTABLE = process.env.GIT_EXECUTABLE ?? "/usr/bin/git";
 
-function gitShowReader(baseRef, headRef) {
+export function gitShowReader(baseRef, headRef, { binary = GIT_EXECUTABLE, cwd = process.cwd() } = {}) {
   return (side, filePath) => {
+    if (process.platform === "win32") throw new Error("git on Windows requires WSL");
     const ref = side === "base" ? baseRef : headRef;
-    try {
-      return execFileSync(GIT_EXECUTABLE, ["show", `${ref}:${filePath}`], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        maxBuffer: 64 * 1024 * 1024,
-      });
-    } catch {
-      return null;
-    }
+    const options = { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 };
+    const entry = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${filePath}`], options);
+    return entry ? execFileSync(binary, ["show", `${ref}:${filePath}`], options) : null;
   };
 }
 

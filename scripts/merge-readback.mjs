@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 // OVD-857: Release bot merge-plan read-back and show-me-your-work decision log.
 // Local git plumbing on a given repo path. This script never merges, pushes,
 // fetches, moves a ref, or touches a remote; the operator refreshes refs first.
@@ -32,19 +33,12 @@ export function gitEnv(env = process.env) {
 }
 
 /** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
-export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = fs.existsSync } = {}) {
-  const found = dirs.map((dir) => path.join(dir, name)).find((candidate) => exists(candidate));
-  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
-  return found;
+export function resolveBinary(name, options = {}) {
+  return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
-const UNSUPPORTED_PLATFORM = "merge-readback runs on Linux or macOS only; on Windows run it inside WSL "
-  + "(git is resolved from /usr/bin, /bin and /usr/local/bin, never from PATH)";
-
-/** Throws on Windows, where SAFE_BIN_DIRS cannot hold git. */
-export function assertSupportedPlatform(platform = process.platform) {
-  if (platform === "win32") throw new Error(UNSUPPORTED_PLATFORM);
-}
+export { assertSupportedPlatform } from "./lib/fixed-binaries.mjs";
+import { assertSupportedPlatform } from "./lib/fixed-binaries.mjs";
 
 let gitBinary = null;
 const gitBin = () => {

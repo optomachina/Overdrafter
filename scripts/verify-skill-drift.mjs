@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 /**
  * OVD-858: read-only drift detector for the verify-overdrafter feature map.
  *
@@ -38,10 +39,8 @@ const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
 const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
 
 /** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
-export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
-  const found = dirs.map((dir) => path.join(dir, name)).find((candidate) => exists(candidate));
-  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
-  return found;
+export function resolveBinary(name, options = {}) {
+  return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
 const stripTrailingSlashes = (route) => {
@@ -302,8 +301,13 @@ function listFiles(dir, pattern, base = dir) {
   }).sort(compareCodeUnits);
 }
 
-const gitIgnored = (root, rel) =>
-  spawnSync(resolveBinary("git"), ["check-ignore", "-q", "--no-index", rel], { cwd: root, env: SAFE_ENV }).status === 0;
+export function gitIgnored(root, rel, { binary = resolveBinary("git"), run = spawnSync } = {}) {
+  const result = run(binary, ["check-ignore", "-q", "--no-index", rel], { cwd: root, env: SAFE_ENV, encoding: "utf8" });
+  if (result.error || result.signal || ![0, 1].includes(result.status) || String(result.stderr ?? "").trim()) {
+    throw new Error(`git check-ignore failed: ${result.error?.message ?? result.stderr ?? `exit ${result.status}`}`);
+  }
+  return result.status === 0;
+}
 
 const insideRoot = (root, candidate) => {
   const rel = path.relative(root, candidate);

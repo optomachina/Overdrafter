@@ -119,25 +119,33 @@ export function envrcLoadsOnly(text) {
   return text.split(/\r?\n/).every((line) => ENVRC_COMMENT_OR_BLANK.test(line) || ENVRC_LOAD_LINE.test(line));
 }
 
-function git(cwd, args) {
-  return execFileSync(GIT_BIN, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+function git(cwd, args, binary = GIT_BIN) {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+  return execFileSync(binary, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 }
 
-export function refExists(cwd, ref) {
+export function readRefFile(cwd, ref, path, { binary = GIT_BIN } = {}) {
+  const entry = git(cwd, ["ls-tree", "-z", ref, "--", `:(literal)${path}`], binary);
+  return entry ? git(cwd, ["show", `${ref}:${path}`], binary) : null;
+}
+
+export function refExists(cwd, ref, { binary = GIT_BIN } = {}) {
   try {
-    git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], binary);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return false;
+    throw error;
   }
 }
 
 /** The merge-base commit of the two refs, or null when they share no history. */
-export function mergeBase(cwd, baseRef, headRef) {
+export function mergeBase(cwd, baseRef, headRef, { binary = GIT_BIN } = {}) {
   try {
-    return git(cwd, ["merge-base", baseRef, headRef]).trim() || null;
-  } catch {
-    return null;
+    return git(cwd, ["merge-base", baseRef, headRef], binary).trim() || null;
+  } catch (error) {
+    if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return null;
+    throw error;
   }
 }
 
@@ -222,7 +230,7 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
   const changes = listChanges(cwd, base, headRef);
   const show = (ref, path) => git(cwd, ["show", `${ref}:${path}`]);
   const readRef = (side, path) => {
-    try { return show(side === "base" ? base : headRef, path); } catch { return null; }
+    return readRefFile(cwd, side === "base" ? base : headRef, path);
   };
   const { findings, gateLoosening } = evaluateChanges(changes, (path) => show(headRef, path), readRef);
   return {
