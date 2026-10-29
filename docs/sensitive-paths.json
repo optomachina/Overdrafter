@@ -32,6 +32,7 @@
     { "glob": "supabase/functions/dev-login/**", "class": "auth" },
     { "glob": "supabase/functions/engineering-interpretation/**", "class": "auth" },
     { "glob": "supabase/functions/engineering-worker/**", "class": "auth" },
+    { "glob": "supabase/functions/worker-wake/**", "class": "auth" },
     { "glob": "supabase/functions/engineering-worker-task/**", "class": "auth" },
     { "glob": "api/admin-operations.ts", "class": "auth" },
     { "glob": "server/admin-operations/**", "class": "auth" },

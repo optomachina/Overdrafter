@@ -47,3 +47,7 @@ verify_jwt = false
 # This source setting does not enable the handler or provision its executor.
 [functions.engineering-worker-stop]
 verify_jwt = false
+
+# User JWT plus getUser verification inside the handler; default-off server gate.
+[functions.worker-wake]
+verify_jwt = true
