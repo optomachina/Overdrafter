@@ -25,15 +25,19 @@ const RELATIVE_DATE_PATTERN = new RegExp(
   "i",
 );
 
-const SINGLE_QUANTITY_PATTERNS = [
-  /\bneed\s+(\d{1,6})(?=\s+(?:of|these|pcs|pieces|parts|units|ea\b))/gi,
-  /\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants)\b[^0-9]{0,20}(\d{1,6})\b/gi,
+const QUANTITY_RUN = String.raw`\d[\d.]*(?:(?:\s*\/\s*|,\s*)\d[\d.]*)*`;
+// (?=(x))\1 is an atomic group: backtracking can never shorten the run, so a quantity is never truncated.
+const WHOLE_QUANTITY_RUN = String.raw`(?=(${QUANTITY_RUN}))\1(?![\w-])(?!\s*(?:days?|weeks?|months?)\b)`;
+
+const QUANTITY_INTENT_PATTERNS = [
+  new RegExp(String.raw`\bneed\s+${WHOLE_QUANTITY_RUN}(?=\s+(?:of|these|pcs|pieces|parts|units|ea)\b)`, "gi"),
+  new RegExp(
+    String.raw`\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants)\b[^0-9]{0,20}${WHOLE_QUANTITY_RUN}`,
+    "gi",
+  ),
 ];
 
-const LIST_QUANTITY_PATTERNS = [
-  /\b(\d{1,6}(?:\s*\/\s*\d{1,6})+)\b/g,
-  /\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering)\b[^0-9]{0,20}((?:\d{1,6}\s*,\s*)+\d{1,6})\b/gi,
-];
+const THOUSANDS_GROUPED_PATTERN = /^\d{1,3}(?:,\d{3})+$/;
 
 const WEEKDAY_BY_NAME: Record<string, number> = {
   sunday: 0,
@@ -300,35 +304,40 @@ function parseDateMatch(prompt: string, now: Date): DateMatch | null {
   return null;
 }
 
+function parseQuantityNumber(token: string): number | null {
+  return parseRequestQuantityText(THOUSANDS_GROUPED_PATTERN.test(token) ? token.replace(/,/g, "") : token);
+}
+
+/**
+ * One comma-joined chunk as quantities, or null when it is malformed or ambiguous. "1,000" can only be
+ * a thousands group, "10,25,50" can only be a list, but "250,500" reads both ways so the intent is unknowable.
+ */
+function parseCommaChunk(chunk: string): number[] | null {
+  const listed = chunk.split(",").map(parseRequestQuantityText);
+  const isList = listed.every((quantity) => quantity !== null);
+  if (!THOUSANDS_GROUPED_PATTERN.test(chunk)) {
+    return isList ? (listed as number[]) : null;
+  }
+  const grouped = parseQuantityNumber(chunk);
+  return grouped !== null && !isList ? [grouped] : null;
+}
+
+/** All quantities in a run, or none when any part is malformed or ambiguous. */
+function parseQuantityRun(run: string): number[] {
+  const text = run.replace(/\.+$/, "");
+  const parts = text.includes("/")
+    ? text.split(/\s*\/\s*/).map((segment) => {
+        const quantity = parseQuantityNumber(segment);
+        return quantity === null ? null : [quantity];
+      })
+    : text.split(/,\s+/).map(parseCommaChunk);
+  return parts.every((part) => part !== null) ? parts.flat() : [];
+}
+
 function collectQuantityCandidates(value: string): number[] {
-  const matches: number[] = [];
-
-  LIST_QUANTITY_PATTERNS.forEach((pattern) => {
-    pattern.lastIndex = 0;
-    let match = pattern.exec(value);
-    while (match) {
-      const items = match[1]
-        ?.split(/[/,]/)
-        .map((item) => Number.parseInt(item.trim(), 10))
-        .filter((item) => Number.isFinite(item) && item > 0) ?? [];
-      matches.push(...items);
-      match = pattern.exec(value);
-    }
-  });
-
-  SINGLE_QUANTITY_PATTERNS.forEach((pattern) => {
-    pattern.lastIndex = 0;
-    let match = pattern.exec(value);
-    while (match) {
-      const quantity = Number.parseInt(match[1] ?? "", 10);
-      if (Number.isFinite(quantity) && quantity > 0) {
-        matches.push(quantity);
-      }
-      match = pattern.exec(value);
-    }
-  });
-
-  return matches;
+  return QUANTITY_INTENT_PATTERNS.flatMap((pattern) =>
+    Array.from(value.matchAll(pattern)).flatMap((match) => parseQuantityRun(match[1] ?? "")),
+  );
 }
 
 function parseServiceIntent(prompt: string): RequestedServiceIntent {
