@@ -279,3 +279,44 @@ test("closing an unsubmitted confirmation discards consent and Escape leaves no 
   await expect(dialog(page)).toHaveCount(0);
   expect(backend.dispatches).toHaveLength(0);
 });
+
+test("an organization with no shipping address confirms it inside the dialog, and the confirmation survives reload", async ({ page, backend }) => {
+  backend.destination = { address: { street: null, city: null, region: null, postalCode: null, country: "US" }, confirmed: false };
+  const entered = { street: "100 Example Way", city: "Sampletown", region: "AZ", postalCode: "85001", country: "US" };
+  await openConfirmation(page);
+  await dialog(page).getByRole("button", { name: "Inches", exact: true }).click();
+  await expect(dialog(page).getByRole("alert")).toContainText("Xometry needs a confirmed shipping address for supplier quotes.");
+  await expect(dialog(page).getByRole("button", { name: "Open Settings to confirm address" })).toHaveCount(0);
+  const panel = dialog(page).getByRole("region", { name: "Quote shipping destination" });
+  await expect(panel).toContainText("Add street, city, ZIP, state before confirming.");
+  const save = panel.getByRole("button", { name: "Save and confirm address", exact: true });
+  await expect(save).toBeDisabled();
+  await panel.getByLabel("Street").fill(entered.street);
+  await panel.getByLabel("City").fill(entered.city);
+  await panel.getByLabel("State").fill(entered.region);
+  await panel.getByLabel("ZIP").fill(entered.postalCode);
+  await save.click();
+
+  // The confirmation re-runs the scope check by itself; no Retry click and no Settings detour.
+  await expect(dialog(page).getByText(FINGERPRINT, { exact: true })).toBeVisible();
+  await expect(dialog(page)).toContainText("100 Example Way, Sampletown, AZ 85001, US");
+  await expect(panel).toHaveCount(0);
+  expect(backend.scopes).toHaveLength(2);
+  const writes = backend.calls.filter(call => call.name === "api_update_organization_addresses");
+  expect(writes.map(call => call.input)).toEqual([{ p_organization_id: ID.organization, p_patch: {
+    shippingSameAsBilling: false, shippingStreet: entered.street, shippingCity: entered.city,
+    shippingState: entered.region, shippingZip: entered.postalCode, shippingCountry: entered.country } }]);
+  const confirmations = backend.calls.filter(call => call.name === "api_confirm_sourcing_destination");
+  expect(confirmations.map(call => call.input)).toEqual([{ p_organization_id: ID.organization, p_expected_address: entered }]);
+  await affirm(page);
+  expect(backend.dispatches).toHaveLength(0);
+
+  // A reload reads the confirmed destination from the server; nothing is asked again.
+  await page.reload();
+  await openConfirmation(page);
+  await selectScope(page);
+  await expect(dialog(page)).toContainText("100 Example Way, Sampletown, AZ 85001, US");
+  await expect(dialog(page).getByRole("region", { name: "Quote shipping destination" })).toHaveCount(0);
+  expect(backend.calls.filter(call => call.name === "api_confirm_sourcing_destination")).toHaveLength(1);
+  expect(backend.dispatches).toHaveLength(0);
+});

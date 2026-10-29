@@ -26,6 +26,9 @@ const portableSuites = [
   "scripts/check-migration-immutability.node-test.mjs",
   "scripts/check-secret-paths.node-test.mjs",
   "scripts/check-migration-function-collisions.node-test.mjs",
+  "scripts/ovd510-boundary-recovery.node-test.mjs",
+  "scripts/ovd510-immutable-source.node-test.mjs",
+  "scripts/test-support/source-only-network-marker.node-test.cjs",
 ];
 
 function portableCommand() {
@@ -77,9 +80,10 @@ describe("explicit test execution lanes", () => {
       }));
       for (const suite of portableSuites) {
         mkdirSync(dirname(join(root, suite)), { recursive: true });
-        writeFileSync(join(root, suite), `import test from 'node:test';
-import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+        const imports = suite.endsWith(".cjs")
+          ? "const test = require('node:test'); const assert = require('node:assert/strict'); const { writeFileSync } = require('node:fs');"
+          : "import test from 'node:test'; import assert from 'node:assert/strict'; import { writeFileSync } from 'node:fs';";
+        writeFileSync(join(root, suite), `${imports}
 test('synthetic portable contract', () => {
   writeFileSync(${JSON.stringify(join(root, `${portableSuites.indexOf(suite)}.ran`))}, 'ran');
   assert.equal(${JSON.stringify(suite === failedSuite)}, false);

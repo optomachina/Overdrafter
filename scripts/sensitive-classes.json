@@ -194,6 +194,86 @@
       }
     ]
   },
+  "door": {
+    "classes": {
+      "schema": "one-way",
+      "migrations": "one-way",
+      "auth": "one-way",
+      "payments": "one-way",
+      "provider_dispatch": "revertable",
+      "secrets": "one-way",
+      "infra_ci": "one-way",
+      "deps": "revertable",
+      "rls": "one-way",
+      "definer": "one-way",
+      "unclassified": "one-way"
+    },
+    "rules": [
+      {
+        "id": "O-SQL",
+        "patterns": [
+          "\\b(?:create|alter|drop)\\s+(?:or\\s+replace\\s+)?(?:table|schema|function|type|trigger|index|policy|role|view|extension)\\b",
+          "\\bsecurity\\s+definer\\b|\\b(?:grant|revoke)\\s|\\brow\\s+level\\s+security\\b|\\brow_security\\b",
+          "\\bsql\\s*`|\\.rpc\\s*\\("
+        ],
+        "scope": "head",
+        "reason": "SQL anywhere, including comments; new RPC names (unresolved names fail closed)"
+      },
+      {
+        "id": "O-MIGDIR",
+        "patterns": [
+          "^[ \\t]*(?:(?:--|//|#)\\s*)?(?:migration[\\s:_-]*)?\\d{14}(?:\\b|_)"
+        ],
+        "scope": "head",
+        "reason": "Migration directory on either rename side or a migration timestamp header"
+      },
+      {
+        "id": "O-SECRET",
+        "patterns": [
+          "\\bprocess\\s*\\.\\s*env\\b|\\bDeno\\s*\\.\\s*env\\s*\\.\\s*get\\b|\\bimport\\s*\\.\\s*meta\\s*\\.\\s*env\\b",
+          "\\b(?:vars|secrets)\\s*\\.|\\bBW_[A-Z0-9_]+\\b|\\b[A-Z][A-Z0-9_]*_(?:KEY|SECRET|TOKEN|PASSWORD)\\b"
+        ],
+        "scope": "changed",
+        "reason": "Changed secret or environment names, including fixtures"
+      },
+      {
+        "id": "O-NET",
+        "patterns": [
+          "\\b(?:nodemailer|smtp|resend|sendgrid|postmark|twilio)\\b",
+          "\\.\\s*(?:submit|requestSubmit|sendMail|sendSms|sendMessage|send|post|put|patch|delete)\\s*\\(",
+          "\\b[\\x22\\x27]?method[\\x22\\x27]?\\s*:\\s*[\\x22\\x27`](?:POST|PUT|PATCH|DELETE)[\\x22\\x27`]"
+        ],
+        "scope": "head",
+        "reason": "Send/submit indicators; GET and navigation to a new host are notes only; ambiguous network calls fail closed"
+      },
+      {
+        "id": "O-DEP",
+        "patterns": [
+          "[\\x22\\x27]?hasInstallScript[\\x22\\x27]?\\s*:\\s*true",
+          "\\b(?:git\\+|git://|git@|github:)|https?://[^\\s\\x22\\x27]+\\.(?:tgz|tar\\.gz|tar)(?:[\\x22\\x27\\s?#]|$)"
+        ],
+        "scope": "changed",
+        "reason": "Install scripts, non-npm resolved hosts, git or tarball dependencies (npm registry tarballs allowed)"
+      },
+      {
+        "id": "O-GATE",
+        "patterns": [
+          "^[ \\t]*name\\s*:",
+          "\\b(?:REQUIRED_SECTIONS|provider-go-live|secret-scan)\\b",
+          "\\b(?:it|test|describe)\\s*(?:\\.|\\()",
+          "[\\x22\\x27]ci[\\x22\\x27]"
+        ],
+        "scope": "removed",
+        "reason": "Any .github path, governance/ruleset/CODEOWNERS, gate loosening, or removed job, section, test or required check"
+      },
+      {
+        "id": "O-RM",
+        "patterns": [],
+        "scope": "path",
+        "reason": "Deletion or rename of a sensitive base path"
+      }
+    ]
+  },
   "safe_categories": {
     "docs": {
       "description": "Markdown at the repo root and docs/**. AGENTS.md and CLAUDE.md carry governance sections a path cannot separate, so they stay out.",
