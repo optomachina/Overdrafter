@@ -86,9 +86,7 @@ jobs:
     concurrency:
       group: ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}
       cancel-in-progress: false
-      # Without this, GitHub keeps one pending job per group and cancels the
-      # older pending writer whenever a third event arrives (OVD-845 writer fix).
-      queue: max
+      queue: max # see header: writers queue per PR and are never cancelled
 
     steps:
       # Refuse non-default dispatch refs before checkout or any token-bearing step.

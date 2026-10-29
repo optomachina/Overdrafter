@@ -1067,6 +1067,22 @@ describe("headDiffId", () => {
     expect(() => readFileSync(path.join(store, "HEAD"))).toThrow();
   });
 
+  it("still returns the computed diff_id when removing the store fails (ENOTEMPTY)", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git: fakeGit([]), makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: DIFF, error: null });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
+  });
+
   it.each([
     ["an option-like base ref", { baseRef: "--upload-pack=x" }],
     ["a base ref with ..", { baseRef: "main..x" }],
