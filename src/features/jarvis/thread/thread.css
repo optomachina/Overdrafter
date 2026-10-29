@@ -58,3 +58,12 @@
 .jarvis-page { background: #0e0e10; min-height: 100dvh; }
 .jarvis-page-nav { max-width: 700px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px 0; color: #a3a3aa; font: 12px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .08em; }
 .jarvis-page-nav a { color: #f2f1ee; min-height: 44px; display: inline-flex; align-items: center; }
+/* Press feedback and focus (design pass: responsive press, visible keyboard focus, hover only on fine pointers). */
+.jt button,.jt a { transition: transform 140ms cubic-bezier(.23,1,.32,1), border-color 150ms ease, background-color 150ms ease; }
+.jt button:not(:disabled):active,.jt a:active { transform: scale(.97); }
+.jt :is(button,a,textarea):focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .jt button:not(:disabled):hover,.jt a:hover { border-color: #9a9aa3; background-color: #1c1c20; } }
+.jt-request { animation: jt-in 180ms cubic-bezier(.23,1,.32,1); }
+.jt-downloads > * { animation: jt-in 220ms cubic-bezier(.23,1,.32,1) backwards; }
+.jt-downloads > :nth-child(2) { animation-delay: 40ms; } .jt-downloads > :nth-child(3) { animation-delay: 80ms; } .jt-downloads > :nth-child(4) { animation-delay: 120ms; }
+@media (prefers-reduced-motion: reduce) { .jt button,.jt a { transition: border-color 150ms ease, background-color 150ms ease; } .jt button:active,.jt a:active { transform: none; } .jt-request,.jt-downloads > * { animation: none; } }
