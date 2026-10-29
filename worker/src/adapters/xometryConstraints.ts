@@ -163,18 +163,12 @@ export const XOMETRY_LOCATORS = {
     /\bupdating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
     /\b(?:loading|refreshing) (?:the |your )?(?:price|prices|pricing|quote)\b/i,
   ],
-  quantityInputs: [
-    'input[aria-label="Quantity"]',
-    'input[type="number"][pattern]',
-    '[data-testid*="quantity"] input',
-    'input[name*="quantity"]',
-    'input[id*="quantity"]',
-    'input[type="number"][pattern="^[0-9]*$"]',
-    'input[type="number"]',
-  ],
-  // OVD-776: the part row's own quantity input, read back before any price
-  // is captured. Row-scoped selectors come first; the generic number inputs
-  // above are deliberately excluded because they can belong to other widgets.
+  // The part row's own quantity input on the quote page: the adapter sets the
+  // requested quantity here (before Edit Configuration) and reads it back
+  // before any price is captured (OVD-776). Row-scoped selectors come first.
+  // Generic number inputs are excluded on purpose: they can belong to other
+  // widgets, and the configure view that Edit Configuration opens showed no
+  // number input at all on 2026-10-24 (production job 8c17931b).
   lineItemQuantityInputs: [
     '[data-testid*="line-item" i] input[aria-label="Quantity" i]',
     '[data-testid*="part-row" i] input[aria-label="Quantity" i]',
