@@ -101,6 +101,25 @@ const quantitySuffixAllowed = (text: string, cursor: number) => {
   );
 };
 
+/** Skip spaces and tabs only; between a label and its number a newline fails the text. */
+const skipLabelSpace = (text: string, cursor: number) => {
+  while (text[cursor] === " " || text[cursor] === "\t") cursor++;
+  return cursor;
+};
+
+/**
+ * True when anything that looks like a quantity label (Qtys, Quantities, max_qty, MaxQty,
+ * q.t.y, QTY_) is not exactly a strict qty/quantity label. The text is never normalized.
+ */
+const hasNearLabel = (sourceText: string) => {
+  const text = sourceText.toLowerCase();
+  for (const hit of text.matchAll(/q[^a-z0-9]{0,2}t[^a-z0-9]{0,2}y|quantit/g)) {
+    const strict = /^(?:qty|quantity)\b/.test(text.slice(hit.index)) && !/\w/.test(text[hit.index - 1] ?? "");
+    if (!strict) return true;
+  }
+  return false;
+};
+
 /**
  * Read only canonical unsigned integer tokens following quantity/qty labels. Every label
  * must name the expected value; unrelated numbers cannot supply the quantity.
@@ -108,19 +127,24 @@ const quantitySuffixAllowed = (text: string, cursor: number) => {
  * Only an allow-listed suffix may follow the integer (ranges, multipliers, prose fail).
  */
 const sourceShowsQuantity = (sourceText: string, value: number) => {
+  // Only printable ASCII, tab and newline: look-alike, full-width and invisible characters fail.
+  if (/[^\x20-\x7e\t\n]/.test(sourceText)) return false;
   // A label glued to digits (Qty1000) is never read; it poisons the whole text.
   if (/(?:quantity|qty)(?=[0-9])/i.test(sourceText)) return false;
+  if (hasNearLabel(sourceText)) return false;
   const labels = /\b(?:quantity|qty)\b/gi;
   let found = false;
   for (const label of sourceText.matchAll(labels)) {
-    let cursor = label.index + label[0].length;
-    let whitespaceStart = cursor;
-    while (cursor < sourceText.length && /\s/.test(sourceText[cursor])) cursor++;
+    const labelEnd = label.index + label[0].length;
+    let whitespaceStart = labelEnd;
+    let cursor = skipLabelSpace(sourceText, labelEnd);
     if (sourceText[cursor] === ":" || sourceText[cursor] === "=") {
       whitespaceStart = ++cursor;
-      while (cursor < sourceText.length && /\s/.test(sourceText[cursor])) cursor++;
+      cursor = skipLabelSpace(sourceText, cursor);
     }
-    if (cursor === whitespaceStart) return false;
+    // Space is required before the number, except directly after a glued colon (Qty:1000).
+    const gluedColon = sourceText[labelEnd] === ":" && cursor === labelEnd + 1;
+    if (cursor === whitespaceStart && !gluedColon) return false;
 
     const start = cursor;
     while (cursor < sourceText.length && /[0-9]/.test(sourceText[cursor])) cursor++;
