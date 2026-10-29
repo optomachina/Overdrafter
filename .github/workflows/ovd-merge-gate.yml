@@ -39,7 +39,7 @@ name: OVD merge gate
 # that runs started after its own run's record was written, and the last
 # writer to run sees every record. See docs/verdict-format.md.
 #
-# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR and are never cancelled;
+# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR (queue: max) and are never cancelled;
 # each re-reads the head right before writing and writes nothing for a head
 # that moved (the run for the new head writes it).
 
@@ -86,6 +86,9 @@ jobs:
     concurrency:
       group: ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}
       cancel-in-progress: false
+      # Without this, GitHub keeps one pending job per group and cancels the
+      # older pending writer whenever a third event arrives (OVD-845 writer fix).
+      queue: max
 
     steps:
       # Refuse non-default dispatch refs before checkout or any token-bearing step.

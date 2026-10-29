@@ -968,13 +968,23 @@ export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = tru
     if (typeof repo !== "string" || !REPO.test(repo)) throw new Error("repository is not owner/name");
     store = makeStore();
     git(["init", "--bare", "--quiet", store], { cwd: store });
-    git(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
+    // No auto-maintenance: git >= 2.4x can detach a background commit-graph
+    // write after fetch, which races the store removal below (ENOTEMPTY).
+    git(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
     const base = git(["--git-dir", store, "rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd: store }).trim();
     return { diffId: diff({ base: assertSha(base, "base"), head, cwd: store }), error: null };
   } catch (error) {
     return { diffId: null, error: error?.message ?? String(error) };
   } finally {
-    if (store) rmSync(store, { recursive: true, force: true });
+    // Best effort: cleanup of a temp store must never turn a computed result
+    // into a writer failure.
+    if (store) {
+      try {
+        rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch (error) {
+        process.stderr.write(`ovd-merge-gate: could not remove ${store}: ${error?.message ?? error}\n`);
+      }
+    }
   }
 }
 

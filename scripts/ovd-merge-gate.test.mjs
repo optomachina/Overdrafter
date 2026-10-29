@@ -1054,7 +1054,7 @@ describe("headDiffId", () => {
     const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), makeStore: () => store, diff: ({ base, head, cwd }) => { diffCwd = cwd; return base === BASE && head === HEAD ? DIFF : "wrong"; } });
     expect(result).toEqual({ diffId: DIFF, error: null });
     expect(calls[0].args).toEqual(["init", "--bare", "--quiet", store]);
-    expect(calls[1].args).toEqual(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
+    expect(calls[1].args).toEqual(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
     expect(calls[2].args.slice(0, 2)).toEqual(["--git-dir", store]);
     // Nothing runs in the trusted checkout (/x): every git call and the diff use the store.
     expect(diffCwd).toBe(store);
