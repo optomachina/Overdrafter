@@ -113,9 +113,9 @@ select is(pg_temp.accept_case('accepted')->>'outcome','replayed','lost acknowled
 select is(pg_temp.accept_case('accepted')->>'original_outcome','accepted','replay preserves original outcome');
 select is(pg_temp.accept_case('accepted','different')->>'outcome','payload_mismatch','replay checks original worker');
 select is(pg_temp.accept_case('accepted',p_patch=>'{}')->>'outcome','payload_mismatch','replay checks payload');
-select throws_ok('update private.vendor_quote_acceptance_receipts set payload_digest=''changed''','P0001',
+select throws_ok('update private.vendor_quote_acceptance_receipts set payload_digest=''changed'' where true','P0001',
  'Vendor quote acceptance receipts are append-only.','receipts cannot be updated');
-select throws_ok('delete from private.vendor_quote_acceptance_receipts','P0001',
+select throws_ok('delete from private.vendor_quote_acceptance_receipts where true','P0001',
  'Vendor quote acceptance receipts are append-only.','receipts cannot be deleted');
 
 -- Independent task-free rollup after simulated worker crash.
@@ -136,15 +136,15 @@ select is(pg_temp.accept_case('stale',p_at=>'2026-10-29 01:00:01+00')->>'outcome
 select is(pg_temp.accept_case('stale',p_attempt=>2)->>'outcome','stale','wrong attempt stale');
 select is(pg_temp.acceptance_snapshot('stale'),snapshot,'stale calls change nothing') from before_stale;
 update public.work_queue set status='queued' where id=(select task_id from acceptance_cases where name='stale');
-update before_stale set snapshot=pg_temp.acceptance_snapshot('stale');
+update before_stale set snapshot=pg_temp.acceptance_snapshot('stale') where true;
 select is(pg_temp.accept_case('stale')->>'outcome','stale','queued task stale');
 select is(pg_temp.acceptance_snapshot('stale'),snapshot,'queued no writes') from before_stale;
 update public.work_queue set status='completed' where id=(select task_id from acceptance_cases where name='stale');
-update before_stale set snapshot=pg_temp.acceptance_snapshot('stale');
+update before_stale set snapshot=pg_temp.acceptance_snapshot('stale') where true;
 select is(pg_temp.accept_case('stale')->>'outcome','stale','completed task stale');
 select is(pg_temp.acceptance_snapshot('stale'),snapshot,'completed no writes') from before_stale;
 update public.work_queue set status='cancelled' where id=(select task_id from acceptance_cases where name='stale');
-update before_stale set snapshot=pg_temp.acceptance_snapshot('stale');
+update before_stale set snapshot=pg_temp.acceptance_snapshot('stale') where true;
 select is(pg_temp.accept_case('stale')->>'outcome','stale','cancelled task stale');
 select is(pg_temp.acceptance_snapshot('stale'),snapshot,'cancelled no writes') from before_stale;
 update public.work_queue set status='running',attempts=2,locked_at='2026-10-29 02:00:00+00'

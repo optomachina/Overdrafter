@@ -478,8 +478,8 @@ create temporary table s11b_retry as select task_id,sql,null::jsonb response,nul
  where job_id in ('00000000-0000-4000-8000-0000001199a1','00000000-0000-4000-8000-0000001199a2','00000000-0000-4000-8000-0000001199a3')
  or request_id=(select request_id from free_meter_fixture.s11b_cases where name='cleanup');
 create function pg_temp.s11b_execute(p_sql text) returns jsonb language plpgsql as $$ declare r jsonb; begin execute p_sql into r; return r; end $$;
-update s11b_retry set response=pg_temp.s11b_execute(sql);
-update s11b_retry set replay=pg_temp.s11b_execute(sql);
+update s11b_retry set response=pg_temp.s11b_execute(sql) where true;
+update s11b_retry set replay=pg_temp.s11b_execute(sql) where true;
 select is(response->>'outcome','accepted','retry after release succeeds') from s11b_retry;
 select is(replay->>'outcome','replayed','retry succeeds exactly once') from s11b_retry;
 select is(count(*)::int,1,'no duplicate offer') from public.vendor_quote_offers
