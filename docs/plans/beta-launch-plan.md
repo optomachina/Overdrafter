@@ -3,18 +3,32 @@
 Approved by Blaine on October 11, 2026. Source: the beta council synthesis
 (Grok, Astra and Opus, two rounds) with Blaine's changes applied.
 
+Amended by Blaine's October 13 and October 20 decisions (recorded in Linear on
+`OVD-206`, `OVD-199` and `OVD-319`) and reconciled on October 23, 2026. The
+provider scope, the session rules, the run budget, the go/no-go gates and the
+open `TODO(Blaine)` decisions now live in the
+[1.0 launch contract](../1-0-beta-runbook.md#10-launch-contract). Where this
+plan disagrees with that section, the launch contract wins.
+
 This plan sets dates and sequencing. `PRD.md` still owns product intent,
 `ACCEPTANCE_CRITERIA.md` owns release gates, and
 [`docs/1-0-beta-runbook.md`](../1-0-beta-runbook.md) owns the operating
 contract. Where this plan and an older sequencing note disagree on dates or
 scope cuts, this plan wins.
 
+**Readiness:** the checkpoints below track launch readiness. A demo on
+staging or seeded offers (including the October 24–25 demonstration) is demo
+readiness only and passes no checkpoint here. See
+[Demo readiness vs launch readiness](../1-0-beta-runbook.md#demo-readiness-vs-launch-readiness).
+Current verdict: **NO-GO for a customer beta**. The Codex readiness review's
+no-go stands because there are zero priced production runs.
+
 ## Dates
 
 | Date | Checkpoint | Pass condition |
 |---|---|---|
 | Sat Oct 17 | Queue quiet | Fixture PRs merged or cut; stale drafts closed or moved to 1.1 |
-| Fri Oct 23 | Go/no go | At least 3 of 4 vendor sessions live (Fictiv, Quickparts, Weerg, Geomiq); Windows host booked; migration window 1 done or scheduled |
+| Fri Oct 23 | Go/no go | Superseded on Oct 20: this checkpoint no longer decides the provider count. Proposed remaining condition: Fictiv and Quickparts sessions live and RMFG API access granted; Windows host booked; migration window 1 done or scheduled. Outcome not recorded: `TODO(Blaine)` B13 |
 | Sat Oct 31 | Release candidate | 686 ready candidate frozen; OVD-527, 528 and 529 proven. If this fails, the beta moves to Nov 20 that same day |
 | Fri Nov 6 | Xometry certified | OVD-206 passes with five runs |
 | **Fri Nov 13** | **Beta target** | OVD-319 certification walk passes |
@@ -22,9 +36,11 @@ scope cuts, this plan wins.
 
 ## Scope
 
-* **Providers.** 1.0 covers Xometry, Fictiv, Quickparts, Weerg and Geomiq.
-  RMFG may substitute for any one of them. Shipping with fewer than five is an
-  explicit Blaine decision made at the Oct 23 checkpoint, never a silent slip.
+* **Providers.** Superseded on Oct 20. 1.0 covers Xometry, Fictiv and
+  Quickparts on the CNC validation package and RMFG on the sheet-metal
+  validation package. Weerg, Geomiq and OSH Cut are 1.1. Shipping with fewer
+  than four, or with a substitute, is an explicit Blaine decision
+  (`TODO(Blaine)` B1), never a silent slip.
 * **Fixture** is a throughput multiplier, not a third product. It is done when
   the non Xometry providers have been onboarded through `fixture:onboard` with
   a green `provider:check`. Providers as data (OVD-707) stays in the Supplier
@@ -70,7 +86,9 @@ Then the serial path:
 4. **Live certs** for the other providers.
 5. **OVD-199**, then the **OVD-686 audit** (time boxed to 3 days, on the
    frozen candidate), then the **OVD-319 cert walk**. The audit always runs
-   before 319.
+   before 319 (Linear still lists 319 as a blocker of 686: `TODO(Blaine)` B12).
+   The launch gates in the runbook, including `OVD-1018`, `OVD-1067`, wake on
+   submit, `OVD-1068` and `OVD-1011`, must pass before the walk.
 6. **Jarvis, in parallel:** #619 and #620 in migration window 2 after 206 →
    511 → 505 → 563 → one Windows host session for #621 and the OVD-520 run.
 
@@ -134,8 +152,9 @@ obsolete.
 ## Next actions
 
 1. Blaine toggles OVD-541 (leaked password protection).
-2. Request live sessions for Fictiv, Quickparts, Weerg and Geomiq, plus RMFG
-   API access and partner API access; book the Windows/Mac host.
+2. Request live sessions for Fictiv and Quickparts, plus RMFG API access and
+   partner API access; book the Windows/Mac host. (Weerg and Geomiq are now
+   1.1.)
 3. Close #606 to #613; merge the green PRs; record a Vercel exception for #660
    if rate limiting is its only red.
 4. Ship the merge tool guardrail and the migration path hook before Grok Bot's

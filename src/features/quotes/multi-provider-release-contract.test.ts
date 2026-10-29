@@ -26,6 +26,13 @@ describe("1.0 multi-provider release contract", () => {
       runbook,
       foundingBeta,
     ];
+    // ACCEPTANCE_CRITERIA, the runbook and the founding-beta program carry the October 20
+    // four-provider launch set; the other contracts still carry the minimum-source wording.
+    const fourProviderContracts = new Set([acceptance, runbook, foundingBeta]);
+    const minimumProviderSet = (source: string): RegExp =>
+      fourProviderContracts.has(source)
+        ? /all\s+four\s+(?:providers\s+are\s+independently\s+admitted|qualify)|Four\s+automatic\s+quote\s+sources\s+must\s+be\s+independently\s+admitted/i
+        : /at\s+least\s+(?:five|four\s+additional)/i;
     for (const source of currentContracts) {
       for (const provider of [
         "Xometry",
@@ -38,7 +45,7 @@ describe("1.0 multi-provider release contract", () => {
       ]) {
         expect(source).toContain(provider);
       }
-      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
+      expect(source).toMatch(minimumProviderSet(source));
       expect(source).toMatch(/CNC/i);
       expect(source).toMatch(/process-specific|applicable process/i);
       expect(source).not.toMatch(/complete five-provider launch set/i);
@@ -46,7 +53,7 @@ describe("1.0 multi-provider release contract", () => {
 
     for (const source of currentContracts) {
       expect(source).toMatch(/production-\s*certified/i);
-      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
+      expect(source).toMatch(minimumProviderSet(source));
       expect(source).not.toMatch(/five\s+preferred/i);
       expect(source).not.toMatch(
         /at\s+least\s+(?:two|three)(?:\s+(?:additional|independently))?(?:\s+production-\s*certified)?\s+(?:automatic\s+)?quote\s+(?:sources|providers)/i,
@@ -59,18 +66,20 @@ describe("1.0 multi-provider release contract", () => {
 
     expect(prd).toMatch(/Completion:\*\*[\s\S]*?at\s+least\s+four\s+additional\s+eligible\s+providers/);
     expect(plan).toMatch(/at\s+least\s+five\s+independently[\s\S]*?package-eligible\s+sources/);
-    expect(acceptance).toMatch(/at\s+least\s+four\s+additional\s+automatic\s+quote\s+providers/);
-    expect(runbook).toContain("Xometry plus at least four");
+    expect(acceptance).toMatch(/Xometry,\s+Fictiv\s+and\s+Quickparts\s+are\s+independently\s+admitted\s+and\s+production-certified\s+for\s+the\s+same\s+CNC\s+validation\s+envelope,\s+and\s+RMFG\s+for\s+the\s+sheet-metal\s+validation\s+envelope/);
+    expect(runbook).toContain("1.0 ships only when all four providers are independently admitted");
     expect(roadmap).toMatch(/CNC-first comparison requires at\s+least\s+five\s+eligible/);
     expect(foundingBeta).toContain(
-      "At least five automatic quote sources—Xometry plus at least four additional",
+      "Four automatic quote sources must be independently admitted and",
     );
     for (const source of [plan, acceptance, runbook, foundingBeta]) {
       expect(source).toMatch(
-        /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}at\s+least\s+five\s+CNC-qualified\s+providers[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
+        fourProviderContracts.has(source)
+          ? /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}each\s+of\s+Xometry,\s+Fictiv\s+and\s+Quickparts[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i
+          : /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}at\s+least\s+five\s+CNC-qualified\s+providers[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
       );
     }
-    expect(acceptance).toMatch(/provider lanes beyond the seven named 1\.0 providers/i);
+    expect(acceptance).toMatch(/provider lanes beyond the four named 1\.0 providers/i);
     expect(plan).toMatch(/RapidDirect is outside the named 1\.0\s+portfolio and is not a release gate/i);
     expect(plan).toContain("September 4, 2026 — Five-provider launch contract (superseded)");
     expect(acceptance).toMatch(/Account existence,[\s\S]*?source integration,[\s\S]*?live quote verification,[\s\S]*?production certification/);
