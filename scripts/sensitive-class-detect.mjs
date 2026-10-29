@@ -13,6 +13,7 @@ import {
   findGateLoosening,
   loadSensitivePaths,
   normalizePath,
+  pathCandidates,
   readSensitivePathsText,
 } from "./lib/sensitive-paths.mjs";
 import { safeInline } from "./proof-check.mjs";
@@ -27,10 +28,10 @@ import { safeInline } from "./proof-check.mjs";
  * read from this checkout's working tree (the base, in CI), never from a ref.
  * This detector never copies those globs. scripts/sensitive-classes.json
  * holds only what this detector adds: SQL content rules (rls, definer, auth) over
- * changed SQL read at the PR head, and the auto-merge safe categories.
+ * changed SQL read at the PR head, auto-merge safe categories, and door report rules.
  *
  * The CLI runs from the base checkout. It reads the changed files and their
- * status from the GitHub API and reads changed SQL files at the PR head as
+ * status from the GitHub API and reads changed files at pinned head/base revisions as
  * data only; nothing from the PR is executed. The result is an error when the
  * PR's base is not the checkout (--base-sha), its head is not --head-sha, or
  * either moves while the file list is read. Sensitive classes win over safe
@@ -117,7 +118,7 @@ export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, ...SQL_CONTEN
 export const MAX_FILES = 3000;
 const PER_PAGE = 100;
 
-const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories"]);
+const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories", "door"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules", "exemptions"]);
 const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason", "within", "after", "inside", "until", "informational"]);
@@ -365,7 +366,7 @@ export function compileConfig(raw) {
   let sqlContent = { paths: [], rules: [], exemptions: [] };
   if (isPlainObject(raw.sql_content)) sqlContent = compileSqlContent(raw.sql_content, errors);
   else errors.push("config: sql_content must be an object");
-  return errors.length ? { config: null, errors } : { config: { categories, sqlContent }, errors: [] };
+  return errors.length ? { config: null, errors } : { config: { categories, sqlContent, door: raw.door }, errors: [] };
 }
 
 /**
@@ -1116,6 +1117,220 @@ function classifySqlTokens(text, config, path) {
   return { classes, reasons, hits };
 }
 
+// ---------------------------------------------------------------- door report (never changes legacy classification)
+
+const DOOR_RULE_IDS = ["O-SQL", "O-MIGDIR", "O-SECRET", "O-NET", "O-DEP", "O-GATE", "O-RM"];
+const MAX_DOOR_FILE_BYTES = 256 * 1024;
+const MAX_DOOR_BYTES = 4 * 1024 * 1024;
+const MAX_DOOR_SCANS = 200;
+const MAX_DOOR_MS = 1000;
+
+class DoorScanBudgetError extends Error {}
+
+function doorBudget() {
+  const deadline = performance.now() + MAX_DOOR_MS;
+  let bytes = 0;
+  const check = () => {
+    if (performance.now() >= deadline) throw new DoorScanBudgetError();
+  };
+  return {
+    check,
+    deadline,
+    consume(text) {
+      check();
+      // Bound input length before walking it to measure UTF-8 bytes.
+      if (text.length > MAX_DOOR_FILE_BYTES) throw new DoorScanBudgetError();
+      const size = Buffer.byteLength(text);
+      bytes += size;
+      if (size > MAX_DOOR_FILE_BYTES || bytes > MAX_DOOR_BYTES) throw new DoorScanBudgetError();
+    },
+  };
+}
+
+function doorConfig(config) {
+  const door = config?.door;
+  if (!isPlainObject(door) || !isPlainObject(door.classes) || !Array.isArray(door.rules)
+      || Object.keys(door.classes).length !== OUTPUT_CLASSES.length
+      || OUTPUT_CLASSES.some((name) => !["one-way", "revertable"].includes(door.classes[name]))
+      || door.rules.length !== DOOR_RULE_IDS.length) throw new Error("invalid door config");
+  const rules = new Map();
+  for (const rule of door.rules) {
+    if (!DOOR_RULE_IDS.includes(rule.id) || rules.has(rule.id) || !Array.isArray(rule.patterns)
+        || typeof rule.reason !== "string" || !["head", "changed", "removed", "path"].includes(rule.scope)) throw new Error("invalid door rule");
+    rules.set(rule.id, { ...rule, patterns: rule.patterns.map((pattern) => new RegExp(pattern, "im")) });
+  }
+  return { classes: door.classes, rules };
+}
+
+async function doorText(reader, file, timeoutMs, budget) {
+  budget.check();
+  if (!reader) throw new Error("missing content reader");
+  const remaining = budget.deadline - performance.now();
+  let timer;
+  try {
+    const text = await Promise.race([
+      Promise.resolve().then(() => reader(file)),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(remaining <= timeoutMs ? new DoorScanBudgetError() : new Error("door read timeout")), Math.min(timeoutMs, remaining)); }),
+    ]);
+    if (typeof text !== "string") throw new Error("unscannable content");
+    budget.consume(text);
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// A line multiset preserves deletions even when the same text occurs elsewhere.
+function unmatchedLines(text, other) {
+  const counts = new Map();
+  for (const line of other.split("\n")) counts.set(line, (counts.get(line) ?? 0) + 1);
+  return text.split("\n").filter((line) => {
+    const count = counts.get(line) ?? 0;
+    if (count) counts.set(line, count - 1);
+    return count === 0;
+  }).join("\n");
+}
+
+const doorPathForms = (file) => pathCandidates(file).map((form) => form.normalize("NFKC").toLowerCase());
+const testPath = (file) => /(?:\.(?:test|node-test)\.[^/]+$|(?:^|\/)(?:tests?|e2e)\/)/i.test(file);
+const hostsIn = (text) => [...text.matchAll(/https?:\/\/[^\s"'`<>\\)]+/gi)].flatMap(([url]) => {
+  try { return [new URL(url).hostname.toLowerCase()]; } catch { return []; }
+});
+const networkCall = /\b(?:fetch|axios|request)\s*(?:\.[a-z]+\s*)?\(|\bpage\s*\.\s*goto\s*\(/i;
+const submitWords = /submit|place[\s_-]*order|checkout|send|confirm|request[\s_-]*quote/i;
+
+// Each search resumes after the previous comment. An unclosed comment runs to EOF.
+function stripDoorComments(text) {
+  const chunks = [];
+  let cursor = 0;
+  let start;
+  while ((start = text.indexOf("/*", cursor)) !== -1) {
+    chunks.push(text.slice(cursor, start), " ");
+    const end = text.indexOf("*/", start + 2);
+    if (end === -1) return chunks.join("");
+    cursor = end + 2;
+  }
+  chunks.push(text.slice(cursor));
+  return chunks.join("");
+}
+
+function scanDoorContent({ text, base, added, removed, file, rules, add, budget }) {
+  const test = (pattern, source) => {
+    budget.check();
+    const matched = pattern.test(source);
+    budget.check();
+    return matched;
+  };
+  const head = text;
+  const changed = added + "\n" + removed;
+  for (const id of ["O-SQL", "O-MIGDIR", "O-SECRET", "O-GATE"]) {
+    budget.check();
+    const rule = rules.get(id);
+    const source = rule.scope === "changed" ? changed : rule.scope === "removed" ? removed : head;
+    // Existing literal RPC names are not new functions. A computed name cannot be proved safe.
+    const patterns = id === "O-SQL" ? rule.patterns.slice(0, -1) : rule.patterns;
+    const sqlSpacing = id === "O-SQL" ? stripDoorComments(source) : source;
+    if (patterns.some((pattern) => test(pattern, source) || test(pattern, sqlSpacing))) add(id, file.path);
+  }
+  if (test(rules.get("O-SQL").patterns.at(-1), head)) {
+    const calls = [...head.matchAll(/\.rpc\s*\(\s*([^\n,)]+)/g)].map((match) => match[1].trim());
+    const literal = /^["'][a-z_][a-z0-9_]*["']$/i;
+    const baseNames = new Set([...base.matchAll(/\.rpc\s*\(\s*(["'][a-z_][a-z0-9_]*["'])/gi)].map((match) => match[1].slice(1, -1)));
+    if (/\bsql\s*`/i.test(head) || !calls.length || calls.some((call) => !literal.test(call) || !baseNames.has(call.slice(1, -1)))) add("O-SQL", file.path);
+  }
+  // Scanning the entire head is deliberately conservative: comments and existing sends count.
+  const sends = rules.get("O-NET").patterns.some((pattern) => test(pattern, head))
+    || (networkCall.test(head) && /["'`](?:POST|PUT|PATCH|DELETE)["'`]/i.test(head));
+  const click = /\bclick\s*\(/i.test(head) && submitWords.test(head);
+  if (sends || click) add("O-NET", file.path);
+  else if (networkCall.test(head)) {
+    // An explicit non-GET/HEAD method, indirect options/client, SDK or request callback
+    // is ambiguous. Pure fetch(url), GET/HEAD and page.goto(url) are read-only.
+    const indirect = /,\s*[A-Za-z_$]/.test(head) || /\.\.\./.test(head) || /\[[^\]\n]*\]\s*:/.test(head);
+    const methods = [...head.matchAll(/\b["']?method["']?\s*:\s*([^,}\n]+)/gi)].map((match) => match[1].trim());
+    const unknownClient = /\b(?:axios|request)\s*\(/i.test(head) && !methods.length;
+    if (indirect || unknownClient || methods.some((method) => !/^["'`](?:GET|HEAD)["'`]$/i.test(method))) add("net_ambiguous", file.path);
+  } else if (/\b(?:new\s+\w*(?:Client|SDK)|webhook|sdk)\b/i.test(head) && !testPath(file.path)) add("net_ambiguous", file.path);
+  const baseHosts = new Set(hostsIn(base));
+  if (!sends && !click && hostsIn(added).some((host) => !baseHosts.has(host)) && !file.classes.includes("deps")) {
+    add("net_read_only_new_host", file.path, false);
+  }
+  if (file.classes.includes("deps")) {
+    // Only registry.npmjs.org tarballs are exempt. Funding URLs are not dependency sources.
+    const depText = added.replaceAll(/https?:\/\/registry\.npmjs\.org\/[^\s"']+/g, "npm-registry-source");
+    const install = rules.get("O-DEP").patterns.some((pattern) => test(pattern, depText));
+    const resolved = [...added.matchAll(/["']?resolved["']?\s*:\s*["']([^"']+)["']/gi)].map((match) => match[1]);
+    const foreign = resolved.some((url) => {
+      try { return new URL(url).hostname !== "registry.npmjs.org"; } catch { return true; }
+    });
+    if (install || foreign) add("O-DEP", file.path);
+  }
+  // Removing a required section entry often removes only its quoted name.
+  if (removed && /\bREQUIRED_SECTIONS\b/.test(base)) add("O-GATE", file.path);
+  budget.check();
+}
+
+/**
+ * Add only door/door_reasons to a detector result. Read pinned content as data,
+ * never execute it. Missing coverage, errors, timeouts and scanner exceptions
+ * fail closed in this report without changing the legacy result or its status.
+ */
+export async function doorTier(result, options = {}) {
+  const reasons = [];
+  let oneWay = false;
+  const add = (code, path, blocking = true) => {
+    if (blocking) oneWay = true;
+    if (!reasons.some((reason) => reason.code === code && reason.path === path)) reasons.push({ code, ...(path ? { path } : {}) });
+  };
+  const budget = doorBudget();
+  try {
+    const { config = loadConfig().config, headSha = result.sha, files = result.files.map((file) => ({ filename: file.path, previous_filename: file.previous_path, status: file.status })), changedFiles = files.length, readHeadFile, readBaseFile, timeoutMs = 5000 } = options;
+    const { classes, rules } = doorConfig(config);
+    if (result.status !== "ok" || typeof result.sha !== "string" || !/^[a-f0-9]{40}$/i.test(result.sha) || result.sha !== headSha || result.files.length !== changedFiles || files.length !== changedFiles
+        || new Set(result.files.map((file) => file.path)).size !== changedFiles
+        || files.some((file) => !result.files.some((entry) => entry.path === file.filename && entry.status === file.status && (entry.previous_path ?? null) === (file.previous_filename ?? null)))) add("classifier_error");
+    if (result.gate_loosening?.detected) add("O-GATE");
+    for (const name of result.classes) if (classes[name] !== "revertable") add(`class:${name}`);
+    let scanned = 0;
+    for (const file of result.files) {
+      budget.check();
+      for (const name of file.classes) if (classes[name] !== "revertable") add(`class:${name}`, file.path);
+      const paths = [file.path, file.previous_path].filter(Boolean);
+      const forms = paths.flatMap(doorPathForms);
+      if (forms.some((form) => form.startsWith("supabase/migrations/"))) add("O-MIGDIR", file.path);
+      if (forms.some((form) => form.startsWith(".github/") || /(?:^|\/)(?:codeowners|.*ruleset.*|.*branch.protection.*)$/.test(form))) add("O-GATE", file.path);
+      // Unicode compatibility spellings must not bypass the base matcher's classes.
+      const pathClasses = paths.map((name) => doorPathForms(name).flatMap((form) => config.matcher.classify(form)));
+      for (const names of pathClasses) for (const name of names) if (classes[name] !== "revertable") add(`class:${name}`, file.path);
+      if ((file.status === "removed" || file.status === "renamed") && pathClasses.some((names) => names.length)) add("O-RM", file.path);
+      if (file.previous_path && pathClasses.map((names) => names.some((name) => classes[name] !== "revertable") ? "one-way" : names.length ? "revertable" : "normal").some((door, _, doors) => door !== doors[0])) add("rename_mixed_doors", file.path);
+      if (file.status === "removed" && testPath(file.path)) add("O-GATE", file.path);
+      // A one-way class already determines this file. Do not add content reads
+      // that could change legacy SQL reader failures or classifications.
+      if (file.classes.some((name) => classes[name] !== "revertable")) continue;
+      // Once the PR is one-way, more content reads cannot change the door; skip them
+      // to bound GitHub API use. Past the scan cap, fail closed instead of reading.
+      if (oneWay) continue;
+      if (++scanned > MAX_DOOR_SCANS) {
+        add("door_scan_cap");
+        continue;
+      }
+      try {
+        const text = file.status === "removed" ? "" : await doorText(readHeadFile, file.path, timeoutMs, budget);
+        const base = file.status === "added" ? "" : await doorText(readBaseFile, file.previous_path ?? file.path, timeoutMs, budget);
+        budget.check();
+        scanDoorContent({ text, base, added: unmatchedLines(text, base), removed: unmatchedLines(base, text), file, rules, add, budget });
+      } catch (error) {
+        add(error instanceof DoorScanBudgetError ? "door_scan_budget" : "classifier_error", file.path);
+      }
+    }
+    return { ...result, door: oneWay ? "one-way" : result.classes.length ? "revertable" : null, door_reasons: reasons };
+  } catch (error) {
+    add(error instanceof DoorScanBudgetError ? "door_scan_budget" : "classifier_error");
+    return { ...result, door: "one-way", door_reasons: reasons };
+  }
+}
+
 // ---------------------------------------------------------------- detect
 
 // Every status except "removed" has head content; an unknown status is read too.
@@ -1211,19 +1426,24 @@ async function classifyFile(file, index, config, readHeadFile) {
  * @param {(path: string) => Promise<string>} [input.readHeadFile] head content of a SQL file
  * @param {object} input.config loadConfig().config (or compileConfig() plus a matcher)
  */
-export async function detect({ files, readHeadFile, config, sha = null, baseSha = null, errors = [], allowEmpty = false }) {
+export async function detect({ files, readHeadFile, readBaseFile, config, sha = null, baseSha = null, errors = [], allowEmpty = false, changedFiles, headSha = sha }) {
+  const headCache = new Map();
+  const readHead = readHeadFile && ((file) => {
+    if (!headCache.has(file)) headCache.set(file, Promise.resolve().then(() => readHeadFile(file)));
+    return headCache.get(file);
+  });
   const allErrors = [...errors];
   const list = Array.isArray(files) ? files : [];
   if (!Array.isArray(files)) allErrors.push("the changed-file list is not an array");
   else if (files.length === 0 && !allowEmpty) allErrors.push("the changed-file list is empty, but the PR does not report zero changed files");
   const results = [];
-  for await (const outcome of inSequence(list, (file, index) => classifyFile(file, index, config, readHeadFile))) {
+  for await (const outcome of inSequence(list, (file, index) => classifyFile(file, index, config, readHead))) {
     allErrors.push(...outcome.errors);
     if (outcome.entry) results.push(outcome.entry);
   }
 
   const classes = OUTPUT_CLASSES.filter((name) => results.some((file) => file.classes.includes(name)));
-  return {
+  const result = {
     version: OUTPUT_VERSION,
     sha,
     base_sha: baseSha,
@@ -1238,6 +1458,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     errors: allErrors,
     ...manualReview(results),
   };
+  return doorTier(result, { config, files: list, changedFiles, headSha, readHeadFile: readHead, readBaseFile });
 }
 
 /** A manual_review list for files whose SQL was too large to scan, or nothing. */
@@ -1251,7 +1472,7 @@ function manualReview(results) {
 /** The result for a run that could not classify anything. */
 export function errorResult(errors, { sha = null, baseSha = null } = {}) {
   const gate_loosening = detectGateLoosening({ incomplete: "the PR could not be classified" });
-  return { version: OUTPUT_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors, gate_loosening };
+  return { version: OUTPUT_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors, gate_loosening, door: "one-way", door_reasons: [{ code: "classifier_error" }] };
 }
 
 // ---------------------------------------------------------------- gate loosening
@@ -1445,6 +1666,7 @@ function diffConfig(base, head) {
   const baseSql = objectOf(base.sql_content);
   const headSql = objectOf(head.sql_content);
   return [
+    ...(JSON.stringify(base.door) !== JSON.stringify(head.door) ? [{ kind: "door_changed", path: at, message: `${at} changes door rules; needs governance review.` }] : []),
     ...categories,
     ...sqlPathChanges(baseSql, headSql, at),
     ...sqlRuleRemovals(baseSql, headSql, at),
@@ -1603,7 +1825,8 @@ export async function fetchPullRequest(client, repo, number, { expectedHeadSha, 
     errors.push(`file list is incomplete: API listed ${files.length} of ${expected} changed files`);
   }
   const readHeadFile = (path) => client.raw(`/repos/${repo}/contents/${encodePath(path)}?ref=${encodeURIComponent(sha)}`);
-  return { sha, baseSha, files, changedFiles: Number.isInteger(expected) ? expected : null, readHeadFile, errors };
+  const readBaseFile = (path) => client.raw(`/repos/${repo}/contents/${encodePath(path)}?ref=${encodeURIComponent(baseSha)}`);
+  return { sha, baseSha, files, readBaseFile, changedFiles: Number.isInteger(expected) ? expected : null, readHeadFile, errors };
 }
 
 // ---------------------------------------------------------------- CLI
@@ -1623,6 +1846,8 @@ function summaryHeader(result) {
     `Head: ${safeInline(result.sha ?? "unknown")} · base: ${safeInline(result.base_sha ?? "unknown")}`,
     "",
     `Classes: ${result.classes.length ? result.classes.map(safeInline).join(", ") : "none"}`,
+    `Door (report only): ${result.door ?? "none"}`,
+    ...(result.door_reasons ?? []).map((reason) => `- door: ${safeInline(reason.code)}${reason.path ? ` (${safeInline(reason.path)})` : ""}`),
     `Sensitive files: ${result.sensitive_count} of ${result.files.length}${result.multi_class ? " (multi-class)" : ""}`,
     `Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`,
     "",
@@ -1736,9 +1961,15 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
       const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
       const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
       result.gate_loosening = loosening.gateLoosening;
+      if (loosening.gateLoosening.detected) {
+        result.door = "one-way";
+        result.door_reasons.push({ code: "O-GATE" });
+      }
       if (loosening.errors.length) {
         result.errors.push(...loosening.errors);
         result.status = "error";
+        result.door = "one-way";
+        result.door_reasons.push({ code: "classifier_error" });
       }
     } catch (error) {
       result = errorResult([`GitHub API error: ${messageOf(error)}`], { sha: options["head-sha"] ?? null });

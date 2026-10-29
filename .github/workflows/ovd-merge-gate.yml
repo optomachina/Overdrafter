@@ -1,0 +1,244 @@
+name: OVD merge gate
+
+# OVD-845 / OVD-959 (PR-G1). Writes the single merge-gate check run
+# `ovd-merge-gate` on the PR head through the Checks API, as GitHub Actions
+# (app 15368). The jobs are named ovd-merge-gate-writer and
+# ovd-merge-gate-history so that no job of this or any workflow reports a
+# same-named check by itself; the check is only ever what
+# scripts/ovd-merge-gate.mjs writes.
+#
+# Trusted code only. pull_request_target and issue_comment run this file
+# from the default branch, and each job checks out the default branch (the
+# gate scripts) and nothing else: never the PR head, never a PR ref. The PR
+# head and the base branch are fetched by the script as git data into a
+# separate, freshly created bare repository in a temporary directory (no
+# working tree; the checkout's own object store and refs are not touched), only to recompute diff_id; the PR file list and comments are
+# read through the API. Nothing from the PR is checked out, installed or
+# executed. Event values are lookup keys only and reach run blocks through
+# env. workflow_dispatch (`pr`) re-evaluates a PR, for example when a verdict
+# comment did not trigger a run (comments posted with GITHUB_TOKEN never
+# trigger workflows); it refuses to run from a ref other than the default
+# branch.
+#
+# merge_group writes success on github.sha, the queue no-op: the gate was
+# evaluated on the PR head. Its YAML comes from the merge group ref; the job
+# uses an inline API call with no checkout or repository code execution.
+#
+# MODE (report) and the trusted-verifier list are constants in the script,
+# never inputs, env or repo variables, so a PR or a variable cannot flip
+# them. Report mode writes `neutral` with "REPORT: would block: <codes>"
+# instead of failure; this check is not required yet (card K2).
+#
+# Verdict history (OVD-959 repair). GitHub keeps no copy of a deleted
+# comment, so ovd-merge-gate-history first appends every trusted blocking
+# verdict it can see (the event comment, also on deletion, and the live
+# comments) to an append-only record: check runs named
+# ovd-merge-gate-history/pr-<N> on the repository's root commit. That job
+# has no concurrency group, so a newer run can never replace it; only the
+# writer is queued per PR. The writer needs the history job, so every writer
+# that runs started after its own run's record was written, and the last
+# writer to run sees every record. See docs/verdict-format.md.
+#
+# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR and are never cancelled;
+# each re-reads the head right before writing and writes nothing for a head
+# that moved (the run for the new head writes it).
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+  issue_comment:
+    types:
+      - created
+      - edited
+      - deleted
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to re-evaluate
+        required: true
+        type: string
+  merge_group:
+    types:
+      - checks_requested
+
+permissions: {}
+
+jobs:
+  ovd-merge-gate-writer:
+    name: ovd-merge-gate-writer
+    needs: ovd-merge-gate-history
+    # F1: run even when the history job failed, and pass its result in, so a
+    # failed history write fails the gate instead of skipping the writer and
+    # leaving an earlier (possibly passing) result on the head.
+    if: ${{ always() && github.event_name != 'merge_group' }}
+    permissions:
+      checks: write
+      actions: read
+      pull-requests: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}
+      cancel-in-progress: false
+
+    steps:
+      # Refuse non-default dispatch refs before checkout or any token-bearing step.
+      # pull_request_target executes only base/default-branch gate code; never PR code.
+      - name: Require trusted workflow ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout default branch (gate scripts only)
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Write ovd-merge-gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_FROM_PULL_REQUEST: ${{ github.event.pull_request.number }}
+          PR_FROM_ISSUE: ${{ github.event.issue.number }}
+          ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
+          PR_FROM_DISPATCH: ${{ inputs.pr }}
+          HISTORY_RESULT: ${{ needs.ovd-merge-gate-history.result }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ovd-merge-gate.mjs ]; then
+            printf '### ovd-merge-gate: SKIPPED\n\nThe default branch has no scripts/ovd-merge-gate.mjs yet.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$EVENT_NAME" in
+            pull_request_target)
+              pr="$PR_FROM_PULL_REQUEST"
+              ;;
+            issue_comment)
+              if [ "$ISSUE_IS_PR" != true ]; then
+                echo "issue_comment on an issue, not a pull request; nothing to gate."
+                exit 0
+              fi
+              pr="$PR_FROM_ISSUE"
+              ;;
+            workflow_dispatch)
+              if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+                echo "::error::workflow_dispatch must run from the default branch ($DEFAULT_BRANCH), not $GITHUB_REF"
+                exit 1
+              fi
+              pr="$PR_FROM_DISPATCH"
+              ;;
+            *)
+              echo "::error::unexpected event $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          if ! printf '%s' "$pr" | grep -Eq '^[1-9][0-9]{0,6}$'; then
+            echo "::error::not a pull request number: $pr"
+            exit 1
+          fi
+          node scripts/ovd-merge-gate.mjs write --pr "$pr" --history-result "$HISTORY_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  ovd-merge-gate-history:
+    name: ovd-merge-gate-history
+    if: github.event_name != 'merge_group'
+    permissions:
+      checks: write
+      actions: read
+      pull-requests: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Refuse non-default dispatch refs before checkout or any token-bearing step.
+      # pull_request_target executes only base/default-branch gate code; never PR code.
+      - name: Require trusted workflow ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout default branch (gate scripts only)
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Record trusted blocking verdicts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_FROM_PULL_REQUEST: ${{ github.event.pull_request.number }}
+          PR_FROM_ISSUE: ${{ github.event.issue.number }}
+          ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
+          PR_FROM_DISPATCH: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ovd-merge-gate.mjs ]; then
+            echo "The default branch has no scripts/ovd-merge-gate.mjs yet; nothing to record."
+            exit 0
+          fi
+          case "$EVENT_NAME" in
+            pull_request_target)
+              pr="$PR_FROM_PULL_REQUEST"
+              ;;
+            issue_comment)
+              if [ "$ISSUE_IS_PR" != true ]; then
+                echo "issue_comment on an issue, not a pull request; nothing to record."
+                exit 0
+              fi
+              pr="$PR_FROM_ISSUE"
+              ;;
+            workflow_dispatch)
+              if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+                echo "::error::workflow_dispatch must run from the default branch ($DEFAULT_BRANCH), not $GITHUB_REF"
+                exit 1
+              fi
+              pr="$PR_FROM_DISPATCH"
+              ;;
+            *)
+              echo "::error::unexpected event $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          if ! printf '%s' "$pr" | grep -Eq '^[1-9][0-9]{0,6}$'; then
+            echo "::error::not a pull request number: $pr"
+            exit 1
+          fi
+          node scripts/ovd-merge-gate.mjs record --pr "$pr"
+
+  ovd-merge-gate-queue:
+    name: ovd-merge-gate-queue
+    if: github.event_name == 'merge_group'
+    permissions:
+      checks: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Write merge queue success
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name=ovd-merge-gate -f head_sha="$GITHUB_SHA" \
+            -f status=completed -f conclusion=success \
+            -f 'output[title]=ovd-merge-gate: merge queue no-op' \
+            -f 'output[summary]=The merge gate was evaluated on the PR head.'

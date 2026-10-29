@@ -130,6 +130,11 @@ describe("validateVerdict", () => {
 });
 
 describe("tagCorroborated", () => {
+  it("does not count opus and claude as independent families", async () => {
+    const { normalizeModelFamily } = await import("./ovd-merge-gate.mjs");
+    const findings = ["opus", "claude", "sonnet"].map((model) => ({ severity: "high", file: "a.ts", line: 3, model }));
+    expect(tagCorroborated(findings, { normalizeFamily: normalizeModelFamily }).map((finding) => finding.corroborated)).toEqual([false, false, false]);
+  });
   it("tags findings raised by two model families on the same location", () => {
     const tagged = tagCorroborated([
       { severity: "high", file: "a.ts", line: 3, model: "opus" },
@@ -374,6 +379,25 @@ describe("OVD-845 optional verdict fields", () => {
 
   it.each(repoRelativePaths)("accepts the repo-relative gate finding file %s", (file) => {
     expect(validateVerdict(valid({ findings: [gateFinding({ file })] }))).toEqual({ ok: true, errors: [] });
+  });
+
+  // OVD-959 Codex review of dd68f8a5: a legacy reviewer finding accepted
+  // `../outside`; its file is now repo-relative like a gate finding (stricter only).
+  const legacyFinding = (file) => ({ severity: "low", file, line: 1, model: "grok" });
+  it.each([
+    ["..", "../outside", DOTDOT],
+    ["nested ..", "src/../../outside", DOTDOT],
+    ["backslash ..", "src\\..\\..\\outside", DOTDOT],
+    ["absolute", "/etc/passwd", ABSOLUTE],
+    ["drive letter", "C:/secret.ts", ABSOLUTE],
+  ])("rejects a legacy reviewer finding with a %s file path", (_name, file, message) => {
+    const result = validateVerdict(valid({ role: "reviewer", findings: [legacyFinding(file)] }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.startsWith(message))).toBe(true);
+  });
+
+  it.each(["src/a.ts", "README.md", "src/..hidden/a.ts"])("still accepts the repo-relative legacy finding file %s", (file) => {
+    expect(validateVerdict(valid({ role: "reviewer", findings: [legacyFinding(file)] }))).toEqual({ ok: true, errors: [] });
   });
 
   it("accepts base_sha and a supersedes/reason pair, and rejects either one alone", () => {

@@ -198,6 +198,13 @@ remote, so run `git fetch origin main` yourself before reading back. The rebased
 read-back uses `git merge-tree --write-tree` (git 2.38 or later), which writes
 loose objects but no refs.
 
+The script runs on Linux or macOS only: git is resolved from `/usr/bin`, `/bin`
+or `/usr/local/bin`, never from `PATH`. On Windows it refuses to start; run it
+inside WSL. A missing or failing git, or a SHA that names a non-commit object,
+is an error (exit 2, and no row is written for that read-back), never a
+`merge-commit-missing` or not-an-ancestor result. A lower PR's logged merge that
+is missing from the local clone stops with `lower-merge-missing`.
+
 Keep one log per stack, for example `.audit/merge-plans/<stack>.tsv`, and append
 every plan cycle for that stack to the same file. The stop guard in step 4 only
 sees its own log. Only one operator runs this procedure at a time. The log has
