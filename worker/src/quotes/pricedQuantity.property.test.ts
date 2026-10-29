@@ -586,8 +586,12 @@ function cardPage(reads: Array<{ quantity: number; price: number }>): Page {
         isVisible: async () => true,
         innerText: async () => `Qty ${read.quantity} pcs; $${read.price}`,
         inputValue: () => { throw new Error("input echo forbidden"); },
-        locator: () => ({ count: async () => 1, nth: () => ({
-          isVisible: async () => true, innerText: async () => `Qty ${read.quantity} pcs`,
+        locator: () => ({ count: async () => 1, first: () => ({
+          isVisible: async () => true,
+          innerText: async () => `Qty ${read.quantity} pcs; $${read.price}`,
+          locator: () => ({ count: async () => 1, nth: () => ({
+            isVisible: async () => true, innerText: async () => `Qty ${read.quantity} pcs`,
+          }) }),
         }) }),
       };
       return { count: async () => 1, nth: () => node };
