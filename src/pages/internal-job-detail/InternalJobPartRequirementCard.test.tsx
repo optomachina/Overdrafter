@@ -109,6 +109,7 @@ function makeExtractionRecord(selectedBy: "parser" | "model" | "review"): Drawin
     part_id: "part-1",
     organization_id: "org-1",
     extractor_version: "test-extractor",
+    source_attempt_id: null,
     extraction: {
       description: "Bracket",
       partNumber: "BRKT-001",
@@ -228,6 +229,7 @@ function makePartQueueTask(): WorkQueueRecord {
     task_type: "extract_part",
     status: "queued",
     attempts: 2,
+    attempt_id: null,
     payload: {
       partId: "part-1",
       source: "internal-diagnostics-test",

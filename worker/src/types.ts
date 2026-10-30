@@ -89,6 +89,8 @@ export type QueueTaskRecord = {
   status: QueueTaskStatus;
   payload: Record<string, unknown>;
   attempts: number;
+  /** Absent on pre-U3 claim responses; null denotes legacy, never finishing evidence. */
+  attempt_id?: string | null;
   available_at: string;
   locked_at: string | null;
   locked_by: string | null;

@@ -146,7 +146,7 @@ export async function markTaskCancelled(
 }
 
 /**
- * Requeues a task for a later retry and clears the current worker lock.
+ * Requeues a task for a later retry and clears the current worker lock and attempt identity.
  *
  * Conditional on the row still being `running` under this worker's lock and
  * claim generation, so a retry can never revive a task that was cancelled (for
@@ -168,6 +168,7 @@ export async function markTaskQueuedForRetry(
     .from("work_queue")
     .update({
       status: "queued",
+      attempt_id: null,
       payload: mergePayload(task, payloadPatch),
       available_at: availableAt,
       locked_at: null,
