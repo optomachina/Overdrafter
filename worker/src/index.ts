@@ -5,6 +5,7 @@ import { captureOperationalJevConsumer, observeBoundOperationalFailure, type Ope
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
 import { autoApproveJobRequirements } from "./autoApprove.js";
+import { refreshJobExtractionStatus } from "./refreshJobExtractionStatus.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
@@ -861,12 +862,15 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
               : null,
           extractText: extractPdfText,
         }, exportScanOutcomes);
-        const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+        // OVD-1067: 0 approved is a review hold (fields need review; the job
+        // stays 'extracting'), so the task completes with reviewRequired.
+        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
           sourcePartId,
-          autoApprovedPartCount,
+          autoApprovedPartCount: autoApproval.approvedCount,
+          reviewRequired: autoApproval.reviewHold,
           exportScanOutcomes,
         });
         return;
@@ -938,7 +942,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         logCadPreviewWarning(task, enqueueError);
       }
     }
-    const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+    // OVD-1067: 0 approved is a review hold, not a failure (see above).
+    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
       extraction,
@@ -946,7 +951,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       extractorVersion,
       workerBuildVersion: config.workerBuildVersion,
       previewAssetCount: previewAssets.length,
-      autoApprovedPartCount,
+      autoApprovedPartCount: autoApproval.approvedCount,
+      reviewRequired: autoApproval.reviewHold,
       completedAt,
     });
     await logWorkerAuditEvent(supabase, {
@@ -2612,6 +2618,11 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         });
       }
     } finally {
+      // F2/F4: one separate request after the awaited completion/failure/retry
+      // update, including updates that no-op because another actor settled it.
+      if (acknowledged) {
+        await refreshJobExtractionStatus(supabase, task, (event) => logWorkerEvent(runtimeState, event));
+      }
       runtimeState.currentTask = null;
     }
 

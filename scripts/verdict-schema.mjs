@@ -46,7 +46,8 @@ const LEGACY_FINDING = {
   required: ["severity", "file", "line", "model"],
   properties: {
     severity: { enum: SEVERITIES },
-    file: { type: "string", minLength: 1 },
+    // Repo-relative like gate findings (ruling 3): a legacy finding must not name ../outside either.
+    file: { type: "string", minLength: 1, format: "repo-path" },
     line: { type: ["integer", "null"], minimum: 1 },
     model: { type: "string", pattern: MODEL_FAMILY },
     message: { type: "string" },
@@ -382,11 +383,11 @@ export function hasHighNote(verdict) {
  * names the same file and a line within `lineTolerance` (file-level findings,
  * line null, match other file-level findings). Returns new finding objects.
  */
-export function tagCorroborated(findings, { lineTolerance = 0 } = {}) {
+export function tagCorroborated(findings, { lineTolerance = 0, normalizeFamily = (value) => value } = {}) {
   const near = (a, b) => (a.line === null || b.line === null ? a.line === b.line : Math.abs(a.line - b.line) <= lineTolerance);
   return findings.map((finding) => ({
     ...finding,
-    corroborated: findings.some((other) => other.model !== finding.model && other.file === finding.file && near(other, finding)),
+    corroborated: findings.some((other) => (normalizeFamily(other.model) ?? other.model) !== (normalizeFamily(finding.model) ?? finding.model) && other.file === finding.file && near(other, finding)),
   }));
 }
 
