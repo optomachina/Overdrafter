@@ -61,11 +61,48 @@ and builder prompt wiring are outside PR-A1.
 
 ## Supabase image registry
 
-`supabase/setup-cli` v1.6.0 unconditionally exports
-`SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` to `GITHUB_ENV` for CLI >= 1.28.0, so
-`supabase start` pulls from ghcr.io and can fail with `toomanyrequests`. Every
-workflow therefore runs a "Pull Supabase images from public ECR" step right after
-setup-cli that writes `SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws` to
-`GITHUB_ENV`; the later write wins. public.ecr.aws is the CLI's own default
-registry (`internal/utils/docker.go` `GetRegistry`, v2.78.1), so keep that step
-next to any new or bumped setup-cli step until the action stops overriding it.
+Every workflow that starts Supabase uses
+`.github/actions/supabase-image-cache` after setup-cli. The action overrides
+setup-cli v1.6.0's registry setting through `GITHUB_ENV`, selecting
+`docker.io` without credentials. The checked-in source is the upstream
+CLI 2.78.1 `pkg/config/templates/Dockerfile`, retained at
+`.github/actions/supabase-image-cache/cli-2.78.1-images.txt`.
+
+There are three groups: `full` warms the 13 default stack images (pooler is
+disabled by default); `db` warms only Postgres and shares a small entry across
+all draft workflows; `tools` warms `postgres:17` for pg_dump/psql and
+`supabase/pg_prove` for pgTAP. The helper supports excluded service names for
+future callers. Update the source fixture and `CLI_VERSION` together with any
+CLI bump. The Node contract test checks the complete upstream image definition embedded
+in the actual pinned binary and compares its reported service versions using
+`SUPABASE_CACHE_CLI`; CI runs both comparisons.
+The start commands remain unchanged, so an omitted/new image is pulled normally.
+
+Before restore, the helper resolves each reference's Linux platform manifest
+and config digest with `docker manifest inspect -v`. The key includes the CLI version and is
+`supabase-images-v2-cli-<CLI version>-<runner OS>-<architecture>-<SHA256>`, hashing the sorted
+reference, manifest digest and config digest records. There are no tag-only
+keys or restore prefixes. A resolution failure disables restore and save for
+that group, then attempts normal pulls. No partially resolved cache is saved.
+
+On a hit, `docker load` restores a gzip-compressed Docker archive. The helper
+compares content-addressed image IDs to the registry's config digests before
+assigning the exact tag the CLI expects; cached receipts are never trusted.
+An unexpected tag is removed before fallback, and failure to remove it stops
+the action. On a miss or corrupt archive, missing images are pulled by resolved
+digest with the existing bounded throttle/backoff policy, verified, and tagged.
+Manifest resolution tries Docker Hub, GHCR, then public ECR. Pulls try the
+resolved source first, followed by the other registries at the same digest;
+a mismatched or missing mirror manifest cannot be substituted.
+Only a miss with every image verified can save a new archive. Cache-service,
+archive-save and pull failures leave the regular Supabase start command's
+pull/retry path available. Archives contain image IDs rather than mutable tags;
+gzip and the separate database/tools groups limit duplicate storage within
+GitHub's repository cache quota. Cache eviction is safe and costs a cold pull.
+
+To bust all image entries, increment the `supabase-images-v2` prefix in
+`.github/actions/supabase-image-cache/cache.mjs`. A changed image digest automatically gets a
+new key. Removing a specific Actions cache entry also causes a cold rebuild;
+a corrupt exact hit falls back to pulls but is not overwritten in place.
+Fork PRs can restore and verify images but cannot save caches. This cache uses
+no secrets or extra token permissions.

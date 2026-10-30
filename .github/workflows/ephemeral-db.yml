@@ -92,13 +92,13 @@ jobs:
       # pull_request checks out the merge commit of the PR head into the current
       # base tip, so HEAD^1 is the base as merged.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 2
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
@@ -107,11 +107,15 @@ jobs:
         with:
           version: 2.78.1
 
-      - name: Pull Supabase images from public ECR
-        # setup-cli v1.6.0 exports SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io to GITHUB_ENV,
-        # which rate-limits supabase start. A later GITHUB_ENV write wins; public.ecr.aws is
-        # the CLI's own default registry (internal/utils/docker.go, v2.78.1).
-        run: echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=public.ecr.aws" >> "$GITHUB_ENV"
+      - name: Cache Supabase images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: db
+
+      - name: Cache pgTAP client images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: tools
 
       - name: Prepare checker from base
         run: |
@@ -121,7 +125,7 @@ jobs:
           files="scripts/ephemeral-db-apply.mjs scripts/supabase-target-guard.mjs scripts/migration-timestamp.mjs scripts/run-supabase-policy-tests.mjs scripts/ovd462-lease-race.mjs scripts/ovd591-psql-concurrency.mjs"
           source=base
           for file in $files; do
-            git cat-file -e "HEAD^1:$file" 2>/dev/null || source=head
+            git cat-file -e "HEAD^1:$file" 2>/dev/null || source="head"
           done
           for file in $files; do
             if [ "$source" = base ]; then
@@ -139,11 +143,13 @@ jobs:
         run: |
           set -euo pipefail
           git diff --name-status --no-renames HEAD^1 HEAD
+          options=()
+          if [ -n "$ENFORCE" ]; then options+=("$ENFORCE"); fi
           node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs" \
             --root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
             --db-url "$DB_URL" --psql docker \
             --work-dir "$RUNNER_TEMP/ephemeral-db" --checker-source "$CHECKER_SOURCE" \
-            --report "$RUNNER_TEMP/ephemeral-db-report.json" $ENFORCE
+            --report "$RUNNER_TEMP/ephemeral-db-report.json" "${options[@]}"
 
       - name: Stop local database before rollback stage
         # Free the loopback port before the rollback stage starts its own stack.
@@ -160,7 +166,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ephemeral-db-report
           path: |

@@ -1,0 +1,40 @@
+name: Cache Supabase images
+description: Warm local Docker images from a verified digest-keyed archive; fall back to normal pulls.
+inputs:
+  group:
+    description: full (default stack), db (Postgres only), or tools (pg_prove and postgres client)
+    default: full
+runs:
+  using: composite
+  steps:
+    - name: Resolve image digests
+      id: plan
+      shell: bash
+      env:
+        IMAGE_GROUP: ${{ inputs.group }}
+      run: node "$GITHUB_ACTION_PATH/cache.mjs" prepare "$RUNNER_TEMP/supabase-images-$IMAGE_GROUP" "$IMAGE_GROUP"
+
+    - name: Restore image archive
+      id: restore
+      if: steps.plan.outputs.key != ''
+      continue-on-error: true
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/supabase-images-${{ inputs.group }}/archive
+        key: ${{ steps.plan.outputs.key }}
+
+    - name: Load and verify images or pull with backoff
+      id: warm
+      shell: bash
+      env:
+        IMAGE_GROUP: ${{ inputs.group }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: node "$GITHUB_ACTION_PATH/cache.mjs" warm "$RUNNER_TEMP/supabase-images-$IMAGE_GROUP"
+
+    - name: Save verified image archive
+      if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.restore.outputs.cache-hit != 'true' && steps.warm.outputs.save == 'true' && steps.plan.outputs.key != ''
+      continue-on-error: true
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/supabase-images-${{ inputs.group }}/archive
+        key: ${{ steps.plan.outputs.key }}
