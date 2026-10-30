@@ -48,6 +48,16 @@ BEGIN
   RETURN public.api_request_extraction(j);
 END;
 $$;
+-- dblink sessions log in as a fixture role whose password is generated here and
+-- never written down. ovd.test_conninfo still picks the host, port and database.
+SELECT set_config('ovd979u5.password', encode(extensions.gen_random_bytes(24), 'hex'), false);
+DO $$
+BEGIN
+  EXECUTE format('CREATE ROLE ovd979u5_tap LOGIN PASSWORD %L IN ROLE authenticated, service_role',
+    current_setting('ovd979u5.password'));
+END;
+$$;
+GRANT USAGE ON SCHEMA ovd979u5_test TO authenticated, service_role;
 COMMIT;
 SELECT no_plan();
 
@@ -83,10 +93,15 @@ INSERT INTO public.work_queue (organization_id, job_id, part_id, task_type, payl
 SELECT '97950000-0000-4000-8000-000000000002', job_id, part_id, 'extract_part', jsonb_build_object('drawingFileId', NULL) FROM u5_race;
 CREATE TEMP TABLE u5_sessions (a integer, b integer, claim public.work_queue);
 CREATE FUNCTION pg_temp.u5_connect() RETURNS void LANGUAGE plpgsql AS $$
-DECLARE conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''), 'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'); -- NOSONAR local test fixture
+DECLARE conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres')
+  || format(' user=ovd979u5_tap password=%s', current_setting('ovd979u5.password'));
 BEGIN
   PERFORM extensions.dblink_connect('u5_a', conn);
   PERFORM extensions.dblink_connect('u5_b', conn);
+  -- Like the worker; the request helper sets the client's JWT claims itself.
+  PERFORM extensions.dblink_exec('u5_a', 'set role service_role');
+  PERFORM extensions.dblink_exec('u5_b', 'set role service_role');
   INSERT INTO u5_sessions (a, b) SELECT a.pid, b.pid
   FROM extensions.dblink('u5_a', 'select pg_backend_pid()') AS a(pid integer)
   CROSS JOIN extensions.dblink('u5_b', 'select pg_backend_pid()') AS b(pid integer);
@@ -119,6 +134,15 @@ SELECT dblink_exec('u5_b', 'commit');
 SELECT is((SELECT count(*)::integer FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), 1, 'race retains exactly one task row');
 SELECT is((SELECT payload->>'pendingDrawingFileId' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), (SELECT drawing_id::text FROM u5_race), 'raced claim records drawing successor');
 SELECT ok((SELECT available_at > now() + interval '55 minutes' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), 'deferred backstop remains one hour');
+SELECT is((SELECT attempt_id FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), (SELECT (claim).attempt_id FROM u5_sessions),
+  'request keeps the running attempt_id, so worker settlement still matches');
+-- The drawing is replaced again while the old attempt still runs.
+ALTER TABLE u5_race ADD COLUMN replaced_id uuid;
+UPDATE u5_race SET replaced_id = ovd979u5_test.attach(job_id);
+SELECT is(ovd979u5_test.request((SELECT job_id FROM u5_race)), 0, 'drawing replaced mid-task: request adds no row');
+SELECT is((SELECT payload->>'pendingDrawingFileId' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), (SELECT replaced_id::text FROM u5_race),
+  'drawing replaced mid-task: the newest drawing is pending, not the stale one');
+UPDATE u5_race SET drawing_id = replaced_id;
 UPDATE public.drawing_extractions SET source_attempt_id = (SELECT (claim).attempt_id FROM u5_sessions)
 WHERE part_id = (SELECT part_id FROM u5_race);
 SELECT public.api_auto_approve_job_requirements((SELECT job_id FROM u5_race));
@@ -126,9 +150,14 @@ SELECT is((SELECT status::text FROM public.jobs WHERE id = (SELECT job_id FROM u
 UPDATE public.work_queue SET payload = (SELECT (claim).payload FROM u5_sessions)
 WHERE part_id = (SELECT part_id FROM u5_race);
 SELECT is((SELECT payload->>'pendingDrawingFileId' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), (SELECT drawing_id::text FROM u5_race), 'stale running payload update preserves the pending drawing');
--- Emulate a worker writing its stale claim payload at settlement.
-UPDATE public.work_queue SET status = 'completed', payload = (SELECT (claim).payload FROM u5_sessions)
-WHERE part_id = (SELECT part_id FROM u5_race);
+-- Settle with the worker's own predicates (worker/src/queue.ts: id, running,
+-- attempts, locked_by) and its stale claim payload.
+WITH settled AS (
+  UPDATE public.work_queue SET status = 'completed', payload = (SELECT (claim).payload FROM u5_sessions)
+  WHERE id = (SELECT (claim).id FROM u5_sessions) AND status = 'running'
+    AND attempts = (SELECT (claim).attempts FROM u5_sessions) AND locked_by = (SELECT (claim).locked_by FROM u5_sessions)
+  RETURNING id)
+SELECT is((SELECT count(*)::integer FROM settled), 1, 'worker settlement predicates still match the merged row');
 SELECT is((SELECT status::text FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), 'queued', 'claim raced with request: successor is queued on settlement');
 SELECT ok((SELECT available_at <= now() AND attempt_id IS NULL AND locked_at IS NULL AND locked_by IS NULL
   FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), 'successor is immediately claimable with old claim cleared');
@@ -215,6 +244,7 @@ SELECT ok(NOT has_function_privilege('anon', 'public.api_request_extraction(uuid
 SELECT ok(NOT has_function_privilege('authenticated', 'public.api_claim_next_task(text)', 'execute'), 'client claim denied');
 SELECT ok(has_function_privilege('authenticated', 'public.api_request_extraction(uuid)', 'execute'), 'client request grant retained');
 SELECT ok(NOT has_function_privilege('authenticated', 'private.merge_pending_drawing_extraction()', 'execute'), 'trigger helper is service-only');
+SELECT ok(NOT (SELECT prosecdef FROM pg_catalog.pg_proc WHERE oid = 'private.merge_pending_drawing_extraction()'::regprocedure), 'trigger helper is not SECURITY DEFINER');
 SELECT dblink_disconnect('u5_a');
 SELECT dblink_disconnect('u5_b');
 BEGIN;
@@ -225,6 +255,7 @@ DELETE FROM public.audit_events WHERE organization_id = '97950000-0000-4000-8000
 DELETE FROM public.organizations WHERE id = '97950000-0000-4000-8000-000000000002';
 DELETE FROM auth.users WHERE id = '97950000-0000-4000-8000-000000000001';
 DROP SCHEMA ovd979u5_test CASCADE;
+DROP ROLE ovd979u5_tap;
 COMMIT;
 SELECT ok(NOT EXISTS(SELECT 1 FROM public.organizations WHERE id = '97950000-0000-4000-8000-000000000002'), 'owned fixture removed');
 SELECT * FROM finish();

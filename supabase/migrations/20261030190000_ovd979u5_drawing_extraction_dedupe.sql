@@ -2,10 +2,12 @@
 -- ovd: idempotent
 -- Apply after U4 in one transaction. No data cleanup or legacy backfill.
 
--- Freeze queue writers across audit/index creation: abort, never repair duplicates.
-LOCK TABLE public.work_queue IN SHARE ROW EXCLUSIVE MODE;
+-- Freeze queue writers across audit and index creation: abort, never repair
+-- duplicates. One DO statement keeps the lock, audit and index in one
+-- transaction even when the runner does not wrap the file in one (25P01).
 DO $$
 BEGIN
+  LOCK TABLE public.work_queue IN SHARE ROW EXCLUSIVE MODE;
   IF EXISTS (
     SELECT 1 FROM public.work_queue
     WHERE task_type = 'extract_part' AND status IN ('queued', 'running')
@@ -14,11 +16,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'OVD-979 U5: duplicate active extract tasks; operator reconciliation required';
   END IF;
+  CREATE UNIQUE INDEX IF NOT EXISTS work_queue_one_active_extract_per_part
+    ON public.work_queue (part_id)
+    WHERE task_type = 'extract_part' AND status IN ('queued', 'running');
 END;
 $$;
-CREATE UNIQUE INDEX IF NOT EXISTS work_queue_one_active_extract_per_part
-  ON public.work_queue (part_id)
-  WHERE task_type = 'extract_part' AND status IN ('queued', 'running');
 
 CREATE OR REPLACE FUNCTION public.api_request_extraction(p_job_id uuid)
 RETURNS integer
@@ -78,7 +80,7 @@ BEGIN
             AND done.status = 'completed'
             AND done.payload->>'drawingFileId' = files.drawing_file_id::text)));
 
-  PERFORM 1 FROM public.parts WHERE job_id = p_job_id ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM public.parts WHERE job_id = p_job_id ORDER BY id FOR NO KEY UPDATE;
   PERFORM public.api_reconcile_job_parts(p_job_id);
 
   -- Include queued rows: a claim that wins first is re-read as running after
@@ -107,11 +109,10 @@ BEGIN
       AND v_task.payload->>'drawingFileId' IS DISTINCT FROM v_task.drawing_file_id::text THEN
       -- One row represents both the running attempt and its requested successor.
       -- OLD.payload in the settlement trigger survives stale worker payloads.
+      -- attempt_id stays: U4's gate treats a running row carrying
+      -- pendingDrawingFileId as pending, and settlement still finds the row.
       UPDATE public.work_queue SET
         payload = payload || jsonb_build_object('pendingDrawingFileId', v_task.drawing_file_id),
-        -- This attempt cannot finish the newly requested drawing. U4 must keep
-        -- treating it as pending even if the old CAD result has been stored.
-        attempt_id = NULL,
         available_at = now() + interval '1 hour'
       WHERE id = v_task.id;
     END IF;
@@ -156,15 +157,19 @@ REVOKE ALL ON FUNCTION public.api_request_extraction(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.api_request_extraction(uuid) TO authenticated, service_role;
 
 -- BEFORE, on this row only: no queue-to-job/part lock or second active row.
+-- It only rewrites NEW, so it runs as the updating role (no SECURITY DEFINER).
 CREATE OR REPLACE FUNCTION private.merge_pending_drawing_extraction()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
+  -- A worker writing its claim-time payload drops the pending successor; put
+  -- it back. A newer request already carries its own value, which wins.
   IF OLD.task_type = 'extract_part' AND OLD.status = 'running'
-    AND NEW.status = 'running' AND OLD.payload ? 'pendingDrawingFileId' THEN
+    AND NEW.status = 'running' AND OLD.payload ? 'pendingDrawingFileId'
+    AND NOT (NEW.payload ? 'pendingDrawingFileId') THEN
     NEW.payload := NEW.payload || jsonb_build_object(
       'pendingDrawingFileId', OLD.payload->'pendingDrawingFileId');
   END IF;
