@@ -20,6 +20,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prosrcMd5, scanFunctionEvents } from "./check-migration-function-collisions.mjs";
+import { findPsql } from "./seed-dev.mjs";
 import { assertLocalDatabaseUrl } from "./supabase-target-guard.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -138,7 +139,10 @@ function main(argv) {
   }
   const url = argv[argv.indexOf("--db-url") + 1];
   assertLocalDatabaseUrl(url);
-  const run = spawnSync("psql", [url, "-X", "-q", "-At", "-f", "-"], { input: proofSql(migration), encoding: "utf8" });
+  // A fixed-directory psql (or SEED_PSQL_PATH), never a PATH lookup.
+  const psql = findPsql();
+  if (!psql) throw new Error("psql was not found in a fixed system directory or at SEED_PSQL_PATH.");
+  const run = spawnSync(psql, [url, "-X", "-q", "-At", "-f", "-"], { input: proofSql(migration), encoding: "utf8" });
   process.stdout.write(run.stdout);
   process.stderr.write(run.stderr);
   const failed = run.status !== 0 || / FAIL$/m.test(run.stdout) || !/ PASS$/m.test(run.stdout);

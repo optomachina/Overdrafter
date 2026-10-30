@@ -109,9 +109,10 @@ END;
 $$;
 SELECT pg_temp.u5_connect();
 SELECT dblink_exec('u5_a', 'begin; set local lock_timeout = ''5s''; set local statement_timeout = ''10s''');
-UPDATE u5_sessions SET claim = (SELECT task::public.work_queue FROM dblink('u5_a', 'select task::text from public.api_claim_next_task(''u5-worker'') task') AS r(task text));
+UPDATE u5_sessions SET claim = (SELECT task::public.work_queue FROM dblink('u5_a', 'select task::text from public.api_claim_next_task(''u5-worker'') task') AS r(task text))
+WHERE a IS NOT NULL;
 ALTER TABLE u5_race ADD COLUMN drawing_id uuid;
-UPDATE u5_race SET drawing_id = ovd979u5_test.attach(job_id);
+UPDATE u5_race SET drawing_id = ovd979u5_test.attach(job_id) WHERE job_id IS NOT NULL;
 SELECT dblink_exec('u5_b', 'begin; set local lock_timeout = ''5s''; set local statement_timeout = ''10s''');
 SELECT dblink_send_query('u5_b', format('select ovd979u5_test.request(%L)', (SELECT job_id FROM u5_race)));
 CREATE FUNCTION pg_temp.u5_wait() RETURNS boolean LANGUAGE plpgsql AS $$
@@ -138,11 +139,11 @@ SELECT is((SELECT attempt_id FROM public.work_queue WHERE part_id = (SELECT part
   'request keeps the running attempt_id, so worker settlement still matches');
 -- The drawing is replaced again while the old attempt still runs.
 ALTER TABLE u5_race ADD COLUMN replaced_id uuid;
-UPDATE u5_race SET replaced_id = ovd979u5_test.attach(job_id);
+UPDATE u5_race SET replaced_id = ovd979u5_test.attach(job_id) WHERE job_id IS NOT NULL;
 SELECT is(ovd979u5_test.request((SELECT job_id FROM u5_race)), 0, 'drawing replaced mid-task: request adds no row');
 SELECT is((SELECT payload->>'pendingDrawingFileId' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_race)), (SELECT replaced_id::text FROM u5_race),
   'drawing replaced mid-task: the newest drawing is pending, not the stale one');
-UPDATE u5_race SET drawing_id = replaced_id;
+UPDATE u5_race SET drawing_id = replaced_id WHERE replaced_id IS NOT NULL;
 UPDATE public.drawing_extractions SET source_attempt_id = (SELECT (claim).attempt_id FROM u5_sessions)
 WHERE part_id = (SELECT part_id FROM u5_race);
 SELECT public.api_auto_approve_job_requirements((SELECT job_id FROM u5_race));
@@ -176,7 +177,7 @@ CREATE TEMP TABLE u5_reverse AS SELECT * FROM ovd979u5_test.make_case();
 SELECT ovd979u5_test.request((SELECT job_id FROM u5_reverse));
 SELECT is((SELECT payload->'drawingFileId' FROM public.work_queue WHERE part_id = (SELECT part_id FROM u5_reverse)), 'null'::jsonb, 'initial CAD task carries explicit null drawingFileId');
 ALTER TABLE u5_reverse ADD COLUMN drawing_id uuid;
-UPDATE u5_reverse SET drawing_id = ovd979u5_test.attach(job_id);
+UPDATE u5_reverse SET drawing_id = ovd979u5_test.attach(job_id) WHERE job_id IS NOT NULL;
 SELECT dblink_exec('u5_b', 'begin; set local lock_timeout = ''5s''');
 SELECT * FROM dblink('u5_b', format('select ovd979u5_test.request(%L)', (SELECT job_id FROM u5_reverse))) AS r(n integer);
 SELECT is((SELECT n FROM dblink('u5_a', 'select count(*)::integer from public.api_claim_next_task(''u5-worker'')') AS r(n integer)), 0, 'claim skips the queued row locked by in-flight request');
