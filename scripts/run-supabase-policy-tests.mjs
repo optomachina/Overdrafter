@@ -11,6 +11,7 @@ export const LEGACY = 'capability_runtime_persistence_concurrency.sql';
 // Reviewed exact-file routes only. Every entry must have a required CI runner;
 // new concurrency suites stay in the generic lane unless explicitly reviewed.
 export const DEDICATED_RUNNERS = Object.freeze({
+  'reconcile_claim_fence_followups_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
   'reconcile_claim_fence_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
 });
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');

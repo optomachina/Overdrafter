@@ -24,9 +24,12 @@ test('all SQL and include dependencies retained except exact dedicated-runner fi
   assert(receipt.files['fixtures/free_quote_meter_setup.inc']);
   assert(!receipt.selectedSql.includes(LEGACY));
   assert.deepEqual(receipt.dedicatedRunners, {
+    'reconcile_claim_fence_followups_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
     'reconcile_claim_fence_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
   });
   assert(!receipt.selectedSql.includes('reconcile_claim_fence_concurrency.sql'));
+  assert(!receipt.selectedSql.includes('reconcile_claim_fence_followups_concurrency.sql'));
+  assert(receipt.selectedSql.includes('reconcile_claim_fence_followups.sql'));
   assert(receipt.selectedSql.includes('reconcile_claim_fence.sql'));
   assert(receipt.selectedSql.includes('provider_dispatch_preflight_concurrency.sql'));
   assert.deepEqual(readFileSync(join(f.target, 'fixtures/free_quote_meter_setup.inc')),
