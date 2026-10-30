@@ -117,6 +117,11 @@ jobs:
       - name: Reset local database
         run: npm run db:reset
 
+      # This guarded, committing suite owns a socket-only runner; pg_prove must
+      # not copy it into the generic policy lane. Run before any dev seeding.
+      - name: Test reconcile claim fence concurrency on local database
+        run: node scripts/test-reconcile-claim-fence.mjs --ci-local "$RUNNER_TEMP/reconcile-claim-fence"
+
       - name: Test database policies after independent-session replacement
         env:
           OVD591_PSQL_QUALIFIED: ${{ needs.ovd591-qualification.result }}
