@@ -160,7 +160,7 @@ function database() {
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
     writes.push({ rpc: name });
-    const data = name === "api_worker_provider_kill_switch_state"
+    const data = name === "accept_vendor_quote_result" ? { outcome: "accepted" } : name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.fictiv, globalEngaged: switches.global }
       : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
         : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
@@ -185,7 +185,8 @@ const cancelledTask = expect.objectContaining({
   payload: expect.objectContaining({ cancellationReason: "cancelled_provider_disabled" }),
 });
 
-afterEach(() => { vi.restoreAllMocks(); vi.mocked(runGenericProviderTask).mockClear(); });
+afterEach(() => {
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.mocked(runGenericProviderTask).mockClear(); });
 
 describe("handleVendorQuoteTask on the generic provider route with the kill switch (OVD-722, OVD-464)", () => {
   it("engaged after the claim check, before launch: no adapter call, cancelled_provider_disabled, no requeue", async () => {
@@ -299,7 +300,7 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
     const rpc = db.client.rpc.bind(db.client);
     (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
       if (name === "api_worker_provider_kill_switch_state") order.push("switch_read");
-      if (name === "reconcile_vendor_quote_offers") order.push("persist");
+      if (name === "accept_vendor_quote_result") order.push("persist");
       return rpc(name, args);
     }) as typeof rpc;
     const adapterCheckpoints = ["before_navigation", "before_upload", "before_configure", "before_save"] as const;
@@ -334,7 +335,7 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
       "switch_read", "before_configure", "switch_read", "before_save",
       "persist",
     ]);
-    expect(db.updates("work_queue")).toEqual([expect.objectContaining({ status: "completed" })]);
+    expect(db.updates("work_queue")).toEqual([]);
     expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "failed" }),
       expect.objectContaining({ status: "manual_vendor_followup" }),
@@ -471,5 +472,76 @@ describe("handleVendorQuoteTask on the generic provider route with the supplier 
       raw_payload: expect.objectContaining({ failureCode: "cancelled_provider_disabled", killSwitchCheckpoint: "before_launch" }),
     })]));
     expect(db.updates("work_queue")).toEqual([cancelledTask]);
+  });
+});
+
+
+describe("claim-fenced acceptance route", () => {
+  const scenarios = [
+    { name: "accepted", replies: [{ outcome: "accepted" }], drain: true },
+    { name: "request_canceled", replies: [{ outcome: "request_canceled" }], drain: true },
+    { name: "stale", replies: [{ outcome: "stale" }], drain: false },
+    { name: "fenced", replies: [{ outcome: "fenced" }], drain: false, failed: true },
+    { name: "payload_mismatch", replies: [{ outcome: "payload_mismatch" }], drain: false, failed: true },
+    { name: "busy then accepted", replies: [{ outcome: "busy" }, { outcome: "accepted" }], drain: true },
+    { name: "busy exhausted", replies: [{ outcome: "busy" }], drain: false, failed: true, attempts: 10 },
+    { name: "lost response then replayed", replies: [new Error("lost response"), { outcome: "replayed", original_outcome: "accepted" }], drain: true },
+    { name: "replayed cancellation", replies: [{ outcome: "replayed", original_outcome: "request_canceled" }], drain: true },
+    { name: "drain failure", replies: [{ outcome: "accepted" }], drain: true, drainError: true },
+  ];
+  it.each(scenarios)("$name preserves the claim boundary", async (scenario) => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(1);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(FictivAdapter.prototype, "quote").mockResolvedValue({
+      vendor: "fictiv", status: "instant_quote_received", unitPriceUsd: 12, totalPriceUsd: 12,
+      leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+      rawPayload: { source: "fictiv-live-adapter", requestedQuantity: ENVELOPE.scope.requestedQuantity },
+    });
+    const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    const acceptanceArgs: Record<string, unknown>[] = [];
+    let drains = 0;
+    (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
+      if (name !== "accept_vendor_quote_result" && name !== "drain_quote_run_rollup_followups") return rpc(name, args);
+      return (async () => {
+      if (name === "accept_vendor_quote_result") {
+        const reply = scenario.replies[Math.min(acceptanceArgs.length, scenario.replies.length - 1)];
+        acceptanceArgs.push(structuredClone(args));
+        if (reply instanceof Error) throw reply;
+        return { data: reply, error: null };
+      }
+      if (name === "drain_quote_run_rollup_followups") {
+        drains += 1;
+        if (scenario.drainError) throw new Error("drain failed");
+        return { data: {}, error: null };
+      }
+      return rpc(name, args);
+      })();
+    }) as typeof rpc;
+    const claimed = { ...task, locked_by: "worker", locked_at: "2026-10-29T12:34:56.123456+00:00" };
+    const run = handleVendorQuoteTask(db.client, claimed, live);
+    const assertion = expect(run).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(18000);
+    await assertion;
+    if (scenario.failed) expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ raw_payload: expect.objectContaining({ failureCode: "persistence_failure" }) }),
+    ]));
+    expect(acceptanceArgs).toHaveLength(scenario.attempts ?? scenario.replies.length);
+    expect(acceptanceArgs[0]).toMatchObject({
+      p_task_id: claimed.id, p_locked_by: claimed.locked_by, p_locked_at: claimed.locked_at,
+      p_attempts: claimed.attempts, p_task_payload_patch: { vendorStatus: "instant_quote_received", artifactCount: 0 , offerCount: 1 },
+    });
+    for (const args of acceptanceArgs) expect(args).toEqual(acceptanceArgs[0]);
+    expect(drains).toBe(scenario.drain ? 1 : 0);
+    if (!scenario.failed) {
+      expect(db.writes.filter((write) => write.table === "work_queue")).toEqual([]);
+    }
+    if (scenario.name === "stale") {
+      expect(db.writes.filter((write) => write.table === "vendor_quote_results" &&
+        (write.update as { status?: string })?.status !== "running")).toEqual([]);
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("claim lost"));
+    }
   });
 });
