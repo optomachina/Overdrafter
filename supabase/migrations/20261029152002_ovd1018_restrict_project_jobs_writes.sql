@@ -1,14 +1,7 @@
--- =====================================================================
--- NEEDS BLAINE MIGRATION WINDOW - not applied
--- =====================================================================
--- Restrict public.project_jobs writes to the SECURITY DEFINER RPC path
--- (defense in depth).
---
--- This file is a DRAFT. It is not under supabase/migrations/, is not part of
--- migration lineage and has not been applied to any database. Promote it only
--- inside a Blaine-approved migration window, staging first
--- (docs/runbooks/staging.md). Plain SQL: no transaction control and no psql
--- meta-commands. Rollback: project-jobs-write-path.rollback.sql.
+-- OVD-1018: restrict public.project_jobs writes to the SECURITY DEFINER RPC
+-- path (defense in depth). Promoted from the reviewed draft
+-- docs/migration-drafts/project-jobs-write-path.sql (PR #892).
+-- Rollback: docs/migration-drafts/ovd-1018.rollback.sql.
 --
 -- Clients only read project_jobs (src/features/quotes/api/projects-api.ts and
 -- the create-payment-intent edge function). Every write already goes through a
@@ -34,18 +27,18 @@
 --    project_jobs_select_accessible already returns every row the dropped
 --    policy returned.
 --
--- No data change; no data loss on apply or rollback.
+-- No data change; no data loss on apply or rollback. Replayable: running it
+-- twice leaves the same state.
 -- Regression: supabase/tests/project_jobs_write_path.sql, which installs a byte
--- copy of this file (supabase/tests/fixtures/project_jobs_write_path.inc).
---
--- On promotion: point the fixture byte check in
--- scripts/run-supabase-policy-tests.node-test.mjs at the promoted file, drop
--- public.project_jobs from the anon TRUNCATE list in
--- supabase/tests/api_role_privilege_inventory.sql, add the file to the reviewed
--- free-quote CI pins (scripts/free-quote-ci-profile.mjs and
--- scripts/fixtures/free-quote-ci-source.json), and update the
--- user_can_edit_project reason in supabase/tests/ovd736_anon_definer_privileges.sql
--- (no project_jobs policy calls it after this).
+-- copy of this file (supabase/tests/fixtures/project_jobs_write_path.inc) only
+-- while authenticated still holds INSERT.
+
+-- The policy drop takes ACCESS EXCLUSIVE on project_jobs. Fail fast behind a
+-- long running reader instead of queueing every read; on a timeout the whole
+-- migration rolls back and is rerun at lower traffic. SET LOCAL is scoped to
+-- the transaction that runs this file (psql -1, MCP execute_sql, the pgTAP
+-- copy, or the Supabase CLI batch, which also prints a 25P01 notice for it).
+set local lock_timeout = '3s';
 
 revoke insert, update, delete, truncate on table public.project_jobs from public, anon, authenticated;
 

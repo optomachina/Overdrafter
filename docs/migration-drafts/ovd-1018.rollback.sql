@@ -1,18 +1,19 @@
--- =====================================================================
--- NEEDS BLAINE MIGRATION WINDOW - not applied
--- =====================================================================
--- ROLLBACK for docs/migration-drafts/project-jobs-write-path.sql.
---
--- DRAFT. Not applied. Run only inside a migration window, as a forward
--- migration, if the restriction must be withdrawn. Run it as postgres, the
--- grantor of the prior entries. It restores the exact prior state of
--- public.project_jobs:
+-- OVD-1018 down path for the promoted migration
+-- supabase/migrations/20261029152002_ovd1018_restrict_project_jobs_writes.sql.
+-- No forward draft or pending test family: the forward SQL lives only in
+-- migrations. Run only inside a migration window, as a forward migration, if
+-- the restriction must be withdrawn. Run it as postgres, the grantor of the
+-- prior entries. It restores the exact prior state of public.project_jobs:
 --   - INSERT, UPDATE, DELETE and TRUNCATE for anon and authenticated (granted
 --     by postgres; PUBLIC held none, so it gets none back);
 --   - the FOR ALL policy project_jobs_manage_editors, as created by
 --     20260307160000_add_project_jobs_and_selected_offer.sql.
 -- Replayable: running it twice leaves the same state.
 -- No data change; no data loss.
+-- Regression: supabase/tests/project_jobs_write_path.sql applies a byte copy
+-- (supabase/tests/fixtures/project_jobs_write_path_rollback.inc) twice.
+
+set local lock_timeout = '3s';
 
 grant insert, update, delete, truncate on table public.project_jobs to anon, authenticated;
 
