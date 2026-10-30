@@ -106,3 +106,7 @@ The owner record includes cleanup status and verified file hashes.
 Exact-head independent review and hosted release qualification remain separate
 integration work. U4 must add the attempt gate, and U5 must handle request
 deduplication and deferred release; neither is claimed by U3.
+
+## Status (OVD-979 U6)
+
+The draft now carries a `SUPERSEDED` header so the function-collision check treats it as history: a later unit (U5) replaced one of its functions. The promoted migration file is unchanged; the draft equals it apart from that one header line.

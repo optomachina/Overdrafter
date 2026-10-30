@@ -6,7 +6,8 @@ import { scanFunctionEvents } from "./check-migration-function-collisions.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(join(root, file), "utf8");
-const forward = read("docs/migration-drafts/ovd-979u2.sql");
+// U6 retired the draft with a one-line SUPERSEDED header; the rest is the promoted bytes.
+const forward = read("docs/migration-drafts/ovd-979u2.sql").replace(/^-- SUPERSEDED:[^\n]*\n/, "");
 const rollback = scanFunctionEvents(read("docs/migration-drafts/ovd-979u2.rollback.sql"));
 const prior = [
   ["public.api_approve_job_requirements(uuid,jsonb)", "20260316170500_preserve_raw_extraction_and_quote_overrides.sql"],

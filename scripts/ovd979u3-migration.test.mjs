@@ -6,7 +6,8 @@ import { scanFunctionEvents } from "./check-migration-function-collisions.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(join(root, file), "utf8");
-const draft = read("docs/migration-drafts/ovd-979u3.sql");
+// U6 retired the draft with a one-line SUPERSEDED header; the rest is the promoted bytes.
+const draft = read("docs/migration-drafts/ovd-979u3.sql").replace(/^-- SUPERSEDED:[^\n]*\n/, "");
 const signature = "public.api_claim_next_task(text)";
 
 describe("OVD-979 U3 migration artifacts", () => {

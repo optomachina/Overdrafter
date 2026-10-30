@@ -121,3 +121,7 @@ interleaving with the still-inverted request path is deadlock-free. Debug and
 manual quote audits are in `docs/ovd979-lock-order.md`. Exact-head independent
 migration review and hosted gates remain integration work; no commit, push,
 PR operation, hosted apply or production action is part of this worktree task.
+
+## Status (OVD-979 U6)
+
+The draft now carries a `SUPERSEDED` header so the function-collision check treats it as history: a later unit (U4) replaced one of its functions. The promoted migration file is unchanged; the draft equals it apart from that one header line.

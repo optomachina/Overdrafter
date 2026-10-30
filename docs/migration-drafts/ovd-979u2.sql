@@ -1,3 +1,4 @@
+-- SUPERSEDED: historical OVD-979 U2 copy, already promoted as supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql; api_auto_approve_job_requirements was later replaced by U4 (20261030165700). Do not apply this draft.
 -- OVD-979 U2: canonical lock order only; no attempt or approval-policy changes.
 -- ovd: idempotent
 

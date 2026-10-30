@@ -1,3 +1,4 @@
+-- SUPERSEDED: historical OVD-979 U3 copy, already promoted as supabase/migrations/20261030164800_ovd979u3_extraction_attempt_identity.sql; api_claim_next_task was later replaced by U5 (20261030190000). Do not apply this draft.
 -- OVD-979 U3: claim identity and extraction provenance. No legacy backfill.
 ALTER TABLE public.work_queue ADD COLUMN IF NOT EXISTS attempt_id uuid;
 ALTER TABLE public.drawing_extractions ADD COLUMN IF NOT EXISTS source_attempt_id uuid;
