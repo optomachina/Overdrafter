@@ -145,7 +145,7 @@
     { "glob": "scripts/native/**", "class": "infra_ci" },
     { "glob": "scripts/native-{companion-inert-ci,first-loop-vitest,result-reader,storage-qualification}*", "class": "infra_ci" },
     { "glob": "scripts/{verify-,}ovd420-*", "class": "infra_ci" },
-    { "glob": "scripts/ovd{462,510,518,520,561,570,576,577,591}-*", "class": "infra_ci" },
+    { "glob": "scripts/ovd{462,510,518,520,527,561,570,576,577,591}-*", "class": "infra_ci" },
     { "glob": "scripts/quote-selection-expiry-rehearsal.mjs", "class": "infra_ci" },
     { "glob": "scripts/selection-publication-rehearsal.mjs", "class": "infra_ci" },
     { "glob": "scripts/window-1/**", "class": "infra_ci" },
