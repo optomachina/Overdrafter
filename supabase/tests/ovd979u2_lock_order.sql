@@ -91,8 +91,8 @@ select plan(45);
 
 create function pg_temp.u2_pair(p_holder text, p_waiter text) returns setof text language plpgsql as $$
 declare
-  conn text := format('host=127.0.0.1 port=%s dbname=%s user=postgres password=postgres',
-    current_setting('port'), current_database());
+  conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'); -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   a integer;
   b integer;
   holder_result text;
@@ -150,8 +150,8 @@ end;
 $$;
 create function pg_temp.u2_first_lock(p_kind text) returns setof text language plpgsql as $$
 declare
-  conn text := format('host=127.0.0.1 port=%s dbname=%s user=postgres password=postgres',
-    current_setting('port'), current_database());
+  conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'); -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   a integer;
   b integer;
   waited boolean := false;
