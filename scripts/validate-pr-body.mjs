@@ -1517,8 +1517,11 @@ export function gitShowReader(baseRef, headRef, { binary = GIT_EXECUTABLE, cwd =
     if (process.platform === "win32") throw new Error("git on Windows requires WSL");
     const ref = side === "base" ? baseRef : headRef;
     const options = { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 };
-    const entry = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${filePath}`], options);
-    return entry ? execFileSync(binary, ["show", `${ref}:${filePath}`], options) : null;
+    const entry = execFileSync(binary, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${filePath}`], options);
+    if (!entry) return null;
+    const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+    if (!blob) throw new Error(`Expected a single blob for ${ref}:${filePath}`);
+    return execFileSync(binary, ["cat-file", "blob", "--end-of-options", blob[1]], options);
   };
 }
 

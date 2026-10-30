@@ -15,11 +15,13 @@ export function resolveFixedBinary(name, { dirs, exists = fs.existsSync, platfor
 }
 
 // Ask git for the tree entry first: a missing file is empty successful output.
-// A failed show (including exit 1/128) is never evidence that a file is absent.
+// A failed tree/blob read (including exit 1/128) is never evidence of absence.
 export function readGitFile(binary, root, ref, file) {
   assertSupportedPlatform(process.platform, "git");
   const options = { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024 };
-  const entries = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${file}`], options);
+  const entries = execFileSync(binary, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${file}`], options);
   if (!entries) return null;
-  return execFileSync(binary, ["show", `${ref}:${file}`], options);
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entries);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${file}`);
+  return execFileSync(binary, ["cat-file", "blob", "--end-of-options", blob[1]], options);
 }

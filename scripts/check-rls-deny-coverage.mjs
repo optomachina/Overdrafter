@@ -582,12 +582,15 @@ const git = (cwd, args, binary = "/usr/bin/git") => {
 };
 
 export function gitShow(cwd, ref, path, { binary = "/usr/bin/git" } = {}) {
-  const entry = git(cwd, ["ls-tree", "-z", ref, "--", `:(literal)${path}`], binary);
-  return entry ? git(cwd, ["show", `${ref}:${path}`], binary) : null;
+  const entry = git(cwd, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${path}`], binary);
+  if (!entry) return null;
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${path}`);
+  return git(cwd, ["cat-file", "blob", "--end-of-options", blob[1]], binary);
 }
 
 function listTree(cwd, ref, dir, pattern) {
-  return git(cwd, ["ls-tree", "-r", "--name-only", ref, "--", dir]).split("\n").filter((path) => pattern.test(path));
+  return git(cwd, ["ls-tree", "--full-tree", "-r", "--name-only", "--end-of-options", ref, "--", `:(top,literal)${dir}`]).split("\n").filter((path) => pattern.test(path));
 }
 
 function walk(dir) {
@@ -624,7 +627,7 @@ function tryReadBaseline(root, ref) {
 
 /** The checker script and every changed workflow file, at both refs. */
 function loadGateFiles(root, baseRef, headRef) {
-  const changed = git(root, ["diff", "--name-only", "--no-renames", baseRef, headRef, "--", CHECKER_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
+  const changed = git(root, ["diff", "--name-only", "--no-renames", "--end-of-options", baseRef, headRef, "--", CHECKER_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
   return changed.map((path) => ({
     path,
     kind: path === CHECKER_PATH ? "script" : "workflow",
@@ -634,7 +637,7 @@ function loadGateFiles(root, baseRef, headRef) {
 }
 
 export function loadDiffInputs(root, baseRef, headRef) {
-  const status = git(root, ["diff", "--name-status", "--no-renames", baseRef, headRef, "--", MIGRATIONS_DIR]);
+  const status = git(root, ["diff", "--name-status", "--no-renames", "--end-of-options", baseRef, headRef, "--", MIGRATIONS_DIR]);
   const changedMigrations = status.split("\n").filter(Boolean).map((line) => line.split("\t"))
     .filter(([code, path]) => code !== "D" && SQL_FILE.test(path) && path.startsWith(`${MIGRATIONS_DIR}/`))
     .map(([, path]) => ({ path, content: gitShow(root, headRef, path) ?? "" }));

@@ -4,12 +4,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { assertSupportedPlatform, readGitFile, resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 import { gitIgnored } from "./verify-skill-drift.mjs";
 import { resolveBinary as verdictBinary } from "./emit-verdict.mjs";
 import { resolveBinary as driftBinary } from "./verify-skill-drift.mjs";
 
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const oid = "a".repeat(40);
+const blobEntry = `100644 blob ${oid}\\ta\\000`;
 const dirs = [];
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); vi.restoreAllMocks(); Object.defineProperty(process, "platform", platformDescriptor); });
@@ -37,11 +41,11 @@ it("git check-ignore distinguishes its real no from missing/failing git", () => 
   const dir = fixture();
   expect(() => gitIgnored(dir, "x", { binary: path.join(dir, "git") })).toThrow(/git.*ENOENT/);
   const binary = path.join(dir, "git");
-  for (const [body, expected] of [["exit 1", false], ["exit 0", true]]) {
+  for (const [body, expected] of [["exit 1", false], ["exit 0", true], ["echo harmless-warning >&2\nexit 0", true], ["echo harmless-warning >&2\nexit 1", false]]) {
     fs.writeFileSync(binary, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     expect(gitIgnored(dir, "x", { binary })).toBe(expected);
   }
-  for (const body of ["exit 128", "echo xcrun-error >&2\nexit 1"]) {
+  for (const body of ["exit 128", "echo xcrun-error >&2\nexit 128"]) {
     fs.writeFileSync(binary, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     expect(() => gitIgnored(dir, "x", { binary })).toThrow(/git check-ignore failed/);
   }
@@ -56,8 +60,8 @@ it("git file readers return null only for a successful absent tree entry", () =>
   }
   fs.writeFileSync(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   expect(readGitFile(binary, dir, "HEAD", "a")).toBeNull();
-  fs.writeFileSync(binary, '#!/bin/sh\nif [ "$1" = ls-tree ]; then echo entry; else echo broken-show >&2; exit 1; fi\n', { mode: 0o755 });
-  expect(() => readGitFile(binary, dir, "HEAD", "a")).toThrow(/broken-show/);
+  fs.writeFileSync(binary, `#!/bin/sh\nif [ "$1" = ls-tree ]; then printf '${blobEntry}'; else echo broken-cat-file >&2; exit 1; fi\n`, { mode: 0o755 });
+  expect(() => readGitFile(binary, dir, "HEAD", "a")).toThrow(/broken-cat-file/);
 });
 
 it("the shared resolver keeps missing binary errors explicit", () => {
@@ -66,8 +70,8 @@ it("the shared resolver keeps missing binary errors explicit", () => {
 });
 
 // Exercise each previously swallowing file reader, rather than just its helper.
-import { readRefFile } from "./lint-security-definer.mjs";
-import { gitShow as rlsGitShow } from "./check-rls-deny-coverage.mjs";
+import { readRefFile, runLintCli } from "./lint-security-definer.mjs";
+import { gitShow as rlsGitShow, loadAllInputs } from "./check-rls-deny-coverage.mjs";
 import { gitShow } from "./check-migration-immutability.mjs";
 import { gitShowReader } from "./validate-pr-body.mjs";
 import { readRefFile as secretReadRefFile, refExists, mergeBase } from "./check-secret-paths.mjs";
@@ -90,26 +94,61 @@ describe.each([
   });
 });
 
-// Importing the library on Windows is safe; executing its git reader is not.
+// All readers must preserve the same absence, blob and platform contract.
 const readers = [
-  ["rls-deny-coverage", (dir, binary) => rlsGitShow(dir, "HEAD", "absent", { binary })],
-  ["security-definer", (dir, binary) => readRefFile(dir, "HEAD", "absent", { binary })],
-  ["migration-immutability", (dir, binary) => gitShow(dir, "HEAD", "absent", { binary })],
-  ["pr-body", (dir, binary) => gitShowReader("HEAD", "HEAD", { cwd: dir, binary })("base", "absent")],
-  ["secret-paths", (dir, binary) => secretReadRefFile(dir, "HEAD", "absent", { binary })],
+  ["fixed-binaries", (dir, binary, ref = "HEAD", file = "absent") => readGitFile(binary, dir, ref, file)],
+  ["rls-deny-coverage", (dir, binary, ref = "HEAD", file = "absent") => rlsGitShow(dir, ref, file, { binary })],
+  ["security-definer", (dir, binary, ref = "HEAD", file = "absent") => readRefFile(dir, ref, file, { binary })],
+  ["migration-immutability", (dir, binary, ref = "HEAD", file = "absent") => gitShow(dir, ref, file, { binary })],
+  ["pr-body", (dir, binary, ref = "HEAD", file = "absent") => gitShowReader(ref, ref, { cwd: dir, binary })("base", file)],
+  ["secret-paths", (dir, binary, ref = "HEAD", file = "absent") => secretReadRefFile(dir, ref, file, { binary })],
 ];
 describe.each(readers)("%s absence and platform", (_name, read) => {
   it("returns null for a genuinely absent file in an existing commit", () => {
-    expect(read(process.cwd(), "/usr/bin/git")).toBeNull();
+    expect(read(repoRoot, "/usr/bin/git")).toBeNull();
   });
-  it("throws when show fails after a successful tree probe", () => {
+  it("throws when cat-file fails after a successful tree probe", () => {
     const dir = fixture(); const binary = path.join(dir, "git");
-    fs.writeFileSync(binary, '#!/bin/sh\nif [ "$1" = ls-tree ]; then echo entry; else echo broken-show >&2; exit 128; fi\n', { mode: 0o755 });
-    expect(() => read(dir, binary)).toThrow(/broken-show/);
+    fs.writeFileSync(binary, `#!/bin/sh\nif [ "$1" = ls-tree ]; then printf '${blobEntry}'; else echo broken-cat-file >&2; exit 128; fi\n`, { mode: 0o755 });
+    expect(() => read(dir, binary)).toThrow(/broken-cat-file/);
+  });
+  it("reads a tracked root file through real git from a subdirectory", () => {
+    const expected = execFileSync("/usr/bin/git", ["show", "HEAD:AGENTS.md"], { cwd: repoRoot, encoding: "utf8" });
+    expect(expected.length).toBeGreaterThan(0);
+    expect(read(path.join(repoRoot, "docs"), "/usr/bin/git", "HEAD", "AGENTS.md")).toBe(expected);
+  });
+  it("rejects a real tree entry", () => {
+    expect(() => read(path.join(repoRoot, "docs"), "/usr/bin/git", "HEAD", "scripts")).toThrow(/single blob/);
+  });
+  it.each(["tree", "commit", "malformed"])("rejects a %s entry before reading content", (type) => {
+    const dir = fixture(); const binary = path.join(dir, "git");
+    fs.writeFileSync(binary, `#!/bin/sh
+if [ "$1" = ls-tree ]; then printf '160000 ${type} ${oid}\\tabsent\\000'; else echo unexpected-cat-file >&2; exit 128; fi
+`, { mode: 0o755 });
+    expect(() => read(dir, binary)).toThrow(/single blob/);
+  });
+  it("guards option-like refs and reads the OID returned by ls-tree", () => {
+    const dir = fixture(); const binary = path.join(dir, "git");
+    fs.writeFileSync(binary, `#!/bin/sh
+if [ "$1" = ls-tree ]; then
+  [ "$2" = --full-tree ] && [ "$3" = -z ] && [ "$4" = --end-of-options ] && [ "$5" = --ref ] && [ "$6" = -- ] && [ "$7" = ':(top,literal)a' ] || exit 128
+  printf '${blobEntry}'
+elif [ "$1" = cat-file ]; then
+  [ "$2" = blob ] && [ "$3" = --end-of-options ] && [ "$4" = '${oid}' ] || exit 128
+  printf 'blob content'
+else exit 128
+fi
+`, { mode: 0o755 });
+    expect(read(dir, binary, "--ref", "a")).toBe("blob content");
+  });
+  it("fails closed on a clean tree-probe exit 1", () => {
+    const dir = fixture(); const binary = path.join(dir, "git");
+    fs.writeFileSync(binary, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    expect(() => read(dir, binary)).toThrow();
   });
   it("throws on Windows when called", () => {
     Object.defineProperty(process, "platform", { value: "win32" });
-    expect(() => read(process.cwd(), "/usr/bin/git")).toThrow(/git.*WSL/);
+    expect(() => read(repoRoot, "/usr/bin/git")).toThrow(/git.*WSL/);
   });
 });
 
@@ -121,5 +160,24 @@ it.each(["check-rls-deny-coverage", "merge-readback", "emit-verdict", "verify-sk
 });
 it.each([refExists, (cwd, ref, options) => mergeBase(cwd, ref, ref, options)])("ref probes reject Windows", (read) => {
   Object.defineProperty(process, "platform", { value: "win32" });
-  expect(() => read(process.cwd(), "HEAD")).toThrow(/git.*WSL/);
+  expect(() => read(repoRoot, "HEAD")).toThrow(/git.*WSL/);
+});
+
+it("ref probes treat a clean exit 1 as a missing ref or shared history", () => {
+  const dir = fixture(); const binary = path.join(dir, "git");
+  fs.writeFileSync(binary, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  expect(refExists(dir, "HEAD", { binary })).toBe(false);
+  expect(mergeBase(dir, "base", "head", { binary })).toBeNull();
+});
+
+it("RLS listTree failures throw instead of returning an empty list", () => {
+  expect(() => loadAllInputs(repoRoot, "refs/heads/ovd1117-nonexistent-ref")).toThrow(/Not a valid object name/);
+});
+
+it("security-definer base lookup failures stop linting", () => {
+  const lintFiles = vi.fn(); const stderr = vi.fn();
+  const rule = { name: "test-lint", baselinePath: "baseline.json", parseBaseline: JSON.parse, lintFiles };
+  expect(runLintCli(rule, ["--root", fixture(), "--base-ref", "HEAD", "unused.sql"], { stderr })).toBe(2);
+  expect(lintFiles).not.toHaveBeenCalled();
+  expect(stderr).toHaveBeenCalledWith(expect.stringContaining("not a git repository"));
 });

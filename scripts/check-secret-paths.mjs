@@ -125,13 +125,16 @@ function git(cwd, args, binary = GIT_BIN) {
 }
 
 export function readRefFile(cwd, ref, path, { binary = GIT_BIN } = {}) {
-  const entry = git(cwd, ["ls-tree", "-z", ref, "--", `:(literal)${path}`], binary);
-  return entry ? git(cwd, ["show", `${ref}:${path}`], binary) : null;
+  const entry = git(cwd, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${path}`], binary);
+  if (!entry) return null;
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${path}`);
+  return git(cwd, ["cat-file", "blob", "--end-of-options", blob[1]], binary);
 }
 
 export function refExists(cwd, ref, { binary = GIT_BIN } = {}) {
   try {
-    git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], binary);
+    git(cwd, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`], binary);
     return true;
   } catch (error) {
     if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return false;
@@ -139,10 +142,14 @@ export function refExists(cwd, ref, { binary = GIT_BIN } = {}) {
   }
 }
 
-/** The merge-base commit of the two refs, or null when they share no history. */
+/**
+ * The merge-base commit of the two refs, or null when they share no history.
+ * CI's full-depth fetch (fetch-depth: 0) prevents a shallow clone's clean exit 1
+ * from being mistaken for "no shared history"; callers must provide full history.
+ */
 export function mergeBase(cwd, baseRef, headRef, { binary = GIT_BIN } = {}) {
   try {
-    return git(cwd, ["merge-base", baseRef, headRef], binary).trim() || null;
+    return git(cwd, ["merge-base", "--end-of-options", baseRef, headRef], binary).trim() || null;
   } catch (error) {
     if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return null;
     throw error;
@@ -155,7 +162,7 @@ export function mergeBase(cwd, baseRef, headRef, { binary = GIT_BIN } = {}) {
  * Anything that is not a well-formed record throws, so the caller fails.
  */
 export function listChanges(cwd, baseRef, headRef) {
-  const fields = git(cwd, ["diff", "--raw", "--no-renames", "--no-abbrev", "-z", baseRef, headRef, "--"]).split("\0");
+  const fields = git(cwd, ["diff", "--raw", "--no-renames", "--no-abbrev", "-z", "--end-of-options", baseRef, headRef, "--"]).split("\0");
   const changes = [];
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const record = RAW_RECORD.exec(fields[i]);

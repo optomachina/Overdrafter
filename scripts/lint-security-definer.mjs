@@ -1023,8 +1023,11 @@ function parseArgs(argv, allowReport) {
 export function readRefFile(root, ref, file, { binary = "/usr/bin/git" } = {}) {
   if (process.platform === "win32") throw new Error("git on Windows requires WSL");
   const options = { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 };
-  const entry = execFileSync(binary, ["ls-tree", "-z", ref, "--", `:(literal)${file}`], options);
-  return entry ? execFileSync(binary, ["show", `${ref}:${file}`], options) : null;
+  const entry = execFileSync(binary, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${file}`], options);
+  if (!entry) return null;
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${file}`);
+  return execFileSync(binary, ["cat-file", "blob", "--end-of-options", blob[1]], options);
 }
 
 export const toJsonText = (value) => `${JSON.stringify(value, null, 2)}\n`;
