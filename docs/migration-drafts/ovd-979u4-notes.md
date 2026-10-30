@@ -13,7 +13,20 @@ are absent.
 
 - A queued extraction task is pending. A running extraction task is finishing
   only when its non-null `attempt_id` equals the stored extraction's
-  `source_attempt_id` for that same part. The rollup reads the current tuple
+  `source_attempt_id` for that same part. This is a hard requirement, not an
+  optimization: only the worker retry path (`worker/src/queue.ts`
+  `markTaskQueuedForRetry`) clears `attempt_id` on requeue, so a row requeued
+  by any other path (SQL resets, stale-lock or backstop recovery, U5's deferred
+  release) can still carry the id that matches the stored extraction. Both
+  gate sites require `status = 'running' and attempt_id is not null`; the
+  artifact test fails if either loses that guard, and the pgTAP identity
+  matrix includes a queued row that keeps the matching id.
+- A running row whose payload carries `pendingDrawingFileId` is pending too,
+  even when its attempt matches: U5's request marks a running task this way
+  when a newer drawing is attached mid-attempt, so the running attempt cannot
+  finish the newly requested drawing. Before U5 the key never exists and the
+  guard is a no-op. This replaces U5's round-0 approach of setting
+  `attempt_id = null` on the running row. The rollup reads the current tuple
   directly, so a changed/cleared attempt or staff `updated_at` bump is not
   completion evidence. No task reason or timestamp makes an exception.
 - While any active task for a part lacks matching running-attempt evidence,
@@ -39,26 +52,25 @@ are absent.
 ## Apply and rollback
 
 `supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql`
-and `docs/migration-drafts/ovd-979u4.sql` are byte identical. Apply after U2/U3,
+is the only forward copy. Apply after U2/U3,
 in one transaction. Both forward and rollback support repeated application
 and have no transaction wrapper. No table, policy, owner or grant recipient
 changes. The function keeps `SECURITY DEFINER`, pins
 `search_path = pg_catalog, public`, revokes PUBLIC/anon/authenticated and
 retains service_role-only execution.
 
-`ovd-979u4.rollback.sql` restores the complete U2/U3-era definition and ACLs;
-`md5(prosrc)` is **ba94c43be2ec78486ee9aca4679d2465**. The artifact test compares
-the body bytes directly to U2's promoted migration. The local catalog proof
-compares MD5, ACL and search path across repeat apply, repeat rollback and
-reapply, and verifies claim/request definitions are untouched.
+The rollback is generated: `node scripts/ovd979-rollback.mjs
+20261030165700_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
+U2/U3-era definition (from U2's migration) and the ACLs; `md5(prosrc)` is
+**ba94c43be2ec78486ee9aca4679d2465**. The artifact test compares the generated
+body bytes directly to U2's promoted migration. Roll back U4 before U3.
 
 The complete forward body and byte-exact rollback exceed the normal line
 budget. The behavioral change is one function; splitting it would not yield
-independent changes. U2's draft is archived with one `SUPERSEDED` header so
-replaying it cannot silently overwrite U4. U2's migration and body bytes stay
-unchanged, and its test still compares every byte including the exact archival
-header. No `function-supersessions.json` exception or checker/baseline change
-is needed; the unchanged collision guard passes.
+independent changes. U2's forward draft copy no longer exists (deleted in U2's
+repair round 1), so nothing can replay U2's auto-approval body over U4 and the
+unchanged collision guard passes on this PR alone. No
+`function-supersessions.json` exception or checker/baseline change is needed.
 
 ## Local verification (2026-10-30 UTC)
 
@@ -93,14 +105,41 @@ from the existing U3 worktree without installation or manifest changes.
   ownership, attempt and status regressions; reapplying U4 restores the full
   180-assertion combined pass.
 
-Evidence and runners: `/tmp/ovd979-u4-proof/` contains `owner.json`,
-`bootstrap.sql`, `migrations.log`, `copy-inputs.py`, the container-only `psql`
-adapter, `roundtrip.sql`/`roundtrip.log`, `pgtap-final.log`, `negative-control.log`,
-`vitest.log`, `typecheck.log`, `eslint.log`, and checker logs. `pg_prove --norc
--b /tmp/ovd979-u4-proof/psql -h /tmp -U postgres -d postgres` runs the SQL inputs
-copied into that container. Fixture cleanup is recorded in the owner artifact.
+Round 0 kept its runner inputs in an uncommitted `/tmp/ovd979-u4-proof/`
+directory that no longer exists; the roundtrip is replaced by the committed
+generator proof below.
 
 This proves SQL/catalog/RLS behavior and observed lock contention; it does not
 prove GoTrue/PostgREST transport or hosted release qualification. Exact-head
 independent migration review remains integration work. No commit, push, rebase,
 PR, hosted apply, production or provider operation was performed.
+
+## Repair round 1 (2026-10-30)
+
+- Merged repaired U3 (and through it U2). The U2 forward draft that made the
+  collision lint fail on this PR is gone, so `check-migration-function-collisions`
+  passes here without a header or supersession entry.
+- Deleted the duplicate `ovd-979u4.sql` and the stored `ovd-979u4.rollback.sql`
+  (Sonar duplication); the rollback is generated and pins `pg_catalog` first.
+- Gate: an artifact test now requires both gate sites to keep
+  `queue.status = 'running' and queue.attempt_id is not null`; the pgTAP queued
+  case is labelled as the SQL-path requeue that keeps a matching id.
+- Successor-drawing guard (above): both gate sites also require
+  `not (queue.payload ? 'pendingDrawingFileId')`. New pgTAP case (3
+  assertions, 89 total); against the round-0 U4 body those 3 fail.
+  The migration sha256 pin is now
+  `9fe36b10e3e0b1f25d7d386909ea9595772730c6bfef9e9153fd5d82337d6be6`.
+- On the isolated local fixture with U2–U4 applied: `ovd979u4_auto_approval.sql`
+  89/89, `ovd979u2_lock_order.sql` 53/53, `ovd979u3_attempt_identity.sql` 27/27.
+  `node scripts/ovd979-rollback.mjs
+  20261030165700_ovd979u4_attempt_bound_auto_approval.sql --prove --db-url
+  <loopback URL>`:
+
+  ```
+  applied migration differs from the prior bodies: PASS
+  rollback restores md5(prosrc) of 1 prior bodies, path pg_catalog first: PASS
+  rollback keeps the applied ACLs: PASS
+  second rollback is a no-op: PASS
+  re-apply restores the applied bodies, ACLs and config: PASS
+  ovd979 rollback proof: PASS (20261030165700_ovd979u4_attempt_bound_auto_approval.sql)
+  ```
