@@ -49,10 +49,7 @@ export const AUDITED_FUNCTIONS = [
 // Exact inversion pairs ("<higher table already held> > <lower table taken after>") present on
 // main today. A listed function fails if it gains a new pair or loses a listed one, so each
 // fixing PR must delete its entries. Keys must be audited functions.
-export const KNOWN_INVERSIONS = {
-  // Redesign PR 5 takes L0, L1, L2, L5 in order.
-  api_request_extraction: ["work_queue > jobs"],
-};
+export const KNOWN_INVERSIONS = {};
 
 // Locks on tables outside LEVELS that exist on main today, per function (direct statements
 // only, not via callees). Any other table outside LEVELS is an error, and the list must match
@@ -113,6 +110,7 @@ export const KNOWN_UNAUDITED_CALLEES = {
     "to_vendor_name_array",
   ],
   api_request_extraction: [
+    "job_part_file_set",
     "log_audit_event",
     "require_verified_auth",
     "user_can_edit_job",

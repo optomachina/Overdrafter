@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 163,
+  "migrationCount": 164,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -166,7 +166,8 @@
     "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql",
     "supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql",
     "supabase/migrations/20261030164800_ovd979u3_extraction_attempt_identity.sql",
-    "supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql"
+    "supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql",
+    "supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -319,6 +320,11 @@
       "path": "supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql",
       "issue": "OVD-979",
       "sha256": "3a23d1d63313c76c9d6368d3251892091b6ef3cc9b9d5bc1076bb9ffed263085"
+    },
+    {
+      "path": "supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql",
+      "issue": "OVD-979",
+      "sha256": "056d347e7061d7f189ca9ac0594c47fc17fb3d9932d112bb4d4c93b6a5fc9b93"
     }
   ],
   "baselineSuites": [
@@ -744,6 +750,7 @@
     "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef",
     "supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql": "43ceadf4a54051c732bc66a77c7edac88a81c5dc9e4d84b75f09a3819a4e8d12",
     "supabase/migrations/20261030164800_ovd979u3_extraction_attempt_identity.sql": "08edb675042770ed9f56138dd0cf0316f21148c451d06eb83f3c431f2d8ab61d",
-    "supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql": "3a23d1d63313c76c9d6368d3251892091b6ef3cc9b9d5bc1076bb9ffed263085"
+    "supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql": "3a23d1d63313c76c9d6368d3251892091b6ef3cc9b9d5bc1076bb9ffed263085",
+    "supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql": "056d347e7061d7f189ca9ac0594c47fc17fb3d9932d112bb4d4c93b6a5fc9b93"
   }
 }
