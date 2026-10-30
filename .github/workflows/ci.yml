@@ -68,6 +68,9 @@ jobs:
     needs: ovd591-qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC for the ECR pull role; this job only
 
     steps:
       - name: Checkout
@@ -79,6 +82,26 @@ jobs:
         uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
         with:
           version: 2.78.1
+
+      # Same-repo runs only: forks and Dependabot get no OIDC token, so they keep the
+      # anonymous pull. AWS_ECR_PULL_ROLE_ARN is a repository variable (role ARN, not a secret).
+      - name: Configure AWS credentials for ECR Public (OIDC)
+        id: ecr-oidc
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PULL_ROLE_ARN }}
+          aws-region: us-east-1 # ECR Public auth is only served from us-east-1
+          role-session-name: ci-ecr-pull-${{ github.run_id }}
+          role-duration-seconds: 900
+
+      - name: Log in to ECR Public
+        if: ${{ steps.ecr-oidc.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Cache Supabase images
         uses: ./.github/actions/supabase-image-cache
