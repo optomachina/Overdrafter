@@ -42,7 +42,7 @@ begin
   where id = p_job_id;
 
   -- L2: lock the job's parts in id order before applying input quantities.
-  perform 1 from public.parts where job_id = p_job_id order by id for update;
+  perform 1 from public.parts where job_id = p_job_id order by id for no key update;
   for v_item in
     select value from jsonb_array_elements(coalesce(p_requirements, '[]'::jsonb))
   loop
@@ -64,7 +64,7 @@ begin
   perform 1 from public.approved_part_requirements requirement
   join public.parts part on part.id = requirement.part_id
   where part.job_id = p_job_id
-  order by requirement.part_id for update of requirement;
+  order by requirement.part_id for no key update of requirement;
 
   for v_item in
     select value
@@ -169,7 +169,7 @@ begin
   perform 1 from public.drawing_extractions extraction
   join public.parts part on part.id = extraction.part_id
   where part.job_id = p_job_id
-  order by extraction.part_id for update of extraction;
+  order by extraction.part_id for no key update of extraction;
   update public.drawing_extractions
   set status = 'approved'
   where part_id in (
@@ -191,6 +191,72 @@ $$;
 
 revoke all on function public.api_approve_job_requirements(uuid, jsonb) from public, anon;
 grant execute on function public.api_approve_job_requirements(uuid, jsonb) to authenticated, service_role;
+
+create or replace function public.api_request_extraction(p_job_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_count integer := 0;
+begin
+  perform public.require_verified_auth();
+
+  select * into v_job from public.jobs where id = p_job_id;
+  if v_job.id is null then
+    raise exception 'Job % not found', p_job_id;
+  end if;
+  if not public.user_can_edit_job(v_job.id) then
+    raise exception 'You do not have access to job %', p_job_id;
+  end if;
+
+  -- L1 before reconciliation's part writes and the queue insert's key-share
+  -- lock on parts, so approval cannot hold L1 while waiting on our parts.
+  perform 1 from public.jobs where id = p_job_id for no key update;
+  perform public.api_reconcile_job_parts(p_job_id);
+
+  with enqueued as (
+    insert into public.work_queue (
+      organization_id, job_id, part_id, task_type, payload
+    )
+    select
+      v_job.organization_id, p_job_id, part.id, 'extract_part',
+      jsonb_build_object('partId', part.id, 'jobId', p_job_id)
+    from public.parts part
+    where part.job_id = p_job_id
+      and not exists (
+        select 1 from public.drawing_extractions placement_extraction
+        where placement_extraction.part_id = part.id
+      )
+      and not exists (
+        select 1 from public.work_queue queue
+        where queue.part_id = part.id
+          and queue.task_type = 'extract_part'
+          and queue.status in ('queued', 'running')
+      )
+    returning id
+  )
+  select count(*)::integer into v_count from enqueued;
+
+  update public.jobs
+  set status = case when v_count > 0 then 'extracting' else status end
+  where id = p_job_id;
+
+  perform public.log_audit_event(
+    v_job.organization_id,
+    'job.extraction_requested',
+    jsonb_build_object('jobId', p_job_id, 'tasksQueued', v_count),
+    p_job_id,
+    null
+  );
+  return v_count;
+end;
+$$;
+
+revoke all on function public.api_request_extraction(uuid) from public, anon;
+grant execute on function public.api_request_extraction(uuid) to authenticated, service_role;
 
 create or replace function public.api_reset_client_part_property_overrides(
   p_job_id uuid,
@@ -714,7 +780,7 @@ begin
   end if;
 
   -- The decision above is unchanged; writes acquire L2, L3 and L4 in phases.
-  perform 1 from public.parts where job_id = p_job_id order by id for update;
+  perform 1 from public.parts where job_id = p_job_id order by id for no key update;
   for v_part in select staged.* from unnest(v_part_writes) staged order by staged.id
   loop
     update public.parts
@@ -725,7 +791,7 @@ begin
   perform 1 from public.approved_part_requirements requirement
   join public.parts part on part.id = requirement.part_id
   where part.job_id = p_job_id
-  order by requirement.part_id for update of requirement;
+  order by requirement.part_id for no key update of requirement;
   for v_write in
     select staged.* from unnest(v_requirement_writes) staged order by staged.part_id
   loop
@@ -786,7 +852,7 @@ begin
   perform 1 from public.drawing_extractions extraction
   join public.parts part on part.id = extraction.part_id
   where part.job_id = p_job_id
-  order by extraction.part_id for update of extraction;
+  order by extraction.part_id for no key update of extraction;
   update public.drawing_extractions set status = 'needs_review'
   where part_id = any(v_review_part_ids);
   update public.drawing_extractions set status = 'approved'
@@ -822,7 +888,7 @@ create or replace function public.api_reuse_trusted_part_version_artifacts(
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 declare
   v_target_job_id uuid;
@@ -838,10 +904,12 @@ begin
     raise exception 'Trusted part reuse may only be completed by the worker.';
   end if;
 
+  -- No writer moves a part to another job, so the unlocked job_id read stays
+  -- valid; a concurrent delete fails the lineage check below.
   select part.job_id into v_target_job_id from public.parts part where part.id = p_target_part_id;
   perform 1 from public.jobs where id = v_target_job_id for no key update;
   select part.* into v_target from public.parts part
-  where part.id = p_target_part_id and part.job_id = v_target_job_id for update;
+  where part.id = p_target_part_id and part.job_id = v_target_job_id for no key update;
   select part.* into v_source from public.parts part where part.id = p_source_part_id;
   select version.* into v_version from public.part_versions version where version.id = p_part_version_id;
 
