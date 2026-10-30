@@ -169,6 +169,11 @@ select ok(t.status='cancelled' and t.last_error='Canceled while vendor automatio
  'cancelled task settlement complete') from public.work_queue t join acceptance_cases c on c.task_id=t.id where name='nonfree';
 select is(pg_temp.accept_case('nonfree')->>'original_outcome','request_canceled','canceled receipt replays');
 
+select is(r.status::text,'canceled','non-free result trigger preserves canceled request')
+ from public.quote_requests r join acceptance_cases c on c.request_id=r.id where name='nonfree';
+select is((select count(*)::int from public.vendor_quote_offers o join acceptance_cases c
+ on c.result_id=o.vendor_quote_result_id where name='nonfree'),1,'legacy non-free canceled path retains offer');
+
 -- Non-permit enqueue identity selects a single vendor/quantity within a run.
 select pg_temp.new_acceptance_case('multi-vendor',false);
 select pg_temp.new_acceptance_case('multi-quantity',false);
@@ -203,6 +208,54 @@ select public.drain_quote_run_rollup_followups();
 select is(r.status::text,'published','published run preserved') from public.quote_runs r join acceptance_cases c on c.run_id=r.id where name='published';
 select is(j.status::text,'client_selected','later job preserved') from public.jobs j join acceptance_cases c on c.job_id=j.id where name='published';
 select is((select count(*)::int from public.audit_events a join acceptance_cases c on c.job_id=a.job_id where name='published' and event_type like 'worker.quote_run_%'),0,'no audit when nothing changes');
+
+-- Delayed drains preserve every job phase outside active quoting, including
+-- admin/user transitions that are not terminal enum values.
+select pg_temp.new_acceptance_case('phase-'||phase,false) from unnest(array[
+ 'uploaded','extracting','needs_spec_review','ready_to_quote','internal_review']) phase;
+select pg_temp.accept_case(name) from acceptance_cases where name like 'phase-%';
+update public.jobs j set status=substring(c.name from 7)::public.job_status
+ from acceptance_cases c where j.id=c.job_id and c.name like 'phase-%';
+select public.drain_quote_run_rollup_followups();
+select is(j.status::text,substring(c.name from 7),'delayed drain preserves '||j.status)
+ from acceptance_cases c join public.jobs j on j.id=c.job_id where name like 'phase-%';
+
+-- An older run can settle itself but cannot overwrite a newer run's job state.
+select pg_temp.new_acceptance_case('older-run',false);
+select pg_temp.accept_case('older-run');
+insert into public.quote_runs(job_id,organization_id,initiated_by,status,created_at)
+ select r.job_id,r.organization_id,r.initiated_by,'running',r.created_at+interval '1 second'
+ from public.quote_runs r join acceptance_cases c on c.run_id=r.id where name='older-run';
+select public.drain_quote_run_rollup_followups();
+select is(j.status::text,'quoting','old followup cannot complete newer quoting job')
+ from public.jobs j join acceptance_cases c on c.job_id=j.id where name='older-run';
+select is(r.status::text,'completed','old run still settles independently')
+ from public.quote_runs r join acceptance_cases c on c.run_id=r.id where name='older-run';
+
+-- Manual review never moves backwards to quoting. Terminal runs never reopen,
+-- even when the result snapshot has changed while the followup was delayed.
+select pg_temp.new_acceptance_case('manual-pending',false);
+select pg_temp.new_acceptance_case('manual-failed',false);
+select pg_temp.new_acceptance_case('manual-success',false);
+select pg_temp.new_acceptance_case('run-completed',false);
+select pg_temp.new_acceptance_case('run-failed',false);
+select pg_temp.accept_case(name) from acceptance_cases
+ where name in ('manual-pending','manual-failed','manual-success','run-completed','run-failed');
+update public.jobs j set status='awaiting_vendor_manual_review'
+ from acceptance_cases c where j.id=c.job_id and name like 'manual-%';
+update public.quote_runs r set status=substring(c.name from 5)::public.quote_run_status
+ from acceptance_cases c where r.id=c.run_id and name in ('run-completed','run-failed');
+update public.vendor_quote_results r set status=case when c.name='manual-failed'
+ then 'failed'::public.vendor_status else 'running'::public.vendor_status end
+ from acceptance_cases c where r.id=c.result_id
+ and name in ('manual-pending','manual-failed','run-completed','run-failed');
+select public.drain_quote_run_rollup_followups();
+select is(j.status::text,'awaiting_vendor_manual_review',name||' cannot regress to quoting')
+ from public.jobs j join acceptance_cases c on c.job_id=j.id where name in ('manual-pending','manual-failed');
+select is(j.status::text,'internal_review','manual review can advance after successful acceptance')
+ from public.jobs j join acceptance_cases c on c.job_id=j.id where name='manual-success';
+select is(r.status::text,substring(c.name from 5),name||' is not reopened')
+ from public.quote_runs r join acceptance_cases c on c.run_id=r.id where name in ('run-completed','run-failed');
 
 -- Invalid finalization and deferred failures roll back the entire candidate.
 select pg_temp.new_acceptance_case('atomic',false);

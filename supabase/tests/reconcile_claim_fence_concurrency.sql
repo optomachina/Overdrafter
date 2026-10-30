@@ -1,5 +1,15 @@
 -- S1.1b local two-session races. Committed synthetic fixtures are gated by
 -- pg_stat_activity evidence, bounded statement timeouts, and explicit cleanup.
+-- Only the owned, network-isolated local runner may admit this destructive suite.
+-- On failure discard that owned disposable container; do not rerun over leftovers.
+do $$ begin
+ if current_setting('ovd.test_local_fixture',true) is distinct from 'reconcile_claim_fence'
+   or inet_client_addr() is not null
+   or current_setting('ovd.test_conninfo',true) is distinct from
+     'host=/var/run/postgresql port=5432 dbname=postgres user=postgres' then
+  raise exception 'reconcile concurrency suite requires the isolated local runner';
+ end if;
+end $$;
 create extension if not exists dblink with schema extensions;
 -- Refuse collisions instead of deleting any pre-existing fixture.
 do $$ begin
@@ -393,8 +403,8 @@ begin
  return false;
 end $$;
 
-select extensions.dblink_connect('s11b_a',coalesce(nullif(current_setting('ovd.test_conninfo',true),''),'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres')||' application_name=s11b_holder');
-select extensions.dblink_connect('s11b_b',coalesce(nullif(current_setting('ovd.test_conninfo',true),''),'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres')||' application_name=s11b_acceptor');
+select extensions.dblink_connect('s11b_a',current_setting('ovd.test_conninfo')||' application_name=s11b_holder');
+select extensions.dblink_connect('s11b_b',current_setting('ovd.test_conninfo')||' application_name=s11b_acceptor');
 select extensions.dblink_exec('s11b_b', $$set statement_timeout='1500ms'$$);
 
 -- Every holder actually reaches its gate with its transaction and row locks
@@ -469,6 +479,17 @@ update private.provider_kill_switches set engaged=false where provider='fictiv';
 insert into s11b_races select 'stale cleanup',pg_temp.s11b_busy(format(
  'update public.work_queue set status=''failed'',locked_by=null,locked_at=null where id=%L; select public.api_reconcile_terminal_free_quote_tasks()',task_id),sql)
  from s11b_calls where request_id=(select request_id from free_meter_fixture.s11b_cases where name='cleanup');
+-- A trigger-acquired lock outside the explicit NOWAIT footprint must also
+-- return typed busy within the function's lock_timeout, before statement timeout.
+create function public.s11b_implicit_lock() returns trigger language plpgsql as $$
+begin perform pg_advisory_xact_lock(119912); return new; end $$;
+create trigger s11b_implicit_lock before insert on private.vendor_quote_acceptance_receipts
+ for each row execute function public.s11b_implicit_lock();
+insert into s11b_races select 'implicit trigger',pg_temp.s11b_busy(
+ 'select jsonb_build_object(''locked'',pg_advisory_xact_lock(119912))',sql)
+ from s11b_calls where job_id='00000000-0000-4000-8000-0000001199a1';
+drop trigger s11b_implicit_lock on private.vendor_quote_acceptance_receipts;
+drop function public.s11b_implicit_lock();
 select is(response->>'held','true',name||' holder confirmed by pg_stat_activity') from s11b_races;
 select is(response->>'outcome','busy',name||' accept returns busy before timeout') from s11b_races;
 select is(response->>'released','true',name||' busy releases all candidate locks') from s11b_races;
