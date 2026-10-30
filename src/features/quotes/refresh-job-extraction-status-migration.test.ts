@@ -34,7 +34,8 @@ describe("OVD-1097 extraction status refresh migration", () => {
     expect(rollback.replace(/--[^\n]*/g, "").trim()).toBe(drop);
     expect(readdirSync(path.join(root, "docs/migration-drafts")).filter((name) => /ovd-?1097/.test(name)))
       .toEqual(["ovd-1097.rollback.sql"]);
-    const earlier = readdirSync(path.join(root, "supabase/migrations")).filter((name) => name !== filename);
-    expect(earlier.every((name) => name < filename)).toBe(true);
+    const migrations = readdirSync(path.join(root, "supabase/migrations")).sort();
+    expect(migrations.filter((name) => name.startsWith(filename.slice(0, 14)))).toEqual([filename]);
+    expect(migrations[migrations.indexOf(filename) - 1]).toBe("20261016013832_ovd766e_job_editor_scope.sql");
   });
 });
