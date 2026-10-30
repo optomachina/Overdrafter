@@ -2195,7 +2195,7 @@ export async function setQuantity(
   await beforeSubmit();
   await locator.press("Enter");
 
-  const observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  const observed = await readSettledQuantity(page, locator, quantity);
   if (observed !== quantity) {
     throw new VendorAutomationError(
       "Xometry line-item quantity did not read back the requested quantity after it was filled.",
@@ -2212,6 +2212,24 @@ export async function setQuantity(
     );
   }
   return { selector: readback.selector, filled: true };
+}
+
+const XOMETRY_QUANTITY_SETTLE_POLLS = 5;
+const XOMETRY_QUANTITY_SETTLE_POLL_MS = 200;
+
+/**
+ * Reads the stepper back after Enter. Xometry may re-render or debounce the
+ * row, so a correct fill can briefly read stale; poll a bounded number of times
+ * for the requested value and return the last value read, so a value that never
+ * settles still fails closed.
+ */
+async function readSettledQuantity(page: Page, locator: Locator, quantity: number) {
+  let observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  for (let poll = 0; poll < XOMETRY_QUANTITY_SETTLE_POLLS && observed !== quantity; poll += 1) {
+    await page.waitForTimeout(XOMETRY_QUANTITY_SETTLE_POLL_MS).catch(() => undefined);
+    observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  }
+  return observed;
 }
 
 function parseQuantityValue(raw: string) {
