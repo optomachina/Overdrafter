@@ -6,7 +6,7 @@ import { scanFunctionEvents } from "./check-migration-function-collisions.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(join(root, file), "utf8");
-const forward = read("docs/migration-drafts/ovd-979u2.sql");
+const forward = read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql");
 const rollback = scanFunctionEvents(read("docs/migration-drafts/ovd-979u2.rollback.sql"));
 const prior = [
   ["public.api_approve_job_requirements(uuid,jsonb)", "20260316170500_preserve_raw_extraction_and_quote_overrides.sql"],
@@ -16,8 +16,7 @@ const prior = [
 ];
 
 describe("OVD-979 U2 migration artifacts", () => {
-  it("ships exactly the reviewed draft bytes", () => {
-    expect(read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql")).toBe(forward);
+  it("replaces exactly the four reviewed functions", () => {
     expect(scanFunctionEvents(forward).map((event) => event.signature).sort()).toEqual(prior.map(([signature]) => signature).sort());
   });
 

@@ -7,8 +7,7 @@ one-hour deferred-task backstop. No hosted database was contacted.
 
 ## Files and application
 
-- `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql`
-  and `docs/migration-drafts/ovd-979u2.sql` are byte identical.
+- `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
 - `docs/migration-drafts/ovd-979u2.rollback.sql` restores the previous four
   function definitions, including their original body bytes and search paths,
   with the existing post-OVD-736/OVD-535 grants. Neither file wraps a transaction;
@@ -121,3 +120,7 @@ interleaving with the still-inverted request path is deadlock-free. Debug and
 manual quote audits are in `docs/ovd979-lock-order.md`. Exact-head independent
 migration review and hosted gates remain integration work; no commit, push,
 PR operation, hosted apply or production action is part of this worktree task.
+
+## Forward copy removed
+
+The forward SQL now lives only in `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql`; the separate draft copy was dropped to avoid duplicated code. The rollback stays in `docs/migration-drafts/ovd-979u2.rollback.sql`.
