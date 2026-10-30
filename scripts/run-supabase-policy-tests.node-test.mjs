@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { stagePolicyTests, admitCi, admitPgProve, LEGACY } from './run-supabase-policy-tests.mjs';
+import { stagePolicyTests, admitCi, admitPgProve, LEGACY, DEDICATED_RUNNERS } from './run-supabase-policy-tests.mjs';
 import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, acceptRollbackRace, acceptRollbackGuards,
   acceptRevokeThenRollback, acceptRollbackBehindRevoke,
   callResult, compareCodeUnits, readMigration, readRollback, resolveBinary, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
@@ -15,15 +16,31 @@ function fixture(t) {
   cpSync(source, join(root, 'source'), { recursive: true });
   return { source: join(root, 'source'), target: join(root, 'staged') };
 }
-test('all SQL and include dependencies retained except exact routed legacy file', t => {
+test('all SQL and include dependencies retained except exact dedicated-runner files', t => {
   const f = fixture(t), receipt = stagePolicyTests(f.source, f.target);
   assert.equal(receipt.routedToRequiredPsqlJob, LEGACY);
   assert(receipt.selectedSql.includes('free_quote_job_meter.sql'));
   assert(receipt.selectedSql.includes('free_quote_terminal_lifecycle.sql'));
   assert(receipt.files['fixtures/free_quote_meter_setup.inc']);
   assert(!receipt.selectedSql.includes(LEGACY));
+  assert.deepEqual(receipt.dedicatedRunners, {
+    'reconcile_claim_fence_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
+  });
+  assert(!receipt.selectedSql.includes('reconcile_claim_fence_concurrency.sql'));
+  assert(receipt.selectedSql.includes('reconcile_claim_fence.sql'));
+  assert(receipt.selectedSql.includes('provider_dispatch_preflight_concurrency.sql'));
   assert.deepEqual(readFileSync(join(f.target, 'fixtures/free_quote_meter_setup.inc')),
     readFileSync(join(f.source, 'fixtures/free_quote_meter_setup.inc')));
+});
+test('a missing dedicated-runner suite fails closed before staging', t => {
+  const f = fixture(t);
+  for (const suite of Object.keys(DEDICATED_RUNNERS)) rmSync(join(f.source, suite));
+  assert.throws(() => stagePolicyTests(f.source, f.target), /reviewed dedicated-runner source missing/);
+});
+test('dedicated-runner exclusion cannot silently capture other concurrency suites', t => {
+  const f = fixture(t), name = 'reconcile_claim_fence_new_concurrency.sql';
+  writeFileSync(join(f.source, name), 'select 1;\n');
+  assert(stagePolicyTests(f.source, f.target).selectedSql.includes(name));
 });
 test('new SQL tests remain selected automatically', t => {
   const f = fixture(t); writeFileSync(join(f.source, 'new-case.sql'), 'select 1;\n');
@@ -53,7 +70,19 @@ test('CI requires replacement success before the standard lane and final aggrega
   assert.match(ci, /  test:\n    needs: ovd591-qualification/);
   assert.match(ci, /OVD591_PSQL_QUALIFIED: \$\{\{ needs\.ovd591-qualification\.result \}\}/);
   assert.match(ci, /run: node scripts\/run-supabase-policy-tests.mjs/);
+  assert.match(ci, /run: node scripts\/test-reconcile-claim-fence.mjs --ci-local "\$RUNNER_TEMP\/reconcile-claim-fence"/);
+  assert(ci.indexOf('Test reconcile claim fence concurrency on local database') > ci.indexOf('Reset local database'));
+  assert(ci.indexOf('Test reconcile claim fence concurrency on local database') < ci.indexOf('Seed local database'));
   assert.match(ci, /\[ "\$OVD591_SQL_RESULT" != "success" \]/);
+});
+test('the dedicated CI runner refuses non-CI execution before accessing Docker', t => {
+  const f = fixture(t);
+  const result = spawnSync(process.execPath, ['scripts/test-reconcile-claim-fence.mjs', '--ci-local', f.target], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8', env: { GITHUB_ACTIONS: 'false' },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /local Supabase mode is CI-only/);
+  assert(!result.stderr.includes('permission denied'), 'must refuse before contacting Docker');
 });
 
 test('OVD-762 pgTAP fixtures are byte copies of the Xometry fan out draft and its rollback', () => {
