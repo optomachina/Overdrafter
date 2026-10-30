@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(86);
+select plan(89);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values ('97940000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -87,7 +87,7 @@ create function pg_temp.u4_attempt_cases() returns setof text language plpgsql a
 declare c record; r record; a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); n integer;
 begin
   for c in select * from (values
-    ('queued', true, true, false, false, 'queued task even with matching identity'),
+    ('queued', true, true, false, false, 'queued task keeping a matching attempt_id (SQL-path requeue)'),
     ('queued', false, true, false, false, 'requeue cleared attempt'),
     ('running', true, true, true, false, 'reclaim changed attempt'),
     ('running', false, true, false, false, 'null legacy queue attempt'),
@@ -118,6 +118,20 @@ begin
 end;
 $$;
 select * from pg_temp.u4_attempt_cases();
+
+-- A matching running attempt whose part has a newer drawing requested is still pending.
+create temp table u4_successor as select * from pg_temp.u4_case();
+update public.work_queue set status = 'running', attempt_id = '97940000-0000-4000-8000-0000000000aa',
+  locked_at = now() - interval '1 minute',
+  payload = payload || jsonb_build_object('pendingDrawingFileId', gen_random_uuid())
+  where id = (select task_id from u4_successor);
+select pg_temp.u4_store((select part_id from u4_successor), '97940000-0000-4000-8000-0000000000aa');
+select is(public.api_auto_approve_job_requirements((select job_id from u4_successor)), 0,
+  'requested successor drawing: matching attempt cannot create requirements');
+select is((select status::text from public.jobs where id = (select job_id from u4_successor)), 'extracting',
+  'requested successor drawing: rollup stays extracting');
+select is((select status::text from public.drawing_extractions where part_id = (select part_id from u4_successor)), 'needs_review',
+  'requested successor drawing: extraction status untouched');
 
 -- Staff approval writes drawing_extractions.status and bumps updated_at via trigger.
 create temp table u4_staff as select * from pg_temp.u4_case();

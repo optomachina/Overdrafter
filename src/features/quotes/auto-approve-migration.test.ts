@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanFunctionEvents } from "../../../scripts/check-migration-function-collisions.mjs";
+import { rollbackSql } from "../../../scripts/ovd979-rollback.mjs";
 
 const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
 const migrationSql = read("supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql");
@@ -9,12 +10,13 @@ const signature = "public.api_auto_approve_job_requirements(uuid)";
 const body = (sql: string) => scanFunctionEvents(sql).find((event) => event.signature === signature)?.body;
 
 describe("api_auto_approve_job_requirements U4 migration", () => {
-  it("ships the reviewed draft and restores the U2/U3-era body byte for byte", () => {
-    expect(migrationSql).toBe(read("docs/migration-drafts/ovd-979u4.sql"));
+  it("replaces only auto approval, and its generated rollback restores the U2/U3-era body byte for byte", () => {
     expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature]);
     const prior = body(read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql"));
     expect(prior).toBeTypeOf("string");
-    expect(body(read("docs/migration-drafts/ovd-979u4.rollback.sql"))).toBe(prior);
+    const rollback = rollbackSql("20261030165700_ovd979u4_attempt_bound_auto_approval.sql");
+    expect(body(rollback)).toBe(prior);
+    expect(rollback).toMatch(/^set search_path = pg_catalog, public$/m);
   });
 
   it.each(["description", "partNumber", "revision", "finish"])("honors both ownership systems for %s", (field) => {
@@ -30,6 +32,15 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     expect(migrationSql).toContain("queue.status = 'running'");
     expect(migrationSql).not.toContain("locked_at");
     expect(migrationSql).not.toContain("v_finishing");
+  });
+
+  it("accepts attempt evidence only from running rows with a non-null attempt_id", () => {
+    // Only the worker retry path clears attempt_id, so a queued row may still carry a matching id.
+    const gates = [...migrationSql.matchAll(/and not \(\s*queue\.status = 'running'\s*and queue\.attempt_id is not null\s*and /g)];
+    const matches = [...migrationSql.matchAll(/source_attempt_id = queue\.attempt_id/g)];
+    expect(gates).toHaveLength(2);
+    expect(matches).toHaveLength(gates.length);
+    expect(migrationSql.split("and not (queue.payload ? 'pendingDrawingFileId')")).toHaveLength(gates.length + 1);
   });
 
   it("limits every job status update to the four pre-quote statuses", () => {

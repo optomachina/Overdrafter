@@ -105,7 +105,8 @@ begin
     where part_id = v_part.id;
 
     -- Active work may still hold an older result. Only a running, non-legacy
-    -- attempt that produced this row is evidence for the current extraction.
+    -- attempt that produced this row, with no newer drawing requested
+    -- (pendingDrawingFileId, set by U5's request), is evidence for the current extraction.
     -- Do not refresh fields or stamp stale extraction status while it is pending.
     if exists (
       select 1 from public.work_queue queue
@@ -116,6 +117,7 @@ begin
         and not (
           queue.status = 'running'
           and queue.attempt_id is not null
+          and not (queue.payload ? 'pendingDrawingFileId')
           and coalesce(v_extraction.source_attempt_id = queue.attempt_id, false)
         )
     ) then
@@ -458,6 +460,7 @@ begin
     and not (
       queue.status = 'running'
       and queue.attempt_id is not null
+      and not (queue.payload ? 'pendingDrawingFileId')
       and exists (
         select 1 from public.drawing_extractions stored
         where stored.part_id = queue.part_id
