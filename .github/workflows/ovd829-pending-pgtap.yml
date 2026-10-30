@@ -72,12 +72,14 @@ jobs:
       - name: DM-1R rollback returns the exact pre-draft schema
         run: |
           dump() {
+            local out="$1"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
-              pg_dump "$DB_URL" --schema-only --no-owner --restrict-key=ovd829 -f "$1"
+              pg_dump "$DB_URL" --schema-only --no-owner --restrict-key=ovd829 -f "$out"
           }
           run_sql() {
+            local sql_file="$1"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
-              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$1"
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$sql_file"
           }
           dump pre-draft.sql
           for f in ${{ steps.select.outputs.drafts }}; do run_sql "$f"; done

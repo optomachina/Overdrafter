@@ -714,17 +714,18 @@ jobs:
           echo "ovd591-retention-qualification=$OVD591_RETENTION_SQL_RESULT"
           echo "free-quote-sql-qualification=$FREE_QUOTE_SQL_RESULT"
 
-          if [ "$LINT_RESULT" != "success" ] || \
-             [ "$TYPECHECK_RESULT" != "success" ] || \
-             [ "$TEST_RESULT" != "success" ] || \
-             [ "$UNIT_RESULT" != "success" ] || \
+          ok=success
+          if [ "$LINT_RESULT" != "$ok" ] || \
+             [ "$TYPECHECK_RESULT" != "$ok" ] || \
+             [ "$TEST_RESULT" != "$ok" ] || \
+             [ "$UNIT_RESULT" != "$ok" ] || \
              [ "$BROWSER_TEST_RESULT" != "success" ] || \
-             [ "$BUILD_RESULT" != "success" ] || \
-             [ "$WORKER_RESULT" != "success" ] || \
-             [ "$OVD420_NETWORK_RESULT" != "success" ] || \
-             [ "$OVD591_SQL_RESULT" != "success" ] || \
-             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ] || \
-             [ "$FREE_QUOTE_SQL_RESULT" != "success" ]; then
+             [ "$BUILD_RESULT" != "$ok" ] || \
+             [ "$WORKER_RESULT" != "$ok" ] || \
+             [ "$OVD420_NETWORK_RESULT" != "$ok" ] || \
+             [ "$OVD591_SQL_RESULT" != "$ok" ] || \
+             [ "$OVD591_RETENTION_SQL_RESULT" != "$ok" ] || \
+             [ "$FREE_QUOTE_SQL_RESULT" != "$ok" ]; then
             exit 1
           fi
 
