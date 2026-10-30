@@ -2348,6 +2348,26 @@ describe("XometryAdapter", () => {
       expect(press).not.toHaveBeenCalled();
     });
 
+    it("engaged during the quantity readback: the quantity input is never filled", async () => {
+      const fill = vi.fn();
+      const press = vi.fn();
+      const page = createFakePage({
+        bodyText: "Configure part",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, fill, press },
+        },
+      });
+      const beforeSubmit = async () => {
+        throw new ProviderKillSwitchError("provider_kill_switch_engaged", "xometry", "before_configure");
+      };
+
+      const error = await setQuantity(page as never, 2, undefined, beforeSubmit).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(fill).not.toHaveBeenCalled();
+      expect(press).not.toHaveBeenCalled();
+    });
+
     it("engaged while the uploader readiness is polled: the CAD file is never selected", async () => {
       const { state, providerKillSwitchCheckpoint } = switchState();
       const dashboardCadUpload = vi.fn();
@@ -4368,12 +4388,17 @@ describe("XometryAdapter", () => {
       const stepper = quantityInputBehavior("1");
       const order: string[] = [];
       stepper.press = vi.fn(() => { order.push("enter"); });
+      const originalFill = stepper.fill;
+      stepper.fill = vi.fn((...args: Parameters<NonNullable<typeof originalFill>>) => {
+        order.push("fill");
+        return originalFill?.(...args);
+      });
       const page = createFakePage({ bodyText: "Quantity", selectorBehaviors: { [partRowStepperSelector]: stepper } });
 
       const outcome = await setQuantity(page as never, 5, undefined, async () => { order.push("before-submit"); });
 
       expect(outcome).toEqual({ selector: partRowStepperSelector, filled: true });
-      expect(order).toEqual(["before-submit", "enter"]);
+      expect(order).toEqual(["before-submit", "fill", "before-submit", "enter"]);
       expect(stepper.press).toHaveBeenCalledWith("Enter");
     });
 

@@ -2189,6 +2189,8 @@ export async function setQuantity(
     return { selector: readback.selector, filled: false };
   }
 
+  // The switch can engage during the readback; check it before writing to the page.
+  await beforeSubmit();
   await locator.fill(String(quantity));
   // OVD-722: Enter can submit the form; read the switch again between the
   // fill and the key press.
