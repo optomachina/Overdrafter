@@ -1,63 +1,19 @@
 #!/usr/bin/env node
 /**
- * OVD-845 / OVD-959 (PR-G1): `ovd-merge-gate`, the single merge gate check.
+ * Enforced merge gate, evaluated only by trusted default-branch code.
+ * evaluate() composes the existing durable verdict-history rules with exact
+ * head CI, separate Opus/Sonnet review, Jev and QA evidence and held categories.
+ * Only the verifier App's comments count. Positive evidence never transfers
+ * across SHAs; blocking history still follows an equal diff_id.
  *
- * `evaluate()` is pure. For one head SHA it decides whether the PR has
- * (a) a trusted verifier PASS (or PASS_NOTES without a `high:` note) bound to
- *     the head with readiness.checks green,
- * (b) at least one trusted reviewer PASS bound to the head,
- * (c) no outstanding FAIL and no disagreement over the union of every verdict
- *     bound to the head SHA or the head diff_id (a FAIL stands unless a later
- *     same-role verdict at the same SHA supersedes it for `reason: infra` and
- *     cites a new, verified ci-run/verify-run; a FAIL with findings or a high
- *     note is a product FAIL and needs a new head),
- * (d) verdicts from trusted logins only (TRUSTED_VERIFIERS, a constant here,
- *     never an env or repo variable), with a known model_family (ruling 4),
- * (e) no edited, malformed or unterminated trusted verdict for the head until
- *     a fresh one is posted (untrusted and malformed-by-others blocks are
- *     ignored); a removed (deleted, or edited away) trusted verdict is carried
- *     forward only when it blocks (a FAIL, or a pass with a high note or
- *     finding), and then it still stands in the union exactly as if it had
- *     not been removed; a deleted PASS/PASS_NOTES simply disappears and never
- *     counts as a pass; a removed block that cannot be read fails closed until
- *     a fresh verdict is posted. Removals come from the append-only history
- *     (see "Verdict history" below), keyed on the PR and bound by SHA or
- *     diff_id, so a new head with the same diff_id inherits them,
- * (f) Blaine's `overdrafter.approval/v1` record for any sensitive class, from
- *     the default-branch copy of the sensitive-class detector; a detector
- *     status other than ok, or a missing, partial or stale result, is
- *     classifier_error,
- * (g) independence, enforced only when IDENTITY is "app" (stage B). Ruling 1:
- *     a counted verdict whose verifier id equals a builder in the PR body's
- *     Built-by line (parsed by scripts/agent-graph/built-by.mjs, per
- *     docs/agent-pr-tags.md) is verifier_not_independent; a missing or
- *     unparseable Built-by line is builder_unattributed. Both are warnings in
- *     stage A (until K3) and blocking reasons in stage B,
- * (h) PASS evidence that resolves (ruling 6): a PASS or PASS_NOTES counts
- *     only when one of its https ci-run/verify-run links is a GitHub Actions
- *     run of this repository that reported a check run on the verdict's SHA
- *     (the revision the verdict is bound to the head by); otherwise
- *     evidence_unverified.
+ * write records success/failure, rereads the head, and can squash-merge only
+ * when vars.DOOR_AUTOMERGE supplied exact true and mergeEligibility passes.
+ * GitHub's --match-head-commit closes the push race. No branch protection,
+ * labels, repository variables, provider or production operations are changed.
  *
- * Fail closed: every missing, unparseable, error, unknown or partial input is
- * a reason, never a pass. The advisory `jev-screen` status is never read.
- *
- * MODE is "report": a would-be failure is written as `neutral` with the title
- * `REPORT: would block: <codes>`. In enforce mode the conclusion is only ever
- * `success` or `failure`.
- *
- * CLI (run from a default-branch checkout; reads GITHUB_TOKEN or GH_TOKEN):
- *   node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch]
- *       prints the summary; exit 0 when gate is pass, 1 when fail, 2 on usage errors
- *   node scripts/ovd-merge-gate.mjs record --pr N [--repo o/r]
- *       appends the trusted blocking verdicts of the event comment and the
- *       live comments to the PR's verdict history
- *   node scripts/ovd-merge-gate.mjs write --pr N [--repo o/r]
- *       evaluates the live head, re-reads the head, writes the check run
- *   node scripts/ovd-merge-gate.mjs merge-group --sha S [--repo o/r]
- *       writes success on the merge group commit (the queue no-op)
- *
- * See docs/verdict-format.md ("OVD-845 merge gate").
+ * CLI: evaluate --pr N --sha S [--json]; record --pr N; write --pr N
+ * [--history-result R]; merge-group --sha S. All accept --repo owner/name.
+ * Dependency: #972 owns writer cancellation/ENOTEMPTY repairs; retain them.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -68,21 +24,21 @@ import process from "node:process";
 import { loadRouting, parseBuiltBy } from "./agent-graph/built-by.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { pathCandidates } from "./lib/sensitive-paths.mjs";
+import { ALLOWED_AUTHORS, MARKER_CONTEXT, SCREENER_ID, parseMarkerDescription } from "./lib/jev-screen-marker.mjs";
+import { JEV_MODEL } from "./jev-client.mjs";
 import { approvalForHead, parseApprovalComments } from "./approval-record.mjs";
 import { assertSha, computeDiffId, resolveBinary } from "./emit-verdict.mjs";
-import { detect, fetchPullRequest, gateLooseningForPull, loadConfig } from "./sensitive-class-detect.mjs";
+import { detect, fetchPullRequest, gateLooseningForPull, heldContent, loadConfig } from "./sensitive-class-detect.mjs";
 import { FENCE_INFO, extractVerdictBlocks, hasHighNote, parseVerdictComments } from "./verdict-schema.mjs";
 
 export const CHECK_NAME = "ovd-merge-gate";
-export const MODE = "report";
-export const IDENTITY = "shared-account";
-// Kill switch: only a separate Blaine-carded PR may flip this. Reporting only.
-export const DOOR_AUTOMERGE = false;
+export const MODE = "enforce";
+export const IDENTITY = "app";
 export const CROSS_FAMILY = Object.freeze({ claude: ["codex", "grok"], codex: ["claude"], grok: ["claude"] });
 const DOOR_REQUIRED_CHECKS = ["ci", "provider-go-live", "secret-scan"];
-/** Stage A trust list. A constant in the default-branch script: optomachina can edit repo variables. */
-export const TRUSTED_VERIFIERS = Object.freeze(["optomachina"]);
-/** Stage B (IDENTITY "app", PR-G5): only the private App's bot counts. */
+/** Fixed default-branch trust. User verdicts cannot authorize a merge. */
+export const TRUSTED_VERIFIERS = Object.freeze(["overdrafter-verifier[bot]"]);
+/** Only the private verifier App's bot counts. */
 export const APP_TRUSTED_VERIFIERS = Object.freeze(["overdrafter-verifier[bot]"]);
 /** The merging identity; in stage B its verdicts are ignored (verifier_is_merger). */
 export const MERGER_LOGINS = Object.freeze(["optomachina"]);
@@ -202,7 +158,7 @@ function readBlock(comment, text, block, headSha) {
   if (!entry) return { rejected: [] };
   const errors = familyErrors(entry.verdict);
   if (errors.length) return { rejected: [{ ...base, reason: "schema_error", errors, text }] };
-  return { entry: { ...base, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
+  return { entry: { ...base, review_model: entry.verdict.verifier.model_family, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
 }
 
 /**
@@ -678,7 +634,7 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
     approval_comment_id: null,
     automerge: "needs_blaine",
     sensitive_classes: [],
-    door_report: { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "head input has not been validated" }] },
+    door_report: { door: "one-way", ok: false, automerge_enabled: false, reasons: [{ code: "classifier_error", detail: "head input has not been validated" }] },
     reasons: [],
     warnings: [],
     ignored: [],
@@ -708,7 +664,7 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
  * @param {"report"|"enforce"} input.mode
  * @param {"shared-account"|"app"} input.identity
  */
-export function evaluate(given = {}) {
+export function evaluateVerdicts(given = {}) {
   const input = given !== null && typeof given === "object" ? given : {};
   const mode = MODES.has(input.mode) ? input.mode : "enforce";
   const identity = IDENTITIES.has(input.identity) ? input.identity : "app";
@@ -749,9 +705,116 @@ export function evaluate(given = {}) {
   summary.reasons = dedupeReasons(reasons);
   summary.gate = summary.reasons.length === 0 ? "pass" : "fail";
   try { summary.door_report = revertableOk(input, { summary, candidates }); } catch {
-    summary.door_report = { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "door evaluation failed closed" }] };
+    summary.door_report = { door: "one-way", ok: false, automerge_enabled: false, reasons: [{ code: "classifier_error", detail: "door evaluation failed closed" }] };
   }
   return summary;
+}
+
+/** The jev-pr-screen writer uses context jev-screen, not its script name. */
+export function jevGate(snapshot, sha) {
+  if (!HEX40.test(sha ?? "") || snapshot?.sha !== sha || !Array.isArray(snapshot?.statuses)) return { ok: false, tier: null };
+  const statuses = snapshot.statuses.filter((status) => status?.context === MARKER_CONTEXT && ALLOWED_AUTHORS.includes(status.creator?.login));
+  const markers = statuses.map((status) => status.state === "success"
+    && typeof status.url === "string" && status.url.endsWith(`/statuses/${sha}`)
+    ? parseMarkerDescription(status.description) : null);
+  // A rejected/risky marker cannot be hidden by an older or weaker success.
+  if (!markers.length || markers.some((marker) => !marker || marker.model !== JEV_MODEL || marker.screener !== SCREENER_ID
+      || marker.jevTier === "risky" || marker.confidence < 0.5)) return { ok: false, tier: null };
+  const tiers = ["low", "normal", "risky"];
+  return { ok: true, tier: tiers[Math.max(...markers.map((marker) => tiers.indexOf(marker.tier)))] };
+}
+
+/** Held work never qualifies for this lane, even with approval comments. */
+export function heldCategories(files, classification) {
+  const held = new Set(list(classification?.held_categories));
+  const classes = list(classification?.classes);
+  if (classes.includes("gate_machinery")) held.add("gate_machinery");
+  if (classes.includes("unclassified")) held.add("unclassified");
+  if (classes.includes("migrations")) held.add("prod_db_migration");
+  if (classes.some((name) => ["provider_dispatch", "payments"].includes(name))) held.add("vendor_spend");
+  if (classification?.gate_loosening?.detected) held.add("gate_loosening");
+  for (const file of list(files)) {
+    for (const hold of heldContent(typeof file?.patch === "string" ? file.patch : "")) held.add(hold);
+    if (file?.status === "removed") held.add("deletion");
+    for (const name of changedPaths(file).flatMap(pathCandidates)) {
+      const path = name.normalize("NFKC").toLowerCase();
+      if (/(?:^|\/)(?:migrations?|migration-drafts)(?:\/|$)|\.(?:sql|pgsql|psql)$/.test(path)) held.add("prod_db_migration");
+      if (/(?:apply|migrat).*prod|prod.*(?:apply|migrat)/.test(path)) held.add("prod_db_migration");
+      if (/vendor|supplier|provider|spend|billing|payment|checkout|purchase|invoice/.test(path)) held.add("vendor_spend");
+      if (/branch[-_]?protection|ruleset|codeowners/.test(path)) held.add("branch_protection");
+      if (/sonar/.test(path)) held.add("sonar_safe_mark");
+    }
+  }
+  return [...held];
+}
+
+const reviewModel = (entry) => {
+  if (["opus", "sonnet"].includes(entry.review_model)) return entry.review_model;
+  // The emitter normalizes model_family to claude. Explicit role ids retain
+  // the distinction; a generic Claude reviewer never proves both gates.
+  const id = entry.verdict.verifier?.id;
+  return ["opus-reviewer", "sonnet-reviewer"].includes(id) && entry.verdict.verifier.model_family === "claude" ? id.split("-")[0] : null;
+};
+
+/** Enforced decision; all positive evidence is for this exact head. Pure. */
+export function evaluate(given = {}) {
+  const input = isRecord(given) ? given : {};
+  const summary = evaluateVerdicts({ ...input, mode: MODE, identity: IDENTITY });
+  const reasons = [];
+  const add = (code, detail) => reasons.push({ code, detail });
+  const jev = jevGate(input.commitStatuses, input.headSha);
+  if (!jev.ok) add("jev_not_pass", "missing, no_verdict, stale, uncertain or risky jev-pr-screen marker");
+  const held = heldCategories(input.changedFiles, input.classification);
+  for (const category of held) add(`held:${category}`, `held category ${category} requires Blaine's separate operation`);
+  // Retain the existing all-tier QA floor. No tier can waive a QA failure.
+  const opusRequired = jev.tier === "risky" || summary.sensitive_classes.length > 0;
+  const { entries } = collectVerdicts(input.comments, input.headSha);
+  for (const entry of entries.filter((entry) => inList(APP_TRUSTED_VERIFIERS, lower(entry.author))
+    && (entry.verdict.sha === input.headSha || entry.verdict.diff_id === input.headDiffId))) {
+    if (list(entry.verdict.findings).length) add("actionable_findings", `trusted comment ${entry.comment_id} has findings that require disposition at a new head`);
+  }
+  const exact = entries.filter((entry) => inList(APP_TRUSTED_VERIFIERS, lower(entry.author))
+    && entry.verdict.sha === input.headSha && PASSING.has(entry.verdict.verdict)
+    && !isHigh(entry.verdict) && list(entry.verdict.findings).length === 0
+    && entry.verdict.readiness?.open_threads === 0
+    && entry.verdict.readiness?.conflicts === 0
+    && evidenceVerified(entry.verdict, input.verifiedEvidence));
+  for (const model of ["opus", "sonnet"]) {
+    if (model === "opus" && !opusRequired) continue;
+    if (!exact.some((entry) => entry.verdict.role === "reviewer" && reviewModel(entry) === model)) add(`${model}_not_pass`, `no independent ${model} review PASS at this exact SHA`);
+  }
+  if (!exact.some((entry) => entry.verdict.role === "verifier" && entry.verdict.readiness?.checks === "green")) add("qa_not_pass", "no QA PASS with green checks at this exact SHA (required at every tier)");
+  // All counted reviews, including ones beyond the minimum, must be independent.
+  reasons.push(...builderReasons(exact, input.prBody));
+  for (const name of DOOR_REQUIRED_CHECKS) {
+    const runs = list(input.requiredChecks).filter((run) => run?.name === name);
+    const latest = runs.toSorted((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+    if (!latest || latest.head_sha !== input.headSha || latest.app?.id !== GITHUB_ACTIONS_APP_ID
+        || latest.status !== "completed" || latest.conclusion !== "success") add("ci_not_pass", `${name} is not green at this exact SHA from GitHub Actions`);
+  }
+  if (input.reviewThreads?.sha !== input.headSha || input.reviewThreads?.complete !== true
+      || !Array.isArray(input.reviewThreads.threads) || input.reviewThreads.threads.some((thread) => thread?.isResolved !== true)) add("threads_unresolved", "review threads are unresolved, unknown or stale");
+  // Sensitive approval can be waived only for a complete non-held decision.
+  // History conflicts, malformed input and independence failures remain intact.
+  const mayWaive = held.length === 0 && reasons.length === 0;
+  summary.reasons = dedupeReasons([...summary.reasons.filter((reason) => !(mayWaive && reason.code.startsWith("approval_missing:"))), ...reasons]);
+  summary.gate = summary.reasons.length ? "fail" : "pass";
+  summary.automerge = summary.gate === "pass" ? "eligible" : "blocked";
+  summary.enforced = true;
+  summary.tier = jev.tier;
+  summary.held_categories = held;
+  summary.opus_required = opusRequired;
+  return summary;
+}
+
+/** The switch is supplied only by vars.DOOR_AUTOMERGE in the trusted workflow. */
+export function mergeEligibility(summary, switchValue, pull) {
+  return switchValue === "true" && summary?.enforced === true && summary.mode === "enforce"
+    && HEX40.test(summary.sha ?? "") && summary.gate === "pass" && summary.automerge === "eligible"
+    && Array.isArray(summary.reasons) && summary.reasons.length === 0
+    && Array.isArray(summary.held_categories) && summary.held_categories.length === 0
+    && pull?.head?.sha === summary.sha && pull.state === "open" && pull.draft === false
+    && pull.mergeable === true && pull.mergeable_state === "clean";
 }
 
 /**
@@ -760,7 +823,7 @@ export function evaluate(given = {}) {
  * to this SHA; missing/unknown inputs fail closed. No labels are consulted.
  */
 export function revertableOk(ctx, { summary, candidates } = {}) {
-  if (!summary) return evaluate(ctx).door_report;
+  if (!summary) return evaluateVerdicts(ctx).door_report;
   const reasons = [];
   const add = (code, detail) => reasons.push({ code, detail });
   const classification = ctx.classification;
@@ -804,7 +867,7 @@ export function revertableOk(ctx, { summary, candidates } = {}) {
   if (!ctx.revertPlan) add("revert_plan_missing", "no Revert plan validation result");
   else if (ctx.revertPlan.sha !== ctx.headSha || ctx.revertPlan.ok !== true || ctx.revertPlan.required !== true
       || !Array.isArray(ctx.revertPlan.errors) || ctx.revertPlan.errors.length) add("revert_plan_invalid", "Revert plan is invalid, unknown or stale");
-  return { door, ok: reasons.length === 0, automerge_enabled: DOOR_AUTOMERGE, reasons: dedupeReasons(reasons) };
+  return { door, ok: reasons.length === 0, automerge_enabled: false, reasons: dedupeReasons(reasons) };
 }
 
 function dedupeReasons(reasons) {
@@ -857,7 +920,7 @@ export function formatSummary(summary) {
   const legacy = lines.join("\n");
   if (!summary.door_report) return legacy;
   const report = [
-    `Door report (auto-merge off): \`${summary.door_report.door}\`; revertable conditions: ${summary.door_report.ok ? "pass" : "fail"}`,
+    `Legacy door report (not merge authority): \`${summary.door_report.door}\`; revertable conditions: ${summary.door_report.ok ? "pass" : "fail"}`,
     "",
     ...summary.door_report.reasons.map((reason) => `- door \`${reason.code}\`: ${oneLine(reason.detail)}`),
     "",
@@ -989,8 +1052,21 @@ export async function classifyPull({ client, repo, pr, headSha, root, loadConfig
     if (!config) return { classification: { status: "error", sha: headSha, errors: configErrors ?? ["detector config did not load"] }, files: null };
     const pull = await fetchPullRequest(client, repo, pr, { expectedHeadSha: headSha });
     const result = await detectImpl({ ...pull, config, allowEmpty: pull.changedFiles === 0 });
+    // Scan complete head text, not truncated API patches. Unreadable/binary or
+    // oversized work cannot quietly bypass a held operation. No code executes.
+    result.held_categories = [];
+    let scannedBytes = 0;
+    if (pull.files.length > 200) throw new Error("held-content scan exceeds 200-file ceiling");
+    for (const file of pull.files.filter((file) => file.status !== "removed")) {
+      const text = await pull.readHeadFile(file.filename);
+      if (typeof text !== "string" || text.length > 256 * 1024) throw new Error("held-content scan unreadable or oversized");
+      scannedBytes += Buffer.byteLength(text);
+      if (Buffer.byteLength(text) > 256 * 1024 || scannedBytes > 4 * 1024 * 1024) throw new Error("held-content scan exceeds byte ceiling");
+      for (const hold of heldContent(text)) if (!result.held_categories.includes(hold)) result.held_categories.push(hold);
+    }
     const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
     const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
+    result.gate_loosening = loosening.gateLoosening;
     if (loosening.gateLoosening.detected) {
       result.door = "one-way";
       (result.door_reasons ??= []).push({ code: "O-GATE" });
@@ -1222,6 +1298,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const { diffId, error: diffIdError } = headDiffId({ pr, repo, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
   const { classification, files } = await classify({ client, repo, pr, headSha, root });
   const requiredChecks = validHead ? await attempt(() => client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?filter=all`, (data) => data?.check_runs)) : undefined;
+  const statuses = validHead ? await attempt(() => client.paginate(`/repos/${repo}/commits/${headSha}/statuses`)) : undefined;
+  const threads = reviewThreads ?? await attempt(() => readReviewThreads(client, repo, pr, headSha));
   // Lazy import: this gate runs without npm install. The PR-body validator's
   // existing TypeScript dependency may be unavailable; that only fails the
   // door report closed and cannot prevent the legacy gate from running.
@@ -1230,7 +1308,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     return { sha: headSha, ...validateRevertPlan(pull?.body, classification?.door) };
   });
   const summary = evaluate({
-    reviewThreads,
+    reviewThreads: threads,
+    commitStatuses: { sha: headSha, statuses },
     requiredChecks,
     revertPlan,
     headSha,
@@ -1358,7 +1437,39 @@ async function writeMergeGroup({ client, options, stdout }) {
   return 0;
 }
 
-async function writeGate({ client, options, summary, stdout }) {
+/** Read every thread and bind the connection to GitHub's live PR head. */
+export async function readReviewThreads(client, repo, pr, sha) {
+  const [owner, name] = repo.split("/");
+  const threads = [];
+  let after = null;
+  for (let page = 0; page < 100; page += 1) {
+    const data = await client.post("/graphql", {
+      query: `query($owner:String!,$name:String!,$pr:Int!,$after:String){repository(owner:$owner,name:$name){pullRequest(number:$pr){headRefOid reviewThreads(first:100,after:$after){nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}`,
+      variables: { owner, name, pr: Number(pr), after },
+    });
+    const pull = data?.data?.repository?.pullRequest;
+    const connection = pull?.reviewThreads;
+    if (data.errors || pull?.headRefOid !== sha || !Array.isArray(connection?.nodes)
+        || typeof connection.pageInfo?.hasNextPage !== "boolean") throw new Error("review thread snapshot is incomplete or stale");
+    threads.push(...connection.nodes);
+    if (!connection.pageInfo.hasNextPage) return { sha, complete: true, threads };
+    if (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === after) throw new Error("review thread cursor did not advance");
+    after = connection.pageInfo.endCursor;
+  }
+  throw new Error("too many review thread pages");
+}
+
+export async function mergePull({ client, repo, pr, summary, switchValue, merge = (args) => execFileSync(resolveBinary("gh"), args, { stdio: "ignore", timeout: 60_000 }) }) {
+  if (switchValue !== "true") return false;
+  const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
+  if (!mergeEligibility(summary, switchValue, pull)) return false;
+  // GitHub performs the final atomic head comparison. Never queue --auto or
+  // bypass branch protection with --admin.
+  await merge(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", summary.sha]);
+  return true;
+}
+
+async function writeGate({ client, options, summary, stdout, switchValue, merge }) {
   // Re-read the head right before writing: a result for a head that moved is not written.
   const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
   if (now !== summary.sha) {
@@ -1367,10 +1478,11 @@ async function writeGate({ client, options, summary, stdout }) {
   }
   await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
   stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
+  if (await mergePull({ client, repo: options.repo, pr: options.pr, summary, switchValue, merge })) stdout.write("ovd-merge-gate: squash merge submitted for the evaluated head\n");
   return 0;
 }
 
-async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout }) {
+async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, merge }) {
   if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
   if (options.command === "record") {
     const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env) });
@@ -1379,17 +1491,17 @@ async function runCommand({ options, env, client, token, cwd, git, diff, classif
   }
   const event = options.command === "write" ? readEvent(env) : null;
   const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
-  if (options.command === "write") return writeGate({ client, options, summary, stdout });
+  if (options.command === "write") return writeGate({ client, options, summary, stdout, switchValue: env.DOOR_AUTOMERGE, merge });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
 }
 
 /**
  * CLI. Returns the exit code: evaluate 0 pass / 1 fail; record, write and
- * merge-group 0 once handled (report mode never fails the job), 1 when a
+ * merge-group 0 once handled (the check carries the enforced result), 1 when a
  * check run could not be written; 2 on usage errors.
  */
-export async function main(argv = process.argv.slice(2), { env = process.env, fetchImpl, stdout = process.stdout, stderr = process.stderr, cwd = process.cwd(), git, diff, classify } = {}) {
+export async function main(argv = process.argv.slice(2), { env = process.env, fetchImpl, stdout = process.stdout, stderr = process.stderr, cwd = process.cwd(), git, diff, classify, merge } = {}) {
   let options;
   try {
     options = parseCli(argv);
@@ -1402,7 +1514,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   const client = createApi({ token, apiUrl: env.GITHUB_API_URL || undefined, fetchImpl });
   try {
-    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout });
+    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, merge });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
     return 1;

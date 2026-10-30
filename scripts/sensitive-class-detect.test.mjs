@@ -37,6 +37,7 @@ import {
   gateLooseningForPull,
   githubClient,
   isValidPath,
+  heldContent,
   loadConfig,
   main,
   pathWords,
@@ -49,7 +50,10 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const yaml = createRequire(import.meta.url)("js-yaml");
 const rawConfig = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 const sensitivePathsText = readFileSync(path.join(repoRoot, SENSITIVE_PATHS_FILE), "utf8");
-const { config } = loadConfig();
+const { config: enforcedConfig } = loadConfig();
+// Isolate the original shared-list/SQL/door regressions from the additive held
+// overlay. The enforced config is verified separately across all fixture paths.
+const config = { ...enforcedConfig, gateMachinery: [] };
 const requires = [...GATE_LOOSENING_REQUIRES];
 
 const modified = (filename) => ({ filename, status: "modified" });
@@ -71,7 +75,7 @@ describe("config", () => {
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
     expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer", "auth"]);
-    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
+    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, "gate_machinery", ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
     expect(UNCLASSIFIED).toBe("unclassified");
   });
 
@@ -2578,7 +2582,7 @@ describe("gate_loosening: the base copy judges", () => {
     const out = path.join(dir, "out.json");
     await baseModule.main(["--repo", "o/r", "--pr", "7", "--json", out], {}, { fetchImpl: fakeFetch(routes), stdout: { write() {} } });
     const result = JSON.parse(readFileSync(out, "utf8"));
-    expect(result).toMatchObject({ status: "ok", classes: ["infra_ci"] });
+    expect(result).toMatchObject({ status: "ok", classes: ["infra_ci", "gate_machinery"] });
     expect(result.gate_loosening.detected).toBe(true);
     expect(kinds(result.gate_loosening).sort()).toEqual(["category_narrowed", "gate_changed", "glob_removed", "matcher_changed"]);
   });
@@ -2754,5 +2758,50 @@ describe("door tier: report-only", () => {
     const head = structuredClone(rawConfig);
     head.door.classes.infra_ci = "revertable";
     expect(detectGateLoosening({baseRaw:rawConfig,headRaw:head,gateFiles:[{path:CONFIG_REPO_PATH,status:"modified"}]}).reasons.map((reason) => reason.kind)).toContain("door_changed");
+  });
+});
+
+// Verify the additive hold against the real shipping config, independently of
+// the legacy shared-list regression fixture above.
+describe("enforced gate machinery overlay", () => {
+  it("preserves every shared sensitive class across the complete path fixture", () => {
+    for (const {path:file,classes} of sharedFixture) {
+      const result=classifyPath(file,enforcedConfig);
+      expect(result.classes.filter((name)=>name!=="gate_machinery"),file).toEqual(classes);
+      if(result.classes.includes("gate_machinery")) expect(result.category,file).toBeNull();
+    }
+  });
+
+  it.each(["AGENTS.md","scripts/ovd-merge-gate.mjs","scripts/ovd-merge-gate.test.mjs","scripts/sensitive-classes.json","scripts/lib/jev-screen-marker.mjs",".github/workflows/ovd-merge-gate.yml","scripts/emit-verdict.mjs","config/branch-protection.json","scripts/sonar-safe-mark.mjs"])("holds %s", async (file) => {
+    expect(classifyPath(file,enforcedConfig).classes).toContain("gate_machinery");
+    const result=await detect({files:[modified(file)],config:enforcedConfig,sha:"a".repeat(40),readHeadFile:noSql});
+    expect(result.classes).toContain("gate_machinery");
+    expect(result.door).toBe("one-way");
+  });
+
+  it("does not hold ordinary docs or all sensitive source changes", () => {
+    expect(classifyPath("docs/recurring-workflows.md",enforcedConfig)).toMatchObject({classes:[],category:"docs"});
+    expect(classifyPath("src/lib/auth-options.ts",enforcedConfig).classes).toEqual(["auth"]);
+  });
+
+  it("rejects invalid machinery config instead of silently ignoring it", () => {
+    for(const gate_machinery of [{paths:3},{paths:["scripts/**"],exclude:["scripts/ovd-merge-gate.mjs"]},null]) expect(compileConfig({...rawConfig,gate_machinery}).config).toBeNull();
+  });
+
+  it("removing or narrowing machinery patterns is a gate loosening", () => {
+    for(const paths of [[],["scripts/ovd-merge-gate.mjs"]]) {
+      const headRaw={...rawConfig,gate_machinery:{paths}};
+      const result=detectGateLoosening({baseRaw:rawConfig,headRaw,gateFiles:[{path:CONFIG_REPO_PATH,status:"modified"}]});
+      expect(result.detected).toBe(true);
+      expect(result.reasons.some((reason)=>reason.kind==="gate_machinery_narrowed")).toBe(true);
+    }
+  });
+
+  it.each(["// NOSONAR","api/hotspots/change_status","sonar mark SAFE","api/issues/do_transition"])("holds inline Sonar marks: %s", (text) => {
+    expect(heldContent(text)).toContain("sonar_safe_mark");
+  });
+
+  it.each(["createBranchProtectionRule","deleteBranchProtectionRule","/branches/main/protection","/repos/o/r/rulesets"])("holds branch protection operations: %s", (text) => {
+    expect(heldContent(text)).toContain("branch_protection");
   });
 });

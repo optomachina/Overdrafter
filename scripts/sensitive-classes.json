@@ -1,6 +1,18 @@
 {
   "version": 1,
-  "description": "OVD-844 detector config: the SQL content rules (rls, definer) and the AGENTS.md 'Approval timing and low-risk auto-merge' safe categories. Sensitive path classes are not here: they come only from docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs (OVD-873), and this file never copies those globs. A path with any sensitive class is never in a safe category. Read by scripts/sensitive-class-detect.mjs; the auto-merge eligibility check (OVD-845) reads the detector's JSON result, not this file.",
+  "gate_machinery": {
+    "paths": [
+      ".github/**", "**/AGENTS.md", "**/AGENTS.override.md", "**/CLAUDE.md",
+      "scripts/*gate*", "scripts/*proof*", "scripts/*verdict*", "scripts/*approval*",
+      "scripts/sensitive-*", "scripts/lib/sensitive-*", "scripts/lib/jev-*",
+      "scripts/lib/entry-point*",
+      "scripts/jev-*", "scripts/validate-agent-*", "scripts/validate-pr-body*",
+      "scripts/agent-graph/**", "scripts/fixtures/agent-graph/**", "docs/agent-graph/**",
+      "docs/sensitive-paths.json", "scripts/preflight.sh", "scripts/symphony*",
+      "**/*branch*protection*", "**/*ruleset*", "**/*CODEOWNERS*", "**/*sonar*"
+    ]
+  },
+  "description": "OVD-844 detector config: the additive held gate_machinery overlay, SQL content rules (rls, definer) and the AGENTS.md 'Approval timing and low-risk auto-merge' safe categories. Sensitive path classes are not here: they come only from docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs (OVD-873), and this file never copies those globs. A path with any sensitive class is never in a safe category. Read by scripts/sensitive-class-detect.mjs; the auto-merge eligibility check (OVD-845) reads the detector's JSON result, not this file.",
   "syntax": {
     "paths": "Globs over the repo-relative path, compiled by the shared matcher (scripts/lib/sensitive-paths.mjs compileGlob): picomatch semantics with dot and nocase, supported syntax *, **, ? and {a,b}.",
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
@@ -203,6 +215,7 @@
       "provider_dispatch": "revertable",
       "secrets": "one-way",
       "infra_ci": "one-way",
+      "gate_machinery": "one-way",
       "deps": "revertable",
       "rls": "one-way",
       "definer": "one-way",
