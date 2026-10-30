@@ -78,17 +78,10 @@ export const capabilityManifest: readonly CapabilitySurface[] = [
     name: "Jarvis phone web app",
     linearIssue: "OVD-803",
     entryPoints: [
-      // The only Jarvis-like page today: the engineering conversation behind a
-      // build flag and the platform admin allowlist.
-      { kind: "route", path: "/engineering" },
+      // OVD-805: public /jarvis route, linked from the client shell header on /.
       { kind: "route", path: "/jarvis" },
       { kind: "link", from: "/", to: "/jarvis" },
     ],
-    knownMissing: {
-      issue: "OVD-805",
-      reason:
-        "Only the flag-gated, admin-only /engineering page exists; there is no public route or link to Jarvis.",
-    },
   },
   channelSurface(
     "slack",
