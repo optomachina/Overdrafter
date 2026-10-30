@@ -7,27 +7,49 @@ one-hour deferred-task backstop. No hosted database was contacted.
 
 ## Files and application
 
-- `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql`
-  and `docs/migration-drafts/ovd-979u2.sql` are byte identical.
-- `docs/migration-drafts/ovd-979u2.rollback.sql` restores the previous four
-  function definitions, including their original body bytes and search paths,
-  with the existing post-OVD-736/OVD-535 grants. Neither file wraps a transaction;
-  apply each file in one transaction. Both support repeat application.
+- `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
+- The rollback is generated, not stored: `node scripts/ovd979-rollback.mjs
+  20261030162500_ovd979u2_canonical_requirement_lock_order.sql` prints each
+  replaced function's previous `CREATE` statement, cut byte for byte from the
+  latest earlier migration that defines it, followed by the migration's own
+  revoke/grant lines. A stored copy duplicated about 700 lines of the migration
+  (Sonar duplication gate), so it was deleted. Neither the migration nor the
+  generated rollback wraps a transaction; apply each in one transaction. Both
+  support repeat application.
+- The rollback never restores a `public`-first `search_path`. A prior path that
+  does not start with `pg_catalog` is emitted as `pg_catalog, <prior path>`, so
+  `lint-security-definer` would accept it as a forward migration and no
+  baseline growth is needed. `prosrc`, which the md5 proof compares, is
+  unchanged by this.
 - No tables, columns, indexes, RLS policies, owners, or grant recipients change.
   Forward functions pin `search_path = pg_catalog, public`, revoke PUBLIC/anon,
   and retain authenticated/service_role for staff approval and reset, and
   service_role only for auto approval and trusted reuse.
-- `function-supersessions.json` needs no new entry: the forward draft is already
-  byte identical to its matching new migration in this change. The collision check
-  passes without an exception; rollback files are excluded by its existing rule.
+- `function-supersessions.json` needs no new entry. The collision check passes
+  without an exception.
+- `scripts/free-quote-ci-profile.mjs` and `scripts/fixtures/free-quote-ci-source.json`
+  (infra_ci) pin this migration's sha256 as a reviewed append. Any change to the
+  migration must re-pin both; this round re-pinned them to
+  `572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f`.
 
 ## Implementation and review
 
-All four paths acquire the job's `FOR NO KEY UPDATE` lock before lower levels.
+All five paths acquire the job's `FOR NO KEY UPDATE` lock before lower levels,
+and every L2, L3 and L4 prelock is `FOR NO KEY UPDATE`. `FOR UPDATE` would
+conflict with the KEY SHARE that a `work_queue` insert takes on `parts` through
+its foreign key. `api_request_extraction` now locks L1 before
+`api_reconcile_job_parts` and its queue insert, so approval can no longer hold
+L1 while waiting on parts that request holds. Its trailing `jobs` update
+re-locks a row it already holds, so the listed `work_queue > jobs` pair never
+waits; Redesign PR 5 removes the pair.
 Staff approval and auto approval prelock parts in `id` order, requirements in
 `part_id` order, then extractions in `part_id` order. Reset touches one part.
 Reuse reads the target job ID without locking, locks that job, then locks and
 rereads the target with the same job predicate; its source remains read-only.
+No writer moves a part to another job, so the unlocked read stays valid; a
+concurrent delete fails the lineage check (code comment in the migration).
+Reuse keeps its prior `search_path = pg_catalog`: every reference is
+schema-qualified, so widening it was unnecessary.
 Reset retains its existing permission check and reloads the context after the
 job lock, so waiting does not retain the pre-wait context.
 
@@ -53,17 +75,33 @@ there is no independent feature or unrelated schema change to split out.
 | Function | Previous migration | `md5(prosrc)` restored |
 | --- | --- | --- |
 | `api_approve_job_requirements(uuid,jsonb)` | `20260316170500` | `36f04967deda1fa9958e511c6ec54c43` |
+| `api_request_extraction(uuid)` | `20260812042000` | `7b2804b18559df073dcd4651e80b3ce6` |
 | `api_auto_approve_job_requirements(uuid)` | `20260317013000` | `f3f917a04cb239c9ce25063c5bcec91b` |
 | `api_reset_client_part_property_overrides(uuid,text[])` | `20260408120000` | `bc843ab5b5285afa764a1578e68da8b0` |
 | `api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)` | `20260812042000` | `2a6f670d20b0123b9e0507d1fef2f8f0` |
 
-The local roundtrip captures these four hashes, ACLs and `proconfig`, applies
-forward twice, rolls back twice and compares each restoration, then reapplies.
-The catalog checks pass (15 assertions). Rollback deliberately restores the
-historical `public` / `pg_catalog` search paths rather than leaving the forward
-configuration behind. Rollback and forward do not rewrite application data.
-The Vitest artifact test also compares rollback body strings directly to the
-four original migration definitions, without whitespace normalization.
+The committed proof is `node scripts/ovd979-rollback.mjs
+20261030162500_ovd979u2_canonical_requirement_lock_order.sql --prove --db-url
+<loopback URL>` against a local database with the migration applied. It runs in
+one transaction that always rolls back. Output on the round-1 fixture
+(2026-10-30, migration sha256 `572066174ddb…906f`):
+
+```
+applied migration differs from the prior bodies: PASS
+rollback restores md5(prosrc) of 5 prior bodies, path pg_catalog first: PASS
+rollback keeps the applied ACLs: PASS
+second rollback is a no-op: PASS
+re-apply restores the applied bodies, ACLs and config: PASS
+ovd979 rollback proof: PASS (20261030162500_ovd979u2_canonical_requirement_lock_order.sql)
+```
+
+`scripts/ovd979u2-migration.test.mjs` runs in CI without a database. It checks
+that the generated rollback restores each prior body byte for byte from the
+named source migration and never emits a non-`pg_catalog`-first path.
+The `ephemeral-db` rollback stage replays only `.rollback.sql` files whose stem
+matches a forward draft. U2 has had no forward draft since the duplicate copy
+was dropped, so that stage never ran U2's rollback; the proof above replaces it.
+Rollback and forward do not rewrite application data.
 
 ## Local verification (2026-10-30 UTC)
 
@@ -84,7 +122,8 @@ untouched.
 - `node scripts/check-migration-function-collisions.mjs`: PASS.
 - `vitest run scripts/check-lock-order.test.mjs scripts/ovd979u2-migration.test.mjs src/features/quotes/auto-approve-migration.test.ts`:
   PASS, 35 artifact, checker and existing auto-approval regression tests.
-- `supabase/tests/ovd979u2_lock_order.sql`: PASS, 45 assertions. Real dblink
+- `supabase/tests/ovd979u2_lock_order.sql`: PASS, 45 assertions (53 after
+  repair round 1, below). Real dblink
   transactions exercise approve/request, approve/auto, approve/reset and
   reuse/request in both holder/waiter directions with 5-second lock timeouts;
   the observer checks an ungranted `pg_locks` row and the actual blocking PID.
@@ -104,20 +143,40 @@ untouched.
   and deadline-history wall-clock timestamps are normalized. Each comparison
   runs against the same fixture and transaction timestamp using savepoints.
 
-Evidence and runner inputs are in `/tmp/ovd979-u2-proof/`: `owner.json`,
-`bootstrap.sql`, `migrations.log`, `pgtap.log`, `negative-control.log`,
-`pgtap-final.log`, `roundtrip.sql` / `roundtrip.log`,
-`equivalence.py` / `equivalence.sql` / `equivalence.log`, and `canonical.log`.
-The temporary psql adapter executes only inside this run's Docker container;
-the host `pg_prove --norc -b /tmp/ovd979-u2-proof/psql -h /tmp -U postgres -d postgres`
-invocations run the named SQL files copied into that container's tmpfs.
+Round 0 kept its runner inputs in an uncommitted `/tmp/ovd979-u2-proof/`
+directory, which no longer exists. The md5 roundtrip is now committed as the
+generator's `--prove` mode above. The 20-scenario equivalence driver was not
+recovered; its result above is round-0 evidence only and is not reproducible
+from this repository.
 
 ## Limits and remaining work
 
-`api_request_extraction` and `api_reconcile_job_parts` still need U5's L1-first
-change. These tests cover observed contention at the RPC boundary and the
-changed functions' first-lock behavior; they do not claim every mid-function
-interleaving with the still-inverted request path is deadlock-free. Debug and
+- Auto approval reads requirements and extractions without locks and writes
+  them later in its phases. Writers that skip L1, such as the worker extraction
+  write, can still race in that window, which the L1 hold makes longer. This is
+  a known gap; U4's attempt-id gate is the planned cover.
+- The plan's section 3 lists `load_editable_project_part_context` as L1-first.
+  It is unchanged: it is a `stable` read, and reset now takes L1 after calling
+  it and reloads the context. The plan item is resolved that way.
+- The auto-approve rewrite belongs to U4 in the plan. It lands here because the
+  unchanged lock-order checker required phased writes; U4 must keep them.
+- The worker extraction write path is outside SQL and is not covered by these
+  pgTAP waits. Debug and
 manual quote audits are in `docs/ovd979-lock-order.md`. Exact-head independent
 migration review and hosted gates remain integration work; no commit, push,
 PR operation, hosted apply or production action is part of this worktree task.
+
+## Repair round 1 (2026-10-30)
+
+- `api_request_extraction` joins the migration and takes L1 first; all L2, L3
+  and L4 prelocks, including reuse's target part, use `FOR NO KEY UPDATE`.
+- `supabase/tests/ovd979u2_lock_order.sql` gains a mid-function interleaving
+  test (53 assertions). On the round-0 bodies the two interleave cases fail
+  with `40P01: deadlock detected`; with this migration all 53 pass (three
+  consecutive runs on the fixture; one earlier run right after a DB restart
+  hit a 10s statement timeout and was not reproducible).
+- The dblink fallback no longer carries a credential. The test creates a
+  login role with a random password generated in the run and drops it at the
+  end; `ovd.test_conninfo` still selects host, port and database.
+- The stored rollback and both duplicate draft copies are gone; the rollback is
+  generated and proven as described above.
