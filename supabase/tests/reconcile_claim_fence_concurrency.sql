@@ -315,10 +315,12 @@ begin
   select job.id, job.organization_id, job.created_by, 'not_controlled', 'ovd-beta-export-control.v1'
   from public.jobs job
   where job.id in (select task.job_id from public.work_queue task)
+    and job.organization_id = '00000000-0000-4000-8000-0000001199e2'
     and job.created_by is not null;
   update public.job_files file
   set trusted_content_sha256 = pg_catalog.lower(file.content_sha256)
   where file.job_id in (select task.job_id from public.work_queue task)
+    and file.organization_id = '00000000-0000-4000-8000-0000001199e2'
     and file.trusted_content_sha256 is null
     and file.content_sha256 ~ '^[0-9a-f]{64}$';
   insert into private.job_file_export_scans (job_file_id, job_id, organization_id, source, content_sha256)
@@ -326,6 +328,7 @@ begin
   from public.job_files file
   cross join (values ('drawing_text'), ('step_header')) as source(name)
   where file.job_id in (select task.job_id from public.work_queue task)
+    and file.organization_id = '00000000-0000-4000-8000-0000001199e2'
     and file.content_sha256 ~ '^[0-9a-f]{64}$';
 end;
 $ovd723$;
@@ -550,17 +553,22 @@ select is(response->'second'->>'denial','task_inactive','preflight observes comp
 select is(response->'second'->'sweep'->>'cancelled','0','accept-first sweep has no eligible task') from s11b_races where name='accept then cleanup';
 select is(response->'second'->>'reasonCode','already_received','cancel observes accepted quote') from s11b_races where name='accept then cancel';
 
--- Drain must defer and release its candidate on either job or run contention.
+-- A locked oldest follow-up, job, or run must not consume the limit-one batch.
+-- The busy harness rolls the drainer back, preserving pending rows for each race.
 select is(public.drain_quote_run_rollup_followups()->>'processed','8','all independent followups drain');
-update private.quote_run_rollup_followups set processed_at=null where quote_run_id=(select quote_run_id from s11b_calls limit 1);
-insert into s11b_races select 'drain job',pg_temp.s11b_busy(format('select to_jsonb(j) from public.jobs j where id=%L for update',job_id),
- 'select public.drain_quote_run_rollup_followups()') from s11b_calls limit 1;
-insert into s11b_races select 'drain run',pg_temp.s11b_busy(format('select to_jsonb(r) from public.quote_runs r where id=%L for update',quote_run_id),
- 'select public.drain_quote_run_rollup_followups()') from s11b_calls limit 1;
--- Generic busy harness retains drain counters in outcome below (patched helper).
-select is(response->>'released','true',name||' releases candidate locks') from s11b_races where name like 'drain %';
-select is(response->'result'->>'deferred','1',name||' deferred once') from s11b_races where name like 'drain %';
-select is(public.drain_quote_run_rollup_followups()->>'processed','1','drain retry processes pending row');
+update private.quote_run_rollup_followups set processed_at=null where quote_run_id in (select quote_run_id from s11b_calls);
+insert into s11b_races
+select 'drain '||target.name,pg_temp.s11b_busy(target.hold_sql,'select public.drain_quote_run_rollup_followups(1)')
+from (select f.* from private.quote_run_rollup_followups f join s11b_calls c on c.quote_run_id=f.quote_run_id
+ order by f.id limit 1) oldest
+cross join lateral (values
+ ('followup',format('select to_jsonb(f) from private.quote_run_rollup_followups f where id=%L for update',oldest.id)),
+ ('job',format('select to_jsonb(j) from public.jobs j where id=%L for update',oldest.job_id)),
+ ('run',format('select to_jsonb(r) from public.quote_runs r where id=%L for update',oldest.quote_run_id))
+) target(name,hold_sql);
+select is(response->'result', '{"scanned":1,"processed":1,"deferred":0}'::jsonb,
+ name||' skips locked oldest row and processes a later followup') from s11b_races where name like 'drain %';
+select is(public.drain_quote_run_rollup_followups()->>'processed','8','drain retry processes pending rows');
 select is(public.drain_quote_run_rollup_followups()->>'processed','0','drain repeat idempotent');
 select extensions.dblink_disconnect('s11b_a');
 select extensions.dblink_disconnect('s11b_b');

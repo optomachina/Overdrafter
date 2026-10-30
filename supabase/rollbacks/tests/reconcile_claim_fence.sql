@@ -21,9 +21,12 @@ select ok(to_regprocedure(signature) is null,'rollback removes '||signature) fro
  'public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb)',
  'private.vendor_quote_acceptance_request_ids(uuid)',
  'private.apply_vendor_quote_result_offers(uuid,jsonb,jsonb)',
- 'private.reject_vendor_quote_acceptance_receipt_mutation()']) signature;
+ 'private.reject_vendor_quote_acceptance_receipt_mutation()',
+ 'private.reject_quote_run_job_reassignment()']) signature;
 select ok(not exists(select 1 from pg_trigger where tgname='vendor_quote_acceptance_receipts_append_only'),
  'rollback removes append-only trigger');
+select ok(not exists(select 1 from pg_trigger where tgrelid='public.quote_runs'::regclass
+ and tgname='quote_runs_job_id_immutable'),'rollback removes quote run binding trigger');
 select is((select count(*)::int from private.vendor_quote_acceptance_receipts),1,'rollback retains receipt');
 select is((select count(*)::int from private.quote_run_rollup_followups where processed_at is null),1,'rollback retains pending followup');
 begin;
@@ -35,7 +38,10 @@ select ok(to_regprocedure(signature) is not null,'reapply restores '||signature)
  'public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb)',
  'private.vendor_quote_acceptance_request_ids(uuid)',
  'private.apply_vendor_quote_result_offers(uuid,jsonb,jsonb)',
- 'private.reject_vendor_quote_acceptance_receipt_mutation()']) signature;
+ 'private.reject_vendor_quote_acceptance_receipt_mutation()',
+ 'private.reject_quote_run_job_reassignment()']) signature;
+select ok(exists(select 1 from pg_trigger where tgrelid='public.quote_runs'::regclass
+ and tgname='quote_runs_job_id_immutable'),'reapply restores quote run binding trigger');
 select is((select count(*)::int from rollback_table_identity b join pg_class c using(oid,relname)),2,
  'reapply preserves original table identities');
 select is((select count(*)::int from private.vendor_quote_acceptance_receipts),1,'reapply preserves receipt');
@@ -53,7 +59,8 @@ from pg_proc p where p.oid in (
  'private.vendor_quote_acceptance_request_ids(uuid)'::regprocedure,
  'private.apply_vendor_quote_result_offers(uuid,jsonb,jsonb)'::regprocedure,
  'private.aggregate_quote_run_status(public.vendor_status[])'::regprocedure,
- 'private.reject_vendor_quote_acceptance_receipt_mutation()'::regprocedure);
+ 'private.reject_vendor_quote_acceptance_receipt_mutation()'::regprocedure,
+ 'private.reject_quote_run_job_reassignment()'::regprocedure);
 select ok(p.proconfig @> array['lock_timeout=1s']::text[],'bounded implicit lock waits '||p.proname)
 from pg_proc p where p.oid in (
  'public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb)'::regprocedure,
