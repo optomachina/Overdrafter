@@ -723,9 +723,9 @@ jobs:
              [ "$BUILD_RESULT" != "$ok" ] || \
              [ "$WORKER_RESULT" != "$ok" ] || \
              [ "$OVD420_NETWORK_RESULT" != "$ok" ] || \
-             [ "$OVD591_SQL_RESULT" != "$ok" ] || \
+             [ "$OVD591_SQL_RESULT" != "success" ] || \
              [ "$OVD591_RETENTION_SQL_RESULT" != "$ok" ] || \
-             [ "$FREE_QUOTE_SQL_RESULT" != "$ok" ]; then
+             [ "$FREE_QUOTE_SQL_RESULT" != "success" ]; then
             exit 1
           fi
 
