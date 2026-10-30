@@ -89,9 +89,9 @@ from the existing U3 worktree without installation or manifest changes.
   85 assertions. U2's temporary runner copy changes only its dblink host from
   `127.0.0.1` to the fixture's `/tmp` socket; all 45 assertions are unchanged.
 - Combined final pgTAP: PASS, **180 assertions** across five files.
-- Prior-body negative control fails the new ownership, attempt and status
-  assertions; reapplying U4 restores the full pass. The saved negative-control
-  log precedes removal of two unrequested failed-task-history assertions.
+- Prior-body negative control fails 42 of the 86 U4 assertions, detecting the
+  ownership, attempt and status regressions; reapplying U4 restores the full
+  180-assertion combined pass.
 
 Evidence and runners: `/tmp/ovd979-u4-proof/` contains `owner.json`,
 `bootstrap.sql`, `migrations.log`, `copy-inputs.py`, the container-only `psql`
