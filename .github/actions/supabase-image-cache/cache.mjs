@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, appendFileSync, constants, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { backoffMs, isPublicEcrThrottle, pullConfig } from '../../../scripts/ovd591-image-pull.mjs';
 import { isEntryPoint } from '../../../scripts/lib/entry-point.mjs';
@@ -28,12 +28,24 @@ export function imageRefs(group, registry = 'docker.io', excluded = '') {
     return !['supavisor', 'differ', 'migra', 'pgprove'].includes(alias) && !omit.has(name);
   }).map(([, ref]) => registry === 'docker.io' ? ref : `${registry}/supabase/${ref.split('/').at(-1)}`);
   if (group === 'tools') selected.push('postgres:17');
-  return selected.sort();
+  return selected.sort((a, b) => (a < b ? -1 : Number(a > b))); // code-unit order keeps cache keys stable
+}
+
+// Resolve tools to an absolute path, ignoring relative PATH entries (e.g. '.' or '').
+export function resolveBinary(name, searchPath = process.env.PATH ?? '') {
+  for (const dir of searchPath.split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    const candidate = join(dir, name);
+    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* keep looking */ }
+  }
+  throw new Error(`${name} not found on an absolute PATH entry`);
 }
 
 export function docker(args) {
   // Never forward raw command output: registry/daemon diagnostics can contain credentials.
-  const result = spawnSync('docker', args, { encoding: 'utf8', timeout: TIMEOUT, maxBuffer: 32 * 1024 * 1024 });
+  let bin;
+  try { bin = resolveBinary('docker'); } catch (error) { return { status: null, stdout: '', stderr: '', failure: error }; }
+  const result = spawnSync(bin, args, { encoding: 'utf8', timeout: TIMEOUT, maxBuffer: 32 * 1024 * 1024 });
   return { ...result, failure: result.error || result.signal };
 }
 const passed = result => result.status === 0 && !result.failure;
@@ -144,7 +156,7 @@ export function saveArchive(plan, dir, call = docker) {
   // Save by ID: archives carry no mutable tags. Docker verifies content-addressed layers on load.
   const saved = call(['save', '-o', join(dir, 'images.tar'), ...new Set(plan.images.map(image => image.id))]);
   assert(passed(saved), 'docker save failed');
-  const compressed = spawnSync('gzip', ['-1', '-f', join(dir, 'images.tar')], { timeout: TIMEOUT });
+  const compressed = spawnSync(resolveBinary('gzip'), ['-1', '-f', join(dir, 'images.tar')], { timeout: TIMEOUT });
   assert.equal(compressed.status, 0, 'gzip failed');
 }
 

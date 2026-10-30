@@ -126,7 +126,7 @@ test('checked-in image versions agree with the actual pinned CLI (optional local
   const cli = process.env.SUPABASE_CACHE_CLI;
   const version = spawnSync(cli, ['--version'], { encoding: 'utf8' });
   assert.equal(version.stdout.trim(), CLI_VERSION);
-  const binaryPath = cli.includes('/') ? cli : spawnSync('which', [cli], { encoding: 'utf8' }).stdout.trim();
+  const binaryPath = cli.includes('/') ? cli : spawnSync('/usr/bin/which', [cli], { encoding: 'utf8' }).stdout.trim();
   const definitions = readFileSync(new URL('./cli-2.78.1-images.txt', import.meta.url));
   assert(readFileSync(binaryPath).includes(definitions), 'full embedded CLI image definitions must match the source fixture');
   const dir = mkdtempSync(join(tmpdir(), 'supabase-image-source-'));
