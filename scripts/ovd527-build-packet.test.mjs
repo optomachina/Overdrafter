@@ -18,6 +18,7 @@ import {
   loadPacket,
   renderCommands,
   runCli,
+  shellDouble,
   taggedImage,
 } from "./ovd527-build-packet.mjs";
 import {
@@ -126,6 +127,13 @@ describe("ovd527 source", () => {
 });
 
 describe("ovd527 commands", () => {
+  it("shellDouble escapes backslash, double quote, dollar and backtick so bash keeps the text literal", () => {
+    const raw = 'a\\b "c" $HOME `id` $(id)';
+    const quoted = shellDouble(raw);
+    expect(quoted).toBe('"a\\\\b \\"c\\" \\$HOME \\`id\\` \\$(id)"');
+    expect(execFileSync("bash", ["-c", `printf %s ${quoted}`], { encoding: "utf8" })).toBe(raw);
+  });
+
   it("prints a build only submission, digest resolve and offline inspection for the SHA", () => {
     const { source, packetDir } = makePacket();
     const text = renderCommands(source, packetDir);

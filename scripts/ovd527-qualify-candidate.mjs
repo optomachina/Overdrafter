@@ -167,7 +167,8 @@ archive sha256 ${source.archiveSha256}, manifest sha256 ${source.manifestSha256}
   const next = nextGcpScript(packetDir);
   if (next) {
     const pending = next === BUILD_SCRIPT ? [BUILD_SCRIPT, INSPECT_SCRIPT] : [INSPECT_SCRIPT];
-    log(`\nThese steps need GCP access; this tool runs neither gcloud nor docker. Run in order:\n${
+    log(`\nThese steps need GCP access; this tool runs neither gcloud nor docker. Run in order${
+      next === BUILD_SCRIPT ? ` (the Cloud Build submit in ${BUILD_SCRIPT} is billed and needs Blaine's card on the GCP project)` : ""}:\n${
       pending.map((name) => `  bash ${quote(path.join(packetDir, name))}\n`).join("")}then rerun: ${rerun}\n`);
     for (const name of pending) log(`\n----- ${name} -----\n${scripts[name]}`);
     return { state: "needs-gcp", next, packetDir };

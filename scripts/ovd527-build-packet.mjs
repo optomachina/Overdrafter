@@ -270,7 +270,7 @@ export function cloudBuildConfig(source) {
 }
 
 export function shellDouble(text) {
-  return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$")}"`;
+  return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`")}"`;
 }
 
 /**

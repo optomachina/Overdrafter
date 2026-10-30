@@ -93,6 +93,7 @@ describe("ovd527 qualify-candidate", () => {
     expect(first.code).toBe(NEEDS_GCP);
     expect(git(worktree, "rev-parse", "HEAD").trim()).toBe(sha);
     expect(first.stdout).toContain("this tool runs neither gcloud nor docker");
+    expect(first.stdout).toContain(`the Cloud Build submit in ${BUILD_SCRIPT} is billed and needs Blaine's card`);
     expect(first.stdout).toContain(`----- ${BUILD_SCRIPT} -----`);
     expect(first.stdout).toContain(`----- ${INSPECT_SCRIPT} -----`);
     expect(first.stdout).toContain("gcloud builds submit");
@@ -112,6 +113,7 @@ describe("ovd527 qualify-candidate", () => {
     const second = qualify(root, sha, worktree, out);
     expect(second.code).toBe(NEEDS_GCP);
     expect(second.stdout).not.toContain(`----- ${BUILD_SCRIPT} -----`);
+    expect(second.stdout).not.toContain("is billed and needs Blaine's card");
     expect(second.stdout).toContain(`----- ${INSPECT_SCRIPT} -----`);
 
     const rerun = runScript(buildScript);
