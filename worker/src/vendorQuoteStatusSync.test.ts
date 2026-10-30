@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index";
 import { createRunDir } from "./files";
 import { createWorkerRuntimeState } from "./httpServer";
-import { processClaimedTask, syncRunStatus } from "./index";
+import { processClaimedTask, syncRunStatus, syncSweptQuoteRuns } from "./index";
 import { markProviderMutationStarted } from "./providerMutationPhase";
 import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterOutput, type WorkerConfig } from "./types";
 
@@ -210,5 +210,31 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     expect(createRunDir).not.toHaveBeenCalled();
     expect(db.queue.status).toBe(status === "failed" ? "failed" : "completed");
     expect(db.writes.some((write) => write.table === "vendor_quote_results")).toBe(false);
+  });
+  it("cancels a spend-capped task with exhausted retries even when the result write fails", async () => {
+    const db = database("vendor_quote_results", Infinity, "manual_vendor_followup");
+    const base = db.rpc.getMockImplementation()!;
+    db.rpc.mockImplementation((name: string, args: Row) => {
+      if (name !== "api_reserve_spend") return base(name, args);
+      const result = Promise.resolve({ data: { allowed: false, reasonCode: "daily_cap" }, error: null });
+      return Object.assign(result, { abortSignal: () => result });
+    });
+    await processClaimedTask(db.client, db.claim(4), config, createWorkerRuntimeState());
+    expect(db.queue.status).toBe("cancelled");
+    expect(db.result.status).toBe("running");
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("vendor_quote_results write refused"));
+    expect(db.queue.last_error).toContain("Spend cap reached");
+  });
+
+  it("keeps syncing the remaining swept runs when one sync fails", async () => {
+    const db = database("quote_runs", 1);
+    db.rows.quote_runs.push({ id: "run2", status: "running" });
+    db.rows.vendor_quote_results.push({ id: "result2", quote_run_id: "run2", status: "failed" });
+    db.result.status = "instant_quote_received";
+    const runtime = createWorkerRuntimeState();
+    await syncSweptQuoteRuns(db.client, [{ jobId: "job", quoteRunId: "run" }, { jobId: "job", quoteRunId: "run2" }], runtime);
+    expect(db.run.status).toBe("running");
+    expect(db.rows.quote_runs[1].status).toBe("failed");
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"source":"worker.kill_switch"'));
   });
 });

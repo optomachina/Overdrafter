@@ -475,6 +475,29 @@ export async function syncRunStatus(
   }
 }
 
+/**
+ * Syncs each quote run the kill-switch sweep cancelled. A failure on one run is
+ * logged and the rest still sync: later sweeps do not return these runs again.
+ */
+export async function syncSweptQuoteRuns(
+  supabase: SupabaseClient,
+  quoteRuns: readonly { jobId: string; quoteRunId: string }[],
+  runtimeState: WorkerRuntimeState,
+) {
+  for (const run of quoteRuns) {
+    try {
+      await syncRunStatus(supabase, run.jobId, run.quoteRunId);
+    } catch (syncError) {
+      logWorkerEvent(runtimeState, {
+        level: "error",
+        source: "worker.kill_switch",
+        message: `Run status sync failed for quote run ${run.quoteRunId}: ${summarizeWorkerError(syncError)}`,
+        error: syncError,
+      });
+    }
+  }
+}
+
 async function syncStoredRunStatus(
   supabase: SupabaseClient,
   jobId: string,
@@ -1714,7 +1737,16 @@ export async function handleVendorQuoteTask(
         });
         if (requeued) await writeSpendCapLane();
       } else {
-        if (!(await writeSpendCapLane())) return;
+        // A failed lane write must not skip the cancellation: record it, cancel,
+        // then rethrow. markTaskFailed never overwrites a cancelled task.
+        let laneWritten = false;
+        let laneWriteFailure: { error: unknown } | null = null;
+        try {
+          laneWritten = await writeSpendCapLane();
+        } catch (writeError) {
+          laneWriteFailure = { error: writeError };
+        }
+        if (!laneWritten && !laneWriteFailure) return;
         // Retries are exhausted, but nothing about this lane is broken -- it was
         // priced out. Cancelling rather than failing keeps the distinction, so it
         // reads as "not run" instead of "tried and defective" and can simply be
@@ -1722,6 +1754,7 @@ export async function handleVendorQuoteTask(
         await markTaskCancelled(supabase, task, `Spend cap reached: ${error.message}`, {
           spendCapReasonCode: error.reasonCode,
         });
+        if (laneWriteFailure) throw laneWriteFailure.error;
       }
       return;
     }
@@ -2840,9 +2873,7 @@ export async function main(operationalHost?: OperationalJevHost) {
       if (config.workerMode === "live") {
         try {
           const sweep = await sweepProviderDisabledTasks(supabase);
-          for (const run of sweep.quoteRuns) {
-            await syncRunStatus(supabase, run.jobId, run.quoteRunId);
-          }
+          await syncSweptQuoteRuns(supabase, sweep.quoteRuns, runtimeState);
           for (const warning of providerKillSwitchSweepWarnings(sweep)) {
             logWorkerEvent(runtimeState, {
               level: "warn",
