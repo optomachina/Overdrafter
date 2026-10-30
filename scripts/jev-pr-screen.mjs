@@ -2,8 +2,9 @@
  * Jev PR risk screen (advisory). Sizes review: low stops after an independent
  * QA or Sonnet review, normal gets a Sonnet review, risky gets an Opus review. Jev can only raise the tier set by
  * the deterministic sensitive-path match (OVD-873: any file matching docs/sensitive-paths.json through
- * scripts/lib/sensitive-paths.mjs raises the declared tier to "risky"); a failed or low-confidence Jev call
- * raises the tier to at least "normal", and an unknown deterministic tier counts
+ * scripts/lib/sensitive-paths.mjs raises the declared tier to "risky"). A failed or low-confidence Jev call
+ * fails closed: the PR gets no verdict (final "no_verdict", no tier at all) and the CLI exits 3, so no
+ * fallback tier is ever reported as a screen result. An unknown deterministic tier counts
  * as "risky". Every decision is appended to the JSONL
  * log with Jev's confidence and incident probability so rule changes can be
  * replayed over past decisions.
@@ -17,7 +18,7 @@
  * Supplied files are ignored: PR files are paginated and verified against the
  * current head/base and changed_files count. Pre-PR paths come from a local
  * diff against an explicit resolved base; no PR cache is used. Acquisition
- * failures screen risky with files-incomplete before Jev or cache access.
+ * failures get no verdict (files-incomplete) before Jev or cache access.
  *
  * Dedupe: uses GitHub commit status markers (context "jev-screen") keyed by
  * (full 40-hex SHA, screener, question-set hash, model, screen state digest). The digest covers
@@ -49,6 +50,8 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORK_DIR = `${homedir()}/work/claude-jobs`;
 export const DEFAULT_LOG = `${WORK_DIR}/jev-decisions.jsonl`;
 export const TIERS = ["low", "normal", "risky"];
+/** Final value when Jev failed or was below the confidence floor: no tier is reported (fail closed). */
+export const NO_VERDICT = "no_verdict";
 export const DEFAULT_MIN_CONFIDENCE = 0.5;
 const MAX_CONCURRENT_CALLS = 4;
 
@@ -81,12 +84,13 @@ export function maxTier(a, b) {
 /**
  * Combine the deterministic tier with a gated Jev answer. Jev may only raise risk.
  * An unknown deterministic tier (a typo such as "Risky") counts as "risky", and an
- * unknown or unaccepted Jev tier counts as "normal", so no typo lowers review.
+ * unknown or unaccepted Jev tier (failed, uncertain or not a known tier) gives NO_VERDICT:
+ * the screen fails closed instead of reporting a fallback tier.
  */
 export function finalTier(deterministic, gate) {
   const base = TIERS.includes(deterministic) ? deterministic : "risky";
-  const jevTier = gate?.status === "accepted" && TIERS.includes(gate.choice) ? gate.choice : "normal";
-  return maxTier(base, jevTier);
+  if (gate?.status !== "accepted" || !TIERS.includes(gate.choice)) return NO_VERDICT;
+  return maxTier(base, gate.choice);
 }
 
 /**
@@ -224,7 +228,7 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     sensitiveClasses,
     sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
-    final: marker ? maxTier(final, marker) : final,
+    final: marker && final !== NO_VERDICT ? maxTier(final, marker) : final,
     latency_ms: latencyMs,
     tokens: loggedTokens(result, markerHit),
     cache_hit: markerHit,
@@ -275,7 +279,7 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
     const { tier, confidence } = record.jev ?? {};
     const accepted = record.ok === true && isProbability(confidence) && confidence >= floor;
     const recomputed = finalTier(record.deterministic, accepted ? { status: "accepted", choice: tier } : { status: "uncertain" });
-    const final = rowCacheHit(record) ? maxTier(recomputed, markerFloor(record.marker_tier)) : recomputed;
+    const final = rowCacheHit(record) && recomputed !== NO_VERDICT ? maxTier(recomputed, markerFloor(record.marker_tier)) : recomputed;
     return { pr: record.pr, sha: record.head_sha ?? record.sha, before: record.final, after: final, changed: final !== record.final };
   });
 }
@@ -525,9 +529,12 @@ if (invokedAsScript()) {
   const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, baseRef, sensitivePaths, caller });
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
-    const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";
+    const files = r.filesProblem ? ` (${r.filesProblem})` : "";
     const marker = r.cache_hit ? " (cache hit)" : "";
     const fallback = r.warning ? ` | ${r.warning}` : "";
-    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${marker}${fallback}`);
+    const final = r.final === NO_VERDICT ? "no verdict" : r.final;
+    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${final}${failure}${files}${marker}${fallback}`);
   }
+  // Fail closed: any PR without a Jev verdict makes the whole run nonzero.
+  if (records.some((r) => r.final === NO_VERDICT)) process.exit(3);
 }

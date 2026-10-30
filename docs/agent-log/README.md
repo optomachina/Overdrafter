@@ -20,7 +20,7 @@ probability, the final tier, `latency_ms` (null on cache hits; renamed from
 * `fallback_source`, `fallback_reason` and `warning` are on every row and null
   when the row rests on an accepted Jev answer. Otherwise the source is
   `default_jev_blocked` (the Jev call failed with `http_401` or `http_403`),
-  `jev_blocked` (any other failed call, or a screen that failed risky with
+  `jev_blocked` (any other failed call, or a screen that got no verdict with
   `files-incomplete` before Jev was asked), `safe-default` (Jev answered below
   the confidence floor) or `jev_used:false` (the answer had no usable tier). The
   reason is one sanitized token. `warning` is the same `WARN jev-fallback` line
@@ -38,7 +38,7 @@ miss and runs Jev again; an unchanged input is a hit with no Jev call. A marker
 is read or written only when the input's `pr` is a real PR number and its `sha` is
 that PR's current head SHA on GitHub, with a verified complete file list and a
 verified base commit. A stale or unknown PR head, or an acquisition without a
-valid base commit, fails risky with `files-incomplete`.
+valid base commit, gets no verdict (`no_verdict`) with `files-incomplete`.
 Reading is fail-safe: re-screens on anything missing, mismatched or untrusted.
 Only an accepted (confident) Jev answer is written, with its confidence and
 incident probability, and writing fails open: a write failure is warned about
@@ -51,7 +51,8 @@ Rules the log encodes, and the review each tier gets:
 
 * Jev can only raise risk. The final tier is the higher of the deterministic
   tier and Jev's tier.
-* A failed or low confidence Jev call raises the tier to at least `normal`.
+* A failed or low confidence Jev call fails closed: the row's `final` is
+  `no_verdict` (no tier), the CLI prints `no verdict` and exits 3.
 * An unknown deterministic tier counts as `risky`, and any changed file on the
   shared sensitive-path list raises it to `risky`.
 * `low` stops after an independent QA or Sonnet review, `normal` gets an
@@ -72,7 +73,7 @@ working tree's copy is used; if the list cannot be loaded, including a
 all REST file pages and checks their exact count against `changed_files`, with
 head/base snapshots before and after. A mismatch, malformed/duplicate page,
 failed read, head race, or GitHub's 3000-file cap (including exactly 3000)
-screens `risky` with `filesProblem: "files-incomplete"`, without cache or Jev.
+gets no verdict (`no_verdict`) with `filesProblem: "files-incomplete"`, without cache or Jev.
 The full head/base/count identity is retained and revalidated before accepting
 a cached or fresh result or writing a marker. Renamed files retain both the
 current and previous path, with validated rename metadata. Counts reconcile API
@@ -81,7 +82,7 @@ and hashing.
 
 Without a PR number, `--base-ref` is required: the screen resolves it to a commit
 SHA and obtains paths from `git diff --no-renames --name-only -z <base>...HEAD`. Failed base
-resolution or an empty/failed diff fails risky. Disabling rename detection keeps
+resolution or an empty/failed diff gets no verdict. Disabling rename detection keeps
 both deleted source paths and added destination paths in the affected set. Pre-PR screening never reads or
 writes the PR status cache. Legacy `screen.py`/`packet.py` callers remain advisory;
 this change does not activate or migrate them.

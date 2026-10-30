@@ -156,7 +156,7 @@ describe("jev PR screen", () => {
     const hit = decisionRecord({ pr: 1, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low" });
     expect(hit).toMatchObject({ cache_hit: true, latency_ms: null, fallback_source: null, warning: null });
     const stricter = decisionRecord({ pr: 1, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low", minConfidence: 0.99 });
-    expect(stricter).toMatchObject({ fallback_source: "safe-default", fallback_reason: "uncertain", latency_ms: null, final: "normal" });
+    expect(stricter).toMatchObject({ fallback_source: "safe-default", fallback_reason: "uncertain", latency_ms: null, final: "no_verdict" });
   });
 
   it("emits WARN for each fallback source in screen and stays quiet on the normal path", async () => {
@@ -176,7 +176,7 @@ describe("jev PR screen", () => {
     expect(records.map((r) => r.fallback_source)).toEqual(["default_jev_blocked", "jev_blocked", "safe-default", null, "jev_blocked"]);
     expect(records.every((r) => Object.hasOwn(r, "latency_ms") && Object.hasOwn(r, "fallback_reason"))).toBe(true);
     expect(records[3]).toMatchObject({ fallback_reason: null, warning: null, latency_ms: 1 });
-    expect(records[4]).toMatchObject({ fallback_reason: "files-incomplete", final: "risky" });
+    expect(records[4]).toMatchObject({ fallback_reason: "files-incomplete", final: "no_verdict" });
     expect(warnings).toEqual([
       "WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=2",
       "WARN jev-fallback source=jev_blocked reason=timeout latencyMs=4",
@@ -233,20 +233,20 @@ describe("jev PR screen", () => {
     expect(finalTier("normal", accepted("low"))).toBe("normal");
   });
 
-  it("raises to at least normal when Jev fails or is unsure", () => {
-    expect(finalTier("low", { status: "failed", reason: "timeout" })).toBe("normal");
-    expect(finalTier("low", { status: "uncertain", choice: "low", confidence: 0.3 })).toBe("normal");
-    expect(finalTier("risky", { status: "failed" })).toBe("risky");
+  it("gives no verdict (fails closed) when Jev fails or is unsure", () => {
+    expect(finalTier("low", { status: "failed", reason: "timeout" })).toBe("no_verdict");
+    expect(finalTier("low", { status: "uncertain", choice: "low", confidence: 0.3 })).toBe("no_verdict");
+    expect(finalTier("risky", { status: "failed" })).toBe("no_verdict");
   });
 
-  it("treats an unknown Jev tier as normal and an unknown deterministic tier as risky", () => {
+  it("gives no verdict for an unknown Jev tier and an unknown deterministic tier as risky", () => {
     expect(maxTier("normal", "low")).toBe("normal");
-    expect(finalTier("low", accepted("bogus"))).toBe("normal");
+    expect(finalTier("low", accepted("bogus"))).toBe("no_verdict");
     for (const typo of ["Risky", "critical", "high", undefined, null]) {
       expect(finalTier(typo, accepted("low"))).toBe("risky");
     }
     expect(decisionRecord({ pr: 9, sha: "f", deterministic: "Risky" }, { ok: false, reason: "timeout" }, new Date(0), SKIP))
-      .toMatchObject({ deterministic: "risky", final: "risky" });
+      .toMatchObject({ deterministic: "risky", final: "no_verdict" });
   });
 
   it("bounds what it logs", () => {
@@ -261,7 +261,7 @@ describe("jev PR screen", () => {
     expect(record.model).toMatch(/^[\w.-]*$/);
     expect(record.jev).toMatchObject({ confidence: null, pIncident: null, status: "failed" });
     expect(record.latency_ms).toBeNull();
-    expect(record.final).toBe("normal");
+    expect(record.final).toBe("no_verdict");
   });
 
   it("records probabilities and failures without throwing", () => {
@@ -273,7 +273,7 @@ describe("jev PR screen", () => {
     );
     expect(ok).toMatchObject({ final: "low", jev: { tier: "low", confidence: 0.95, pIncident: 0.1 }, ok: true });
     const failed = decisionRecord({ pr: 2, sha: "b", deterministic: "low" }, { ok: false, reason: "http_403" }, new Date(0), SKIP);
-    expect(failed).toMatchObject({ final: "normal", ok: false, reason: "http_403", jev: { pIncident: null } });
+    expect(failed).toMatchObject({ final: "no_verdict", ok: false, reason: "http_403", jev: { pIncident: null } });
   });
 
   it("rejects PR 0 and negative PR numbers", () => {
@@ -300,8 +300,8 @@ describe("jev PR screen", () => {
       { pr: 5, sha: "e", ok: false, deterministic: "risky", final: "risky", jev: { tier: null, confidence: null } },
     ];
     expect(replay(records, { minConfidence: 0.5 })[0]).toMatchObject({ after: "low", changed: false });
-    expect(replay(records, { minConfidence: 0.7 })[0]).toMatchObject({ after: "normal", changed: true });
-    expect(replay(records, { minConfidence: 0.7 })[1]).toMatchObject({ after: "risky", changed: false });
+    expect(replay(records, { minConfidence: 0.7 })[0]).toMatchObject({ after: "no_verdict", changed: true });
+    expect(replay(records, { minConfidence: 0.7 })[1]).toMatchObject({ after: "no_verdict", changed: true });
     expect(replay(records, { minConfidence: 0.6 })[0]).toMatchObject({ after: "low" });
     expect(replay(records, { minConfidence: null })[0]).toMatchObject({ after: "low" });
     expect(replay(records, { minConfidence: 2 })[0]).toMatchObject({ after: "low" });
@@ -329,14 +329,14 @@ describe("jev PR screen", () => {
     const unavailable = { tier: "risky", sensitiveClasses: null, filesProblem: null };
     // No list at all: deterministicTier and decisionRecord fail closed instead of keeping the declared tier.
     expect(deterministicTier(plain)).toEqual(unavailable);
-    expect(decisionRecord(migration, failedJev, new Date(0))).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+    expect(decisionRecord(migration, failedJev, new Date(0))).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "no_verdict" });
     const invalid = [false, 0, "", Number.NaN, undefined, null, true, 1, SENSITIVE_PATHS_FILE, [], {}, { globs: [] }, { ...sensitivePaths, globs: "x" }, SENSITIVE_PATHS_UNAVAILABLE];
     for (const value of invalid) {
       const label = labelOf(value);
       expect(deterministicTier(plain, value), label).toEqual(unavailable);
       expect(deterministicTier(migration, value), label).toEqual(unavailable);
       expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: value }), label)
-        .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+        .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "no_verdict" });
     }
     // screen(): null and undefined load the list (README.md stays low, a migration is risky) ...
     const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
@@ -355,7 +355,7 @@ describe("jev PR screen", () => {
     // The opt-out is exactly skipSensitivePaths: true, and screen() has none.
     for (const skipSensitivePaths of [1, "true", "yes", {}]) {
       expect(deterministicTier(plain, false, { skipSensitivePaths }), labelOf(skipSensitivePaths)).toEqual(unavailable);
-      expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: 0, skipSensitivePaths }).final, labelOf(skipSensitivePaths)).toBe("risky");
+      expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: 0, skipSensitivePaths }).final, labelOf(skipSensitivePaths)).toBe("no_verdict");
     }
     const [noOptOut] = await fixtureScreen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
     expect(noOptOut).toMatchObject({ deterministic: "risky", sensitivePathsUnavailable: true, final: "risky" });
@@ -394,7 +394,7 @@ describe("jev PR screen", () => {
       expect(deterministicTier(pr, sensitivePaths), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
       expect(deterministicTier(pr, SENSITIVE_PATHS_UNAVAILABLE), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
       const [record] = await fixtureScreen([pr], { ask: askLow, log: tempLog, append: () => {} });
-      expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: FILES_INCOMPLETE, final: "risky" });
+      expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: FILES_INCOMPLETE, final: "no_verdict" });
     }
   });
 
@@ -415,15 +415,15 @@ describe("jev PR screen", () => {
     const lines = [];
     const ask = async () => ({ ok: false, reason: "timeout", latencyMs: 1 });
     const records = await fixtureScreen([{ pr: 3, sha: "c", deterministic: "risky" }], { ask, log: tempLog, append: (_p, line) => lines.push(line) });
-    expect(records[0].final).toBe("risky");
+    expect(records[0].final).toBe("no_verdict");
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0])).toMatchObject({ pr: 3, final: "risky" });
+    expect(JSON.parse(lines[0])).toMatchObject({ pr: 3, final: "no_verdict" });
     // The default screen reads docs/sensitive-paths.json, so a declared-low PR touching a lockfile is risky.
     const [lockfile] = await fixtureScreen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {} });
-    expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
+    expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "no_verdict" });
     // sensitivePaths: null is not an opt-out of the path check.
     const [optOut] = await fixtureScreen([{ pr: 4, sha: "d2", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {}, sensitivePaths: null });
-    expect(optOut).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
+    expect(optOut).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "no_verdict" });
   });
 
   it("screens against the base ref's list, so a PR that narrows the list cannot lower its own tier", async () => {
@@ -1069,7 +1069,7 @@ describe("jev screen marker", () => {
     expect(migration).toMatchObject({ marker_hit: false, deterministic: "risky", final: "risky" });
     // A stored confidence below the current floor is uncertain, so at least normal.
     const [stricter] = await screen([readme()], { ...quiet, ask: jev.ask, marker: lowMarker.io, minConfidence: 0.995 });
-    expect(stricter).toMatchObject({ marker_hit: true, final: "normal" });
+    expect(stricter).toMatchObject({ marker_hit: true, final: "no_verdict" });
     expect(stricter.jev.status).toBe("uncertain");
     // A hit with a tier the reader does not know counts as risky.
     const odd = { read: async () => ({ found: true, tier: "unknown", jevTier: "low", confidence: 0.99, pIncident: null, model: JEV_MODEL }), write: async () => ({ success: true }), headSha: async () => SHA };
@@ -1081,7 +1081,7 @@ describe("jev screen marker", () => {
   it("writes markers only for accepted answers, and a failed write keeps the result", async () => {
     const github = fakeGitHub({ heads: { 846: SHA } });
     const [uncertain] = await screen([readme()], { ...quiet, ask: countingJev("low", 0.4).ask, marker: github.io });
-    expect(uncertain).toMatchObject({ final: "normal", marker_hit: false });
+    expect(uncertain).toMatchObject({ final: "no_verdict", marker_hit: false });
     const failed = async () => ({ ok: false, reason: "timeout" });
     await screen([readme()], { ...quiet, ask: failed, marker: github.io });
     expect(github.posts()).toHaveLength(0);
@@ -1100,7 +1100,7 @@ describe("jev screen marker", () => {
     const jev = countingJev("normal");
     const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: stale.io, warn: (line) => warnings.push(line) });
     expect(record.marker_hit).toBe(false);
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE });
     expect(jev.calls).toBe(0);
     expect(stale.calls.map((args) => args[1])).toEqual(["repos/optomachina/Overdrafter/pulls/846"]);
     expect(warnings.join("\n")).toMatch(/is not the PR head/);
@@ -1172,12 +1172,12 @@ describe("OVD-961 authoritative file boundaries", () => {
     ["base race", { baseRace: true }],
     ["wrong requested head", { head: OTHER_SHA }],
     ["malformed count", { count: "1" }],
-  ])("fails risky without cache or model calls: %s", async (_name, config) => {
+  ])("gives no verdict without cache or model calls: %s", async (_name, config) => {
     const transport = fileTransport(config);
     const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
     const ask = vi.fn();
     const [record] = await screen([readme()], { ...quiet, files: transport.files, marker, ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE, cache_hit: false });
     expect(ask).not.toHaveBeenCalled();
     for (const fn of Object.values(marker)) expect(fn).not.toHaveBeenCalled();
   });
@@ -1195,7 +1195,7 @@ describe("OVD-961 authoritative file boundaries", () => {
     let calls = 0;
     github.io.headSha = async () => ++calls === 1 ? SHA : OTHER_SHA;
     const [record] = await screen([readme()], { ...quiet, files: fileTransport().files, marker: github.io, ask: countingJev("low").ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE });
     expect(github.posts()).toHaveLength(0);
   });
 
@@ -1210,7 +1210,7 @@ describe("OVD-961 authoritative file boundaries", () => {
     for (const fn of [...Object.values(marker), files]) expect(fn).not.toHaveBeenCalled();
     for (const baseRef of [null, "", "no-such-ref", "--help"]) {
       const [failed] = await screen([{ ...readme(), pr: undefined }], { ...quiet, root, baseRef, marker, files, ask });
-      expect(failed).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+      expect(failed).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE });
     }
     expect(ask).toHaveBeenCalledTimes(1);
   });
@@ -1256,7 +1256,7 @@ describe("OVD-961 independent review regressions", () => {
     const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
     const ask = vi.fn();
     const [record] = await screen([readme()], { ...quiet, files: mutableAcquisition([entry]).files, marker, ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE });
     for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
   });
 
@@ -1332,7 +1332,7 @@ describe("OVD-961 independent review regressions", () => {
     github.io.read = async (...args) => { const result = await read(...args); if (mode === "cached") mutate(); return result; };
     const ask = vi.fn(async () => { mutate(); return countingJev("low").ask(); });
     const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE, cache_hit: false });
     expect(github.posts()).toHaveLength(0);
     expect(ask).toHaveBeenCalledTimes(mode === "fresh" ? 1 : 0);
   });
@@ -1365,7 +1365,7 @@ describe("OVD-961 malformed status admission", () => {
     const ask = vi.fn();
     const acquisition = mutableAcquisition([{ filename: "docs/retired.md", ...fields }]);
     const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker, ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE, cache_hit: false });
     for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
   });
 
@@ -1393,7 +1393,7 @@ describe("OVD-961 malformed status admission", () => {
     const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
     const ask = vi.fn();
     const [record] = await screen([readme()], { ...quiet, files: (pr, sha) => verifiedPrFiles(pr, sha, { run }), marker, ask });
-    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    expect(record).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE });
     for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
   });
 });
@@ -1526,7 +1526,7 @@ describe("OVD-934 screen state digest", () => {
       const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
       const ask = vi.fn();
       const [record] = await screen([readme()], { ...quiet, files: () => acquisition, marker, ask });
-      expect(record, JSON.stringify(acquisition.snapshot)).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+      expect(record, JSON.stringify(acquisition.snapshot)).toMatchObject({ final: "no_verdict", filesProblem: FILES_INCOMPLETE, cache_hit: false });
       for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
     }
     // The base is compared case-insensitively: an upper-case SHA is the same base.
