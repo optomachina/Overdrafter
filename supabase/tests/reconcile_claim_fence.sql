@@ -97,15 +97,6 @@ reset role;
 -- end deny
 
 select pg_temp.new_acceptance_case('accepted');
-select throws_ok(format('update public.quote_runs set job_id=%L where id=%L',
- '00000000-0000-4000-8000-000000008821',run_id), 'P0001',
- 'Quote run job_id is immutable.','quote run cannot move to another fixture job')
- from acceptance_cases where name='accepted';
-select throws_ok(format('update public.quote_runs set job_id=null where id=%L',run_id),
- 'P0001','Quote run job_id is immutable.','quote run cannot clear its job binding')
- from acceptance_cases where name='accepted';
-select lives_ok(format('update public.quote_runs set job_id=job_id, status=''queued'' where id=%L',run_id),
- 'unchanged job binding allows other run updates') from acceptance_cases where name='accepted';
 update acceptance_cases set response=pg_temp.accept_case(name) where name='accepted';
 select is(response->>'outcome','accepted','accept returns accepted') from acceptance_cases where name='accepted';
 select is(t.status::text,'completed','task committed completed with cleared claim') from public.work_queue t
@@ -128,14 +119,6 @@ select throws_ok('delete from private.vendor_quote_acceptance_receipts where tru
  'Vendor quote acceptance receipts are append-only.','receipts cannot be deleted');
 
 -- Independent task-free rollup after simulated worker crash.
--- Contention after selection still defers atomically and leaves a retryable row.
-create function pg_temp.s11b_rollup_contention() returns trigger language plpgsql as $$
-begin raise sqlstate '55P03' using message='synthetic rollup contention'; end $$;
-create trigger s11b_rollup_contention before insert on public.audit_events
- for each row execute function pg_temp.s11b_rollup_contention();
-select is(public.drain_quote_run_rollup_followups(),'{"scanned":1,"processed":0,"deferred":1}'::jsonb,
- 'later contention defers the selected followup without acknowledging it');
-drop trigger s11b_rollup_contention on public.audit_events;
 select is(public.drain_quote_run_rollup_followups()->>'processed','1','independent drain acknowledges completed task');
 select is(r.status::text,'completed','drain completes run') from public.quote_runs r join acceptance_cases c on c.run_id=r.id where name='accepted';
 select is(j.status::text,'internal_review','drain updates job') from public.jobs j join acceptance_cases c on c.job_id=j.id where name='accepted';

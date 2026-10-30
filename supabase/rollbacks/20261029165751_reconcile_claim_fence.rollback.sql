@@ -8,8 +8,6 @@ set local lock_timeout = '1s';
 drop function public.drain_quote_run_rollup_followups(integer);
 drop function private.aggregate_quote_run_status(public.vendor_status[]);
 drop function public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb);
-drop trigger quote_runs_job_id_immutable on public.quote_runs;
-drop function private.reject_quote_run_job_reassignment();
 drop function private.vendor_quote_acceptance_request_ids(uuid);
 drop function private.apply_vendor_quote_result_offers(uuid,jsonb,jsonb);
 drop trigger vendor_quote_acceptance_receipts_append_only on private.vendor_quote_acceptance_receipts;

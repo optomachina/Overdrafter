@@ -208,22 +208,6 @@ $$;
 revoke all on function private.vendor_quote_acceptance_request_ids(uuid)
 from public, anon, authenticated, service_role;
 
--- Acceptance reads a run's job without locking the run; its binding must stay fixed.
-create function private.reject_quote_run_job_reassignment()
-returns trigger language plpgsql set search_path = '' as $$
-begin
-  if new.job_id is distinct from old.job_id then
-    raise exception 'Quote run job_id is immutable.';
-  end if;
-  return new;
-end;
-$$;
-revoke all on function private.reject_quote_run_job_reassignment()
-from public, anon, authenticated, service_role;
-create trigger quote_runs_job_id_immutable
-before update on public.quote_runs
-for each row execute function private.reject_quote_run_job_reassignment();
-
 create function public.accept_vendor_quote_result(
   p_task_id uuid, p_locked_by text, p_locked_at timestamptz, p_attempts integer,
   p_vendor_quote_result_id uuid, p_result jsonb, p_offers jsonb,
@@ -452,15 +436,14 @@ begin
   if pg_catalog.current_setting('transaction_isolation') <> 'read committed' then
     raise exception 'quote_run_rollup_requires_read_committed';
   end if;
-  -- Skip busy follow-ups/jobs/runs before applying the batch limit. Selection
-  -- locks last until transaction end; later contention still defers the candidate.
+  -- Unlocked ID discovery; SKIP LOCKED ownership is taken INSIDE each candidate
+  -- so a busy job/run releases the outbox lock too, rather than retaining it.
   -- Deleted targets cannot be repaired by retrying; retain their immutable
   -- diagnostic rows without letting them starve the actionable ordered batch.
   for v_id in select f.id from private.quote_run_rollup_followups f
     join public.jobs j on j.id = f.job_id
     join public.quote_runs r on r.id = f.quote_run_id and r.job_id = j.id
     where f.processed_at is null order by f.id limit p_limit
-    for update of f, j, r skip locked
   loop
     v_scanned := v_scanned + 1;
     begin

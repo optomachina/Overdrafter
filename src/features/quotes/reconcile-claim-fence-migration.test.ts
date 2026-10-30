@@ -24,7 +24,7 @@ describe("S1.1b migration recovery contract", () => {
   });
 
   it("requires a fixed empty search path on every function and bounds RPC lock waits", () => {
-    expect(forward.match(/set search_path = ''/g)).toHaveLength(7);
+    expect(forward.match(/set search_path = ''/g)).toHaveLength(6);
     expect(forward.match(/set lock_timeout = '1s'/g)).toHaveLength(2);
     expect(forward).toContain("set local lock_timeout = '1s';");
   });
