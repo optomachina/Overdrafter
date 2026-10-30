@@ -88,7 +88,6 @@ jobs:
       - name: Configure AWS credentials for ECR Public (OIDC)
         id: ecr-oidc
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ECR_PULL_ROLE_ARN }}
@@ -98,7 +97,6 @@ jobs:
 
       - name: Log in to ECR Public
         if: ${{ steps.ecr-oidc.outcome == 'success' }}
-        continue-on-error: true
         run: |
           aws ecr-public get-login-password --region us-east-1 \
             | docker login --username AWS --password-stdin public.ecr.aws
