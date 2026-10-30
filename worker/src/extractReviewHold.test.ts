@@ -72,7 +72,9 @@ const config = { workerMode: "simulate", workerName: "worker", workerLiveAdapter
   workerBuildVersion: "test-build", drawingExtractionModel: "test-model", titleBlockApprovalEnabled: false,
 } as unknown as WorkerConfig;
 
-function database(options: { trustedReuse: boolean; approvedCount: unknown }) {
+type DatabaseOptions = { trustedReuse: boolean; approvedCount: unknown; approvalError?: Error;
+  artifactsReady?: boolean; refreshFailure?: "response" | "throw" };
+function database(options: DatabaseOptions) {
   const rpcCalls: string[] = [];
   const auditEvents: Record<string, unknown>[] = [];
   const from = (table: string) => {
@@ -96,7 +98,7 @@ function database(options: { trustedReuse: boolean; approvedCount: unknown }) {
       Promise.resolve(response()).then(resolve, reject);
     return query;
   };
-  const rpc = async (name: string) => {
+  const rpc = vi.fn(async (name: string, args?: Record<string, unknown>) => {
     rpcCalls.push(name);
     if (name === "api_resolve_trusted_part_intake") {
       return { data: options.trustedReuse
@@ -104,14 +106,20 @@ function database(options: { trustedReuse: boolean; approvedCount: unknown }) {
         : { result: "new_version" }, error: null };
     }
     if (name === "api_reuse_trusted_part_version_artifacts") {
-      return { data: { artifactsReady: true }, error: null };
+      return { data: { artifactsReady: options.artifactsReady ?? true }, error: null };
     }
     if (name === "api_auto_approve_job_requirements") {
+      if (options.approvalError) throw options.approvalError;
       return { data: options.approvedCount, error: null };
     }
+    if (name === "api_refresh_job_extraction_status") {
+      expect(args).toEqual({ p_job_id: "job" });
+      if (options.refreshFailure === "throw") throw new Error("Refresh transport failed");
+      return { data: "needs_spec_review", error: options.refreshFailure === "response" ? { message: "Refresh unavailable" } : null };
+    }
     return { data: null, error: null };
-  };
-  return { client: { from, rpc } as unknown as SupabaseClient, rpcCalls, auditEvents };
+  });
+  return { client: { from, rpc } as unknown as SupabaseClient, rpc, rpcCalls, auditEvents };
 }
 
 const flagOnConfig = { ...config, titleBlockApprovalEnabled: true } as WorkerConfig;
@@ -124,9 +132,9 @@ async function run(options: { trustedReuse: boolean; approvedCount: unknown; tit
 }
 
 beforeEach(() => {
-  vi.mocked(markTaskCompleted).mockClear();
-  vi.mocked(markTaskFailed).mockClear();
-  vi.mocked(markTaskQueuedForRetry).mockClear();
+  vi.mocked(markTaskCompleted).mockReset().mockResolvedValue(undefined);
+  vi.mocked(markTaskFailed).mockReset().mockResolvedValue(undefined);
+  vi.mocked(markTaskQueuedForRetry).mockReset().mockResolvedValue(true);
   vi.mocked(runHybridExtraction).mockReset();
   vi.mocked(runHybridExtraction).mockResolvedValue(extraction as never);
 });
@@ -198,5 +206,85 @@ describe("OVD-1067: a malformed auto-approval result still fails the task", () =
 
     expect(markTaskCompleted).not.toHaveBeenCalled();
     expect(markTaskFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("OVD-1097: refresh at the real main-loop acknowledgement boundary (F2/F4)", () => {
+  const refreshName = "api_refresh_job_extraction_status";
+  const refreshEvents = (state: ReturnType<typeof createWorkerRuntimeState>) =>
+    state.recentEvents.filter((event) => event.source === "worker.job.extraction_status_refresh");
+
+  it.each(["completed", "failed", "retry", "settled elsewhere"] as const)(
+    "awaits %s persistence before exactly one separate refresh",
+    async (outcome) => {
+      const db = database({ trustedReuse: true, approvedCount: 0,
+        artifactsReady: outcome === "retry" || outcome === "settled elsewhere" ? false : true,
+        approvalError: outcome === "failed" ? new Error("Auto-approval failed outright") : undefined });
+      let release!: () => void;
+      let entered!: () => void;
+      const reachedUpdate = new Promise<void>((resolve) => { entered = resolve; });
+      const persisted = new Promise<void>((resolve) => { release = resolve; });
+      const update = async () => { entered(); await persisted; };
+      if (outcome === "completed") vi.mocked(markTaskCompleted).mockImplementationOnce(update);
+      else if (outcome === "failed") vi.mocked(markTaskFailed).mockImplementationOnce(update);
+      else vi.mocked(markTaskQueuedForRetry).mockImplementationOnce(async () => {
+        await update(); return outcome !== "settled elsewhere";
+      });
+      const state = createWorkerRuntimeState();
+      const processing = processClaimedTask(db.client, task, config, state);
+      await reachedUpdate;
+      expect(db.rpcCalls).not.toContain(refreshName);
+      release();
+      await expect(processing).resolves.toBeUndefined();
+      expect(db.rpcCalls.filter((name) => name === refreshName)).toHaveLength(1);
+      expect(db.rpc).toHaveBeenCalledWith(refreshName, { p_job_id: task.job_id });
+      expect(refreshEvents(state)).toMatchObject([{ level: "info", context: { jobId: "job", status: "needs_spec_review" } }]);
+      if (outcome === "failed") {
+        expect(markTaskFailed).toHaveBeenCalledTimes(1); // B9: auto-approval itself threw.
+        expect(state.lastFailedTask?.id).toBe(task.id);
+      }
+    },
+  );
+
+  it("refreshes when completion is a no-op because the task was cancelled elsewhere", async () => {
+    vi.mocked(markTaskCompleted).mockResolvedValueOnce(undefined);
+    const db = await run({ trustedReuse: true, approvedCount: 0 });
+    expect(db.rpcCalls.filter((name) => name === refreshName)).toHaveLength(1);
+    expect(markTaskFailed).not.toHaveBeenCalled();
+  });
+
+  it.each(["response", "throw"] as const)("B12: %s refresh error warns without changing completion or failure", async (refreshFailure) => {
+    for (const failTask of [false, true]) {
+      const db = database({ trustedReuse: true, approvedCount: 0, refreshFailure,
+        approvalError: failTask ? new Error("Original task failure") : undefined });
+      const state = createWorkerRuntimeState();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await expect(processClaimedTask(db.client, task, config, state)).resolves.toBeUndefined();
+      expect(refreshEvents(state)).toMatchObject([{ level: "warn", context: { jobId: "job" } }]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('"source":"worker.job.extraction_status_refresh"'));
+      expect(state.lastCompletedTask?.id ?? null).toBe(failTask ? null : task.id);
+      expect(state.lastFailedTask?.id ?? null).toBe(failTask ? task.id : null);
+      expect(state.lastError).toBe(failTask ? "Original task failure" : null);
+      warn.mockRestore();
+    }
+    expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+    expect(markTaskFailed).toHaveBeenCalledTimes(1);
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh when the authoritative failure update rejects", async () => {
+    const db = database({ trustedReuse: true, approvedCount: 0, approvalError: new Error("Task failed") });
+    vi.mocked(markTaskFailed).mockRejectedValueOnce(new Error("Failure update not acknowledged"));
+    await expect(processClaimedTask(db.client, task, config, createWorkerRuntimeState()))
+      .rejects.toThrow("Failure update not acknowledged");
+    expect(db.rpcCalls).not.toContain(refreshName);
+  });
+
+  it("does not refresh non-extraction tasks", async () => {
+    const db = database({ trustedReuse: true, approvedCount: 0 });
+    await processClaimedTask(db.client, { ...task, task_type: "poll_vendor_quote" }, config, createWorkerRuntimeState());
+    expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+    expect(db.rpcCalls).not.toContain(refreshName);
   });
 });
