@@ -936,7 +936,8 @@ export class GithubApiError extends Error {
           ["attempts", detail.attempts],
         ].filter(([, value]) => value !== null && value !== undefined)
       : [];
-    const suffix = fields.length ? ` (${fields.map(([key, value]) => `${key}: ${value}`).join(", ")})` : "";
+    const pairs = fields.map(([key, value]) => key + ": " + value).join(", ");
+    const suffix = fields.length ? ` (${pairs})` : "";
     super(`GitHub API ${apiPath} returned ${status}${suffix}`);
     this.status = status;
     this.rateLimit = detail;
