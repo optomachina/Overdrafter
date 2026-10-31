@@ -20,7 +20,8 @@ one-hour deferred-task backstop. No hosted database was contacted.
   does not start with `pg_catalog` is emitted as `pg_catalog, <prior path>`, so
   `lint-security-definer` would accept it as a forward migration and no
   baseline growth is needed. `prosrc`, which the md5 proof compares, is
-  unchanged by this.
+  unchanged by this. The rollback restores `prosrc` and ACLs exactly; the
+  `search_path` is hardened, not reverted (`proconfig` is not the prior value).
 - No tables, columns, indexes, RLS policies, owners, or grant recipients change.
   Forward functions pin `search_path = pg_catalog, public`, revoke PUBLIC/anon,
   and retain authenticated/service_role for staff approval and reset, and
@@ -215,3 +216,40 @@ The migration is untouched (sha256 `572066174ddb…906f`).
   applied. With U2 rolled back to the prior bodies, both fail the same 5
   assertions (48/53). After re-apply the new suite passes 53/53 again.
   `ovd979-rollback.mjs --prove`: PASS. No hosted database was contacted.
+
+## Repair round 2: council findings at `c468137` (2026-10-31)
+
+The migration is untouched (sha256 `572066174ddb…906f`).
+
+- `--prove` local guard. `assertProofDatabaseUrl` replaces the shared
+  loopback check for this script. It parses the URL with WHATWG `URL` and
+  refuses `host`, `hostaddr`, `service` and `servicefile` query parameters in
+  any case, multi-host lists (raw or `%2C`), more than one `@` in the authority
+  (libpq splits user info at the first `@`, WHATWG at the last), fragments,
+  whitespace and any host other than `localhost`, `127.0.0.1`, `[::1]` or a
+  unix socket directory under `/tmp`, `/private/tmp`, `/var/run/postgresql` or
+  `/run/postgresql`. psql gets `proofPsqlEnv()`: a copy of the environment
+  with every `PG*` key removed and `PATH=/usr/bin:/bin`. The connection comes
+  only from the validated URL. `scripts/ovd979-rollback.test.mjs` covers the
+  bypasses and the accepted local forms.
+- `aclStatements` throws when it finds no single-line revoke/grant for a
+  function, so a multi-line grant can no longer be silently dropped.
+- The `--prove` label now reads "search_path hardened, not reverted".
+- `supabase/tests/ovd979u2_lock_order.sql` first drops the work_queue trigger,
+  the `ovd979u2_test` schema (and its functions) and the `ovd979u2_tap` role
+  if an aborted run left them, then keeps the end-of-file cleanup. The
+  assertions are unchanged. Synthetic rows still fail on collision.
+- Local proof on the isolated fixture (port 56322): pgTAP 53/53, then 53/53
+  again after planting a leftover role, schema, function and trigger. The
+  fixture is shared with the stacked U3/U4 rounds and has U3 bodies applied
+  on top of U2, so `--prove` against it fails only the re-apply check, the same
+  as the pre-round script. With U2 applied first inside the same rolled-back
+  transaction, the proof SQL passes:
+
+```
+applied migration differs from the prior bodies: PASS
+rollback restores md5(prosrc) of 5 prior bodies; search_path hardened, not reverted: PASS
+rollback keeps the applied ACLs: PASS
+second rollback is a no-op: PASS
+re-apply restores the applied bodies, ACLs and config: PASS
+```
