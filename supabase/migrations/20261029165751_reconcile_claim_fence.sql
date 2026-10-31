@@ -1,7 +1,11 @@
 -- S1.1b stage A: additive only. Rollback callers before retiring these RPCs;
 -- retain immutable receipts and pending follow-ups throughout caller rollback.
-create table private.vendor_quote_acceptance_receipts (
-  id uuid primary key default gen_random_uuid(),
+-- Down path: supabase/rollbacks/20261029165751_reconcile_claim_fence.rollback.sql
+-- Both public RPCs must run as standalone READ COMMITTED transactions: their
+-- SET CONSTRAINTS ALL IMMEDIATE affects the rest of the caller transaction.
+set local lock_timeout = '1s';
+create table if not exists private.vendor_quote_acceptance_receipts (
+  id uuid primary key default pg_catalog.gen_random_uuid(),
   work_queue_task_id uuid not null,
   claim_locked_by text,
   claim_locked_at timestamptz not null,
@@ -11,11 +15,11 @@ create table private.vendor_quote_acceptance_receipts (
   job_id uuid,
   payload_digest text not null,
   outcome text not null check (outcome in ('accepted', 'request_canceled')),
-  created_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default pg_catalog.timezone('utc', pg_catalog.now()),
   unique (work_queue_task_id, claim_attempts, claim_locked_at)
 );
 create function private.reject_vendor_quote_acceptance_receipt_mutation()
-returns trigger language plpgsql set search_path = pg_catalog as $$
+returns trigger language plpgsql set search_path = '' as $$
 begin
   raise exception 'Vendor quote acceptance receipts are append-only.';
 end;
@@ -26,15 +30,15 @@ create trigger vendor_quote_acceptance_receipts_append_only
 before update or delete on private.vendor_quote_acceptance_receipts
 for each row execute function private.reject_vendor_quote_acceptance_receipt_mutation();
 
-create table private.quote_run_rollup_followups (
+create table if not exists private.quote_run_rollup_followups (
   id bigint generated always as identity primary key,
   receipt_id uuid not null unique,
   job_id uuid not null,
   quote_run_id uuid not null,
-  created_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default pg_catalog.timezone('utc', pg_catalog.now()),
   processed_at timestamptz
 );
-create index quote_run_rollup_followups_pending on private.quote_run_rollup_followups(id)
+create index if not exists quote_run_rollup_followups_pending on private.quote_run_rollup_followups(id)
 where processed_at is null;
 alter table private.vendor_quote_acceptance_receipts enable row level security;
 alter table private.quote_run_rollup_followups enable row level security;
@@ -45,7 +49,7 @@ revoke all on sequence private.quote_run_rollup_followups_id_seq from public, an
 -- Exact legacy mutation body, with fencing/finalization owned by the caller.
 create function private.apply_vendor_quote_result_offers(
   p_vendor_quote_result_id uuid, p_result jsonb, p_offers jsonb
-) returns void language plpgsql set search_path = pg_catalog as $$
+) returns void language plpgsql set search_path = '' as $$
 declare v_offers jsonb := coalesce(p_offers, '[]'::jsonb);
 begin
   if pg_catalog.jsonb_typeof(p_result) <> 'object' then
@@ -185,8 +189,8 @@ from public, anon, authenticated, service_role;
 -- Discovery only. Conflicting authoritative linkages fail closed; never use
 -- payload IDs, including vendorQuoteResultId and quoteRequestId.
 create function private.vendor_quote_acceptance_request_ids(p_result_id uuid)
-returns uuid[] language sql stable set search_path = pg_catalog as $$
-  select coalesce(array_agg(distinct id order by id) filter (where id is not null), '{}'::uuid[])
+returns uuid[] language sql stable set search_path = '' as $$
+  select coalesce(pg_catalog.array_agg(distinct id order by id) filter (where id is not null), '{}'::uuid[])
   from (
     select run.quote_request_id as id from public.vendor_quote_results result
       join public.quote_runs run on run.id = result.quote_run_id where result.id = p_result_id
@@ -208,9 +212,9 @@ create function public.accept_vendor_quote_result(
   p_task_id uuid, p_locked_by text, p_locked_at timestamptz, p_attempts integer,
   p_vendor_quote_result_id uuid, p_result jsonb, p_offers jsonb,
   p_task_payload_patch jsonb default '{}'
-) returns jsonb language plpgsql security definer set search_path = pg_catalog as $$
+) returns jsonb language plpgsql security definer set search_path = '' set lock_timeout = '1s' as $$
 declare
-  v_digest text := encode(sha256(convert_to(jsonb_build_object(
+  v_digest text := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_object(
     'vendor_quote_result_id', p_vendor_quote_result_id, 'result', p_result,
     'offers', coalesce(p_offers, '[]'::jsonb),
     'task_payload_patch', coalesce(p_task_payload_patch, '{}'::jsonb))::text, 'UTF8')), 'hex');
@@ -228,17 +232,17 @@ begin
   where work_queue_task_id = p_task_id and claim_attempts = p_attempts and claim_locked_at = p_locked_at;
   if found then
     return case when v_receipt.claim_locked_by is not distinct from p_locked_by and v_receipt.payload_digest = v_digest
-      then jsonb_build_object('outcome', 'replayed', 'original_outcome', v_receipt.outcome, 'receipt_id', v_receipt.id)
-      else jsonb_build_object('outcome', 'payload_mismatch', 'receipt_id', v_receipt.id) end;
+      then pg_catalog.jsonb_build_object('outcome', 'replayed', 'original_outcome', v_receipt.outcome, 'receipt_id', v_receipt.id)
+      else pg_catalog.jsonb_build_object('outcome', 'payload_mismatch', 'receipt_id', v_receipt.id) end;
   end if;
-  if current_setting('transaction_isolation') <> 'read committed' then
+  if pg_catalog.current_setting('transaction_isolation') <> 'read committed' then
     raise exception 'vendor_quote_acceptance_requires_read_committed';
   end if;
   begin
     select * into v_result from public.vendor_quote_results where id = p_vendor_quote_result_id for update nowait;
-    if not found then return jsonb_build_object('outcome', 'stale'); end if;
+    if not found then return pg_catalog.jsonb_build_object('outcome', 'stale'); end if;
     v_requests := private.vendor_quote_acceptance_request_ids(v_result.id);
-    if cardinality(v_requests) > 1 then return jsonb_build_object('outcome', 'stale'); end if;
+    if pg_catalog.cardinality(v_requests) > 1 then return pg_catalog.jsonb_build_object('outcome', 'stale'); end if;
     select * into v_request from public.quote_requests where id = v_requests[1] for update nowait;
     select * into v_task from public.work_queue where id = p_task_id for update nowait;
 
@@ -283,8 +287,8 @@ begin
     perform 1 from public.service_request_line_items where id = v_request.service_request_line_item_id
       order by id for update nowait;
     perform 1 from public.organizations where id = v_result.organization_id or id in
-      (select (entry->>'organization_id')::uuid from jsonb_array_elements(
-        case when jsonb_typeof(p_offers) = 'array' then p_offers else '[]'::jsonb end) entry)
+      (select (entry->>'organization_id')::uuid from pg_catalog.jsonb_array_elements(
+        case when pg_catalog.jsonb_typeof(p_offers) = 'array' then p_offers else '[]'::jsonb end) entry)
       order by id for key share nowait;
     perform 1 from public.vendor_quote_offers where vendor_quote_result_id = v_result.id
       order by id for update nowait;
@@ -304,8 +308,8 @@ begin
       where work_queue_task_id = p_task_id and claim_attempts = p_attempts and claim_locked_at = p_locked_at;
     if found then
       return case when v_receipt.claim_locked_by is not distinct from p_locked_by and v_receipt.payload_digest = v_digest
-        then jsonb_build_object('outcome', 'replayed', 'original_outcome', v_receipt.outcome, 'receipt_id', v_receipt.id)
-        else jsonb_build_object('outcome', 'payload_mismatch', 'receipt_id', v_receipt.id) end;
+        then pg_catalog.jsonb_build_object('outcome', 'replayed', 'original_outcome', v_receipt.outcome, 'receipt_id', v_receipt.id)
+        else pg_catalog.jsonb_build_object('outcome', 'payload_mismatch', 'receipt_id', v_receipt.id) end;
     end if;
     if v_task.id is null or v_task.status <> 'running' or v_task.locked_by is distinct from p_locked_by
       or v_task.locked_at is distinct from p_locked_at or p_locked_at is null
@@ -322,8 +326,8 @@ begin
         and case when nullif(v_task.payload->>'vendor', '') is not null
           and nullif(v_task.payload->>'requestedQuantity', '') is not null
         then v_result.vendor::text is distinct from v_task.payload->>'vendor'
-          or to_jsonb(v_result.requested_quantity) is distinct from v_task.payload->'requestedQuantity'
-        else (select count(*) from public.vendor_quote_results where quote_run_id = v_task.quote_run_id
+          or pg_catalog.to_jsonb(v_result.requested_quantity) is distinct from v_task.payload->'requestedQuantity'
+        else (select pg_catalog.count(*) from public.vendor_quote_results where quote_run_id = v_task.quote_run_id
           and part_id = v_task.part_id) <> 1 end)
       or v_requests is distinct from private.vendor_quote_acceptance_request_ids(v_result.id)
       or (v_request.id is not null and (v_request.job_id is distinct from v_run.job_id
@@ -348,19 +352,19 @@ begin
               and lane.organization_id = v_result.organization_id and lane.part_id = v_result.part_id
               and lane.vendor = v_result.vendor and lane.requested_quantity = v_result.requested_quantity))
       )
-    then return jsonb_build_object('outcome', 'stale'); end if;
+    then return pg_catalog.jsonb_build_object('outcome', 'stale'); end if;
     if v_admission.admission_source = 'free_beta' and
       (v_request.status = 'canceled' or v_admission.state = 'released') then
-      return jsonb_build_object('outcome', 'fenced');
+      return pg_catalog.jsonb_build_object('outcome', 'fenced');
     end if;
     if p_result->>'status' in ('queued','running') then
       raise exception 'Vendor quote acceptance requires a terminal result.';
     end if;
-    if jsonb_typeof(coalesce(p_task_payload_patch, '{}'::jsonb)) <> 'object' then
+    if pg_catalog.jsonb_typeof(coalesce(p_task_payload_patch, '{}'::jsonb)) <> 'object' then
       raise exception 'Task payload patch must be a JSON object.';
     end if;
-    if jsonb_typeof(p_offers) = 'array' and exists (
-      select 1 from jsonb_array_elements(p_offers) offer
+    if pg_catalog.jsonb_typeof(p_offers) = 'array' and exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_offers) offer
       where (offer->>'organization_id')::uuid is distinct from v_result.organization_id
     ) then raise exception 'Every offer must belong to the result organization.'; end if;
     perform private.apply_vendor_quote_result_offers(v_result.id, p_result, p_offers);
@@ -382,10 +386,10 @@ begin
     insert into private.quote_run_rollup_followups(receipt_id, job_id, quote_run_id)
     values (v_receipt.id, v_run.job_id, v_run.id) returning id into v_followup;
     set constraints all immediate;
-    return jsonb_build_object('outcome', v_outcome, 'receipt_id', v_receipt.id, 'followup_id', v_followup);
+    return pg_catalog.jsonb_build_object('outcome', v_outcome, 'receipt_id', v_receipt.id, 'followup_id', v_followup);
   exception when lock_not_available then
     -- PL/pgSQL rolls back the entire candidate, including every acquired lock.
-    return jsonb_build_object('outcome', 'busy');
+    return pg_catalog.jsonb_build_object('outcome', 'busy');
   end;
 end;
 $$;
@@ -394,17 +398,17 @@ from public, anon, authenticated;
 grant execute on function public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb) to service_role;
 
 -- Matches aggregateQuoteRunStatus, including empty/all-failed => failed/quoting
--- and pending > manual > success precedence. S2.2 owns overlapping-run reduction.
+-- and pending > manual > success precedence. Old runs cannot change job state.
 create function private.aggregate_quote_run_status(p_statuses public.vendor_status[])
 returns table(run_status public.quote_run_status, job_status public.job_status,
   successful bigint, manual_review bigint, failed bigint)
-language sql immutable set search_path = pg_catalog as $$
+language sql immutable set search_path = '' as $$
   with counts as (
-    select count(*) filter (where status in ('queued','running')) pending,
-      count(*) filter (where status in ('instant_quote_received','official_quote_received')) successful,
-      count(*) filter (where status in ('manual_review_pending','manual_vendor_followup')) manual_review,
-      count(*) filter (where status = 'failed') failed
-    from unnest(p_statuses) status
+    select pg_catalog.count(*) filter (where status in ('queued','running')) pending,
+      pg_catalog.count(*) filter (where status in ('instant_quote_received','official_quote_received')) successful,
+      pg_catalog.count(*) filter (where status in ('manual_review_pending','manual_vendor_followup')) manual_review,
+      pg_catalog.count(*) filter (where status = 'failed') failed
+    from pg_catalog.unnest(p_statuses) status
   )
   select (case when pending > 0 then 'running' when successful + manual_review > 0 then 'completed' else 'failed' end)::public.quote_run_status,
     (case when pending > 0 then 'quoting' when manual_review > 0 then 'awaiting_vendor_manual_review'
@@ -414,7 +418,7 @@ $$;
 revoke all on function private.aggregate_quote_run_status(public.vendor_status[]) from public, anon, authenticated, service_role;
 
 create function public.drain_quote_run_rollup_followups(p_limit integer default 50)
-returns jsonb language plpgsql security definer set search_path = pg_catalog as $$
+returns jsonb language plpgsql security definer set search_path = '' set lock_timeout = '1s' as $$
 declare
   v_id bigint;
   v_followup private.quote_run_rollup_followups%rowtype;
@@ -429,7 +433,7 @@ declare
   v_deferred integer := 0;
 begin
   if p_limit is null or p_limit < 1 or p_limit > 500 then raise exception 'quote_run_rollup_limit_invalid'; end if;
-  if current_setting('transaction_isolation') <> 'read committed' then
+  if pg_catalog.current_setting('transaction_isolation') <> 'read committed' then
     raise exception 'quote_run_rollup_requires_read_committed';
   end if;
   -- Unlocked ID discovery; SKIP LOCKED ownership is taken INSIDE each candidate
@@ -455,8 +459,19 @@ begin
       perform 1 from public.organizations where id = v_job.organization_id for key share nowait;
       select * into v_aggregate from private.aggregate_quote_run_status(
         array(select status from public.vendor_quote_results where quote_run_id = v_run.id));
-      v_run_status := case when v_run.status = 'published' then v_run.status else v_aggregate.run_status end;
-      v_job_status := case when v_job.status in ('published','client_selected','closed') then v_job.status else v_aggregate.job_status end;
+      -- Only active runs advance; never reopen completed/failed/published runs.
+      v_run_status := case when v_run.status in ('queued','running')
+        then v_aggregate.run_status else v_run.status end;
+      -- A delayed older run must not overwrite a newer run's job status.
+      -- Within quoting, manual review can advance to internal review but cannot
+      -- regress to quoting. All other user/admin lifecycle states are preserved.
+      v_job_status := v_job.status;
+      if v_run.id = (select id from public.quote_runs where job_id = v_job.id
+          order by created_at desc, id desc limit 1)
+        and (v_job.status = 'quoting' or (v_job.status = 'awaiting_vendor_manual_review'
+          and v_aggregate.job_status = 'internal_review')) then
+        v_job_status := v_aggregate.job_status;
+      end if;
       if v_run.status is distinct from v_run_status or v_job.status is distinct from v_job_status then
         update public.quote_runs set status = v_run_status where id = v_run.id and status is distinct from v_run_status;
         update public.jobs set status = v_job_status where id = v_job.id and status is distinct from v_job_status;
@@ -466,18 +481,18 @@ begin
         if v_event is not null then
           insert into public.audit_events(organization_id, job_id, actor_user_id, event_type, payload)
           values (v_job.organization_id, v_job.id, null, v_event,
-            jsonb_build_object('quoteRunId', v_run.id, 'successfulVendorQuotes', v_aggregate.successful,
+            pg_catalog.jsonb_build_object('quoteRunId', v_run.id, 'successfulVendorQuotes', v_aggregate.successful,
               'manualReviewVendorQuotes', v_aggregate.manual_review, 'failedVendorQuotes', v_aggregate.failed));
         end if;
       end if;
-      update private.quote_run_rollup_followups set processed_at = clock_timestamp() where id = v_id;
+      update private.quote_run_rollup_followups set processed_at = pg_catalog.clock_timestamp() where id = v_id;
       set constraints all immediate;
       v_processed := v_processed + 1;
     exception when lock_not_available then
       v_deferred := v_deferred + 1;
     end;
   end loop;
-  return jsonb_build_object('scanned', v_scanned, 'processed', v_processed, 'deferred', v_deferred);
+  return pg_catalog.jsonb_build_object('scanned', v_scanned, 'processed', v_processed, 'deferred', v_deferred);
 end;
 $$;
 revoke all on function public.drain_quote_run_rollup_followups(integer) from public, anon, authenticated;
