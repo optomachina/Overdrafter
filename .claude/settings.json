@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Read", "Edit", "Write", "Glob", "Grep",
+      "Bash(git *)",
+      "Bash(gh pr view *)", "Bash(gh pr list *)", "Bash(gh pr diff *)", "Bash(gh pr checks *)", "Bash(gh pr status *)",
+      "Bash(gh pr comment *)", "Bash(gh pr review *)",
+      "Bash(gh issue view *)", "Bash(gh issue list *)",
+      "Bash(gh run view *)", "Bash(gh run list *)", "Bash(gh run watch *)",
+      "Bash(gh api repos/optomachina/Overdrafter/*)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(pnpm *)", "Bash(node *)",
+      "Bash(vitest *)", "Bash(tsc *)", "Bash(eslint *)", "Bash(playwright *)",
+      "Bash(curl https://*.vercel.app*)", "Bash(curl -s https://*.vercel.app*)", "Bash(curl -sS https://*.vercel.app*)", "Bash(curl -I https://*.vercel.app*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git push * --force*)", "Bash(git push * -f*)", "Bash(git push --force-with-lease*)",
+      "Bash(git push --delete*)", "Bash(git push * --delete*)", "Bash(git push -d*)", "Bash(git push * -d *)", "Bash(git push * :*)",
+      "Bash(git branch -D*)", "Bash(git branch * -D*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api -X DELETE*)", "Bash(gh api --method DELETE*)", "Bash(gh api * -X DELETE*)", "Bash(gh api * --method DELETE*)",
+      "Bash(supabase db push*)", "Bash(supabase db reset*)", "Bash(npx supabase db push*)", "Bash(npx supabase db reset*)",
+      "Bash(*ozuatdcakezjtevztjlr*)", "Bash(psql *)",
+      "Bash(rm -rf /*)", "Bash(rm -rf ~*)", "Bash(rm -rf ..*)", "Bash(rm -rf $HOME*)",
+      "Bash(env)", "Bash(env *)", "Bash(printenv*)", "Bash(set)", "Bash(export -p*)",
+      "Read(./.env*)", "Read(**/.env*)", "Bash(cat .env*)", "Bash(cat */.env*)",
+      "Bash(npm run auth:vendor*)", "Bash(npm run vendor*)", "Bash(npm run *quote*)", "Bash(npm run *order*)",
+      "Bash(curl *xometry*)", "Bash(curl *quickparts*)", "Bash(curl *protolabs*)", "Bash(curl *fictiv*)", "Bash(curl *sendcutsend*)",
+      "Bash(curl */orders*)", "Bash(curl */checkout*)", "Bash(curl */purchase*)"
+    ]
+  }
+}
