@@ -33,12 +33,19 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     const reuse = body(migrationSql, reuseSignature) ?? "";
     expect(reuse).toContain("and queue.status = 'running'\n    and queue.attempt_id is not null");
     expect(reuse).toContain("v_target.id, extraction.organization_id, v_target_attempt_id,");
+    // A retry restamps only the same copy, and only the stamp column of that row.
+    const restamp = "on conflict (part_id) do update\n    set source_attempt_id = excluded.source_attempt_id\n"
+      + "    where excluded.source_attempt_id is not null\n"
+      + "      and drawing_extractions.extractor_version = excluded.extractor_version\n"
+      + "      and drawing_extractions.extraction = excluded.extraction;";
+    expect(reuse.split(restamp)).toHaveLength(2);
     const u2Reuse = body(read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql"), reuseSignature) ?? "";
     const stampFree = reuse
       .replace(/\n {2}v_target_attempt_id uuid;/, "")
       .replace(/ {2}-- The copy is this attempt's result[\s\S]*?limit 1;\n\n/, "")
       .replace("part_id, organization_id, source_attempt_id, extractor_version", "part_id, organization_id, extractor_version")
-      .replace("extraction.organization_id, v_target_attempt_id, extraction.extractor_version", "extraction.organization_id, extraction.extractor_version");
+      .replace("extraction.organization_id, v_target_attempt_id, extraction.extractor_version", "extraction.organization_id, extraction.extractor_version")
+      .replace(restamp, "on conflict (part_id) do nothing;");
     expect(stampFree).toBe(u2Reuse);
   });
 

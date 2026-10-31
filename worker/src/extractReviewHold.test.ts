@@ -72,8 +72,9 @@ const config = { workerMode: "simulate", workerName: "worker", workerLiveAdapter
   workerBuildVersion: "test-build", drawingExtractionModel: "test-model", titleBlockApprovalEnabled: false,
 } as unknown as WorkerConfig;
 
+type QueueRow = { status: string; attempt_id: string | null } | null;
 type DatabaseOptions = { trustedReuse: boolean; approvedCount: unknown; approvalError?: Error;
-  artifactsReady?: boolean; refreshFailure?: "response" | "throw" };
+  artifactsReady?: boolean; refreshFailure?: "response" | "throw"; queueRow?: QueueRow };
 function database(options: DatabaseOptions) {
   const rpcCalls: string[] = [];
   const auditEvents: Record<string, unknown>[] = [];
@@ -82,7 +83,9 @@ function database(options: DatabaseOptions) {
     let inserted: Record<string, unknown> | null = null;
     const response = () => {
       if (inserted) return { data: null, error: null };
-      const data = table === "parts" ? part : table === "job_files" ? [drawing] : null;
+      // work_queue: the claimed task's current row (default: still this running, legacy-null attempt).
+      const queueRow = options.queueRow === undefined ? { status: "running", attempt_id: null } : options.queueRow;
+      const data = table === "parts" ? part : table === "job_files" ? [drawing] : table === "work_queue" ? queueRow : null;
       return { data, error: null };
     };
     const query: Record<string, unknown> = {};
@@ -297,11 +300,39 @@ describe("OVD-1097: refresh at the real main-loop acknowledgement boundary (F2/F
 describe("OVD-979 U3: extraction claim provenance", () => {
   it.each(["97900000-0000-4000-8000-000000000001", "97900000-0000-4000-8000-000000000002", null, undefined])(
     "persists the claimed attempt %s on the real extraction write path", async (attemptId) => {
-      const db = database({ trustedReuse: false, approvedCount: 0 });
+      const db = database({ trustedReuse: false, approvedCount: 0, queueRow: { status: "running", attempt_id: attemptId ?? null } });
       await processClaimedTask(db.client, { ...task, attempt_id: attemptId }, config, createWorkerRuntimeState());
       expect(markTaskFailed).not.toHaveBeenCalled();
       expect(markTaskCompleted).toHaveBeenCalledTimes(1);
       expect(db.extractionWrites).toMatchObject([{ part_id: task.part_id, source_attempt_id: attemptId ?? null }]);
     },
   );
+});
+
+describe("OVD-979 U4: a reaped attempt cannot overwrite its successor", () => {
+  const reaped = "97900000-0000-4000-8000-000000000001";
+  const successor = "97900000-0000-4000-8000-000000000002";
+  it.each<[string, QueueRow]>([
+    ["reclaimed under a successor attempt", { status: "running", attempt_id: successor }],
+    ["requeued and not yet reclaimed", { status: "queued", attempt_id: reaped }],
+    ["settled by another actor", { status: "completed", attempt_id: successor }],
+    ["no longer present", null],
+  ])("drops a late extraction write when the task was %s", async (_case, queueRow) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const db = database({ trustedReuse: false, approvedCount: 1, queueRow });
+    await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+    expect(db.extractionWrites).toEqual([]);
+    expect(db.rpcCalls).not.toContain("api_auto_approve_job_requirements");
+    expect(markTaskCompleted).not.toHaveBeenCalled();
+    expect(markTaskFailed).not.toHaveBeenCalled();
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+  });
+
+  it("still writes and auto-approves while the task is this running attempt", async () => {
+    const db = database({ trustedReuse: false, approvedCount: 1, queueRow: { status: "running", attempt_id: reaped } });
+    await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+    expect(db.extractionWrites).toMatchObject([{ source_attempt_id: reaped }]);
+    expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
+    expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+  });
 });

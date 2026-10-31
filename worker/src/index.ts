@@ -304,6 +304,31 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
   );
 }
 
+/** True when this task row is no longer the running attempt this worker claimed. */
+async function isExtractionAttemptSuperseded(supabase: SupabaseClient, task: QueueTaskRecord) {
+  const { data, error } = await supabase
+    .from("work_queue")
+    .select("status, attempt_id")
+    .eq("id", task.id)
+    .maybeSingle();
+  if (error) {
+    throw error;
+  }
+  const current = data as { status?: unknown; attempt_id?: unknown } | null;
+  return !current || current.status !== "running" || (current.attempt_id ?? null) !== (task.attempt_id ?? null);
+}
+
+function logSupersededExtractionAttempt(task: QueueTaskRecord) {
+  console.warn(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.extraction.superseded",
+      message: `Dropped the extraction result of superseded attempt ${task.task_type} ${task.id}.`,
+      context: buildTaskContext(task),
+    }),
+  );
+}
 
 async function logWorkerAuditEvent(
   supabase: SupabaseClient,
@@ -885,6 +910,13 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       extractionRun;
     organizationIdForError = context.part.organization_id;
     partIdForError = context.part.id;
+
+    // OVD-979: a reaped attempt (requeued, or reclaimed under a new attempt_id) must not
+    // overwrite its successor's extraction or auto-approve for it. Stop before writing.
+    if (await isExtractionAttemptSuperseded(supabase, task)) {
+      logSupersededExtractionAttempt(task);
+      return;
+    }
 
     const { error } = await supabase.from("drawing_extractions").upsert(
       {

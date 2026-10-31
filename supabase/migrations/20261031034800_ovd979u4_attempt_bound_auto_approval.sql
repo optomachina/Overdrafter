@@ -748,8 +748,9 @@ begin
   end if;
 
   -- The copy is this attempt's result: the worker reuses inside its running
-  -- extract_part task and calls auto approval before settling it. An existing
-  -- target row keeps its own attempt and stays pending for that gate.
+  -- extract_part task and calls auto approval before settling it. On a retry the
+  -- target row already holds this same copy: restamp that row with the new attempt.
+  -- A target row holding any other extraction keeps its own stamp and stays pending.
   select queue.attempt_id into v_target_attempt_id
   from public.work_queue queue
   where queue.part_id = v_target.id
@@ -769,7 +770,11 @@ begin
     extraction.evidence, extraction.status, extraction.created_at, extraction.updated_at
   from public.drawing_extractions extraction
   where extraction.part_id = v_source.id
-  on conflict (part_id) do nothing;
+  on conflict (part_id) do update
+    set source_attempt_id = excluded.source_attempt_id
+    where excluded.source_attempt_id is not null
+      and drawing_extractions.extractor_version = excluded.extractor_version
+      and drawing_extractions.extraction = excluded.extraction;
 
   insert into public.drawing_preview_assets (
     part_id, organization_id, page_number, kind, storage_bucket, storage_path,

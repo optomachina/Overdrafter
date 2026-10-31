@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(95);
+select plan(98);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values ('97940000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -291,6 +291,35 @@ reset role;
 select set_config('request.jwt.claim.role', '', true);
 select is((select status::text from public.jobs where id = '97940000-0000-4000-8000-000000000102'), 'ready_to_quote',
   'reuse: clean reused upload rolls up to ready_to_quote');
+
+-- Retry: the attempt is reaped and reclaimed under a new attempt_id. The target row
+-- already holds the same copy, so reuse restamps it and the new attempt can approve.
+update public.jobs set status = 'extracting' where id = '97940000-0000-4000-8000-000000000102';
+update public.work_queue set attempt_id = '97940000-0000-4000-8000-000000000113'
+where id = '97940000-0000-4000-8000-000000000111';
+select set_config('request.jwt.claim.role', 'service_role', true);
+set local role service_role;
+select public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'));
+select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
+  '97940000-0000-4000-8000-000000000113'::uuid, 'reuse retry: the existing copy carries the new attempt');
+select is(public.api_auto_approve_job_requirements('97940000-0000-4000-8000-000000000102'), 1,
+  'reuse retry: the new attempt counts the restamped copy');
+reset role;
+select set_config('request.jwt.claim.role', '', true);
+-- A target row holding a different extraction keeps its stamp: no stale content gets the new attempt.
+update public.drawing_extractions set extraction = extraction || '{"u4OtherCopy": true}'
+where part_id = '97940000-0000-4000-8000-000000000110';
+update public.work_queue set attempt_id = '97940000-0000-4000-8000-000000000114'
+where id = '97940000-0000-4000-8000-000000000111';
+select set_config('request.jwt.claim.role', 'service_role', true);
+set local role service_role;
+select public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'));
+reset role;
+select set_config('request.jwt.claim.role', '', true);
+select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
+  '97940000-0000-4000-8000-000000000113'::uuid, 'reuse retry: a different target extraction is not restamped');
 
 -- All actual enum values, each through pending, failed and successful rollup.
 -- This schema has TEN total statuses, SIX outside the four pre-quote statuses.
