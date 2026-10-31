@@ -10,27 +10,51 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
 ## Application and rollback
 
 - `supabase/migrations/20261030164800_ovd979u3_extraction_attempt_identity.sql`
-  is byte identical to `docs/migration-drafts/ovd-979u3.sql`.
-- Apply the migration before the updated worker, which writes the new columns.
-  No function signature, owner, grant recipient, policy or index changes.
+  is the only forward copy. The duplicate draft and the stored rollback were
+  deleted in repair round 1 (Sonar duplication gate); the rollback is generated.
+- **Deploy order: migration before worker.** The updated worker writes
+  `drawing_extractions.source_attempt_id` and `work_queue.attempt_id = null`.
+  If it ran before the columns exist, PostgREST would reject both writes:
+  extraction results would fail and so would the retry requeue, stranding tasks
+  as `running`. Merging this PR applies the migration, but it does not
+  redeploy the worker image (`deploy-cloud-run.sh` is a manual operator step;
+  see `docs/provider-integration.md`). Deploy the worker only after the
+  migration has applied in that environment, and check that both columns exist
+  first. Never deploy this worker to an environment that lacks the migration.
+- No function signature, owner, grant recipient, policy or index changes.
 - `api_claim_next_task(text)` retains `FOR UPDATE SKIP LOCKED`, claim ordering,
   lock metadata and attempt counting. Every claim, for every task type, sets
   a fresh `gen_random_uuid()`. Its lock sequence remains L5 then L5.
   The forward function pins `search_path = pg_catalog, public`, revokes
   PUBLIC/anon/authenticated and retains service_role-only execution, matching
   the post-OVD-535 ACL.
-- Rollback restores the original claim definition from
-  `20260324120000_add_api_claim_next_task.sql`, including the body bytes and
-  original `public, pg_temp` search path, with the current post-OVD-535 ACL.
-  Restored `md5(prosrc)` is `31a545de0aa0ab7d881d02193edabfb8`.
+- Rollback: `node scripts/ovd979-rollback.mjs
+  20261030164800_ovd979u3_extraction_attempt_identity.sql` prints the original
+  claim definition from `20260324120000_add_api_claim_next_task.sql`, body
+  bytes unchanged, with the current post-OVD-535 ACL. Its search path is
+  emitted as `pg_catalog, public, pg_temp`, not the historical
+  `public, pg_temp`, so `lint-security-definer` would accept it as a forward
+  migration. `prosrc` and its md5 are unaffected. Restored `md5(prosrc)` is
+  `31a545de0aa0ab7d881d02193edabfb8`.
   **Both nullable columns and recorded values remain** to avoid data loss.
-  New claims after rollback have legacy/null identities on new rows; rollback
-  does not rewrite existing rows. The updated worker accepts legacy claims.
+  The restored claim body never touches `attempt_id`, so a row claimed after
+  rollback keeps whatever `attempt_id` it already holds: null for rows queued
+  by the worker's retry path, possibly a stale earlier id for rows requeued by
+  other paths. The updated worker copies that value into `source_attempt_id`.
+  Rollback does not rewrite existing rows.
+- **Rollback order: roll back U4 before U3.** U4's gate trusts `attempt_id`
+  to be fresh per claim, which only this unit's claim body guarantees.
 - Forward and rollback contain no transaction wrapper; apply each in one
   transaction. Both support repeat application.
-- No `function-supersessions.json` exception is needed: the forward draft is
-  byte identical to the matching migration. The unchanged collision checker
-  passes; its existing rules exclude rollback files.
+- The unchanged collision checker passes without a `function-supersessions.json`
+  entry. The plan's convention lists one for a replaced deployed body
+  (`api_claim_next_task`); that entry is tracked in U6 against the sha256 of
+  `20260324120000_add_api_claim_next_task.sql`.
+- Only `worker/src/queue.ts` `markTaskQueuedForRetry` clears `attempt_id` on
+  requeue. Other paths that set `status = 'queued'` (SQL resets, stale-lock
+  and backstop recovery, U5's deferred release) keep the old id. Claims stay
+  correct because every claim writes a fresh uuid. U4's gate must therefore
+  match only `status = 'running'` rows with a non-null `attempt_id`.
 
 ## Worker write and access boundaries
 
@@ -94,14 +118,33 @@ GoTrue and PostgREST transport are outside this fixture.
 - Negative control: restoring the old claim function fails four UUID assertions;
   reapplying the forward makes all 27 pass again.
 
-Commands and output are recorded in `/tmp/ovd979-u3-proof/`: `bootstrap.sql`,
-`migrations.log`, `psql`, `copy-inputs.py`, `roundtrip.sql` / `roundtrip.log`,
-`pgtap-final.log`, `negative-control.log`, `prior-catalog.log`, `vitest.log`,
-`fixture-vitest.log`, `app-typecheck.log`, `worker-typecheck.log`, and
-`eslint.log`. The psql adapter executes only inside this run's local container;
-pgTAP uses `pg_prove --norc -b /tmp/ovd979-u3-proof/psql -h /tmp -U postgres
--d postgres <test.sql>`. Container inputs are copied into tmpfs via stdin.
-The owner record includes cleanup status and verified file hashes.
+Round 0 kept its runner inputs in an uncommitted `/tmp/ovd979-u3-proof/`
+directory that no longer exists. Its roundtrip is replaced by the committed
+generator proof below.
+
+## Repair round 1 (2026-10-30)
+
+- The duplicate forward draft and the stored rollback are deleted; the rollback
+  is generated by `scripts/ovd979-rollback.mjs` and pins `pg_catalog` first.
+- Committed roundtrip proof: `node scripts/ovd979-rollback.mjs
+  20261030164800_ovd979u3_extraction_attempt_identity.sql --prove --db-url
+  <loopback URL>`, on the isolated local fixture with U2 and U3 applied. It
+  runs in one transaction that always rolls back:
+
+  ```
+  applied migration differs from the prior bodies: PASS
+  rollback restores md5(prosrc) of 1 prior bodies, path pg_catalog first: PASS
+  rollback keeps the applied ACLs: PASS
+  second rollback is a no-op: PASS
+  re-apply restores the applied bodies, ACLs and config: PASS
+  ovd979 rollback proof: PASS (20261030164800_ovd979u3_extraction_attempt_identity.sql)
+  ```
+
+  The re-apply step re-runs `ADD COLUMN IF NOT EXISTS` as a no-op. The
+  `ephemeral-db` rollback stage replays only `.rollback.sql` files paired with
+  a forward draft, so it never ran U3's rollback; this proof replaces it.
+- `supabase/tests/ovd979u3_attempt_identity.sql`: 27/27 on the same fixture.
+- Deploy order and rollback order are stated above.
 
 Exact-head independent review and hosted release qualification remain separate
 integration work. U4 must add the attempt gate, and U5 must handle request

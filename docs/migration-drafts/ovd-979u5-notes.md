@@ -2,18 +2,18 @@
 
 Stacked on U2/U3/U4. The forward migration is
 `supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql`,
-byte identical to `ovd-979u5.sql` (SHA-256
-`056d347e7061d7f189ca9ac0594c47fc17fb3d9932d112bb4d4c93b6a5fc9b93`).
-Apply transactionally, after U4. Neither SQL file has a transaction wrapper.
+the only forward copy since repair round 1. Apply after U4. The file applies
+with or without a wrapping transaction: the table lock, duplicate audit and
+index build share one `DO` statement.
 The request eligibility and failed/completed drawing identity ideas were copied
 selectively from draft #874, not cherry-picked. Its second active deferred row
-and settlement trigger are not installed. No U2/U3/U4 artifacts are changed.
+and settlement trigger are not installed. No U2/U3/U4 migration changes here; U5 extends the shared `scripts/ovd979-rollback.mjs` to drop created objects.
 
 ## Behavior and locking
 
 `api_request_extraction` verifies authentication/access, takes L0 using the
 canonical `ovd979:job:<id>` key, locks and writes L1, locks existing L2 rows in
-ID order, reconciles files, then locks **queued and running** extract tasks in
+ID order (`FOR NO KEY UPDATE`), reconciles files, then locks **queued and running** extract tasks in
 ID order at L5. All subsequent writes are L5. Request job-status planning uses
 plain reads of `job_part_file_set` before L2 writes, so there is no later L1
 write. Never-extracted new parts retain the original extracting-status rule;
@@ -29,12 +29,19 @@ serialize, and the unique index also guards writers outside this RPC.
 A queued task merges the current drawing before claim. If claim wins the
 queue lock first, the request waits, rereads the running version and stores
 `pendingDrawingFileId` on that same row. There is never a second active row.
-The obsolete running attempt is invalidated with `attempt_id = null`: its
-stored CAD extraction cannot satisfy U4's finishing gate for the new drawing.
-This is not a legacy identity backfill.
+The running row keeps its `attempt_id`, so worker settlement (which matches
+`id`, `status = 'running'`, `attempts` and `locked_by`) and its extraction
+write still find it. U4's gate treats a running row carrying
+`pendingDrawingFileId` as pending, so the old attempt's stored result cannot
+satisfy the finishing gate for the new drawing. If the drawing is replaced
+again while the attempt runs, the next request overwrites the pending value
+with the newest drawing.
 
-The BEFORE trigger changes only `NEW`; it acquires no additional row locks.
-It preserves a pending marker across stale running-payload updates. On
+The BEFORE trigger changes only `NEW`; it acquires no additional row locks and
+is `SECURITY INVOKER` (it needs no privilege beyond the updating role's).
+It restores the pending marker only when an update to a running row drops it
+(a worker writing its claim-time payload); an update that carries its own
+pending value, i.e. a newer request, wins. On
 completed/failed/cancelled/retry settlement, it merges the pending drawing,
 clears claim/error/attempt state, resets the new drawing's retry count and
 makes this row queued **immediately**, even when the worker writes its older
@@ -52,15 +59,88 @@ No worker, reaper, RLS, table owner or grant-recipient changes.
 ## Index and existing data
 
 `work_queue_one_active_extract_per_part` is a partial **unique (part_id)**
-index for extract_part rows whose status is queued/running. This is stronger
-than the original proposed part/drawing pair. Missing, null and different
+index for extract_part rows whose status is queued/running. **Deviation:** the
+plan (and the repair-round brief) name a unique index per (part, drawing).
+A per-part index already admits at most one active row per (part, drawing),
+and the merge-into-one-row design requires it: a (part, drawing) key would
+allow a second active row for a new drawing, so two attempts for one part
+could run at once and the older drawing's result could overwrite the newer.
+This is stronger than the proposed part/drawing pair. Missing, null and different
 payload drawing IDs all share the same part key. Null part IDs have no part
 to guard and retain PostgreSQL's ordinary null-key behavior.
 
-Before `CREATE UNIQUE INDEX IF NOT EXISTS`, a SHARE ROW EXCLUSIVE table lock
-freezes writers across the duplicate audit and index build. The DO block
-aborts if any non-null part has multiple active extract tasks; it never
-cleans up data. There is no check/build race. Local proof applies the exact
+Inside one `DO` statement, a SHARE ROW EXCLUSIVE table lock freezes writers
+across the duplicate audit and `CREATE UNIQUE INDEX IF NOT EXISTS`. Round 0
+put `LOCK TABLE` at top level, which fails with 25P01 when the runner does not
+wrap the file in a transaction (CI's `supabase start`/`db push`). The block
+aborts if any non-null part has multiple active extract tasks; it never cleans
+up data. There is no check/build race. The lock blocks worker claims and
+settlements for the scan of active extract rows plus the partial-index build;
+record the hosted `work_queue` row count in the pre-apply audit to size the
+apply window (the local fixture has 0 rows).
+
+### Other `extract_part` writers (ON CONFLICT audit)
+
+Latest definitions of every function that inserts into `public.work_queue`,
+plus the worker, server and app code, were scanned in repair round 1:
+
+- `api_request_extraction` (this migration): the only `extract_part` inserter;
+  `ON CONFLICT DO NOTHING`.
+- `api_request_debug_extraction` inserts `debug_extract_part`,
+  `private.queue_export_marking_rescans` inserts `export_marking_rescan`,
+  `api_start_quote_run` and `private.request_scoped_automatic_quote_impl`
+  insert vendor-quote work. None are covered by the partial index.
+- Worker: `markTaskQueuedForRetry` requeues the same running row (no second
+  active row); its inserts are `repair_adapter_candidate` and
+  `generate_cad_preview`. No SQL function sets an `extract_part` row back to
+  `queued`. The app only reads `work_queue`.
+
+### Pre-existing parts that will re-extract
+
+By the request's eligibility logic, a part re-queues on its job's **next**
+`api_request_extraction` call (nothing happens at migration time) when it has
+a `drawing_file_id`, its stored extraction is `worker-sim-%` (or a failed or
+cancelled task names its current drawing), no completed task names its
+current drawing, and it has no active task. Pre-U5 completed tasks never carry
+`drawingFileId`, so **every part with a drawing and a `worker-sim-%`
+extraction re-extracts once**; parts with a real extractor result and no failed
+task for the current drawing do not. Local count: **0 parts, 0 jobs** (the
+isolated fixture and the repository seeds contain no such rows). Staging and
+production were not queried. The read-only count for the rehearsal, to run
+before Blaine's card:
+
+```sql
+select count(*) as parts_that_would_reextract, count(distinct part.job_id) as jobs_affected
+from public.parts part
+join public.drawing_extractions extraction on extraction.part_id = part.id
+where part.drawing_file_id is not null
+  and (extraction.extractor_version like 'worker-sim-%' or exists (
+    select 1 from public.work_queue failed
+    where failed.part_id = part.id and failed.task_type = 'extract_part'
+      and failed.status in ('failed', 'cancelled')
+      and failed.payload->>'drawingFileId' = part.drawing_file_id::text))
+  and not exists (
+    select 1 from public.work_queue done
+    where done.part_id = part.id and done.task_type = 'extract_part'
+      and done.status = 'completed'
+      and done.payload->>'drawingFileId' = part.drawing_file_id::text)
+  and not exists (
+    select 1 from public.work_queue active
+    where active.part_id = part.id and active.task_type = 'extract_part'
+      and active.status in ('queued', 'running'));
+```
+
+### Lock-order checker edits
+
+`KNOWN_INVERSIONS` loses `api_request_extraction` (tightening). The one
+allowlist addition is `job_part_file_set` under `api_request_extraction`'s
+unaudited callees. It is `LANGUAGE sql STABLE` with only plain `SELECT`s over
+`job_files` (no `FOR UPDATE`/`FOR SHARE`, no writes), so it takes no row locks,
+and it is already allowlisted for `api_reconcile_job_parts` on main. The
+worker's settlement path is one PostgREST `work_queue` update (L5 only; this
+trigger rewrites `NEW` and locks nothing). `api_refresh_job_extraction_status`
+runs afterwards in its own transaction: it locks L1 `jobs` and only reads
+`work_queue`, so there is no L5-then-L1 order. Local proof applies the exact
 forward over conflicting missing/different drawing identities and verifies
 an abort, no index and unchanged rows, then proves the no-conflict path.
 
@@ -79,18 +159,22 @@ synthetic fixtures only; any hosted duplicates require operator disposition.
 
 ## Rollback and repeat application
 
-`ovd-979u5.rollback.sql` removes the index, trigger and its private helper and
-restores both complete U4-era function definitions and ACLs. Request body
-`md5(prosrc)` is **7b2804b18559df073dcd4651e80b3ce6**; claim body is
-**0dcaaf41268ad9c84f4433b8b437e42b**. The request's original public search path
-is restored as part of rollback; forward definers pin pg_catalog, public.
+`node scripts/ovd979-rollback.mjs
+20261030190000_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
+it drops the trigger, its private helper and the index, then restores both
+U4-era function definitions (request from U2's migration, claim from U3's)
+and ACLs, all with `pg_catalog` first in `search_path`. The stored
+`ovd-979u5.rollback.sql` was deleted (Sonar duplication), and so was the
+`ovd979u5_rollback.sql` pgTAP that `\ir`-included it; the generator's
+`--prove` mode replaces it.
 Authenticated/service_role request access and service-only claim access stay
 unchanged, with PUBLIC/anon revoked. U4 auto approval is unchanged.
 
 Repeat rollback and repeat forward preserve definitions, ACLs and task data.
 Rollback deliberately does not rewrite task data or U3 columns. Drain pending
-merged drawing work before a release rollback: the restored U4 functions do
-not interpret U5's pending marker. The complete function bodies and exact
+merged drawing work before a release rollback: U4's gate still treats a
+running row with `pendingDrawingFileId` as pending, but without the trigger
+nothing requeues the successor drawing when that attempt settles. The complete function bodies and exact
 rollback exceed the usual line budget; the behavioral change is one bounded
 request/claim lifecycle unit, and SQL mirrors are required review artifacts.
 
@@ -123,11 +207,42 @@ shim. Dependencies were reused locally without installation or manifest edits.
 - Total positive pgTAP: **154 assertions**. Prior-request negative control:
   all three AC2 assertions fail as expected; U5 is reapplied afterward.
 
-`pgtap.log`, `conflict.log`, `regression.log`, `negative.log`, `vitest.log`,
-`profile.log`, `locks.log`, `security.log`, and `owner.json` bind the evidence.
-One rollback-test alias ambiguity was corrected before its passing run. The
-initial socket-readiness and test-directory setup failures were infrastructure
-only. This proves local SQL/catalog/RLS behavior, not GoTrue/PostgREST transport,
-worker deployment, hosted data readiness or production qualification. Exact-head
-independent migration review and OVD-976 release verification remain integration
-requirements. No commit, push, rebase, PR or hosted operation was performed.
+Round 0 kept these logs in an uncommitted `/tmp/ovd979-u5-proof/` directory,
+which no longer exists.
+
+## Repair round 1 (2026-10-30)
+
+On the isolated local fixture (U2–U5 applied):
+
+- `supabase/tests/ovd979u5_request_extraction.sql`: 56/56. New assertions: the
+  request keeps the running `attempt_id`; a drawing replaced mid-task leaves the
+  newest drawing pending; settlement through the worker's own predicates
+  matches one row; the trigger helper is not SECURITY DEFINER. Against the
+  round-0 body four of them fail (`attempt_id`, mid-task replacement, stale
+  payload restore, SECURITY DEFINER).
+- The dblink credential fallback is gone; sessions log in as a per-run role
+  with a random password, dropped at the end.
+- The forward applies with `psql` and no wrapping transaction, including the
+  index build from scratch (round 0 failed here with 25P01).
+- `node scripts/ovd979-rollback.mjs
+  20261030190000_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
+  <loopback URL>`:
+
+  ```
+  applied migration differs from the prior bodies: PASS
+  rollback restores md5(prosrc) of 2 prior bodies, path pg_catalog first: PASS
+  rollback drops 3 created objects: PASS
+  rollback leaves rows of public.work_queue unchanged: PASS
+  rollback keeps the applied ACLs: PASS
+  second rollback is a no-op: PASS
+  re-apply restores the applied bodies, ACLs and config: PASS
+  re-apply recreates 3 created objects: PASS
+  re-apply leaves rows of public.work_queue unchanged: PASS
+  ovd979 rollback proof: PASS (20261030190000_ovd979u5_drawing_extraction_dedupe.sql)
+  ```
+
+  The fixture's `work_queue` is empty, so the two row checks are weak there.
+- Claim still compares `dependency.id::text` with `awaitingTaskId` (Architect
+  low item 11). A `::uuid` cast would let one malformed legacy value fail every
+  claim, so it is left as is; it matters only if the queue grows large.
+- Lock-order, SECURITY DEFINER lint and function-collision checks: PASS.

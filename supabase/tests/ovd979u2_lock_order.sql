@@ -85,22 +85,51 @@ end;
 $$;
 -- The invoker switches to the real caller role. Helpers hold no elevated privilege.
 grant usage on schema ovd979u2_test to authenticated, service_role;
+-- dblink sessions log in as a fixture role whose password is generated here and
+-- never written down. ovd.test_conninfo still picks the host, port and database.
+select set_config('ovd979u2.password', encode(extensions.gen_random_bytes(24), 'hex'), false);
+do $$
+begin
+  execute format('create role ovd979u2_tap login password %L in role authenticated, service_role',
+    current_setting('ovd979u2.password'));
+end;
+$$;
+-- Test-only hook: pause api_request_extraction right after its queue insert,
+-- holding whatever it locked so far, while a session-level advisory lock is held.
+create function ovd979u2_test.pause_after_insert() returns trigger language plpgsql as $$
+begin
+  perform pg_catalog.pg_advisory_xact_lock_shared(979, 2);
+  return null;
+end;
+$$;
+create trigger ovd979u2_pause_after_insert after insert on public.work_queue
+for each row when (current_setting('ovd979u2.pause', true) = 'on')
+execute function ovd979u2_test.pause_after_insert();
 commit;
 
-select plan(45);
+select plan(53);
+
+create function pg_temp.u2_connect(p_name text) returns void language plpgsql as $$
+begin
+  perform extensions.dblink_connect(p_name,
+    coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
+      'host=host.docker.internal port=54322 dbname=postgres')
+    || format(' user=ovd979u2_tap password=%s', current_setting('ovd979u2.password')));
+  -- service_role bypasses RLS like the worker; call() switches roles per RPC.
+  perform extensions.dblink_exec(p_name, 'set role service_role');
+end;
+$$;
 
 create function pg_temp.u2_pair(p_holder text, p_waiter text) returns setof text language plpgsql as $$
 declare
-  conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
-    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'); -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   a integer;
   b integer;
   holder_result text;
   waiter_result text;
   waited boolean := false;
 begin
-  perform extensions.dblink_connect('ovd979u2_a', conn);
-  perform extensions.dblink_connect('ovd979u2_b', conn);
+  perform pg_temp.u2_connect('ovd979u2_a');
+  perform pg_temp.u2_connect('ovd979u2_b');
   select pid into a from extensions.dblink('ovd979u2_a', 'select pg_backend_pid()') as r(pid integer);
   select pid into b from extensions.dblink('ovd979u2_b', 'select pg_backend_pid()') as r(pid integer);
   perform extensions.dblink_exec('ovd979u2_a', 'begin; set local lock_timeout = ''5s''; set local statement_timeout = ''10s''');
@@ -150,16 +179,14 @@ end;
 $$;
 create function pg_temp.u2_first_lock(p_kind text) returns setof text language plpgsql as $$
 declare
-  conn text := coalesce(nullif(current_setting('ovd.test_conninfo', true), ''),
-    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'); -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   a integer;
   b integer;
   waited boolean := false;
   probe text;
   result text;
 begin
-  perform extensions.dblink_connect('ovd979u2_a', conn);
-  perform extensions.dblink_connect('ovd979u2_b', conn);
+  perform pg_temp.u2_connect('ovd979u2_a');
+  perform pg_temp.u2_connect('ovd979u2_b');
   select pid into a from extensions.dblink('ovd979u2_a', 'select pg_backend_pid()') as r(pid integer);
   select pid into b from extensions.dblink('ovd979u2_b', 'select pg_backend_pid()') as r(pid integer);
   perform extensions.dblink_exec('ovd979u2_a', 'begin; set local lock_timeout = ''250ms''');
@@ -208,6 +235,75 @@ select * from pg_temp.u2_pair('reset', 'approve');
 select * from pg_temp.u2_pair('reuse', 'request');
 select * from pg_temp.u2_pair('request', 'reuse');
 
+-- Mid-function interleaving: request pauses after its queue insert (holding its
+-- parts key-share and reconcile locks), then approval or auto approval starts.
+-- Before U2 approval took L1 and then waited on those parts while request's final
+-- jobs update waited on L1: 40P01. Now the second RPC waits at L1 behind request.
+create function pg_temp.u2_interleave(p_second text) returns setof text language plpgsql as $$
+declare
+  a integer;
+  b integer;
+  paused boolean := false;
+  waited boolean := false;
+  request_result text;
+  second_result text;
+begin
+  perform pg_catalog.pg_advisory_lock(979, 2);
+  perform pg_temp.u2_connect('ovd979u2_a');
+  perform pg_temp.u2_connect('ovd979u2_b');
+  select pid into a from extensions.dblink('ovd979u2_a', 'select pg_backend_pid()') as r(pid integer);
+  select pid into b from extensions.dblink('ovd979u2_b', 'select pg_backend_pid()') as r(pid integer);
+  perform extensions.dblink_exec('ovd979u2_b',
+    'begin; set local ovd979u2.pause = ''on''; set local lock_timeout = ''5s''; set local statement_timeout = ''10s''');
+  perform extensions.dblink_send_query('ovd979u2_b', 'select ovd979u2_test.call(''request'')');
+  for i in 1..200 loop
+    select exists (select 1 from pg_catalog.pg_locks
+      where pid = b and locktype = 'advisory' and not granted) into paused;
+    exit when paused or extensions.dblink_is_busy('ovd979u2_b') = 0;
+    perform pg_sleep(0.01);
+  end loop;
+  return next ok(paused, p_second || ' interleave: request paused after its queue insert');
+  perform extensions.dblink_exec('ovd979u2_a',
+    'begin; set local lock_timeout = ''5s''; set local statement_timeout = ''10s''');
+  perform extensions.dblink_send_query('ovd979u2_a', format('select ovd979u2_test.call(%L)', p_second));
+  for i in 1..200 loop
+    select exists (select 1 from pg_catalog.pg_locks
+      where pid = a and not granted and b = any(pg_catalog.pg_blocking_pids(a))) into waited;
+    exit when waited or extensions.dblink_is_busy('ovd979u2_a') = 0;
+    perform pg_sleep(0.01);
+  end loop;
+  return next ok(waited, p_second || ' interleave: second RPC waits behind the paused request');
+  perform pg_catalog.pg_advisory_unlock(979, 2);
+  select result into request_result from extensions.dblink_get_result('ovd979u2_b') as r(result text);
+  perform * from extensions.dblink_get_result('ovd979u2_b') as r(result text);
+  perform extensions.dblink_exec('ovd979u2_b', 'rollback');
+  select result into second_result from extensions.dblink_get_result('ovd979u2_a') as r(result text);
+  perform * from extensions.dblink_get_result('ovd979u2_a') as r(result text);
+  perform extensions.dblink_exec('ovd979u2_a', 'rollback');
+  return next ok(request_result !~ '^[0-9A-Z]{5}:' and second_result !~ '^[0-9A-Z]{5}:',
+    p_second || ' interleave: both finish, no 40P01 or lock timeout (' || request_result || ', ' || second_result || ')');
+  perform extensions.dblink_disconnect('ovd979u2_a');
+  perform extensions.dblink_disconnect('ovd979u2_b');
+exception when others then
+  perform pg_catalog.pg_advisory_unlock_all();
+  if 'ovd979u2_a' = any(extensions.dblink_get_connections()) then
+    perform extensions.dblink_disconnect('ovd979u2_a');
+  end if;
+  if 'ovd979u2_b' = any(extensions.dblink_get_connections()) then
+    perform extensions.dblink_disconnect('ovd979u2_b');
+  end if;
+  raise;
+end;
+$$;
+-- Committed so the dblink sessions see it: part 31 has no extraction, so request
+-- queues a task and fires the hook. Both sessions roll back; the row returns below.
+create temp table u2_extraction as
+select * from public.drawing_extractions where part_id = ovd979u2_test.id(31);
+delete from public.drawing_extractions where part_id = ovd979u2_test.id(31);
+select * from pg_temp.u2_interleave('approve');
+select * from pg_temp.u2_interleave('auto');
+insert into public.drawing_extractions select * from u2_extraction;
+
 -- Observable behavior, including both auto-approval branches, quantities and ACLs.
 begin;
 select is(ovd979u2_test.call('approve'), '3', 'staff approval still counts duplicate inputs');
@@ -251,12 +347,18 @@ select ok(not has_function_privilege('authenticated', 'public.api_reuse_trusted_
   'authenticated cannot call trusted worker reuse');
 select ok(has_function_privilege('authenticated', 'public.api_reset_client_part_property_overrides(uuid,text[])', 'execute'),
   'authenticated retains reset execute');
-select ok((select bool_and(proconfig @> array['search_path=pg_catalog, public']) from pg_catalog.pg_proc
+select ok(has_function_privilege('authenticated', 'public.api_request_extraction(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_request_extraction(uuid)', 'execute'),
+  'request keeps authenticated execute and stays closed to anon');
+select ok((select bool_and(proconfig = array['search_path=pg_catalog, public']) from pg_catalog.pg_proc
   where oid in ('public.api_approve_job_requirements(uuid,jsonb)'::regprocedure,
     'public.api_auto_approve_job_requirements(uuid)'::regprocedure,
-    'public.api_reset_client_part_property_overrides(uuid,text[])'::regprocedure,
-    'public.api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)'::regprocedure)),
-  'all four functions pin pg_catalog, public');
+    'public.api_request_extraction(uuid)'::regprocedure,
+    'public.api_reset_client_part_property_overrides(uuid,text[])'::regprocedure)),
+  'approve, auto approve, request and reset pin pg_catalog, public');
+select is((select proconfig from pg_catalog.pg_proc
+  where oid = 'public.api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)'::regprocedure),
+  array['search_path=pg_catalog'], 'reuse keeps its pg_catalog-only path');
 
 -- Cleanup only rows created above; a failed run requires its owning disposable fixture cleanup.
 begin;
@@ -269,6 +371,7 @@ delete from public.audit_events where organization_id = ovd979u2_test.id(1);
 delete from public.organizations where id = ovd979u2_test.id(1);
 delete from auth.users where id = ovd979u2_test.id(2);
 drop schema ovd979u2_test cascade;
+drop role ovd979u2_tap;
 commit;
 select ok(not exists(select 1 from public.organizations where id = '97920000-0000-4000-8000-000000000001'),
   'committed synthetic fixture removed');

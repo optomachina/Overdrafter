@@ -45,7 +45,7 @@ definition of each function in `supabase/migrations`.
 | `load_editable_project_part_context`                | No lock steps (plain reads, `stable`)                                                              | none                                                                             | —             |
 | `api_request_debug_extraction`                      | `debug_extraction_runs` insert, L5 insert                                                          | none                                                                             | —             |
 | `api_reconcile_job_parts`                           | L2 delete, L2 insert, `job_files` update                                                           | none; callers must hold L1 first                                                 | Redesign PR 5 |
-| `api_reuse_trusted_part_version_artifacts`          | Target L1 `FOR NO KEY UPDATE`, target L2 `FOR UPDATE`, L4 insert, preview inserts                    | none | U2 |
+| `api_reuse_trusted_part_version_artifacts`          | Target L1 `FOR NO KEY UPDATE`, target L2 `FOR NO KEY UPDATE`, L4 insert, preview inserts             | none | U2 |
 | `private.reset_job_after_manual_quote_cancellation` | L1 update                                                                                          | none                                                                             | —             |
 | `api_admin_complete_manual_quote_request`           | L0, L0, L1 `FOR UPDATE`, quote/vendor-quote tables, L1 update                                      | none                                                                             | —             |
 | `api_claim_next_task`                               | L5 `FOR UPDATE SKIP LOCKED`, L5 update; part identity lookup is a plain read                       | none | U5 |
@@ -182,5 +182,12 @@ of this approval-lock unit.
 `supabase/tests/ovd979u2_lock_order.sql` observes real `pg_locks` waits and
 blocking PIDs for all four requested pairs, in both transaction directions,
 with `lock_timeout` set. Additional L1-holder probes fail against the prior
-bodies. U5 resolves the request-path inversion. These tests remain evidence for
-the exercised interleavings, not blanket deadlock freedom across unaudited paths.
+bodies. U2 also moves `api_request_extraction` to L1 first, and every L2, L3
+and L4 prelock is `FOR NO KEY UPDATE`, which does not conflict with the KEY
+SHARE that foreign-key checks take. A mid-function interleaving test pauses
+request right after its `work_queue` insert (a test-only trigger waits on an
+advisory lock) and then starts approval or auto approval. Against the round-0
+bodies both cases fail with `40P01`; with U2 the second RPC waits at L1 and
+both finish. U5 resolves the remaining request-path pair. These tests remain
+evidence for the exercised interleavings, not blanket deadlock freedom across
+unaudited paths.
