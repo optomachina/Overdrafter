@@ -1,7 +1,7 @@
 # OVD-979 U5: request dedupe and drawing release
 
 Stacked on U2/U3/U4. The forward migration is
-`supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql`,
+`supabase/migrations/20261031025000_ovd979u5_drawing_extraction_dedupe.sql`,
 the only forward copy since repair round 1. Apply after U4. The file applies
 with or without a wrapping transaction: the table lock, duplicate audit and
 index build share one `DO` statement.
@@ -160,7 +160,7 @@ synthetic fixtures only; any hosted duplicates require operator disposition.
 ## Rollback and repeat application
 
 `node scripts/ovd979-rollback.mjs
-20261030190000_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
+20261031025000_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
 it drops the trigger, its private helper and the index, then restores both
 U4-era function definitions (request from U2's migration, claim from U3's)
 and ACLs, all with `pg_catalog` first in `search_path`. The stored
@@ -225,7 +225,7 @@ On the isolated local fixture (U2–U5 applied):
 - The forward applies with `psql` and no wrapping transaction, including the
   index build from scratch (round 0 failed here with 25P01).
 - `node scripts/ovd979-rollback.mjs
-  20261030190000_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
+  20261031025000_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
   <loopback URL>`:
 
   ```
@@ -246,3 +246,30 @@ On the isolated local fixture (U2–U5 applied):
   low item 11). A `::uuid` cast would let one malformed legacy value fail every
   claim, so it is left as is; it matters only if the queue grows large.
 - Lock-order, SECURITY DEFINER lint and function-collision checks: PASS.
+
+## Repair round 2 (2026-10-31)
+
+- **Migration renamed `20261030190000` → `20261031025000`.** Main gained
+  `20261030204050_ovd1018_restrict_project_jobs_writes.sql`, so the U5 file
+  sorted before main's head and `verify:migration-lineage --against-base`
+  failed. This is a rename only: the bytes and SHA-256 (`7263cb9f…`) are
+  unchanged, so the round 1 rollback proof above, recorded under the old
+  filename, still covers this content. Neither OVD-1018 nor OVD-1073's
+  `reconcile_claim_fence` defines a function that U2–U5 define, so apply order
+  against them does not change behavior.
+- **Stack follow-up (not in this PR).** The U2, U3 and U4 migrations still sort
+  before `20261030204050` and keep `lint` red until their own PRs (#984, #985,
+  #986) rename them. Each needs a timestamp after `20261030204050` and before
+  `20261031025000`, in U2 < U3 < U4 order (for example `20261031000417`,
+  `20261031000418` and `20261031000419`). If any of them lands later than
+  `20261031025000`, U5 must be renamed again so it stays last.
+- **Sonar.** All 26 new-code findings are `plsql:S1192` (duplicated literal),
+  in the U5 migration, the U5 pgTAP suite and the U4 pgTAP cases this PR
+  adapts. The literals are persisted states (`queued`, `running`), the
+  `extract_part` task type, payload wire keys (`drawingFileId`,
+  `pendingDrawingFileId`) and independent expected test values across
+  separate SQL scopes. Under the repository's PostgreSQL contract-literal
+  policy (see `docs/engineering-worker-sessions.md` and
+  `docs/engineering-change-queue.md`) they are dispositioned as false
+  positives. No exclusion or Sonar configuration change was made, and no
+  security rule was disabled. The quality gate passes.
