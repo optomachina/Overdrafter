@@ -53,7 +53,8 @@
  *       appends the trusted blocking verdicts of the event comment and the
  *       live comments to the PR's verdict history
  *   node scripts/ovd-merge-gate.mjs write --pr N [--repo o/r]
- *       evaluates the live head, re-reads the head, writes the check run
+ *       evaluates the live head, re-reads the head, writes the check run,
+ *       then edits the PR's one sticky status comment in place (OVD-1144)
  *   node scripts/ovd-merge-gate.mjs merge-group --sha S [--repo o/r]
  *       writes success on the merge group commit (the queue no-op)
  *
@@ -68,7 +69,7 @@ import process from "node:process";
 import { loadRouting, parseBuiltBy } from "./agent-graph/built-by.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { pathCandidates } from "./lib/sensitive-paths.mjs";
-import { approvalForHead, parseApprovalComments } from "./approval-record.mjs";
+import { APPROVAL_FENCE_INFO, approvalForHead, parseApprovalComments } from "./approval-record.mjs";
 import { assertSha, computeDiffId, resolveBinary } from "./emit-verdict.mjs";
 import { detect, fetchPullRequest, gateLooseningForPull, loadConfig } from "./sensitive-class-detect.mjs";
 import { FENCE_INFO, extractVerdictBlocks, hasHighNote, parseVerdictComments } from "./verdict-schema.mjs";
@@ -989,6 +990,7 @@ export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl 
     raw: async (apiPath) => (await request("GET", apiPath, { accept: "application/vnd.github.raw" })).text(),
     paginate,
     post: async (apiPath, body) => (await request("POST", apiPath, { body })).json(),
+    patch: async (apiPath, body) => (await request("PATCH", apiPath, { body })).json(),
   };
 }
 
@@ -1386,6 +1388,100 @@ export async function writeCheckRun({ client, repo, sha, summary }) {
   });
 }
 
+// ------------------------------------------------- comment trigger filter
+
+/**
+ * OVD-1144. The issue_comment substrings that start a gate run. Both jobs'
+ * job-level `if:` is built from this list by commentFilterExpression(), and a
+ * test pins the workflow to it, so every other comment (relay, progress or
+ * status chatter) starts no job and spends no run. GitHub's contains() is
+ * case-insensitive, so this is a superset of what the parsers accept:
+ * - the two fences the gate reads (verdicts and Blaine's approval records),
+ * - plain verdict markers ("VERDICT: PASS" also covers PASS_NOTES and the
+ *   emit-verdict summary line "OverDrafter verdict: PASS"; "QA PASS"/"QA FAIL"
+ *   are the QA lines trust-metrics reads).
+ * An edit also matches on its previous body, so editing a verdict away
+ * re-evaluates the gate.
+ */
+export const TRIGGER_COMMENT_MARKERS = Object.freeze([
+  "```" + FENCE_INFO,
+  "```" + APPROVAL_FENCE_INFO,
+  "VERDICT: PASS",
+  "VERDICT: FAIL",
+  "QA PASS",
+  "QA FAIL",
+]);
+
+const COMMENT_FIELDS = Object.freeze(["github.event.comment.body", "github.event.changes.body.from"]);
+
+/** The GitHub expression both jobs use: every non-comment event passes, a comment only with a marker. */
+export function commentFilterExpression(markers = TRIGGER_COMMENT_MARKERS) {
+  const terms = COMMENT_FIELDS.flatMap((field) => markers.map((marker) => `contains(${field}, '${marker.replaceAll("'", "''")}')`));
+  return `(github.event_name != 'issue_comment' || ${terms.join(" || ")})`;
+}
+
+/**
+ * The same decision in JS (contains() semantics: case-insensitive substring,
+ * a missing field is the empty string), for tests and local checks.
+ */
+export function isTriggerComment({ body, previousBody } = {}, markers = TRIGGER_COMMENT_MARKERS) {
+  const texts = [body, previousBody].map((text) => (typeof text === "string" ? text.toLowerCase() : ""));
+  return markers.some((marker) => texts.some((text) => text.includes(marker.toLowerCase())));
+}
+
+// ------------------------------------------------- sticky status comment
+
+/**
+ * OVD-1144. The writer keeps exactly one status comment per PR, found by this
+ * hidden marker and edited in place (REST PATCH); it never posts a comment per
+ * run. Only a comment by STATUS_COMMENT_AUTHOR (the workflow's GITHUB_TOKEN
+ * identity) counts: anyone can paste the marker. The comment is advisory; the
+ * check run is the gate. Comments posted or edited with GITHUB_TOKEN start no
+ * workflow, and the body carries no trigger marker (tested), so it cannot
+ * loop.
+ */
+export const STATUS_MARKER = "<!-- ovd-merge-gate-status -->";
+export const STATUS_COMMENT_AUTHOR = "github-actions[bot]";
+
+/** The status comment body: the marker, then head, conclusion, title and reason codes (no free text). */
+export function formatStatusComment(summary, { checkUrl } = {}) {
+  const { conclusion, title } = conclusionFor(summary);
+  const codes = reasonCodes(summary);
+  const blockingCodes = codes.length ? codes.map((code) => "`" + code + "`").join(", ") : "none";
+  const lines = [
+    STATUS_MARKER,
+    `**ovd-merge-gate** \`${conclusion}\` for \`${summary?.sha ?? "unknown"}\` (mode \`${summary?.mode ?? MODE}\`)`,
+    "",
+    `- result: ${oneLine(title)}`,
+    `- blocking codes: ${blockingCodes}`,
+  ];
+  if (typeof checkUrl === "string" && checkUrl.startsWith("https://github.com/")) lines.push(`- check run: ${checkUrl}`);
+  lines.push("", "_Edited in place on every gate run. Not a verdict; details are in the check run._", "");
+  return lines.join("\n");
+}
+
+/** The sticky comment: the oldest trusted-author comment whose body starts with the marker, or null. */
+export function findStatusComment(comments, author = STATUS_COMMENT_AUTHOR) {
+  const mine = list(comments).filter((comment) => isRecord(comment) && comment.user?.login === author && typeof comment.body === "string" && comment.body.startsWith(STATUS_MARKER));
+  mine.sort((a, b) => Number(a.id) - Number(b.id));
+  return mine[0] ?? null;
+}
+
+/**
+ * Create the status comment once, then PATCH it in place; unchanged bodies
+ * are left alone. Returns { action: "created" | "updated" | "unchanged", id }.
+ */
+export async function upsertStatusComment({ client, repo, pr, body }) {
+  const existing = findStatusComment(await client.paginate(`/repos/${repo}/issues/${pr}/comments`));
+  if (existing && existing.body === body) return { action: "unchanged", id: existing.id };
+  if (existing) {
+    await client.patch(`/repos/${repo}/issues/comments/${existing.id}`, { body });
+    return { action: "updated", id: existing.id };
+  }
+  const created = await client.post(`/repos/${repo}/issues/${pr}/comments`, { body });
+  return { action: "created", id: created?.id ?? null };
+}
+
 const COMMANDS = Object.freeze({ evaluate: ["pr", "sha"], write: ["pr"], record: ["pr"], "merge-group": ["sha"] });
 const HISTORY_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
 const SWITCHES = Object.freeze({ "--json": ["json", true], "--no-fetch": ["fetch", false] });
@@ -1441,19 +1537,26 @@ async function writeMergeGroup({ client, options, stdout }) {
   return 0;
 }
 
-async function writeGate({ client, options, summary, stdout }) {
+async function writeGate({ client, options, summary, stdout, stderr }) {
   // Re-read the head right before writing: a result for a head that moved is not written.
   const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
   if (now !== summary.sha) {
     stdout.write(`ovd-merge-gate: head moved from ${summary.sha} to ${now}; not writing (the run for the new head writes it)\n`);
     return 0;
   }
-  await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
+  const check = await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary });
   stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
+  // Advisory and best effort, after the check run: a failed edit warns and never changes the gate.
+  try {
+    const { action } = await upsertStatusComment({ client, repo: options.repo, pr: options.pr, body: formatStatusComment(summary, { checkUrl: check?.html_url }) });
+    stderr.write(`ovd-merge-gate: status comment ${action}\n`);
+  } catch (error) {
+    stderr.write(`::warning::ovd-merge-gate: status comment not updated: ${oneLine(error?.message ?? String(error))}\n`);
+  }
   return 0;
 }
 
-async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout }) {
+async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr }) {
   if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
   if (options.command === "record") {
     const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env) });
@@ -1462,7 +1565,7 @@ async function runCommand({ options, env, client, token, cwd, git, diff, classif
   }
   const event = options.command === "write" ? readEvent(env) : null;
   const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
-  if (options.command === "write") return writeGate({ client, options, summary, stdout });
+  if (options.command === "write") return writeGate({ client, options, summary, stdout, stderr });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
 }
@@ -1485,7 +1588,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   const client = createApi({ token, apiUrl: env.GITHUB_API_URL || undefined, fetchImpl });
   try {
-    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout });
+    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
     // The writer step tees stdout into the step summary, so the API failure (status, rate-limit headers, message) shows there too.
