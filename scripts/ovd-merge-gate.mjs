@@ -913,15 +913,16 @@ async function rateLimitDetail(response) {
 /**
  * Milliseconds to wait before retry `attempt` (0-based), or null when the
  * failure is not a rate limit or its limit resets beyond the cap. A rate
- * limit is a retry-after header or x-ratelimit-remaining 0; the wait honors
- * retry-after, else x-ratelimit-reset, with an exponential floor.
+ * limit is a retry-after header or x-ratelimit-remaining 0; the wait is the
+ * later of retry-after and (when remaining is 0) x-ratelimit-reset, with an
+ * exponential floor.
  */
 export function rateLimitWait(detail, attempt, nowMs) {
-  let wait;
-  if (detail?.retryAfter) wait = DIGITS.test(detail.retryAfter) ? Number(detail.retryAfter) * 1000 : 0;
-  else if (detail?.remaining === "0") wait = detail.reset ? Number(detail.reset) * 1000 - nowMs : 0;
-  else return null;
-  wait = Math.max(wait, RATE_LIMIT_BASE_WAIT_MS * 2 ** attempt);
+  const waits = [];
+  if (detail?.retryAfter) waits.push(DIGITS.test(detail.retryAfter) ? Number(detail.retryAfter) * 1000 : 0);
+  if (detail?.remaining === "0") waits.push(detail.reset ? Number(detail.reset) * 1000 - nowMs : 0);
+  if (!waits.length) return null;
+  const wait = Math.max(...waits, RATE_LIMIT_BASE_WAIT_MS * 2 ** attempt);
   return wait <= RATE_LIMIT_MAX_WAIT_MS ? wait : null;
 }
 

@@ -1852,6 +1852,11 @@ describe("createApi rate limits (403 bursts under issue_comment)", () => {
     expect(rateLimitWait({ remaining: "0", reset: null }, 0, NOW)).toBe(1000);
     expect(rateLimitWait({ remaining: "1", reset: String(NOW / 1000 + 5) }, 0, NOW)).toBeNull();
     expect(rateLimitWait({}, 0, NOW)).toBeNull();
+    // Both headers: the later of the two, so a retry never runs before an exhausted quota resets.
+    expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(30_000);
+    expect(rateLimitWait({ retryAfter: "40", remaining: "0", reset: String(NOW / 1000 + 5) }, 0, NOW)).toBe(40_000);
+    expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 3600) }, 0, NOW)).toBeNull();
+    expect(rateLimitWait({ retryAfter: "2", remaining: "4527", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(2000);
     expect(RATE_LIMIT_MAX_WAIT_MS).toBe(60_000);
   });
 });
