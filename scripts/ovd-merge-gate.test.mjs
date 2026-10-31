@@ -607,6 +607,7 @@ describe("workflow YAML (§6 item 5)", () => {
     const writer = workflow.jobs["ovd-merge-gate-writer"];
     expect(writer.concurrency.group).toBe("ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}");
     expect(writer.concurrency["cancel-in-progress"]).toBe(false);
+    expect(writer.concurrency.queue).toBe("max");
     expect(writer.needs).toBe("ovd-merge-gate-history");
   });
 
