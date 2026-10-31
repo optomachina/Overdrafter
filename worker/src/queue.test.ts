@@ -29,6 +29,7 @@ describe("claimNextTask", () => {
       status: "running",
       payload: {},
       attempts: 1,
+      attempt_id: "97900000-0000-4000-8000-000000000001",
       available_at: new Date().toISOString(),
       locked_at: new Date().toISOString(),
       locked_by: "worker-1",
@@ -97,6 +98,7 @@ function makeQueuedTask(payload: Record<string, unknown> = {}) {
     status: "running",
     payload: { vendor: "xometry", requestedQuantity: 25, ...payload },
     attempts: 1,
+    attempt_id: "97900000-0000-4000-8000-000000000001",
     available_at: new Date().toISOString(),
     locked_at: new Date().toISOString(),
     locked_by: "worker-1",
@@ -308,7 +310,7 @@ describe("markTaskQueuedForRetry", () => {
     const requeued = await markTaskQueuedForRetry(stub.client as never, makeQueuedTask(), "boom", "2026-10-12T00:00:00Z");
 
     expect(requeued).toBe(true);
-    expect(stub.update).toHaveBeenCalledWith(expect.objectContaining({ status: "queued", locked_by: null }));
+    expect(stub.update).toHaveBeenCalledWith(expect.objectContaining({ status: "queued", locked_by: null, attempt_id: null }));
     expect(stub.filters).toEqual([
       ["eq", "id", "task-1"],
       ["eq", "status", "running"],

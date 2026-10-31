@@ -42,7 +42,7 @@ function pinCatalogFirst(statement) {
 }
 
 const aclStatements = (sql, name) => sql.split("\n")
-  .filter((line) => /^(revoke|grant)\b/i.test(line) && line.includes(` function ${name}(`));
+  .filter((line) => /^(revoke|grant)\b/i.test(line) && line.toLowerCase().includes(` function ${name}(`));
 
 /** For each function the migration defines: its prior definition and source file. */
 export function priorDefinitions(migration) {
