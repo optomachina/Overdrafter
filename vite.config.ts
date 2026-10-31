@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react-swc";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { createPrivateFixturePlugin } from "./scripts/vite-private-fixture-plugin";
@@ -117,9 +118,21 @@ export default defineConfig(({ mode }) => ({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: process.env.OVD_SOURCE_ONLY_TESTS === "1"
-      ? ["./scripts/test-support/source-only-network.setup.mjs"]
-      : [],
+    // Files share a worker's module graph and globals instead of each getting a
+    // fresh one; the per-file reset hook puts shared state back between files.
+    isolate: false,
+    // Use every core: the default leaves one idle for the main process.
+    maxWorkers: os.availableParallelism(),
+    // Testing Library binds `screen` to the document and registers its cleanup
+    // hooks when first imported. Run it through Vitest's module graph so the
+    // per-file reset re-evaluates it against each file's fresh jsdom window.
+    server: { deps: { inline: [/@testing-library\//] } },
+    setupFiles: [
+      "./scripts/test-support/per-file-reset.setup.mjs",
+      ...(process.env.OVD_SOURCE_ONLY_TESTS === "1"
+        ? ["./scripts/test-support/source-only-network.setup.mjs"]
+        : []),
+    ],
     include: [
       "api/**/*.test.ts",
       "server/**/*.test.ts",
