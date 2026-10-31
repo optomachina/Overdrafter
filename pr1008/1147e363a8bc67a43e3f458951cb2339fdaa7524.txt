@@ -1,0 +1,76 @@
+PR #1008 test-output QA
+sha: 1147e363a8bc67a43e3f458951cb2339fdaa7524
+date (UTC): 2026-10-31T22:11:03Z
+node: v22.23.4  npm: 10.9.9
+
+===== $ bash -n scripts/cloud-qa-boot.sh =====
+===== exit=0 elapsed=0s =====
+
+===== $ shellcheck --version | head -2 && shellcheck scripts/cloud-qa-boot.sh =====
+ShellCheck - shell script analysis tool
+version: 0.11.0
+
+In scripts/cloud-qa-boot.sh line 81:
+      sh -c 'p=$(readlink -f "$(command -v supabase)"); while [ "$(basename "$p")" != node_modules ]; do p=$(dirname "$p"); done; echo "$p"')
+            ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2016 -- Expressions don't expand in singl...
+===== exit=1 elapsed=0s =====
+
+===== $ bash scripts/cloud-qa-boot.sh check =====
+[cloud-qa-boot] github: 0s ok (REST read + push; gh auth status is not used)
+[cloud-qa-boot] docker: 10s ok (started dockerd)
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[cloud-qa-boot] supabase-cli: 6s ok (2.78.1)
+[cloud-qa-boot] playwright: aliased chromium-1208 -> chromium-1243
+[cloud-qa-boot] playwright: aliased chromium_headless_shell-1208 -> chromium_headless_shell-1243
+[cloud-qa-boot] playwright: 0s ok (Version 1.58.2)
+===== exit=0 elapsed=17s =====
+
+===== $ bash scripts/preflight.sh lint =====
+preflight: lint start
+preflight: lint PASS
+===== exit=0 elapsed=37s =====
+
+===== $ bash scripts/preflight.sh typecheck =====
+preflight: typecheck start
+preflight: typecheck PASS
+===== exit=0 elapsed=39s =====
+
+===== npx eslint scripts/cloud-qa-boot.sh: SKIPPED (shell script; ESLint does not lint .sh) =====
+
+===== (supplementary, not a gate) $ shellcheck -S warning scripts/cloud-qa-boot.sh =====
+===== exit=0 =====
+note: no .shellcheckrc and no shellcheck step in .github/ at this sha
+
+===== (supplementary) $ bash scripts/cloud-qa-boot.sh run --list =====
+[cloud-qa-boot] github: 1s ok (REST read + push; gh auth status is not used)
+[cloud-qa-boot] docker: 0s ok (already running)
+[cloud-qa-boot] supabase-cli: 1s ok (2.78.1)
+[cloud-qa-boot] playwright: 0s ok (Version 1.58.2)
+[cloud-qa-boot] copy: 12s ok (/tmp/qa-repo owned by qa)
+[cloud-qa-boot] supabase-start: 28s exit=1
+===== exit=1 elapsed=43s =====
+--- /tmp/cloud-qa-boot-supabase.log (tail, key/secret lines filtered) ---
+Starting database...
+Initialising schema...
+Stopping containers...
+error running container: exit 1
+Try rerunning the command with --debug to troubleshoot the error.
+
+===== 3b. App boot + smoke screenshot =====
+Local Supabase (supabase start, CLI 2.78.1, run as unprivileged user "qa" from /tmp/qa-repo at the sha):
+  - attempt 1 (default registry public.ecr.aws): exit=1 "failed to pull docker image: error from registry: Data limit exceeded"
+  - attempt 2 (SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io, images pulled OK): exit=1 at "Initialising schema..."
+    --debug: realtime container ** (MatchError) ... {:listen_error, RealtimeWeb.Endpoint.HTTP, :eafnosupport}
+    cause: this container's kernel has no IPv6 (/proc/net/if_inet6 absent); Realtime binds IPv6 by default.
+  - attempt 3 (-x realtime): exit=1, realtime is still run during schema init (same eafnosupport)
+  - attempt 4 (SUPABASE_REALTIME_IP_VERSION=IPv4 env): exit=1, same failure; repo supabase/config.toml left unchanged
+  => local Supabase stack did NOT start in this container. No remote Supabase project was touched.
+Frontend app boot (Vite dev server, as user "qa", VITE_SUPABASE_URL=http://127.0.0.1:54321, publishable key = playwright.config.ts LOCAL_SUPABASE_ANON_KEY):
+  $ npm run dev -- --host 127.0.0.1 --port 4173  -> VITE v5.4.19 ready in 291 ms, HTTP 200 after 2s
+Playwright 1.58.2 chromium (sandbox on, unprivileged user) GET http://127.0.0.1:4173/:
+  status 200, title "OverDrafter | Machined Aluminum Sourcing", pageerrors 0
+  body: "OverDrafter Sign in Sign up for free Manufacturing workspace CAD In Parts Out ... Create account Log in"
+  screenshot: pr1008/1147e363a8bc67a43e3f458951cb2339fdaa7524-smoke.png (1440x900) -> exit=0
