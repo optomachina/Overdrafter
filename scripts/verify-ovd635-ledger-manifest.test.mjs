@@ -68,4 +68,22 @@ describe("OVD-635 ledger manifest", () => {
     writeFileSync(target, `${readFileSync(target, "utf8")}\n-- drift\n`);
     expect(verifyOvd635LedgerManifest(root)).toEqual([`${suffix.migrations[0].rollback}: rollback sha256 drifted`]);
   });
+
+  it("rejects an authorization template that does not pin the suffix manifest", () => {
+    const root = copyRepoSubset();
+    const target = path.join(root, AUTHORIZATION_PATH);
+    const authorization = JSON.parse(readFileSync(target, "utf8"));
+    authorization.suffixManifest.sha256 = "0".repeat(64);
+    writeFileSync(target, `${JSON.stringify(authorization, null, 2)}\n`);
+    expect(verifyOvd635LedgerManifest(root)).toEqual(["authorization template does not pin the suffix manifest"]);
+  });
+
+  it("rejects an authorization template whose migrations differ from the suffix manifest", () => {
+    const root = copyRepoSubset();
+    const target = path.join(root, AUTHORIZATION_PATH);
+    const authorization = JSON.parse(readFileSync(target, "utf8"));
+    authorization.migrations[0].sha256 = "0".repeat(64);
+    writeFileSync(target, `${JSON.stringify(authorization, null, 2)}\n`);
+    expect(verifyOvd635LedgerManifest(root)).toEqual(["authorization template migrations differ from the suffix manifest"]);
+  });
 });
