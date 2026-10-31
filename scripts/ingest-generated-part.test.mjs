@@ -148,3 +148,27 @@ describe("ingest failure paths", () => {
     expect(() => thumbnailMimeType("a.exe")).toThrow(/png/);
   });
 });
+
+import { existsSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeSessionFileAtomically } from "./ingest-generated-part.mjs";
+
+describe("writeSessionFileAtomically", () => {
+  it("replaces the session file with a 0600 token file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ingest-session-"));
+    const sessionFile = join(dir, "session.json");
+    await writeSessionFileAtomically(sessionFile, "rotated");
+    expect(JSON.parse(readFileSync(sessionFile, "utf8"))).toEqual({ refresh_token: "rotated" });
+    if (process.platform !== "win32") expect(statSync(sessionFile).mode & 0o777).toBe(0o600);
+    expect(existsSync(`${sessionFile}.tmp`)).toBe(false);
+  });
+
+  it("removes the temp file when the rename fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ingest-session-"));
+    const sessionFile = join(dir, "session.json");
+    mkdirSync(join(sessionFile, "blocker"), { recursive: true });
+    await expect(writeSessionFileAtomically(sessionFile, "rotated")).rejects.toThrow();
+    expect(existsSync(`${sessionFile}.tmp`)).toBe(false);
+  });
+});

@@ -31,7 +31,7 @@
  * are never printed.
  */
 import { createHash } from "node:crypto";
-import { readFile, writeFile, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, rename, rm, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -48,6 +48,21 @@ export function buildGeneratedTags(generator) {
 
 export function sha256Hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Writes the rotated refresh token atomically so a failed write cannot lose it.
+ * If the rename fails, the temp file is removed before the error is rethrown.
+ */
+export async function writeSessionFileAtomically(sessionFile, refreshToken) {
+  const tmpFile = `${sessionFile}.tmp`;
+  await writeFile(tmpFile, JSON.stringify({ refresh_token: refreshToken }), { mode: 0o600 });
+  try {
+    await rename(tmpFile, sessionFile);
+  } catch (error) {
+    await rm(tmpFile, { force: true });
+    throw error;
+  }
 }
 
 /** Same rule as isStorageObjectExistsError in uploads-api.ts. */
@@ -201,10 +216,7 @@ async function main() {
   const stored = JSON.parse(await readFile(sessionFile, "utf8"));
   const { data, error } = await client.auth.refreshSession({ refresh_token: stored.refresh_token });
   if (error || !data.session) throw new Error("Could not sign in as the user; re-create the session file.");
-  // Write the rotated token atomically so a failed write cannot lose it.
-  const tmpFile = `${sessionFile}.tmp`;
-  await writeFile(tmpFile, JSON.stringify({ refresh_token: data.session.refresh_token }), { mode: 0o600 });
-  await rename(tmpFile, sessionFile);
+  await writeSessionFileAtomically(sessionFile, data.session.refresh_token);
 
   const files = [{ name: basename(args.step), bytes: await readFile(args.step), kind: "cad", mimeType: "model/step" }];
   if (args.thumbnail) {
