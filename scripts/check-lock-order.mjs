@@ -50,20 +50,8 @@ export const AUDITED_FUNCTIONS = [
 // main today. A listed function fails if it gains a new pair or loses a listed one, so each
 // fixing PR must delete its entries. Keys must be audited functions.
 export const KNOWN_INVERSIONS = {
-  // Redesign PR 2 takes L1 first.
-  api_approve_job_requirements: [
-    "approved_part_requirements > parts",
-    "drawing_extractions > jobs",
-  ],
-  api_auto_approve_job_requirements: [
-    "drawing_extractions > approved_part_requirements",
-    "drawing_extractions > jobs",
-  ],
-  api_reset_client_part_property_overrides: [
-    "approved_part_requirements > jobs",
-    "approved_part_requirements > parts",
-  ],
-  // Redesign PR 5 takes L0, L1, L2, L5 in order.
+  // U2 takes L1 first, so this trailing jobs update re-locks a row it already holds and
+  // never waits. Redesign PR 5 removes the pair by writing jobs before the queue.
   api_request_extraction: ["work_queue > jobs"],
 };
 
