@@ -1,0 +1,126 @@
+PR #1009 QA test output
+sha: 98474886847911fe465fab58b135eca7bd9bf069
+date UTC: 2026-10-31T22:05:36Z
+node: v22.23.4
+
+===== $ node --test scripts/ovd-merge-gate.test.mjs scripts/merge-queue-workflows.test.mjs
+TAP version 13
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/merge-queue-workflows.test.mjs
+not ok 1 - scripts/merge-queue-workflows.test.mjs
+  ---
+  duration_ms: 232.617861
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/merge-queue-workflows.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/ovd-merge-gate.test.mjs
+not ok 2 - scripts/ovd-merge-gate.test.mjs
+  ---
+  duration_ms: 235.627171
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/ovd-merge-gate.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 258.505658
+===== exit code: 1
+
+===== $ bash scripts/preflight.sh lint
+preflight: lint start
+preflight: lint PASS
+===== exit code: 0
+
+===== $ bash scripts/preflight.sh typecheck
+preflight: typecheck start
+preflight: typecheck PASS
+===== exit code: 0
+
+===== $ npx eslint scripts/ovd-merge-gate.mjs scripts/ovd-merge-gate.test.mjs scripts/merge-queue-workflows.test.mjs
+===== exit code: 0
+
+===== NOTE: command (a) above fails at import: both files are vitest suites (import from "vitest"), not node:test files; CI runs them in the vitest shards. Supplementary CI-equivalent run follows.
+
+===== $ npx vitest run scripts/ovd-merge-gate.test.mjs scripts/merge-queue-workflows.test.mjs
+
+ RUN  v3.2.4 /home/user/Overdrafter
+
+ ✓ scripts/merge-queue-workflows.test.mjs (28 tests) 10ms
+ ✓ scripts/ovd-merge-gate.test.mjs (291 tests) 1236ms
+   ✓ identity (§6 item 3) > the trust list is not read from env or repo variables > ignores trust-list variables in process.env and in the CLI env  516ms
+
+ Test Files  2 passed (2)
+      Tests  319 passed (319)
+   Start at  22:06:57
+   Duration  1.99s (transform 338ms, setup 0ms, collect 624ms, tests 1.25s, environment 0ms, prepare 349ms)
+
+===== exit code: 0
+
+===== APP BOOT SMOKE (3b)
+supabase start (CLI 2.78.1, local loopback only): exit 1 - docker registry returned 'Data limit exceeded' for every image pull (0 images available), so the local stack could not start. No remote Supabase project was touched.
+Fallback: Vite dev server booted from a copy of the checkout at 98474886847911fe465fab58b135eca7bd9bf069 with the repo's fixture-only Playwright lane settings (VITE_ENABLE_FIXTURE_MODE=1, VITE_SUPABASE_URL=http://127.0.0.1:9).
+--- dev server log
+
+> overdrafter-web@0.0.1.1 dev
+> vite --host 127.0.0.1 --port 4173
+
+
+  VITE v5.4.19  ready in 397 ms
+
+  ➜  Local:   http://127.0.0.1:4173/
+Browserslist: browsers data (caniuse-lite) is 16 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+--- playwright 1.58.2 smoke (chromium sandbox on, unprivileged user)
+status 200 url http://127.0.0.1:4173/ title OverDrafter | Machined Aluminum Sourcing
+body text: OverDrafter Sign in Sign up for free Manufacturing workspace CAD In Parts Out Organize CAD files and drawings, review provider recommendations, and compare quote results. Automatic vendor collection is available only through the free, invitation-only Founding Beta. Create account Log in OverDra
+pageerrors 0 []
+smoke exit code: 0
