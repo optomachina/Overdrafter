@@ -5,7 +5,7 @@
 Turning the switch on in production is a separate Blaine approval, after the
 separately authorized quantity-10 live run.
 
-- Migration: `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql`
+- Migration: `supabase/migrations/20261031224054_ovd987_controlled_beta_user_quantity.sql`
 - Rollback: `docs/migration-drafts/ovd-987.rollback.sql`
 - pgTAP: `supabase/tests/ovd987_controlled_beta_user_quantity.sql`
 - Text pins: `src/features/quotes/controlled-beta-user-quantity-migration.test.ts`
@@ -85,8 +85,8 @@ each body is this file's or the previous one.
 
 | File | sha256 | md5 |
 | --- | --- | --- |
-| `supabase/migrations/20261020100000_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
-| `docs/migration-drafts/ovd-987.rollback.sql` | `7d48869ca885676f52562600a601c80acc6b97bea0aeecafc8eac5c190b90ecb` | `ba6ae65c4619ceeb35408f1ae35d504f` |
+| `supabase/migrations/20261031224054_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
+| `docs/migration-drafts/ovd-987.rollback.sql` | `46b72d846442f0ec5ef8a7ceea2f2d3d325bbb78fc5319200e0b1b43fe671d6d` | `a24bfd73131c498b1f67c35de5259fb8` |
 
 The migration's sha256 is also pinned in `scripts/free-quote-ci-profile.mjs` and
 `scripts/fixtures/free-quote-ci-source.json`. The review-round-3 change (the
@@ -104,6 +104,13 @@ sha256 `f34f5f7d...` (b91c086c) and a rollback drill with the earlier rollback
 card, re-apply this migration on staging (it re-runs on an applied database) and
 repeat the rollback drill there with this rollback file, with the evidence, so
 production gets the bytes that staging ran.
+
+**Renamed 2026-10-31.** Main gained OVD-1097, OVD-1073 and OVD-1018 migrations
+(up to `20261030204050`), so the original version `20261020100000` became
+backdated. The migration is now `20261031224054`; its bytes (sha256 above) are
+unchanged. Only the version comments in the rollback and the OVD-762 rollback
+changed. Staging holds a `schema_migrations` row for the old version: the
+staging re-apply must account for that row (card-only; not done here).
 
 ## Read-only hosted checks (before the apply and before a rollback)
 

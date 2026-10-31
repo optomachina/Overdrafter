@@ -1,6 +1,6 @@
 -- OVD-762 item 1: ROLLBACK for docs/migration-drafts/ovd-762-xometry-fanout-scope.sql.
 --
--- DRAFT ONLY. Restores the OVD-987 worker preflight from 20261020100000 exactly, so a
+-- DRAFT ONLY. Restores the OVD-987 worker preflight from 20261031224054 exactly, so a
 -- queued fan out Xometry task fails closed with
 -- dispatch_provider_configuration_changed instead of dispatching. The new RPCs
 -- lose every grant and refuse with xometry_beta_fanout_disabled. The marker
