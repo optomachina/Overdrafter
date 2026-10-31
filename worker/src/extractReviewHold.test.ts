@@ -296,8 +296,8 @@ describe("retry and failed-audit decisions agree for each extract error class", 
     const db = await run({ trustedReuse: !makeError, approvedCount: 1, artifactsPending: !makeError });
 
     const failedAudits = db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed");
-    expect(vi.mocked(markTaskQueuedForRetry).mock.calls.length).toBe(retryable ? 1 : 0);
-    expect(vi.mocked(markTaskFailed).mock.calls.length).toBe(retryable ? 0 : 1);
+    expect(vi.mocked(markTaskQueuedForRetry).mock.calls).toHaveLength(retryable ? 1 : 0);
+    expect(vi.mocked(markTaskFailed).mock.calls).toHaveLength(retryable ? 0 : 1);
     expect(failedAudits).toHaveLength(retryable ? 0 : 1);
   });
 
