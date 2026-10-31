@@ -4,6 +4,9 @@ inputs:
   group:
     description: full (default stack), db (Postgres only), or tools (pg_prove and postgres client)
     default: full
+  registry:
+    description: Primary registry, public.ecr.aws after an authenticated ECR login, else docker.io. Other registries are digest-matched fallbacks only.
+    default: docker.io
 runs:
   using: composite
   steps:
@@ -12,7 +15,8 @@ runs:
       shell: bash
       env:
         IMAGE_GROUP: ${{ inputs.group }}
-      run: node "$GITHUB_ACTION_PATH/cache.mjs" prepare "$RUNNER_TEMP/supabase-images-$IMAGE_GROUP" "$IMAGE_GROUP"
+        IMAGE_REGISTRY: ${{ inputs.registry }}
+      run: node "$GITHUB_ACTION_PATH/cache.mjs" prepare "$RUNNER_TEMP/supabase-images-$IMAGE_GROUP" "$IMAGE_GROUP" "$IMAGE_REGISTRY"
 
     - name: Restore image archive
       id: restore

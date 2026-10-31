@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { admitImage, cacheKey, CLI_VERSION, imageRefs, platformManifest, pullCandidates, resolvePlan, retryPull, warmImages } from './cache.mjs';
+import { admitImage, cacheKey, CLI_VERSION, imageRefs, platformManifest, pullCandidates, registryRepositories, resolvePlan, retryPull, warmImages } from './cache.mjs';
 
 const digest = character => `sha256:${character.repeat(64)}`;
 const ref = 'supabase/postgres:17.6.1.095';
-const image = { ref, digest: digest('a'), id: digest('b') };
+const image = { ref, source: 'docker.io/supabase/postgres', digest: digest('a'), id: digest('b') };
 const ok = stdout => ({ status: 0, stdout, stderr: '' });
 const failed = { status: 1, stdout: '', stderr: 'unavailable' };
 const manifest = architecture => ({
@@ -144,7 +144,7 @@ test('checked-in image versions agree with the actual pinned CLI (optional local
 
 
 test('mirror attempts preserve the resolved digest and use the original Docker Hub repository', () => {
-  const mirrored = { ...image, ref: 'library/kong:2.8.1' };
+  const mirrored = { ...image, ref: 'library/kong:2.8.1', source: 'docker.io/library/kong' };
   assert.deepEqual(pullCandidates(mirrored), [
     `docker.io/library/kong@${image.digest}`,
     `ghcr.io/supabase/kong@${image.digest}`,
@@ -152,8 +152,51 @@ test('mirror attempts preserve the resolved digest and use the original Docker H
   ]);
 });
 
+test('authenticated ECR is the primary source; Docker Hub and GHCR follow only as fallbacks', () => {
+  assert.deepEqual(registryRepositories('public.ecr.aws/supabase/kong:2.8.1', 'public.ecr.aws'),
+    ['public.ecr.aws/supabase/kong', 'docker.io/library/kong', 'ghcr.io/supabase/kong']);
+  assert.deepEqual(registryRepositories('postgres:17', 'public.ecr.aws'),
+    ['public.ecr.aws/docker/library/postgres', 'docker.io/library/postgres']);
+  assert.deepEqual(registryRepositories('supabase/postgres:17.6.1.095'),
+    ['docker.io/supabase/postgres', 'ghcr.io/supabase/postgres', 'public.ecr.aws/supabase/postgres']);
+  assert.throws(() => registryRepositories('supabase/postgres:17.6.1.095', 'ghcr.io'));
+  const calls = [];
+  const plan = resolvePlan(imageRefs('tools', 'public.ecr.aws'), 'amd64', args => {
+    calls.push(args.at(-1));
+    return ok(JSON.stringify(manifest('amd64')));
+  }, 'public.ecr.aws');
+  assert.deepEqual(calls, ['public.ecr.aws/docker/library/postgres:17', 'public.ecr.aws/supabase/pg_prove:3.36']);
+  assert.deepEqual(pullCandidates(plan.images[1]), [
+    `public.ecr.aws/supabase/pg_prove@${image.digest}`,
+    `docker.io/supabase/pg_prove@${image.digest}`,
+    `ghcr.io/supabase/pg_prove@${image.digest}`,
+  ]);
+});
 
-for (const mode of ['unresolved', 'corrupt-load', 'warm-hit']) {
+test('a fallback is admitted only at the primary digest; a mismatched fallback fails closed', async () => {
+  const ecr = { ref: 'public.ecr.aws/supabase/postgres:17.6.1.095', source: 'public.ecr.aws/supabase/postgres', digest: image.digest, id: image.id };
+  const attempts = [];
+  for (const fallbackId of [image.id, digest('c')]) {
+    let loaded = null;
+    const call = args => {
+      if (args[0] === 'tag') return ok('');
+      if (args[0] === 'image' && args[1] === 'inspect') return loaded && args.at(-1) === loaded ? ok(loaded) : failed;
+      return failed;
+    };
+    const pull = async exact => {
+      attempts.push(exact);
+      if (exact.startsWith('public.ecr.aws/')) return false; // primary unavailable
+      assert(exact.endsWith(`@${image.digest}`), 'fallback must pull by the primary digest');
+      loaded = fallbackId;
+      return true;
+    };
+    assert.equal(await warmImages({ images: [ecr] }, { call, pull }), fallbackId === image.id);
+  }
+  assert.deepEqual(attempts.slice(0, 2), [`public.ecr.aws/supabase/postgres@${image.digest}`, `docker.io/supabase/postgres@${image.digest}`]);
+});
+
+
+for (const mode of ['unresolved', 'corrupt-load', 'warm-hit', 'ecr-primary']) {
   test(`CLI ${mode} keeps fresh resolution outside the archive and fails over safely`, t => {
     const dir = mkdtempSync(join(tmpdir(), 'image-cache-cli-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -165,7 +208,7 @@ const args = process.argv.slice(2);
 const root = process.env.CACHE_TEST_ROOT;
 const mode = process.env.CACHE_TEST_MODE;
 const state = path.join(root, 'pulled');
-fs.appendFileSync(path.join(root, 'calls'), args[0] + '\\n');
+fs.appendFileSync(path.join(root, 'calls'), args.join(' ') + '\\n');
 if (args[0] === 'manifest') {
   if (mode === 'unresolved') process.exit(1);
   console.log(JSON.stringify({ Descriptor: {digest: '${image.digest}', platform: {os: 'linux', architecture: 'amd64'}}, OCIManifest: {config: {digest: '${image.id}'}}}));
@@ -185,14 +228,23 @@ else if (args[0] === 'image' && args[1] === 'inspect') {
       CACHE_HIT: mode === 'warm-hit' ? 'true' : 'false' };
     const script = fileURLToPath(new URL('./cache.mjs', import.meta.url));
     const cacheDir = join(dir, 'cache');
-    for (const args of [['prepare', cacheDir, 'db'], ['warm', cacheDir]]) {
+    const registry = mode === 'ecr-primary' ? ['public.ecr.aws'] : [];
+    for (const args of [['prepare', cacheDir, 'db', ...registry], ['warm', cacheDir]]) {
       const result = spawnSync(process.execPath, [script, ...args], { env, encoding: 'utf8', timeout: 10000 });
       assert.equal(result.status, 0, 'cache CLI must retain the normal start path');
       assert.equal(result.stdout, '', 'helper must not print environment values');
     }
     const outputs = readFileSync(outputFile, 'utf8');
     const calls = readFileSync(join(dir, 'calls'), 'utf8');
-    if (mode === 'unresolved') {
+    assert.equal(readFileSync(envFile, 'utf8'), `SUPABASE_INTERNAL_IMAGE_REGISTRY=${registry[0] ?? 'docker.io'}\n`);
+    if (mode === 'ecr-primary') {
+      assert.match(calls, /^manifest inspect -v public\.ecr\.aws\/supabase\/postgres:17\.6\.1\.095$/m);
+      assert.equal(calls.match(/^manifest /gm).length, 1, 'fallback registries never resolve the digest');
+      assert.match(calls, new RegExp(`^pull public\\.ecr\\.aws/supabase/postgres@${image.digest}$`, 'm'));
+      assert(!/^pull (docker\.io|ghcr\.io)/m.test(calls), 'primary succeeded; no fallback pull');
+      assert.match(calls, /^image inspect --format \{\{\.Id\}\} public\.ecr\.aws\/supabase\/postgres:17\.6\.1\.095$/m);
+      assert(outputs.includes('save=true'));
+    } else if (mode === 'unresolved') {
       assert(!outputs.includes('key='));
       assert(!outputs.includes('save=true'));
       assert(!calls.includes('load'));
@@ -219,16 +271,24 @@ test('action restores only exact digest keys and saves only a verified miss', ()
   for (const use of text.matchAll(/uses: ([^\n]+)/g)) assert.match(use[1], /@[a-f0-9]{40} # v\d+\.\d+\.\d+$/);
 });
 
-test('manifest resolution falls back anonymously and binds the key to the source digest', () => {
+test('only the primary registry resolves the expected digest; fallbacks cannot define it', () => {
   const calls = [];
-  const plan = resolvePlan([ref], 'amd64', args => {
+  const fallbackOnly = args => {
     calls.push(args.at(-1));
-    return args.at(-1).startsWith('ghcr.io/') ? ok(JSON.stringify(manifest('amd64'))) : failed;
-  });
-  assert.equal(plan.images[0].source, 'ghcr.io/supabase/postgres');
-  assert.equal(pullCandidates(plan.images[0])[0], `ghcr.io/supabase/postgres@${image.digest}`);
+    return args.at(-1).startsWith('public.ecr.aws/') ? failed : ok(JSON.stringify(manifest('amd64')));
+  };
+  assert.throws(() => resolvePlan(['public.ecr.aws/supabase/postgres:17.6.1.095'], 'amd64', fallbackOnly, 'public.ecr.aws'));
+  assert.deepEqual(calls, ['public.ecr.aws/supabase/postgres:17.6.1.095']);
+  const plan = resolvePlan([ref], 'amd64', () => ok(JSON.stringify(manifest('amd64'))));
+  assert.equal(plan.images[0].source, 'docker.io/supabase/postgres');
   assert.match(cacheKey(plan.images, 'Linux', 'amd64'), new RegExp(`cli-${CLI_VERSION}-`));
-  assert.equal(calls.length, 2);
+});
+
+test('CI selects authenticated ECR only after a successful login', () => {
+  const text = readFileSync(new URL('../../workflows/ci.yml', import.meta.url), 'utf8');
+  const selector = "registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}";
+  assert.equal(text.split(selector).length - 1, 2);
+  assert.match(text, /- name: Log in to ECR Public\n        id: ecr-login\n        if: \$\{\{ steps\.ecr-oidc\.outcome == 'success' \}\}/);
 });
 
 test('fork PRs cannot save image archives or dependency archives through shared actions', () => {

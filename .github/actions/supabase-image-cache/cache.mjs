@@ -15,12 +15,19 @@ const ARCHIVE = 'images.tar.gz';
 export const CLI_VERSION = '2.78.1';
 const source = new URL('./cli-2.78.1-images.txt', import.meta.url);
 const warn = message => console.error(`::warning::Supabase image cache: ${message}`);
+const entries = [...readFileSync(source, 'utf8').matchAll(/^FROM (\S+) AS (\S+)$/gm)];
+const repository = ref => ref.slice(0, ref.lastIndexOf(':'));
+const upstream = new Map(entries.map(([, ref]) => [repository(ref).split('/').at(-1), repository(ref)]));
+// The primary registry alone resolves the expected digest; the rest are digest-matched pull fallbacks.
+const REGISTRY_ORDER = {
+  'public.ecr.aws': ['public.ecr.aws', 'docker.io', 'ghcr.io'],
+  'docker.io': ['docker.io', 'ghcr.io', 'public.ecr.aws'],
+};
 
 export function imageRefs(group, registry = 'docker.io', excluded = '') {
   assert(['public.ecr.aws', 'ghcr.io', 'docker.io'].includes(registry), 'unsupported image registry');
   assert(['full', 'db', 'tools'].includes(group), 'unsupported image group');
   const omit = new Set(excluded.split(','));
-  const entries = [...readFileSync(source, 'utf8').matchAll(/^FROM (\S+) AS (\S+)$/gm)];
   const selected = entries.filter(([, ref, alias]) => {
     const name = ref.split('/').at(-1).split(':')[0];
     if (group === 'db') return alias === 'pg';
@@ -49,7 +56,6 @@ export function docker(args) {
   return { ...result, failure: result.error || result.signal };
 }
 const passed = result => result.status === 0 && !result.failure;
-const repository = ref => ref.slice(0, ref.lastIndexOf(':'));
 
 /** docker manifest inspect -v supports both single manifests and multi-platform indexes. */
 export function platformManifest(value, architecture) {
@@ -89,28 +95,29 @@ export async function retryPull(ref, { call = docker, wait = delay, config = { .
   return false;
 }
 
-export function registryRepositories(ref) {
+/** Repositories for ref, primary registry first. */
+export function registryRepositories(ref, registry = 'docker.io') {
+  assert(REGISTRY_ORDER[registry], 'unsupported primary registry');
   const repo = repository(ref);
   const name = repo.split('/').at(-1);
   // postgres:17 is the official client image, not a Supabase mirror.
-  if (repo === 'postgres') return ['docker.io/library/postgres'];
-  return [`docker.io/${repo}`, `ghcr.io/supabase/${name}`, `public.ecr.aws/supabase/${name}`];
+  const mirrors = repo === 'postgres'
+    ? { 'public.ecr.aws': 'public.ecr.aws/docker/library/postgres', 'docker.io': 'docker.io/library/postgres' }
+    : { 'public.ecr.aws': `public.ecr.aws/supabase/${name}`, 'docker.io': `docker.io/${upstream.get(name)}`, 'ghcr.io': `ghcr.io/supabase/${name}` };
+  return REGISTRY_ORDER[registry].map(host => mirrors[host]).filter(Boolean);
 }
 
-function resolveImage(ref, architecture, call) {
+function resolveImage(ref, architecture, call, registry) {
   const tag = ref.slice(ref.lastIndexOf(':') + 1);
-  for (const source of registryRepositories(ref)) {
-    const result = call(['manifest', 'inspect', '-v', `${source}:${tag}`]);
-    if (!passed(result)) continue;
-    try {
-      return { ref, source, ...platformManifest(JSON.parse(result.stdout), architecture) };
-    } catch { /* An unavailable platform or malformed response cannot authorize a key. */ }
-  }
-  throw new Error('registry manifest unavailable');
+  // A fallback registry never defines the expected digest: no primary manifest, no plan.
+  const [source] = registryRepositories(ref, registry);
+  const result = call(['manifest', 'inspect', '-v', `${source}:${tag}`]);
+  if (!passed(result)) throw new Error('registry manifest unavailable');
+  return { ref, source, ...platformManifest(JSON.parse(result.stdout), architecture) };
 }
 
-export function resolvePlan(refs, architecture, call = docker) {
-  return { images: refs.map(ref => resolveImage(ref, architecture, call)), architecture };
+export function resolvePlan(refs, architecture, call = docker, registry = 'docker.io') {
+  return { images: refs.map(ref => resolveImage(ref, architecture, call, registry)), architecture };
 }
 
 const inspectId = (ref, call) => {
@@ -127,9 +134,9 @@ export function admitImage(image, call = docker) {
   return passed(call(['tag', image.id, image.ref]));
 }
 
-/** Mirrors are attempted only at the same manifest digest, never by a substitute tag. */
+/** Primary first; mirrors are attempted only at the primary's manifest digest, never by a substitute tag. */
 export function pullCandidates(image) {
-  const repositories = [image.source, ...registryRepositories(image.ref)].filter(Boolean);
+  const repositories = [image.source, ...registryRepositories(image.ref, image.source.split('/')[0])];
   return [...new Set(repositories)].map(candidate => `${candidate}@${image.digest}`);
 }
 
@@ -164,16 +171,17 @@ function output(name, value) {
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-function prepare(dir, group) {
+function prepare(dir, group, registry = 'docker.io') {
+  assert(REGISTRY_ORDER[registry], 'unsupported primary registry');
   mkdirSync(dir, { recursive: true });
   // setup-cli overrides this registry. Write only to GITHUB_ENV, never stdout.
-  appendFileSync(process.env.GITHUB_ENV, 'SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io\n');
+  appendFileSync(process.env.GITHUB_ENV, `SUPABASE_INTERNAL_IMAGE_REGISTRY=${registry}\n`);
   const arch = { X64: 'amd64', ARM64: 'arm64' }[process.env.RUNNER_ARCH];
   assert(arch, 'unsupported runner architecture');
-  const refs = imageRefs(group);
+  const refs = imageRefs(group, registry);
   writeFileSync(join(dir, 'refs.json'), JSON.stringify(refs));
   try {
-    const plan = resolvePlan(refs, arch);
+    const plan = resolvePlan(refs, arch, docker, registry);
     writeFileSync(join(dir, PLAN), JSON.stringify(plan));
     output('key', cacheKey(plan.images, process.env.RUNNER_OS, arch));
   } catch {
@@ -203,9 +211,9 @@ async function warm(dir) {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  const [command, dir, group] = process.argv.slice(2);
+  const [command, dir, group, registry] = process.argv.slice(2);
   try {
-    if (command === 'prepare') prepare(dir, group);
+    if (command === 'prepare') prepare(dir, group, registry);
     else if (command === 'warm') await warm(dir);
     else throw new Error('unsupported command');
   } catch {

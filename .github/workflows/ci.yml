@@ -96,6 +96,7 @@ jobs:
           role-duration-seconds: 900
 
       - name: Log in to ECR Public
+        id: ecr-login
         if: ${{ steps.ecr-oidc.outcome == 'success' }}
         run: |
           aws ecr-public get-login-password --region us-east-1 \
@@ -105,11 +106,15 @@ jobs:
         uses: ./.github/actions/supabase-image-cache
         with:
           group: full
+          # Authenticated ECR is the primary source; Docker Hub/GHCR are digest-matched fallbacks.
+          registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}
 
       - name: Cache pgTAP client images
         uses: ./.github/actions/supabase-image-cache
         with:
           group: tools
+          # Authenticated ECR is the primary source; Docker Hub/GHCR are digest-matched fallbacks.
+          registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}
 
       - name: Setup Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
