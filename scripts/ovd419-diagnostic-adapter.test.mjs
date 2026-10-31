@@ -9,7 +9,8 @@ import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagn
 import { packet, manifestFixture, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, approvalSentence, runDiagnostic, TARGET } from "./ovd419-job-diagnostic.mjs";
 
-// Filled before tests. readBoundFile is mocked so a full run does not re-read the module.
+// Filled before tests. readBoundFile is mocked so a full run does not re-read the module;
+// its real checks are covered in ovd419-diagnostic-bindings.test.mjs.
 const runtimeModule = { path: "", bytes: Buffer.alloc(0), sha256: "" };
 vi.mock("./ovd419-diagnostic-bindings.mjs", async (importOriginal) => {
   const actual = await importOriginal();
@@ -357,7 +358,7 @@ describe("complete operational-envelope transport", () => {
 
 describe("temporary manifest command boundary", () => {
   it("records both verified files removed before releasing ownership", async () => {
-    const f = await fixture(); const result = await f.run();
+    const f = await fixture({ realManifest: true }); const result = await f.run();
     expect(result.status).toBe("diagnostic_succeeded"); expect(result.temporaryManifests).toHaveLength(2);
     for (const record of result.temporaryManifests) expect(record).toMatchObject({ validated: true, directoryCreated: true, fileCreated: true, verifiedBeforeCommand: true, cleanup: "removed" });
     expect(JSON.stringify(result.temporaryManifests)).not.toContain("fixture-bucket");
