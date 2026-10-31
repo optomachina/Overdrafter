@@ -11,7 +11,7 @@ const migration = "20261031034900_ovd979u5_drawing_extraction_dedupe.sql";
 const forward = read(`supabase/migrations/${migration}`);
 const rollback = rollbackSql(migration);
 const prior = [
-  ["public.api_request_extraction(uuid)", "20261030162500_ovd979u2_canonical_requirement_lock_order.sql"],
+  ["public.api_request_extraction(uuid)", "20261031034700_ovd979u2_canonical_requirement_lock_order.sql"],
   ["public.api_claim_next_task(text)", "20261031034754_ovd979u3_extraction_attempt_identity.sql"],
 ];
 

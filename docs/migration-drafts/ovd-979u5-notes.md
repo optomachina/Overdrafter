@@ -325,3 +325,12 @@ after this file's `20261031025000`. U5 must apply after U4, so it is renamed to
 `20261031034900_ovd979u5_drawing_extraction_dedupe.sql`. This is a rename only;
 the SHA-256 (`ed01e6e1…`) is unchanged. Only U2 (#984, `20261030162500`) still
 sorts before main's `20261030204050` and keeps `lint` red.
+
+## Base merge: U2 rename (2026-10-31)
+
+U2 (#984) moved to `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`
+(bytes and SHA-256 `572066174ddb…906f` unchanged), after main's
+`20261030204050` and before U3's `20261031034754`. U5 keeps `20261031034900`,
+so the stack order is U2 < U3 < U4 < U5 and every OVD-979 migration sorts after
+main's newest. `scripts/ovd979u5-migration.test.mjs` names U2's new filename as
+the prior definition of `api_request_extraction(uuid)`.

@@ -7,9 +7,9 @@ one-hour deferred-task backstop. No hosted database was contacted.
 
 ## Files and application
 
-- `supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
+- `supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
 - The rollback is generated, not stored: `node scripts/ovd979-rollback.mjs
-  20261030162500_ovd979u2_canonical_requirement_lock_order.sql` prints each
+  20261031034700_ovd979u2_canonical_requirement_lock_order.sql` prints each
   replaced function's previous `CREATE` statement, cut byte for byte from the
   latest earlier migration that defines it, followed by the migration's own
   revoke/grant lines. A stored copy duplicated about 700 lines of the migration
@@ -81,10 +81,11 @@ there is no independent feature or unrelated schema change to split out.
 | `api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)` | `20260812042000` | `2a6f670d20b0123b9e0507d1fef2f8f0` |
 
 The committed proof is `node scripts/ovd979-rollback.mjs
-20261030162500_ovd979u2_canonical_requirement_lock_order.sql --prove --db-url
+20261031034700_ovd979u2_canonical_requirement_lock_order.sql --prove --db-url
 <loopback URL>` against a local database with the migration applied. It runs in
 one transaction that always rolls back. Output on the round-1 fixture
-(2026-10-30, migration sha256 `572066174ddb…906f`):
+(2026-10-30, migration sha256 `572066174ddb…906f`, recorded under the pre-rename
+filename `20261030162500_…`; the bytes are unchanged):
 
 ```
 applied migration differs from the prior bodies: PASS
@@ -180,6 +181,17 @@ PR operation, hosted apply or production action is part of this worktree task.
   end; `ovd.test_conninfo` still selects host, port and database.
 - The stored rollback and both duplicate draft copies are gone; the rollback is
   generated and proven as described above.
+
+## Re-timestamp (2026-10-31)
+
+Main gained `20261030204050_ovd1018_restrict_project_jobs_writes.sql`, so the
+U2 file sorted before main's newest migration and
+`verify-migration-lineage --against-base` failed. The file is renamed
+`20261030162500_…` → `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`.
+This is a rename only: the bytes and SHA-256 (`572066174ddb…906f`) are
+unchanged, so the rollback proof above, recorded under the old filename, still
+covers this content. The stack order stays U2 (`20261031034700`) < U3
+(`20261031034754`) < U4 (`20261031034800`) < U5 (`20261031034900`).
 
 ## Status (OVD-979 U6)
 
