@@ -17,6 +17,14 @@ describe("OVD-979 U3 migration artifacts", () => {
     expect(scanFunctionEvents(forward).map((event) => event.signature)).toEqual([signature]);
   });
 
+  it("bounds the lock wait before altering the busy tables", () => {
+    const timeout = forward.search(/^set local lock_timeout = '1s';$/m);
+    expect(timeout).toBeGreaterThanOrEqual(0);
+    for (const table of ["work_queue", "drawing_extractions"]) {
+      expect(forward.indexOf(`ALTER TABLE public.${table} `)).toBeGreaterThan(timeout);
+    }
+  });
+
   it("rollback restores the prior claim body byte for byte without dropping provenance", () => {
     const prior = scanFunctionEvents(read("supabase/migrations/20260324120000_add_api_claim_next_task.sql"))[0];
     const restored = scanFunctionEvents(rollback)[0];

@@ -7,8 +7,16 @@ create extension if not exists dblink with schema extensions;
 set search_path = public, extensions;
 set statement_timeout = '30s';
 
+-- A run aborted after the setup commit leaves the LOGIN role and the work_queue
+-- trigger behind. Remove those first; the end-of-file cleanup still runs on success.
 begin;
--- Fail on collisions rather than deleting an earlier run's resources.
+drop trigger if exists ovd979u2_pause_after_insert on public.work_queue;
+drop schema if exists ovd979u2_test cascade;
+drop role if exists ovd979u2_tap;
+commit;
+
+begin;
+-- Synthetic rows still fail on collisions rather than deleting an earlier run's data.
 create schema ovd979u2_test;
 create function ovd979u2_test.id(n integer) returns uuid language sql immutable as $$
   select ('97920000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
