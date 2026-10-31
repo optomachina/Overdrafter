@@ -1,5 +1,12 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { aclStatements, assertProofDatabaseUrl, proofPsqlEnv } from "./ovd979-rollback.mjs";
+import { aclStatements, assertProofDatabaseUrl, libpqHost, proofPsqlEnv } from "./ovd979-rollback.mjs";
+
+const script = join(process.cwd(), "scripts", "ovd979-rollback.mjs");
+const migration = "20261031034700_ovd979u2_canonical_requirement_lock_order.sql";
 
 describe("ovd979-rollback --prove database URL guard", () => {
   it.each([
@@ -32,6 +39,9 @@ describe("ovd979-rollback --prove database URL guard", () => {
     ["multi-host with ports", "postgresql://localhost:5432,db.example.com:5432/postgres"],
     ["encoded comma", "postgresql://localhost%2Cdb.example.com/postgres"],
     ["fragment hiding a query", "postgresql://localhost#?hostaddr=192.0.2.1"],
+    ["'@' after '?' (libpq reads user info past the query)", "postgresql://localhost?x@db.example.com/postgres"],
+    ["'@' after '?' with no path", "postgresql://localhost?sslmode=disable@192.0.2.1"],
+    ["dbname as a second connection string", "postgresql://localhost/postgres?dbname=host%3Ddb.example.com"],
     ["empty host", "postgresql:///postgres"],
     ["socket outside a local dir", "postgresql://%2Fmnt%2Fremote/postgres"],
     ["socket path traversal", "postgresql://%2Ftmp%2F..%2Fmnt/postgres"],
@@ -41,6 +51,43 @@ describe("ovd979-rollback --prove database URL guard", () => {
     ["missing", undefined],
   ])("refuses %s", (_label, url) => {
     expect(() => assertProofDatabaseUrl(url)).toThrow(/--prove database URL refused/);
+  });
+});
+
+describe("ovd979-rollback libpq host view", () => {
+  it.each([
+    ["localhost:54322/postgres", "localhost"],
+    ["postgres:pw@127.0.0.1:5432/postgres", "127.0.0.1"],
+    ["postgres@[::1]:5432/postgres", "[::1]"],
+    ["localhost?x@db.example.com/postgres", "db.example.com"],
+    ["%2Ftmp/postgres", "%2Ftmp"],
+  ])("reads %s as host %s", (rest, host) => {
+    expect(libpqHost(rest)).toBe(host);
+  });
+});
+
+describe("ovd979-rollback --prove refuses before spawning psql", () => {
+  it.each([
+    "postgresql://localhost/postgres?hostaddr=192.0.2.1",
+    "postgresql://localhost?x@db.example.com/postgres",
+    "postgresql://db.example.com/postgres",
+  ])("never runs psql for %s", (url) => {
+    const dir = mkdtempSync(join(tmpdir(), "ovd979-prove-"));
+    try {
+      const marker = join(dir, "psql-ran");
+      const fakePsql = join(dir, "psql");
+      writeFileSync(fakePsql, `#!/bin/sh\ntouch '${marker}'\n`);
+      chmodSync(fakePsql, 0o755);
+      const run = spawnSync(process.execPath, [script, migration, "--prove", "--db-url", url], {
+        encoding: "utf8",
+        env: { PATH: "/usr/bin:/bin", SEED_PSQL_PATH: fakePsql },
+      });
+      expect(run.status).not.toBe(0);
+      expect(run.stderr).toMatch(/--prove database URL refused/);
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

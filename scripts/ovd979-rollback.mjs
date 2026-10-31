@@ -53,11 +53,24 @@ export function aclStatements(sql, name) {
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const SOCKET_DIRS = ["/tmp", "/private/tmp", "/var/run/postgresql", "/run/postgresql"];
-// libpq keywords that pick the network destination or load one from a service file.
-const ENDPOINT_PARAMS = new Set(["host", "hostaddr", "service", "servicefile"]);
+// libpq keywords that pick the network destination or load one from a service file; dbname is
+// refused too because libpq can expand a dbname value as a second connection string.
+const ENDPOINT_PARAMS = new Set(["host", "hostaddr", "service", "servicefile", "dbname"]);
+
+/** The host libpq's URI parser (conninfo_uri_parse_options) reads from `rest`, the text after "scheme://". */
+export function libpqHost(rest) {
+  const userEnd = rest.search(/[@/]/);
+  const start = userEnd !== -1 && rest[userEnd] === "@" ? userEnd + 1 : 0;
+  const tail = rest.slice(start);
+  if (tail.startsWith("[")) {
+    const close = tail.indexOf("]");
+    return close === -1 ? tail : tail.slice(0, close + 1);
+  }
+  return tail.split(/[:/?,]/, 1)[0];
+}
 
 function isLocalSocketDir(path) {
-  if (!/^\/[A-Za-z0-9_./-]*$/.test(path) || path.split("/").some((segment) => segment === "..")) return false;
+  if (!/^\/[A-Za-z0-9_./-]*$/.test(path) || path.split("/").includes("..")) return false;
   return SOCKET_DIRS.some((dir) => path === dir || path.startsWith(`${dir}/`));
 }
 
@@ -88,11 +101,15 @@ export function assertProofDatabaseUrl(databaseUrl) {
     if (ENDPOINT_PARAMS.has(key.toLowerCase())) refuse(`query parameter ${key} overrides the destination`);
   }
   let host;
+  let libpqView;
   try {
     host = decodeURIComponent(url.hostname).toLowerCase();
+    libpqView = decodeURIComponent(libpqHost(databaseUrl.slice(url.protocol.length + 2))).toLowerCase();
   } catch {
     refuse("host is not valid percent-encoding");
   }
+  // libpq ends user info at the first '@' before a '/', even past a '?'; WHATWG ends the authority at '?'.
+  if (libpqView !== host) refuse(`libpq would connect to ${JSON.stringify(libpqView)}, not ${JSON.stringify(host)}`);
   if (!LOOPBACK_HOSTS.has(host) && !isLocalSocketDir(host)) refuse(`host ${JSON.stringify(host)} is not loopback or a local socket directory`);
   if (databaseUrl.toLowerCase().includes(PRODUCTION_PROJECT_REF)) refuse(`URL names the production project ${PRODUCTION_PROJECT_REF}`);
   return url;

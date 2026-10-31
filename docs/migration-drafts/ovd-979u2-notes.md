@@ -230,8 +230,14 @@ The migration is untouched (sha256 `572066174ddb…906f`).
   unix socket directory under `/tmp`, `/private/tmp`, `/var/run/postgresql` or
   `/run/postgresql`. psql gets `proofPsqlEnv()`: a copy of the environment
   with every `PG*` key removed and `PATH=/usr/bin:/bin`. The connection comes
-  only from the validated URL. `scripts/ovd979-rollback.test.mjs` covers the
-  bypasses and the accepted local forms.
+  only from the validated URL. The guard also reads the host the way libpq's
+  URI parser does (user info ends at the first `@` before a `/`, even past a
+  `?`) and refuses when that differs from the WHATWG host, so
+  `postgresql://localhost?x@db.example.com/postgres` is refused. A `dbname`
+  query parameter is refused because libpq may expand it as a second
+  connection string. `scripts/ovd979-rollback.test.mjs` covers the bypasses,
+  the accepted local forms, and runs the script with a fake psql to prove an
+  unsafe URL is refused before psql is spawned.
 - `aclStatements` throws when it finds no single-line revoke/grant for a
   function, so a multi-line grant can no longer be silently dropped.
 - The `--prove` label now reads "search_path hardened, not reverted".
