@@ -318,7 +318,7 @@
     {
       "path": "supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql",
       "issue": "OVD-979",
-      "sha256": "9fe36b10e3e0b1f25d7d386909ea9595772730c6bfef9e9153fd5d82337d6be6"
+      "sha256": "1f61517db1c6b479bee60b75acffa403b50ca20b1a1a76de003596f2193bba4b"
     }
   ],
   "baselineSuites": [
@@ -744,6 +744,6 @@
     "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef",
     "supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql": "572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f",
     "supabase/migrations/20261030164800_ovd979u3_extraction_attempt_identity.sql": "08edb675042770ed9f56138dd0cf0316f21148c451d06eb83f3c431f2d8ab61d",
-    "supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql": "9fe36b10e3e0b1f25d7d386909ea9595772730c6bfef9e9153fd5d82337d6be6"
+    "supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql": "1f61517db1c6b479bee60b75acffa403b50ca20b1a1a76de003596f2193bba4b"
   }
 }

@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(89);
+select plan(95);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values ('97940000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -36,7 +36,8 @@ begin
   return query select j, p, q;
 end;
 $$;
-create function pg_temp.u4_store(p_part uuid, p_attempt uuid, p_extra jsonb default '{}'::jsonb)
+create function pg_temp.u4_store(p_part uuid, p_attempt uuid, p_extra jsonb default '{}'::jsonb,
+  p_at timestamptz default now() + interval '1 minute')
 returns void language sql as $$
   -- Insert stamps a controlled time; UPDATE uses the real touch trigger instead.
   delete from public.drawing_extractions where part_id = p_part;
@@ -44,7 +45,7 @@ returns void language sql as $$
     extractor_version, extraction, updated_at)
   values (p_part, '97940000-0000-4000-8000-000000000002', p_attempt, 'worker-pdf-u4',
     '{"description":"DRAWING DESC","partNumber":"DRAWING-PN","revision":"D","quoteFinish":"DRAWING FINISH","material":{"normalized":"Aluminum 6061-T6"}}'::jsonb || p_extra,
-    now() + interval '1 minute');
+    p_at);
 $$;
 create temp table u4_main as select * from pg_temp.u4_case();
 grant select on u4_main to authenticated, service_role;
@@ -233,6 +234,63 @@ insert into public.work_queue (organization_id, job_id, part_id, task_type)
 select '97940000-0000-4000-8000-000000000002', job_id, part_id, 'extract_part' from u4_main;
 select public.api_auto_approve_job_requirements((select job_id from u4_main));
 select is((select status::text from public.jobs where id = (select job_id from u4_main)), 'extracting', 'matching result cannot exempt a second queued task');
+
+-- An extraction older than the requirement it would refresh is not newer evidence,
+-- even from the matching running attempt (worker write lands after an approval).
+create temp table u4_older as select * from pg_temp.u4_case();
+update public.work_queue set status = 'running', attempt_id = '97940000-0000-4000-8000-0000000000bb', locked_at = now()
+where id = (select task_id from u4_older);
+select pg_temp.u4_store((select part_id from u4_older), '97940000-0000-4000-8000-0000000000bb');
+select is(public.api_auto_approve_job_requirements((select job_id from u4_older)), 1, 'older-write case: first approval creates the requirement');
+select pg_temp.u4_store((select part_id from u4_older), '97940000-0000-4000-8000-0000000000bb', '{"description":"OLDER WRITE"}', now() - interval '1 minute');
+select public.api_auto_approve_job_requirements((select job_id from u4_older));
+select is((select description from public.approved_part_requirements where part_id = (select part_id from u4_older)), 'DRAWING DESC',
+  'extraction stamped before the requirement does not refresh it');
+
+-- Trusted reuse runs inside the target's running extract_part attempt, and the worker
+-- auto-approves before settling it (worker/src/index.ts). The copy carries that attempt.
+insert into public.organization_file_blobs (id, organization_id, content_sha256, trusted_content_sha256,
+  storage_bucket, storage_path, size_bytes, mime_type)
+values ('97940000-0000-4000-8000-000000000103', '97940000-0000-4000-8000-000000000002', repeat('7', 64), repeat('7', 64),
+    'job-files', 'synthetic/u4/reuse.step', 100, 'application/step'),
+  ('97940000-0000-4000-8000-000000000104', '97940000-0000-4000-8000-000000000002', repeat('8', 64), repeat('8', 64),
+    'job-files', 'synthetic/u4/reuse.pdf', 100, 'application/pdf');
+insert into public.jobs (id, organization_id, created_by, title, status)
+values ('97940000-0000-4000-8000-000000000101', '97940000-0000-4000-8000-000000000002', '97940000-0000-4000-8000-000000000001', 'U4 reuse source', 'ready_to_quote'),
+  ('97940000-0000-4000-8000-000000000102', '97940000-0000-4000-8000-000000000002', '97940000-0000-4000-8000-000000000001', 'U4 reuse target', 'extracting');
+insert into public.job_files (id, job_id, organization_id, uploaded_by, blob_id, content_sha256, trusted_content_sha256,
+  storage_bucket, storage_path, original_name, normalized_name, file_kind, size_bytes)
+select file.id, file.job_id, '97940000-0000-4000-8000-000000000002', '97940000-0000-4000-8000-000000000001', file.blob_id,
+  repeat(file.seed, 64), repeat(file.seed, 64), 'job-files', 'synthetic/u4/reuse/' || file.id, file.name, 'reuse',
+  file.kind::public.job_file_kind, 100
+from (values
+  ('97940000-0000-4000-8000-000000000105'::uuid, '97940000-0000-4000-8000-000000000101'::uuid, '97940000-0000-4000-8000-000000000103'::uuid, '7', 'reuse.step', 'cad'),
+  ('97940000-0000-4000-8000-000000000106', '97940000-0000-4000-8000-000000000101', '97940000-0000-4000-8000-000000000104', '8', 'reuse.pdf', 'drawing'),
+  ('97940000-0000-4000-8000-000000000107', '97940000-0000-4000-8000-000000000102', '97940000-0000-4000-8000-000000000103', '7', 'reuse.step', 'cad'),
+  ('97940000-0000-4000-8000-000000000108', '97940000-0000-4000-8000-000000000102', '97940000-0000-4000-8000-000000000104', '8', 'reuse.pdf', 'drawing')
+) as file(id, job_id, blob_id, seed, name, kind);
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+values ('97940000-0000-4000-8000-000000000109', '97940000-0000-4000-8000-000000000101', '97940000-0000-4000-8000-000000000002',
+    'U4 reuse source', 'reuse', '97940000-0000-4000-8000-000000000105', '97940000-0000-4000-8000-000000000106'),
+  ('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000102', '97940000-0000-4000-8000-000000000002',
+    'U4 reuse target', 'reuse', '97940000-0000-4000-8000-000000000107', '97940000-0000-4000-8000-000000000108');
+select pg_temp.u4_store('97940000-0000-4000-8000-000000000109', null);
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, attempt_id, locked_at, locked_by, payload)
+values ('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-000000000002', '97940000-0000-4000-8000-000000000102',
+  '97940000-0000-4000-8000-000000000110', 'extract_part', 'running', '97940000-0000-4000-8000-000000000112', now(), 'u4-worker',
+  jsonb_build_object('drawingFileId', '97940000-0000-4000-8000-000000000108'));
+select set_config('request.jwt.claim.role', 'service_role', true);
+set local role service_role;
+select is(public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109')) ->> 'artifactsReady', 'true',
+  'reuse: target copies the source artifacts');
+select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
+  '97940000-0000-4000-8000-000000000112'::uuid, 'reuse: copied extraction carries the running attempt');
+select is(public.api_auto_approve_job_requirements('97940000-0000-4000-8000-000000000102'), 1, 'reuse: worker approval counts the reused result');
+reset role;
+select set_config('request.jwt.claim.role', '', true);
+select is((select status::text from public.jobs where id = '97940000-0000-4000-8000-000000000102'), 'ready_to_quote',
+  'reuse: clean reused upload rolls up to ready_to_quote');
 
 -- All actual enum values, each through pending, failed and successful rollup.
 -- This schema has TEN total statuses, SIX outside the four pre-quote statuses.
