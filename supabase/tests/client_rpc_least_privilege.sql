@@ -2,20 +2,23 @@
 -- Each RPC is called by an anonymous caller (denied by privilege since
 -- OVD-736), by a verified client of another organization using org A's ids,
 -- and by an unverified member of org A, then once by an authorized org A
--- caller as a positive control. Expected outcomes
--- were recorded from the current definitions. Where today's behavior is a gap
--- it is pinned as-is and labelled "KNOWN GAP" or "GAP-B5": characterized here,
--- deliberately not fixed. Synthetic records only; everything rolls back.
+-- caller as a positive control. An internal estimator of org B covers org
+-- isolation for the internal-only RPCs. OVD-746 closed the gaps this suite
+-- first pinned as "KNOWN GAP" and "GAP-B5": every client read refuses an
+-- unverified member, and authorization runs before any lookup or row lock, so
+-- an absent id gets the same answer as a foreign one. Synthetic records only;
+-- everything rolls back.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(69);
+select plan(78);
 
 \set user_a c15a0000-0000-4000-8000-000000000001
 \set user_b c15a0000-0000-4000-8000-000000000002
 \set user_u c15a0000-0000-4000-8000-000000000003
 \set user_i c15a0000-0000-4000-8000-000000000004
+\set user_j c15a0000-0000-4000-8000-000000000005
 \set org_a c15a0000-0000-4000-8000-00000000000a
 \set org_b c15a0000-0000-4000-8000-00000000000b
 \set policy_a c15a0000-0000-4000-8000-000000000010
@@ -42,7 +45,8 @@ select plan(69);
 \set readiness_denied 'Only internal users can inspect quote run readiness.'
 
 -- Org A: verified client uA, unverified client uU, internal estimator iA.
--- Org B: verified client uB. uU has no confirmed email and no OAuth provider.
+-- Org B: verified client uB, internal estimator iB. uU has no confirmed email
+-- and no OAuth provider.
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 select fixture.id, api.role_name, api.role_name, fixture.email,
   case when fixture.verified then timezone('utc', now()) end, '{"provider":"email"}'::jsonb
@@ -50,7 +54,8 @@ from (values
   (:'user_a'::uuid, 'client-rpc-a@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
   (:'user_b'::uuid, 'client-rpc-b@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
   (:'user_u'::uuid, 'client-rpc-unverified@example.test', false), -- NOSONAR: psql variable references, not repeated string literals
-  (:'user_i'::uuid, 'client-rpc-internal@example.test', true) -- NOSONAR: psql variable references, not repeated string literals
+  (:'user_i'::uuid, 'client-rpc-internal@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
+  (:'user_j'::uuid, 'client-rpc-internal-b@example.test', true) -- NOSONAR: psql variable references, not repeated string literals
 ) as fixture(id, email, verified)
 cross join (values ('authenticated')) as api(role_name);
 insert into public.organizations (id, name, slug) values
@@ -61,7 +66,7 @@ select member.org_id, member.user_id, 'client'
 from (values (:'org_a'::uuid, :'user_a'::uuid), (:'org_b'::uuid, :'user_b'::uuid),
   (:'org_a'::uuid, :'user_u'::uuid)) as member(org_id, user_id);
 insert into public.organization_memberships (organization_id, user_id, role)
-values (:'org_a', :'user_i', 'internal_estimator');
+values (:'org_a', :'user_i', 'internal_estimator'), (:'org_b', :'user_j', 'internal_estimator');
 insert into public.pricing_policies (id, organization_id, version, markup_percent, currency_minor_unit)
 values (:'policy_a', :'org_a', :'markup_version', 20, 0.01); -- NOSONAR: psql variable references, not repeated string literals
 insert into public.jobs (id, organization_id, created_by, title, status, active_pricing_policy_id, requested_service_kinds)
@@ -148,10 +153,10 @@ $$;
 create temporary table baseline on commit drop as
 select pg_temp.org_digest(:'org_a') as digest,
   (select count(*) from public.audit_events where organization_id = :'org_a') as audit_count,
-  (select xmax::text from public.quote_requests where id = :'request_a') as request_xmax;
+  (select xmax::text from public.quote_requests where id = :'request_a') as request_xmax,
+  (select xmax::text from public.published_quote_packages where id = :'package_a') as package_xmax;
 
 -- One row per RPC: the call, then the expected outcome for each denied caller.
--- A null unverified_outcome marks a KNOWN GAP asserted in section 5.
 create temporary table rpc_case (
   ordinal integer primary key,
   rpc text not null,
@@ -159,7 +164,7 @@ create temporary table rpc_case (
   cross_org_state char(5),
   cross_org_outcome text not null,
   unverified_state char(5),
-  unverified_outcome text
+  unverified_outcome text not null
 ) on commit drop;
 
 insert into rpc_case values
@@ -180,13 +185,13 @@ insert into rpc_case values
       jsonb_build_array(jsonb_build_object('partId', :'part_a', 'material', :'material', 'applicableVendors', array['xometry']))),
     :'raised', format('Only internal users can approve requirements for job %s', :'job_a'),
     :'raised', :'unverified'),
-  -- GAP-B5: the request row is read FOR UPDATE before permission is checked,
-  -- so the cross-org "forbidden" payload discloses A's job id and status.
+  -- OVD-746: permission is checked before the request row is read or locked;
+  -- a foreign id gets the not_found payload, with no job id or status.
   (5, 'api_cancel_quote_request',
     format('select public.api_cancel_quote_request(%L::uuid)', :'request_a'),
-    null, jsonb_build_object('jobId', :'job_a', 'accepted', false, 'canceled', false,
-      'quoteRequestId', :'request_a', 'quoteRunId', null, 'status', 'queued', 'reasonCode', 'forbidden',
-      'reason', 'You do not have permission to cancel this quote request.')::text, :'raised', :'unverified'),
+    null, jsonb_build_object('jobId', null, 'accepted', false, 'canceled', false,
+      'quoteRequestId', null, 'quoteRunId', null, 'status', 'not_requested', 'reasonCode', 'not_found',
+      'reason', 'Quote request not found.')::text, :'raised', :'unverified'),
   -- OVD-769: require_verified_auth() runs first, then user_can_edit_job.
   (6, 'api_reconcile_job_parts',
     format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
@@ -198,7 +203,8 @@ insert into rpc_case values
     format('select public.api_request_debug_extraction(%L::uuid)', :'part_a'),
     :'raised', format('You do not have access to debug extraction for part %s', :'part_a'),
     :'raised', :'unverified'),
-  -- No verified-auth gate: every non-internal caller hits the internal-only check.
+  -- No verified-auth gate: every non-internal caller hits the internal-only
+  -- check, which OVD-746 runs before the quote run lookup.
   (9, 'api_get_quote_run_readiness',
     format('select public.api_get_quote_run_readiness(%L::uuid)', :'run_a'),
     :'raised', :'readiness_denied', :'raised', :'readiness_denied'), -- NOSONAR: psql variable references, not repeated string literals
@@ -209,20 +215,20 @@ insert into rpc_case values
   (11, 'api_publish_quote_package',
     format('select public.api_publish_quote_package(%L::uuid, %L::uuid, null, true)', :'job_a', :'run_a'),
     :'raised', 'Only internal users can publish quote packages.', :'raised', :'unverified'),
-  -- OVD-770: require_verified_auth() runs before any read or lock, then
-  -- user_can_edit_job on the package's job.
+  -- OVD-770: require_verified_auth() runs first. OVD-746: user_can_edit_job on
+  -- the package's job runs before the package is read FOR SHARE.
   (12, 'api_select_quote_option',
     format('select public.api_select_quote_option(%L::uuid, %L::uuid, %L)', :'package_a', :'option_a', 'least privilege'),
     :'raised', format('You do not have access to package %s', :'package_a'), :'raised', :'unverified'),
   (13, 'api_list_client_part_metadata',
     format('select public.api_list_client_part_metadata(array[%L::uuid])', :'job_a'),
-    null, :'empty_list', null, null), -- NOSONAR: psql variable references, not repeated string literals
+    null, :'empty_list', :'raised', :'unverified'), -- NOSONAR: psql variable references, not repeated string literals
   (14, 'api_list_client_quote_workspace',
     format('select public.api_list_client_quote_workspace(array[%L::uuid])', :'job_a'),
-    null, :'empty_list', null, null),
+    null, :'empty_list', :'raised', :'unverified'),
   (15, 'api_list_client_activity_events',
     format('select public.api_list_client_activity_events(array[%L::uuid], 6)', :'job_a'),
-    null, :'empty_list', null, null);
+    null, :'empty_list', :'raised', :'unverified');
 
 grant select on table pg_temp.rpc_case to anon, authenticated;
 
@@ -239,12 +245,20 @@ set local role authenticated;
 select pg_temp.expect(c.call_sql, c.cross_org_state, c.cross_org_outcome, 'org B client with org A ids: ' || c.rpc)
 from pg_temp.rpc_case c order by c.ordinal asc;
 
--- GAP-B5 (characterized, not fixed): both RPCs reveal whether an id exists
--- before checking authorization, so an absent id gets a different answer
--- than org A's id did above. Update these when the ordering is fixed.
-select is(pg_temp.run(replace(c.call_sql, :'request_a', :'absent_id'))::jsonb ->> 'reasonCode', 'not_found', -- NOSONAR: psql variable references, not repeated string literals
-  'GAP-B5: api_cancel_quote_request answers not_found for an absent id but forbidden for org A''s id')
-from pg_temp.rpc_case c where c.ordinal = 5;
+-- An absent id gets the same answer as org A's id did above (OVD-746).
+select pg_temp.expect(replace(c.call_sql, absent.target_id, :'absent_id'), c.cross_org_state,
+  replace(c.cross_org_outcome, absent.target_id, :'absent_id'), 'org B client with an absent id: ' || c.rpc)
+from pg_temp.rpc_case c
+join (values (5, :'request_a'), (9, :'run_a'), (12, :'package_a')) as absent(ordinal, target_id) using (ordinal)
+order by c.ordinal asc;
+reset role;
+
+-- 2c. Org B's internal estimator using org A's ids on the five internal-only
+-- RPCs: internal in some org is not internal in the job's org.
+select pg_temp.act_as(:'user_j');
+set local role authenticated;
+select pg_temp.expect(c.call_sql, c.cross_org_state, c.cross_org_outcome, 'org B internal estimator with org A ids: ' || c.rpc)
+from pg_temp.rpc_case c where c.ordinal in (4, 8, 9, 10, 11) order by c.ordinal asc;
 reset role;
 
 -- 2b. load_editable_project_part_context body, run as its owner the way the
@@ -252,20 +266,22 @@ reset role;
 select pg_temp.act_as(:'user_b');
 select throws_ok(c.call_sql, :'raised', :'edit_denied', 'owner path, org B client: load_editable_project_part_context')
 from pg_temp.rpc_case c where c.ordinal = 3;
-select throws_ok(replace(c.call_sql, :'job_a', :'absent_id'), :'raised', format('Job %s not found.', :'absent_id'),
-  'GAP-B5: load_editable_project_part_context reports a missing job before checking edit permission')
+select throws_ok(replace(c.call_sql, :'job_a', :'absent_id'), :'raised', format('You do not have permission to edit job %s.', :'absent_id'),
+  'owner path, org B client, absent job: load_editable_project_part_context')
 from pg_temp.rpc_case c where c.ordinal = 3;
 select pg_temp.act_as(:'user_u');
 select throws_ok(c.call_sql, :'raised', :'unverified', 'owner path, unverified org A member: load_editable_project_part_context')
 from pg_temp.rpc_case c where c.ordinal = 3;
-select ok((select q.xmax::text <> b.request_xmax from public.quote_requests q, baseline b where q.id = :'request_a'),
-  'GAP-B5: the denied cross-org cancel still locked org A''s quote request row (xmax changed)');
+select is((select q.xmax::text from public.quote_requests q where q.id = :'request_a'), (select request_xmax from baseline),
+  'the denied cross-org cancel takes no lock on org A''s quote request row');
+select is((select p.xmax::text from public.published_quote_packages p where p.id = :'package_a'), (select package_xmax from baseline),
+  'the denied cross-org quote selection takes no lock on org A''s package row');
 
 -- 3. An unverified member of org A.
 select pg_temp.act_as(:'user_u');
 set local role authenticated;
 select pg_temp.expect(c.call_sql, c.unverified_state, c.unverified_outcome, 'unverified org A member: ' || c.rpc)
-from pg_temp.rpc_case c where c.unverified_outcome is not null order by c.ordinal asc;
+from pg_temp.rpc_case c order by c.ordinal asc;
 reset role;
 
 -- 4. Invariant, read as postgres: no denied call changed org A's rows or audit trail.
@@ -274,16 +290,13 @@ select is(pg_temp.org_digest(:'org_a'), (select digest from baseline),
 select is((select count(*) from public.audit_events where organization_id = :'org_a'), (select audit_count from baseline),
   'denied calls append no org A audit events');
 
--- 5. KNOWN GAP (characterized, not fixed): these RPCs have no verified-auth
--- gate, so an unverified member of org A can still use them. Update these
--- assertions when the gate is added. (OVD-769 and OVD-770 closed the
--- reconcile and quote-select gaps; both are now refused in section 3.)
-select pg_temp.act_as(:'user_u');
-set local role authenticated;
-select ok(pg_temp.run(c.call_sql)::jsonb @> :'job_a_rows'::jsonb,
-  'KNOWN GAP: unverified org A member reads org A rows through ' || c.rpc)
-from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal asc;
-reset role;
+-- 5. OVD-746 moved the three read bodies into private behind verified-auth
+-- wrappers. No client role may call a private body directly.
+select is((select count(*)::integer from pg_proc p cross join (values ('anon'), ('authenticated'), ('service_role')) as r(role_name)
+    where p.pronamespace = 'private'::regnamespace
+      and p.proname in ('api_list_client_part_metadata', 'api_list_client_quote_workspace', 'api_list_client_activity_events')
+      and has_function_privilege(r.role_name, p.oid, 'EXECUTE')), 0,
+  'anon, authenticated and service_role cannot execute the private read bodies');
 
 -- 6. Positive controls: the same calls succeed for org A's verified client.
 select pg_temp.act_as(:'user_a');
