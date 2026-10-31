@@ -475,3 +475,13 @@ partial series remains valid.
   Section 2 states the behavior from the Linear acceptance text; confirm the
   readback query once it merges.
 - The age limit for the profile snapshot is a number Blaine sets.
+
+## Eligibility check log
+
+- 2026-10-31, agent session, `origin/main` at `826d17d`: **not eligible, window
+  not opened.** Linear could not be read from the session, so the check used
+  repository evidence only. `ovd-419-contained-live-handoff.json` still records
+  `contained_probe_preacceptance_failure`. `OVD-528` and `OVD-529` have no
+  merged work on `main`, and no `OVD-416` reconciliation evidence is checked in.
+  `docs/1-0-beta-runbook.md` still requires Blaine's separate go for the window.
+  No production, provider, or credential action was taken.
