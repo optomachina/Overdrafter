@@ -1447,14 +1447,15 @@ export const STATUS_COMMENT_AUTHOR = "github-actions[bot]";
 export function formatStatusComment(summary, { checkUrl } = {}) {
   const { conclusion, title } = conclusionFor(summary);
   const codes = reasonCodes(summary);
+  const blockingCodes = codes.length ? codes.map((code) => "`" + code + "`").join(", ") : "none";
   const lines = [
     STATUS_MARKER,
     `**ovd-merge-gate** \`${conclusion}\` for \`${summary?.sha ?? "unknown"}\` (mode \`${summary?.mode ?? MODE}\`)`,
     "",
     `- result: ${oneLine(title)}`,
-    `- blocking codes: ${codes.length ? codes.map((code) => `\`${code}\``).join(", ") : "none"}`,
+    `- blocking codes: ${blockingCodes}`,
   ];
-  if (typeof checkUrl === "string" && /^https:\/\/github\.com\//.test(checkUrl)) lines.push(`- check run: ${checkUrl}`);
+  if (typeof checkUrl === "string" && checkUrl.startsWith("https://github.com/")) lines.push(`- check run: ${checkUrl}`);
   lines.push("", "_Edited in place on every gate run. Not a verdict; details are in the check run._", "");
   return lines.join("\n");
 }
