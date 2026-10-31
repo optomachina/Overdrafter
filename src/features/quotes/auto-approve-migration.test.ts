@@ -60,7 +60,9 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
   it("accepts attempt evidence only from running rows with a non-null attempt_id", () => {
     // Only the worker retry path clears attempt_id, so a queued row may still carry a matching id.
     const gates = [...migrationSql.matchAll(/and not \(\s*queue\.status = 'running'\s*and queue\.attempt_id is not null\s*and /g)];
-    const matches = [...migrationSql.matchAll(/source_attempt_id = queue\.attempt_id/g)];
+    // The deploy-order guard runs before the functions and is not an approval gate.
+    const functionsSql = migrationSql.slice(migrationSql.indexOf("create or replace function"));
+    const matches = [...functionsSql.matchAll(/source_attempt_id = queue\.attempt_id/g)];
     expect(gates).toHaveLength(2);
     expect(matches).toHaveLength(gates.length);
     expect(migrationSql.split("and not (queue.payload ? 'pendingDrawingFileId')")).toHaveLength(gates.length + 1);
@@ -68,9 +70,12 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
 
   it("refuses to apply before the source_attempt_id worker, and pgTAP runs the guard verbatim", () => {
     const guard = /do \$ovd979u4_worker_guard\$[\s\S]*?\$ovd979u4_worker_guard\$(?=;)/.exec(migrationSql)?.[0] ?? "";
+    expect(guard).not.toBe("");
     expect(migrationSql.indexOf(guard)).toBeLessThan(migrationSql.indexOf("create or replace function"));
     expect(guard).toContain("raise exception 'OVD-979 U4 requires the worker that writes drawing_extractions.source_attempt_id'");
-    expect(guard).toContain("and queue.attempt_id is not null\n    and extraction.source_attempt_id is null");
+    // Positive evidence: any extract_part history without a stamped completion refuses.
+    expect(guard).toContain("if v_has_history and (v_last_stamped is null or v_last_unstamped > v_last_stamped) then");
+    expect(guard).toContain("extraction.source_attempt_id = queue.attempt_id as stamped");
     expect(read("supabase/tests/ovd979u4_worker_guard.sql")).toContain(`$guard$${guard}$guard$`);
   });
 

@@ -1,4 +1,5 @@
 -- OVD-979 U3: claim identity and extraction provenance. No legacy backfill.
+set local lock_timeout = '1s';
 ALTER TABLE public.work_queue ADD COLUMN IF NOT EXISTS attempt_id uuid;
 ALTER TABLE public.drawing_extractions ADD COLUMN IF NOT EXISTS source_attempt_id uuid;
 
@@ -6,7 +7,7 @@ CREATE OR REPLACE FUNCTION public.api_claim_next_task(p_worker_name text)
 RETURNS SETOF public.work_queue
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_task public.work_queue;

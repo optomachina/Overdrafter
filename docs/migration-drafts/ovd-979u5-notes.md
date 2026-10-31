@@ -29,9 +29,9 @@ serialize, and the unique index also guards writers outside this RPC.
 A queued task merges the current drawing before claim. If claim wins the
 queue lock first, the request waits, rereads the running version and stores
 `pendingDrawingFileId` on that same row. There is never a second active row.
-The running row keeps its `attempt_id`, so worker settlement (which matches
-`id`, `status = 'running'`, `attempts` and `locked_by`) and its extraction
-write still find it. U4's gate treats a running row carrying
+The running row keeps its `attempt_id`, so worker settlement (complete and
+fail match `id` and not-cancelled; retry also matches `status = 'running'`,
+`attempts` and `locked_by`) and its extraction write still find it. U4's gate treats a running row carrying
 `pendingDrawingFileId` as pending, so the old attempt's stored result cannot
 satisfy the finishing gate for the new drawing. If the drawing is replaced
 again while the attempt runs, the next request overwrites the pending value
