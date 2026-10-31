@@ -57,9 +57,14 @@ are absent.
 back to back. Once U3 is applied every claim sets `work_queue.attempt_id`, but
 a pre-U3 worker never writes `drawing_extractions.source_attempt_id`. U4's gate
 would then treat each of that worker's running extractions as pending: the
-in-task `api_auto_approve_job_requirements` call approves nothing, sets the
-job to `extracting`, the task settles and nothing calls auto approval again,
-so the job stays in `extracting`.
+in-task `api_auto_approve_job_requirements` call approves nothing and sets
+the job to `extracting`, and nothing calls auto approval again for that
+attempt. After the task settles, the worker's `api_refresh_job_extraction_status`
+call (`worker/src/index.ts`) moves the job on without the fresh extraction
+having been applied. A part with no requirement goes to `needs_spec_review`, so
+every upload falls to staff review. A part whose requirement already exists
+goes to `ready_to_quote` on fields that were never refreshed from the new
+extraction.
 
 The U4 migration enforces this itself. Its first statement
 (`$ovd979u4_worker_guard$`) raises `OVD-979 U4 requires the worker that
@@ -220,8 +225,9 @@ PR, hosted apply, production or provider operation was performed.
   in U2's body changes (the artifact test strips the stamp and compares the
   rest byte for byte). An existing target row is still left alone
   (`on conflict do nothing`), keeps its own attempt and stays pending for the
-  gate, so that rare retry case does not auto-approve; the job is left in
-  `extracting` (not `needs_spec_review`) until staff act on it. New pgTAP case: 4 assertions; against U2's reuse body 3 of
+  gate, so that rare retry case does not auto-approve. After the task settles,
+  `api_refresh_job_extraction_status` moves the job to `needs_spec_review` when
+  the part has no requirement, so the case falls to staff review. New pgTAP case: 4 assertions; against U2's reuse body 3 of
   them fail (`source_attempt_id` null, 0 approved, job stays `extracting`).
 - **Ordering (minor).** `pg_temp.u4_store` takes an optional timestamp. New
   case: a matching-attempt extraction stamped before the requirement's
@@ -269,8 +275,11 @@ PR, hosted apply, production or provider operation was performed.
   could refuse after a trusted reuse because auto approval's status update
   bumps the copy's `updated_at`. Against that WIP guard, 4 of the 8 guard
   assertions fail.
-- Corrected the reuse note above: an existing target row leaves the job in
-  `extracting`, not in staff review (Opus minor). The reuse `on conflict` and
+- Reuse note above: an existing target row does not auto-approve; the
+  worker's post-settle `api_refresh_job_extraction_status` then moves the job
+  to `needs_spec_review` (staff review) when the part has no requirement. An
+  in-session independent review at `2119f26` corrected this round's first
+  wording, which said the job stays in `extracting`. The reuse `on conflict` and
   copied-`updated_at` minors are not changed in this round.
 - New sha256 pin:
   `c7770995d71c604bd154639f8bc584d26219656c39fd562fa93ac6cf486a0961`.
