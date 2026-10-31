@@ -1035,15 +1035,21 @@ const historyItemOk = (item) => isRecord(item) && typeof item.author === "string
  * - that PR (still based on the default branch) was created no later than the run;
  * - the run was created after the PR's last base_ref_changed event, so the PR
  *   already targeted the default branch when the run happened;
- * - no other PR, open or closed, from the same head branch targets another base
- *   (a closed sibling drops out of pull_requests but could have triggered the run).
+ * - the run's head branch and head repository are that PR's head;
+ * - every PR, open or closed, from the same head branch targets the default
+ *   branch and had no base_ref_changed event at or after the run (a closed
+ *   sibling drops out of pull_requests but could have triggered the run, and a
+ *   sibling retargeted before it closed shows only its final base).
  * Anything else, including a missing list (closed or fork PRs), fails closed.
- * PR, timeline and sibling reads are cached per client and PR.
+ * PR, timeline, sibling and sibling-timeline reads are cached per client and PR.
  */
 const prFactsCache = new WeakMap();
 function prFacts(client, repo, pr) {
   let byPr = prFactsCache.get(client);
-  if (!byPr) prFactsCache.set(client, (byPr = new Map()));
+  if (!byPr) {
+    byPr = new Map();
+    prFactsCache.set(client, byPr);
+  }
   const key = `${repo}#${Number(pr)}`;
   if (!byPr.has(key)) {
     const facts = (async () => {
@@ -1051,10 +1057,17 @@ function prFacts(client, repo, pr) {
       const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
       const owner = pull?.head?.repo?.owner?.login;
       const ref = pull?.head?.ref;
+      const head = `${owner}:${ref}`;
       const siblings = typeof owner === "string" && typeof ref === "string"
-        ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(`${owner}:${ref}`)}`, (data) => data)
+        ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(head)}`, (data) => data)
         : null;
-      return { pull, timeline, siblings };
+      const siblingTimelines = new Map();
+      for (const sibling of Array.isArray(siblings) ? siblings : []) {
+        const number = Number(sibling?.number);
+        if (!PR_NUMBER.test(String(sibling?.number ?? "")) || number === Number(pr)) continue;
+        siblingTimelines.set(number, await client.paginate(`/repos/${repo}/issues/${number}/timeline`, (data) => data));
+      }
+      return { pull, timeline, siblings, siblingTimelines };
     })();
     facts.catch(() => byPr.delete(key));
     byPr.set(key, facts);
@@ -1062,23 +1075,31 @@ function prFacts(client, repo, pr) {
   return byPr.get(key);
 }
 
+/** True when the timeline is readable and has no base change at or after `since` (or at an unknown time). */
+function baseUnchangedSince(timeline, since) {
+  if (!Array.isArray(timeline) || timeline.some((item) => !isRecord(item))) return false;
+  return timeline.every((item) => {
+    if (item.event !== "base_ref_changed") return true;
+    const changed = Date.parse(item.created_at);
+    return Number.isFinite(changed) && changed < since;
+  });
+}
+
 async function pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr) {
   const pulls = workflow?.pull_requests;
   if (!Array.isArray(pulls) || pulls.length !== 1 || typeof defaultBranch !== "string" || !PR_NUMBER.test(String(pr ?? ""))) return false;
   const [listed] = pulls;
   if (!isRecord(listed) || Number(listed.number) !== Number(pr) || !isRecord(listed.base) || listed.base.ref !== defaultBranch) return false;
-  const { pull, timeline, siblings } = await prFacts(client, repo, pr);
+  const { pull, timeline, siblings, siblingTimelines } = await prFacts(client, repo, pr);
   const pullCreated = Date.parse(pull?.created_at);
   const runCreated = Date.parse(workflow?.created_at);
   if (pull?.base?.ref !== defaultBranch || !Number.isFinite(pullCreated) || !Number.isFinite(runCreated) || pullCreated > runCreated) return false;
-  if (!Array.isArray(timeline) || timeline.some((item) => !isRecord(item))) return false;
-  for (const item of timeline) {
-    if (item.event !== "base_ref_changed") continue;
-    const changed = Date.parse(item.created_at);
-    if (!Number.isFinite(changed) || changed >= runCreated) return false;
-  }
+  const headRepo = pull?.head?.repo?.full_name;
+  if (typeof headRepo !== "string" || workflow?.head_repository?.full_name !== headRepo || workflow?.head_branch !== pull?.head?.ref) return false;
+  if (!baseUnchangedSince(timeline, runCreated)) return false;
   if (!Array.isArray(siblings) || !siblings.some((s) => isRecord(s) && Number(s.number) === Number(pr))) return false;
-  return siblings.every((s) => isRecord(s) && isRecord(s.base) && s.base.ref === defaultBranch);
+  return siblings.every((s) => isRecord(s) && isRecord(s.base) && s.base.ref === defaultBranch
+    && (Number(s.number) === Number(pr) || baseUnchangedSince(siblingTimelines.get(Number(s.number)), runCreated)));
 }
 
 /** Reject foreign writers before interpreting any stored gate data. `pr` is the PR the record is read for. */

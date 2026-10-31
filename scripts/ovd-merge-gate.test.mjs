@@ -666,7 +666,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings, siblingTimelines = {} } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -688,9 +688,14 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       return response(201, { id: 1 });
     }
     if (pathname === "/repos/o/r") return response(200, { default_branch: defaultBranch });
-    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", created_at: "2026-01-02T00:00:00Z", ...provenance }] });
+    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", head_repository: { full_name: "o/r" }, event: "issue_comment", created_at: "2026-01-02T00:00:00Z", ...provenance }] });
     if (pathname === "/repos/o/r/issues/7/timeline") return response(200, timeline);
-    if (pathname === "/repos/o/r/pulls" && searchParams.get("head") === "o:feature") return response(200, siblings ?? [{ number: 7, base: { ref: pullBase } }]);
+    if (/^\/repos\/o\/r\/issues\/\d+\/timeline$/.test(pathname)) return response(200, siblingTimelines[pathname.split("/")[5]] ?? []);
+    if (pathname === "/repos/o/r/pulls" && searchParams.get("head") === "o:feature") {
+      // GitHub lists only open PRs unless state=all is sent.
+      const state = searchParams.get("state") ?? "open";
+      return response(200, (siblings ?? [{ number: 7, base: { ref: pullBase } }]).filter((pr) => state === "all" || (pr.state ?? "open") === state));
+    }
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
       const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
@@ -699,7 +704,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha, ref: "feature", repo: { owner: { login: "o" } } }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha, ref: "feature", repo: { full_name: "o/r", owner: { login: "o" } } }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
     }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
@@ -1606,6 +1611,14 @@ describe("R2 history provenance", () => {
     ["a base change at an unknown time", { timeline: [{ event: "base_ref_changed" }] }],
     ["a closed sibling PR from the same head branch on another base", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "release" } }] }],
     ["a sibling list that does not include this PR", { siblings: [] }],
+    ["a closed sibling retargeted to the default branch after the run", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed", created_at: "2026-01-03T00:00:00Z" }] } }],
+    ["a sibling base change at an unknown time", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed" }] } }],
+    ["a sibling whose timeline is not a list of records", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }], siblingTimelines: { 8: [null] } }],
+    ["a sibling with no readable number", { siblings: [{ number: 7, base: { ref: "main" } }, { number: "x", base: { ref: "main" } }] }],
+    ["a base change exactly at the run's created_at", { timeline: [{ event: "base_ref_changed", created_at: "2026-01-02T00:00:00Z" }] }],
+    ["a run whose head branch is not this PR's head", { provenance: { ...prt, head_branch: "other" } }],
+    ["a run from another head repository (a fork with the same branch name)", { provenance: { ...prt, head_repository: { full_name: "evil/r" } } }],
+    ["a run with no head repository", { provenance: { ...prt, head_repository: null } }],
   ])("rejects a pull_request_target record with %s", async (_label, options) => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, ...options });
     await expect(gate.readHistory(gateClientFor(api), "o/r", 7)).rejects.toThrow(/default-branch/);
@@ -1618,6 +1631,12 @@ describe("R2 history provenance", () => {
   });
   it("trusts sibling PRs that all target the default branch", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+    expect(api.urls).toContain("GET /repos/o/r/pulls?state=all&head=o%3Afeature");
+    expect(api.requests).toContain("GET /repos/o/r/issues/5/timeline");
+  });
+  it("trusts a sibling retargeted to the default branch before the run", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }], siblingTimelines: { 5: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] } });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
   });
   it("compares that base to the repository default branch", async () => {
