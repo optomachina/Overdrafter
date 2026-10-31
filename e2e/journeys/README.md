@@ -39,3 +39,33 @@ PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/journeys/jarvis-front-door.
 Also open: run the front-door spec against preview and nightly against the
 production domain, and decide whether the ChatGPT app (`server/chatgpt`, local
 demo only today) belongs in the manifest.
+
+## Friends release (OVD-1011)
+
+| Journey | Mode / config | Coverage |
+| --- | --- | --- |
+| `friends-release-golden.spec.ts` | Authenticated local Supabase / `playwright.config.ts` | STEP + PDF upload and CAD canvas; extracted-property edits across reload; quantity; display-only Need by; US/INTL filter; price/delivery chart; quote details; absence of purchasing controls |
+
+Run after `npm run db:start`, `npm run db:reset`, and `npm run seed:dev`:
+
+```bash
+npx playwright test e2e/journeys/friends-release-golden.spec.ts --config playwright.config.ts
+```
+
+The journey uses the scrubbed repository STEP/PDF only. `friends-release-seed.mjs`
+reuses seed-dev's psql discovery and copies its synthetic extraction, requirements,
+and published quote package onto the newly uploaded part in the standard loopback
+database. IDs and timestamps are fresh; offers are marked simulate and given explicit
+domestic/foreign origins. No worker, live vendor, remote backend, or quote dispatch
+is allowed. The browser uses real Supabase auth, storage, reads, and saves. Run-owned
+records remain in the disposable database until its next reset; no existing seed rows
+are changed. No screenshots are written to tracked source.
+
+There are no skipped steps. The no-order assertions deliberately include disabled
+and hidden controls and the existing `Review order` button; they are soft assertions
+so subsequent evidence can still be collected, but any violation fails the test.
+The current page still exposes that button, so this is a release regression gate,
+not a claim that the friends release is ready. The chart currently presents price
+against delivered date, derived from the seeded lead time. Quote detail requires exactly the price and lead-time facts plus absence of
+purchasing controls. The current extra vendor/material/status facts also fail that
+strict release assertion; this test change does not alter product UI.
