@@ -19,6 +19,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prosrcMd5, scanFunctionEvents } from "./check-migration-function-collisions.mjs";
+import { findPsql } from "./seed-dev.mjs";
 import { assertLocalDatabaseUrl } from "./supabase-target-guard.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,7 +36,8 @@ function statementText(sql, event) {
 }
 
 function pinCatalogFirst(statement) {
-  return statement.replace(/^(set\s+search_path\s*(?:=|to)\s*)(.+)$/im,
+  // \s* and \S are disjoint, so the match cannot backtrack between prefix and path.
+  return statement.replace(/^(set\s+search_path\s*(?:=|to)\s*)(\S.*)$/im,
     (line, prefix, path) => (/^'?pg_catalog\b/i.test(path) ? line : `${prefix}pg_catalog, ${path}`));
 }
 
@@ -50,7 +52,7 @@ export function priorDefinitions(migration) {
     .map(({ signature }) => {
       for (const file of [...earlier].reverse()) {
         const sql = read(join(migrationsDir, file));
-        const prior = scanFunctionEvents(sql).filter((event) => event.signature === signature).at(-1);
+        const prior = scanFunctionEvents(sql).findLast((event) => event.signature === signature);
         if (prior?.action === "define") return { signature, file, body: prior.body, statement: statementText(sql, prior) };
         if (prior) break;
       }
@@ -76,7 +78,7 @@ function proofSql(migration) {
     from pg_catalog.pg_proc p join ovd979_expected e on e.oid = p.oid)`;
   const rollback = rollbackSql(migration);
   return [
-    "\\set ON_ERROR_STOP on",
+    String.raw`\set ON_ERROR_STOP on`,
     "begin;",
     `create temp table ovd979_applied as select oid, prosrc, proacl, proconfig from pg_catalog.pg_proc where oid in (${oids});`,
     `create temp table ovd979_expected (oid oid, md5 text);\ninsert into ovd979_expected values\n  ${expected};`,
@@ -101,7 +103,14 @@ function main(argv) {
   }
   const url = argv[argv.indexOf("--db-url") + 1];
   assertLocalDatabaseUrl(url);
-  const run = spawnSync("psql", [url, "-X", "-q", "-At", "-f", "-"], { input: proofSql(migration), encoding: "utf8" });
+  // A fixed-directory psql (or SEED_PSQL_PATH), never a PATH lookup, and a fixed PATH for the child.
+  const psql = findPsql();
+  if (!psql) throw new Error("psql was not found in a fixed system directory or at SEED_PSQL_PATH.");
+  const run = spawnSync(psql, [url, "-X", "-q", "-At", "-f", "-"], {
+    input: proofSql(migration),
+    encoding: "utf8",
+    env: { ...process.env, PATH: "/usr/bin:/bin" },
+  });
   process.stdout.write(run.stdout);
   process.stderr.write(run.stderr);
   const failed = run.status !== 0 || / FAIL$/m.test(run.stdout) || !/ PASS$/m.test(run.stdout);
