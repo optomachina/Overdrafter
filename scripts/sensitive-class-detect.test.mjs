@@ -1618,7 +1618,8 @@ describe("detect", () => {
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
   });
 
-  describe("oversized SQL bodies", () => {
+  // CPU-heavy: measured 1.3–2.4 s in isolation, over 5 s under 16-way parallel preflight load (OVD-1116).
+  describe("oversized SQL bodies", { timeout: 20_000 }, () => {
     const file = "supabase/fixtures/big.sql";
     const expectedClasses = new Set(["schema", ...config.sqlContent.rules.map((rule) => rule.class)]);
     const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });

@@ -145,7 +145,7 @@ the callee's direct statements are checked). The two-session dblink tests
 
 ## U2 implementation and auxiliary-path audit
 
-U2 is `20261030162500_ovd979u2_canonical_requirement_lock_order.sql`; its draft,
+U2 is `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`; its draft,
 rollback hashes and local proof are documented in
 [`migration-drafts/ovd-979u2-notes.md`](migration-drafts/ovd-979u2-notes.md).
 The checker logic is unchanged. The three resolved functions' inversion entries

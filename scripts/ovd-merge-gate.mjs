@@ -944,6 +944,7 @@ function authEnv(token) {
 
 /** A fresh, empty directory for the bare object store that holds the PR's git data. */
 const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data-"));
+const removeDataStore = (store) => rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 
 /**
  * Recompute diff_id over base...head. With fetch (the workflow), the PR head
@@ -955,7 +956,7 @@ const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data
  * origin/<base> in `cwd`. Returns { diffId, error } and never throws: any
  * failure is "cannot compute".
  */
-export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore }) {
+export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore, removeStore = removeDataStore }) {
   let store = null;
   try {
     const head = assertSha(headSha, "head");
@@ -968,13 +969,23 @@ export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = tru
     if (typeof repo !== "string" || !REPO.test(repo)) throw new Error("repository is not owner/name");
     store = makeStore();
     git(["init", "--bare", "--quiet", store], { cwd: store });
-    git(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
+    // No auto-maintenance: newer git (seen on 2.56) can detach a background commit-graph
+    // write after fetch, which races the store removal below (ENOTEMPTY).
+    git(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
     const base = git(["--git-dir", store, "rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd: store }).trim();
     return { diffId: diff({ base: assertSha(base, "base"), head, cwd: store }), error: null };
   } catch (error) {
     return { diffId: null, error: error?.message ?? String(error) };
   } finally {
-    if (store) rmSync(store, { recursive: true, force: true });
+    // Best effort: cleanup of a temp store must never turn a computed result
+    // into a writer failure.
+    if (store) {
+      try {
+        removeStore(store);
+      } catch (error) {
+        process.stderr.write(`ovd-merge-gate: could not remove ${store}: ${error?.message ?? error}\n`);
+      }
+    }
   }
 }
 

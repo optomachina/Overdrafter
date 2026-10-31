@@ -13,7 +13,7 @@ const body = (sql: string, name = signature) => scanFunctionEvents(sql).find((ev
 describe("api_auto_approve_job_requirements U4 migration", () => {
   it("replaces auto approval and trusted reuse, and its generated rollback restores the U2-era bodies byte for byte", () => {
     expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature, reuseSignature]);
-    const u2 = read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql");
+    const u2 = read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql");
     const rollback = rollbackSql("20261031034800_ovd979u4_attempt_bound_auto_approval.sql");
     for (const name of [signature, reuseSignature]) {
       expect(body(u2, name)).toBeTypeOf("string");
@@ -33,7 +33,7 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     const reuse = body(migrationSql, reuseSignature) ?? "";
     expect(reuse).toContain("and queue.status = 'running'\n    and queue.attempt_id is not null");
     expect(reuse).toContain("v_target.id, extraction.organization_id, v_target_attempt_id,");
-    const u2Reuse = body(read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql"), reuseSignature) ?? "";
+    const u2Reuse = body(read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql"), reuseSignature) ?? "";
     const stampFree = reuse
       .replace(/\n {2}v_target_attempt_id uuid;/, "")
       .replace(/ {2}-- The copy is this attempt's result[\s\S]*?limit 1;\n\n/, "")
