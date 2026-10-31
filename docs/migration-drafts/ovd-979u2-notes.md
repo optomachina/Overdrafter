@@ -192,3 +192,26 @@ This is a rename only: the bytes and SHA-256 (`572066174ddb…906f`) are
 unchanged, so the rollback proof above, recorded under the old filename, still
 covers this content. The stack order stays U2 (`20261031034700`) < U3
 (`20261031034754`) < U4 (`20261031034800`) < U5 (`20261031034900`).
+
+## Repair round: SonarCloud new-code findings (2026-10-31)
+
+The migration is untouched (sha256 `572066174ddb…906f`).
+
+- `scripts/ovd979-rollback.mjs`: `--prove` runs psql from `findPsql()` (fixed
+  system directories or `SEED_PSQL_PATH`), not a `PATH` lookup, with a fixed
+  `PATH=/usr/bin:/bin` for the child (S4036). The `search_path` regex uses
+  `\s*(\S.*)` so prefix and path cannot overlap (S8786); `findLast` (S7750);
+  `String.raw` (S7780). The generated rollback for this migration is
+  byte-identical before and after (sha256 `1415e4a8…9965`), and the old and new
+  regex capture the same groups on all 554 `search_path` lines in the
+  migrations.
+- `supabase/tests/ovd979u2_lock_order.sql`: no newline inside a literal (the
+  approval payload is built with `jsonb_build_array`/`jsonb_build_object`);
+  repeated UUIDs, session names, transaction settings, the wait loop, the
+  result read and the cleanup moved into constants and `pg_temp` helpers.
+- Local proof on a disposable PostgreSQL 16.15 cluster (unix socket only,
+  `scripts/window-1/supabase-shim.sql`, all 163 migrations, pgTAP and dblink
+  from distribution packages): the old and new suites both pass 53/53 with U2
+  applied. With U2 rolled back to the prior bodies, both fail the same 5
+  assertions (48/53). After re-apply the new suite passes 53/53 again.
+  `ovd979-rollback.mjs --prove`: PASS. No hosted database was contacted.
