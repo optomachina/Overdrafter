@@ -14,7 +14,6 @@ const nodeRequire = createRequire(import.meta.url);
 
 let envSnapshot;
 let cwdSnapshot;
-let globalKeysSnapshot;
 let exitCodeSnapshot;
 let listenerSnapshot;
 
@@ -39,7 +38,6 @@ const PROCESS_EVENTS = ["unhandledRejection", "uncaughtException", "warning", "e
 beforeAll(() => {
   envSnapshot = { ...process.env };
   cwdSnapshot = process.cwd();
-  globalKeysSnapshot = new Set(Reflect.ownKeys(globalThis));
   exitCodeSnapshot = process.exitCode;
   listenerSnapshot = new Map(PROCESS_EVENTS.map((event) => [event, new Set(process.listeners(event))]));
 });
@@ -50,7 +48,13 @@ afterAll(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  restoreProcessState();
+  resetDocument();
+  resetWindow();
+  resetModuleGraph();
+});
 
+function restoreProcessState() {
   // Environment variables: drop added keys, restore changed and deleted ones.
   for (const key of Object.keys(process.env)) {
     if (!(key in envSnapshot)) delete process.env[key];
@@ -58,47 +62,45 @@ afterAll(() => {
   for (const [key, value] of Object.entries(envSnapshot)) {
     if (process.env[key] !== value) process.env[key] = value;
   }
-
   if (process.cwd() !== cwdSnapshot) process.chdir(cwdSnapshot);
   process.exitCode = exitCodeSnapshot;
-
   // Process listeners a file added and did not remove.
   for (const [event, before] of listenerSnapshot) {
     for (const listener of process.listeners(event)) {
       if (!before.has(listener)) process.removeListener(event, listener);
     }
   }
+}
 
-  // jsdom: the window outlives the file, so clear what tests render or store.
-  if (typeof document !== "undefined") {
-    document.head.innerHTML = "";
-    document.body.innerHTML = "";
-    for (const { name } of Array.from(document.documentElement.attributes)) {
-      if (name !== "lang") document.documentElement.removeAttribute(name);
-    }
-    document.cookie.split(";").forEach((cookie) => {
-      const name = cookie.split("=")[0]?.trim();
-      if (name) document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-    });
+// jsdom: the window outlives the file, so clear what tests render or store.
+function resetDocument() {
+  if (typeof document === "undefined") return;
+  document.head.innerHTML = "";
+  document.body.innerHTML = "";
+  for (const { name } of Array.from(document.documentElement.attributes)) {
+    if (name !== "lang") document.documentElement.removeAttribute(name);
   }
-  if (typeof window !== "undefined") {
-    try {
-      window.localStorage?.clear();
-      window.sessionStorage?.clear();
-    } catch {
-      // Opaque-origin windows throw on storage access; nothing to clear.
-    }
-    if (window.location?.href && window.location.href !== "http://localhost:3000/") {
-      try {
-        window.history.replaceState(null, "", "/");
-      } catch {
-        // Cross-origin URLs cannot be replaced; the next file sets its own.
-      }
-    }
+  for (const cookie of document.cookie.split(";")) {
+    const name = cookie.split("=")[0]?.trim();
+    if (name) document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
   }
+}
 
-  resetModuleGraph();
-});
+function resetWindow() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.clear();
+    window.sessionStorage?.clear();
+  } catch {
+    // Opaque-origin windows throw on storage access; nothing to clear.
+  }
+  if (!window.location?.href || window.location.href === "http://localhost:3000/") return;
+  try {
+    window.history.replaceState(null, "", "/");
+  } catch {
+    // Cross-origin URLs cannot be replaced; the next file sets its own.
+  }
+}
 
 // What Vitest does between files when isolation is on (runBaseTests in vitest
 // 3.2): clear the per-file mock registries and invalidate every evaluated
@@ -109,7 +111,7 @@ afterAll(() => {
 function currentWorkerState() {
   const state = globalThis.__vitest_worker__;
   if (!state?.config) {
-    throw new Error("per-file-reset: Vitest worker internals changed; update this hook or set test.isolate back to true");
+    throw new TypeError("per-file-reset: Vitest worker internals changed; update this hook or set test.isolate back to true");
   }
   return state;
 }
@@ -118,7 +120,7 @@ function resetModuleGraph() {
   const mocker = globalThis.__vitest_mocker__;
   const moduleCache = currentWorkerState().moduleCache;
   if (typeof mocker?.reset !== "function" || typeof moduleCache?.invalidateModule !== "function") {
-    throw new Error("per-file-reset: Vitest worker internals changed; update this hook or set test.isolate back to true");
+    throw new TypeError("per-file-reset: Vitest worker internals changed; update this hook or set test.isolate back to true");
   }
   mocker.reset();
   const keep = [/\/vitest\/dist\//, /\/vite-node\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
