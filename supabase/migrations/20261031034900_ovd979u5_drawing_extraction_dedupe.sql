@@ -168,12 +168,16 @@ BEGIN
   -- The worker settles by id alone. Once the reaper has failed a running row
   -- and this trigger requeued it for a successor drawing, the old attempt's
   -- late settlement carries the old drawingFileId: skip it, so it cannot
-  -- complete, fail or requeue the successor, queued or reclaimed. Writes that
-  -- keep the status or the row's drawing identity are not fenced.
-  IF OLD.task_type = 'extract_part' AND OLD.status IN ('queued', 'running')
-    AND NEW.status IS DISTINCT FROM OLD.status
-    AND NEW.status IN ('queued', 'completed', 'failed')
-    AND NEW.payload->'drawingFileId' IS DISTINCT FROM OLD.payload->'drawingFileId' THEN
+  -- complete, fail or requeue the successor, queued, reclaimed or already
+  -- settled (completed or failed). Active-row writes that keep the status or
+  -- the row's drawing identity are not fenced; nothing legitimately rewrites
+  -- the drawing identity of a settled row.
+  IF OLD.task_type = 'extract_part'
+    AND NEW.payload->'drawingFileId' IS DISTINCT FROM OLD.payload->'drawingFileId'
+    AND (OLD.status IN ('completed', 'failed') OR (
+      OLD.status IN ('queued', 'running')
+      AND NEW.status IS DISTINCT FROM OLD.status
+      AND NEW.status IN ('queued', 'completed', 'failed'))) THEN
     RETURN NULL;
   END IF;
   -- A worker writing its claim-time payload drops the pending successor; put

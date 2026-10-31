@@ -334,3 +334,25 @@ U2 (#984) moved to `20261031034700_ovd979u2_canonical_requirement_lock_order.sql
 so the stack order is U2 < U3 < U4 < U5 and every OVD-979 migration sorts after
 main's newest. `scripts/ovd979u5-migration.test.mjs` names U2's new filename as
 the prior definition of `api_request_extraction(uuid)`.
+
+## Council findings @ a19a3634 (2026-10-31)
+
+- **Stale settlement after the successor settles (GPT, major): fixed.** The
+  fence covered only queued or running rows, so once successor B completed,
+  reaped attempt A's late `markTaskFailed` (filtered by `id` and
+  not-cancelled) still matched the row and overwrote B's status and payload,
+  and U4's gate then saw a failed task. The trigger now also skips any write
+  to a completed or failed `extract_part` row whose `drawingFileId` differs
+  from the row's, whatever the new status (late complete, fail or cancel).
+  Nothing legitimately rewrites a settled row's drawing identity: the request
+  touches only queued and running rows and inserts new ones, and claims only
+  pick queued rows. New pgTAP (4 cases: late failure, late completion, late
+  cancel, successor status/payload kept); all 4 fail against the `a19a3634`
+  trigger. New U5 SHA-256:
+  `2c28901ddfa9ff89253cd4fd056a2b7d85ad20116cb7e35fed25e58d28a2d643`.
+- **Same-drawing late settlement (Opus, minor): follow-up.** A reaped attempt
+  for the same drawing as its requeued successor is indistinguishable by
+  payload; closing it needs the worker to settle by `attempt_id`, which
+  predates U5 and is a worker change outside this unit.
+- **`--prove` destination guard (GPT, major): owned by #984**
+  (`scripts/ovd979-rollback.mjs`), merged down through the stack.
