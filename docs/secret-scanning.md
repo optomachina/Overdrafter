@@ -13,7 +13,9 @@ Blaine approved the pinned gitleaks v8.30.1 binary and this report-mode
 workflow on 2026-10-16: "secret scanning tool is approved".
 
 The job runs in **report mode** for one week: findings are printed and never
-fail it. It is not a required check, and the `ci` aggregate does not need it.
+fail it. Branch protection lists `secret-scan` as a required check
+(2026-10-31), so a scanner crash (download or git error) fails the job closed
+and blocks the PR; findings alone do not. The `ci` aggregate does not need it.
 Making it required, or switching either layer to enforce, is a **later,
 separate approval**; this approval does not cover it.
 
@@ -303,10 +305,11 @@ stop a step before it writes its step summary.
   `::stop-commands::` markers, so it cannot issue workflow commands.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
   run green. gitleaks still runs when the path block step fails. Branch
-  protection now lists `secret-scan` as required (read-only check,
-  2026-10-31), so whether a red job under continue-on-error blocks a merge
-  depends on the reported check conclusion; confirm it on a live run before
-  relying on either answer.
+  protection lists `secret-scan` as required (read-only check, 2026-10-31).
+  Put plainly: findings are reported and never fail the job, but if the
+  scanner itself crashes (a gitleaks download, checksum or start failure, or
+  a git error), the required `secret-scan` job fails closed and blocks the
+  PR.
 
 ### Later, separate approval (not covered by the 2026-10-16 approval)
 
