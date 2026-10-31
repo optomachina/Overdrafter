@@ -7,6 +7,9 @@ import { HISTORY_COLUMNS } from "./sanityHistory";
 import { computeAndStoreRoutingScores } from "../scoringIntegration";
 import type { QueueTaskRecord, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
 import { providerDispatchReservation } from "../../test-support/providerDispatchReservation";
+import {
+  ACCEPTANCE_BACKOFF_MS, ACCEPTANCE_SCENARIOS, CLAIMED_LOCKED_AT, expectClaimBoundary, prepareAcceptanceScenario, stubAcceptanceRpc,
+} from "../../test-support/claimFencedAcceptance";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -323,66 +326,18 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
 
 describe("claim-fenced acceptance route", () => {
-  const scenarios = [
-    { name: "accepted", replies: [{ outcome: "accepted" }], drain: true },
-    { name: "request_canceled", replies: [{ outcome: "request_canceled" }], drain: true },
-    { name: "stale", replies: [{ outcome: "stale" }], drain: false },
-    { name: "fenced", replies: [{ outcome: "fenced" }], drain: false, failed: true },
-    { name: "payload_mismatch", replies: [{ outcome: "payload_mismatch" }], drain: false, failed: true },
-    { name: "busy then accepted", replies: [{ outcome: "busy" }, { outcome: "accepted" }], drain: true },
-    { name: "busy exhausted", replies: [{ outcome: "busy" }], drain: false, failed: true, attempts: 10 },
-    { name: "lost response then replayed", replies: [new Error("lost response"), { outcome: "replayed", original_outcome: "accepted" }], drain: true },
-    { name: "replayed cancellation", replies: [{ outcome: "replayed", original_outcome: "request_canceled" }], drain: true },
-    { name: "drain failure", replies: [{ outcome: "accepted" }], drain: true, drainError: true },
-  ];
-  it.each(scenarios)("$name preserves the claim boundary", async (scenario) => {
-    vi.useFakeTimers();
-    vi.spyOn(Math, "random").mockReturnValue(1);
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it.each(ACCEPTANCE_SCENARIOS)("$name preserves the claim boundary", async (scenario) => {
+    prepareAcceptanceScenario();
     vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue(xometryOutput("6061-T6"));
     const db = database();
-    const rpc = db.client.rpc.bind(db.client);
-    const acceptanceArgs: Record<string, unknown>[] = [];
-    let drains = 0;
-    (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
-      if (name !== "accept_vendor_quote_result" && name !== "drain_quote_run_rollup_followups") return rpc(name, args);
-      return (async () => {
-      if (name === "accept_vendor_quote_result") {
-        const reply = scenario.replies[Math.min(acceptanceArgs.length, scenario.replies.length - 1)];
-        acceptanceArgs.push(structuredClone(args));
-        if (reply instanceof Error) throw reply;
-        return { data: reply, error: null };
-      }
-      if (name === "drain_quote_run_rollup_followups") {
-        drains += 1;
-        if (scenario.drainError) throw new Error("drain failed");
-        return { data: {}, error: null };
-      }
-      return rpc(name, args);
-      })();
-    }) as typeof rpc;
-    const claimed = { ...task, locked_by: "worker", locked_at: "2026-10-29T12:34:56.123456+00:00" };
+    const stub = stubAcceptanceRpc(db.client, scenario);
+    const claimed = { ...task, locked_by: "worker", locked_at: CLAIMED_LOCKED_AT };
     const run = handleVendorQuoteTask(db.client, claimed, live);
     const assertion = scenario.failed
       ? expect(run).rejects.toMatchObject({ code: "persistence_failure" })
       : expect(run).resolves.toBeUndefined();
-    await vi.advanceTimersByTimeAsync(18000);
+    await vi.advanceTimersByTimeAsync(ACCEPTANCE_BACKOFF_MS);
     await assertion;
-    expect(acceptanceArgs).toHaveLength(scenario.attempts ?? scenario.replies.length);
-    expect(acceptanceArgs[0]).toMatchObject({
-      p_task_id: claimed.id, p_locked_by: claimed.locked_by, p_locked_at: claimed.locked_at,
-      p_attempts: claimed.attempts, p_task_payload_patch: { vendorStatus: "instant_quote_received", artifactCount: 0  },
-    });
-    for (const args of acceptanceArgs) expect(args).toEqual(acceptanceArgs[0]);
-    expect(drains).toBe(scenario.drain ? 1 : 0);
-    if (!scenario.failed) {
-      expect(db.writes.filter((write) => write.table === "work_queue")).toEqual([]);
-    }
-    if (scenario.name === "stale") {
-      expect(db.writes.filter((write) => write.table === "vendor_quote_results" &&
-        (write.update as { status?: string })?.status !== "running")).toEqual([]);
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("claim lost"));
-    }
+    expectClaimBoundary({ scenario, stub, claimed, taskPayloadPatch: { vendorStatus: "instant_quote_received", artifactCount: 0 }, writes: db.writes });
   });
 });
