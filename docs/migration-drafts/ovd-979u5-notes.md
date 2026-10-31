@@ -257,12 +257,13 @@ On the isolated local fixture (U2–U5 applied):
   filename, still covers this content. Neither OVD-1018 nor OVD-1073's
   `reconcile_claim_fence` defines a function that U2–U5 define, so apply order
   against them does not change behavior.
-- **Stack follow-up (not in this PR).** The U2, U3 and U4 migrations still sort
-  before `20261030204050` and keep `lint` red until their own PRs (#984, #985,
-  #986) rename them. Each needs a timestamp after `20261030204050` and before
-  `20261031025000`, in U2 < U3 < U4 order (for example `20261031000417`,
-  `20261031000418` and `20261031000419`). If any of them lands later than
-  `20261031025000`, U5 must be renamed again so it stays last.
+- **Stack follow-up (not in this PR).** U4 (#986) has renamed its migration
+  to `20261030204300`, and this PR merges that base. The U2 and U3 migrations
+  (`20261030162500`, `20261030164800`) still sort before `20261030204050` and
+  keep `lint` red until #984 and #985 rename them. U4's notes reserve
+  `20261030204100` and `20261030204200` for U2 and U3, which keeps
+  U2 < U3 < U4 < U5. If any of them lands later than `20261031025000`, U5 must
+  be renamed again so it stays last.
 - **Sonar.** All 26 new-code findings are `plsql:S1192` (duplicated literal),
   in the U5 migration, the U5 pgTAP suite and the U4 pgTAP cases this PR
   adapts. The literals are persisted states (`queued`, `running`), the
