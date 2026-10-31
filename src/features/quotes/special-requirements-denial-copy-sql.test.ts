@@ -9,6 +9,7 @@ import { getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
  * denials is only truthful while it matches what the server resolvers check.
  * This test reads the latest definitions and fails when a resolver gains,
  * drops or moves a condition, so the copy is re-verified instead of drifting.
+ * OVD-998 adds the quantity denials of the legacy Xometry resolver.
  */
 
 const MIGRATIONS = "supabase/migrations";
@@ -116,5 +117,58 @@ describe("provider_dispatch_exact_scope_required", () => {
     const message = getXometryBetaScopeFailureMessage({ message: "provider_dispatch_exact_scope_required" }, "fictiv");
     expect(message).toContain("Remove extra Quote quantities");
     expect(message).not.toContain("Qty");
+  });
+});
+
+/**
+ * OVD-998 (OVD-987 P2): the legacy Xometry resolver (S1) denies quantity two ways. While the
+ * user quantity switch is off, anything but exactly one quantity of 1 is
+ * xometry_beta_quantity_one_required; once the switch exists (OVD-987 P3,
+ * migration 20261020100000) that check also needs the switch off, and any
+ * other count of quantities, one quantity of any size aside, is
+ * xometry_beta_single_quantity_required. The second code does not exist until
+ * that migration is in supabase/migrations, so its pin starts to bind when the
+ * migration lands (the test then fails on any drift of the condition or copy).
+ */
+describe("xometry_beta quantity denials", () => {
+  const { body } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+  const hasUserQuantitySwitch = body.includes("private.xometry_beta_user_quantity_enabled()");
+  const NORMALIZED_QUANTITIES =
+    "public.normalize_positive_integer_array( v_requirement.quote_quantities, v_requirement.quantity )";
+  const oneQuantityCopy = getXometryBetaScopeFailureMessage({ message: "xometry_beta_quantity_one_required" });
+  const singleQuantityCopy = getXometryBetaScopeFailureMessage({ message: "xometry_beta_single_quantity_required" });
+
+  it("raises xometry_beta_quantity_one_required for anything but exactly [1] while the switch is off, as the copy says", () => {
+    const raise = "raise exception 'xometry_beta_quantity_one_required'";
+    expect(body.match(new RegExp(raise, "g"))).toHaveLength(1);
+    expect(body).toContain(
+      `if ${NORMALIZED_QUANTITIES} is distinct from array[1]::integer[]` +
+        `${hasUserQuantitySwitch ? " and not private.xometry_beta_user_quantity_enabled()" : ""} then ${raise}`,
+    );
+    expect(oneQuantityCopy).toContain("quantity 1 only");
+    expect(oneQuantityCopy).toContain("Set Qty to 1");
+  });
+
+  it("raises xometry_beta_single_quantity_required unless exactly one positive quantity remains, as the copy says", () => {
+    const raise = "raise exception 'xometry_beta_single_quantity_required'";
+    if (!hasUserQuantitySwitch) {
+      // Before OVD-987 P3 the code is unreachable; the copy is staged for the migration.
+      expect(body).not.toContain("xometry_beta_single_quantity_required");
+      return;
+    }
+    expect(body.match(new RegExp(raise, "g"))).toHaveLength(1);
+    expect(body).toContain(
+      `if pg_catalog.cardinality(${NORMALIZED_QUANTITIES}) <> 1 then ${raise}`,
+    );
+    // Same place in the gate order: after the switch-off check, before the applicability check.
+    const gate = (needle: string) => body.indexOf(needle);
+    expect(gate("raise exception 'xometry_beta_quantity_one_required'")).toBeLessThan(gate(raise));
+    expect(gate(raise)).toBeLessThan(gate("raise exception 'xometry_beta_xometry_applicability_required'"));
+    // One quantity of any size is admitted, several are not, and so is none above zero.
+    expect(singleQuantityCopy).toContain("one quantity per request");
+    expect(singleQuantityCopy).toContain("exactly one quantity of 1 or more");
+    expect(singleQuantityCopy).toContain("Remove extra Quote quantities");
+    expect(singleQuantityCopy).not.toContain("quantity 1 only");
+    expect(singleQuantityCopy).not.toContain("Set Qty to 1");
   });
 });

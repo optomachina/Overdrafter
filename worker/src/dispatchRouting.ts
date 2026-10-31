@@ -310,6 +310,30 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
   return null;
 }
 
+/**
+ * OVD-998 (OVD-987 S4): the Xometry preflight refused a lane above quantity 1
+ * because the user quantity switch does not admit it. Preflight runs before the
+ * browser launches, so nothing reached Xometry. The note names the quantity as
+ * the reason and says what happens next; it never says the switch is global,
+ * because the rollout may admit a quantity per participant or per request.
+ */
+export const DISPATCH_QUANTITY_NOT_ADMITTED_NOTE =
+  "Xometry quote not started: this request is for a quantity above 1, and quantities above 1 are not enabled for this request in the controlled beta. "
+  + "Nothing was sent to Xometry. Manual follow-up is required.";
+
+/**
+ * Lane note for a terminal Xometry preflight denial that has copy of its own;
+ * null keeps the generic "authorization was denied" note. Only the exact
+ * Xometry boundary qualifies, so a lookalike code from another boundary never
+ * borrows this wording.
+ */
+export function xometryDispatchDenialNote(failure: DispatchAuthorizationFailure): string | null {
+  if (failure.boundary === "xometry" && !failure.retryable && failure.reasonCode === "dispatch_quantity_not_admitted") {
+    return DISPATCH_QUANTITY_NOT_ADMITTED_NOTE;
+  }
+  return null;
+}
+
 /** Customer-safe note on a held lane. It names the hold and the way out, never the files' content. */
 export const EXPORT_CONTROL_HOLD_NOTE =
   "Held by export control. These files were not sent to this supplier and must not be quoted manually. "

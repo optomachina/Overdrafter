@@ -20,11 +20,12 @@ describe("getXometryBetaScopeDenialCode", () => {
 
   it.each([
     "xometry_beta_quantity_one_required",
+    "xometry_beta_single_quantity_required",
     "xometry_beta_special_delivery_date_not_supported",
     "xometry_beta_special_requirements_not_supported",
     "provider_dispatch_special_requirements_not_supported",
     "provider_dispatch_exact_scope_required",
-  ])("reads the OVD-981 field denial %s from a plain record and an Error", (code) => {
+  ])("reads the OVD-981 and OVD-998 field denial %s from a plain record and an Error", (code) => {
     expect(getXometryBetaScopeDenialCode(postgrestError(code))).toBe(code);
     expect(getXometryBetaScopeDenialCode(new Error(code))).toBe(code);
     expect(getXometryBetaScopeDenialCode(postgrestError(`${code}_other`))).toBeNull();
@@ -75,6 +76,27 @@ describe("getXometryBetaScopeFailureMessage", () => {
     expect(message).not.toContain("_required");
     expect(message).not.toContain("_supported");
     expect(message).not.toContain("not currently eligible");
+  });
+
+  // OVD-998 (OVD-987 P2): with the user quantity switch on the legacy Xometry resolver admits one
+  // quantity of any size, so its denial must not repeat the switch-off "quantity 1" instruction.
+  describe("xometry_beta_single_quantity_required copy", () => {
+    it("asks for exactly one quantity without a false Qty 1 instruction and without a retry-around", () => {
+      const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_single_quantity_required"));
+      expect(message).toContain("quotes one quantity per request");
+      expect(message).toContain("Remove extra Quote quantities so exactly one quantity of 1 or more remains");
+      expect(message).toContain("request it as its own quote");
+      expect(message).not.toContain("quantity 1 only");
+      expect(message).not.toContain("Set Qty to 1");
+      expect(message).not.toContain("_required");
+      expect(message).not.toContain("not currently eligible");
+    });
+
+    it("leaves the switch-off quantity 1 copy as it was", () => {
+      expect(getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_quantity_one_required"))).toBe(
+        "The controlled Xometry beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.",
+      );
+    });
   });
 
   // OVD-991: every field both server scope checks deny as a special requirement, in form words.
@@ -139,6 +161,7 @@ describe("getXometryBetaScopeFailureMessage", () => {
   it("keeps the drawing thread note off every other denial", () => {
     for (const code of [
       "xometry_beta_quantity_one_required",
+      "xometry_beta_single_quantity_required",
       "xometry_beta_special_delivery_date_not_supported",
       "provider_dispatch_exact_scope_required",
       "provider_dispatch_job_busy",
@@ -167,6 +190,7 @@ describe("getXometryBetaScopeFailureMessage", () => {
   // OVD-991: Fictiv customers must never read "Xometry" in a Fictiv denial.
   it.each([
     "xometry_beta_quantity_one_required",
+    "xometry_beta_single_quantity_required",
     "xometry_beta_special_delivery_date_not_supported",
     "xometry_beta_special_requirements_not_supported",
     "provider_dispatch_special_requirements_not_supported",
