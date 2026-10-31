@@ -271,7 +271,7 @@ export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = (
   return reviewSha === qaHead || isCommentsOnlyAncestor(reviewSha, qaHead) === true;
 }
 
-const BUILDER_MODEL_NAMES = ["codex", "opus", "sonnet", String.raw`claude(?:-opus|-sonnet)?`, String.raw`grok(?:-\d[\d.]*)?`, String.raw`gpt-\d[a-z\d.-]*`, "jev"];
+const BUILDER_MODEL_NAMES = ["codex", "opus", "sonnet", "claude(?:-opus|-sonnet)?", String.raw`grok(?:-\d[\d.]*)?`, String.raw`gpt-\d[a-z\d.-]*`, "jev"];
 const BUILDER_MODEL = new RegExp(String.raw`\b(${BUILDER_MODEL_NAMES.join("|")})\b`, "gi");
 
 const UNKNOWN_BUILDER = "unknown";
