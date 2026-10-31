@@ -85,6 +85,7 @@
     { "glob": "AGENTS.md", "class": "infra_ci" },
     { "glob": "scripts/lib/sensitive-paths*", "class": "infra_ci" },
     { "glob": "scripts/lib/entry-point*", "class": "infra_ci" },
+    { "glob": "scripts/lib/fixed-binaries*", "class": "infra_ci" },
     { "glob": "scripts/sensitive-paths*", "class": "infra_ci" },
     { "glob": "scripts/fixtures/sensitive-paths/**", "class": "infra_ci" },
     { "glob": "scripts/jev-pr-screen*", "class": "infra_ci" },

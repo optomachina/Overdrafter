@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 /**
  * OVD-851: build, validate, and print an `overdrafter.verdict/v1` PR comment.
  *
@@ -41,7 +42,6 @@ import { createHash } from "node:crypto";
 import {
   accessSync,
   constants as fsConstants,
-  existsSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -60,10 +60,8 @@ const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
 const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
 
 /** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
-export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
-  const found = dirs.map((dir) => join(dir, name)).find((candidate) => exists(candidate));
-  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
-  return found;
+export function resolveBinary(name, options = {}) {
+  return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
 /**
@@ -128,8 +126,8 @@ export function assertSha(value, flag) {
 const assertCommit = (sha, flag, { cwd } = {}) => {
   try {
     git(["cat-file", "-e", "--end-of-options", `${sha}^{commit}`], { cwd });
-  } catch {
-    throw new Error(`${flag} ${sha} is not a commit in this repository`);
+  } catch (error) {
+    throw new Error(`git could not verify ${flag} ${sha} as a commit: ${error.message}`, { cause: error });
   }
 };
 
