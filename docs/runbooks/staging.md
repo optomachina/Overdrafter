@@ -188,12 +188,14 @@ query, even when it is read-only.
 
 OVD-835 closes when the OVD-813 history SELECT runs on staging without error.
 That read is [`supabase/seed/staging-smoke.sql`](../../supabase/seed/staging-smoke.sql)
-(SELECT only, `LIMIT 50`; expect 4 rows on the current seed). Run it with the
-guarded `psql` command under [Reset and reseed](#reset-and-reseed), or paste it
-into MCP `execute_sql` with `project_id: ldmambwtksfvqdufhaam`. Record the
-UTC time, the row count and the ref on OVD-835. A session with no staging
-credential (`STAGING_DB_URL`) and no Supabase MCP cannot run it. It reports
-that on the PR and does not fall back to production.
+(SELECT only, `LIMIT 50`). Fixture timestamps are relative to seed time, so
+the row count shrinks as rows age out of the 30-day peer window: expect 4 rows
+right after a reseed, and reseed first if it returns 0. Run it with the guarded
+`psql` command under [Reset and reseed](#reset-and-reseed), or paste it into MCP
+`execute_sql` with `project_id: ldmambwtksfvqdufhaam`. Record the UTC time, the
+row count and the ref on OVD-835. A session without a staging credential
+(`STAGING_DB_URL`) or Supabase MCP reports the gap on the PR instead and never
+falls back to production.
 
 ## Staging-first migration flow
 
