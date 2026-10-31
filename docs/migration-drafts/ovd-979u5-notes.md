@@ -274,3 +274,46 @@ On the isolated local fixture (U2–U5 applied):
   `docs/engineering-change-queue.md`) they are dispositioned as false
   positives. No exclusion or Sonar configuration change was made, and no
   security rule was disabled. The quality gate passes.
+
+## Council findings @ bfc07504 (2026-10-31)
+
+Council consensus FAIL (Opus PASS_NOTES, GPT FAIL, Jev PASS_NOTES).
+
+- **Stale settlement of a reused row (GPT, major): fixed.** `markTaskCompleted`
+  and `markTaskFailed` (`worker/src/queue.ts`) filter by `id` and
+  not-cancelled only. After the reaper fails a running row that carries a
+  pending drawing, this trigger requeues the successor on the same id, so the
+  old attempt's late settlement used to complete it with the old payload. The
+  trigger now skips (`RETURN NULL`) a status change to queued, completed or
+  failed on a queued or running `extract_part` row when the settling payload's
+  `drawingFileId` differs from the row's. Every worker settlement writes its
+  claim-time payload plus a patch without `drawingFileId`, and the reaper
+  keeps the payload, so legitimate settlements are unaffected; same-status
+  writes (request merges, claim) are not fenced. Residual: if the drawing goes
+  A→B→A while A runs, the successor's claim re-reads A, and a late A
+  settlement is then indistinguishable from the successor's own (same drawing,
+  redundant work only). The new U5 SHA-256 is
+  `ed01e6e1d95495ce7ceef9d768de76e210c0a67157602785a884417b070b9fb6`.
+- **Rollback row proof baseline (GPT, minor): fixed.** `--prove` now snapshots
+  rows before the first rollback, so rollback itself is checked.
+- **U4 canonical reuse vs the attempt gate (GPT, major): not this PR's file.**
+  `20261030204300_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
+- **Cancel hands over to the successor (Opus, minor): documented.** Excluding
+  `cancelled` would drop the successor permanently: a later request re-queues
+  only for a sim extraction or a failed/cancelled task naming the *current*
+  drawing. No SQL path cancels `extract_part` today.
+- **Successor resets attempts and backoff (Opus, minor): documented** in the
+  trigger comment; it happens once per pending drawing.
+- **Stale pending after A→B→A or removal (Opus, minor): left.** Clearing it in
+  the request needs the trigger to tell a request's write from a worker's
+  claim-time payload write (both drop the key). The cost is one redundant
+  extraction.
+- **`extracting` from the pre-reconciliation prediction (Opus, minor): left**,
+  the stated trade-off for writing L1 before L2; the status refresh recovers it.
+
+Local verification (disposable PostgreSQL 16.15 on loopback, minimal Supabase
+platform shim, all 166 migrations replayed; the pinned 17.6.1.095 image could
+not be pulled, registry rate limit): pgTAP U2 53/53, U3 27/27, U4 89/89,
+U5 63/63 (7 new reaped-attempt cases; 5 of them fail against the bfc07504
+trigger), OVD-723 167/167; `ovd979-rollback.mjs --prove`: PASS. Staging and
+production were not touched.

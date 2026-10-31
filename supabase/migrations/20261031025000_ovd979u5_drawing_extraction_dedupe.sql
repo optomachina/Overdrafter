@@ -165,6 +165,17 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
+  -- The worker settles by id alone. Once the reaper has failed a running row
+  -- and this trigger requeued it for a successor drawing, the old attempt's
+  -- late settlement carries the old drawingFileId: skip it, so it cannot
+  -- complete, fail or requeue the successor, queued or reclaimed. Writes that
+  -- keep the status or the row's drawing identity are not fenced.
+  IF OLD.task_type = 'extract_part' AND OLD.status IN ('queued', 'running')
+    AND NEW.status IS DISTINCT FROM OLD.status
+    AND NEW.status IN ('queued', 'completed', 'failed')
+    AND NEW.payload->'drawingFileId' IS DISTINCT FROM OLD.payload->'drawingFileId' THEN
+    RETURN NULL;
+  END IF;
   -- A worker writing its claim-time payload drops the pending successor; put
   -- it back. A newer request already carries its own value, which wins.
   IF OLD.task_type = 'extract_part' AND OLD.status = 'running'
@@ -173,6 +184,9 @@ BEGIN
     NEW.payload := NEW.payload || jsonb_build_object(
       'pendingDrawingFileId', OLD.payload->'pendingDrawingFileId');
   END IF;
+  -- Any settlement, cancel included, hands the row to the pending successor:
+  -- a dropped successor would not re-queue on a later request. The successor
+  -- starts a fresh attempt count with no retry backoff.
   IF OLD.task_type = 'extract_part' AND OLD.status = 'running'
     AND NEW.status IN ('queued', 'completed', 'failed', 'cancelled')
     AND OLD.payload ? 'pendingDrawingFileId' THEN

@@ -231,6 +231,43 @@ BEGIN
 END;
 $$;
 SELECT * FROM pg_temp.u5_settlements();
+-- Reaped attempt: its late settlements (worker/src/queue.ts filters complete and
+-- fail by id alone) cannot settle the successor, queued or reclaimed.
+CREATE FUNCTION pg_temp.u5_reaped() RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE r record; old_claim public.work_queue; new_claim public.work_queue; f uuid; n integer;
+BEGIN
+  SELECT * INTO r FROM ovd979u5_test.make_case(true);
+  INSERT INTO public.work_queue (organization_id, job_id, part_id, task_type, payload)
+  VALUES ('97950000-0000-4000-8000-000000000002', r.job_id, r.part_id, 'extract_part', '{}');
+  SELECT * INTO old_claim FROM public.api_claim_next_task('u5-worker');
+  f := ovd979u5_test.attach(r.job_id);
+  PERFORM ovd979u5_test.request(r.job_id);
+  UPDATE public.work_queue SET status = 'failed', locked_at = NULL, locked_by = NULL,
+    last_error = 'worker_crash_recovery' WHERE id = old_claim.id AND status = 'running';
+  RETURN NEXT is((SELECT payload->>'drawingFileId' FROM public.work_queue WHERE id = old_claim.id AND status = 'queued'),
+    f::text, 'reaped attempt: successor queued with the new drawing');
+  UPDATE public.work_queue SET status = 'completed', payload = old_claim.payload || '{"late":true}'
+  WHERE id = old_claim.id AND status <> 'cancelled';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late completion skips the queued successor');
+  SELECT * INTO new_claim FROM public.api_claim_next_task('u5-worker');
+  RETURN NEXT is(new_claim.payload->>'drawingFileId', f::text, 'reaped attempt: successor still claims its drawing');
+  UPDATE public.work_queue SET status = 'failed', payload = old_claim.payload, last_error = 'late'
+  WHERE id = old_claim.id AND status <> 'cancelled';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late failure skips the reclaimed successor');
+  UPDATE public.work_queue SET status = 'queued', payload = old_claim.payload, available_at = now()
+  WHERE id = old_claim.id AND status = 'running' AND attempts = old_claim.attempts AND locked_by = old_claim.locked_by;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late retry skips the successor despite matching worker predicates');
+  RETURN NEXT ok((SELECT status = 'running' AND attempt_id = new_claim.attempt_id
+    FROM public.work_queue WHERE id = old_claim.id), 'reaped attempt: successor attempt is untouched');
+  UPDATE public.work_queue SET status = 'completed', payload = new_claim.payload WHERE id = new_claim.id;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 1, 'reaped attempt: successor settles normally');
+END;
+$$;
+SELECT * FROM pg_temp.u5_reaped();
 CREATE TEMP TABLE u5_late_attach AS SELECT *, ovd979u5_test.attach(job_id) AS drawing_id FROM ovd979u5_test.make_case(true);
 UPDATE public.jobs SET status = 'quoting' WHERE id = (SELECT job_id FROM u5_late_attach);
 SELECT is(ovd979u5_test.request((SELECT job_id FROM u5_late_attach)), 1, 'drawing attachment can queue after quoting starts');
