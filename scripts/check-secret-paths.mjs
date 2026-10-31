@@ -132,6 +132,8 @@ export function readRefFile(cwd, ref, path, { binary = GIT_BIN } = {}) {
   return git(cwd, ["cat-file", "blob", "--end-of-options", blob[1]], binary);
 }
 
+// Requires git 2.31 or newer (CI runners qualify): an older rev-parse does not
+// understand `--end-of-options` and can exit 1 silently, reading as "absent".
 export function refExists(cwd, ref, { binary = GIT_BIN } = {}) {
   try {
     git(cwd, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`], binary);
@@ -235,11 +237,15 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
   const base = mergeBase(cwd, baseRef, headRef);
   if (!base) throw new Error(`no merge-base for ${baseRef} and ${headRef}`);
   const changes = listChanges(cwd, base, headRef);
-  const show = (ref, path) => git(cwd, ["show", `${ref}:${path}`]);
+  const readHead = (path) => {
+    const text = readRefFile(cwd, headRef, path);
+    if (text === null) throw new Error(`changed path ${path} is missing at ${headRef}`);
+    return text;
+  };
   const readRef = (side, path) => {
     return readRefFile(cwd, side === "base" ? base : headRef, path);
   };
-  const { findings, gateLoosening } = evaluateChanges(changes, (path) => show(headRef, path), readRef);
+  const { findings, gateLoosening } = evaluateChanges(changes, readHead, readRef);
   return {
     schema: REPORT_SCHEMA,
     base_ref: baseRef,

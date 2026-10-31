@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolveFixedBinary } from "./lib/fixed-binaries.mjs";
+import { assertSupportedPlatform, resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 // OVD-857: Release bot merge-plan read-back and show-me-your-work decision log.
 // Local git plumbing on a given repo path. This script never merges, pushes,
 // fetches, moves a ref, or touches a remote; the operator refreshes refs first.
@@ -37,8 +37,7 @@ export function resolveBinary(name, options = {}) {
   return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
-export { assertSupportedPlatform } from "./lib/fixed-binaries.mjs";
-import { assertSupportedPlatform } from "./lib/fixed-binaries.mjs";
+export { assertSupportedPlatform };
 
 let gitBinary = null;
 const gitBin = () => {

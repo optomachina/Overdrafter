@@ -45,9 +45,9 @@ it("git check-ignore distinguishes its real no from missing/failing git", () => 
     fs.writeFileSync(binary, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     expect(gitIgnored(dir, "x", { binary })).toBe(expected);
   }
-  for (const body of ["exit 128", "echo xcrun-error >&2\nexit 128"]) {
+  for (const [body, detail] of [["exit 128", /failed: exit 128$/], ["echo xcrun-error >&2\nexit 128", /failed: xcrun-error$/]]) {
     fs.writeFileSync(binary, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-    expect(() => gitIgnored(dir, "x", { binary })).toThrow(/git check-ignore failed/);
+    expect(() => gitIgnored(dir, "x", { binary })).toThrow(detail);
   }
 });
 

@@ -304,7 +304,8 @@ function listFiles(dir, pattern, base = dir) {
 export function gitIgnored(root, rel, { binary = resolveBinary("git"), run = spawnSync } = {}) {
   const result = run(binary, ["check-ignore", "-q", "--no-index", rel], { cwd: root, env: SAFE_ENV, encoding: "utf8" });
   if (result.error || result.signal || ![0, 1].includes(result.status)) {
-    throw new Error(`git check-ignore failed: ${result.error?.message ?? result.stderr ?? `exit ${result.status}`}`);
+    const detail = result.error?.message || result.stderr?.trim() || `exit ${result.status ?? result.signal}`;
+    throw new Error(`git check-ignore failed: ${detail}`);
   }
   return result.status === 0;
 }
