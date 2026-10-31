@@ -1863,9 +1863,31 @@ describe("enforced automerge gates", () => {
 
   it("runs only squash with GitHub's atomic head guard and never defers via --auto", async () => {
     const calls=[];
-    const merged=await gate.mergePull({client:{json:async()=>pull},repo:"o/r",pr:7,summary:decision(),switchValue:"true",merge:async(args)=>calls.push(args)});
+    const comments=passingComments();
+    const summary={...decision(),comments_fingerprint:gate.commentsFingerprint(comments)};
+    const merged=await gate.mergePull({client:{json:async()=>pull,paginate:async()=>comments},repo:"o/r",pr:7,summary,switchValue:"true",merge:async(args)=>calls.push(args)});
     expect(merged).toEqual({merged:true,reason:null});
     expect(calls).toEqual([["pr","merge","7","--repo","o/r","--squash","--match-head-commit",HEAD]]);
+  });
+
+  it("a comment created, edited or deleted after evaluation makes zero merge calls", async () => {
+    const comments=passingComments().map((comment,index)=>({...comment,id:comment.id??index+1,updated_at:comment.updated_at??"2026-10-31T00:00:00Z"}));
+    const summary={...decision(),comments_fingerprint:gate.commentsFingerprint(comments)};
+    const later=[
+      [...comments,{id:999,updated_at:"2026-10-31T00:00:01Z",user:{login:"x"},body:"new"}],
+      comments.map((comment,index)=>index===0?{...comment,updated_at:"2026-10-31T00:00:02Z"}:comment),
+      comments.slice(1),
+      undefined,
+    ];
+    for(const live of later){
+      const calls=[];
+      const paginate=async()=>{ if(live===undefined) throw new Error("unreadable"); return live; };
+      expect(await gate.mergePull({client:{json:async()=>pull,paginate},repo:"o/r",pr:7,summary,switchValue:"true",merge:async(args)=>calls.push(args)})).toEqual({merged:false,reason:"PR comments changed after evaluation (or could not be re-read)"});
+      expect(calls).toEqual([]);
+    }
+    const calls=[];
+    expect(await gate.mergePull({client:{json:async()=>pull,paginate:async()=>comments},repo:"o/r",pr:7,summary:decision(),switchValue:"true",merge:async(args)=>calls.push(args)})).toMatchObject({merged:false});
+    expect(calls).toEqual([]);
   });
 
   it("a push after evaluation makes zero merge calls", async () => {

@@ -853,8 +853,7 @@ export function evaluate(given = {}) {
   const exact = entries.filter((entry) => exactPass(entry, input));
   reasons.push(...reviewGateReasons(exact, opusRequired));
   // All counted reviews, including ones beyond the minimum, must be independent.
-  reasons.push(...builderReasons(exact, input.prBody), ...sameFamilyReasons(exact, input.prBody));
-  reasons.push(...requiredCheckReasons(input.requiredChecks, input.headSha));
+  reasons.push(...builderReasons(exact, input.prBody), ...sameFamilyReasons(exact, input.prBody), ...requiredCheckReasons(input.requiredChecks, input.headSha));
   if (!threadsResolved(input.reviewThreads, input.headSha)) reasons.push({ code: "threads_unresolved", detail: "review threads are unresolved, unknown or stale" });
   // Sensitive approval can be waived only for a complete non-held decision.
   // History conflicts, malformed input and independence failures remain intact.
@@ -1412,6 +1411,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const candidates = deletionCandidates({ deletedVerdicts, history: history ?? [], comments });
   const carried = carriedDeletions(candidates, ALL_TRUSTED);
   summary.deleted_verdicts = candidates.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
+  summary.comments_fingerprint = commentsFingerprint(comments);
   return summary;
 }
 
@@ -1549,6 +1549,17 @@ export function mergeStop(disabledValue, pull) {
   return null;
 }
 
+/**
+ * Identity of the evaluated comment set. A comment created, edited or deleted
+ * after evaluation changes it, so a verdict cannot change between read and merge.
+ * Null when the comments were unreadable.
+ */
+export function commentsFingerprint(comments) {
+  if (!Array.isArray(comments)) return null;
+  const keys = comments.map((comment) => `${comment?.id}@${comment?.updated_at}`).toSorted();
+  return createHash("sha256").update(keys.join("\n")).digest("hex");
+}
+
 /** Returns { merged, reason }: reason says why no merge was attempted. */
 export async function mergePull({ client, repo, pr, summary, switchValue, disabledValue, merge = (args) => execFileSync(resolveBinary("gh"), args, { stdio: "ignore", timeout: 60_000 }) }) {
   if (switchValue !== "true") return { merged: false, reason: "DOOR_AUTOMERGE is not exactly true" };
@@ -1557,6 +1568,10 @@ export async function mergePull({ client, repo, pr, summary, switchValue, disabl
   if (disabled) return { merged: false, reason: disabled };
   const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
   if (!mergeEligibility(summary, switchValue, pull)) return { merged: false, reason: "the gate did not pass for the live, open, clean head" };
+  // Re-read the comments: a verdict added, edited or deleted after evaluation blocks.
+  const evaluated = summary.comments_fingerprint;
+  const live = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
+  if (typeof evaluated !== "string" || commentsFingerprint(live) !== evaluated) return { merged: false, reason: "PR comments changed after evaluation (or could not be re-read)" };
   // The stop wins over everything else, so it is the last check before the call.
   const stop = mergeStop(disabledValue, pull);
   if (stop) return { merged: false, reason: stop };
