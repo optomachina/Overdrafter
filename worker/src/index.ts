@@ -498,6 +498,29 @@ export async function syncSweptQuoteRuns(
   }
 }
 
+function jobStatusPredecessors(nextJobStatus: string): string[] {
+  if (nextJobStatus === "quoting") return ["ready_to_quote"];
+  if (nextJobStatus === "awaiting_vendor_manual_review") return ["ready_to_quote", "quoting"];
+  return ["ready_to_quote", "quoting", "awaiting_vendor_manual_review"];
+}
+
+/** Guarded status write: only moves a row forward from a predecessor status. */
+async function advanceStatus(
+  supabase: SupabaseClient,
+  table: "quote_runs" | "jobs",
+  id: string,
+  currentStatus: string,
+  nextStatus: string,
+  predecessors: string[],
+): Promise<boolean> {
+  if (!predecessors.includes(currentStatus)) return false;
+  const { data, error } = await supabase.from(table)
+    .update({ status: nextStatus }).eq("id", id)
+    .in("status", predecessors).select("id");
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
 async function syncStoredRunStatus(
   supabase: SupabaseClient,
   jobId: string,
@@ -535,25 +558,11 @@ async function syncStoredRunStatus(
   } = aggregateQuoteRunStatus(statuses);
 
   const runPredecessors = nextQuoteRunStatus === "running" ? ["queued"] : ["queued", "running"];
-  const jobPredecessors = nextJobStatus === "quoting" ? ["ready_to_quote"]
-    : nextJobStatus === "awaiting_vendor_manual_review" ? ["ready_to_quote", "quoting"]
-      : ["ready_to_quote", "quoting", "awaiting_vendor_manual_review"];
-  let changed = false;
-  if (runPredecessors.includes(quoteRun.status)) {
-    const { data, error } = await supabase.from("quote_runs")
-      .update({ status: nextQuoteRunStatus }).eq("id", quoteRunId)
-      .in("status", runPredecessors).select("id");
-    if (error) throw error;
-    changed ||= Boolean(data?.length);
-  }
-  if (jobPredecessors.includes(job.status)) {
-    const { data, error } = await supabase.from("jobs")
-      .update({ status: nextJobStatus }).eq("id", jobId)
-      .in("status", jobPredecessors).select("id");
-    if (error) throw error;
-    changed ||= Boolean(data?.length);
-  }
-  if (!changed) return;
+  const runChanged = await advanceStatus(supabase, "quote_runs", quoteRunId, quoteRun.status,
+    nextQuoteRunStatus, runPredecessors);
+  const jobChanged = await advanceStatus(supabase, "jobs", jobId, job.status,
+    nextJobStatus, jobStatusPredecessors(nextJobStatus));
+  if (!runChanged && !jobChanged) return;
 
   const basePayload = {
     quoteRunId,
