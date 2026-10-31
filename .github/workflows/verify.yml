@@ -113,6 +113,7 @@ jobs:
 
       - name: Cache Supabase images
         if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         uses: ./head/.github/actions/supabase-image-cache
         with:
           group: full
