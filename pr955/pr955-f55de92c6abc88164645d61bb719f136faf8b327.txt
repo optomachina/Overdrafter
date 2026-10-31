@@ -1,0 +1,117 @@
+PR #955 QA test output
+sha: f55de92c6abc88164645d61bb719f136faf8b327
+date (UTC): 2026-10-31T22:11:14Z
+node: v22.23.4  npm: 10.9.9
+
+===== $ node --test scripts/ci-rerun-once.test.mjs scripts/lib/sensitive-paths.test.mjs
+TAP version 13
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/ci-rerun-once.test.mjs
+not ok 1 - scripts/ci-rerun-once.test.mjs
+  ---
+  duration_ms: 416.883717
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/ci-rerun-once.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/lib/sensitive-paths.test.mjs
+not ok 2 - scripts/lib/sensitive-paths.test.mjs
+  ---
+  duration_ms: 298.775104
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/lib/sensitive-paths.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 430.482562
+===== exit code: 1
+
+===== $ bash scripts/preflight.sh lint
+preflight: lint start
+preflight: lint PASS
+===== exit code: 0
+
+===== $ bash scripts/preflight.sh typecheck
+preflight: typecheck start
+preflight: typecheck PASS
+===== exit code: 0
+
+===== $ npx eslint scripts/ci-rerun-once.test.mjs scripts/lib/sensitive-paths.test.mjs
+===== exit code: 0
+
+===== SUPPLEMENTARY (not in prescribed list): both files import from 'vitest' and are run in CI via 'vitest run' (package.json "test"); node --test cannot execute them.
+===== $ npx vitest run scripts/ci-rerun-once.test.mjs scripts/lib/sensitive-paths.test.mjs
+
+ RUN  v3.2.4 /home/user/Overdrafter
+
+ ✓ scripts/lib/sensitive-paths.test.mjs (133 tests) 2624ms
+   ✓ shared fixture > gives the same classification from every consumer  760ms
+   ✓ matcher semantics > matches picomatch {dot, nocase} for every glob and path  412ms
+ ✓ scripts/ci-rerun-once.test.mjs (43 tests) 3645ms
+   ✓ separate processes share GitHub attempt state; refusal preserves failure  453ms
+   ✓ reruns each eligible failed run once and excludes cancelled runs  428ms
+   ✓ a rerun requested through a symlinked path reaches gh and writes the audit line  574ms
+
+ Test Files  2 passed (2)
+      Tests  176 passed (176)
+   Start at  22:13:01
+   Duration  4.73s (transform 454ms, setup 0ms, collect 842ms, tests 6.27s, environment 0ms, prepare 493ms)
+
+===== exit code: 0
+
+===== APP BOOT (step 3b)
+- Helper: scripts/cloud-qa-boot.sh from origin/pull/1008/head, "check" mode: github REST ok, dockerd started, supabase CLI 2.78.1 installed, Playwright 1.58.2 with chromium-1208 aliased to chromium-1243 (under /opt/pw-browsers, outside the repo).
+- Local Supabase only (loopback 127.0.0.1:54321). "ozuatdcakezjtevztjlr" shows up only in local Docker container names (project_id in supabase/config.toml); no hosted project was contacted.
+- public.ecr.aws hit "Data limit exceeded", so images were pulled from Docker Hub (SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io).
+- The container kernel has no IPv6 (/proc/sys/net/ipv6 is missing), so the Realtime seed crashed with listen_error :eafnosupport, and edge-runtime failed to boot its main worker. Supabase was run from a copy at /tmp/qa-repo with "[realtime] enabled = false" appended to that copy's supabase/config.toml, using "supabase start -x edge-runtime". The repository checkout was not modified. All migrations applied; supabase start exit 0.
+- The copy's .env.local points VITE_SUPABASE_URL/PUBLISHABLE_KEY/ANON_KEY at the local stack.
+- App: "npx vite --host 127.0.0.1 --port 8080" as the unprivileged user qa (VITE v5.4.19, ready). GET / -> 200.
+- Playwright Chromium (sandbox on, user qa): status 200, title "OverDrafter | Machined Aluminum Sourcing", landing page with Sign in / Sign up / Create account / Log in, 0 page errors. Screenshot pr955/f55de92c6abc88164645d61bb719f136faf8b327-smoke.png.
