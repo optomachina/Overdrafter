@@ -838,7 +838,7 @@ function walkProductionSources(dir, acc = []) {
     if (entry.name === "node_modules") continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) walkProductionSources(full, acc);
-    else if (/\.(?:ts|tsx|mjs)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx|mjs)$/.test(entry.name)) acc.push(full);
+    else if (/\.(?:ts|tsx|mjs|js)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx|mjs|js)$/.test(entry.name)) acc.push(full);
   }
   return acc;
 }

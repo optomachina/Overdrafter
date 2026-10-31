@@ -88,7 +88,7 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 
 ## Sensitive paths (single shared list)
 
-`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs`, never copying its globs; gates read the base checkout's copy. A Linear issue touching it routes architect-first (the Architect/Release `release` graph node); a PR touching it gets Opus review whatever the Jev score. Globs use picomatch semantics, dotfiles included, case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR editing them is sensitive. Matcher mechanics: [control plane](docs/agent-development-control-plane.md#classifying-new-gate-files).
+`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs`, never copying its globs; gates read the base checkout's copy. A Linear issue touching it routes architect-first (the Architect/Release `release` graph node); a PR touching it gets Opus review whatever the Jev score. Globs use picomatch semantics, dotfiles included, case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR editing them is sensitive.
 
 <!-- sensitive-paths:begin -->
 - **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`, `**/*.{pgsql,psql}`, `scripts/check-lock-order.mjs`
@@ -101,7 +101,7 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 - **deps** (new dependencies): `**/package.json`, `**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}`, `**/requirements*.txt`, `**/{pyproject.toml,uv.lock,poetry.lock}`, `**/{Cargo.toml,Cargo.lock,go.mod,go.sum}`, `**/{bun.lock,Pipfile,Pipfile.lock,Gemfile,Gemfile.lock}`, `supabase/functions/deno.json`
 <!-- sensitive-paths:end -->
 
-Classify a new gate, safety or infra file in its PR ([doc](docs/agent-development-control-plane.md#classifying-new-gate-files)).
+Classify a new gate, safety or infra file in its PR; matcher mechanics: [control plane](docs/agent-development-control-plane.md#classifying-new-gate-files).
 
 ## Ownership and durable state
 
@@ -144,7 +144,7 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - One writer per PR owns every repair. Budget: 2 repair rounds across local and CI combined, each with all current failure logs at once, never check by check.
 - Separate one-off infrastructure failures from code failures and structural CI failures per the [decision table](docs/agent-development-control-plane.md#failure-classes-and-recovery): `node scripts/ci-rerun-once.mjs` reruns infra once without a repair round; `cancelled` is never a pass; a repeated structural failure gets a bounded reliability change that keeps every check.
 - After the budget, failing PRs become drafts with diagnostics comments: failing checks, log excerpts, each round's changes, and suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A provider/customer-data PR also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus`, `model:sonnet` for Sonnet, `model:codex`, `model:grok-overflow`) and the provider and model each routes to.
+- Review is sized by risk. Reviewer routing is owned by [model-routing.v2.yaml](scripts/fixtures/agent-graph/model-routing.v2.yaml) and enforced by [built-by.mjs](scripts/agent-graph/built-by.mjs); see [agent-pr-tags.md](docs/agent-pr-tags.md). The draft graph's reviewer section is non-authoritative until it models builder-family routing. A provider/customer-data PR also gets Opus review, whatever the Jev score. Sizing never replaces deterministic checks. `docs/agent-graph/model-routing.yaml` is the source of truth for the Linear model labels (`model:opus`, `model:sonnet`, `model:codex`, `model:grok-overflow`) and the provider and model each routes to.
 - Track cost per accepted PR and founder interventions: [agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Merge gate and agent graph
