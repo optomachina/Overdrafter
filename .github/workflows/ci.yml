@@ -13,8 +13,11 @@ on:
     types:
       - checks_requested
 
+# OVD-1145: keyed on the head sha (the queue commit on merge_group, the pushed
+# commit on push), so only runs for the same commit cancel each other and the
+# required `ci` check is never cancelled by an unrelated event.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 permissions:

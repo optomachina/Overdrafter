@@ -1,0 +1,159 @@
+name: Required checks rerun
+
+# OVD-1145. Nightly backstop for required checks left cancelled at a PR head.
+# For each open, non-draft PR that targets the default branch, it reads the
+# required check runs at the head sha and re-runs the workflow run behind any
+# required check that is:
+# - cancelled (check run or workflow run conclusion `cancelled`): full re-run
+#   (POST /actions/runs/{id}/rerun);
+# - missing (no check run with the required name at the head) while its
+#   workflow run at the head was cancelled: full re-run;
+# - failed, or missing under a failed run, only because a job in that run was
+#   cancelled (for example the `ci` aggregate failing on a cancelled
+#   dependency): re-run failed and cancelled jobs
+#   (POST /actions/runs/{id}/rerun-failed-jobs).
+# A real failure (no cancelled job in the run), a check still queued or in
+# progress, and a run already at MAX_RUN_ATTEMPT attempts are left alone. A
+# required check with no workflow run at all at the head cannot be re-run over
+# REST and is only reported.
+#
+# Output goes to the job summary only. It never comments on, labels or edits a
+# PR, and never changes a gate or branch protection. No checkout: the job runs
+# no repository code.
+#
+# Required checks (job names) and the workflows that report them. Branch
+# protection is not readable with GITHUB_TOKEN, so this list is kept in step by
+# hand with docs/runbooks/merge-queue.md and REQUIRED_CHECKS in
+# scripts/merge-queue-workflows.test.mjs (the test fails if they drift).
+#
+# A re-run of a pull_request run replays that run's original event payload, so
+# a provider-go-live re-run checks the PR body as it was when the run started.
+
+on:
+  schedule:
+    - cron: "41 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: required-checks-rerun
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  checks: read
+  pull-requests: read
+
+jobs:
+  required-checks-rerun:
+    name: required-checks-rerun
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # check-name=workflow-file pairs, space separated.
+      REQUIRED_CHECKS: "ci=ci.yml provider-go-live=pr-body-gate.yml secret-scan=secret-scan.yml"
+      MAX_RUN_ATTEMPT: "3"
+
+    steps:
+      - name: Re-run cancelled required checks
+        run: |
+          set -euo pipefail
+          summary="$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Required checks rerun"
+            echo
+            echo "Required checks: \`${REQUIRED_CHECKS}\`"
+            echo
+            echo "| PR | Head | Check | State | Action |"
+            echo "| --- | --- | --- | --- | --- |"
+          } >> "$summary"
+
+          row() { echo "| #$1 | \`${2:0:7}\` | $3 | $4 | $5 |" >> "$summary"; }
+
+          reruns=0
+          failures=0
+          declare -A done_runs=()
+
+          prs="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            | jq -r --arg base "$DEFAULT_BRANCH" '.[] | select(.draft | not) | select(.base.ref == $base) | "\(.number) \(.head.sha)"')"
+
+          while read -r pr sha; do
+            [ -n "${pr:-}" ] || continue
+            checks="$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" \
+              | jq -s '[.[].check_runs[] | select(.app.slug == "github-actions")]')"
+
+            for pair in $REQUIRED_CHECKS; do
+              name="${pair%%=*}"
+              workflow="${pair#*=}"
+
+              # Latest check run with the required name at the head.
+              cr="$(jq -c --arg n "$name" '[.[] | select(.name == $n)] | sort_by(.id) | last // empty' <<<"$checks")"
+              [ -n "$cr" ] || cr='{}'
+              cr_status="$(jq -r '.status // "missing"' <<<"$cr")"
+              cr_conclusion="$(jq -r '.conclusion // ""' <<<"$cr")"
+
+              if [ "$cr_status" != "missing" ] && [ "$cr_status" != "completed" ]; then
+                row "$pr" "$sha" "$name" "$cr_status" "skip (still running)"; continue
+              fi
+              case "$cr_conclusion" in
+                success | neutral | skipped)
+                  row "$pr" "$sha" "$name" "$cr_conclusion" "ok"; continue ;;
+              esac
+
+              # Latest pull_request run of the reporting workflow at the head.
+              run="$(gh api "repos/$REPO/actions/workflows/$workflow/runs?head_sha=$sha&event=pull_request&per_page=20" \
+                | jq -c '.workflow_runs | sort_by(.id) | last // empty')"
+              if [ -z "$run" ]; then
+                row "$pr" "$sha" "$name" "${cr_conclusion:-missing}" "report only (no workflow run at head to re-run)"; continue
+              fi
+              run_id="$(jq -r '.id' <<<"$run")"
+              run_status="$(jq -r '.status' <<<"$run")"
+              run_conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+              run_attempt="$(jq -r '.run_attempt // 1' <<<"$run")"
+              state="${cr_conclusion:-missing} (run $run_id: ${run_conclusion:-$run_status})"
+
+              if [ "$run_status" != "completed" ]; then
+                row "$pr" "$sha" "$name" "$state" "skip (run still in progress)"; continue
+              fi
+              if [ -n "${done_runs[$run_id]:-}" ]; then
+                row "$pr" "$sha" "$name" "$state" "covered by re-run of run $run_id"; continue
+              fi
+              if [ "$run_attempt" -ge "$MAX_RUN_ATTEMPT" ]; then
+                row "$pr" "$sha" "$name" "$state" "skip (attempt $run_attempt reached cap $MAX_RUN_ATTEMPT)"; continue
+              fi
+
+              endpoint=""
+              if [ "$cr_conclusion" = "cancelled" ] || [ "$run_conclusion" = "cancelled" ]; then
+                endpoint="rerun"
+              elif [ "$cr_conclusion" = "failure" ] || [ "$cr_conclusion" = "timed_out" ] \
+                || { [ -z "$cr_conclusion" ] && [ "$run_conclusion" = "failure" ]; }; then
+                cancelled_jobs="$(gh api --paginate "repos/$REPO/actions/runs/$run_id/jobs?per_page=100" \
+                  | jq -s '[.[].jobs[] | select(.conclusion == "cancelled")] | length')"
+                if [ "$cancelled_jobs" -gt 0 ]; then
+                  endpoint="rerun-failed-jobs"
+                fi
+              fi
+
+              if [ -z "$endpoint" ]; then
+                row "$pr" "$sha" "$name" "$state" "skip (not caused by cancellation)"; continue
+              fi
+              if gh api --method POST "repos/$REPO/actions/runs/$run_id/$endpoint" --silent; then
+                done_runs[$run_id]=1
+                reruns=$((reruns + 1))
+                row "$pr" "$sha" "$name" "$state" "$endpoint requested"
+              else
+                failures=$((failures + 1))
+                row "$pr" "$sha" "$name" "$state" "$endpoint FAILED"
+              fi
+            done
+          done <<<"$prs"
+
+          {
+            echo
+            echo "Re-runs requested: $reruns. Re-run requests that failed: $failures."
+          } >> "$summary"
+          if [ "$failures" -gt 0 ]; then
+            echo "::warning::$failures re-run request(s) failed; see the job summary."
+          fi
