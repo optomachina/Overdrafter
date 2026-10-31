@@ -66,6 +66,14 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     expect(migrationSql.split("and not (queue.payload ? 'pendingDrawingFileId')")).toHaveLength(gates.length + 1);
   });
 
+  it("refuses to apply before the source_attempt_id worker, and pgTAP runs the guard verbatim", () => {
+    const guard = /do \$ovd979u4_worker_guard\$[\s\S]*?\$ovd979u4_worker_guard\$(?=;)/.exec(migrationSql)?.[0] ?? "";
+    expect(migrationSql.indexOf(guard)).toBeLessThan(migrationSql.indexOf("create or replace function"));
+    expect(guard).toContain("raise exception 'OVD-979 U4 requires the worker that writes drawing_extractions.source_attempt_id'");
+    expect(guard).toContain("and queue.attempt_id is not null\n    and extraction.source_attempt_id is null");
+    expect(read("supabase/tests/ovd979u4_worker_guard.sql")).toContain(`$guard$${guard}$guard$`);
+  });
+
   it("limits every job status update to the four pre-quote statuses", () => {
     const updates = [...migrationSql.matchAll(/update public\.jobs[\s\S]*?;/g)];
     expect(updates).toHaveLength(3);

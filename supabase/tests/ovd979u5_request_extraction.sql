@@ -265,6 +265,19 @@ BEGIN
   UPDATE public.work_queue SET status = 'completed', payload = new_claim.payload WHERE id = new_claim.id;
   GET DIAGNOSTICS n = ROW_COUNT;
   RETURN NEXT is(n, 1, 'reaped attempt: successor settles normally');
+  UPDATE public.work_queue SET status = 'failed', payload = old_claim.payload, last_error = 'late'
+  WHERE id = old_claim.id AND status <> 'cancelled';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late failure skips the completed successor');
+  UPDATE public.work_queue SET status = 'completed', payload = old_claim.payload || '{"late":true}'
+  WHERE id = old_claim.id AND status <> 'cancelled';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late completion cannot rewrite the completed successor');
+  UPDATE public.work_queue SET status = 'cancelled', payload = old_claim.payload WHERE id = old_claim.id;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN NEXT is(n, 0, 'reaped attempt: late cancel skips the completed successor');
+  RETURN NEXT ok((SELECT status = 'completed' AND payload = new_claim.payload AND last_error IS NULL
+    FROM public.work_queue WHERE id = old_claim.id), 'reaped attempt: completed successor keeps its status and payload');
 END;
 $$;
 SELECT * FROM pg_temp.u5_reaped();
