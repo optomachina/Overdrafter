@@ -57,6 +57,13 @@ returned `User`). Two separate decisions for Blaine follow:
 Option B is in force. Option A stays drafted so it can be applied once
 the repo is org-owned.
 
+> **The merge queue is not live (2026-10-31).** GitHub rejected the
+> `merge_queue` rule because `optomachina/Overdrafter` is user-owned, and merge
+> queues are available only to organization-owned repositories. On
+> 2026-10-31 "require branches to be up to date" was turned off on `main`.
+> Until the queue can be enabled, merges stay one at a time, each pinned with
+> `gh pr merge --match-head-commit <sha>`.
+
 ## Why
 
 Before Option B, `main` required `ci` and `provider-go-live` with
@@ -98,11 +105,16 @@ head.
 
 **`secret-scan` on the queue commit.** On `merge_group`, `BASE_SHA` is
 `merge_group.base_sha` (the `main` tip the queue built on) and `HEAD_SHA` is
-`merge_group.head_sha` (the queue commit). The range holds the PR's change,
-plus any entries ahead of it in the queue, so it never scans less than the
-`pull_request` run. The config, `.gitleaksignore` and path block come from that
+`merge_group.head_sha` (the queue commit). `merge_group.base_sha` is the queue entry's parent
+commit, so the range is exactly what this entry adds on top of it: the PR's
+change, rebuilt on that parent. It never scans less than the `pull_request` run
+does for the same change. The config, `.gitleaksignore` and path block come from that
 base, so a PR still cannot relax its own scan. The job keeps
-`continue-on-error` (report mode) on both events.
+`continue-on-error` (report mode) on both events. In plain terms: findings are
+reported and never fail the job, but if the scanner itself cannot run (for
+example the gitleaks download or checksum fails, or a git command errors), the
+`secret-scan` job fails closed, and because it is a required check that blocks
+the PR.
 
 **`provider-go-live` is not re-checked by the queue.** Its `merge_group` run is
 a no op pass. The rule is evaluated only on the PR's own `pull_request` run,
@@ -112,8 +124,9 @@ provider enablement that only appears once the PR is combined with newer
 `main`.
 
 Check names are the bare job `name`s, because branch protection matches the
-check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`) and
-`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`).
+check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`),
+`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`) and
+`secret-scan` (job `secret-scan` in `secret-scan.yml`).
 
 ### Rule for new required checks
 
