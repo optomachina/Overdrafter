@@ -57,10 +57,10 @@ from (values
   (:'user_i'::uuid, 'client-rpc-internal@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
   (:'user_j'::uuid, 'client-rpc-internal-b@example.test', true) -- NOSONAR: psql variable references, not repeated string literals
 ) as fixture(id, email, verified)
-cross join (values ('authenticated')) as api(role_name);
+cross join (values ('authenticated')) as api(role_name); -- NOSONAR: fixture role literal, repeated by design
 insert into public.organizations (id, name, slug) values
   (:'org_a', 'Client RPC org A', 'client-rpc-least-privilege-a'), -- NOSONAR: psql variable references, not repeated string literals
-  (:'org_b', 'Client RPC org B', 'client-rpc-least-privilege-b');
+  (:'org_b', 'Client RPC org B', 'client-rpc-least-privilege-b'); -- NOSONAR: fixture literals, repeated by design
 insert into public.organization_memberships (organization_id, user_id, role)
 select member.org_id, member.user_id, 'client'
 from (values (:'org_a'::uuid, :'user_a'::uuid), (:'org_b'::uuid, :'user_b'::uuid),
@@ -246,7 +246,7 @@ select pg_temp.expect(c.call_sql, c.cross_org_state, c.cross_org_outcome, 'org B
 from pg_temp.rpc_case c order by c.ordinal asc;
 
 -- An absent id gets the same answer as org A's id did above (OVD-746).
-select pg_temp.expect(replace(c.call_sql, absent.target_id, :'absent_id'), c.cross_org_state,
+select pg_temp.expect(replace(c.call_sql, absent.target_id, :'absent_id'), c.cross_org_state, -- NOSONAR: psql variable references, not repeated string literals
   replace(c.cross_org_outcome, absent.target_id, :'absent_id'), 'org B client with an absent id: ' || c.rpc)
 from pg_temp.rpc_case c
 join (values (5, :'request_a'), (9, :'run_a'), (12, :'package_a')) as absent(ordinal, target_id) using (ordinal)

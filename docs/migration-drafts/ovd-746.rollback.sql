@@ -1,8 +1,10 @@
 -- OVD-746 down path for the promoted migration
 -- supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql.
 -- No forward draft: the forward SQL lives only in migrations. Run only inside
--- a migration window, as postgres, if the gate must be withdrawn. It reopens
--- the KNOWN GAP and GAP-B5 behaviors that
+-- a migration window, as postgres, if the gate must be withdrawn, as one
+-- transaction (so the SET LOCAL below bounds every statement):
+--   psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f docs/migration-drafts/ovd-746.rollback.sql
+-- It reopens the KNOWN GAP and GAP-B5 behaviors that
 -- supabase/tests/client_rpc_least_privilege.sql now refuses.
 --
 -- 1. Restores, byte for byte, the prior bodies of api_cancel_quote_request
