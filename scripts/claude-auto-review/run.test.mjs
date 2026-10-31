@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,5 +77,35 @@ describe("claude-auto-review run.sh argv", () => {
     const lines = readFileSync(SCRIPT, "utf8").split("\n").filter((l) => /\bgit -C "\$(SRC|wt)".*\b(worktree add|checkout)\b.*\$(wt|sha)\b/.test(l));
     expect(lines.length).toBe(2);
     for (const l of lines) expect(l).toContain("-c core.symlinks=false");
+  });
+
+  it("picks the risky tier fail-closed", () => {
+    const tier = (body) => {
+      const f = path.join(state, "class.json");
+      if (body === null) rmSync(f, { force: true });
+      else writeFileSync(f, body);
+      const res = spawnSync("/bin/bash", [SCRIPT, "--risky", f], { encoding: "utf8", env: { ...process.env, OVD_REVIEW_STATE: state } });
+      expect(res.status, res.stderr).toBe(0);
+      return res.stdout.trim();
+    };
+    expect(tier(JSON.stringify({ door: null, gate_loosening: { detected: false } }))).toBe("no");
+    expect(tier(JSON.stringify({ door: "revertable", gate_loosening: [] }))).toBe("no");
+    expect(tier(JSON.stringify({ door: "one-way" }))).toBe("yes");
+    expect(tier(JSON.stringify({ status: "error" }))).toBe("yes");
+    expect(tier(JSON.stringify({ gate_loosening: { detected: true } }))).toBe("yes");
+    expect(tier("not json")).toBe("yes");
+    expect(tier(null)).toBe("yes");
+  });
+
+  it("accepts the verdict only on the first line", () => {
+    const check = (text) => {
+      const f = path.join(state, "review.md");
+      writeFileSync(f, text);
+      return spawnSync("/bin/bash", [SCRIPT, "--check-verdict", f], { env: { ...process.env, OVD_REVIEW_STATE: state } }).status;
+    };
+    expect(check("VERDICT: PASS\nok\n")).toBe(0);
+    expect(check("VERDICT: CHANGES_REQUIRED\n")).toBe(0);
+    expect(check("Intro\nVERDICT: PASS\n")).toBe(1);
+    expect(check("VERDICT: PASSED\n")).toBe(1);
   });
 });

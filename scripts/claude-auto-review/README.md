@@ -32,6 +32,8 @@ Log: `/tmp/ovd-claude-review.log`. State and worktrees: `~/.cache/ovd-claude-rev
 The state dir must not be under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Library`,
 `~/.config`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube` or `~/.docker`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run.
 Needs `gh` and Claude Code signed in on the mini, plus `node`. No repository-level credentials.
-Uninstall: `launchctl bootout gui/$(id -u)/com.optomachina.ovd-claude-review`. Nothing else depends on it.
+A finished review is kept until it posts. A failed post or head re-check retries only the post, up to 3 times per head SHA, and never reruns Claude.
+Uninstall: `launchctl bootout gui/$(id -u)/com.optomachina.ovd-claude-review`
+and `rm ~/Library/LaunchAgents/com.optomachina.ovd-claude-review.plist ~/.local/bin/ovd-claude-review`. Nothing else depends on it.
 
 After changing run.sh on main, reinstall it with the `install` line above.
