@@ -42,7 +42,7 @@ import {
 } from "./trust-metrics.mjs";
 
 const each = (values) => (name, check) => {
-  for (const value of values) it(format(name, value), () => check(...(Array.isArray(value) ? value : [value])));
+  for (const value of values) it(format(name, value), () => assert.doesNotThrow(() => check(...(Array.isArray(value) ? value : [value]))));
 };
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/trust-metrics/", import.meta.url));
@@ -227,7 +227,20 @@ describe("QA families", () => {
     assert.equal(qaFamilyBuilder({ body: "Model: opus\nBuilt on cursor" }), "opus");
     assert.equal(qaFamilyBuilder({ author: { login: "robot[bot]" }, body: "Built on cursor" }), "robot");
     assert.equal(qaFamilyBuilder({ body: "Other text\nbUiLt On Cursor more details" }), "cursor");
-    assert.equal(qaFamilyBuilder({ labels: ["model:codex", "model:opus"], body: "Built on claude" }), "claude");
+    assert.equal(qaFamilyBuilder({ labels: ["model:codex", "model:opus"], body: "Built on claude" }), "unknown");
+  });
+
+  it("keeps a conflicting bot attribution unknown instead of falling through to body lines", () => {
+    assert.equal(qaFamilyBuilder({ body: "Model: codex/opus" }), "unknown");
+    assert.equal(qaFamilyBuilder({ labels: ["model:codex"], body: "Model: opus\nBuilt on cursor" }), "unknown");
+    assert.equal(qaFamilyBuilder({ labels: ["model:codex"], body: "Built-by: model=model:opus" }), "codex");
+    assert.equal(qaFamilyBuilder({ labels: ["model:codex"], body: "Model:\nBuilt on cursor" }), "codex");
+  });
+
+  it("trims trailing punctuation from builder names without looping on punctuation-only names", () => {
+    assert.equal(builderFromBodyLines("Built-by: grok-4.7.,;"), "grok-4.7");
+    assert.equal(builderFromBodyLines("Model: ..."), "");
+    assert.equal(builderFromBodyLines(), null);
     assert.equal(qaFamilyBuilder({ body: "It was Built on cursor" }), "unknown");
     assert.equal(qaFamilyBuilder({ body: "Built on " }), "unknown");
     assert.equal(qaFamilyBuilder({ body: "Built on\nUnrelated text" }), "unknown");
@@ -306,6 +319,12 @@ describe("comments-only comparisons", () => {
     [undefined, "@@ -1 +1 @@\n-# old\n+# new", 1, 1],
   ])("rejects # and -- changes in files where they are content: %s", (filename, patch, additions, deletions) => {
     assert.equal(isCommentsOnlyComparison(comparison(patch, { filename, additions, deletions })), false);
+  });
+
+  it("treats // lines inside a template literal as content", () => {
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,3 +1,3 @@\n const url = `\n-//old-path\n+//new-path\n `;")), false);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,2 +1,2 @@\n const a = `x`;\n-// old `quoted`\n+// new")), true);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,3 +1,3 @@\n const s = \"\\`\";\n-// old\n+// new")), true);
   });
 
   it("recognizes block comment context on each side of the patch", () => {

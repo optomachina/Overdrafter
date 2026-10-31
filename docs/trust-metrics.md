@@ -236,7 +236,7 @@ older snapshot means it was not computed.
 | `qaFamilies.perPr[].prNumber` | integer | Merged PR number. |
 | `qaFamilies.perPr[].qaHead` | string or null | SHA from the latest QA verdict's first line (`on <sha>` or `at <sha>`, optionally `head` before the SHA). When absent, uses the PR's `headRefOid` or `head.sha`. Null without a verdict or a known judged head. |
 | `qaFamilies.perPr[].reviewers` | array or `"none"` | Kept model reviews as `{family, model, sha, verdict}`. `"none"` means the PR had a QA verdict but no kept model review; `[]` means no QA verdict. |
-| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; otherwise the model named on PR-body `Built-by:` lines (`model=model:<x>` tokens, else a known model name; must be unanimous) or else on the first `Model:` line; otherwise the lowercased pool token from a case-insensitive `Built on <pool>` line; otherwise `"unknown"`. Only the rest of the same line counts, and a literal `unknown` names no model. |
+| `qaFamilies.perPr[].builder` | string | Non-unknown `attributePullRequest` bot; `"unknown"` when that attribution is `conflicting` (blank `Model:` template lines are ignored for this check); otherwise the model named on PR-body `Built-by:` lines (`model=model:<x>` tokens, else a known model name; must be unanimous) or else on the first `Model:` line; otherwise the lowercased pool token from a case-insensitive `Built on <pool>` line; otherwise `"unknown"`. Only the rest of the same line counts, and a literal `unknown` names no model. |
 | `qaFamilies.summary.qaJudged` | integer | Merged PRs with a QA verdict, including those without a known head. Equals `qa.pass + qa.fail`. |
 | `qaFamilies.summary.reviewersNone` | integer | QA-judged PRs with no kept model review. |
 | `qaFamilies.summary.prs` | integer | All merged PRs in the window. Equals `merges.total`. |
@@ -271,7 +271,9 @@ are `//`, `/* ... */`, and `<!-- ... -->` in any file, `#` only in `.py`, `.sh`,
 `.bash`, `.zsh`, `.yml`, `.yaml`, `.toml`, `.rb`, `.ini`, and `.cfg` files, and
 `--` only in `.sql`, `.pgsql`, `.psql`, and `.lua` files (elsewhere they are
 headings, custom properties, or content). Block context is tracked separately
-on each patch side. Missing/binary/truncated patches, file renames, and
+on each patch side, and so is template-literal state: a line inside a backtick
+literal is content, never a comment. A hunk that starts mid-literal is not
+detected. Missing/binary/truncated patches, file renames, and
 comparisons at GitHub's 300-file cap are rejected conservatively. A comparison
 that cannot be fetched (unknown or force-pushed SHA, API error) counts as not
 comments-only for that pair, is logged by SHA pair only, and never stops the

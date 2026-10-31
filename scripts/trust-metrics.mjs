@@ -231,13 +231,25 @@ export function parseReviewVerdict(body) {
  * header suffix or a later `Verdict:` line in any case, optionally bold. Short shas and
  * non-Architect comments are rejected.
  */
+const skipSeparator = (text) => text.trimStart().replace(/^[:\-\u2014]/, "").trimStart();
+
+// Uppercase verdict after the header's sha: optional separator, optional `(qualifier)`, optional separator.
+function inlineArchitectVerdict(rest) {
+  let text = skipSeparator(rest);
+  if (text.startsWith("(")) {
+    const close = text.indexOf(")");
+    if (close === -1) return null;
+    text = skipSeparator(text.slice(close + 1));
+  }
+  return /^[A-Z][A-Z_]+\b/.exec(text)?.[0] ?? null;
+}
+
 export function parseArchitectReviewHeader(body) {
   const [header, ...lines] = (body ?? "").split(/\r?\n/);
   const match = /^Architect review \((?<model>[^)]+)\) @ (?<sha>[0-9a-f]{40})(?![0-9a-z])(?<rest>.*)$/.exec(header.trimEnd());
   if (!match) return null;
-  const inline = /^\s*(?:[:\-\u2014]\s*)?(?:\([^)]*\)\s*[:\-\u2014]?\s*)?([A-Z][A-Z_]+)\b/.exec(match.groups.rest);
   const verdict = lines.map((line) => /^\**Verdict:\**[\t ]+(\w+)\b/i.exec(line)).find(Boolean);
-  const value = verdict?.[1] ?? inline?.[1];
+  const value = verdict?.[1] ?? inlineArchitectVerdict(match.groups.rest);
   return value ? { model: match.groups.model, sha: match.groups.sha, verdict: value.toLowerCase() } : null;
 }
 
@@ -259,20 +271,24 @@ export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = (
   return reviewSha === qaHead || isCommentsOnlyAncestor(reviewSha, qaHead) === true;
 }
 
-const BUILDER_MODEL = /\b(codex|opus|sonnet|claude(?:-opus|-sonnet)?|grok(?:-[0-9][0-9.]*)?|gpt-[0-9][a-z0-9.-]*|jev)\b/gi;
+const BUILDER_MODEL_NAMES = ["codex", "opus", "sonnet", String.raw`claude(?:-opus|-sonnet)?`, String.raw`grok(?:-\d[\d.]*)?`, String.raw`gpt-\d[a-z\d.-]*`, "jev"];
+const BUILDER_MODEL = new RegExp(String.raw`\b(${BUILDER_MODEL_NAMES.join("|")})\b`, "gi");
 
 const UNKNOWN_BUILDER = "unknown";
-const builderKey = (model) => model.toLowerCase().replace(/[.,;]+$/, "");
+function builderKey(model) {
+  let key = model.toLowerCase();
+  while (key && ".,;".includes(key.at(-1))) key = key.slice(0, -1);
+  return key;
+}
 
 /**
  * Model named on `Built-by:` lines (unanimous across lines) or else on the first `Model:` line.
  * Only the rest of the same line counts, so a blank template line never credits the next line,
  * and a literal `unknown` names no model.
  */
-export function builderFromBodyLines(body) {
-  const text = body ?? "";
+export function builderFromBodyLines(text = "") {
   const built = new Set();
-  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:[\t ]*(.*)$/gim)) {
+  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:(.*)$/gim)) {
     const tagged = [...line.matchAll(/model[:=](?:model:)?([a-z0-9._-]+)/gi)].map((m) => m[1]);
     const found = tagged.length ? tagged : [...line.matchAll(BUILDER_MODEL)].map((m) => m[1]);
     for (const model of found.map(builderKey)) if (model !== UNKNOWN_BUILDER) built.add(model);
@@ -283,10 +299,13 @@ export function builderFromBodyLines(body) {
   return model && builderKey(model) !== UNKNOWN_BUILDER ? builderKey(model) : null;
 }
 
+// A blank `Model:` template line names no builder; any other conflicting evidence stays unknown.
+const withoutBlankModelLines = (body) => (body ?? "").split("\n").filter((line) => parseBodyModelToken(line) !== "").join("\n");
+
 export function qaFamilyBuilder(pr) {
-  const { bot } = attributePullRequest(pr);
-  if (bot !== "unknown") return bot;
-  const fromLines = builderFromBodyLines(pr.body);
+  const { bot, status } = attributePullRequest({ ...pr, body: withoutBlankModelLines(pr.body) });
+  if (bot !== "unknown" || status === "conflicting") return bot;
+  const fromLines = builderFromBodyLines(pr.body ?? "");
   if (fromLines) return fromLines;
   return /^[\t ]*Built on[\t ]+(\S+)/im.exec(pr.body ?? "")?.[1].toLowerCase() ?? UNKNOWN_BUILDER;
 }
@@ -625,29 +644,34 @@ function commentLine(line, block, prefixes) {
   return { onlyComment: true, block };
 }
 
+const hasOddBackticks = (text) => (text.match(/(?<!\\)`/g)?.length ?? 0) % 2 === 1;
+
+// A line inside a template literal is content, never a comment; an odd count of unescaped
+// backticks on a code line opens or closes one. A hunk starting mid-literal is not detected.
+function scanPatchLine(text, state, prefixes) {
+  const result = state.template ? { onlyComment: false, block: null } : commentLine(text, state.block, prefixes);
+  state.block = result.block;
+  if (!result.onlyComment && hasOddBackticks(text)) state.template = !state.template;
+  return result.onlyComment;
+}
+
+const freshSides = () => ({ "+": { block: null, template: false }, "-": { block: null, template: false } });
+
 function isCommentsOnlyPatch(file) {
   if (!["modified", "added", "removed"].includes(file.status) || typeof file.patch !== "string") return false;
-  let added = 0;
-  let removed = 0;
-  const blocks = { "+": null, "-": null };
+  const changed = { "+": 0, "-": 0 };
+  let sides = freshSides();
   const prefixes = lineCommentPrefixes(file.filename);
   for (const line of file.patch.split("\n")) {
-    if (line.startsWith("@@")) {
-      blocks["+"] = null;
-      blocks["-"] = null;
-      continue;
+    const marker = line[0];
+    if (line.startsWith("@@")) sides = freshSides();
+    else if (marker === " ") for (const side of ["+", "-"]) scanPatchLine(line.slice(1), sides[side], prefixes);
+    else if (marker in changed) {
+      if (!scanPatchLine(line.slice(1), sides[marker], prefixes)) return false;
+      changed[marker] += 1;
     }
-    const prefix = line[0];
-    if (!["+", "-", " "].includes(prefix)) continue;
-    for (const side of prefix === " " ? ["+", "-"] : [prefix]) {
-      const result = commentLine(line.slice(1), blocks[side], prefixes);
-      if (prefix !== " " && !result.onlyComment) return false;
-      blocks[side] = result.block;
-    }
-    if (prefix === "+") added += 1;
-    if (prefix === "-") removed += 1;
   }
-  return added + removed > 0 && added === file.additions && removed === file.deletions;
+  return changed["+"] + changed["-"] > 0 && changed["+"] === file.additions && changed["-"] === file.deletions;
 }
 
 /** Missing/binary/truncated patches and comparisons beyond GitHub's file cap fail closed. */
