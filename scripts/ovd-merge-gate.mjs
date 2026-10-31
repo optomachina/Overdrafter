@@ -879,25 +879,97 @@ const MAX_EVIDENCE_SHAS = 20;
 /** Check-run output.text is capped at 65535 characters by GitHub. */
 const MAX_OUTPUT_TEXT = 60000;
 
+/** Retries of a rate-limited request (retry-after, or x-ratelimit-remaining 0); never of any other error. */
+export const RATE_LIMIT_RETRIES = 3;
+/** Longest single wait. A limit that resets later than this is not waited for: the call fails closed at once. */
+export const RATE_LIMIT_MAX_WAIT_MS = 60_000;
+const RATE_LIMIT_BASE_WAIT_MS = 1_000;
+const DIGITS = /^\d{1,12}$/;
+
+/** A response header as a short digit string, or null; anything else is not trusted as a number. */
+function digitHeader(response, name) {
+  const value = response?.headers?.get?.(name);
+  return typeof value === "string" && DIGITS.test(value.trim()) ? value.trim() : null;
+}
+
+/** The rate-limit headers and the body's message of a 403/429 (the body is GitHub's error JSON; data only). */
+async function rateLimitDetail(response) {
+  const rawRetryAfter = response?.headers?.get?.("retry-after");
+  let message = null;
+  try {
+    const parsed = JSON.parse(await response.text());
+    if (typeof parsed?.message === "string") message = parsed.message.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200);
+  } catch {
+    // No readable body: the status and headers still describe the failure.
+  }
+  return {
+    remaining: digitHeader(response, "x-ratelimit-remaining"),
+    reset: digitHeader(response, "x-ratelimit-reset"),
+    retryAfter: typeof rawRetryAfter === "string" && rawRetryAfter.trim() ? (digitHeader(response, "retry-after") ?? "unparsed") : null,
+    message,
+  };
+}
+
+/**
+ * Milliseconds to wait before retry `attempt` (0-based), or null when the
+ * failure is not a rate limit or its limit resets beyond the cap. A rate
+ * limit is a retry-after header or x-ratelimit-remaining 0; the wait is the
+ * later of retry-after and (when remaining is 0) x-ratelimit-reset, with an
+ * exponential floor.
+ */
+export function rateLimitWait(detail, attempt, nowMs) {
+  const waits = [];
+  if (detail?.retryAfter) waits.push(DIGITS.test(detail.retryAfter) ? Number(detail.retryAfter) * 1000 : 0);
+  if (detail?.remaining === "0") waits.push(detail.reset ? Number(detail.reset) * 1000 - nowMs : 0);
+  if (!waits.length) return null;
+  const wait = Math.max(...waits, RATE_LIMIT_BASE_WAIT_MS * 2 ** attempt);
+  return wait <= RATE_LIMIT_MAX_WAIT_MS ? wait : null;
+}
+
 export class GithubApiError extends Error {
-  constructor(status, apiPath) {
-    super(`GitHub API ${apiPath} returned ${status}`);
+  constructor(status, apiPath, detail = null) {
+    const fields = detail
+      ? [
+          ["x-ratelimit-remaining", detail.remaining],
+          ["x-ratelimit-reset", detail.reset],
+          ["retry-after", detail.retryAfter],
+          ["message", detail.message === null || detail.message === undefined ? null : JSON.stringify(detail.message)],
+          ["attempts", detail.attempts],
+        ].filter(([, value]) => value !== null && value !== undefined)
+      : [];
+    const pairs = fields.map(([key, value]) => key + ": " + value).join(", ");
+    const suffix = fields.length ? ` (${pairs})` : "";
+    super(`GitHub API ${apiPath} returned ${status}${suffix}`);
     this.status = status;
+    this.rateLimit = detail;
   }
 }
 
-/** Minimal GitHub REST client over fetch: json/raw (what the detector's fetchPullRequest uses), paginate, post. */
-export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl = globalThis.fetch } = {}) {
+/**
+ * Minimal GitHub REST client over fetch: json/raw (what the detector's
+ * fetchPullRequest uses), paginate, post. A 403/429 records its rate-limit
+ * headers and message in the error; only a rate limit is retried (up to
+ * RATE_LIMIT_RETRIES times), and a call that still fails throws, so the gate
+ * fails closed.
+ */
+export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const headers = { "x-github-api-version": "2022-11-28", "user-agent": "overdrafter-ovd-merge-gate" };
   if (token) headers.authorization = `Bearer ${token}`;
   const request = async (method, apiPath, { body, accept = "application/vnd.github+json" } = {}) => {
-    const response = await fetchImpl(`${apiUrl}${apiPath}`, {
-      method,
-      headers: { ...headers, accept, ...(body ? { "content-type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) throw new GithubApiError(response.status, apiPath);
-    return response;
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetchImpl(`${apiUrl}${apiPath}`, {
+        method,
+        headers: { ...headers, accept, ...(body ? { "content-type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (response.ok) return response;
+      if (response.status !== 403 && response.status !== 429) throw new GithubApiError(response.status, apiPath);
+      const detail = await rateLimitDetail(response);
+      const wait = attempt < RATE_LIMIT_RETRIES ? rateLimitWait(detail, attempt, now()) : null;
+      if (wait === null) throw new GithubApiError(response.status, apiPath, { ...detail, attempts: attempt + 1 });
+      log(`ovd-merge-gate: ${method} ${apiPath} rate limited (${response.status}); retry ${attempt + 1}/${RATE_LIMIT_RETRIES} in ${Math.ceil(wait / 1000)}s`);
+      await sleep(wait);
+    }
   };
   const json = async (apiPath) => (await request("GET", apiPath)).json();
   const paginate = async (apiPath, pick = (data) => data) => {
@@ -944,6 +1016,7 @@ function authEnv(token) {
 
 /** A fresh, empty directory for the bare object store that holds the PR's git data. */
 const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data-"));
+const removeDataStore = (store) => rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 
 /**
  * Recompute diff_id over base...head. With fetch (the workflow), the PR head
@@ -955,7 +1028,7 @@ const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data
  * origin/<base> in `cwd`. Returns { diffId, error } and never throws: any
  * failure is "cannot compute".
  */
-export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore }) {
+export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore, removeStore = removeDataStore }) {
   let store = null;
   try {
     const head = assertSha(headSha, "head");
@@ -968,13 +1041,23 @@ export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = tru
     if (typeof repo !== "string" || !REPO.test(repo)) throw new Error("repository is not owner/name");
     store = makeStore();
     git(["init", "--bare", "--quiet", store], { cwd: store });
-    git(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
+    // No auto-maintenance: newer git (seen on 2.56) can detach a background commit-graph
+    // write after fetch, which races the store removal below (ENOTEMPTY).
+    git(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
     const base = git(["--git-dir", store, "rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd: store }).trim();
     return { diffId: diff({ base: assertSha(base, "base"), head, cwd: store }), error: null };
   } catch (error) {
     return { diffId: null, error: error?.message ?? String(error) };
   } finally {
-    if (store) rmSync(store, { recursive: true, force: true });
+    // Best effort: cleanup of a temp store must never turn a computed result
+    // into a writer failure.
+    if (store) {
+      try {
+        removeStore(store);
+      } catch (error) {
+        process.stderr.write(`ovd-merge-gate: could not remove ${store}: ${error?.message ?? error}\n`);
+      }
+    }
   }
 }
 
@@ -1405,6 +1488,8 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
     return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
+    // The writer step tees stdout into the step summary, so the API failure (status, rate-limit headers, message) shows there too.
+    if (error instanceof GithubApiError) stdout.write(`### ovd-merge-gate: ERROR\n\n${error.message}\n`);
     return 1;
   }
 }

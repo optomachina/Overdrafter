@@ -2135,17 +2135,17 @@ export async function setQuantity(
   binding?: OperationalJevBinding,
   beforeSubmit: () => Promise<void> = async () => undefined,
 ) {
-  const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
+  const readback = await readVisibleLineItemQuantityInputs(page);
 
-  if (!match) {
+  if (readback.entries.length === 0) {
     const failure = new VendorAutomationError(
       "Xometry quantity input was not found.",
       "selector_failure",
       {
         vendor: "xometry",
-        failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
-        attemptedSelectors: [...XOMETRY_LOCATORS.quantityInputs],
-        nearbyAttributes: [...XOMETRY_LOCATORS.quantityInputs],
+        failedSelector: XOMETRY_LOCATORS.lineItemQuantityInputs[0],
+        attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+        nearbyAttributes: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
         url: page.url(),
       },
     );
@@ -2168,33 +2168,104 @@ export async function setQuantity(
     throw failure;
   }
 
-  await match.locator.fill(String(quantity));
+  if (readback.entries.length > 1) {
+    throw new VendorAutomationError(
+      "Xometry shows more than one line-item quantity input.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "quantity_input_ambiguous",
+        failedSelector: readback.selector,
+        attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+        requestedQuantity: quantity,
+        observedLineItemQuantities: readback.entries.map((entry) => entry.value),
+        url: page.url(),
+      },
+    );
+  }
+
+  const [{ locator, value }] = readback.entries;
+  if (value === quantity) {
+    return { selector: readback.selector, filled: false };
+  }
+
+  // The switch can engage during the readback; check it before writing to the page.
+  await beforeSubmit();
+  await locator.fill(String(quantity));
   // OVD-722: Enter can submit the form; read the switch again between the
   // fill and the key press.
   await beforeSubmit();
-  await match.locator.press("Enter");
+  await locator.press("Enter");
+
+  const observed = await readSettledQuantity(page, locator, quantity);
+  if (observed !== quantity) {
+    throw new VendorAutomationError(
+      "Xometry line-item quantity did not read back the requested quantity after it was filled.",
+      "unexpected_ui_state",
+      {
+        vendor: "xometry",
+        reason: "quantity_fill_unverified",
+        terminalState: "configuration_required",
+        requestedQuantity: quantity,
+        observedLineItemQuantities: [observed],
+        lineItemQuantitySelector: readback.selector,
+        url: page.url(),
+      },
+    );
+  }
+  return { selector: readback.selector, filled: true };
+}
+
+const XOMETRY_QUANTITY_SETTLE_POLLS = 5;
+const XOMETRY_QUANTITY_SETTLE_POLL_MS = 200;
+
+/**
+ * Reads the stepper back after Enter. Xometry may re-render or debounce the
+ * row, so a correct fill can briefly read stale; poll a bounded number of times
+ * for the requested value and return the last value read, so a value that never
+ * settles still fails closed.
+ */
+async function readSettledQuantity(page: Page, locator: Locator, quantity: number) {
+  let observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  for (let poll = 0; poll < XOMETRY_QUANTITY_SETTLE_POLLS && observed !== quantity; poll += 1) {
+    await page.waitForTimeout(XOMETRY_QUANTITY_SETTLE_POLL_MS).catch(() => undefined);
+    observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  }
+  return observed;
+}
+
+function parseQuantityValue(raw: string) {
+  const value = raw.trim();
+  return /^\d+$/.test(value) ? Number.parseInt(value, 10) : null;
 }
 
 /**
- * OVD-776: reads the part row's quantity input values from the first
- * row-scoped selector with a visible match. Every visible match is returned,
- * so a second row or a stray widget with another value cannot hide behind
- * the first one. Unparseable values are returned as null.
+ * OVD-776: the visible line-item quantity inputs of the first row-scoped
+ * selector with a visible match, with their values. Every visible match is
+ * returned, so a second row or a stray widget with another value cannot hide
+ * behind the first one. Unparseable values are returned as null.
  */
-async function readLineItemQuantities(page: Page) {
+async function readVisibleLineItemQuantityInputs(page: Page) {
   for (const selector of XOMETRY_LOCATORS.lineItemQuantityInputs) {
     const locator = page.locator(selector);
     const count = Math.min(await locator.count().catch(() => 0), 10);
-    const values: Array<number | null> = [];
+    const entries: Array<{ locator: Locator; value: number | null }> = [];
     for (let index = 0; index < count; index += 1) {
       const input = locator.nth(index);
       if (!(await input.isVisible().catch(() => false))) continue;
-      const value = (await input.inputValue().catch(() => "")).trim();
-      values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
+      entries.push({
+        locator: input,
+        value: parseQuantityValue(await input.inputValue().catch(() => "")),
+      });
     }
-    if (values.length > 0) return { selector, values };
+    if (entries.length > 0) return { selector, entries };
   }
-  return { selector: null, values: [] as Array<number | null> };
+  return { selector: null, entries: [] as Array<{ locator: Locator; value: number | null }> };
+}
+
+async function readLineItemQuantities(page: Page) {
+  const readback = await readVisibleLineItemQuantityInputs(page);
+  return { selector: readback.selector, values: readback.entries.map((entry) => entry.value) };
 }
 
 /**
@@ -3558,13 +3629,17 @@ export class XometryAdapter extends VendorAdapter {
         selectedTolerance = requestedTolerance.tier;
       } else {
         await input.providerKillSwitchCheckpoint?.("before_configure");
+        // The quantity lives on the quote page's part row. The configure view
+        // that Edit Configuration opens exposed no quantity input the adapter
+        // could find on 2026-10-24 (production job 8c17931b), so the quantity
+        // is set on the row before the view opens.
+        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
+          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
         await openPartConfigurationIfNeeded(
           page,
           this.config.browserTimeoutMs,
         );
-        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
-          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
-        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
         // OVD-777: plate-like geometry can auto-select Sheet Cutting, whose
         // catalog has no CNC material options.

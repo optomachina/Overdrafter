@@ -7,23 +7,29 @@ import path from "node:path";
 // js-yaml ships with eslint (a dev dependency); no direct dependency added.
 import yaml from "js-yaml";
 import { afterEach, describe, expect, it } from "vitest";
-import { APPROVAL_SCHEMA_ID, formatApprovalBlock } from "./approval-record.mjs";
+import { APPROVAL_FENCE_INFO, APPROVAL_SCHEMA_ID, formatApprovalBlock } from "./approval-record.mjs";
 import { computeDiffId } from "./emit-verdict.mjs";
+import { FENCE_INFO } from "./verdict-schema.mjs";
 import {
   APP_TRUSTED_VERIFIERS,
   CHECK_NAME,
+  GithubApiError,
   IDENTITY,
   MODE,
   TRUSTED_VERIFIERS,
   classifyPull,
   collectVerdicts,
   conclusionFor,
+  createApi,
   bodyBuilders,
   deletedVerdictsFromEvent,
   evaluate,
   formatSummary,
   headDiffId,
   main,
+  RATE_LIMIT_MAX_WAIT_MS,
+  RATE_LIMIT_RETRIES,
+  rateLimitWait,
   reasonCodes,
   runGate,
 } from "./ovd-merge-gate.mjs";
@@ -561,6 +567,9 @@ describe("conclusion (§6 item 4)", () => {
   });
 });
 
+const COMMENT_FILTER =
+  "(github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval'))";
+
 describe("workflow YAML (§6 item 5)", () => {
   const workflow = yaml.load(readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8"));
   const jobs = Object.entries(workflow.jobs);
@@ -592,8 +601,20 @@ describe("workflow YAML (§6 item 5)", () => {
       expect(key).not.toBe(CHECK_NAME);
       expect(job.name).toBe(key);
       // F1: the writer must run even when the history job failed; no condition may skip either job.
-      expect(job.if).toBe(key === "ovd-merge-gate-writer" ? "${{ always() && github.event_name != 'merge_group' }}" : key.endsWith("queue") ? "github.event_name == 'merge_group'" : "github.event_name != 'merge_group'");
+      expect(job.if).toBe(key === "ovd-merge-gate-writer" ? `\${{ always() && github.event_name != 'merge_group' && ${COMMENT_FILTER} }}` : key.endsWith("queue") ? "github.event_name == 'merge_group'" : `\${{ github.event_name != 'merge_group' && ${COMMENT_FILTER} }}`);
     }
+  });
+
+  it("starts issue_comment runs only for comments that hold or held a verdict or approval fence", () => {
+    // The filter is the same on both jobs (the writer needs history), covers the
+    // current body and, for an edit, the previous one, and names exactly the
+    // fences the parsers read. Every non-comment trigger passes it unchanged.
+    for (const field of ["github.event.comment.body", "github.event.changes.body.from"]) {
+      for (const fence of [FENCE_INFO, APPROVAL_FENCE_INFO]) expect(COMMENT_FILTER).toContain(`contains(${field}, '\`\`\`${fence}')`);
+    }
+    expect(COMMENT_FILTER.startsWith("(github.event_name != 'issue_comment' || ")).toBe(true);
+    expect(COMMENT_FILTER.match(/contains\(/g)).toHaveLength(4);
+    expect(COMMENT_FILTER).not.toMatch(/startsWith/);
   });
 
   it("passes the history job result to the writer (F1)", () => {
@@ -607,6 +628,7 @@ describe("workflow YAML (§6 item 5)", () => {
     const writer = workflow.jobs["ovd-merge-gate-writer"];
     expect(writer.concurrency.group).toBe("ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}");
     expect(writer.concurrency["cancel-in-progress"]).toBe(false);
+    expect(writer.concurrency.queue).toBe("max");
     expect(writer.needs).toBe("ovd-merge-gate-history");
   });
 
@@ -1049,12 +1071,12 @@ describe("verifier independence from the PR builder (ruling 1, stage A warning)"
 describe("headDiffId", () => {
   it("fetches the PR head and base as data into a separate bare store, with the token only in the git child env", () => {
     const calls = [];
-    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
     let diffCwd;
     const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), makeStore: () => store, diff: ({ base, head, cwd }) => { diffCwd = cwd; return base === BASE && head === HEAD ? DIFF : "wrong"; } });
     expect(result).toEqual({ diffId: DIFF, error: null });
     expect(calls[0].args).toEqual(["init", "--bare", "--quiet", store]);
-    expect(calls[1].args).toEqual(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
+    expect(calls[1].args).toEqual(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
     expect(calls[2].args.slice(0, 2)).toEqual(["--git-dir", store]);
     // Nothing runs in the trusted checkout (/x): every git call and the diff use the store.
     expect(diffCwd).toBe(store);
@@ -1065,6 +1087,42 @@ describe("headDiffId", () => {
     expect(calls[2].env).toEqual({});
     // The store is removed afterwards.
     expect(() => readFileSync(path.join(store, "HEAD"))).toThrow();
+  });
+
+  it("still returns the computed diff_id when removing the store fails (ENOTEMPTY)", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git: fakeGit([]), makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: DIFF, error: null });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
+  });
+
+  it("returns the fetch error, not the cleanup error, when the fetch and the store removal both fail", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    const git = (args) => {
+      if (args.includes("fetch")) throw new Error("fatal: could not read from remote repository");
+      return "";
+    };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git, makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: null, error: "fatal: could not read from remote repository" });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
   });
 
   it.each([
@@ -1696,4 +1754,109 @@ it("optional door reporting never crowds out existing history or changes a check
   expect(gate.summaryText(expanded, 4000)).toBe(gate.summaryText(original, 4000));
   expect(formatSummary(expanded).length).toBeLessThanOrEqual(formatSummary(original).length + 4000);
   expect(conclusionFor(expanded)).toEqual(conclusionFor(original));
+});
+
+describe("createApi rate limits (403 bursts under issue_comment)", () => {
+  const NOW = 1_790_000_000_000;
+  const reply = (status, headers = {}, body = { message: status === 200 ? "ok" : "denied" }) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name) => headers[name.toLowerCase()] ?? null },
+    text: async () => JSON.stringify(body),
+    json: async () => body,
+  });
+  const harness = (replies) => {
+    const calls = [];
+    const waits = [];
+    const logs = [];
+    const fetchImpl = async (url, options) => {
+      calls.push({ url, method: options.method });
+      return replies[Math.min(calls.length - 1, replies.length - 1)];
+    };
+    const client = createApi({ token: "t", apiUrl: "https://api.test", fetchImpl, sleep: async (ms) => waits.push(ms), now: () => NOW, log: (line) => logs.push(line) });
+    return { client, calls, waits, logs };
+  };
+  const secondary = (status) => reply(status, { "retry-after": "2", "x-ratelimit-remaining": "4527", "x-ratelimit-reset": "1790003600" }, { message: "You have exceeded a secondary rate limit" });
+
+  for (const status of [403, 429]) {
+    it(`retries a rate-limited ${status} (retry-after) and returns the success`, async () => {
+      const { client, calls, waits, logs } = harness([secondary(status), secondary(status), reply(200, {}, { head: { sha: "a" } })]);
+      await expect(client.json("/repos/o/r/pulls/7")).resolves.toEqual({ head: { sha: "a" } });
+      expect(calls).toHaveLength(3);
+      expect(waits).toEqual([2000, 2000]);
+      expect(logs[0]).toContain("retry 1/3 in 2s");
+    });
+  }
+
+  it("retries an exhausted quota (x-ratelimit-remaining 0) until its reset, then succeeds", async () => {
+    const exhausted = reply(403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1000 + 5) }, { message: "API rate limit exceeded" });
+    const { client, calls, waits } = harness([exhausted, reply(200, {}, [])]);
+    await expect(client.json("/repos/o/r/issues/7/comments")).resolves.toEqual([]);
+    expect(calls).toHaveLength(2);
+    expect(waits).toEqual([5000]);
+  });
+
+  it("fails closed after RATE_LIMIT_RETRIES retries, with the headers and message in the error and the step summary", async () => {
+    const { client, calls, waits } = harness([secondary(403)]);
+    const error = await client.json("/repos/o/r/pulls/7").catch((caught) => caught);
+    expect(error).toBeInstanceOf(GithubApiError);
+    expect(error.status).toBe(403);
+    expect(calls).toHaveLength(RATE_LIMIT_RETRIES + 1);
+    expect(waits).toEqual([2000, 2000, 4000]);
+    expect(error.message).toBe('GitHub API /repos/o/r/pulls/7 returned 403 (x-ratelimit-remaining: 4527, x-ratelimit-reset: 1790003600, retry-after: 2, message: "You have exceeded a secondary rate limit", attempts: 4)');
+
+    // main() prints the error to stdout, which the workflow tees into the step summary.
+    const out = [];
+    const err = [];
+    const code = await main(["write", "--repo", "o/r", "--pr", "7"], {
+      env: { GITHUB_TOKEN: "t", GITHUB_API_URL: "https://api.test" },
+      fetchImpl: async () => reply(403, {}, { message: "Resource not accessible by integration" }),
+      stdout: { write: (text) => out.push(text) },
+      stderr: { write: (text) => err.push(text) },
+    });
+    expect(code).toBe(1);
+    expect(out.join("")).toContain("### ovd-merge-gate: ERROR");
+    expect(out.join("")).toContain('returned 403 (message: "Resource not accessible by integration", attempts: 1)');
+    expect(err.join("")).toContain("returned 403");
+  });
+
+  it("never retries a plain 403: one call, immediate failure", async () => {
+    const { client, calls, waits } = harness([reply(403, { "x-ratelimit-remaining": "4527", "x-ratelimit-reset": "1790003600" }, { message: "Resource not accessible by integration" }), reply(200)]);
+    const error = await client.json("/repos/o/r/pulls/7").catch((caught) => caught);
+    expect(error).toBeInstanceOf(GithubApiError);
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+    expect(error.message).toContain('x-ratelimit-remaining: 4527');
+    expect(error.message).toContain("attempts: 1");
+  });
+
+  it("never retries other statuses, and keeps their message unchanged", async () => {
+    const { client, calls } = harness([reply(404), reply(200)]);
+    await expect(client.json("/repos/o/r/pulls/7")).rejects.toThrow(/^GitHub API \/repos\/o\/r\/pulls\/7 returned 404$/);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not wait for a limit that resets beyond the cap: one call, fails closed", async () => {
+    const far = reply(403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1000 + 3600) });
+    const { client, calls, waits } = harness([far, reply(200)]);
+    await expect(client.json("/repos/o/r/pulls/7")).rejects.toBeInstanceOf(GithubApiError);
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+  });
+
+  it("rateLimitWait honors retry-after, then reset, with an exponential floor and the cap", () => {
+    expect(rateLimitWait({ retryAfter: "10" }, 0, NOW)).toBe(10_000);
+    expect(rateLimitWait({ retryAfter: "unparsed" }, 2, NOW)).toBe(4000);
+    expect(rateLimitWait({ retryAfter: "61" }, 0, NOW)).toBeNull();
+    expect(rateLimitWait({ remaining: "0", reset: String(NOW / 1000 - 5) }, 1, NOW)).toBe(2000);
+    expect(rateLimitWait({ remaining: "0", reset: null }, 0, NOW)).toBe(1000);
+    expect(rateLimitWait({ remaining: "1", reset: String(NOW / 1000 + 5) }, 0, NOW)).toBeNull();
+    expect(rateLimitWait({}, 0, NOW)).toBeNull();
+    // Both headers: the later of the two, so a retry never runs before an exhausted quota resets.
+    expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(30_000);
+    expect(rateLimitWait({ retryAfter: "40", remaining: "0", reset: String(NOW / 1000 + 5) }, 0, NOW)).toBe(40_000);
+    expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 3600) }, 0, NOW)).toBeNull();
+    expect(rateLimitWait({ retryAfter: "2", remaining: "4527", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(2000);
+    expect(RATE_LIMIT_MAX_WAIT_MS).toBe(60_000);
+  });
 });
