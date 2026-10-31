@@ -1,0 +1,11 @@
+mode: fixture
+features: auth,quote,provider
+skipped features: none
+specs: e2e/client-shell.spec.ts e2e/part-reload.spec.ts e2e/quote-comparison.spec.ts e2e/admin-operations.spec.ts e2e/engineering-admin-route.spec.ts e2e/journeys/jarvis-front-door.spec.ts
+configs: playwright.config.ts e2e/admin-operations.config.ts
+command: npx playwright test --config playwright.config.ts e2e/client-shell.spec.ts e2e/part-reload.spec.ts e2e/quote-comparison.spec.ts e2e/engineering-admin-route.spec.ts e2e/journeys/jarvis-front-door.spec.ts --grep @fixture --reporter=list,json --output /tmp/qa964/artifacts/verify-overdrafter/20261031T051135Z/test-results-0 --trace on
+command: npx playwright test --config e2e/admin-operations.config.ts e2e/admin-operations.spec.ts --grep @fixture --reporter=list,json --output /tmp/qa964/artifacts/verify-overdrafter/20261031T051135Z/test-results-1 --trace on
+git head: ddb37c73374b6c096c9c21b0b3de209c7679ef7a (clean tree)
+exit codes: 0 0
+tests: passed=37 failed=0 skipped=0 expectedFail=0 flaky=0
+verdict: PASS
