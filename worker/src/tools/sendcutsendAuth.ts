@@ -105,7 +105,7 @@ export async function saveSendCutSendSession(
   } finally {
     await verification.close();
   }
-  await writePrivateStorageState({ storageState: async () => filtered.state }, outputPath);
+  await writePrivateStorageState({ storageState: () => Promise.resolve(filtered.state) }, outputPath);
   log(`Saved SendCutSend storage state to: ${outputPath}`);
   log(`Kept ${filtered.keptCookies} cookie(s) for ${SENDCUTSEND_ALLOWED_HOSTS.join(", ")}.`);
   if (filtered.droppedCookieDomains.length > 0) {

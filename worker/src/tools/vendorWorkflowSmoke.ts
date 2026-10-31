@@ -811,44 +811,23 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
-/**
- * Builds a live-evaluation input from exact provider metadata and a canonical
- * SendCutSend manifest when that local evaluation lane is selected.
- */
-function makeInput(input: {
+type VendorRequirementSpec = {
+  material: string;
+  finish: string;
+  specSnapshot: Record<string, unknown> | undefined;
+};
+
+/** Material, finish and spec snapshot for the selected vendor's local evaluation lane. */
+function vendorRequirementSpec(input: {
   vendor: VendorName;
-  quantity: number;
   cadPath: string;
-  drawingPath: string | null;
-  stagedCadPath: string;
-  stagedDrawingPath: string | null;
-  authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
   oshcutPackage: OshcutPackageMetadata | null;
   rmfgStock: RmfgStockMetadata | null;
   sendCutSendManifest: SendCutSendEvaluationManifest | null;
   sendCutSendSheetPackage?: SendCutSendSheetPackage | null;
-  providerPortalApproval: ProviderPortalApprovalDescriptor | null;
-  requestedQuantities: number[];
-}): VendorQuoteAdapterInput {
-  const {
-    vendor,
-    quantity,
-    cadPath,
-    drawingPath,
-    stagedCadPath,
-    stagedDrawingPath,
-    authorization,
-    fabworksPackage,
-    oshcutPackage,
-    rmfgStock,
-    sendCutSendManifest,
-    sendCutSendSheetPackage,
-    providerPortalApproval,
-    requestedQuantities,
-  } = input;
-  const stamp = Date.now();
-  const idPrefix = `${vendor}-smoke-q${quantity}`;
+}): VendorRequirementSpec {
+  const { vendor, cadPath, fabworksPackage, oshcutPackage, rmfgStock, sendCutSendManifest, sendCutSendSheetPackage } = input;
   let material = "6061 aluminum";
   let finish = "as machined";
   let specSnapshot: Record<string, unknown> | undefined;
@@ -897,6 +876,44 @@ function makeInput(input: {
       evaluationManifest: sendCutSendManifest,
     };
   }
+  return { material, finish, specSnapshot };
+}
+
+/**
+ * Builds a live-evaluation input from exact provider metadata and a canonical
+ * SendCutSend manifest when that local evaluation lane is selected.
+ */
+function makeInput(input: {
+  vendor: VendorName;
+  quantity: number;
+  cadPath: string;
+  drawingPath: string | null;
+  stagedCadPath: string;
+  stagedDrawingPath: string | null;
+  authorization: LiveEvaluationAuthorization;
+  fabworksPackage: FabworksPackageMetadata | null;
+  oshcutPackage: OshcutPackageMetadata | null;
+  rmfgStock: RmfgStockMetadata | null;
+  sendCutSendManifest: SendCutSendEvaluationManifest | null;
+  sendCutSendSheetPackage?: SendCutSendSheetPackage | null;
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null;
+  requestedQuantities: number[];
+}): VendorQuoteAdapterInput {
+  const {
+    vendor,
+    quantity,
+    cadPath,
+    drawingPath,
+    stagedCadPath,
+    stagedDrawingPath,
+    authorization,
+    sendCutSendManifest,
+    providerPortalApproval,
+    requestedQuantities,
+  } = input;
+  const stamp = Date.now();
+  const idPrefix = `${vendor}-smoke-q${quantity}`;
+  const { material, finish, specSnapshot } = vendorRequirementSpec(input);
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,

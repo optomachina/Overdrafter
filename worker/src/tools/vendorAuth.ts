@@ -130,6 +130,29 @@ async function ensureParentDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
+/**
+ * OVD-1056: exact-host, signed-in-only SendCutSend save; no production next step to print.
+ * A refused save keeps the browser open so the operator can finish signing in and retry.
+ */
+async function saveSendCutSendSession(
+  bootstrap: typeof SENDCUTSEND_SESSION_BOOTSTRAP,
+  session: Parameters<typeof SENDCUTSEND_SESSION_BOOTSTRAP.save>[0],
+  outputPath: string,
+  rl: readline.Interface,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // Sequential by design: each retry waits for the operator to finish signing in.
+      await bootstrap.save(session, outputPath);
+      return;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      console.log(error instanceof Error ? error.message : String(error));
+      await rl.question("Finish signing in in the browser, then press Enter to check again...");
+    }
+  }
+}
+
 export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
   if (vendor === "oshcut") refuseOshcutPortalAutomation();
   const sendCutSend = vendor === "sendcutsend" ? SENDCUTSEND_SESSION_BOOTSTRAP : null;
@@ -170,18 +193,8 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
     if ("save" in workflow) {
-      // OVD-1056: exact-host, signed-in-only save; no production next step to print.
-      // A refused save keeps the browser open so the operator can finish signing in and retry.
-      for (let attempt = 1; ; attempt += 1) {
-        try {
-          await workflow.save({ browser, context, page }, outputPath);
-          return;
-        } catch (error) {
-          if (attempt >= 3) throw error;
-          console.log(error instanceof Error ? error.message : String(error));
-          await rl.question("Finish signing in in the browser, then press Enter to check again...");
-        }
-      }
+      await saveSendCutSendSession(workflow, { browser, context, page }, outputPath, rl);
+      return;
     }
     const sessionHosts = sessionHostsFor(workflow);
     await writePrivateStorageState({

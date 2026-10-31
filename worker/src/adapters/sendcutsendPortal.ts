@@ -1,5 +1,5 @@
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
-import { VendorAutomationError, type VendorArtifact, type VendorQuoteAdapterInput } from "../types.js";
+import { VendorAutomationError, type VendorArtifact, type VendorAutomationErrorCode, type VendorQuoteAdapterInput } from "../types.js";
 import {
   classifyProviderPortalSnapshot,
   isAllowedProviderUrl,
@@ -170,9 +170,9 @@ function terminal(
   message: string,
   providerMutationPossible = true,
 ): VendorAutomationError {
-  const code = terminalState === "selector_drift" ? "selector_failure"
-    : terminalState === "login_required" ? "login_required"
-      : "unexpected_ui_state";
+  let code: VendorAutomationErrorCode = "unexpected_ui_state";
+  if (terminalState === "selector_drift") code = "selector_failure";
+  else if (terminalState === "login_required") code = "login_required";
   return new VendorAutomationError(`SendCutSend quote stopped: ${message}.`, code, {
     vendor: "sendcutsend",
     terminalState,
@@ -274,8 +274,11 @@ function isStraightExtrusion(
 ): boolean {
   const [u, v] = (["x", "y", "z"] as const).filter((axis) => axis !== thin);
   const near = (a: number, b: number) => Math.abs(a - b) <= tolerance;
-  const cap = (position: Vector3) => near(position[thin], box.min[thin]) ? "low"
-    : near(position[thin], box.max[thin]) ? "high" : null;
+  const cap = (position: Vector3): "low" | "high" | null => {
+    if (near(position[thin], box.min[thin])) return "low";
+    if (near(position[thin], box.max[thin])) return "high";
+    return null;
+  };
   if (vertices.some((position) => cap(position) === null)) return false;
   // Edges between the caps must run straight through the thickness (no taper or slope).
   if (edges.some(([start, end]) => cap(start) !== cap(end) && !(near(start[u], end[u]) && near(start[v], end[v])))) {

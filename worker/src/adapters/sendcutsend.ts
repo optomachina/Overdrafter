@@ -10,6 +10,7 @@ import {
 } from "../errorSummary.js";
 import {
   VendorAutomationError,
+  type VendorAutomationErrorCode,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
@@ -712,6 +713,14 @@ function sheetKernelDependencies(
   };
 }
 
+/** Maps a sheet-lane terminal state to the automation error code the worker reports. */
+function sheetStopErrorCode(state: ProviderPortalTerminalState): VendorAutomationErrorCode {
+  if (state === "login_required" || state === "missing_session") return "login_required";
+  if (state === "captcha") return "captcha";
+  if (state === "selector_drift") return "selector_failure";
+  return "unexpected_ui_state";
+}
+
 export class SendCutSendAdapter extends VendorAdapter {
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
@@ -843,10 +852,7 @@ export class SendCutSendAdapter extends VendorAdapter {
     const reason = state === result.state ? result.reason : "anchored_usd_offer_not_found";
     throw new VendorAutomationError(
       `SendCutSend sheet evaluation stopped in ${state}.`,
-      state === "login_required" || state === "missing_session" ? "login_required"
-        : state === "captcha" ? "captcha"
-          : state === "selector_drift" ? "selector_failure"
-            : "unexpected_ui_state",
+      sheetStopErrorCode(state),
       this.sheetPayload(input, reason, state, result.providerMutationPossible, { url: result.url, ...boundary }),
       result.artifacts,
     );
