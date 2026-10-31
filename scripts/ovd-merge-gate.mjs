@@ -1061,12 +1061,11 @@ function prFacts(client, repo, pr) {
       const siblings = typeof owner === "string" && typeof ref === "string"
         ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(head)}`, (data) => data)
         : null;
-      const siblingTimelines = new Map();
-      for (const sibling of Array.isArray(siblings) ? siblings : []) {
-        const number = Number(sibling?.number);
-        if (!PR_NUMBER.test(String(sibling?.number ?? "")) || number === Number(pr)) continue;
-        siblingTimelines.set(number, await client.paginate(`/repos/${repo}/issues/${number}/timeline`, (data) => data));
-      }
+      const others = (Array.isArray(siblings) ? siblings : [])
+        .filter((sibling) => PR_NUMBER.test(String(sibling?.number ?? "")) && Number(sibling.number) !== Number(pr))
+        .map((sibling) => Number(sibling.number));
+      const siblingTimelines = new Map(await Promise.all(others.map(async (number) =>
+        [number, await client.paginate(`/repos/${repo}/issues/${number}/timeline`, (data) => data)])));
       return { pull, timeline, siblings, siblingTimelines };
     })();
     facts.catch(() => byPr.delete(key));
