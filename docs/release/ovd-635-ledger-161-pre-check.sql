@@ -1,10 +1,10 @@
 -- OVD-635: read-only check that the production ledger equals the frozen
--- 159-migration manifest (docs/release/ovd-635-ledger-159-manifest.json).
+-- 161-migration manifest (docs/release/ovd-635-ledger-161-manifest.json).
 --
 -- Owner step. Reads supabase_migrations.schema_migrations only. Never reads
 -- application or customer tables and writes nothing.
--- Expected: count 159, head 20261016013832,
--- version_list_md5 cf7baa5a7c40039afd8fde92a3ad39c6, missing = {}, extra = {}.
+-- Expected: count 161, head 20261029165751,
+-- version_list_md5 60d3fdc3744e859521ba64ce62bcf980, missing = {}, extra = {}.
 -- If extra lists only next-window suffix versions, in order from the first
 -- (docs/release/ovd-635-next-window-suffix-manifest.json), that part of the
 -- suffix is already applied: compare count, head and md5 with the states there.
@@ -173,7 +173,9 @@ with manifest(version) as (
     ('20261016002932'),
     ('20261016004826'),
     ('20261016013742'),
-    ('20261016013832')
+    ('20261016013832'),
+    ('20261025194414'),
+    ('20261029165751')
 ), ledger as (
   select version::text as version, statements
   from supabase_migrations.schema_migrations

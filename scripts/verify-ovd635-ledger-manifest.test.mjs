@@ -34,6 +34,15 @@ describe("OVD-635 ledger manifest", () => {
     expect(verifyOvd635LedgerManifest(root)).toEqual([]);
   });
 
+  it("rejects a later migration in exact mode", () => {
+    const root = copyRepoSubset();
+    expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([]);
+    writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
+    expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([
+      "exact: expected 162 migrations, found 163 (29991231235959_later.sql)",
+    ]);
+  });
+
   it("rejects an edited frozen migration", () => {
     const root = copyRepoSubset();
     const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
@@ -51,14 +60,14 @@ describe("OVD-635 ledger manifest", () => {
   it("rejects a pre-check that drops a version", () => {
     const root = copyRepoSubset();
     const sql = readFileSync(path.join(root, PRE_CHECK_PATH), "utf8");
-    writeFileSync(path.join(root, PRE_CHECK_PATH), sql.replace(/^\s+\('20261016013832'\)\n/m, ""));
+    writeFileSync(path.join(root, PRE_CHECK_PATH), sql.replace(/^\s+\('20261029165751'\)\n/m, ""));
     expect(verifyOvd635LedgerManifest(root)).toContain("pre-check versions differ from the manifest");
   });
 
   it("rejects a migration inserted between the baseline and the suffix", () => {
     const root = copyRepoSubset();
-    writeFileSync(path.join(root, MIGRATION_ROOT, "20261020000000_inserted.sql"), "select 1;\n");
-    expect(verifyOvd635LedgerManifest(root)[0]).toMatch(/^suffix position 1: expected .*, found 20261020000000_inserted\.sql$/);
+    writeFileSync(path.join(root, MIGRATION_ROOT, "20261030000000_inserted.sql"), "select 1;\n");
+    expect(verifyOvd635LedgerManifest(root)[0]).toMatch(/^suffix position 1: expected .*, found 20261030000000_inserted\.sql$/);
   });
 
   it("rejects an edited suffix rollback", () => {

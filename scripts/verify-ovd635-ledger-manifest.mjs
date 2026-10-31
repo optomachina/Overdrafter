@@ -4,8 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MANIFEST_PATH = "docs/release/ovd-635-ledger-159-manifest.json";
-export const PRE_CHECK_PATH = "docs/release/ovd-635-ledger-159-pre-check.sql";
+export const MANIFEST_PATH = "docs/release/ovd-635-ledger-161-manifest.json";
+export const PRE_CHECK_PATH = "docs/release/ovd-635-ledger-161-pre-check.sql";
 export const SUFFIX_PATH = "docs/release/ovd-635-next-window-suffix-manifest.json";
 export const AUTHORIZATION_PATH = "docs/release/ovd-635-next-window-authorization.template.json";
 export const MIGRATION_ROOT = "supabase/migrations";
@@ -17,9 +17,11 @@ const hash = (algorithm, contents) => createHash(algorithm).update(contents).dig
  * repository migrations, byte for byte, and that the owner pre-check SQL lists
  * exactly the manifest versions. The next-window suffix manifest must follow
  * the prefix immediately, byte for byte, with its rollbacks and ledger states.
- * Later migrations may follow the suffix.
+ * Later migrations may follow the suffix, unless `exact` is set: then the
+ * repository must hold exactly the baseline plus the suffix, which is the
+ * deploy-commit check before `supabase migration up` in the window.
  */
-export function verifyOvd635LedgerManifest(root) {
+export function verifyOvd635LedgerManifest(root, { exact = false } = {}) {
   const violations = [];
   const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
   const entries = manifest.migrations ?? [];
@@ -47,11 +49,11 @@ export function verifyOvd635LedgerManifest(root) {
   for (const expected of [`count ${manifest.count}`, `head ${manifest.head}`, manifest.versionListMd5]) {
     if (!preCheck.includes(expected)) violations.push(`pre-check header does not state ${expected}`);
   }
-  violations.push(...verifySuffix(root, manifest, files));
+  violations.push(...verifySuffix(root, manifest, files, exact));
   return violations;
 }
 
-function verifySuffix(root, manifest, files) {
+function verifySuffix(root, manifest, files, exact) {
   const violations = [];
   const suffix = JSON.parse(readFileSync(path.join(root, SUFFIX_PATH), "utf8"));
   const { baseline = {}, migrations = [], states = [] } = suffix;
@@ -73,6 +75,10 @@ function verifySuffix(root, manifest, files) {
       violations.push(`${entry.rollback}: rollback sha256 drifted`);
     }
   });
+  const expectedFiles = manifest.count + migrations.length;
+  if (exact && files.length !== expectedFiles) {
+    violations.push(`exact: expected ${expectedFiles} migrations, found ${files.length} (${files.slice(expectedFiles).join(", ") || "too few"})`);
+  }
   if (states.length !== migrations.length + 1) violations.push("suffix: expected one ledger state per applied prefix");
   states.forEach((state, index) => {
     const applied = [...versions, ...migrations.slice(0, index).map((entry) => entry.version)];
@@ -92,7 +98,8 @@ function verifySuffix(root, manifest, files) {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  const violations = verifyOvd635LedgerManifest(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const violations = verifyOvd635LedgerManifest(root, { exact: process.argv.includes("--exact") });
   if (violations.length > 0) {
     console.error(violations.join("\n"));
     process.exit(1);
