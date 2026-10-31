@@ -243,9 +243,7 @@ describe("verify-overdrafter lane mapping", () => {
   it("holds pending specs out of the run only while their issue still blocks them", () => {
     const pending = Object.entries(PENDING_SPECS).flatMap(([feature, modes]) =>
       Object.entries(modes).flatMap(([mode, list]) => list.map((p) => ({ feature, mode, ...p }))));
-    expect(pending.map((p) => `${p.feature}/${p.mode}: ${p.spec} ${p.issue}`)).toEqual([
-      "provider/fixture: e2e/journeys/jarvis-front-door.spec.ts OVD-805",
-    ]);
+    expect(pending.map((p) => `${p.feature}/${p.mode}: ${p.spec} ${p.issue}`)).toEqual([]);
     const mapped = new Set(Object.values(FEATURE_SPECS).flatMap((e) => [...e.fixture, ...e.local]).map((s) => s.spec));
     for (const p of pending) {
       expect(FEATURE_SPECS[p.feature], p.feature).toBeDefined();
@@ -262,14 +260,18 @@ describe("verify-overdrafter lane mapping", () => {
   });
 
   it("keeps pending specs out of the selected specs and logs them on stderr only", () => {
-    expect(specsFor(["provider"], "fixture").map((s) => s.spec)).toEqual(["e2e/admin-operations.spec.ts", "e2e/engineering-admin-route.spec.ts"]);
+    expect(specsFor(["provider"], "fixture").map((s) => s.spec)).toEqual([
+      "e2e/admin-operations.spec.ts",
+      "e2e/engineering-admin-route.spec.ts",
+      "e2e/journeys/jarvis-front-door.spec.ts",
+    ]);
     expect(specsFor(["provider"], "fixture")[0].config).toBe("e2e/admin-operations.config.ts");
-    expect(pendingFor(["auth", "provider"], "fixture").map((p) => p.spec)).toEqual(["e2e/journeys/jarvis-front-door.spec.ts"]);
+    expect(pendingFor(["auth", "provider"], "fixture")).toEqual([]);
     expect(pendingFor(["provider"], "local")).toEqual([]);
     const r = spawnSync(process.execPath, [path.join(skillDir, "scripts/feature-specs.mjs"), "provider", "fixture"], { encoding: "utf8" });
     expect(r.status).toBe(0);
-    expect(r.stdout).not.toContain("jarvis-front-door");
-    expect(r.stderr).toContain("PENDING: provider e2e/journeys/jarvis-front-door.spec.ts (journey is test.fail() until OVD-805");
+    expect(r.stdout).toContain("jarvis-front-door");
+    expect(r.stderr).not.toContain("PENDING:");
   });
 
   it("does not list a spec in both lanes", () => {

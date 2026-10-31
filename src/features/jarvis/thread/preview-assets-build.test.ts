@@ -31,6 +31,8 @@ it('emits every preview fixture as its own file in a build instead of a data: UR
   expect(code).not.toMatch(/data:[\w/+.-]+;base64,/);
   expect(files.filter(f => f.endsWith('.png'))).toHaveLength(2);
   expect(files.filter(f => f.endsWith('.glb'))).toHaveLength(1);
-  expect(files.filter(f => f.endsWith('.step'))).toHaveLength(1);
+  // The STEP ships as raw text turned into a blob: URL, because verify-public-assets forbids .step files in dist.
+  expect(files.filter(f => f.endsWith('.step'))).toHaveLength(0);
+  expect(code).toContain('SYNTHETIC PREVIEW ONLY');
   for (const file of files) expect(code).toContain(`/${file}`);
 }, 60_000);
