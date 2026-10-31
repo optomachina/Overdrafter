@@ -1,0 +1,4 @@
+ref ff166eef9089a63912cf34d419618b6a16dfc900: {"sensitive":false,"classes":[],"files":[{"path":"scripts/test-lane-contract.test.mjs","classes":[],"globs":[]},{"path":"scripts/test-lane-contract.mjs","classes":[],"globs":[]},{"path":"scripts/test-lane-notcontract.mjs","classes":[],"globs":[]}]}
+ref HEAD: {"sensitive":true,"classes":["infra_ci"],"files":[{"path":"scripts/test-lane-contract.test.mjs","classes":["infra_ci"],"globs":["scripts/test-lane-contract*"]},{"path":"scripts/test-lane-contract.mjs","classes":["infra_ci"],"globs":["scripts/test-lane-contract*"]},{"path":"scripts/test-lane-notcontract.mjs","classes":[],"globs":[]}]}
+agents parity: []
+gate loosening: {"detected":false,"reasons":[],"requires":["grokbot_countersign","blaine_card"]}
