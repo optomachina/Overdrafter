@@ -58,18 +58,14 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
 
-- Approvals are requested as items become ready, one card per item. There are no batch windows.
-- A PR auto-merges (squash) without a Blaine approval card when **all** hold at the current head: hosted CI green, Jev screen not risky, sized review passed with no open actionable findings, a QA pass verdict, and **no file** matching the [sensitive paths](#sensitive-paths-single-shared-list) table. Every changed file must also fall in one of these categories:
-  1. Docs: Markdown at repo root and `docs/**`, excluding `docs/migration-drafts/**`, `docs/release/*.sql`, `docs/agent-graph/**` and the governance sections of `AGENTS.md`/`CLAUDE.md`.
-  2. Tests only: `**/*.test.{ts,tsx,mjs}`, `**/*.node-test.mjs`, `e2e/**` (excluding `e2e/fixtures/*.sql`).
-  3. Frontend UI: `src/components/**`, `src/pages/**`, `src/features/**`, excluding any path matching auth, session, permission, billing, pricing, checkout, stripe or dispatch.
-  4. Styles and static assets: `*.css`, `public/**`, `src/assets/**`.
-  5. Repo scripts: `scripts/**`, excluding `scripts/deploy*`, `scripts/release*` and anything matching secret, credential or token.
-  6. Agent skills and prompts: `.codex/skills/**`, `.claude/agents/**`.
-  7. New code in the categories above behind a feature flag that defaults off.
-- Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
-- Door split (report-only, Blaine 2026-10-27): `scripts/sensitive-class-detect.mjs` computes and reports a door (`one-way` / `revertable`) only; no label job exists yet. It changes no approval: every sensitive PR still needs Blaine's OK, apart from the class S exception below. AGENTS.md and gate scripts are always one-way (tests included); unclassified files are one-way; read-only vendor quote calls are revertable, calls that send or submit are one-way. Revertable auto-merge stays off (`DOOR_AUTOMERGE = false`) until a separate carded enforce PR.
-- Rollback for an auto-merged PR is `git revert` of its squash commit.
+- One approval card per ready item; no batching.
+- `ovd-merge-gate` enforces success/failure from trusted default-branch code; missing, failed, malformed, partial or stale evidence blocks. Needs #972. Blaine approves enablement and manually requires `ovd-merge-gate`. Branch protection stays manual.
+- Merging requires exact `true` in repo/org Actions variable `DOOR_AUTOMERGE`, read only via `vars.DOOR_AUTOMERGE`. Unset, empty, false or any other value disables merging. PR files/comments/labels cannot enable it. Switch-off never makes failed gates pass.
+- Every gate must pass at the current head SHA: hosted `ci`, `provider-go-live`, `secret-scan`, Opus, Sonnet, Jev's commit-status marker and QA. Opus and QA are required at every tier; the builder-written Jev marker never lowers review. Only `overdrafter-verifier[bot]` review/QA comments count; ignore user verdicts. Opus/Sonnet need distinct identities. Trusted `jev-pr-screen` markers supply Jev; missing, `no_verdict`, uncertain or risky decisions block. Tier increases replace no gate.
+- Reviews must be independent of builders, without actionable findings or unresolved threads. Existing edited/deleted/conflicting verdict-history blocks remain. Equal `diff_id` never transfers positive evidence to another SHA. Squash merge uses `gh pr merge --squash --match-head-commit <sha>`, never `--admin` or deferred `--auto`.
+- Held categories never qualify, even with reviews or approval comments: production DB migrations/apply, removed files, vendor/spend paths, branch-protection/ruleset changes, gate loosenings, Sonar safe marks, gate machinery and unclassified work. AGENTS.md, workflows and gate scripts/tests remain held. Protected operations need exact authorization; OVD-419 terminal ownership still applies.
+- Other sensitive-list changes need every gate plus Blaine's approval record for the head; never waived. Classification, full file coverage and held-content scans must succeed. Doors waive nothing; no labels change or production/apply authority is granted.
+- Re-evaluate late CI/Jev via default-branch `workflow_dispatch`. New heads need fresh evidence. Rollback: `git revert` the squash commit. Required checks remain manual. See [the plan](docs/automerge-plan.md).
 
 ### Fixture-heal class S auto-merge (OVD-796 D8, OVD-816)
 

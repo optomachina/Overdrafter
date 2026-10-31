@@ -24,10 +24,13 @@ name: OVD merge gate
 # evaluated on the PR head. Its YAML comes from the merge group ref; the job
 # uses an inline API call with no checkout or repository code execution.
 #
-# MODE (report) and the trusted-verifier list are constants in the script,
-# never inputs, env or repo variables, so a PR or a variable cannot flip
-# them. Report mode writes `neutral` with "REPORT: would block: <codes>"
-# instead of failure; this check is not required yet (card K2).
+# MODE (enforce) and verifier-bot trust are fixed in default-branch code.
+# DOOR_AUTOMERGE comes only from repo/org Actions variables. Only exact true
+# permits a merge after all current-head gates pass. Required-check setup is
+# a separate manual Blaine action. Dependency: #972; retain its writer fixes.
+# Second stop: any non-empty OVD_AUTOMERGE_DISABLED repo/org variable, or the
+# automerge:hold label on the re-read PR, refuses the merge immediately before
+# the merge call and wins over everything else.
 #
 # Verdict history (OVD-959 repair). GitHub keeps no copy of a deleted
 # comment, so ovd-merge-gate-history first appends every trusted blocking
@@ -79,8 +82,8 @@ jobs:
     permissions:
       checks: write
       actions: read
-      pull-requests: read
-      contents: read
+      pull-requests: write
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -116,6 +119,8 @@ jobs:
           ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
           PR_FROM_DISPATCH: ${{ inputs.pr }}
           HISTORY_RESULT: ${{ needs.ovd-merge-gate-history.result }}
+          DOOR_AUTOMERGE: ${{ vars.DOOR_AUTOMERGE }}
+          OVD_AUTOMERGE_DISABLED: ${{ vars.OVD_AUTOMERGE_DISABLED }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ovd-merge-gate.mjs ]; then

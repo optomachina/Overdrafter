@@ -114,11 +114,11 @@ export const SQL_RULE_CLASSES = Object.freeze([...SQL_CONTENT_CLASSES, "auth"]);
 /** The pseudo-class of a file with no sensitive class and no safe category (fail closed). */
 export const UNCLASSIFIED = "unclassified";
 /** Every output class, in output order. */
-export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
+export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, "gate_machinery", ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
 export const MAX_FILES = 3000;
 const PER_PAGE = 100;
 
-const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories", "door"]);
+const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories", "door", "gate_machinery"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules", "exemptions"]);
 const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason", "within", "after", "inside", "until", "informational"]);
@@ -363,10 +363,13 @@ export function compileConfig(raw) {
   for (const key of Object.keys(raw)) if (!TOP_KEYS.has(key)) errors.push(`config: unknown key "${key}"`);
   if (raw.version !== CONFIG_VERSION) errors.push(`config: version must be ${CONFIG_VERSION}`);
   const categories = compileCategories(raw.safe_categories, errors);
+  const machinery = raw.gate_machinery;
+  if (machinery !== undefined && (!isPlainObject(machinery) || Object.keys(machinery).some((key) => key !== "paths"))) errors.push("gate_machinery must contain only paths");
+  const gateMachinery = compileGlobs(stringList(machinery?.paths ?? [], "gate_machinery.paths", errors), "gate_machinery.paths", errors);
   let sqlContent = { paths: [], rules: [], exemptions: [] };
   if (isPlainObject(raw.sql_content)) sqlContent = compileSqlContent(raw.sql_content, errors);
   else errors.push("config: sql_content must be an object");
-  return errors.length ? { config: null, errors } : { config: { categories, sqlContent, door: raw.door }, errors: [] };
+  return errors.length ? { config: null, errors } : { config: { categories, sqlContent, gateMachinery, door: raw.door }, errors: [] };
 }
 
 /**
@@ -425,8 +428,11 @@ export function classifyPath(path, config) {
   if (!isValidPath(path)) throw new TypeError(`invalid path ${JSON.stringify(path)}`);
   const matches = config.matcher.match(path);
   const classes = SENSITIVE_CLASSES.filter((name) => matches.some((entry) => entry.class === name));
+  const machinery = (config.gateMachinery ?? []).some((re) => pathCandidates(path).some((form) => re.test(form.normalize("NFKC"))));
+  if (machinery) classes.push("gate_machinery");
   if (classes.length) {
     const reasons = classes.flatMap((name) => matches.filter((entry) => entry.class === name).map((entry) => `${name}:path:${entry.glob}`));
+    if (machinery) reasons.push("gate_machinery:base-config");
     return { classes, category: null, reasons };
   }
   const words = pathWords(path);
@@ -1336,6 +1342,22 @@ export async function doorTier(result, options = {}) {
 // Every status except "removed" has head content; an unknown status is read too.
 const readsHead = (status) => status !== "removed";
 
+/** Production database apply indicators; any one holds the file. */
+const PROD_APPLY_PATTERNS = Object.freeze([
+  /supabase\s+(?:db\s+push|migration\s+up)/i,
+  /prod(?:uction)?[-_\s]*(?:db[-_\s]*)?(?:apply|migrat)/i,
+  /(?:apply|migrat)[-_\s]*(?:to[-_\s]*)?prod/i,
+]);
+
+/** Conservative content holds, including inline marks outside Sonar paths. */
+export function heldContent(text) {
+  const held = [];
+  if (/NOSONAR|api\/(?:hotspots\/change_status|issues\/(?:do_transition|accept|false_positive))|sonar[^\n]{0,80}\b(?:safe|false.?positive|wontfix)\b/i.test(text)) held.push("sonar_safe_mark");
+  if (/\/branches\/[^\s]+\/protection|updateBranchProtectionRule|deleteBranchProtectionRule|createBranchProtectionRule|\/repos\/[^\s]+\/rulesets/i.test(text)) held.push("branch_protection");
+  if (PROD_APPLY_PATTERNS.some((pattern) => pattern.test(text))) held.push("prod_db_migration");
+  return held;
+}
+
 /** Why a changed-file entry cannot be classified, or null. */
 function fileProblem(file) {
   if (!file || typeof file !== "object" || Array.isArray(file)) return "is not an object";
@@ -1351,7 +1373,7 @@ function fileProblem(file) {
 
 // Runs `task` over the items one at a time, in order. An async generator's `yield` awaits the promise it
 // is given before the next item starts, so a PR with many SQL files reads its head files one by one.
-async function* inSequence(items, task) {
+export async function* inSequence(items, task) {
   for (const [index, item] of items.entries()) yield task(item, index);
 }
 
@@ -1666,6 +1688,7 @@ function diffConfig(base, head) {
   const baseSql = objectOf(base.sql_content);
   const headSql = objectOf(head.sql_content);
   return [
+    ...listOf(base.gate_machinery, "paths").filter((glob) => !listOf(head.gate_machinery, "paths").includes(glob)).map((glob) => ({ kind: "gate_machinery_narrowed", path: at, value: glob, message: `${at} removes held gate machinery path ${glob}.` })),
     ...(JSON.stringify(base.door) !== JSON.stringify(head.door) ? [{ kind: "door_changed", path: at, message: `${at} changes door rules; needs governance review.` }] : []),
     ...categories,
     ...sqlPathChanges(baseSql, headSql, at),
