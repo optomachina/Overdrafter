@@ -1,0 +1,196 @@
+PR #1010 QA test output
+sha: 6bd0a0b1bb3dc536b31f7b17b3be6100b9f9b6fd
+date (UTC): 2026-10-31T22:11:12Z
+node: v22.23.4  npm: 10.9.9
+
+================================================================
+$ node --test scripts/merge-queue-workflows.test.mjs scripts/validate-pr-body.test.mjs
+----------------------------------------------------------------
+TAP version 13
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/merge-queue-workflows.test.mjs
+not ok 1 - scripts/merge-queue-workflows.test.mjs
+  ---
+  duration_ms: 143.472992
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/merge-queue-workflows.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9
+# \\t\\tthrow new Error(errorMsg);
+# \\t\\t      ^
+# Error: Vitest failed to access its internal state.
+# One of the following is possible:
+# - "vitest" is imported directly without running "vitest" command
+# - "vitest" is imported inside "globalSetup" (to fix this, use "setupFiles" instead, because "globalSetup" runs in a different context)
+# - "vitest" is imported inside Vite / Vitest config file
+# - Otherwise, it might be a Vitest bug. Please report it to https://github.com/vitest-dev/vitest/issues
+#     at getWorkerState (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:9:9)
+#     at getCurrentEnvironment (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/utils.XdZDrNZV.js:23:16)
+#     at createExpect (file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:426:16)
+#     at file:///home/user/Overdrafter/node_modules/vitest/dist/chunks/vi.bdSIJ99Y.js:464:22
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+# Node.js v22.23.4
+# Subtest: scripts/validate-pr-body.test.mjs
+not ok 2 - scripts/validate-pr-body.test.mjs
+  ---
+  duration_ms: 1013.930377
+  type: 'test'
+  location: '/home/user/Overdrafter/scripts/validate-pr-body.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1038.223047
+[exit code: 1]
+
+================================================================
+$ bash scripts/preflight.sh lint
+----------------------------------------------------------------
+preflight: lint start
+preflight: lint PASS
+[exit code: 0]
+
+================================================================
+$ bash scripts/preflight.sh typecheck
+----------------------------------------------------------------
+preflight: typecheck start
+preflight: typecheck PASS
+[exit code: 0]
+
+================================================================
+$ npx eslint scripts/merge-queue-workflows.test.mjs scripts/validate-pr-body.test.mjs
+----------------------------------------------------------------
+[exit code: 0]
+
+================================================================
+NOTE: command (a) above exits 1 because both files are vitest suites (import { describe, expect, it } from "vitest"); node --test cannot load them ("Vitest failed to access its internal state"). Re-run with the repo's own runner (package.json "test": "vitest run"):
+$ npx vitest run scripts/merge-queue-workflows.test.mjs scripts/validate-pr-body.test.mjs
+----------------------------------------------------------------
+
+ RUN  v3.2.4 /home/user/Overdrafter
+
+ ✓ scripts/merge-queue-workflows.test.mjs (37 tests) 16ms
+stdout | scripts/validate-pr-body.test.mjs > main > skips a disable change, fails an enabling change without the section, and passes with it
+No provider enablement or gate edit in this diff; no extra PR section required.
+
+stderr | scripts/validate-pr-body.test.mjs > main > skips a disable change, fails an enabling change without the section, and passes with it
+PR body validation failed:
+- missing required section "Provider go-live" for a PR that enables a provider (provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains liveAdapter: true; provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains production egress ("stable_nat"))
+
+stdout | scripts/validate-pr-body.test.mjs > main > skips a disable change, fails an enabling change without the section, and passes with it
+Provider enablement detected: provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains liveAdapter: true
+Provider enablement detected: provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains production egress ("stable_nat")
+PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation, Provider go-live
+
+stderr | scripts/validate-pr-body.test.mjs > main > fails a swap that nets to zero without the section
+PR body validation failed:
+- missing required section "Provider go-live" for a PR that enables a provider (provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains liveAdapter: true; provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains production egress ("stable_nat"))
+
+stdout | scripts/validate-pr-body.test.mjs > main > fails a swap that nets to zero without the section
+Provider enablement detected: provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains liveAdapter: true
+Provider enablement detected: provider-integrations/provider-registry.v1.json: registry provider "geomiq" gains production egress ("stable_nat")
+PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation, Provider go-live
+
+stderr | scripts/validate-pr-body.test.mjs > main > fails when a flag is missing its path
+Usage: --diff-from requires a path
+
+stdout | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+No provider enablement or gate edit in this diff; no extra PR section required.
+
+stderr | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+PR body validation failed:
+- missing required section "Revert plan"
+
+stderr | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+PR body validation failed:
+- unknown door; Revert plan is required (fail closed)
+- missing required section "Revert plan"
+
+stderr | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+PR body validation failed:
+- unknown door; Revert plan is required (fail closed)
+- missing required section "Revert plan"
+
+stdout | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation
+
+stderr | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+Revert plan argument parse error (fail closed)
+
+stdout | scripts/validate-pr-body.test.mjs > Revert plan: explicit report-only opt-in > CLI no-door output is unchanged, and explicit door bypasses the skip
+PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation, Revert plan
+
+ ✓ scripts/validate-pr-body.test.mjs (185 tests) 17870ms
+   ✓ PR body CLI through a symlinked gate directory > emits skip evidence and rejects an invalid body when validation is required  1306ms
+   ✓ combining marks cannot make normalization quadratic > counts every character that normalizes into marks only, on this Node's Unicode tables  326ms
+   ✓ combining marks cannot make normalization quadratic > an ATX heading of marks written as character references: no run of marks is longer than 30 and the work grows linearly  312ms
+   ✓ combining marks cannot make normalization quadratic > an HTML heading of marks written as character references: no run of marks is longer than 30 and the work grows linearly  325ms
+   ✓ adversarial ReDoS bounds > a1 stays under 250 ms and still fails closed  567ms
+   ✓ adversarial ReDoS bounds > a2 stays under 250 ms and still fails closed  529ms
+   ✓ adversarial ReDoS bounds > a3 stays under 250 ms and still fails closed  567ms
+   ✓ adversarial ReDoS bounds > a5 stays under 250 ms and still fails closed  740ms
+   ✓ adversarial ReDoS bounds > a6 stays under 250 ms and still fails closed  790ms
+   ✓ adversarial ReDoS bounds > a7 stays under 250 ms and still fails closed  601ms
+   ✓ adversarial ReDoS bounds > a8 stays under 250 ms and still fails closed  574ms
+   ✓ adversarial ReDoS bounds > a10 stays under 250 ms and still fails closed  729ms
+   ✓ adversarial ReDoS bounds > a11 stays under 250 ms and still fails closed  907ms
+   ✓ adversarial ReDoS bounds > a12 stays under 250 ms and still fails closed  955ms
+   ✓ adversarial ReDoS bounds > a13 stays under 250 ms and still fails closed  1610ms
+   ✓ adversarial ReDoS bounds > a14 stays under 250 ms and still fails closed  1182ms
+   ✓ adversarial ReDoS bounds > a4 matches nothing and stays under 50 ms  444ms
+   ✓ adversarial ReDoS bounds > a mixed 65 KiB body stays under 1 s  649ms
+   ✓ adversarial ReDoS bounds > a mixed 10k body stays under 100 ms  475ms
+   ✓ adversarial ReDoS bounds > grows less than 8x from 16 KiB to 64 KiB  1735ms
+   ✓ Revert plan parser remains bounded in the existing ReDoS child  538ms
+
+ Test Files  2 passed (2)
+      Tests  222 passed (222)
+   Start at  22:12:50
+   Duration  19.09s (transform 136ms, setup 0ms, collect 845ms, tests 17.89s, environment 0ms, prepare 348ms)
+
+[exit code: 0]
+
+================================================================
+APP BOOT (step 3b) at 6bd0a0b1bb3dc536b31f7b17b3be6100b9f9b6fd
+----------------------------------------------------------------
+cloud-qa-boot.sh check (from PR #1008 head): github ok, docker ok (started dockerd), supabase-cli ok (2.78.1), playwright 1.58.2 ok (chromium-1208 aliased to 1243 outside repo).
+$ supabase start   (local loopback stack, in /tmp/qa-repo copy)
+-> exit 1: "failed to pull docker image: Error response from daemon: error from registry: Data limit exceeded" (no images cached; no Supabase project touched)
+Fallback: booted the app in fixture mode, matching playwright.config.ts fixture-only webServer settings (VITE_ENABLE_FIXTURE_MODE=1, VITE_SUPABASE_URL=http://127.0.0.1:9 unreachable loopback):
+$ npm run dev -- --host 127.0.0.1 --port 4173   (as unprivileged user qa, from git archive copy of HEAD at /tmp/qa-repo)
+-> VITE v5.4.19 ready; GET / -> 200
+Playwright (chromium, sandbox on, user qa): status 200, url http://127.0.0.1:4173/, title "OverDrafter | Machined Aluminum Sourcing", 0 page errors; body shows "Sign in / Sign up for free / CAD In Parts Out / Create account / Log in".
+Screenshot: pr1010/6bd0a0b1bb3dc536b31f7b17b3be6100b9f9b6fd-smoke.png
