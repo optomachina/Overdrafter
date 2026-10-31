@@ -302,18 +302,23 @@ stop a step before it writes its step summary.
 - PR-controlled text (path names, scanner output) is printed between
   `::stop-commands::` markers, so it cannot issue workflow commands.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
-  run green, and nothing requires the job, so it never blocks a merge. gitleaks
-  still runs when the path block step fails.
+  run green. gitleaks still runs when the path block step fails. Branch
+  protection now lists `secret-scan` as required (read-only check,
+  2026-10-31), so whether a red job under continue-on-error blocks a merge
+  depends on the reported check conclusion; confirm it on a live run before
+  relying on either answer.
 
 ### Later, separate approval (not covered by the 2026-10-16 approval)
 
 After the report week, each of these needs its own Blaine approval:
 
 - Drop `continue-on-error`, and pass `--enforce` to the path block.
-- Add `secret-scan` to the required checks. A required check must also report
-  on `merge_group` (see `scripts/merge-queue-workflows.test.mjs` and
-  `docs/runbooks/merge-queue.md`), so that change adds a `merge_group` no-op
-  trigger. Today the workflow deliberately has none.
+- Add `secret-scan` to the required checks. A read-only check on 2026-10-31
+  shows branch protection on `main` already lists it. A required check must
+  also report on `merge_group` (see `scripts/merge-queue-workflows.test.mjs`
+  and `docs/runbooks/merge-queue.md`), so the workflow now triggers on
+  `merge_group` and runs the real scan there (never a no op) on
+  `merge_group.base_sha..merge_group.head_sha`.
 - Before either: run the real-binary checks listed under "Test coverage and
   follow-ups", and decide what to do about each item under "What the scan
   still does not see".

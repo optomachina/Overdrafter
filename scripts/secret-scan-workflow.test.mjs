@@ -2,7 +2,8 @@
 /**
  * OVD-872: .github/workflows/secret-scan.yml.
  *
- * The structure tests pin what Blaine approved (report mode, pull_request only,
+ * The structure tests pin what Blaine approved (report mode, pull_request plus
+ * a merge_group run of the same scan on the queue range,
  * contents: read, SHA-pinned actions and gitleaks binary, base copies only).
  * The step tests run each `run:` block the way GitHub does (`bash -e`) with a
  * stub gitleaks and stub curl, and check that clean, findings and crash cases
@@ -199,9 +200,11 @@ const GITLEAKS_LOGGED_ERROR = (exit) =>
 const GIT_LOG_FAILED = (exit) => `git could not read this PR's range cleanly (git log exit ${exit}, stderr below)`;
 
 describe("secret-scan workflow structure", () => {
-  it("triggers on pull_request only", () => {
-    expect(Object.keys(workflow.on)).toEqual(["pull_request"]);
-    expect(workflowText).not.toMatch(/pull_request_target|workflow_run|merge_group/);
+  it("triggers on pull_request and merge_group checks_requested only", () => {
+    expect(Object.keys(workflow.on)).toEqual(["pull_request", "merge_group"]);
+    expect(workflow.on.pull_request).toBeNull();
+    expect(workflow.on.merge_group).toEqual({ types: ["checks_requested"] });
+    expect(workflowText).not.toMatch(/pull_request_target|workflow_run/);
   });
 
   it("grants contents: read only and uses no secrets or token", () => {
@@ -235,8 +238,13 @@ describe("secret-scan workflow structure", () => {
 
   it("passes every expression through env:, never into a run block", () => {
     for (const s of job.steps.filter((x) => x.run)) expect(s.run, s.name).not.toContain("${{");
-    expect(job.env.BASE_SHA).toBe("${{ github.event.pull_request.base.sha }}");
-    expect(job.env.HEAD_SHA).toBe("${{ github.event.pull_request.head.sha }}");
+    // merge_group scans the queue range (base tip to queue commit) for real.
+    expect(job.env.BASE_SHA).toBe(
+      "${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}",
+    );
+    expect(job.env.HEAD_SHA).toBe(
+      "${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}",
+    );
   });
 
   it("pins the gitleaks release by version and SHA-256", () => {
