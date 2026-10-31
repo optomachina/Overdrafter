@@ -15,11 +15,9 @@ start where a user starts.
   `surface X is now reachable; remove knownMissing`. Prints a per-surface table.
 - `jarvis-front-door.spec.ts` (`@fixture`, runs in `npm run e2e:fixture`): phone
   viewport, `/` -> Jarvis link -> "design a 4 inch square plate" -> status,
-  result card, PNG, GLB/USDZ and AR link. Marked `test.fail()` until
-  [OVD-805](https://linear.app/overdrafter/issue/OVD-805) lands. Two sibling
-  tests keep that honest: a boot guard (shell must mount) and an OVD-805 guard
-  asserting no Jarvis link on `/`. When OVD-805 adds the link the guard goes
-  red; then remove `test.fail()` from the journey and delete the guard.
+  result card, PNG, GLB/USDZ and AR link. Green since OVD-805 added the
+  public `/jarvis` route and the header link; a boot guard keeps a broken
+  fixture red on its own.
 
 ```bash
 npx vitest run src/journeys --maxWorkers=2
