@@ -21,11 +21,16 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
   see `docs/provider-integration.md`). Deploy the worker only after the
   migration has applied in that environment, and check that both columns exist
   first. Never deploy this worker to an environment that lacks the migration.
+- The forward migration sets `set local lock_timeout = '1s'` before its
+  `ALTER TABLE` statements on `work_queue` and `drawing_extractions`, matching
+  `20261029165751_reconcile_claim_fence.sql`. A long-held lock fails the
+  deploy fast instead of queueing every worker claim behind the
+  `ACCESS EXCLUSIVE` request; retry the deploy.
 - No function signature, owner, grant recipient, policy or index changes.
 - `api_claim_next_task(text)` retains `FOR UPDATE SKIP LOCKED`, claim ordering,
   lock metadata and attempt counting. Every claim, for every task type, sets
   a fresh `gen_random_uuid()`. Its lock sequence remains L5 then L5.
-  The forward function pins `search_path = pg_catalog, public`, revokes
+  The forward function pins `search_path = pg_catalog, public, pg_temp`, revokes
   PUBLIC/anon/authenticated and retains service_role-only execution, matching
   the post-OVD-535 ACL.
 - Rollback: `node scripts/ovd979-rollback.mjs
