@@ -351,7 +351,24 @@ export function historyEntriesFromComment(comment) {
     return snapshot && !isBlocking(snapshot) ? [] : [historyEntry(base, snapshot)];
   });
   if (openFences(comment.body) > blocks.length) entries.push(historyEntry(base, null));
+  const header = architectBlocker(comment.body);
+  if (header) entries.push(historyEntry(base, header));
   return entries;
+}
+
+/**
+ * A blocking Architect header as a FAIL snapshot bound to its full SHA, so
+ * deleting a header-only CHANGES_REQUIRED or a malformed header does not
+ * clear it (council 6538642610). Null for passing headers and headers that
+ * name no full SHA (those block only while posted).
+ */
+function architectBlocker(body) {
+  const header = parseArchitectHeader(body);
+  if (!header) return null;
+  const sha = header.error ? header.shas.find((value) => HEX40.test(value)) : header.sha;
+  if (!sha || (!header.error && header.verdict !== "CHANGES_REQUIRED")) return null;
+  const note = header.error ? "high: malformed Architect review header" : `high: Architect ${header.model} review CHANGES_REQUIRED`;
+  return { role: "reviewer", verdict: "FAIL", sha, notes: [note] };
 }
 
 /** The deleted verdict blocks to carry forward from an issue_comment deleted event (blocking or unreadable only). */
@@ -437,7 +454,7 @@ export function builderAttribution(body) {
   const parsed = parseBuiltBy({ body: lines.join("\n"), routing });
   const ids = [...new Set(parsed.builders.map((builder) => builder.bot).filter((bot) => typeof bot === "string" && bot !== "unknown"))];
   const unparsed = parsed.findings.some((finding) => finding.startsWith("Unparseable") || finding.startsWith("Parser error"))
-    || parsed.builders.some((builder) => builder.bot === "unknown");
+    || parsed.builders.some((builder) => builder.bot === "unknown" || builder.family === "unknown");
   return { ids, problem: ids.length && !unparsed ? null : "the PR body's Built-by line cannot be parsed (docs/agent-pr-tags.md)" };
 }
 
@@ -800,10 +817,18 @@ const exactPass = (entry, input) => fromVerifierBot(entry)
   && evidenceVerified(entry.verdict, input.verifiedEvidence);
 
 /** Separate Opus (when required), Sonnet and QA gates. Retains the all-tier QA floor: no tier waives QA. */
+const reviewerId = (entry) => lower(entry.verdict.verifier?.id);
+
 function reviewGateReasons(exact, opusRequired) {
   const reasons = [];
+  const passes = (model) => exact.filter((entry) => entry.verdict.role === "reviewer" && reviewModel(entry) === model);
   for (const model of opusRequired ? ["opus", "sonnet"] : ["sonnet"]) {
-    if (!exact.some((entry) => entry.verdict.role === "reviewer" && reviewModel(entry) === model)) reasons.push({ code: `${model}_not_pass`, detail: `no independent ${model} review PASS at this exact SHA` });
+    if (!passes(model).length) reasons.push({ code: `${model}_not_pass`, detail: `no independent ${model} review PASS at this exact SHA` });
+  }
+  // Opus and Sonnet need distinct identities: one verifier id cannot satisfy both gates.
+  const sonnetIds = passes("sonnet").map(reviewerId);
+  if (opusRequired && passes("opus").length && sonnetIds.length && !passes("opus").some((entry) => sonnetIds.some((id) => id !== reviewerId(entry)))) {
+    reasons.push({ code: "reviewers_not_distinct", detail: "the Opus and Sonnet passes share one verifier id" });
   }
   if (!exact.some((entry) => entry.verdict.role === "verifier" && entry.verdict.readiness?.checks === "green")) reasons.push({ code: "qa_not_pass", detail: "no QA PASS with green checks at this exact SHA (required at every tier)" });
   return reasons;
@@ -856,10 +881,12 @@ export function parseArchitectHeader(body) {
   const lines = body.split("\n").map((line) => line.replace(/\r$/, ""));
   const head = ARCHITECT_HEADER.exec(lines[0]);
   const verdict = ARCHITECT_VERDICT.exec(lines[1] ?? "");
-  if (!head || !verdict) return { error: "the Architect header or VERDICT line does not match the exact format" };
+  // The hex runs a malformed line 1 names, so its block binds to a head (never to every later head).
+  const shas = (lines[0].match(/[0-9a-f]{7,40}/gi) ?? []).map((value) => value.toLowerCase());
+  if (!head || !verdict) return { error: "the Architect header or VERDICT line does not match the exact format", shas };
   const fresh = lines[2] === ARCHITECT_CONTEXT;
   const run = REVIEWER_RUN.exec(lines[fresh ? 3 : 2] ?? "");
-  if (fresh && !run) return { error: "a Context line needs a Reviewer-Run line after it" };
+  if (fresh && !run) return { error: "a Context line needs a Reviewer-Run line after it", shas };
   return { model: head[1], sha: head[2], verdict: verdict[1], fresh, runId: run?.[1] ?? null };
 }
 
@@ -896,7 +923,10 @@ function freshClaudeOpus(entry, families, trail) {
 function architectComment(comment, headSha) {
   if (!inList(APP_TRUSTED_VERIFIERS, lower(comment?.user?.login))) return null;
   const header = parseArchitectHeader(comment.body);
-  if (header?.error) return { reason: { code: "architect_header_malformed", detail: `comment ${comment.id}: ${header.error}` } };
+  if (header?.error) {
+    // A malformed header blocks the head it names (by full SHA or a 7+ hex prefix); one naming no head is not a verdict.
+    return typeof headSha === "string" && header.shas.some((sha) => headSha.startsWith(sha)) ? { reason: { code: "architect_header_malformed", detail: `comment ${comment.id}: ${header.error}` } } : null;
+  }
   if (header?.sha !== headSha) return null;
   if (!comment.created_at || comment.updated_at !== comment.created_at) return { reason: { code: "architect_verdict_edited", detail: `comment ${comment.id} was edited; verdicts are never edited` } };
   const time = Date.parse(comment.created_at);
@@ -942,7 +972,9 @@ export function evaluate(given = {}) {
   if (!jev.ok) reasons.push({ code: "jev_not_pass", detail: "missing, no_verdict, stale, uncertain or risky jev-pr-screen marker" });
   const held = heldCategories(input.changedFiles, input.classification);
   for (const category of held) reasons.push({ code: `held:${category}`, detail: `held category ${category} requires Blaine's separate operation` });
-  const opusRequired = jev.tier === "risky" || summary.sensitive_classes.length > 0;
+  // The Jev marker is written by the builder identity, so its tier must not
+  // lower the review requirement: Opus is required at every tier (council 6538642259).
+  const opusRequired = true;
   const { entries } = collectVerdicts(input.comments, input.headSha);
   reasons.push(...findingReasons(entries, input));
   const exact = entries.filter((entry) => exactPass(entry, input));
@@ -955,10 +987,9 @@ export function evaluate(given = {}) {
     ...requiredCheckReasons(input.requiredChecks, input.headSha),
   );
   if (!threadsResolved(input.reviewThreads, input.headSha)) reasons.push({ code: "threads_unresolved", detail: "review threads are unresolved, unknown or stale" });
-  // Sensitive approval can be waived only for a complete non-held decision.
-  // History conflicts, malformed input and independence failures remain intact.
-  const mayWaive = held.length === 0 && reasons.length === 0;
-  summary.reasons = dedupeReasons([...summary.reasons.filter((reason) => !(mayWaive && reason.code.startsWith("approval_missing:"))), ...reasons]);
+  // Sensitive-list work keeps its approval_missing reasons: Blaine's per-head
+  // approval record is never waived (council 6538642259, Opus 6534928475 finding 1).
+  summary.reasons = dedupeReasons([...summary.reasons, ...reasons]);
   summary.gate = summary.reasons.length ? "fail" : "pass";
   summary.automerge = summary.gate === "pass" ? "eligible" : "blocked";
   summary.enforced = true;
@@ -1512,6 +1543,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const carried = carriedDeletions(candidates, ALL_TRUSTED);
   summary.deleted_verdicts = candidates.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
   summary.comments_fingerprint = commentsFingerprint(comments);
+  summary.body_fingerprint = bodyFingerprint(pull?.body);
   return summary;
 }
 
@@ -1660,6 +1692,15 @@ export function commentsFingerprint(comments) {
   return createHash("sha256").update(keys.join("\n")).digest("hex");
 }
 
+/**
+ * Identity of the evaluated PR body: its Built-by line and build-session ids
+ * decide reviewer independence, so a body edited after evaluation blocks the
+ * merge (council 6538642610). Null when the body was unreadable.
+ */
+export function bodyFingerprint(body) {
+  return typeof body === "string" ? createHash("sha256").update(body).digest("hex") : null;
+}
+
 /** Returns { merged, reason }: reason says why no merge was attempted. */
 export async function mergePull({ client, repo, pr, summary, switchValue, disabledValue, merge = (args) => execFileSync(resolveBinary("gh"), args, { stdio: "ignore", timeout: 60_000 }) }) {
   if (switchValue !== "true") return { merged: false, reason: "DOOR_AUTOMERGE is not exactly true" };
@@ -1672,6 +1713,7 @@ export async function mergePull({ client, repo, pr, summary, switchValue, disabl
   const evaluated = summary.comments_fingerprint;
   const live = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
   if (typeof evaluated !== "string" || commentsFingerprint(live) !== evaluated) return { merged: false, reason: "PR comments changed after evaluation (or could not be re-read)" };
+  if (typeof summary.body_fingerprint !== "string" || bodyFingerprint(pull?.body) !== summary.body_fingerprint) return { merged: false, reason: "the PR body changed after evaluation (or could not be read)" };
   // The stop wins over everything else, so it is the last check before the call.
   const stop = mergeStop(disabledValue, pull);
   if (stop) return { merged: false, reason: stop };

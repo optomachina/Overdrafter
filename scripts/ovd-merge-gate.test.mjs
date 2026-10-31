@@ -749,7 +749,7 @@ function fakeGit(calls = []) {
 
 const docsClassify = async ({ headSha }) => ({ classification: okClassification(DOCS_FILES, []), files: DOCS_FILES, headSha });
 
-const passingComments = () => [posted(verdict()), posted(verdict({ role: "reviewer" }))];
+const passingComments = () => [posted(verdict()), posted(verdict({ role: "reviewer" })), posted(verdict({ role: "reviewer", family: "opus" }))];
 
 async function runCli(args, api, overrides = {}) {
   const out = [];
@@ -991,12 +991,12 @@ describe("deleted verdicts: only blocking ones are carried forward (ruling b)", 
     const reviewerOnly = [posted(verdict({ role: "reviewer" }))];
     const first = await run(fakeGithub({ comments: reviewerOnly }), deletion(verdict(), 1));
     expect(first.deleted_verdicts).toEqual([]);
-    expect(reasonCodes(first)).toEqual(["no_qa_pass_on_head", "qa_not_pass"]);
+    expect(reasonCodes(first)).toEqual(["no_qa_pass_on_head", "opus_not_pass", "qa_not_pass"]);
     // Even a forged earlier run that records a deleted PASS changes nothing: it does not pass (a) or (b)...
     const forged = { comment_id: 1, author: BOT, created_at: at(1), sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "PASS", sha: HEAD, diff_id: DIFF } };
     const forgedReviewer = { ...forged, comment_id: 2, role: "reviewer", verdict_block: { ...forged.verdict_block, role: "reviewer", findings: [] } };
     const later = await run(fakeGithub({ comments: [], checkRuns: [priorRun([forged, forgedReviewer])] }));
-    expect(reasonCodes(later)).toEqual(["no_qa_pass_on_head", "no_review_on_head", "sonnet_not_pass", "qa_not_pass"]);
+    expect(reasonCodes(later)).toEqual(["no_qa_pass_on_head", "no_review_on_head", "opus_not_pass", "sonnet_not_pass", "qa_not_pass"]);
     expect(later.deleted_verdicts).toEqual([]);
     // ...and it simply disappears: it does not block a head that has live passes.
     expect((await run(fakeGithub({ comments: passingComments(), checkRuns: [priorRun([forged])] }))).gate).toBe("pass");
@@ -1334,7 +1334,7 @@ describe("finding 5: PASS evidence must resolve to an Actions run on the verdict
     const fake = verdict({ evidence: [{ kind: "ci-run", url: "https://example.invalid/not-a-run" }] });
     const { code, summary } = await evaluateCli(fakeGithub({ comments: [posted(fake), posted(verdict({ role: "reviewer" }))] }));
     expect(code).toBe(1);
-    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_qa_pass_on_head", "qa_not_pass"]);
+    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_qa_pass_on_head", "opus_not_pass", "qa_not_pass"]);
     expect(summary.verifier_comment_id).toBeNull();
   });
 
@@ -1351,7 +1351,7 @@ describe("finding 5: PASS evidence must resolve to an Actions run on the verdict
 
   it("a reviewer PASS needs resolving evidence too", async () => {
     const { summary } = await evaluateCli(fakeGithub({ comments: [posted(verdict()), posted(verdict({ role: "reviewer", runs: [77] }))] }));
-    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_review_on_head", "sonnet_not_pass"]);
+    expect(reasonCodes(summary)).toEqual(["evidence_unverified", "no_review_on_head", "opus_not_pass", "sonnet_not_pass"]);
   });
 
   it("Actions evidence must resolve and old-SHA passes cannot approve the current head", async () => {
@@ -1739,7 +1739,7 @@ describe("enforced automerge gates", () => {
     changedFiles:sensitiveFiles,
     classification:okClassification(sensitiveFiles,["auth"]),
     commitStatuses:{sha:HEAD,statuses:[jevStatus(HEAD,"risky","low")]},
-    comments:[...passingComments(),posted(verdict({role:"reviewer",family:"opus"}))],
+    comments:[...passingComments(),approvalComment()],
     ...overrides,
   });
   const pull = {head:{sha:HEAD},state:"open",draft:false,mergeable:true,mergeable_state:"clean",labels:[]};
@@ -1772,7 +1772,7 @@ describe("enforced automerge gates", () => {
       const value=verdict({role:"reviewer",family:"claude"});
       value.verifier.id=`${model}-reviewer`;
       return posted(value);
-    })];
+    }), approvalComment()];
     expect(gate.evaluate(sensitive({comments})).gate).toBe("pass");
   });
 
@@ -1880,10 +1880,50 @@ describe("enforced automerge gates", () => {
   it("runs only squash with GitHub's atomic head guard and never defers via --auto", async () => {
     const calls=[];
     const comments=passingComments();
-    const summary={...decision(),comments_fingerprint:gate.commentsFingerprint(comments)};
-    const merged=await gate.mergePull({client:{json:async()=>pull,paginate:async()=>comments},repo:"o/r",pr:7,summary,switchValue:"true",merge:async(args)=>calls.push(args)});
+    const summary={...decision(),comments_fingerprint:gate.commentsFingerprint(comments),body_fingerprint:gate.bodyFingerprint(BUILT_BY)};
+    const merged=await gate.mergePull({client:{json:async()=>({...pull,body:BUILT_BY}),paginate:async()=>comments},repo:"o/r",pr:7,summary,switchValue:"true",merge:async(args)=>calls.push(args)});
     expect(merged).toEqual({merged:true,reason:null});
     expect(calls).toEqual([["pr","merge","7","--repo","o/r","--squash","--match-head-commit",HEAD]]);
+  });
+
+  it("a PR body edited after evaluation (or unreadable, or never fingerprinted) makes zero merge calls", async () => {
+    const comments=passingComments();
+    const base={...decision(),comments_fingerprint:gate.commentsFingerprint(comments)};
+    for (const [summary,body] of [
+      [{...base,body_fingerprint:gate.bodyFingerprint(BUILT_BY)},"Built-by: bot=architect model=model:claude-opus"],
+      [{...base,body_fingerprint:gate.bodyFingerprint(BUILT_BY)},undefined],
+      [base,BUILT_BY],
+    ]) {
+      const calls=[];
+      const result=await gate.mergePull({client:{json:async()=>({...pull,body}),paginate:async()=>comments},repo:"o/r",pr:7,summary,switchValue:"true",merge:async(args)=>calls.push(args)});
+      expect(result.merged).toBe(false);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("requires Opus at every Jev tier: the builder-written marker never lowers the review requirement", () => {
+    for (const tier of ["low","normal"]) {
+      const comments=passingComments().filter((entry)=>!entry.body.includes('"model_family": "opus"'));
+      expect(errors({comments,commitStatuses:{sha:HEAD,statuses:[jevStatus(HEAD,tier,"low")]}})).toContain("opus_not_pass");
+    }
+    expect(decision({})).toMatchObject({gate:"pass",opus_required:true});
+  });
+
+  it("never waives Blaine's approval record for sensitive non-held work", () => {
+    const input=sensitive();
+    input.comments=input.comments.filter((entry)=>!entry.body.includes("overdrafter-approval"));
+    expect(reasonCodes(gate.evaluate(input))).toEqual(["approval_missing:auth"]);
+  });
+
+  it("one verifier id cannot satisfy both the Opus and Sonnet gates", () => {
+    const opus=verdict({role:"reviewer",family:"opus"});
+    opus.verifier.id="sonnet-reviewer";
+    const comments=[posted(verdict()),posted(verdict({role:"reviewer"})),posted(opus),approvalComment()];
+    expect(reasonCodes(gate.evaluate(sensitive({comments})))).toContain("reviewers_not_distinct");
+  });
+
+  it("an unknown builder model is unattributed, never a pass", () => {
+    expect(errors({prBody:"Built-by: bot=engineer model=model:unrecognized"})).toContain("builder_unattributed");
   });
 
   it("a comment created, edited or deleted after evaluation makes zero merge calls", async () => {
@@ -1933,11 +1973,11 @@ describe("Architect verdict header (ruling on checklist item 6, PR #993 comment 
     identity:"app", requiredChecks:greenChecks(), reviewThreads:{sha:HEAD,complete:true,threads:[]},
     changedFiles:files, classification:okClassification(files,["auth"]),
     commitStatuses:{sha:HEAD,statuses:[jevStatus(HEAD,"risky","low")]},
-    comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus()],
+    comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus(),approvalComment()],
     ...overrides,
   });
   const errors = (overrides) => reasonCodes(gate.evaluate(sensitive(overrides)));
-  const withOpus = (options, overrides) => ({comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus(options,overrides)]});
+  const withOpus = (options, overrides) => ({comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus(options,overrides),approvalComment()]});
   const header = (...lines) => lines.join("\n") + "\n\n";
   const plain = (body, options = {}) => comment(body, {login:BOT,...options});
   const CLAUDE_BUILT = "Built-by: bot=architect model=model:claude-opus";
@@ -1995,10 +2035,31 @@ describe("Architect verdict header (ruling on checklist item 6, PR #993 comment 
     const passing = sensitive().comments;
     const blocking = plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"));
     expect(errors({comments:[...passing,blocking]})).toContain("architect_changes_required");
-    const [qa,sonnet] = passing;
-    expect(errors({comments:[qa,sonnet,blocking,opus()]})).toEqual([]);
+    const [qa,sonnet,,approval] = passing;
+    expect(errors({comments:[qa,sonnet,approval,blocking,opus()]})).toEqual([]);
     expect(errors({comments:[...passing,plain(header(`Architect review (opus) @ ${OLD}`,"VERDICT: CHANGES_REQUIRED"))]})).toEqual([]);
     expect(errors({comments:[...passing,plain(header(`Architect review (sonnet) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"))]})).toContain("architect_changes_required");
+  });
+
+  it("a malformed header blocks only the head it names", () => {
+    const passing = sensitive().comments;
+    for (const line of [`Architect review (opus) @ ${OLD}`,"Architect review (opus)"]) {
+      expect(errors({comments:[...passing,plain(header(`${line} trailing`,"VERDICT: PASS"))]})).toEqual([]);
+    }
+    expect(errors({comments:[...passing,plain(header(`Architect review (opus) @ ${HEAD.slice(0,7)}`,"VERDICT: PASS"))]})).toContain("architect_header_malformed");
+  });
+
+  it("deleting a blocking header does not clear it: header blockers enter the durable history", () => {
+    const passing = sensitive().comments;
+    for (const text of [header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"),header(`Architect review (opus) @ ${HEAD} x`,"VERDICT: PASS")]) {
+      const removed = gate.deletedVerdictsFromEvent({action:"deleted",comment:plain(text)});
+      expect(removed).toHaveLength(1);
+      expect(removed[0]).toMatchObject({sha:HEAD,role:"reviewer",verdict_block:{verdict:"FAIL",sha:HEAD}});
+      expect(gate.evaluate(sensitive({comments:passing,deletedVerdicts:removed})).gate).toBe("fail");
+    }
+    const other = gate.deletedVerdictsFromEvent({action:"deleted",comment:plain(header(`Architect review (opus) @ ${OLD}`,"VERDICT: CHANGES_REQUIRED"))});
+    expect(gate.evaluate(sensitive({comments:passing,deletedVerdicts:other})).gate).toBe("pass");
+    expect(gate.deletedVerdictsFromEvent({action:"deleted",comment:plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS"))})).toEqual([]);
   });
 
   it("verdicts are never edited: an edited Architect comment blocks and does not count", () => {
@@ -2166,7 +2227,7 @@ describe("automerge refusals (hardening checklist item 17)", () => {
 
   it.each([undefined, null, "x", [{}], [{ name: 7 }]])("an unreadable label list (%j) stops the merge", async (labels) => {
     const calls = [];
-    const summary = gate.evaluate({ ...baseInput({ identity: "app", requiredChecks: greenChecks(), commitStatuses: { sha: HEAD, statuses: [jevStatus()] }, reviewThreads: { sha: HEAD, complete: true, threads: [] } }) });
+    const summary = gate.evaluate({ ...baseInput({ identity: "app", comments: passingComments(), requiredChecks: greenChecks(), commitStatuses: { sha: HEAD, statuses: [jevStatus()] }, reviewThreads: { sha: HEAD, complete: true, threads: [] } }) });
     expect(summary.gate).toBe("pass");
     const pull = { head: { sha: HEAD }, state: "open", draft: false, mergeable: true, mergeable_state: "clean", labels };
     expect(await gate.mergePull({ client: { json: async () => pull }, repo: "o/r", pr: 7, summary, switchValue: "true", merge: async (args) => calls.push(args) })).toMatchObject({ merged: false });
@@ -2224,7 +2285,8 @@ describe("automerge refusals (hardening checklist item 17)", () => {
   it("an Opus CHANGES_REQUIRED is not cleared by a later Sonnet PASS", async () => {
     const changes = posted(verdict({ role: "reviewer", family: "opus" }));
     changes.body = changes.body.replace('"verdict": "PASS"', '"verdict": "CHANGES_REQUIRED"');
-    const { calls, gatePost, codes: found } = await writeWith({ comments: [changes, ...passingComments()] });
+    // Without a later PASS from the same Opus verifier (which would supersede the unreadable block).
+    const { calls, gatePost, codes: found } = await writeWith({ comments: [changes, ...passingComments().slice(0, 2)] });
     expect(gatePost.conclusion).toBe("failure");
     expect(found).toContain("verdict_schema_error");
     expect(calls).toEqual([]);

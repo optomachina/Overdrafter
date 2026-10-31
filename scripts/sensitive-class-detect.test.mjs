@@ -2772,7 +2772,12 @@ describe("enforced gate machinery overlay", () => {
     }
   });
 
-  it.each(["AGENTS.md","scripts/ovd-merge-gate.mjs","scripts/ovd-merge-gate.test.mjs","scripts/sensitive-classes.json","scripts/lib/jev-screen-marker.mjs",".github/workflows/ovd-merge-gate.yml","scripts/emit-verdict.mjs","config/branch-protection.json","scripts/sonar-safe-mark.mjs"])("holds %s", async (file) => {
+  it.each(["AGENTS.md","scripts/ovd-merge-gate.mjs","scripts/ovd-merge-gate.test.mjs","scripts/sensitive-classes.json","scripts/lib/jev-screen-marker.mjs",".github/workflows/ovd-merge-gate.yml","scripts/emit-verdict.mjs","config/branch-protection.json","scripts/sonar-safe-mark.mjs",
+    // Council 6538642259: secret-scan allowlists, RLS/definer baselines, migration and target guards, hooks and agent settings.
+    ".gitleaks.toml",".gitleaksignore","scripts/rls-deny-baseline.json","scripts/security-definer-baseline.json",
+    "scripts/check-migration-immutability.mjs","scripts/supabase-target-guard.mjs","scripts/check-lock-order.mjs",
+    ".husky/pre-commit","scripts/hooks/pre-push",".claude/settings.json",".claude/hooks/stop.sh",".mcp.json",
+  ])("holds %s", async (file) => {
     expect(classifyPath(file,enforcedConfig).classes).toContain("gate_machinery");
     const result=await detect({files:[modified(file)],config:enforcedConfig,sha:"a".repeat(40),readHeadFile:noSql});
     expect(result.classes).toContain("gate_machinery");

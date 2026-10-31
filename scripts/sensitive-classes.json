@@ -9,7 +9,15 @@
       "scripts/jev-*", "scripts/validate-agent-*", "scripts/validate-pr-body*",
       "scripts/agent-graph/**", "scripts/fixtures/agent-graph/**", "docs/agent-graph/**",
       "docs/sensitive-paths.json", "scripts/preflight.sh", "scripts/symphony*",
-      "**/*branch*protection*", "**/*ruleset*", "**/*CODEOWNERS*", "**/*sonar*"
+      "**/*branch*protection*", "**/*ruleset*", "**/*CODEOWNERS*", "**/*sonar*",
+      "**/.gitleaks.toml", "**/.gitleaksignore", "scripts/*-baseline.json",
+      "scripts/check-migration-immutability*", "scripts/check-migration-function-collisions*",
+      "scripts/supabase-target-guard*", "scripts/check-lock-order*", "scripts/lint-security-definer*",
+      "scripts/check-rls-deny-coverage*", "scripts/lint-rls-new-tables*", "scripts/check-secret-paths*",
+      "**/{.husky,.githooks,.git-hooks}/**", "scripts/{hooks,git-hooks,githooks}/**",
+      "**/{lefthook,.lefthook}*", "**/.pre-commit-config.yaml", "**/.claude/settings*",
+      "**/.claude/hooks/**", "**/.codex/config*", "**/.codex/hooks*{,/**}", "**/.mcp.json",
+      "**/CLAUDE.local.md", "**/GEMINI.md", "**/WORKFLOW.md"
     ]
   },
   "description": "OVD-844 detector config: the additive held gate_machinery overlay, SQL content rules (rls, definer) and the AGENTS.md 'Approval timing and low-risk auto-merge' safe categories. Sensitive path classes are not here: they come only from docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs (OVD-873), and this file never copies those globs. A path with any sensitive class is never in a safe category. Read by scripts/sensitive-class-detect.mjs; the auto-merge eligibility check (OVD-845) reads the detector's JSON result, not this file.",
