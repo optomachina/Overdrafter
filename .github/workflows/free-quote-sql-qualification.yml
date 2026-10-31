@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # Full history, file contents fetched on demand (blobless).
+          filter: blob:none
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
