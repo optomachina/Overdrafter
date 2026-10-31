@@ -1,0 +1,3 @@
+globs only: {"detected":false,"reasons":[],"requires":["grokbot_countersign","blaine_card"]}
+full diff: {"detected":true,"reasons":[{"code":"matcher_changed","file":"scripts/fixtures/sensitive-paths/paths.json","status":"M","message":"scripts/fixtures/sensitive-paths/paths.json edited; needs review"}],"requires":["grokbot_countersign","blaine_card"]}
+agent-contract: valid
