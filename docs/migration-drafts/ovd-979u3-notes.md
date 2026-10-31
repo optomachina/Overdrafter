@@ -147,5 +147,12 @@ generator proof below.
 - Deploy order and rollback order are stated above.
 
 Exact-head independent review and hosted release qualification remain separate
-integration work. U4 must add the attempt gate, and U5 must handle request
-deduplication and deferred release; neither is claimed by U3.
+integration work. At the time of writing, U3 left the attempt gate to U4 and
+request deduplication and deferred release to U5; both have since landed in
+their PRs (#986, #988). See the status section below.
+
+## Status (OVD-979 U6)
+
+Retired, together with U2. See the status section of
+[`ovd-979u2-notes.md`](ovd-979u2-notes.md#status-ovd-979-u6) for how the drafts
+were retired and how `scripts/ovd979-drafts-retired.test.mjs` keeps them so.
