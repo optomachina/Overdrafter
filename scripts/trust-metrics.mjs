@@ -133,6 +133,7 @@ export function normalizePullRequest(raw) {
     createdAt: raw.created_at ?? raw.createdAt ?? null,
     mergedAt: raw.merged_at ?? raw.mergedAt ?? null,
     headRef: raw.head?.ref ?? raw.headRefName ?? "",
+    headSha: raw.headRefOid ?? raw.head?.sha ?? null,
     baseRef: raw.base?.ref ?? raw.baseRefName ?? null,
     labels: (raw.labels ?? []).map((label) => (typeof label === "string" ? label : label?.name))
       .filter((name) => typeof name === "string")
@@ -224,6 +225,123 @@ export function parseReviewVerdict(body) {
   return { bot: match[1].toLowerCase(), round: match[2].toLowerCase(), sha: match[3].toLowerCase(), verdict: match[4].toLowerCase().replace(" ", "_") };
 }
 
+/**
+ * Architect comments start with `Architect review (<model>) @ <40-hex sha>`. The header may carry a
+ * trailing `: VERDICT` and/or qualifiers (e.g. `(round 2)`, `— notes`). The verdict comes from the
+ * header suffix or a later `Verdict:` line in any case, optionally bold. Short shas and
+ * non-Architect comments are rejected.
+ */
+const skipSeparator = (text) => text.trimStart().replace(/^[:\-\u2014]/, "").trimStart();
+
+// Uppercase verdict after the header's sha: optional separator, optional `(qualifier)`, optional separator.
+function inlineArchitectVerdict(rest) {
+  let text = skipSeparator(rest);
+  if (text.startsWith("(")) {
+    const close = text.indexOf(")");
+    if (close === -1) return null;
+    text = skipSeparator(text.slice(close + 1));
+  }
+  return /^[A-Z][A-Z_]+\b/.exec(text)?.[0] ?? null;
+}
+
+export function parseArchitectReviewHeader(body) {
+  const [header, ...lines] = (body ?? "").split(/\r?\n/);
+  const match = /^Architect review \((?<model>[^)]+)\) @ (?<sha>[0-9a-f]{40})(?![0-9a-z])(?<rest>.*)$/.exec(header.trimEnd());
+  if (!match) return null;
+  const verdict = lines.map((line) => /^\**Verdict:\**[\t ]+(\w+)\b/i.exec(line)).find(Boolean);
+  const value = verdict?.[1] ?? inlineArchitectVerdict(match.groups.rest);
+  return value ? { model: match.groups.model, sha: match.groups.sha, verdict: value.toLowerCase() } : null;
+}
+
+const MODEL_FAMILY_BY_TOKEN = { opus: "claude", sonnet: "claude", claude: "claude", codex: "openai", gpt: "openai", grok: "xai" };
+
+/**
+ * Family of an Architect header's model field, read from its known tokens so qualifiers such as
+ * `delta since <sha>`, `Claude Code, Opus` or `git + claude-opus` still attribute. A field naming
+ * two families, or none (`git`, `git delta`), is not a model review.
+ */
+export function modelFamily(model) {
+  const tokens = (model ?? "").toLowerCase().split(/[^a-z0-9]+/);
+  const families = new Set(tokens.map((token) => MODEL_FAMILY_BY_TOKEN[token]).filter(Boolean));
+  return families.size === 1 ? [...families][0] : null;
+}
+
+export function isReviewShaValid(reviewSha, qaHead, { isCommentsOnlyAncestor = () => false } = {}) {
+  if (!reviewSha || !qaHead) return false;
+  return reviewSha === qaHead || isCommentsOnlyAncestor(reviewSha, qaHead) === true;
+}
+
+const BUILDER_MODEL_NAMES = ["codex", "opus", "sonnet", "claude(?:-opus|-sonnet)?", String.raw`grok(?:-\d[\d.]*)?`, String.raw`gpt-\d[a-z\d.-]*`, "jev"];
+const BUILDER_MODEL = new RegExp(String.raw`\b(${BUILDER_MODEL_NAMES.join("|")})\b`, "gi");
+
+const UNKNOWN_BUILDER = "unknown";
+function builderKey(model) {
+  let key = model.toLowerCase();
+  while (key && ".,;".includes(key.at(-1))) key = key.slice(0, -1);
+  return key;
+}
+
+/**
+ * Model named on `Built-by:` lines (unanimous across lines) or else on the first `Model:` line.
+ * Only the rest of the same line counts, so a blank template line never credits the next line,
+ * and a literal `unknown` names no model.
+ */
+export function builderFromBodyLines(text = "") {
+  const built = new Set();
+  for (const [, line] of text.matchAll(/^[\t >*-]*Built-by:(.*)$/gim)) {
+    const tagged = [...line.matchAll(/model[:=](?:model:)?([a-z0-9._-]+)/gi)].map((m) => m[1]);
+    const found = tagged.length ? tagged : [...line.matchAll(BUILDER_MODEL)].map((m) => m[1]);
+    for (const model of found.map(builderKey)) if (model !== UNKNOWN_BUILDER) built.add(model);
+  }
+  if (built.size === 1) return [...built][0];
+  if (built.size > 1) return null;
+  const model = /^[\t >*-]*Model:[\t ]*(?:model:)?([a-z0-9._-]+)/im.exec(text)?.[1];
+  return model && builderKey(model) !== UNKNOWN_BUILDER ? builderKey(model) : null;
+}
+
+// A blank `Model:` template line names no builder; any other conflicting evidence stays unknown.
+const withoutBlankModelLines = (body) => (body ?? "").split("\n").filter((line) => parseBodyModelToken(line) !== "").join("\n");
+
+export function qaFamilyBuilder(pr) {
+  const { bot, status } = attributePullRequest({ ...pr, body: withoutBlankModelLines(pr.body) });
+  if (bot !== "unknown" || status === "conflicting") return bot;
+  const fromLines = builderFromBodyLines(pr.body ?? "");
+  if (fromLines) return fromLines;
+  return /^[\t ]*Built on[\t ]+(\S+)/im.exec(pr.body ?? "")?.[1].toLowerCase() ?? UNKNOWN_BUILDER;
+}
+
+export function computeQaFamilies(merged, comments, window, options = {}) {
+  const latest = latestQaJudgments(comments, window);
+  const reviews = new Map();
+  for (const comment of comments.map(normalizeComment)) {
+    const time = Date.parse(comment.createdAt);
+    const review = parseArchitectReviewHeader(comment.body);
+    const family = review && modelFamily(review.model);
+    if (!family || !Number.isFinite(time) || time >= window.endExclusive) continue;
+    if (!reviews.has(comment.prNumber)) reviews.set(comment.prNumber, []);
+    reviews.get(comment.prNumber).push({ family, ...review });
+  }
+  const perPr = merged.map((pr) => {
+    const judgment = latest.get(pr.number);
+    const qaHead = judgment ? judgment.sha ?? pr.headSha ?? null : null;
+    const kept = (reviews.get(pr.number) ?? [])
+      .filter((review) => isReviewShaValid(review.sha, qaHead, options));
+    const reviewers = [...new Map(kept.map((review) => [JSON.stringify(review), review])).values()]
+      .sort((a, b) => compareCodeUnits(a.family, b.family) || compareCodeUnits(a.model, b.model)
+        || compareCodeUnits(a.sha, b.sha) || compareCodeUnits(a.verdict, b.verdict));
+    return { prNumber: pr.number, qaHead, reviewers: judgment && reviewers.length === 0 ? "none" : reviewers, builder: qaFamilyBuilder(pr) };
+  }).sort((a, b) => a.prNumber - b.prNumber);
+  return {
+    perPr,
+    summary: {
+      qaJudged: merged.filter((pr) => latest.has(pr.number)).length,
+      reviewersNone: perPr.filter((pr) => pr.reviewers === "none").length,
+      prs: perPr.length,
+      builderUnknown: perPr.filter((pr) => pr.builder === "unknown").length,
+    },
+  };
+}
+
 export function computeBotAttribution(merged) {
   const result = { attributed: 0, noSignal: 0, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } };
   for (const pr of merged) {
@@ -301,24 +419,35 @@ export function computeMerges(merged, window) {
 
 /** Reads a verdict from the first non-empty line, e.g. "QA: PASS on 1a2b3c4". */
 export function parseQaVerdict(body) {
+  return parseQaJudgment(body)?.verdict ?? null;
+}
+
+function parseQaJudgment(body) {
   const firstLine = (body ?? "").split("\n").map((line) => line.trim()).find((line) => line !== "") ?? "";
   const line = firstLine.replaceAll(/[*_`#>]/g, "").trim();
   if (/follow-up/i.test(line)) return null;
   const match = /^(?:(?:final-head|final|t\d+\s+final)\s+)?qa:?\s+(pass|fail)\b/i.exec(line);
-  return match ? match[1].toLowerCase() : null;
+  if (!match) return null;
+  const sha = /\b(?:on|at)\s+(?:head\s+)?([0-9a-f]{7,40})\b/i.exec(line.slice(match[0].length))?.[1].toLowerCase() ?? null;
+  return { verdict: match[1].toLowerCase(), sha };
+}
+
+function latestQaJudgments(comments, window) {
+  const latest = new Map();
+  for (const comment of comments.map(normalizeComment)) {
+    const judgment = parseQaJudgment(comment.body);
+    const time = Date.parse(comment.createdAt);
+    if (!judgment || Number.isNaN(time) || time >= window.endExclusive) continue;
+    const current = latest.get(comment.prNumber);
+    if (!current || time > current.time || (time === current.time && comment.id > current.id)) {
+      latest.set(comment.prNumber, { time, id: comment.id, ...judgment });
+    }
+  }
+  return latest;
 }
 
 export function computeQa(merged, comments, window) {
-  const latest = new Map();
-  for (const comment of comments.map(normalizeComment)) {
-    const verdict = parseQaVerdict(comment.body);
-    const time = Date.parse(comment.createdAt);
-    if (!verdict || Number.isNaN(time) || time >= window.endExclusive) continue;
-    const current = latest.get(comment.prNumber);
-    if (!current || time > current.time || (time === current.time && comment.id > current.id)) {
-      latest.set(comment.prNumber, { time, id: comment.id, verdict });
-    }
-  }
+  const latest = latestQaJudgments(comments, window);
   let pass = 0;
   let fail = 0;
   for (const pr of merged) {
@@ -455,6 +584,7 @@ export function buildSnapshot({
   comments,
   harnessRows = [],
   harnessResultFiles = 0,
+  isCommentsOnlyAncestor = () => false,
 }) {
   const window = resolveWindow(windowInput);
   const merged = mergedInWindow(pullRequests, window, baseBranch);
@@ -470,6 +600,7 @@ export function buildSnapshot({
     liveQuotes: computeLiveQuotes(harnessRows, window),
     bots: computeBots(merged, comments, window),
     botAttribution: computeBotAttribution(merged),
+    qaFamilies: computeQaFamilies(merged, comments, window, { isCommentsOnlyAncestor }),
   };
 }
 
@@ -478,6 +609,83 @@ export function serializeSnapshot(snapshot) {
 }
 
 // ---------- inputs ----------
+
+// `//` reads as a line comment everywhere; `#` and `--` only where the file type uses them, since
+// they are headings in Markdown, custom properties in CSS and content elsewhere.
+const LINE_COMMENT_PREFIXES = [
+  { prefix: "//" },
+  { prefix: "#", extensions: new Set([".py", ".sh", ".bash", ".zsh", ".yml", ".yaml", ".toml", ".rb", ".ini", ".cfg"]) },
+  { prefix: "--", extensions: new Set([".sql", ".pgsql", ".psql", ".lua"]) },
+];
+
+function lineCommentPrefixes(filename) {
+  const extension = path.extname(filename ?? "").toLowerCase();
+  return LINE_COMMENT_PREFIXES.filter(({ extensions }) => !extensions || extensions.has(extension)).map(({ prefix }) => prefix);
+}
+
+// Track block comments separately on each side of a patch, using context lines.
+function commentLine(line, block, prefixes) {
+  let text = line.trim();
+  while (text) {
+    if (block) {
+      const end = text.indexOf(block);
+      if (end === -1) return { onlyComment: true, block };
+      text = text.slice(end + block.length).trim();
+      block = null;
+    } else if (prefixes.some((prefix) => text.startsWith(prefix))) {
+      return { onlyComment: true, block: null };
+    } else if (text.startsWith("/*") || text.startsWith("<!--")) {
+      block = text.startsWith("/*") ? "*/" : "-->";
+      text = text.slice(block === "*/" ? 2 : 4);
+    } else {
+      return { onlyComment: false, block: null };
+    }
+  }
+  return { onlyComment: true, block };
+}
+
+const hasOddBackticks = (text) => (text.match(/(?<!\\)`/g)?.length ?? 0) % 2 === 1;
+
+// A line inside a template literal is content, never a comment; an odd count of unescaped
+// backticks on a code line opens or closes one. A hunk starting mid-literal is not detected.
+function scanPatchLine(text, state, prefixes) {
+  const result = state.template ? { onlyComment: false, block: null } : commentLine(text, state.block, prefixes);
+  state.block = result.block;
+  if (!result.onlyComment && hasOddBackticks(text)) state.template = !state.template;
+  return result.onlyComment;
+}
+
+const freshSides = () => ({ "+": { block: null, template: false }, "-": { block: null, template: false } });
+
+function isCommentsOnlyPatch(file) {
+  if (!["modified", "added", "removed"].includes(file.status) || typeof file.patch !== "string") return false;
+  const changed = { "+": 0, "-": 0 };
+  let sides = freshSides();
+  const prefixes = lineCommentPrefixes(file.filename);
+  for (const line of file.patch.split("\n")) {
+    const marker = line[0];
+    if (line.startsWith("@@")) sides = freshSides();
+    else if (marker === " ") for (const side of ["+", "-"]) scanPatchLine(line.slice(1), sides[side], prefixes);
+    else if (marker in changed) {
+      if (!scanPatchLine(line.slice(1), sides[marker], prefixes)) return false;
+      changed[marker] += 1;
+    }
+  }
+  return changed["+"] + changed["-"] > 0 && changed["+"] === file.additions && changed["-"] === file.deletions;
+}
+
+/** Missing/binary/truncated patches and comparisons beyond GitHub's file cap fail closed. */
+export function isCommentsOnlyComparison(comparison) {
+  if (!["ahead", "identical"].includes(comparison?.status) || !Array.isArray(comparison.files)) return false;
+  return comparison.files.length < 300 && comparison.files.every(isCommentsOnlyPatch);
+}
+
+export function fetchCommentsOnlyAncestor(repository, base, head) {
+  const output = execFileSync(resolveBinary("gh"), ["api", `repos/${repository}/compare/${base}...${head}`], {
+    encoding: "utf8", env: SAFE_ENV, maxBuffer: 32 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"],
+  });
+  return isCommentsOnlyComparison(JSON.parse(output));
+}
 
 function ghApiLines(endpoint) {
   const output = execFileSync(resolveBinary("gh"), ["api", "--paginate", endpoint, "--jq", ".[]"], {
@@ -500,7 +708,7 @@ export function fetchGitHubInputs(repository, window) {
       title: pr.title,
       created_at: pr.created_at,
       merged_at: pr.merged_at,
-      head: { ref: pr.head?.ref ?? "" },
+      head: { ref: pr.head?.ref ?? "", sha: pr.head?.sha ?? null },
       base: { ref: pr.base?.ref ?? null },
       labels: (pr.labels ?? []).map((label) => ({ name: label.name })),
     }));
@@ -533,6 +741,7 @@ const USAGE = `Usage: node scripts/trust-metrics.mjs --window-end YYYY-MM-DD [op
   --base BRANCH               count PRs merged into this branch (default ${DEFAULT_BASE_BRANCH})
   --prs-json FILE             offline merged PR list instead of gh api
   --comments-json FILE        offline PR comments instead of gh api
+  --commits-json FILE         offline "<base>...<head>" -> comments-only ancestor boolean
   --results-jsonl FILE        harness results.jsonl (repeatable)
   --artifact-root DIR         read every <DIR>/<runId>/results.jsonl
   --out FILE                  output path (default docs/trust/snapshot-<window-end>.json)
@@ -549,6 +758,7 @@ export function parseCliArgs(argv) {
     "--base": "baseBranch",
     "--prs-json": "prsJson",
     "--comments-json": "commentsJson",
+    "--commits-json": "commitsJson",
     "--artifact-root": "artifactRoot",
     "--out": "out",
   };
@@ -575,7 +785,7 @@ export function parseCliArgs(argv) {
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 
-export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.error } = {}) {
+export function runCli(argv, { fetchInputs = fetchGitHubInputs, compareCommits = fetchCommentsOnlyAncestor, log = console.error } = {}) {
   const options = parseCliArgs(argv);
   if (options.help || !options.windowEnd) {
     log(USAGE);
@@ -584,6 +794,22 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.er
   const repository = options.repository ?? DEFAULT_REPOSITORY;
   const windowInput = { start: options.windowStart, end: options.windowEnd, weeks: options.weeks ?? 8 };
   const window = resolveWindow(windowInput);
+  const commits = options.commitsJson ? readJson(options.commitsJson) : null;
+  const comparisons = new Map();
+  const compare = (base, head) => {
+    try {
+      return compareCommits(repository, base, head);
+    } catch {
+      log(`Comparison ${base}...${head} unavailable; treated as not comments-only.`);
+      return false;
+    }
+  };
+  const isCommentsOnlyAncestor = (base, head) => {
+    const key = `${base}...${head}`;
+    if (commits || options.prsJson) return commits?.[key] === true;
+    if (!comparisons.has(key)) comparisons.set(key, compare(base, head));
+    return comparisons.get(key);
+  };
   const { pullRequests, comments } = options.prsJson
     ? { pullRequests: readJson(options.prsJson), comments: readJson(options.commentsJson) }
     : fetchInputs(repository, window);
@@ -602,6 +828,7 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.er
     comments,
     harnessRows,
     harnessResultFiles: files.length,
+    isCommentsOnlyAncestor,
   });
   const json = serializeSnapshot(snapshot);
   if (options.stdout) {
