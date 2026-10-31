@@ -1,7 +1,7 @@
 # OVD-979 U5: request dedupe and drawing release
 
 Stacked on U2/U3/U4. The forward migration is
-`supabase/migrations/20261030190000_ovd979u5_drawing_extraction_dedupe.sql`,
+`supabase/migrations/20261031034900_ovd979u5_drawing_extraction_dedupe.sql`,
 the only forward copy since repair round 1. Apply after U4. The file applies
 with or without a wrapping transaction: the table lock, duplicate audit and
 index build share one `DO` statement.
@@ -160,7 +160,7 @@ synthetic fixtures only; any hosted duplicates require operator disposition.
 ## Rollback and repeat application
 
 `node scripts/ovd979-rollback.mjs
-20261030190000_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
+20261031034900_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
 it drops the trigger, its private helper and the index, then restores both
 U4-era function definitions (request from U2's migration, claim from U3's)
 and ACLs, all with `pg_catalog` first in `search_path`. The stored
@@ -225,7 +225,7 @@ On the isolated local fixture (U2–U5 applied):
 - The forward applies with `psql` and no wrapping transaction, including the
   index build from scratch (round 0 failed here with 25P01).
 - `node scripts/ovd979-rollback.mjs
-  20261030190000_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
+  20261031034900_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
   <loopback URL>`:
 
   ```
@@ -246,3 +246,82 @@ On the isolated local fixture (U2–U5 applied):
   low item 11). A `::uuid` cast would let one malformed legacy value fail every
   claim, so it is left as is; it matters only if the queue grows large.
 - Lock-order, SECURITY DEFINER lint and function-collision checks: PASS.
+
+## Repair round 2 (2026-10-31)
+
+- **Migration renamed `20261030190000` → `20261031025000`.** Main gained
+  `20261030204050_ovd1018_restrict_project_jobs_writes.sql`, so the U5 file
+  sorted before main's head and `verify:migration-lineage --against-base`
+  failed. This is a rename only: the bytes and SHA-256 (`7263cb9f…`) are
+  unchanged, so the round 1 rollback proof above, recorded under the old
+  filename, still covers this content. Neither OVD-1018 nor OVD-1073's
+  `reconcile_claim_fence` defines a function that U2–U5 define, so apply order
+  against them does not change behavior.
+- **Stack follow-up (not in this PR).** U4 (#986) has renamed its migration
+  to `20261030204300`, and this PR merges that base. The U2 and U3 migrations
+  (`20261030162500`, `20261030164800`) still sort before `20261030204050` and
+  keep `lint` red until #984 and #985 rename them. U4's notes reserve
+  `20261030204100` and `20261030204200` for U2 and U3, which keeps
+  U2 < U3 < U4 < U5. If any of them lands later than `20261031025000`, U5 must
+  be renamed again so it stays last.
+- **Sonar.** All 26 new-code findings are `plsql:S1192` (duplicated literal),
+  in the U5 migration, the U5 pgTAP suite and the U4 pgTAP cases this PR
+  adapts. The literals are persisted states (`queued`, `running`), the
+  `extract_part` task type, payload wire keys (`drawingFileId`,
+  `pendingDrawingFileId`) and independent expected test values across
+  separate SQL scopes. Under the repository's PostgreSQL contract-literal
+  policy (see `docs/engineering-worker-sessions.md` and
+  `docs/engineering-change-queue.md`) they are dispositioned as false
+  positives. No exclusion or Sonar configuration change was made, and no
+  security rule was disabled. The quality gate passes.
+
+## Council findings @ bfc07504 (2026-10-31)
+
+Council consensus FAIL (Opus PASS_NOTES, GPT FAIL, Jev PASS_NOTES).
+
+- **Stale settlement of a reused row (GPT, major): fixed.** `markTaskCompleted`
+  and `markTaskFailed` (`worker/src/queue.ts`) filter by `id` and
+  not-cancelled only. After the reaper fails a running row that carries a
+  pending drawing, this trigger requeues the successor on the same id, so the
+  old attempt's late settlement used to complete it with the old payload. The
+  trigger now skips (`RETURN NULL`) a status change to queued, completed or
+  failed on a queued or running `extract_part` row when the settling payload's
+  `drawingFileId` differs from the row's. Every worker settlement writes its
+  claim-time payload plus a patch without `drawingFileId`, and the reaper
+  keeps the payload, so legitimate settlements are unaffected; same-status
+  writes (request merges, claim) are not fenced. Residual: if the drawing goes
+  A→B→A while A runs, the successor's claim re-reads A, and a late A
+  settlement is then indistinguishable from the successor's own (same drawing,
+  redundant work only). The new U5 SHA-256 is
+  `ed01e6e1d95495ce7ceef9d768de76e210c0a67157602785a884417b070b9fb6`.
+- **Rollback row proof baseline (GPT, minor): fixed.** `--prove` now snapshots
+  rows before the first rollback, so rollback itself is checked.
+- **U4 canonical reuse vs the attempt gate (GPT, major): not this PR's file.**
+  `20261031034800_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
+- **Cancel hands over to the successor (Opus, minor): documented.** Excluding
+  `cancelled` would drop the successor permanently: a later request re-queues
+  only for a sim extraction or a failed/cancelled task naming the *current*
+  drawing. No SQL path cancels `extract_part` today.
+- **Successor resets attempts and backoff (Opus, minor): documented** in the
+  trigger comment; it happens once per pending drawing.
+- **Stale pending after A→B→A or removal (Opus, minor): left.** Clearing it in
+  the request needs the trigger to tell a request's write from a worker's
+  claim-time payload write (both drop the key). The cost is one redundant
+  extraction.
+- **`extracting` from the pre-reconciliation prediction (Opus, minor): left**,
+  the stated trade-off for writing L1 before L2; the status refresh recovers it.
+
+Local verification (disposable PostgreSQL 16.15 on loopback, minimal Supabase
+platform shim, all 166 migrations replayed; the pinned 17.6.1.095 image could
+not be pulled, registry rate limit): pgTAP U2 53/53, U3 27/27, U4 89/89,
+U5 63/63 (7 new reaped-attempt cases; 5 of them fail against the bfc07504
+trigger), OVD-723 167/167; `ovd979-rollback.mjs --prove`: PASS. Staging and
+production were not touched.
+
+## Base merge: U3/U4 renames (2026-10-31)
+
+U3 (#985) moved to `20261031034754` and U4 (#986) to `20261031034800`, both
+after this file's `20261031025000`. U5 must apply after U4, so it is renamed to
+`20261031034900_ovd979u5_drawing_extraction_dedupe.sql`. This is a rename only;
+the SHA-256 (`ed01e6e1…`) is unchanged. Only U2 (#984, `20261030162500`) still
+sorts before main's `20261030204050` and keeps `lint` red.
