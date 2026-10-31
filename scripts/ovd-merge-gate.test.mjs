@@ -607,6 +607,7 @@ describe("workflow YAML (§6 item 5)", () => {
     const writer = workflow.jobs["ovd-merge-gate-writer"];
     expect(writer.concurrency.group).toBe("ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}");
     expect(writer.concurrency["cancel-in-progress"]).toBe(false);
+    expect(writer.concurrency.queue).toBe("max");
     expect(writer.needs).toBe("ovd-merge-gate-history");
   });
 
@@ -1056,12 +1057,12 @@ describe("verifier independence from the PR builder (ruling 1, stage A warning)"
 describe("headDiffId", () => {
   it("fetches the PR head and base as data into a separate bare store, with the token only in the git child env", () => {
     const calls = [];
-    const store = mkdtempSync(path.join(tmpdir(), "ovd959-store-"));
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
     let diffCwd;
     const result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", token: "secret-token", git: fakeGit(calls), makeStore: () => store, diff: ({ base, head, cwd }) => { diffCwd = cwd; return base === BASE && head === HEAD ? DIFF : "wrong"; } });
     expect(result).toEqual({ diffId: DIFF, error: null });
     expect(calls[0].args).toEqual(["init", "--bare", "--quiet", store]);
-    expect(calls[1].args).toEqual(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
+    expect(calls[1].args).toEqual(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "https://github.com/o/r.git", "+refs/pull/7/head:refs/ovd-merge-gate/head", "+refs/heads/main:refs/ovd-merge-gate/base"]);
     expect(calls[2].args.slice(0, 2)).toEqual(["--git-dir", store]);
     // Nothing runs in the trusted checkout (/x): every git call and the diff use the store.
     expect(diffCwd).toBe(store);
@@ -1072,6 +1073,42 @@ describe("headDiffId", () => {
     expect(calls[2].env).toEqual({});
     // The store is removed afterwards.
     expect(() => readFileSync(path.join(store, "HEAD"))).toThrow();
+  });
+
+  it("still returns the computed diff_id when removing the store fails (ENOTEMPTY)", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git: fakeGit([]), makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: DIFF, error: null });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
+  });
+
+  it("returns the fetch error, not the cleanup error, when the fetch and the store removal both fail", () => {
+    const store = mkdtempSync(path.join(tmpdir(), "ovd845-store-"));
+    const warnings = [];
+    const write = process.stderr.write;
+    process.stderr.write = (chunk) => { warnings.push(String(chunk)); return true; };
+    const git = (args) => {
+      if (args.includes("fetch")) throw new Error("fatal: could not read from remote repository");
+      return "";
+    };
+    let result;
+    try {
+      result = headDiffId({ pr: 7, repo: "o/r", headSha: HEAD, baseRef: "main", cwd: "/x", git, makeStore: () => store, removeStore: () => { throw new Error("ENOTEMPTY: directory not empty"); }, diff: () => DIFF });
+    } finally {
+      process.stderr.write = write;
+      rmSync(store, { recursive: true, force: true });
+    }
+    expect(result).toEqual({ diffId: null, error: "fatal: could not read from remote repository" });
+    expect(warnings.join("")).toContain("ENOTEMPTY");
   });
 
   it.each([
