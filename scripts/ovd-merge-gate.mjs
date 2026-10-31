@@ -406,7 +406,13 @@ export function deletedVerdictsFromEvent(event) {
 }
 
 const snapshotKey = (item) => JSON.stringify(item?.verdict_block ?? null);
-const historyKey = (item) => [String(item?.comment_id), lower(item?.author), snapshotKey(item)].join("\u0000");
+/**
+ * Two entries dedupe only when every field the gate reads matches. Records
+ * are writer-asserted (see verifyGateProvenance), so a copy that shares a
+ * comment id but differs in sha, diff_id, role or created_at must not
+ * displace the genuine entry; both stay and each blocks on its own terms.
+ */
+const historyKey = (item) => JSON.stringify([String(item?.comment_id), lower(item?.author), item?.created_at ?? null, item?.sha ?? null, item?.diff_id ?? null, item?.role ?? null, item?.verdict_block ?? null]);
 
 /**
  * The recorded history entries whose block is no longer posted: the comment
@@ -1069,7 +1075,8 @@ function parseGateExternalId(value) {
 export async function verifyGateProvenance(client, repo, run, pr) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID) throw new Error("gate record has no trusted Actions app");
   const stamp = parseGateExternalId(run?.external_id);
-  if (!stamp || (pr !== undefined && pr !== null && stamp.pr !== String(pr))) throw new Error("gate record external_id is not pr-<N>:run-<id> for this PR");
+  // pr is required: without it the external_id PR binding would be skipped.
+  if (!stamp || stamp.pr !== String(pr)) throw new Error("gate record external_id is not pr-<N>:run-<id> for this PR");
   const { runId } = stamp;
   const linked = typeof run?.details_url === "string" && run.details_url.includes("/actions/runs/");
   if (linked && actionsRunId(run.details_url, repo) !== runId) throw new Error("gate record details_url cites another Actions run");

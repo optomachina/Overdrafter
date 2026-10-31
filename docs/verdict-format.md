@@ -507,4 +507,6 @@ ovd-merge-gate run id, and the cited run is not checked to be a run for PR
 `<N>` (`issue_comment` and `workflow_dispatch` runs carry no PR link). The old
 suite key could not be forged this way. A stored record can only add blocking
 verdicts or force `missing_input`, so a forgery can block a PR but cannot turn
-it into a pass.
+it into a pass. Removal candidates dedupe only when every field the gate reads
+(`comment_id`, `author`, `created_at`, `sha`, `diff_id`, `role`,
+`verdict_block`) matches, so a forged copy of a genuine record cannot displace it.

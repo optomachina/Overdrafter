@@ -966,6 +966,25 @@ describe("deleted verdicts: only blocking ones are carried forward (ruling b)", 
     expect(later.deleted_verdicts).toEqual(first.deleted_verdicts);
   });
 
+  it("a forged earlier run cannot replace a removed unreadable blocker with a copy for another head", async () => {
+    const event = deletion(verdict(), 99999, "```overdrafter-verdict\n{not json\n```");
+    expect(reasonCodes(await run(fakeGithub({ comments: passingComments() }), event))).toContain("edited_verdict");
+    // Same comment id and author, no snapshot, but metadata that points away from the head.
+    const forged = { comment_id: 99999, author: "optomachina", created_at: at(99999), sha: OLD, diff_id: OTHER_DIFF, role: "verifier" };
+    const later = await run(fakeGithub({ comments: passingComments(), checkRuns: [priorRun([forged])] }), event);
+    expect(later.gate).toBe("fail");
+    expect(reasonCodes(later)).toContain("edited_verdict");
+    expect(later.deleted_verdicts).toHaveLength(2);
+  });
+
+  it("fails closed on a prior gate check stamped for another PR", async () => {
+    const deletedFail = { comment_id: 1, author: "optomachina", created_at: at(1), sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "FAIL", sha: HEAD, diff_id: DIFF } };
+    const foreign = { ...priorRun([deletedFail]), external_id: "pr-8:run-4242" };
+    const later = await run(fakeGithub({ comments: passingComments(), checkRuns: [foreign] }));
+    expect(reasonCodes(later)).toContain("missing_input");
+    expect(reasonCodes(later)).not.toContain("verdict_conflict");
+  });
+
   it("a deleted PASS does not count as a pass on later runs, and is never recorded", async () => {
     const reviewerOnly = [posted(verdict({ role: "reviewer" }))];
     const first = await run(fakeGithub({ comments: reviewerOnly }), deletion(verdict(), 1));
