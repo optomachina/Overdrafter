@@ -121,8 +121,10 @@ export default defineConfig(({ mode }) => ({
     // Files share a worker's module graph and globals instead of each getting a
     // fresh one; the per-file reset hook puts shared state back between files.
     isolate: false,
-    // Use every core: the default leaves one idle for the main process.
-    maxWorkers: os.availableParallelism(),
+    // One worker per runner core, less the core Vitest's coordinator process
+    // uses. A worker on every core measured ~20% faster but pushed wall-clock
+    // bound tests (pdfDrawing's 500 ms reads) over their limits under load.
+    maxWorkers: Math.max(1, os.availableParallelism() - 1),
     // Testing Library binds `screen` to the document and registers its cleanup
     // hooks when first imported. Run it through Vitest's module graph so the
     // per-file reset re-evaluates it against each file's fresh jsdom window.
