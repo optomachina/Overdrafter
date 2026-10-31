@@ -3,36 +3,40 @@
 -- Apply after U2 and U3, in one transaction; no schema/backfill/scheduling changes.
 
 -- Deploy order: U3 migration -> worker that writes drawing_extractions.source_attempt_id -> U4.
--- An older worker leaves source_attempt_id null on its extractions, so U4's gate would
--- treat its running tasks as pending and leave their jobs in 'extracting'. Refuse when the
--- newest extraction written by a worker for a claim made since U3 (attempt_id set, task
--- completed, row written after the task was created) has no source_attempt_id and is newer
--- than every stamped extraction. With no such claims (fresh or empty database) this is a no-op.
+-- The pre-U3 worker leaves source_attempt_id null, so U4's gate would treat its running
+-- tasks as pending and leave their jobs in 'extracting'. U4 therefore refuses to apply
+-- until the new worker has completed an extraction here: a database with any extract_part
+-- history needs a completed task whose attempt stamped its part's extraction, and no claim
+-- made since U3 (attempt_id set) may have completed later with an unstamped extraction.
+-- Trusted reuses are not evidence either way (U2's reuse copy carries no stamp). A database
+-- with no extract_part rows (fresh or empty) has nothing to strand: the guard is a no-op.
 do $ovd979u4_worker_guard$
 declare
-  v_last_unstamped timestamptz;
+  v_has_history boolean;
   v_last_stamped timestamptz;
+  v_last_unstamped timestamptz;
 begin
-  select max(extraction.updated_at)
-  into v_last_unstamped
-  from public.work_queue queue
-  join public.drawing_extractions extraction on extraction.part_id = queue.part_id
-  where queue.task_type = 'extract_part'
-    and queue.status = 'completed'
-    and queue.attempt_id is not null
-    and extraction.source_attempt_id is null
-    and extraction.updated_at >= queue.created_at;
+  select count(*) > 0,
+         max(task.completed_at) filter (where task.stamped),
+         max(task.completed_at) filter (where task.unstamped)
+  into v_has_history, v_last_stamped, v_last_unstamped
+  from (
+    select case when queue.status = 'completed' then queue.updated_at end as completed_at,
+           extraction.source_attempt_id = queue.attempt_id as stamped,
+           queue.attempt_id is not null
+             and extraction.source_attempt_id is null
+             and extraction.updated_at >= queue.created_at
+             and not coalesce(queue.payload @> '{"reusedCanonicalPartVersion": true}', false) as unstamped
+    from public.work_queue queue
+    left join public.drawing_extractions extraction on extraction.part_id = queue.part_id
+    where queue.task_type = 'extract_part'
+  ) task;
 
-  select max(extraction.updated_at)
-  into v_last_stamped
-  from public.drawing_extractions extraction
-  where extraction.source_attempt_id is not null;
-
-  if v_last_unstamped is not null and (v_last_stamped is null or v_last_unstamped > v_last_stamped) then
+  if v_has_history and (v_last_stamped is null or v_last_unstamped > v_last_stamped) then
     raise exception 'OVD-979 U4 requires the worker that writes drawing_extractions.source_attempt_id'
-      using detail = format('Newest unstamped worker extraction after U3: %s; newest stamped: %s.',
-                            v_last_unstamped, coalesce(v_last_stamped::text, 'none')),
-            hint = 'Deploy order is U3 migration, then the worker, then U4. Deploy the worker, let one extraction complete, then apply U4.';
+      using detail = format('Newest completed extraction with a stamp: %s; newest unstamped one from a claim made since U3: %s.',
+                            coalesce(v_last_stamped::text, 'none'), coalesce(v_last_unstamped::text, 'none')),
+            hint = 'Deploy order is U3 migration, then the worker, then U4. Deploy the worker everywhere, let one extraction complete, then apply U4.';
   end if;
 end
 $ovd979u4_worker_guard$;

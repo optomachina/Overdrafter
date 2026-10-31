@@ -21,11 +21,16 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
   see `docs/provider-integration.md`). Deploy the worker only after the
   migration has applied in that environment, and check that both columns exist
   first. Never deploy this worker to an environment that lacks the migration.
+- The forward migration sets `set local lock_timeout = '1s'` before its
+  `ALTER TABLE` statements on `work_queue` and `drawing_extractions`, matching
+  `20261029165751_reconcile_claim_fence.sql`. A long-held lock fails the
+  deploy fast instead of queueing every worker claim behind the
+  `ACCESS EXCLUSIVE` request; retry the deploy.
 - No function signature, owner, grant recipient, policy or index changes.
 - `api_claim_next_task(text)` retains `FOR UPDATE SKIP LOCKED`, claim ordering,
   lock metadata and attempt counting. Every claim, for every task type, sets
   a fresh `gen_random_uuid()`. Its lock sequence remains L5 then L5.
-  The forward function pins `search_path = pg_catalog, public`, revokes
+  The forward function pins `search_path = pg_catalog, public, pg_temp`, revokes
   PUBLIC/anon/authenticated and retains service_role-only execution, matching
   the post-OVD-535 ACL.
 - Rollback: `node scripts/ovd979-rollback.mjs
@@ -63,7 +68,14 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
 extraction-write RPC. The SQL side of that path is the new nullable column on
 `drawing_extractions`; the worker includes `source_attempt_id` in the same
 upsert as the extraction result. Missing or null legacy claim IDs explicitly
-write null, so an upsert cannot retain an earlier attempt's provenance.
+write null, so the extraction handler's upsert cannot retain an earlier
+attempt's provenance. The operator import tools
+(`worker/src/tools/importDmriflesQuotes.ts`,
+`worker/src/tools/importSpreadsheetQuotes.ts`) also upsert
+`drawing_extractions` but do not set `source_attempt_id`, so a row they
+overwrite keeps the earlier attempt's id. U4's gate must not treat a matching
+`source_attempt_id` as proof that the current content came from that attempt
+once an import has touched the row; that is carried to U4 (#986).
 Canonical artifact reuse does not manufacture a new claim identity.
 
 Existing extraction retries converge on `markTaskQueuedForRetry`. Its guarded
@@ -144,6 +156,11 @@ generator proof below.
   `ephemeral-db` rollback stage replays only `.rollback.sql` files paired with
   a forward draft, so it never ran U3's rollback; this proof replaces it.
 - `supabase/tests/ovd979u3_attempt_identity.sql`: 27/27 on the same fixture.
+- What the committed pgTAP suite proves: the nullable UUID columns, legacy
+  nulls, a fresh UUID on every claim (including a same-worker reclaim), retry
+  clearing, extraction upsert provenance, client write denial and the claim
+  ACL. It does not exercise forward re-apply or rollback. Those are proven only
+  by the local `--prove` run above; no hosted CI job runs U3's rollback.
 - Deploy order and rollback order are stated above.
 
 Exact-head independent review and hosted release qualification remain separate
