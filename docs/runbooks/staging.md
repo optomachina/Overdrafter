@@ -149,8 +149,9 @@ Reseed (synthetic fixtures from OVD-837, on `main` under `supabase/seed/`):
 
 ```bash
 node scripts/staging-reset-guard.mjs "$STAGING_DB_URL"   # must print the staging ref
-node scripts/seed-staging.mjs --check-target             # refuses prod / unknown refs
-node scripts/seed-staging.mjs                            # applies supabase/seed/staging.sql
+# seed-staging.mjs reads STAGING_DATABASE_URL, not STAGING_DB_URL.
+STAGING_DATABASE_URL="$STAGING_DB_URL" node scripts/seed-staging.mjs --check-target   # refuses prod / unknown refs
+STAGING_DATABASE_URL="$STAGING_DB_URL" node scripts/seed-staging.mjs                  # applies supabase/seed/staging.sql
 psql "$STAGING_DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/seed/staging-counts.sql
 psql "$STAGING_DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/seed/staging-smoke.sql
 ```
@@ -188,9 +189,12 @@ query, even when it is read-only.
 
 OVD-835 closes when the OVD-813 history SELECT runs on staging without error.
 That read is [`supabase/seed/staging-smoke.sql`](../../supabase/seed/staging-smoke.sql)
-(SELECT only, `LIMIT 50`). Fixture timestamps are relative to seed time, so
-the row count shrinks as rows age out of the 30-day peer window: expect 4 rows
-right after a reseed, and reseed first if it returns 0. Run it with the guarded
+(SELECT only, `LIMIT 50`). The criterion is that it runs without error; the
+row count is informational. Fixture rows get their `created_at` when first
+seeded, and a reseed only resets rows older than 60 days, so with no reseed in
+between the count falls as the seed ages: 4 for about four weeks, 2 once the
+peer rows leave the 30-day window, then 1 and 0 as the two xometry rows leave
+the 90-day own-history window (around day 70 and day 88). Run it with the guarded
 `psql` command under [Reset and reseed](#reset-and-reseed), or paste it into MCP
 `execute_sql` with `project_id: ldmambwtksfvqdufhaam`. Record the UTC time, the
 row count and the ref on OVD-835. A session without a staging credential
