@@ -567,8 +567,7 @@ describe("conclusion (§6 item 4)", () => {
   });
 });
 
-const COMMENT_FILTER =
-  "(github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval'))";
+const COMMENT_FILTER = gate.commentFilterExpression();
 
 describe("workflow YAML (§6 item 5)", () => {
   const workflow = yaml.load(readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8"));
@@ -592,7 +591,13 @@ describe("workflow YAML (§6 item 5)", () => {
 
   it("defaults to no permissions and scopes permissions to each job", () => {
     expect(workflow.permissions).toEqual({});
-    for (const [key, job] of jobs) expect(job.permissions).toEqual(key.endsWith("queue") ? { checks: "write" } : { checks: "write", actions: "read", "pull-requests": "read", contents: "read" });
+    // OVD-1144: only the writer may write pull-requests (to edit its one sticky status comment).
+    const expected = {
+      "ovd-merge-gate-writer": { checks: "write", actions: "read", "pull-requests": "write", contents: "read" },
+      "ovd-merge-gate-history": { checks: "write", actions: "read", "pull-requests": "read", contents: "read" },
+      "ovd-merge-gate-queue": { checks: "write" },
+    };
+    for (const [key, job] of jobs) expect(job.permissions).toEqual(expected[key]);
   });
 
   it("separates PR writer/history from the checkout-free queue job", () => {
@@ -613,7 +618,7 @@ describe("workflow YAML (§6 item 5)", () => {
       for (const fence of [FENCE_INFO, APPROVAL_FENCE_INFO]) expect(COMMENT_FILTER).toContain(`contains(${field}, '\`\`\`${fence}')`);
     }
     expect(COMMENT_FILTER.startsWith("(github.event_name != 'issue_comment' || ")).toBe(true);
-    expect(COMMENT_FILTER.match(/contains\(/g)).toHaveLength(4);
+    expect(COMMENT_FILTER.match(/contains\(/g)).toHaveLength(2 * gate.TRIGGER_COMMENT_MARKERS.length);
     expect(COMMENT_FILTER).not.toMatch(/startsWith/);
   });
 
@@ -692,6 +697,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
   const requests = [];
   const urls = [];
   const posts = [];
+  const commentWrites = [];
   let pullReads = 0;
   const listRuns = (sha, name) => [...checkRuns, ...stored.filter((run) => run.head_sha === sha), ...ciCheckRuns(sha, ciRuns[sha] ?? [1, 2, 3])]
     .filter((run) => name === null || run.name === name);
@@ -721,6 +727,20 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       const sha = headAfter && pullReads > 1 ? headAfter : head;
       return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
     }
+    if (method === "POST" && pathname === "/repos/o/r/issues/7/comments") {
+      const created = { id: 60000 + commentWrites.length, user: { login: "github-actions[bot]", type: "Bot" }, body: JSON.parse(options.body).body };
+      comments.push(created);
+      commentWrites.push({ method, id: created.id, body: created.body });
+      return response(201, created);
+    }
+    if (method === "PATCH" && /^\/repos\/o\/r\/issues\/comments\/\d+$/.test(pathname)) {
+      const id = Number(pathname.split("/").at(-1));
+      const comment = comments.find((item) => item.id === id);
+      if (!comment) return response(404, { message: "no comment" });
+      comment.body = JSON.parse(options.body).body;
+      commentWrites.push({ method, id, body: comment.body });
+      return response(200, comment);
+    }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
     if (pathname === "/repos/o/r/pulls/7/files") return response(200, files);
@@ -732,7 +752,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     json: async (p) => (await fetchImpl(`https://api.test${p}`)).json(),
     raw: async (p) => (await fetchImpl(`https://api.test${p}`)).text(),
   };
-  return { fetch: fetchImpl, client, requests, urls, posts, stored };
+  return { fetch: fetchImpl, client, requests, urls, posts, stored, comments, commentWrites };
 }
 
 function fakeGit(calls = []) {
@@ -1858,5 +1878,153 @@ describe("createApi rate limits (403 bursts under issue_comment)", () => {
     expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 3600) }, 0, NOW)).toBeNull();
     expect(rateLimitWait({ retryAfter: "2", remaining: "4527", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(2000);
     expect(RATE_LIMIT_MAX_WAIT_MS).toBe(60_000);
+  });
+});
+
+// ------------------------------------------------- OVD-1144
+
+describe("OVD-1144: issue_comment runs start only for verdict comments", () => {
+  const workflow = yaml.load(readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8"));
+  // Evaluate the workflow's own if: the way Actions would for an issue_comment
+  // event: every contains(field, 'marker') is a case-insensitive substring test.
+  function workflowRuns(job, { body = null, previousBody = null } = {}) {
+    const expression = workflow.jobs[job].if;
+    const filter = expression.slice(expression.indexOf("(github.event_name != 'issue_comment'"), expression.lastIndexOf(")") + 1);
+    expect(filter).toBe(gate.commentFilterExpression());
+    const fields = { "github.event.comment.body": body, "github.event.changes.body.from": previousBody };
+    const terms = [...filter.matchAll(/contains\(([\w.]+), '((?:[^']|'')*)'\)/g)];
+    expect(terms).toHaveLength(2 * gate.TRIGGER_COMMENT_MARKERS.length);
+    return terms.some(([, field, marker]) => String(fields[field] ?? "").toLowerCase().includes(marker.replaceAll("''", "'").toLowerCase()));
+  }
+
+  const triggers = [
+    ["an emit-verdict comment", `**OverDrafter verdict: PASS** for \`${HEAD}\` by codex (openai).\n\n${formatVerdictBlock(verdict())}`],
+    ["a bare verdict fence", formatVerdictBlock(verdict({ result: "FAIL" }))],
+    ["an approval record", approvalComment().body],
+    ["VERDICT: PASS", `VERDICT: PASS at ${HEAD.slice(0, 7)}`],
+    ["VERDICT: PASS_NOTES", `Reviewer VERDICT: PASS_NOTES at ${HEAD.slice(0, 7)}`],
+    ["VERDICT: FAIL", `VERDICT: FAIL at ${HEAD.slice(0, 7)}`],
+    ["QA PASS", `Final-head QA PASS at ${HEAD.slice(0, 7)}`],
+    ["QA FAIL (lower case)", `qa fail on head ${HEAD.slice(0, 7)}`],
+  ];
+  const ignored = [
+    ["relay chatter", "Relaying to the QA session; will report back."],
+    ["progress chatter", "Working on it: CI is running, ETA 10 minutes."],
+    ["a heartbeat", "heartbeat: still waiting on checks"],
+    ["a PR-number mention of a verdict without a marker", "See the verdict above; nothing new."],
+    ["an empty body", ""],
+  ];
+
+  for (const [name, body] of triggers) {
+    it(`starts both jobs for ${name}`, () => {
+      expect(gate.isTriggerComment({ body })).toBe(true);
+      for (const job of ["ovd-merge-gate-writer", "ovd-merge-gate-history"]) expect(workflowRuns(job, { body })).toBe(true);
+    });
+  }
+  for (const [name, body] of ignored) {
+    it(`starts no job for ${name}`, () => {
+      expect(gate.isTriggerComment({ body })).toBe(false);
+      for (const job of ["ovd-merge-gate-writer", "ovd-merge-gate-history"]) expect(workflowRuns(job, { body })).toBe(false);
+    });
+  }
+
+  it("re-evaluates when a verdict is edited away (matches the previous body)", () => {
+    const previousBody = `VERDICT: FAIL at ${HEAD.slice(0, 7)}`;
+    expect(gate.isTriggerComment({ body: "never mind", previousBody })).toBe(true);
+    expect(workflowRuns("ovd-merge-gate-writer", { body: "never mind", previousBody })).toBe(true);
+  });
+
+  it("treats a deleted or missing body as empty", () => {
+    expect(gate.isTriggerComment({})).toBe(false);
+    expect(workflowRuns("ovd-merge-gate-writer", {})).toBe(false);
+  });
+
+  it("names the fences the parsers read and quotes markers for the expression", () => {
+    expect(gate.TRIGGER_COMMENT_MARKERS).toContain("```" + FENCE_INFO);
+    expect(gate.TRIGGER_COMMENT_MARKERS).toContain("```" + APPROVAL_FENCE_INFO);
+    expect(gate.commentFilterExpression(["it's"])).toBe("(github.event_name != 'issue_comment' || contains(github.event.comment.body, 'it''s') || contains(github.event.changes.body.from, 'it''s'))");
+  });
+
+  it("never posts a status comment that would itself match the filter", () => {
+    const summary = evaluate({ headSha: HEAD, liveHeadSha: HEAD, headDiffId: DIFF, comments: [], commits: [], prAuthor: "optomachina" });
+    expect(summary.reasons.length).toBeGreaterThan(0);
+    const body = gate.formatStatusComment(summary, { checkUrl: "https://github.com/o/r/runs/1" });
+    expect(gate.isTriggerComment({ body })).toBe(false);
+    for (const code of ["no_qa_pass_on_head", "verifier_fail", "qa_fail"]) {
+      expect(gate.isTriggerComment({ body: gate.formatStatusComment({ ...summary, reasons: [{ code, detail: "QA PASS QA FAIL VERDICT: PASS" }] }) })).toBe(false);
+    }
+  });
+});
+
+describe("OVD-1144: one sticky status comment per PR, edited in place", () => {
+  const writes = (api) => api.commentWrites.map((write) => write.method);
+
+  it("creates the status comment once, then PATCHes the same comment on later runs", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    expect((await runCli(["write", "--pr", "7"], api)).code).toBe(0);
+    expect(writes(api)).toEqual(["POST"]);
+    const [first] = api.commentWrites;
+    expect(first.body.startsWith(gate.STATUS_MARKER)).toBe(true);
+    expect(first.body).toContain(HEAD);
+
+    // A FAIL arrives: same comment, edited.
+    api.comments.push(posted(verdict({ result: "FAIL" }), { id: 77 }));
+    expect((await runCli(["write", "--pr", "7"], api)).code).toBe(0);
+    expect(writes(api)).toEqual(["POST", "PATCH"]);
+    expect(api.commentWrites[1].id).toBe(first.id);
+    expect(api.comments.filter((comment) => String(comment.body).startsWith(gate.STATUS_MARKER))).toHaveLength(1);
+    expect(api.requests).toContain(`PATCH /repos/o/r/issues/comments/${first.id}`);
+  });
+
+  it("does not edit an unchanged status comment", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["write", "--pr", "7"], api);
+    await runCli(["write", "--pr", "7"], api);
+    expect(writes(api)).toEqual(["POST"]);
+  });
+
+  it("ignores a pasted marker from anyone but the workflow bot and edits the oldest bot comment", async () => {
+    const forged = { id: 1, user: { login: "mallory" }, body: `${gate.STATUS_MARKER}\nfake pass` };
+    const older = { id: 10, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nold` };
+    const newer = { id: 20, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nold too` };
+    const quoted = { id: 5, user: { login: "github-actions[bot]" }, body: `QA handoff\n${gate.STATUS_MARKER}` };
+    expect(gate.findStatusComment([newer, forged, quoted, older])).toBe(older);
+    expect(gate.findStatusComment([forged, quoted])).toBeNull();
+    expect(gate.findStatusComment(null)).toBeNull();
+
+    const api = fakeGithub({ comments: [...passingComments(), forged, newer, older] });
+    await runCli(["write", "--pr", "7"], api);
+    expect(api.commentWrites.map(({ method, id }) => [method, id])).toEqual([["PATCH", 10]]);
+    expect(forged.body).toBe(`${gate.STATUS_MARKER}\nfake pass`);
+  });
+
+  it("writes no comment when the head moved (and no check run either)", async () => {
+    const api = fakeGithub({ comments: passingComments(), headAfter: "b".repeat(40) });
+    await runCli(["write", "--pr", "7"], api);
+    expect(api.posts).toHaveLength(0);
+    expect(api.commentWrites).toHaveLength(0);
+  });
+
+  it("keeps the check run and exit code when the comment edit fails; only warns", async () => {
+    const api = fakeGithub({ comments: passingComments(), fail: ["/issues/comments/"] });
+    api.comments.push({ id: 30, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nstale` });
+    const { code, err } = await runCli(["write", "--pr", "7"], api);
+    expect(code).toBe(0);
+    expect(api.posts).toHaveLength(1);
+    expect(err).toContain("::warning::ovd-merge-gate: status comment not updated");
+  });
+
+  it("never comments from evaluate, record or merge-group", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    await runCli(["record", "--pr", "7"], api);
+    await runCli(["merge-group", "--sha", HEAD], api);
+    expect(api.commentWrites).toHaveLength(0);
+  });
+
+  it("links only a github.com check run URL", () => {
+    const summary = { gate: "pass", sha: HEAD, mode: "report", reasons: [] };
+    expect(gate.formatStatusComment(summary, { checkUrl: "https://github.com/o/r/runs/9" })).toContain("- check run: https://github.com/o/r/runs/9");
+    expect(gate.formatStatusComment(summary, { checkUrl: "javascript:alert(1)" })).not.toContain("check run:");
   });
 });
