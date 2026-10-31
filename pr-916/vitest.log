@@ -1,0 +1,448 @@
+
+ RUN  v3.2.4 /home/user/Overdrafter
+
+stdout | worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > parses a comma-separated hidden vendor subset
+Skipping oshcut: portal automation is disabled (OVD-1022).
+
+stdout | worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > rejects explicit output paths for batch auth
+Skipping oshcut: portal automation is disabled (OVD-1022).
+
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth session scoping (OVD-1059) > keeps only cookies and origins on the provider's exact hosts 2ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth session scoping (OVD-1059) > produces a session the portal kernel opens, where the raw capture is refused 1ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth session scoping (OVD-1059) > uses each reviewed production definition's hosts, else the workflow's own 1ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > parses a single hidden vendor 1ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > skips the disabled portal and logs a notice for all 3ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > parses a comma-separated hidden vendor subset 1ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > refuses a single OSH Cut request before accessing session configuration 1ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > rejects unsupported vendors 0ms
+ ✓ worker/src/tools/vendorAuth.test.ts > vendorAuth argument parsing > rejects explicit output paths for batch auth 1ms
+
+>>> Quoting weerg qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access
+done
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"weerg","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting weerg qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"weerg","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting geomiq qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"geomiq","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting geomiq qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"geomiq","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting quickparts qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch
+FAILED
+
+stderr | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"quickparts","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the quickparts cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting quickparts qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > runs an approved Quickparts evaluation through the production definition up to session lookup
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"quickparts","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts a comma-separated hidden vendor subset
+Skipping oshcut: portal automation is disabled (OVD-1022).
+
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access 29ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access 6ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch 8ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > runs an approved Quickparts evaluation through the production definition up to session lookup 5ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'quickparts' before delegation 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'weerg' before delegation 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'geomiq' before delegation 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'quickparts' production dispatch off its local evaluation definition 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'weerg' production dispatch off its local evaluation definition 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'geomiq' production dispatch off its local evaluation definition 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > rejects a definition bound to a different provider 1ms
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > preserves normalized offers while bounding nested public result payloads
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > preserves normalized offers while bounding nested public result payloads
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > withholds an adapter result that fails the provider-neutral offer contract
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > withholds an adapter result that fails the provider-neutral offer contract
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > records the removal reported with a successful quote
+done
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > records the cleanup on a failure after upload and keeps the failure
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"removed","removed":1,"remaining":0,"reason":null,"manualRemovalRequired":false}
+
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > requires the approval file and its reviewed digest as one CLI pair 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > verifies exact approval bytes before strict parsing 14ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects missing, wrong-digest, and symlinked portal approvals before provider work 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects a reviewed approval with mismatched CAD path 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects a reviewed approval with mismatched drawing path 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects a reviewed approval with mismatched quantities 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > parses explicit exact OSH Cut package metadata with the selected files and quantities 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects OSH Cut selection without explicit package metadata 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects partial or inexact OSH Cut package metadata 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects malformed OSH Cut quantity token 1.5 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects malformed OSH Cut quantity token 1abc 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects malformed OSH Cut quantity token 1,,5 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects malformed OSH Cut quantity token 0 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects an out-of-envelope OSH Cut quantity 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > falls back to env values and the default quantity 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > parses explicit exact Fabworks package metadata 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects absent Fabworks package metadata 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects partial Fabworks package metadata 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects inexact Fabworks package metadata 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects exact Fabworks metadata that is incompatible with the CAD extension 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts all runnable live evaluation vendors for batch validation 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > runs RMFG only when named, with the stated sheet stock (OVD-1057) 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness 1 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness 01 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness .125 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness 0.125 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness 00.125 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts decimal RMFG thickness  0.125  0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness . 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness 1. 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness +.125 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness 1e-1 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness 0x1 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects nondecimal RMFG thickness 0.1.25 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects a long invalid RMFG thickness without quadratic backtracking 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts a comma-separated hidden vendor subset 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > accepts Xometry and Fictiv for direct live evaluation 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects unsupported vendors 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects live adapter stubs that cannot perform an evaluation 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects partially unsupported vendor batches 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > requires a SendCutSend manifest and preserves safe-integer quantity parsing 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > vendorWorkflowSmoke argument parsing > rejects duplicate SendCutSend quantities before manifest comparison 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > parseQuantities > keeps only complete positive integer tokens 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > parseQuantities > uses the smoke-test default when the input is empty or invalid 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > accepts exact manifest facts bound to selected CAD and drawing bytes 6ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > binds CLI and manifest quantities as a unique set regardless of order 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects a manifest with missing field 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects a manifest with extra field 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects a manifest with inexact process 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects a manifest with filename mismatch 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects a manifest with quantity mismatch 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > rejects selected CAD and drawing digest mismatches 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > SendCutSend reviewed evaluation manifest > requires export-control confirmation before any manifest or selected-byte read 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > parseSmokeArgs RMFG quantities > rejects RMFG quantity list 1,5 at parse time before staging (OVD-1057) 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > parseSmokeArgs RMFG quantities > rejects RMFG quantity list 5 at parse time before staging (OVD-1057) 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > refuses RMFG at any quantity but 1 before constructing a registry (OVD-1057) 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > rejects missing OSH Cut metadata before constructing a registry 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > rejects partial OSH Cut metadata before constructing a registry 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > rejects inexact OSH Cut metadata before constructing a registry 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > denies direct SendCutSend calls with missing export-control confirmation before registry construction 4ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > denies direct SendCutSend calls with staged byte mismatch before registry construction 4ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > denies direct SendCutSend calls with mismatched staged drawing bytes 4ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > buildErrorRow > preserves vendor automation failure details for live smoke repair 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > buildErrorRow > drops arbitrary nested payloads and redacts artifacts without mutating internal errors 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > buildErrorRow > bounds and redacts top-level CLI failures 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > evaluation startup output > reports selected inputs without serializing their paths 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > preserves normalized offers while bounding nested public result payloads 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > withholds an adapter result that fails the provider-neutral offer contract 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > records the removal reported with a successful quote 1ms
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns before rethrowing a xometry kill-switch interruption after upload
+FAILED
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns before rethrowing a fictiv kill-switch interruption after upload
+FAILED
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns for manual removal when the cleanup failed, without changing the outcome
+FAILED
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > redacts relative runtime roots from failures and artifacts through runQuote
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > redacts relative runtime roots from failures and artifacts through runQuote
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting fabworks qty 2... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > builds an eligible Fabworks requirement and reaches the dedicated adapter
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > builds an eligible Fabworks requirement and reaches the dedicated adapter
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fabworks","quantity":2,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fabworks cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > skips OSH Cut in a programmatic batch before approval validation and runs Quickparts
+
+## Quickparts
+  Session state: not configured
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > skips OSH Cut in a programmatic batch before approval validation and runs Quickparts
+done
+
+
+>>> Quoting quickparts qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > parses a mixed CLI batch without requiring disabled-provider metadata
+Skipping oshcut: portal automation is disabled (OVD-1022).
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to quote so a mid run engagement stops the next mutation
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to quote so a mid run engagement stops the next mutation
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting xometry qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to evaluateLocally so a mid run engagement stops the next mutation
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to evaluateLocally so a mid run engagement stops the next mutation
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting fictiv qty 2... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":2,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider
+FAILED
+
+
+>>> Quoting fictiv qty 2... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":2,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not consult the kill switch for the offline SendCutSend batch
+
+## sendcutsend
+  Session state: not configured
+
+
+>>> Quoting sendcutsend qty 1... stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not consult the kill switch for the offline SendCutSend batch
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"sendcutsend","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the sendcutsend cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not consult the kill switch for the offline SendCutSend batch
+FAILED
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > uses only manifest quantities and skips credential preparation
+
+## sendcutsend
+  Session state: not configured
+
+
+>>> Quoting sendcutsend qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > uses only manifest quantities and skips credential preparation
+done
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"sendcutsend","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting sendcutsend qty 5... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > uses only manifest quantities and skips credential preparation
+done
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"sendcutsend","quantity":5,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > records the cleanup on a failure after upload and keeps the failure 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns before rethrowing a xometry kill-switch interruption after upload 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns before rethrowing a fictiv kill-switch interruption after upload 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > supplier cart cleanup record > warns for manual removal when the cleanup failed, without changing the outcome 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > redacts relative runtime roots from failures and artifacts through runQuote 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > builds an eligible Fabworks requirement and reaches the dedicated adapter 21ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runQuote > binds Fabworks validation to the invoked vendor before registry construction 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > skips OSH Cut in a programmatic batch before approval validation and runs Quickparts 9ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > parses a mixed CLI batch without requiring disabled-provider metadata 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses on the kill switch before staging, config, or registry construction 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to quote so a mid run engagement stops the next mutation 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > hands the kill switch checkpoint to evaluateLocally so a mid run engagement stops the next mutation 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses subsequent live evaluateLocally quantities when the switch engages after batch startup 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not read the kill switch per quote for an evaluateLocally that never reaches the provider 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > gates the Quickparts batch on the kill switch before staging (OVD-1059) 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > evaluates Quickparts through the production portal definition that reaches the provider 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not gate the offline weerg batch on the kill switch with the real startup gate 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not gate the offline geomiq batch on the kill switch with the real startup gate 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not gate the offline ponoko batch on the kill switch with the real startup gate 2ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not gate the offline protolabsnetwork batch on the kill switch with the real startup gate 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not gate the offline rapiddirect batch on the kill switch with the real startup gate 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > keeps the offline portal vendor set in step with the registry 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > does not consult the kill switch for the offline SendCutSend batch 7ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > rejects missing portal approval before staging or registry construction 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > denies a staged SendCutSend digest mismatch before config or registry construction 6ms
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores malformed unrelated credential and session environment
+
+## sendcutsend
+  Session state: not configured
+
+
+>>> Quoting sendcutsend qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores malformed unrelated credential and session environment
+done
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"sendcutsend","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+
+## xometry
+  Session state: not configured
+
+
+>>> Quoting xometry qty 1... stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+done
+
+
+>>> Quoting xometry qty 5... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":5,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting fictiv qty 5... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+FAILED
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":5,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes
+
+## xometry
+  Session state: not configured
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting xometry qty 1... 
+>>> Quoting xometry qty 5... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"xometry","quantity":5,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the xometry cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > prepares runtime credentials before building an adapter registry
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > prepares runtime credentials before building an adapter registry
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > prepares runtime credentials before building an adapter registry
+done
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores unrelated malformed credentials when preparing one vendor
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores unrelated malformed credentials when preparing one vendor
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores unrelated malformed credentials when preparing one vendor
+done
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > preserves browser evidence outside the disposable credential directory
+
+## fictiv
+  Session state: not configured
+
+
+>>> Quoting fictiv qty 1... stdout | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > preserves browser evidence outside the disposable credential directory
+done
+
+stderr | worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > preserves browser evidence outside the disposable credential directory
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"fictiv","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the fictiv cart/quote manually and remove any uploaded test part."}
+
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > uses only manifest quantities and skips credential preparation 20ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores malformed unrelated credential and session environment 19ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > denies a Fabworks metadata bypass before staging or adapter construction 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > denies a CAD-extension mismatch before staging or adapter construction 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > rejects an fractional OSH Cut quantity selection before staging 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > rejects an out-of-envelope OSH Cut quantity selection before staging 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > rejects an empty OSH Cut quantity selection before staging 0ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > cannot invoke the OSH Cut adapter when package metadata is absent 1ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses even explicitly approved OSH Cut metadata before invoking the adapter 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > stages once and reuses the same captured files for every vendor and quantity 13ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > refuses an upload when non-export-controlled confirmation is missing 3ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > redacts and bounds cleanup failures without masking successful quotes 4ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > prepares runtime credentials before building an adapter registry 4ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > ignores unrelated malformed credentials when preparing one vendor 5ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > isolates concurrent materialized sessions and removes them after each batch 6ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > preserves browser evidence outside the disposable credential directory 9ms
+ ✓ worker/src/tools/vendorWorkflowSmoke.test.ts > runEvaluationBatch > preserves both setup and cleanup failures 9ms
+
+ Test Files  3 passed (3)
+      Tests  131 passed (131)
+   Start at  02:56:23
+   Duration  3.46s (transform 1.80s, setup 0ms, collect 7.22s, tests 353ms, environment 0ms, prepare 360ms)
+
