@@ -5,7 +5,7 @@ import { scanFunctionEvents } from "../../../scripts/check-migration-function-co
 import { rollbackSql } from "../../../scripts/ovd979-rollback.mjs";
 
 const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
-const migrationSql = read("supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql");
+const migrationSql = read("supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql");
 const signature = "public.api_auto_approve_job_requirements(uuid)";
 const body = (sql: string) => scanFunctionEvents(sql).find((event) => event.signature === signature)?.body;
 
@@ -14,7 +14,7 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature]);
     const prior = body(read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql"));
     expect(prior).toBeTypeOf("string");
-    const rollback = rollbackSql("20261030165700_ovd979u4_attempt_bound_auto_approval.sql");
+    const rollback = rollbackSql("20261030204300_ovd979u4_attempt_bound_auto_approval.sql");
     expect(body(rollback)).toBe(prior);
     expect(rollback).toMatch(/^set search_path = pg_catalog, public$/m);
   });

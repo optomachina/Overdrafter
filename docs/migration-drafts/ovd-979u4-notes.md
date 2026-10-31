@@ -51,7 +51,7 @@ are absent.
 
 ## Apply and rollback
 
-`supabase/migrations/20261030165700_ovd979u4_attempt_bound_auto_approval.sql`
+`supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql`
 is the only forward copy. Apply after U2/U3,
 in one transaction. Both forward and rollback support repeated application
 and have no transaction wrapper. No table, policy, owner or grant recipient
@@ -60,7 +60,7 @@ changes. The function keeps `SECURITY DEFINER`, pins
 retains service_role-only execution.
 
 The rollback is generated: `node scripts/ovd979-rollback.mjs
-20261030165700_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
+20261030204300_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
 U2/U3-era definition (from U2's migration) and the ACLs; `md5(prosrc)` is
 **ba94c43be2ec78486ee9aca4679d2465**. The artifact test compares the generated
 body bytes directly to U2's promoted migration. Roll back U4 before U3.
@@ -143,3 +143,21 @@ PR, hosted apply, production or provider operation was performed.
   re-apply restores the applied bodies, ACLs and config: PASS
   ovd979 rollback proof: PASS (20261030165700_ovd979u4_attempt_bound_auto_approval.sql)
   ```
+
+## Repair round 2 (2026-10-31)
+
+- The `lint` job's migration-lineage check (`--against-base`, which compares
+  against `main`) failed because U4 sorted before main's newest migration,
+  OVD-1018 `20261030204050_ovd1018_restrict_project_jobs_writes.sql`.
+- Renamed U4 to `20261030204300_ovd979u4_attempt_bound_auto_approval.sql`.
+  The bytes are unchanged, so the sha256 pin stays `9fe36b10…7d6be6`. The round-1
+  proof above ran under the old name `20261030165700_…` on identical bytes.
+  OVD-1018 does not touch `api_auto_approve_job_requirements`. The generated
+  rollback is unchanged (still taken from U2's body), and the collision,
+  lock-order and security-definer checks pass.
+- `main` is not merged here. This PR's base is the U3 branch, so main arrives
+  through the stack.
+- `20261030204300` leaves `20261030204100` and `20261030204200` free, so U2
+  (#984) and U3 (#985) can rename past OVD-1018 and still sort before U4.
+  Until they do, the lineage check on this PR still flags the U2 and U3 files,
+  which are inherited from the stack and are not U4's.
