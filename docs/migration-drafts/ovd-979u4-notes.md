@@ -215,3 +215,12 @@ PR, hosted apply, production or provider operation was performed.
   sha256 pin unchanged) after merging the U3 branch. The order is now
   U2 < U3 < U4. U2 (#984) still sorts before main's `20261030204050`; it needs a
   name between `20261030204050` and `20261031034754`.
+
+## Base update (2026-10-31): U2 renamed past main
+
+- U2 (#984) moved its migration to
+  `20261031034700_ovd979u2_canonical_requirement_lock_order.sql` (bytes and
+  sha256 `572066174ddb…906f` unchanged), between main's `20261030204050` and
+  U3's `20261031034754`. U4 keeps `20261031034800`; the order is now
+  U2 < U3 < U4. `src/features/quotes/auto-approve-migration.test.ts` reads U2
+  under the new filename.
