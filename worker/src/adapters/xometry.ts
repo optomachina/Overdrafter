@@ -75,6 +75,8 @@ import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
+  findExactTermMatch,
+  readQuoteSummaryField,
   XOMETRY_AS_MACHINED_FINISH_TERMS,
   XOMETRY_CNC_PROCESS_TERMS,
   XOMETRY_LOCATORS,
@@ -84,6 +86,13 @@ import {
   collectXometryOffers,
   selectCompatibilityOffer,
 } from "./xometryOffers.js";
+import {
+  buildXometryDriverBinding,
+  findXometryDriverSave,
+  runXometryConfigurationDriver,
+  xometryDrivenRepairCandidate,
+} from "./xometryDriver.js";
+import type { DriverOutcome, JevDriverCapability } from "../jev/driver/types.js";
 
 export const XOMETRY_AUTOMATION_VERSION = "xometry-worker-v1";
 
@@ -2042,10 +2051,6 @@ async function saveConfiguration(
   timeoutMs: number,
   beforeSave: () => Promise<void> = async () => undefined,
 ) {
-  // Xometry can take longer than the general browser timeout to recalculate a
-  // configured quote. Keep this vendor-specific floor explicit and bounded.
-  const postSaveTimeoutMs = Math.max(timeoutMs, XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS);
-
   for (const selector of XOMETRY_LOCATORS.saveConfigurationButtons) {
     const button = page.locator(selector).first();
     if ((await button.count().catch(() => 0)) < 1) {
@@ -2055,62 +2060,7 @@ async function saveConfiguration(
       continue;
     }
 
-    const configurationUrl = page.url();
-    await beforeSave();
-    await button.click();
-    const navigated = await page
-      .waitForURL((url) => url.toString() !== configurationUrl, {
-        timeout: postSaveTimeoutMs,
-      })
-      .then(() => true)
-      .catch(() => false);
-
-    if (!navigated) {
-      const bodyText = await readBodyText(page);
-      throw new VendorAutomationError(
-        "Xometry did not leave the configuration page after Save Configuration.",
-        "navigation_failure",
-        {
-          vendor: "xometry",
-          field: "save_configuration",
-          configurationUrl,
-          url: page.url(),
-          bodyExcerpt: excerptText(bodyText),
-        },
-      );
-    }
-
-    const settled = await page
-      .waitForFunction(
-        () => {
-          const text = document.body?.innerText ?? "";
-          const priceAvailable =
-            /least expensive/i.test(text) && /\$\d[\d,]*\.\d{2}/.test(text);
-          const manualReviewAvailable =
-            /manual review|manually quoted|manually-quoted|requires review|drawing required/i.test(
-              text,
-            );
-          return priceAvailable || manualReviewAvailable;
-        },
-        undefined,
-        { timeout: postSaveTimeoutMs },
-      )
-      .then(() => true)
-      .catch(() => false);
-
-    if (!settled) {
-      const bodyText = await readBodyText(page);
-      throw new VendorAutomationError(
-        "Xometry did not render a price or manual-review signal after Save Configuration.",
-        "unexpected_ui_state",
-        {
-          vendor: "xometry",
-          field: "save_configuration",
-          url: page.url(),
-          bodyExcerpt: excerptText(bodyText),
-        },
-      );
-    }
+    await clickSaveAndSettle(page, timeoutMs, beforeSave, () => button.click());
     return selector;
   }
 
@@ -2127,6 +2077,78 @@ async function saveConfiguration(
       bodyExcerpt: excerptText(bodyText),
     },
   );
+}
+
+/**
+ * Presses a resolved save control and waits for Xometry to leave the
+ * configuration page and render a price or manual-review signal. Shared by
+ * the scripted save and the Jev driver's code-owned save macro.
+ */
+async function clickSaveAndSettle(
+  page: Page,
+  timeoutMs: number,
+  beforeSave: () => Promise<void>,
+  click: () => Promise<void>,
+) {
+  // Xometry can take longer than the general browser timeout to recalculate a
+  // configured quote. Keep this vendor-specific floor explicit and bounded.
+  const postSaveTimeoutMs = Math.max(timeoutMs, XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS);
+  const configurationUrl = page.url();
+  await beforeSave();
+  await click();
+  const navigated = await page
+    .waitForURL((url) => url.toString() !== configurationUrl, {
+      timeout: postSaveTimeoutMs,
+    })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!navigated) {
+    const bodyText = await readBodyText(page);
+    throw new VendorAutomationError(
+      "Xometry did not leave the configuration page after Save Configuration.",
+      "navigation_failure",
+      {
+        vendor: "xometry",
+        field: "save_configuration",
+        configurationUrl,
+        url: page.url(),
+        bodyExcerpt: excerptText(bodyText),
+      },
+    );
+  }
+
+  const settled = await page
+    .waitForFunction(
+      () => {
+        const text = document.body?.innerText ?? "";
+        const priceAvailable =
+          /least expensive/i.test(text) && /\$\d[\d,]*\.\d{2}/.test(text);
+        const manualReviewAvailable =
+          /manual review|manually quoted|manually-quoted|requires review|drawing required/i.test(
+            text,
+          );
+        return priceAvailable || manualReviewAvailable;
+      },
+      undefined,
+      { timeout: postSaveTimeoutMs },
+    )
+    .then(() => true)
+    .catch(() => false);
+
+  if (!settled) {
+    const bodyText = await readBodyText(page);
+    throw new VendorAutomationError(
+      "Xometry did not render a price or manual-review signal after Save Configuration.",
+      "unexpected_ui_state",
+      {
+        vendor: "xometry",
+        field: "save_configuration",
+        url: page.url(),
+        bodyExcerpt: excerptText(bodyText),
+      },
+    );
+  }
 }
 
 export async function setQuantity(
@@ -2608,45 +2630,6 @@ type SavedRequirementCheck = {
   drawingName: string | null;
 };
 
-const QUOTE_SUMMARY_FIELD_LABELS = [
-  "Quantity",
-  "Process",
-  "Material",
-  "Finish",
-  "Measurement",
-  "Preferred Subprocess",
-  "Precision Tolerance",
-  "Threads and Tapped Holes",
-  "Inserts",
-  "Inspection",
-  "Certificates and Supplier Qualifications",
-  "Price and Lead Time",
-] as const;
-
-function readQuoteSummaryField(bodyText: string, label: string) {
-  const summary = bodyText.replace(/\s+/g, " ").trim();
-  const followingLabels = QUOTE_SUMMARY_FIELD_LABELS
-    .filter((candidate) => candidate !== label)
-    .map((candidate) => escapeRegex(candidate))
-    .join("|");
-  const match = new RegExp(
-    String.raw`\b${escapeRegex(label)}\s*:\s*(.*?)(?=\s+(?:${followingLabels})\s*:|\s+Least Expensive\b|$)`,
-    "i",
-  ).exec(summary);
-  return match?.[1]?.trim() ?? null;
-}
-
-function findExactTermMatch(text: string, terms: string[]) {
-  return (
-    terms.find((term) =>
-      new RegExp(
-        `(?:^|[^a-z0-9])${escapeRegex(term)}(?=$|[^a-z0-9])`,
-        "i",
-      ).test(text),
-    ) ?? null
-  );
-}
-
 export function hasVisibleFilename(text: string, filename: string) {
   return text.toLocaleLowerCase().includes(filename.toLocaleLowerCase());
 }
@@ -3109,11 +3092,166 @@ export function xometryPriceTiersSettled(fileNames: string[] = []): boolean {
   return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
 }
 
+type DrivenConfiguration = {
+  selectedMaterial: string | null;
+  selectedFinish: string | null;
+  tolerance: { selector: string | null; tier: string | null };
+  saveSelector: string;
+  /** Null when every scripted step succeeded and the driver never ran (zero model calls). */
+  outcome: DriverOutcome | null;
+};
+
+const JEV_DRIVER_SAVE_SELECTOR = "jev_driver:save_configuration";
+
+/** Scrubbed driver evidence for a raw payload or error payload: counts, enums and hashes only. */
+function drivenRunPayload(outcome: DriverOutcome) {
+  return { summary: outcome.summary, repairCandidate: xometryDrivenRepairCandidate(outcome) };
+}
+
+/**
+ * Maps a stopped driver run onto the adapter's existing error vocabulary
+ * (§15). Without a possible driver write the original selector failure is
+ * kept, so the repair task is still enqueued.
+ */
+async function drivenStopError(
+  trigger: VendorAutomationError,
+  outcome: Extract<DriverOutcome, { status: "stopped" }>,
+  page: Page,
+  detectBlocking: () => Promise<unknown>,
+) {
+  const driver = drivenRunPayload(outcome);
+  if (outcome.reason === "blocking_state") await detectBlocking();
+  if (outcome.reason === "export_control") {
+    return new VendorAutomationError(
+      "Xometry showed an export-control prompt during driven configuration.",
+      "unexpected_ui_state",
+      { vendor: "xometry", reason: "export_control_state_ambiguous", driver, url: page.url() },
+    );
+  }
+  if (outcome.mutationPossible || ["action_uncertain", "unexpected_mutation", "boundary_violation"].includes(outcome.reason)) {
+    return new VendorAutomationError(
+      `Xometry driven configuration stopped after a possible change (${outcome.reason}).`,
+      "unexpected_ui_state",
+      { vendor: "xometry", reason: `jev_driver_${outcome.reason}`, providerMutationPossible: true, driver, url: page.url() },
+    );
+  }
+  return new VendorAutomationError(trigger.message, "selector_failure", {
+    ...trigger.payload, terminalState: "selector_drift", driver,
+  });
+}
+
+/**
+ * Mode B (docs/jev-quote-driver.md §2): the scripted steps run first. A
+ * selector failure in any configuration step hands the whole remaining
+ * segment to the Jev driver, which re-verifies scripted work from its own
+ * observation. Tolerance stays scripted; save runs as the code macro. The
+ * existing read-back and price gates still decide whether the quote is good.
+ */
+async function configureWithJevDriverFallback(page: Page, context: {
+  capability: JevDriverCapability;
+  input: VendorQuoteAdapterInput;
+  timeoutMs: number;
+  operationalJev?: OperationalJevBinding;
+  observer?: XometryProviderObserver;
+  materialTerms: string[];
+  materialSummaryTerms: string[];
+  finishTerms: string[];
+  overwriteTerms: Record<AutoSelectedField, string[]>;
+  uploadedAutoSelections: AutoSelectedField[];
+  configureCheckpoint: () => Promise<void>;
+  detectBlocking: () => Promise<unknown>;
+}): Promise<DrivenConfiguration> {
+  const { input, configureCheckpoint: checkpoint } = context;
+  const beforeSave = async () => input.providerKillSwitchCheckpoint?.("before_save");
+  let selectedMaterial: string | null = null;
+  let selectedFinish: string | null = null;
+  let trigger: VendorAutomationError | null = null;
+  const driftOf = (field: AutoSelectedField) => new VendorAutomationError(`Xometry ${field} control was not found.`, "selector_failure", {
+    vendor: "xometry", field, terminalState: "selector_drift",
+    attemptedSelectors: [...AUTO_SELECTED_FIELD_CONTROLS[field].buttons], url: page.url(),
+  });
+  try {
+    await checkpoint();
+    await openPartConfigurationIfNeeded(page, context.timeoutMs);
+    await setQuantity(page, normalizedQuantity(input), context.operationalJev, checkpoint);
+    if (context.uploadedAutoSelections.includes("process")) {
+      const overwritten = await overwriteAutoSelectedRequirements(page, ["process"], context.overwriteTerms, checkpoint);
+      if (overwritten.process === null) throw driftOf("process");
+    }
+    await checkpoint();
+    selectedMaterial = await configureRequiredOption(
+      page, context.materialTerms, XOMETRY_LOCATORS.materialButtons, XOMETRY_LOCATORS.materialOptions, "material", context.observer,
+    );
+    if (context.finishTerms.length > 0) {
+      await checkpoint();
+      selectedFinish = await configureRequiredOption(
+        page, context.finishTerms, XOMETRY_LOCATORS.finishButtons, XOMETRY_LOCATORS.finishOptions, "finish", context.observer,
+      );
+    } else if (context.uploadedAutoSelections.includes("finish")) {
+      const overwritten = await overwriteAutoSelectedRequirements(page, ["finish"], context.overwriteTerms, checkpoint, context.observer);
+      if (overwritten.finish === null) throw driftOf("finish");
+      selectedFinish = overwritten.finish ?? null;
+    }
+  } catch (error) {
+    if (!(error instanceof VendorAutomationError) || error.code !== "selector_failure") throw error;
+    trigger = error;
+  }
+  const binding = buildXometryDriverBinding({
+    quantity: normalizedQuantity(input),
+    materialSearchTerms: context.materialTerms,
+    materialSummaryTerms: context.materialSummaryTerms,
+    finishTerms: context.finishTerms,
+    includeProcess: context.uploadedAutoSelections.includes("process"),
+    includeFinish: context.finishTerms.length > 0 || context.uploadedAutoSelections.includes("finish"),
+    cadUnits: null,
+    beforeAction: checkpoint,
+    blockingSignal: detectBlockingStateSignal,
+    signal: input.signal,
+  });
+  let outcome: DriverOutcome | null = null;
+  const drive = async (failure: VendorAutomationError) => {
+    const run = await runXometryConfigurationDriver(page as unknown as import("playwright").Page, binding, context.capability);
+    if (run.status === "stopped") throw await drivenStopError(failure, run, page, context.detectBlocking);
+    selectedMaterial = run.matched.material ?? selectedMaterial;
+    selectedFinish = run.matched.finish ?? selectedFinish;
+    return run;
+  };
+  if (trigger) outcome = await drive(trigger);
+  await checkpoint();
+  const tolerance = await setTolerance(page, input.requirement.tightest_tolerance_inch);
+  let saveSelector: string;
+  const drivenSave = async (run: DriverOutcome) => {
+    const save = await findXometryDriverSave(page as unknown as import("playwright").Page, binding);
+    if (!save) {
+      throw new VendorAutomationError("Xometry Save Configuration control was not found.", "selector_failure", {
+        vendor: "xometry", field: "save_configuration", terminalState: "selector_drift",
+        attemptedSelectors: [...XOMETRY_LOCATORS.saveConfigurationButtons], driver: drivenRunPayload(run), url: page.url(),
+      });
+    }
+    await clickSaveAndSettle(page, context.timeoutMs, beforeSave, save.click);
+    return JEV_DRIVER_SAVE_SELECTOR;
+  };
+  if (outcome) {
+    saveSelector = await drivenSave(outcome);
+  } else {
+    try {
+      saveSelector = await saveConfiguration(page, context.timeoutMs, beforeSave);
+    } catch (error) {
+      if (!(error instanceof VendorAutomationError) || error.code !== "selector_failure") throw error;
+      outcome = await drive(error);
+      saveSelector = await drivenSave(outcome);
+    }
+  }
+  return { selectedMaterial, selectedFinish, tolerance, saveSelector, outcome };
+}
+
 export class XometryAdapter extends VendorAdapter {
   constructor(
     vendor: VendorName,
     config: WorkerConfig,
     private readonly providerObserver?: XometryProviderObserver,
+    /** Jev-driven configuration fallback. Absent (off) unless a host supplies it; no environment switch exists. */
+    private readonly jevDriver?: JevDriverCapability,
   ) {
     super(vendor, config);
   }
@@ -3349,6 +3487,7 @@ export class XometryAdapter extends VendorAdapter {
     // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
     let killSwitchError: ProviderKillSwitchError | null = null;
     let snapshotError: VendorAutomationError | null = null;
+    let drivenConfiguration: DrivenConfiguration | null = null;
 
     try {
       const chromiumLaunch = chromiumSandboxLaunchOptions(this.config);
@@ -3556,6 +3695,21 @@ export class XometryAdapter extends VendorAdapter {
             ? findExactTermMatch(observedFinish, finishTerms)
             : null;
         selectedTolerance = requestedTolerance.tier;
+      } else if (this.jevDriver) {
+        // Default off: only a host-supplied capability reaches this branch.
+        drivenConfiguration = await configureWithJevDriverFallback(page, {
+          capability: this.jevDriver, input, timeoutMs: this.config.browserTimeoutMs,
+          operationalJev: this.operationalJev ? { ...this.operationalJev,
+            scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+          observer: this.providerObserver ?? this.operationalProviderObserver,
+          materialTerms, materialSummaryTerms, finishTerms: finishTerms ?? [], overwriteTerms, uploadedAutoSelections,
+          configureCheckpoint, detectBlocking: () => detectBlockingState(page, runDir),
+        });
+        selectedMaterial = drivenConfiguration.selectedMaterial;
+        selectedFinish = drivenConfiguration.selectedFinish;
+        selectedTolerance = drivenConfiguration.tolerance.tier;
+        toleranceSelector = drivenConfiguration.tolerance.selector;
+        saveConfigurationSelector = drivenConfiguration.saveSelector;
       } else {
         await input.providerKillSwitchCheckpoint?.("before_configure");
         await openPartConfigurationIfNeeded(
@@ -3615,7 +3769,7 @@ export class XometryAdapter extends VendorAdapter {
         toleranceSelector = toleranceSelection.selector;
       }
 
-      if (!uploadedSummaryMatches) {
+      if (!uploadedSummaryMatches && !drivenConfiguration) {
         saveConfigurationSelector = await saveConfiguration(
           page,
           this.config.browserTimeoutMs,
@@ -3980,8 +4134,15 @@ export class XometryAdapter extends VendorAdapter {
           bodyExcerpt: excerptText(bodyText),
           requestedQuantity: input.requestedQuantity,
           url: page.url(),
+          ...(drivenConfiguration?.outcome ? { jevDriver: drivenRunPayload(drivenConfiguration.outcome) } : {}),
         }),
       };
+      // Fixer (§17): a driven run that passed every read-back and price gate
+      // yields a reviewed-locator repair candidate. Best effort.
+      if (drivenConfiguration?.outcome?.status === "completed" && quoteResult.status === "instant_quote_received" && requirementsVerified) {
+        const outcome = drivenConfiguration.outcome;
+        await Promise.resolve().then(() => this.jevDriver?.emitRepairCandidate?.(xometryDrivenRepairCandidate(outcome))).catch(() => undefined);
+      }
     } catch (error) {
       // An export-control or dispatch decision is a hold, not an operational
       // failure, so it is not reported to Jev (as in the portal kernel).

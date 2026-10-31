@@ -20,8 +20,12 @@ const {
   playwrightLaunchMock,
   playwrightLaunchPersistentContextMock,
   loadCamoufoxIdentityMock,
+  runDriverMock,
+  findDriverSaveMock,
 } =
   vi.hoisted(() => ({
+    runDriverMock: vi.fn(),
+    findDriverSaveMock: vi.fn(),
     camoufoxMock: vi.fn(),
     camoufoxLaunchOptionsMock: vi.fn(),
     launchMock: vi.fn(),
@@ -34,6 +38,12 @@ const {
   }));
 
 vi.mock("../camoufoxAssets.js", () => ({ assertCamoufoxAssetsPresent: vi.fn() }));
+// The driver loop has its own browser-free tests; here only the adapter wiring is under test.
+vi.mock("./xometryDriver.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./xometryDriver.js")>()),
+  runXometryConfigurationDriver: runDriverMock,
+  findXometryDriverSave: findDriverSaveMock,
+}));
 vi.mock("camoufox-js", () => ({
   Camoufox: camoufoxMock,
   launchOptions: camoufoxLaunchOptionsMock,
@@ -911,8 +921,10 @@ afterEach(async () => {
  * The reviewed live evaluation flow: dashboard upload, quote redirect, then
  * quantity, material, finish, tolerance and Save Configuration.
  */
-function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
+function createLiveConfigureFlow(input: VendorQuoteAdapterInput, options: { quantityInputMissing?: boolean } = {}) {
   const saveConfiguration = vi.fn();
+  // Tonight's drift: the reviewed quantity locator matches nothing until something else sets the quantity.
+  let quantityInputRendered = !options.quantityInputMissing;
   const setTolerance = vi.fn();
   let materialControlRendered = false;
   let finishControlRendered = false;
@@ -976,7 +988,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
         setInputFiles: toolLibraryUpload,
       },
       [XOMETRY_LOCATORS.quantityInputs[0]]: {
-        count: 1,
+        count: () => (quantityInputRendered ? 1 : 0),
         fill: (value: string) => {
           lineItemQuantity = value;
         },
@@ -1042,6 +1054,8 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
   return {
     page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish, clickMaterialControl,
     clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+    /** What a driven run leaves behind: the part row reads back the quantity. */
+    showConfiguredQuantity: (value: string) => { lineItemQuantity = value; quantityInputRendered = true; },
   };
 }
 
@@ -9076,5 +9090,106 @@ describe("XometryAdapter", () => {
     expect(context.tracing.start).toHaveBeenCalledTimes(1);
     expect(context.tracing.stop).toHaveBeenCalledTimes(1);
     expect(context.tracing.stop).toHaveBeenCalledWith();
+  });
+});
+
+describe("Jev-driven configuration fallback (capability absent by default)", () => {
+  class DrivenEvaluationAdapter extends XometryAdapter {
+    override quote(input: VendorQuoteAdapterInput) {
+      return this.quoteForLiveEvaluation(input);
+    }
+  }
+  const runSummary = (outcome: "completed" | "stopped", stopReason: string | null) => ({
+    schema: "jev-driver-run.v1", revision: "jev-quote-driver.v1", policyRevision: "p", snapshotRevision: "s", vocabularyDigest: "0123456789abcdef",
+    outcome, stopReason, subGoals: {}, cycles: 4, modelCalls: 2, codeDecisions: 3, actions: 3, inputTokens: 2_400, outputTokens: 0,
+    tokensEstimated: false, costUsdEstimate: 0.0001008, priceSource: "synthetic", cycleLatencyMs: { p50: 1, p95: 2 }, elapsedMs: 9, gateHits: {},
+  });
+  const capability = () => ({
+    decide: vi.fn(), audit: vi.fn(async () => true), model: "jev-1.13.0" as const, emitRepairCandidate: vi.fn(async () => undefined),
+  });
+  async function quoteWith(input: VendorQuoteAdapterInput, flow: ReturnType<typeof createLiveConfigureFlow>, driver?: ReturnType<typeof capability>) {
+    const workerTempDir = await makeTempDir();
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(flow.page));
+    const config = makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json"), xometryBrowserEngine: "playwright", workerLiveAdapters: ["xometry"] });
+    const adapter = new DrivenEvaluationAdapter("xometry", config, undefined, driver as unknown as import("../jev/driver/types").JevDriverCapability | undefined);
+    return adapter.quote(input).then((output) => ({ output, error: null }), (error: unknown) => ({ output: null, error }));
+  }
+
+  it("off: tonight's missing quantity input fails exactly as before and never reaches the driver", async () => {
+    const input = await makeLiveEvaluationInput();
+    const { output, error } = await quoteWith(input, createLiveConfigureFlow(input, { quantityInputMissing: true }));
+    expect(output).toBeNull();
+    expect(error).toMatchObject({ message: "Xometry quantity input was not found.", code: "selector_failure" });
+    expect((error as VendorAutomationError).payload).not.toHaveProperty("driver");
+    expect(runDriverMock).not.toHaveBeenCalled();
+    expect(findDriverSaveMock).not.toHaveBeenCalled();
+  });
+
+  it("on, scripted path succeeds: zero driver runs and zero model calls, same result as off", async () => {
+    // Each run gets its own evaluation input: the flow rewrites the staged CAD file after launch.
+    const offInput = await makeLiveEvaluationInput();
+    const off = await quoteWith(offInput, createLiveConfigureFlow(offInput));
+    const driver = capability();
+    const input = await makeLiveEvaluationInput();
+    const on = await quoteWith(input, createLiveConfigureFlow(input), driver);
+    expect(on.error).toBeNull();
+    expect(on.output?.rawPayload).toEqual(off.output?.rawPayload);
+    expect(on.output).toMatchObject({ status: off.output?.status, totalPriceUsd: off.output?.totalPriceUsd });
+    expect(runDriverMock).not.toHaveBeenCalled();
+    expect(driver.decide).not.toHaveBeenCalled();
+    expect(driver.emitRepairCandidate).not.toHaveBeenCalled();
+  });
+
+  it("on, quantity input missing: the driver takes the segment, save is the code macro, and the read-back gates still decide", async () => {
+    const input = await makeLiveEvaluationInput();
+    const flow = createLiveConfigureFlow(input, { quantityInputMissing: true });
+    const driver = capability();
+    runDriverMock.mockImplementation(async () => {
+      flow.showConfiguredQuantity("2");
+      return {
+        status: "completed", verified: ["material", "finish", "quantity"], matched: { material: "6061-T6x", finish: "Black Anodize", quantity: "2" },
+        summary: runSummary("completed", null), skeletons: {},
+        candidates: [{ field: "quantity", kind: "label_anchor", selector: 'div:has(> span:text-is("Quantity")) > div > input[type="text"]' }],
+      };
+    });
+    findDriverSaveMock.mockResolvedValue({ click: () => flow.page.locator(XOMETRY_LOCATORS.saveConfigurationButtons[0]).click() });
+    const { output, error } = await quoteWith(input, flow, driver);
+    expect(error).toBeNull();
+    expect(runDriverMock).toHaveBeenCalledTimes(1);
+    const binding = runDriverMock.mock.calls[0][1] as import("../jev/driver/types").DriverBinding;
+    expect(binding.fields.map((spec) => [spec.field, spec.fillValues])).toEqual([
+      ["material", ["6061-T6", "6061"]], ["finish", ["Black Anodize"]], ["quantity", ["2"]],
+    ]);
+    expect(binding.cadUnits).toBeNull();
+    expect(flow.setTolerance).toHaveBeenCalledTimes(1);
+    expect(flow.saveConfiguration).toHaveBeenCalledTimes(1);
+    expect(output).toMatchObject({ status: "instant_quote_received", totalPriceUsd: 120 });
+    expect(output?.rawPayload).toMatchObject({
+      saveConfigurationSelector: "jev_driver:save_configuration", selectedMaterial: "6061-T6x", requirementsVerified: true,
+      jevDriver: { summary: { modelCalls: 2, inputTokens: 2_400 }, repairCandidate: { schema: "driven_locator_candidate.v1", outcome: "completed" } },
+    });
+    expect(driver.emitRepairCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      schema: "driven_locator_candidate.v1", fields: [expect.objectContaining({ field: "quantity", target: "quantityInputs" })],
+    }));
+  });
+
+  it("on, driver stops without a write: the original selector failure is kept with a scrubbed driver summary", async () => {
+    const input = await makeLiveEvaluationInput();
+    runDriverMock.mockResolvedValue({ status: "stopped", reason: "blocked", field: "quantity", mutationPossible: false, summary: runSummary("stopped", "blocked") });
+    const { error } = await quoteWith(input, createLiveConfigureFlow(input, { quantityInputMissing: true }), capability());
+    expect(error).toMatchObject({ message: "Xometry quantity input was not found.", code: "selector_failure" });
+    expect((error as VendorAutomationError).payload).toMatchObject({
+      terminalState: "selector_drift", attemptedSelectors: [...XOMETRY_LOCATORS.quantityInputs],
+      driver: { summary: { stopReason: "blocked" }, repairCandidate: { outcome: "stopped", stop: { reason: "blocked", field: "quantity" }, fields: [] } },
+    });
+    expect(findDriverSaveMock).not.toHaveBeenCalled();
+  });
+
+  it("on, driver stops after a possible write: unexpected_ui_state, never retried as a selector failure", async () => {
+    const input = await makeLiveEvaluationInput();
+    runDriverMock.mockResolvedValue({ status: "stopped", reason: "action_uncertain", field: "material", mutationPossible: true, summary: runSummary("stopped", "action_uncertain") });
+    const { error } = await quoteWith(input, createLiveConfigureFlow(input, { quantityInputMissing: true }), capability());
+    expect(error).toMatchObject({ code: "unexpected_ui_state", payload: { reason: "jev_driver_action_uncertain", providerMutationPossible: true } });
+    expect(isRetryableVendorTaskError(error)).toBe(false);
   });
 });

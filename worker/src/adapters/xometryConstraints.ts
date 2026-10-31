@@ -387,3 +387,48 @@ export function buildFinishSearchTerms(finish: string | null) {
 
   return null;
 }
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const QUOTE_SUMMARY_FIELD_LABELS = [
+  "Quantity",
+  "Process",
+  "Material",
+  "Finish",
+  "Measurement",
+  "Preferred Subprocess",
+  "Precision Tolerance",
+  "Threads and Tapped Holes",
+  "Inserts",
+  "Inspection",
+  "Certificates and Supplier Qualifications",
+  "Price and Lead Time",
+] as const;
+
+/** Reads one `Label: value` field from Xometry's quote summary text. */
+export function readQuoteSummaryField(bodyText: string, label: string) {
+  const summary = bodyText.replace(/\s+/g, " ").trim();
+  const followingLabels = QUOTE_SUMMARY_FIELD_LABELS
+    .filter((candidate) => candidate !== label)
+    .map((candidate) => escapeRegex(candidate))
+    .join("|");
+  const match = new RegExp(
+    String.raw`\b${escapeRegex(label)}\s*:\s*(.*?)(?=\s+(?:${followingLabels})\s*:|\s+Least Expensive\b|$)`,
+    "i",
+  ).exec(summary);
+  return match?.[1]?.trim() ?? null;
+}
+
+/** Returns the first term that appears in `text` as a whole token, case-insensitively. */
+export function findExactTermMatch(text: string, terms: readonly string[]) {
+  return (
+    terms.find((term) =>
+      new RegExp(
+        `(?:^|[^a-z0-9])${escapeRegex(term)}(?=$|[^a-z0-9])`,
+        "i",
+      ).test(text),
+    ) ?? null
+  );
+}

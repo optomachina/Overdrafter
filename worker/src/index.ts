@@ -53,6 +53,7 @@ import {
   summarizeWorkerErrorName,
 } from "./errorSummary.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
+import { parseDrivenLocatorCandidate } from "./jev/driver/fixer.js";
 import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
 import { fetchPartContext } from "./partContext.js";
 import {
@@ -423,6 +424,8 @@ async function enqueueRepairCandidate(
       nearbyAttributes: error.payload.nearbyAttributes ?? [],
       failureCode: error.code,
       url: error.payload.url ?? null,
+      // Jev driver diagnostic (stop reason, counts); validated again by handleRepairTask.
+      ...drivenRepairPayload(error.payload.driver),
     },
   });
 
@@ -2450,7 +2453,14 @@ async function handlePublishTask(supabase: SupabaseClient, task: QueueTaskRecord
   });
 }
 
+function drivenRepairPayload(driver: unknown) {
+  const candidate = driver && typeof driver === "object" ? parseDrivenLocatorCandidate((driver as { repairCandidate?: unknown }).repairCandidate) : null;
+  return candidate ? { drivenLocatorCandidate: candidate } : {};
+}
+
 async function handleRepairTask(supabase: SupabaseClient, task: QueueTaskRecord) {
+  // §17: a driven-run candidate is stored as the task result, never applied. Review and merge stay human.
+  const drivenLocatorCandidate = parseDrivenLocatorCandidate(task.payload.drivenLocatorCandidate);
   const suggestion = suggestLocatorUpdate({
     failedSelector: String(task.payload.failedSelector ?? ""),
     errorMessage: String(task.payload.errorMessage ?? ""),
@@ -2461,6 +2471,7 @@ async function handleRepairTask(supabase: SupabaseClient, task: QueueTaskRecord)
 
   await markTaskCompleted(supabase, task, {
     repairSuggestion: suggestion,
+    ...(drivenLocatorCandidate ? { drivenLocatorCandidate } : {}),
   });
 }
 
