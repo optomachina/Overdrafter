@@ -159,7 +159,7 @@ function readBlock(comment, text, block, headSha) {
   if (!entry) return { rejected: [] };
   const errors = familyErrors(entry.verdict);
   if (errors.length) return { rejected: [{ ...base, reason: "schema_error", errors, text }] };
-  return { entry: { ...base, review_model: entry.verdict.verifier.model_family, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
+  return { entry: { ...base, header: parseArchitectHeader(comment.body), review_model: entry.verdict.verifier.model_family, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
 }
 
 /**
@@ -793,6 +793,7 @@ function findingReasons(entries, input) {
 /** A clean, verified, thread-free trusted PASS at exactly this SHA. */
 const exactPass = (entry, input) => fromVerifierBot(entry)
   && entry.verdict.sha === input.headSha && PASSING.has(entry.verdict.verdict)
+  && (entry.verdict.role !== "reviewer" || architectHeaderMatches(entry))
   && !isHigh(entry.verdict) && list(entry.verdict.findings).length === 0
   && entry.verdict.readiness?.open_threads === 0
   && entry.verdict.readiness?.conflicts === 0
@@ -819,11 +820,105 @@ function builderFamilies(prBody) {
  * The builder's model family never reviews its own work. The gate cannot see
  * fresh-session evidence, so a same-family reviewer PASS blocks (fail closed).
  */
-function sameFamilyReasons(exact, prBody) {
-  const families = builderFamilies(prBody);
+function sameFamilyReasons(exact, input) {
+  const families = builderFamilies(input.prBody);
   return exact
     .filter((entry) => entry.verdict.role === "reviewer" && families.includes(entry.verdict.verifier?.model_family))
+    .filter((entry) => !freshClaudeOpus(entry, families, buildTrail(input)))
     .map((entry) => ({ code: "reviewer_same_family", detail: `reviewer comment ${entry.comment_id} is from the builder's model family ${entry.verdict.verifier.model_family}` }));
+}
+
+/*
+ * Architect ruling on hardening checklist item 6 (PR #993 comment 6538018662).
+ * A reviewer verdict counts only when its comment, posted by the verifier App
+ * and never edited, starts with:
+ *   Architect review (<model>) @ <40-hex head SHA>
+ *   VERDICT: PASS | PASS_NOTES | CHANGES_REQUIRED
+ *   [Context: fresh-session; no-build-context]   (required for same-family review)
+ *   [Reviewer-Run: <session or run id>]          (required with the Context line)
+ * The JSON verdict block below it is unchanged.
+ */
+const ARCHITECT_PREFIX = "Architect review";
+const ARCHITECT_HEADER = /^Architect review \((opus|sonnet|codex|jev)\) @ ([0-9a-f]{40})$/;
+const ARCHITECT_VERDICT = /^VERDICT: (PASS|PASS_NOTES|CHANGES_REQUIRED)$/;
+const ARCHITECT_CONTEXT = "Context: fresh-session; no-build-context";
+const REVIEWER_RUN = /^Reviewer-Run: ([\w.:-]{6,128})$/;
+const HEADER_FAMILY = Object.freeze({ opus: "claude", sonnet: "claude", codex: "codex", jev: "jev" });
+const HEADER_VERDICT = Object.freeze({ PASS: "PASS", PASS_NOTES: "PASS_NOTES", FAIL: "CHANGES_REQUIRED" });
+
+/**
+ * The Architect header at the very top of a comment body. Null when the body
+ * does not start with "Architect review" (not a verdict); { error } when it
+ * does but any line fails the exact format (fail closed).
+ */
+export function parseArchitectHeader(body) {
+  if (typeof body !== "string" || !body.startsWith(ARCHITECT_PREFIX)) return null;
+  const lines = body.split("\n").map((line) => line.replace(/\r$/, ""));
+  const head = ARCHITECT_HEADER.exec(lines[0]);
+  const verdict = ARCHITECT_VERDICT.exec(lines[1] ?? "");
+  if (!head || !verdict) return { error: "the Architect header or VERDICT line does not match the exact format" };
+  const fresh = lines[2] === ARCHITECT_CONTEXT;
+  const run = REVIEWER_RUN.exec(lines[fresh ? 3 : 2] ?? "");
+  if (fresh && !run) return { error: "a Context line needs a Reviewer-Run line after it" };
+  return { model: head[1], sha: head[2], verdict: verdict[1], fresh, runId: run?.[1] ?? null };
+}
+
+/** The reviewer entry's own comment header agrees with its JSON verdict, model and SHA. */
+function architectHeaderMatches(entry) {
+  const header = entry.header;
+  if (!header || header.error || header.sha !== entry.verdict.sha) return false;
+  if (HEADER_VERDICT[entry.verdict.verdict] !== header.verdict) return false;
+  if (HEADER_FAMILY[header.model] !== entry.verdict.verifier?.model_family) return false;
+  return HEADER_FAMILY[header.model] !== "claude" || reviewModel(entry) === header.model;
+}
+
+/** Every id the build left behind: the PR body (Built-by, session links) and commit messages. Lowercased. */
+const buildTrail = (input) => [input.prBody, ...list(input.commits).map((commit) => commit?.commit?.message)]
+  .filter((text) => typeof text === "string").join("\n").toLowerCase();
+
+/**
+ * Same-family review is accepted only for a Claude-built PR reviewed by a
+ * fresh-session Opus whose run id appears nowhere in the build trail.
+ */
+function freshClaudeOpus(entry, families, trail) {
+  const header = entry.header;
+  return families.includes("claude") && entry.verdict.verifier?.model_family === "claude"
+    && architectHeaderMatches(entry) && header.model === "opus" && header.fresh
+    && typeof header.runId === "string" && !trail.includes(header.runId.toLowerCase());
+}
+
+/**
+ * App-authored Architect verdicts at the head: per model the newest counts and
+ * CHANGES_REQUIRED blocks. Malformed headers, edited comments and same-time
+ * disagreements fail closed. Other authors and quoted headers are ignored.
+ */
+/** One comment's Architect verdict at the head: { reason } to block, { header, time } to count, or null to ignore. */
+function architectComment(comment, headSha) {
+  if (!inList(APP_TRUSTED_VERIFIERS, lower(comment?.user?.login))) return null;
+  const header = parseArchitectHeader(comment.body);
+  if (header?.error) return { reason: { code: "architect_header_malformed", detail: `comment ${comment.id}: ${header.error}` } };
+  if (header?.sha !== headSha) return null;
+  if (!comment.created_at || comment.updated_at !== comment.created_at) return { reason: { code: "architect_verdict_edited", detail: `comment ${comment.id} was edited; verdicts are never edited` } };
+  const time = Date.parse(comment.created_at);
+  if (Number.isNaN(time)) return { reason: { code: "architect_header_malformed", detail: `comment ${comment.id} has no readable timestamp` } };
+  return { header, time, id: comment.id };
+}
+
+function architectReasons(comments, headSha) {
+  const reasons = [];
+  const newest = new Map();
+  for (const item of list(comments).map((comment) => architectComment(comment, headSha))) {
+    if (item?.reason) reasons.push(item.reason);
+    if (!item?.header) continue;
+    const prior = newest.get(item.header.model);
+    const conflict = prior?.time === item.time && prior.header.verdict !== item.header.verdict;
+    if (conflict) reasons.push({ code: "architect_verdict_conflict", detail: `comments ${prior.id} and ${item.id} disagree for ${item.header.model}` });
+    if (!prior || item.time > prior.time) newest.set(item.header.model, item);
+  }
+  for (const [model, latest] of newest) {
+    if (latest.header.verdict === "CHANGES_REQUIRED") reasons.push({ code: "architect_changes_required", detail: `newest ${model} Architect review (comment ${latest.id}) is CHANGES_REQUIRED` });
+  }
+  return reasons;
 }
 
 /** The newest run of each hosted required check must be a GitHub Actions success at this exact SHA. */
@@ -851,9 +946,14 @@ export function evaluate(given = {}) {
   const { entries } = collectVerdicts(input.comments, input.headSha);
   reasons.push(...findingReasons(entries, input));
   const exact = entries.filter((entry) => exactPass(entry, input));
-  reasons.push(...reviewGateReasons(exact, opusRequired));
   // All counted reviews, including ones beyond the minimum, must be independent.
-  reasons.push(...builderReasons(exact, input.prBody), ...sameFamilyReasons(exact, input.prBody), ...requiredCheckReasons(input.requiredChecks, input.headSha));
+  reasons.push(
+    ...reviewGateReasons(exact, opusRequired),
+    ...builderReasons(exact, input.prBody),
+    ...sameFamilyReasons(exact, input),
+    ...architectReasons(input.comments, input.headSha),
+    ...requiredCheckReasons(input.requiredChecks, input.headSha),
+  );
   if (!threadsResolved(input.reviewThreads, input.headSha)) reasons.push({ code: "threads_unresolved", detail: "review threads are unresolved, unknown or stale" });
   // Sensitive approval can be waived only for a complete non-held decision.
   // History conflicts, malformed input and independence failures remain intact.
@@ -1556,7 +1656,7 @@ export function mergeStop(disabledValue, pull) {
  */
 export function commentsFingerprint(comments) {
   if (!Array.isArray(comments)) return null;
-  const keys = comments.map((comment) => `${comment?.id}@${comment?.updated_at}`).toSorted();
+  const keys = comments.map((comment) => `${comment?.id}@${comment?.updated_at}`).toSorted((a, b) => a.localeCompare(b, "en"));
   return createHash("sha256").update(keys.join("\n")).digest("hex");
 }
 

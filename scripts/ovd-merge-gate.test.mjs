@@ -72,7 +72,23 @@ function comment(body, { id = nextId++, login = BOT, edited = false } = {}) {
   return { id, body, created_at: created, updated_at: edited ? at(id + 5000) : created, user: { login } };
 }
 
-const posted = (value, options = {}) => comment(`**OverDrafter verdict**\n\n${formatVerdictBlock(value)}\n`, { login: value.verifier.github_login, ...options });
+const HEADER_VERDICTS = { PASS: "PASS", PASS_NOTES: "PASS_NOTES", FAIL: "CHANGES_REQUIRED" };
+/** The Architect header model for a reviewer verdict, or null when none can be named (generic Claude, grok, human). */
+const headerModel = (value) => {
+  const family = value.verifier.model_family;
+  if (["opus", "sonnet", "codex", "jev"].includes(family)) return family;
+  const id = value.verifier.id;
+  return family === "claude" && ["opus-reviewer", "sonnet-reviewer"].includes(id) ? id.split("-")[0] : null;
+};
+/** Architect ruling lines (PR #993 comment 6538018662) for reviewer comments. */
+const architectHeader = (value, extra = []) => {
+  const model = headerModel(value);
+  return model ? [`Architect review (${model}) @ ${value.sha}`, `VERDICT: ${HEADER_VERDICTS[value.verdict]}`, ...extra].join("\n") + "\n\n" : "";
+};
+const posted = (value, options = {}) => {
+  const { header = value.role === "reviewer" ? architectHeader(value) : "", ...rest } = options;
+  return comment(`${header}**OverDrafter verdict**\n\n${formatVerdictBlock(value)}\n`, { login: value.verifier.github_login, ...rest });
+};
 const approvalComment = (overrides = {}, options = {}) => comment(formatApprovalBlock({
   schema: APPROVAL_SCHEMA_ID, sha: HEAD, diff_id: DIFF, approver: "blaine", card_id: "K-959", timestamp: "2026-10-20T00:00:00Z", ...overrides,
 }), { login: "optomachina", ...options });
@@ -1907,6 +1923,134 @@ describe("enforced automerge gates", () => {
     expect(step.env.DOOR_AUTOMERGE).toBe("${{ vars.DOOR_AUTOMERGE }}");
     expect(step.run).not.toMatch(/source |\.env|--admin|--auto\b/);
     expect(workflow.jobs["ovd-merge-gate-history"].permissions.contents).toBe("read");
+  });
+});
+
+describe("Architect verdict header (ruling on checklist item 6, PR #993 comment 6538018662)", () => {
+  const files = [{filename:"src/lib/auth-options.ts",status:"modified"}];
+  const opus = (options = {}, overrides = {}) => posted(verdict({role:"reviewer",family:"opus",...overrides}), options);
+  const sensitive = (overrides = {}) => baseInput({
+    identity:"app", requiredChecks:greenChecks(), reviewThreads:{sha:HEAD,complete:true,threads:[]},
+    changedFiles:files, classification:okClassification(files,["auth"]),
+    commitStatuses:{sha:HEAD,statuses:[jevStatus(HEAD,"risky","low")]},
+    comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus()],
+    ...overrides,
+  });
+  const errors = (overrides) => reasonCodes(gate.evaluate(sensitive(overrides)));
+  const withOpus = (options, overrides) => ({comments:[posted(verdict()),posted(verdict({role:"reviewer"})),opus(options,overrides)]});
+  const header = (...lines) => lines.join("\n") + "\n\n";
+  const plain = (body, options = {}) => comment(body, {login:BOT,...options});
+  const CLAUDE_BUILT = "Built-by: bot=architect model=model:claude-opus";
+  const FRESH = ["Context: fresh-session; no-build-context","Reviewer-Run: review_run_7f3a91"];
+
+  it("counts reviewer verdicts that carry the exact header", () => {
+    expect(gate.evaluate(sensitive())).toMatchObject({gate:"pass",reasons:[]});
+  });
+
+  it("parses the three header lines and the reviewer run id", () => {
+    expect(gate.parseArchitectHeader(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS_NOTES"))).toEqual({model:"opus",sha:HEAD,verdict:"PASS_NOTES",fresh:false,runId:null});
+    expect(gate.parseArchitectHeader(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS",...FRESH))).toEqual({model:"opus",sha:HEAD,verdict:"PASS",fresh:true,runId:"review_run_7f3a91"});
+    expect(gate.parseArchitectHeader(header(`Architect review (jev) @ ${HEAD}\r`,"VERDICT: CHANGES_REQUIRED\r"))).toMatchObject({model:"jev",verdict:"CHANGES_REQUIRED"});
+    for (const body of [undefined,"Opus independent review",`> Architect review (opus) @ ${HEAD}`]) expect(gate.parseArchitectHeader(body)).toBeNull();
+  });
+
+  it("a reviewer verdict without the header is not a verdict", () => {
+    expect(errors(withOpus({header:""}))).toContain("opus_not_pass");
+  });
+
+  it.each([
+    ["the old free-text title", header(`Opus independent review @ ${HEAD}`,"VERDICT: PASS"), false],
+    ["a short SHA", header(`Architect review (opus) @ ${HEAD.slice(0,8)}`,"VERDICT: PASS"), true],
+    ["an uppercase SHA", header(`Architect review (opus) @ ${"A".repeat(40)}`,"VERDICT: PASS"), true],
+    ["trailing text", header(`Architect review (opus) @ ${HEAD} (fresh)`,"VERDICT: PASS"), true],
+    ["an unknown model", header(`Architect review (grok) @ ${HEAD}`,"VERDICT: PASS"), true],
+    ["an unknown verdict", header(`Architect review (opus) @ ${HEAD}`,"VERDICT: APPROVED"), true],
+    ["a lowercase verdict line", header(`Architect review (opus) @ ${HEAD}`,"verdict: PASS"), true],
+    ["a Context line with no reviewer run id", header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS",FRESH[0]), true],
+    ["text before the header", header("Summary",`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS"), false],
+  ])("%s does not count", (_name, text, malformed) => {
+    const codes = errors(withOpus({header:text}));
+    expect(codes).toContain("opus_not_pass");
+    if (malformed) expect(codes).toContain("architect_header_malformed");
+  });
+
+  it("binds the header SHA, model and verdict to the JSON verdict and the head", () => {
+    expect(errors(withOpus({header:header(`Architect review (opus) @ ${OLD}`,"VERDICT: PASS")}))).toContain("opus_not_pass");
+    expect(errors(withOpus({header:header(`Architect review (sonnet) @ ${HEAD}`,"VERDICT: PASS")}))).toContain("opus_not_pass");
+    expect(errors(withOpus({header:header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS_NOTES")}))).toContain("opus_not_pass");
+    expect(errors(withOpus({header:header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED")}))).toEqual(expect.arrayContaining(["opus_not_pass","architect_changes_required"]));
+  });
+
+  it("only the verifier App counts: a perfect header from optomachina or a quoted header is ignored", () => {
+    const perfect = header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS");
+    expect(errors(withOpus({login:"optomachina"},{login:"optomachina"}))).toContain("opus_not_pass");
+    const human = plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"),{login:"optomachina"});
+    expect(errors({comments:[...sensitive().comments,human]})).toEqual([]);
+    const quoted = plain(`QA notes\n\n> ${perfect.replace("\n","\n> ")}`);
+    expect(errors({comments:[posted(verdict()),posted(verdict({role:"reviewer"})),quoted]})).toContain("opus_not_pass");
+  });
+
+  it("the newest App verdict per model at the head counts; CHANGES_REQUIRED blocks", () => {
+    // Comment ids (and so created_at) increase in creation order.
+    const passing = sensitive().comments;
+    const blocking = plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"));
+    expect(errors({comments:[...passing,blocking]})).toContain("architect_changes_required");
+    const [qa,sonnet] = passing;
+    expect(errors({comments:[qa,sonnet,blocking,opus()]})).toEqual([]);
+    expect(errors({comments:[...passing,plain(header(`Architect review (opus) @ ${OLD}`,"VERDICT: CHANGES_REQUIRED"))]})).toEqual([]);
+    expect(errors({comments:[...passing,plain(header(`Architect review (sonnet) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED"))]})).toContain("architect_changes_required");
+  });
+
+  it("verdicts are never edited: an edited Architect comment blocks and does not count", () => {
+    expect(errors(withOpus({edited:true}))).toEqual(expect.arrayContaining(["opus_not_pass","architect_verdict_edited"]));
+  });
+
+  it("same-time disagreement for one model fails closed", () => {
+    const passing = sensitive().comments;
+    const id = nextId++;
+    const pass = plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: PASS"),{id});
+    const changes = {...plain(header(`Architect review (opus) @ ${HEAD}`,"VERDICT: CHANGES_REQUIRED")),created_at:pass.created_at,updated_at:pass.created_at};
+    expect(errors({comments:[...passing,pass,changes]})).toContain("architect_verdict_conflict");
+  });
+
+  describe("same-family review", () => {
+    /** Reasons that name the Opus reviewer comment (the Sonnet reviewer is Claude-family too). */
+    const familyCodes = (prBody, options, overrides, commits) => {
+      const input = sensitive({prBody,...withOpus(options,overrides),...(commits ? {commits} : {})});
+      const opusId = String(input.comments[2].id);
+      return gate.evaluate(input).reasons.filter((reason) => reason.detail.includes(opusId) || reason.code === "opus_not_pass").map((reason) => reason.code);
+    };
+
+    it("a Claude-built PR accepts a fresh-session Opus with an unrelated reviewer run id", () => {
+      expect(familyCodes(CLAUDE_BUILT,{header:architectHeader(verdict({role:"reviewer",family:"opus"}),FRESH)})).not.toContain("reviewer_same_family");
+    });
+
+    it("needs the Context line and a reviewer run id", () => {
+      expect(familyCodes(CLAUDE_BUILT)).toContain("reviewer_same_family");
+      expect(familyCodes(CLAUDE_BUILT,{header:architectHeader(verdict({role:"reviewer",family:"opus"}),["Reviewer-Run: review_run_7f3a91"])})).toContain("reviewer_same_family");
+      expect(familyCodes(CLAUDE_BUILT,{header:architectHeader(verdict({role:"reviewer",family:"opus"}),[FRESH[0]])})).toContain("opus_not_pass");
+    });
+
+    it("the reviewer run id must differ from every id in the build trail", () => {
+      const fresh = {header:architectHeader(verdict({role:"reviewer",family:"opus"}),FRESH)};
+      expect(familyCodes(`${CLAUDE_BUILT}\nhttps://claude.ai/code/review_run_7f3a91`,fresh)).toContain("reviewer_same_family");
+      const commits = [{author:{login:"optomachina"},committer:{login:"optomachina"},commit:{message:"fix\n\nClaude-Session: https://claude.ai/code/REVIEW_RUN_7F3A91"}}];
+      expect(familyCodes(CLAUDE_BUILT,fresh,{},commits)).toContain("reviewer_same_family");
+    });
+
+    it("is never accepted for Sonnet, or for Codex- or Grok-built PRs reviewed by their own family", () => {
+      const sonnetHeader = architectHeader(verdict({role:"reviewer"}),FRESH);
+      const comments = [posted(verdict()),posted(verdict({role:"reviewer"}),{header:sonnetHeader}),opus({header:architectHeader(verdict({role:"reviewer",family:"opus"}),FRESH)})];
+      expect(errors({prBody:CLAUDE_BUILT,comments})).toContain("reviewer_same_family");
+      const codex = posted(verdict({role:"reviewer",family:"codex"}),{header:architectHeader(verdict({role:"reviewer",family:"codex"}),FRESH)});
+      expect(errors({comments:[...sensitive().comments,codex]})).toContain("reviewer_same_family");
+    });
+
+    it("is never the only independent review on a sensitive PR", () => {
+      const comments = [posted(verdict()),opus({header:architectHeader(verdict({role:"reviewer",family:"opus"}),FRESH)})];
+      expect(errors({prBody:CLAUDE_BUILT,comments})).toContain("sonnet_not_pass");
+      expect(errors({prBody:CLAUDE_BUILT,comments,commitStatuses:{sha:HEAD,statuses:[]}})).toContain("jev_not_pass");
+    });
   });
 });
 
