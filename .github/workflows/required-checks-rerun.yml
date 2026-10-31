@@ -23,8 +23,8 @@ name: Required checks rerun
 #
 # Required checks (job names) and the workflows that report them. Branch
 # protection is not readable with GITHUB_TOKEN, so this list is kept in step by
-# hand with docs/runbooks/merge-queue.md and REQUIRED_CHECKS in
-# scripts/merge-queue-workflows.test.mjs (the test fails if they drift).
+# hand with docs/runbooks/merge-queue.md and REQUIRED_CHECKS in the merge
+# queue workflows test (the test fails if they drift).
 #
 # A re-run of a pull_request run replays that run's original event payload, so
 # a provider-go-live re-run checks the PR body as it was when the run started.
