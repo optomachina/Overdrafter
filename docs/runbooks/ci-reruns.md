@@ -63,8 +63,15 @@ and builder prompt wiring are outside PR-A1.
 
 Every workflow that starts Supabase uses
 `.github/actions/supabase-image-cache` after setup-cli. The action overrides
-setup-cli v1.6.0's registry setting through `GITHUB_ENV`, selecting
-`docker.io` without credentials. The checked-in source is the upstream
+setup-cli v1.6.0's registry setting through `GITHUB_ENV` with its `registry`
+input, the primary source. In the ci.yml `test` job, same-repo runs assume
+`AWS_ECR_PULL_ROLE_ARN` through job-scoped OIDC (`id-token: write`), log in to
+ECR Public and pass `public.ecr.aws`; a failed role assumption or login fails
+the job. Fork PRs skip OIDC and pass `docker.io`. Every other consumer
+(`browser-test (authenticated)`, verify.yml, ephemeral-db.yml and the four
+pending-pgTAP workflows) deliberately stays on anonymous `docker.io` without
+credentials or extra token permissions; extending ECR login to them needs its
+own sensitive change. The checked-in source is the upstream
 CLI 2.78.1 `pkg/config/templates/Dockerfile`, retained at
 `.github/actions/supabase-image-cache/cli-2.78.1-images.txt`.
 
@@ -91,9 +98,13 @@ assigning the exact tag the CLI expects; cached receipts are never trusted.
 An unexpected tag is removed before fallback, and failure to remove it stops
 the action. On a miss or corrupt archive, missing images are pulled by resolved
 digest with the existing bounded throttle/backoff policy, verified, and tagged.
-Manifest resolution tries Docker Hub, GHCR, then public ECR. Pulls try the
-resolved source first, followed by the other registries at the same digest;
-a mismatched or missing mirror manifest cannot be substituted.
+Only the primary registry resolves the expected digest; a fallback registry
+never defines it. If the primary manifest is unavailable (for example a Docker
+Hub 429 in an anonymous consumer), restore and save are disabled for that group
+and the normal start command pulls anonymously. Pulls try the primary first,
+then the other registries (ECR primary: Docker Hub, GHCR; Docker Hub primary:
+GHCR, ECR) only at the primary's digest; a mismatched or missing mirror
+manifest cannot be substituted.
 Only a miss with every image verified can save a new archive. Cache-service,
 archive-save and pull failures leave the regular Supabase start command's
 pull/retry path available. Archives contain image IDs rather than mutable tags;
@@ -104,5 +115,6 @@ To bust all image entries, increment the `supabase-images-v2` prefix in
 `.github/actions/supabase-image-cache/cache.mjs`. A changed image digest automatically gets a
 new key. Removing a specific Actions cache entry also causes a cold rebuild;
 a corrupt exact hit falls back to pulls but is not overwritten in place.
-Fork PRs can restore and verify images but cannot save caches. This cache uses
-no secrets or extra token permissions.
+Fork PRs can restore and verify images but cannot save caches. The cache
+action itself reads no secrets; only the ci.yml `test` job holds OIDC
+`id-token: write`, and the ECR role ARN is a repository variable.
