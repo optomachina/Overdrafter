@@ -88,6 +88,7 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  envPrefix: ["VITE_", "JARVIS_PWA_"],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
