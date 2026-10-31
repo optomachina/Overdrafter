@@ -100,6 +100,9 @@ jobs:
               case "$cr_conclusion" in
                 success | neutral | skipped)
                   row "$pr" "$sha" "$name" "$cr_conclusion" "ok"; continue ;;
+                *)
+                  # Not passing (cancelled, failure, timed_out, missing, ...): decided below.
+                  ;;
               esac
 
               # Latest pull_request run of the reporting workflow at the head.
