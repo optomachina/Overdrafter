@@ -174,9 +174,12 @@ launch when a drawing is selected, rather than silently omitting it.
 For provider-interacting evaluation vendors, authenticate with the existing
 `auth:xometry`, `auth:fictiv`, or `auth:vendor` command and configure the
 corresponding storage-state/profile variables before running the harness.
-SendCutSend's manifest lane performs only local manifest and envelope admission
-and does not require or prepare a provider session; its quote-only sheet lane
-uses `auth:vendor sendcutsend`. Example commands:
+`auth:vendor` saves only the cookies and local storage of the provider's exact
+reviewed hosts, because the portal kernel refuses any session that also holds
+third-party analytics or CAPTCHA state. SendCutSend's manifest lane performs
+only local manifest and envelope admission and does not require or prepare a
+provider session; its quote-only sheet lane uses `auth:vendor sendcutsend`.
+Example commands:
 
 ```bash
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
@@ -190,6 +193,29 @@ The command sets its own live adapter selection. Provider login expiry,
 CAPTCHA, anti-detection behavior, selector drift, and portal failures are
 reported with local evidence; they do not require a production rollout or
 provider-admission change before another evaluation attempt.
+
+#### Vendor sessions: unattended login and agent checks (OVD-1060)
+
+Quickparts, Geomiq and Weerg sessions can be refreshed or re-created without
+Blaine logging in by hand. See
+[docs/vendor-unattended-login.md](../docs/vendor-unattended-login.md) for setup,
+the Bitwarden unlock tradeoffs and the LaunchAgent.
+
+- `npm run login:vendors` signs in from Bitwarden and saves each session scoped
+  to the reviewed hosts. **Only Blaine's terminal or his LaunchAgent runs it.
+  Agents never invoke `login:vendors`**, never read its Bitwarden items, and
+  never type a password or solve a CAPTCHA; running it retrieves real
+  credentials, a protected action. It stops a vendor, with a macOS
+  notification and a scrubbed log line, at a visible CAPTCHA, a second-factor
+  prompt, an unknown page or a failed login.
+- `npm run session:check -- quickparts,geomiq,weerg` prints `valid`,
+  `login_required`, `missing`, `unopenable_by_kernel` or `check_failed` per
+  vendor. `npm run session:refresh` re-saves a still-valid session after a
+  visit that sends only GET and HEAD requests to the vendor. Neither reads
+  credentials, fills a form or uploads, so agents may run both.
+- Agents run `session:check` before a live run. If any vendor is not `valid`,
+  they batch the re-login request: one message to Blaine naming every vendor
+  that needs a login.
 
 #### OSH Cut evaluation
 
