@@ -2,6 +2,41 @@
 -- ovd: idempotent
 -- Apply after U2 and U3, in one transaction; no schema/backfill/scheduling changes.
 
+-- Deploy order: U3 migration -> worker that writes drawing_extractions.source_attempt_id -> U4.
+-- An older worker leaves source_attempt_id null on its extractions, so U4's gate would
+-- treat its running tasks as pending and leave their jobs in 'extracting'. Refuse when the
+-- newest extraction written by a worker for a claim made since U3 (attempt_id set, task
+-- completed, row written after the task was created) has no source_attempt_id and is newer
+-- than every stamped extraction. With no such claims (fresh or empty database) this is a no-op.
+do $ovd979u4_worker_guard$
+declare
+  v_last_unstamped timestamptz;
+  v_last_stamped timestamptz;
+begin
+  select max(extraction.updated_at)
+  into v_last_unstamped
+  from public.work_queue queue
+  join public.drawing_extractions extraction on extraction.part_id = queue.part_id
+  where queue.task_type = 'extract_part'
+    and queue.status = 'completed'
+    and queue.attempt_id is not null
+    and extraction.source_attempt_id is null
+    and extraction.updated_at >= queue.created_at;
+
+  select max(extraction.updated_at)
+  into v_last_stamped
+  from public.drawing_extractions extraction
+  where extraction.source_attempt_id is not null;
+
+  if v_last_unstamped is not null and (v_last_stamped is null or v_last_unstamped > v_last_stamped) then
+    raise exception 'OVD-979 U4 requires the worker that writes drawing_extractions.source_attempt_id'
+      using detail = format('Newest unstamped worker extraction after U3: %s; newest stamped: %s.',
+                            v_last_unstamped, coalesce(v_last_stamped::text, 'none')),
+            hint = 'Deploy order is U3 migration, then the worker, then U4. Deploy the worker, let one extraction complete, then apply U4.';
+  end if;
+end
+$ovd979u4_worker_guard$;
+
 create or replace function public.api_auto_approve_job_requirements(p_job_id uuid)
 returns integer
 language plpgsql
