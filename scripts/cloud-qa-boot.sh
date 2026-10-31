@@ -47,7 +47,7 @@ check_github() {
     step github "$(( $(now) - t ))" "FAIL: REST read of repos/$REPO failed"
     return 1
   fi
-  if [ "$push" != "true" ]; then
+  if [[ "$push" != "true" ]]; then
     step github "$(( $(now) - t ))" "FAIL: no push permission on $REPO"
     return 1
   fi
@@ -57,7 +57,7 @@ check_github() {
 ensure_docker() {
   local t; t=$(now)
   if docker info >/dev/null 2>&1; then step docker 0 "ok (already running)"; return; fi
-  if [ "$(id -u)" != "0" ] || ! command -v dockerd >/dev/null; then
+  if [[ "$(id -u)" != "0" ]] || ! command -v dockerd >/dev/null; then
     step docker 0 "FAIL: daemon not running and cannot be started here"; return 1
   fi
   nohup dockerd >/tmp/cloud-qa-boot-dockerd.log 2>&1 &
@@ -72,7 +72,7 @@ ensure_docker() {
 ensure_supabase_cli() {
   local t; t=$(now)
   mkdir -p "$SHIM_DIR"
-  if ! command -v supabase >/dev/null || [ "$(supabase --version 2>/dev/null)" != "$SUPABASE_CLI_VERSION" ]; then
+  if ! command -v supabase >/dev/null || [[ "$(supabase --version 2>/dev/null)" != "$SUPABASE_CLI_VERSION" ]]; then
     # Fetch once with this shell's npm (which has the proxy CA config), then copy the
     # standalone binary so the unprivileged user never needs npm or registry access.
     # Newer packages put a JS launcher on PATH and the binary in a platform package.
@@ -80,14 +80,14 @@ ensure_supabase_cli() {
     modules=$(npm exec --yes --package="supabase@$SUPABASE_CLI_VERSION" -- \
       sh -c 'p=$(readlink -f "$(command -v supabase)"); while [ "$(basename "$p")" != node_modules ]; do p=$(dirname "$p"); done; echo "$p"')
     while IFS= read -r f; do
-      [ "$(head -c 4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ] && { bin=$f; break; }
+      [[ "$(head -c 4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ]] && { bin=$f; break; }
     done < <(find "$modules" -type f -name supabase)
-    [ -n "$bin" ] || { step supabase-cli "$(( $(now) - t ))" "FAIL: no supabase binary in $modules"; return 1; }
+    [[ -n "$bin" ]] || { step supabase-cli "$(( $(now) - t ))" "FAIL: no supabase binary in $modules"; return 1; }
     install -m 755 "$bin" "$SHIM_DIR/supabase"
   fi
   export PATH="$SHIM_DIR:$PATH"
   local v; v=$(supabase --version 2>/dev/null || true)
-  if [ "$v" != "$SUPABASE_CLI_VERSION" ]; then
+  if [[ "$v" != "$SUPABASE_CLI_VERSION" ]]; then
     step supabase-cli "$(( $(now) - t ))" "FAIL: expected $SUPABASE_CLI_VERSION, got '${v:-none}'"; return 1
   fi
   step supabase-cli "$(( $(now) - t ))" "ok ($v)"
@@ -99,10 +99,10 @@ ensure_playwright_browsers() {
   for kind in chromium chromium_headless_shell; do
     # browsers.json is not in playwright-core's exports map; read the file directly.
     want=$(node -e "const r=JSON.parse(require('fs').readFileSync('node_modules/playwright-core/browsers.json','utf8')).browsers.find(b=>b.name===process.argv[1].replace(/_/g,'-')); process.stdout.write(r?r.revision:'')" "$kind")
-    [ -n "$want" ] || continue
-    [ -d "$BROWSERS/$kind-$want" ] && continue
+    [[ -n "$want" ]] || continue
+    [[ -d "$BROWSERS/$kind-$want" ]] && continue
     have=$(find "$BROWSERS" -maxdepth 1 -name "$kind-[0-9]*" -type d | sort -V | tail -1)
-    if [ -z "$have" ]; then
+    if [[ -z "$have" ]]; then
       step playwright "$(( $(now) - t ))" "FAIL: no $kind build under $BROWSERS"; return 1
     fi
     ln -sfn "$have" "$BROWSERS/$kind-$want"
@@ -124,8 +124,9 @@ prepare_unprivileged_copy() {
 }
 
 as_qa() {
+  local cmd=$1
   sudo -u "$QA_USER" -H env PATH="$SHIM_DIR:$PATH" PLAYWRIGHT_BROWSERS_PATH="$BROWSERS" \
-    bash -c "cd '$QA_COPY_DIR' && $1"
+    bash -c "cd '$QA_COPY_DIR' && $cmd"
 }
 
 timed() {
@@ -139,14 +140,14 @@ timed() {
 
 main() {
   local mode="${1:-check}"; shift || true
-  [ -f package.json ] && [ -d node_modules ] || { echo "run from the repo root after npm ci" >&2; exit 2; }
+  [[ -f package.json ]] && [[ -d node_modules ]] || { echo "run from the repo root after npm ci" >&2; exit 2; }
   check_github
   ensure_docker
   ensure_supabase_cli
   ensure_playwright_browsers
-  [ "$mode" = "check" ] && return
-  [ "$mode" = "run" ] || { echo "usage: $0 check|run [playwright args]" >&2; exit 2; }
-  [ "$(id -u)" = "0" ] || { echo "run mode needs root to create the unprivileged user" >&2; exit 2; }
+  [[ "$mode" = "check" ]] && return
+  [[ "$mode" = "run" ]] || { echo "usage: $0 check|run [playwright args]" >&2; exit 2; }
+  [[ "$(id -u)" = "0" ]] || { echo "run mode needs root to create the unprivileged user" >&2; exit 2; }
   prepare_unprivileged_copy
   # Supabase output carries local demo keys; keep it out of the transcript.
   timed supabase-start as_qa "supabase start >/tmp/cloud-qa-boot-supabase.log 2>&1"
