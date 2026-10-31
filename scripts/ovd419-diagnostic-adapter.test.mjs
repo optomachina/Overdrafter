@@ -1,13 +1,29 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { readFile, realpath, writeFile, chmod, stat, rm, mkdtemp } from "node:fs/promises";
+import { readFile, realpath, writeFile, chmod, stat, rm, mkdtemp, open } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
+import { createPrivateManifest, validatePrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
 import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagnostic-adapter.mjs";
 import { packet, manifestFixture, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, approvalSentence, runDiagnostic, TARGET } from "./ovd419-job-diagnostic.mjs";
+
+// Filled before tests. readBoundFile is mocked so a full run does not re-read the module.
+const runtimeModule = { path: "", bytes: Buffer.alloc(0), sha256: "" };
+vi.mock("./ovd419-diagnostic-bindings.mjs", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    async readBoundFile(file, maxBytes, options) {
+      if (runtimeModule.path && file === runtimeModule.path) {
+        options?.signal?.throwIfAborted();
+        return runtimeModule.bytes;
+      }
+      return actual.readBoundFile(file, maxBytes, options);
+    },
+  };
+});
 
 const TEST_BINDING = { executionId: "test-execution", executionUid: "test-execution-uid", packetSha256: "a".repeat(64), runtimeModuleSha256: "b".repeat(64) };
 const principal = "synthetic-operator@example.invalid";
@@ -18,19 +34,33 @@ function log(reason = "login_required", executionId = "test-execution", binding 
 function identity(raw) { return { uid: raw.metadata.uid, generation: raw.metadata.generation, resourceVersion: raw.metadata.resourceVersion, configuration: digest({ name: raw.metadata.name, spec: raw.spec }) }; }
 
 let privateParent;
+let fileHandlePrototype;
 beforeEach(async () => {
   privateParent = await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-adapter-parent-"));
+  // fsync waits on the runner disk journal. The first full run in unit shard 2
+  // spent that wait and crossed vitest's 5s cap; later identical runs did not.
+  if (!fileHandlePrototype) {
+    const probe = await open(runtimeModule.path, "r");
+    fileHandlePrototype = Object.getPrototypeOf(probe);
+    await probe.close();
+  }
+  vi.spyOn(fileHandlePrototype, "sync").mockImplementation(() => Promise.resolve());
+  vi.spyOn(fileHandlePrototype, "datasync").mockImplementation(() => Promise.resolve());
 });
 afterEach(async () => {
   vi.useRealTimers();
   await rm(privateParent, { recursive: true, force: true });
 });
 
+runtimeModule.path = await realpath(path.resolve("scripts/ovd419-diagnostic-runtime.mjs"));
+runtimeModule.bytes = await readFile(runtimeModule.path);
+runtimeModule.sha256 = createHash("sha256").update(runtimeModule.bytes).digest("hex");
+
 async function fixture(options = {}) {
   const p = packet();
   Object.assign(p.limits, options.limits);
-  p.artifacts.runtimeModule.path = await realpath(path.resolve("scripts/ovd419-diagnostic-runtime.mjs"));
-  p.artifacts.runtimeModule.sha256 = createHash("sha256").update(await readFile(p.artifacts.runtimeModule.path)).digest("hex");
+  p.artifacts.runtimeModule.path = runtimeModule.path;
+  p.artifacts.runtimeModule.sha256 = runtimeModule.sha256;
   let job = manifestFixture(p);
   Object.assign(job.metadata, { uid: "job-uid", generation: 1, resourceVersion: "j1" });
   options.mutateJob?.(job);
@@ -45,7 +75,8 @@ async function fixture(options = {}) {
   const candidate = structuredClone(job); candidate.spec.template.spec.template.spec.containers[0].image = p.image;
   p.candidateConfiguration = identity(candidate).configuration;
   let ids = [...p.baseline.inventory], replacements = 0, dispatches = 0, owned = false, consumed = false;
-  const calls = [], mutations = [], commandOptions = [];
+  const calls = [], mutations = [], commandOptions = [], memoryFiles = new Map();
+  let memorySeq = 0;
   let dispatchFailure = false, versionDrift = false, missingPermission = false, preDispatchRejection = false;
   let executionResource, mutateExecution = () => {}, resultBinding = null, visibilityDelay = 0, inventoryReadsAfterDispatch = 0;
   const runCommand = async (_, args, commandInput) => {
@@ -72,7 +103,7 @@ async function fixture(options = {}) {
     }
     if (args[2] === "replace") {
       replacements += 1; mutations.push(args);
-      const next = JSON.parse(await readFile(args[3], "utf8"));
+      const next = JSON.parse((memoryFiles.get(args[3]) ?? await readFile(args[3])).toString());
       expect(next.metadata.resourceVersion).toBe(job.metadata.resourceVersion);
       next.metadata.uid = job.metadata.uid; next.metadata.generation = job.metadata.generation + 1; next.metadata.resourceVersion = `j${next.metadata.generation}`;
       job = next; return {};
@@ -95,7 +126,33 @@ async function fixture(options = {}) {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { createManifest: async (value, packet, context) => { const file = await createPrivateManifest(value, packet, { ...context, parent: privateParent }); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery, context) => { await options.beforeMutation?.(recovery, context); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
+  const createManifest = async (value, packet, context) => {
+    if (options.realManifest) {
+      const file = await createPrivateManifest(value, packet, { ...context, parent: privateParent });
+      options.manifestCreated?.(file.path);
+      return file;
+    }
+    const bytes = validatePrivateManifest(value, packet);
+    const evidence = context.evidence;
+    evidence.validated = true;
+    evidence.directoryCreated = true;
+    evidence.fileCreated = true;
+    evidence.verifiedBeforeCommand = false;
+    evidence.cleanup = "unproved";
+    const filePath = `memory:${memorySeq += 1}`;
+    memoryFiles.set(filePath, bytes);
+    options.manifestCreated?.(filePath);
+    let disposed = false;
+    return {
+      path: filePath,
+      verify: async () => { if (context.signal?.aborted || !memoryFiles.has(filePath)) throw new Error("diagnostic_manifest_rejected"); },
+      dispose: async () => {
+        if (disposed) return evidence.cleanup === "removed";
+        disposed = true; memoryFiles.delete(filePath); evidence.cleanup = "removed"; return true;
+      },
+    };
+  };
+  const ops = createDiagnosticAdapter(p, { createManifest, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery, context) => { await options.beforeMutation?.(recovery, context); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
     collectEgress: async (_, transport) => {
       for (let i = 0; i < (options.egressReads ?? 0); i += 1) await transport.runCommand("TEST ONLY", ["auth", "list"]);
       return { ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] };
@@ -247,7 +304,13 @@ describe("adapter nested read and preparation budgets", () => {
       expect(signal).toBeInstanceOf(AbortSignal);
       if (++checks === 2) { pendingSignal = signal; return new Promise(() => {}); }
     } });
-    const running = f.run(); // Real temporary-file I/O must settle before fake timers.
+    // Only timer functions are fake, so the run reaches the hang, then the read
+    // budget advances without a wall-clock wait.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const running = f.run();
+    for (let attempt = 0; attempt < 20 && checks < 2; attempt += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(checks).toBe(2);
+    await vi.advanceTimersByTimeAsync(f.p.limits.readMs);
     const result = await running;
     expect(result.status).toBe("containment_unproved"); expect(f.state().dispatches).toBe(0); expect(f.state().replacements).toBe(1); expect(f.state().owned).toBe(true);
     expect(pendingSignal.aborted).toBe(true);
@@ -301,13 +364,13 @@ describe("temporary manifest command boundary", () => {
   });
   it("rejects bytes changed during beforeMutation and records cleanup", async () => {
     let file;
-    const f = await fixture({ manifestCreated: (p) => { file = p; }, beforeMutation: async () => writeFile(file, "TEST_ONLY_REPLACEMENT") });
+    const f = await fixture({ realManifest: true, manifestCreated: (p) => { file = p; }, beforeMutation: async () => writeFile(file, "TEST_ONLY_REPLACEMENT") });
     const result = await f.run();
     expect(f.mutations).toHaveLength(0); expect(result.temporaryManifests[0]).toMatchObject({ verifiedBeforeCommand: false, cleanup: "removed" });
   });
   it("retains ownership if private-directory substitution prevents safe cleanup", async () => {
     let file;
-    const f = await fixture({ manifestCreated: (p) => { file = p; }, beforeMutation: async () => chmod(path.dirname(file), 0o755) });
+    const f = await fixture({ realManifest: true, manifestCreated: (p) => { file = p; }, beforeMutation: async () => chmod(path.dirname(file), 0o755) });
     try {
       const result = await f.run(); expect(result.status).toBe("containment_unproved"); expect(f.state().owned).toBe(true);
       expect(f.mutations).toHaveLength(0); expect(result.temporaryManifests[0].cleanup).toBe("unproved");
