@@ -1,4 +1,5 @@
-// Per-file state reset for `test.isolate: false` (vite.config.ts).
+// Per-file state reset for `test.isolate: false`, used only when OVD_VITEST_ISOLATE=0
+// opts into the shared-module-graph experiment (vite.config.ts); CI keeps isolation.
 //
 // With isolation off, the test files a worker runs share one module graph, one
 // globalThis and one jsdom window, so state one file leaves behind can change

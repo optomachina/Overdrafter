@@ -3,7 +3,8 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { expect, test } from "vitest";
 
-// vite.config.ts runs the suite with isolate: false and per-file-reset.setup.mjs.
+// vite.config.ts runs the suite with isolate: false and per-file-reset.setup.mjs
+// when OVD_VITEST_ISOLATE=0 (an opt-in experiment; CI keeps isolation on).
 // Run two fixture files in one worker, the first leaving state behind, and
 // check the second sees none of it.
 test("per-file reset keeps state from crossing a file boundary with isolation off", () => {
