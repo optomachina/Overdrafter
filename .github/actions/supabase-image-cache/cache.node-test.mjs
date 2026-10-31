@@ -118,7 +118,7 @@ test('all consumers use the cache, pinned external actions and explicit read per
       if (use[1].startsWith('./')) continue;
       assert.match(use[1], /@[a-f0-9]{40} # v\d+\.\d+\.\d+$/);
     }
-    assert.match(text, /^permissions:\n  contents: read/m);
+    assert.match(text, /^permissions:\n {2}contents: read/m);
   }
 });
 
@@ -201,14 +201,14 @@ for (const mode of ['unresolved', 'corrupt-load', 'warm-hit', 'ecr-primary']) {
     const dir = mkdtempSync(join(tmpdir(), 'image-cache-cli-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const fake = join(dir, 'docker');
-    writeFileSync(fake, `#!${process.execPath}
+    writeFileSync(fake, String.raw`#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
 const args = process.argv.slice(2);
 const root = process.env.CACHE_TEST_ROOT;
 const mode = process.env.CACHE_TEST_MODE;
 const state = path.join(root, 'pulled');
-fs.appendFileSync(path.join(root, 'calls'), args.join(' ') + '\\n');
+fs.appendFileSync(path.join(root, 'calls'), args.join(' ') + '\n');
 if (args[0] === 'manifest') {
   if (mode === 'unresolved') process.exit(1);
   console.log(JSON.stringify({ Descriptor: {digest: '${image.digest}', platform: {os: 'linux', architecture: 'amd64'}}, OCIManifest: {config: {digest: '${image.id}'}}}));
@@ -240,7 +240,7 @@ else if (args[0] === 'image' && args[1] === 'inspect') {
     if (mode === 'ecr-primary') {
       assert.match(calls, /^manifest inspect -v public\.ecr\.aws\/supabase\/postgres:17\.6\.1\.095$/m);
       assert.equal(calls.match(/^manifest /gm).length, 1, 'fallback registries never resolve the digest');
-      assert.match(calls, new RegExp(`^pull public\\.ecr\\.aws/supabase/postgres@${image.digest}$`, 'm'));
+      assert.match(calls, new RegExp(String.raw`^pull public\.ecr\.aws/supabase/postgres@${image.digest}$`, 'm'));
       assert(!/^pull (docker\.io|ghcr\.io)/m.test(calls), 'primary succeeded; no fallback pull');
       assert.match(calls, /^image inspect --format \{\{\.Id\}\} public\.ecr\.aws\/supabase\/postgres:17\.6\.1\.095$/m);
       assert(outputs.includes('save=true'));
@@ -288,7 +288,7 @@ test('CI selects authenticated ECR only after a successful login', () => {
   const text = readFileSync(new URL('../../workflows/ci.yml', import.meta.url), 'utf8');
   const selector = "registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}";
   assert.equal(text.split(selector).length - 1, 2);
-  assert.match(text, /- name: Log in to ECR Public\n        id: ecr-login\n        if: \$\{\{ steps\.ecr-oidc\.outcome == 'success' \}\}/);
+  assert.match(text, /- name: Log in to ECR Public\n {8}id: ecr-login\n {8}if: \$\{\{ steps\.ecr-oidc\.outcome == 'success' \}\}/);
 });
 
 test('fork PRs cannot save image archives or dependency archives through shared actions', () => {
@@ -298,7 +298,7 @@ test('fork PRs cannot save image archives or dependency archives through shared 
   }
   for (const workflow of ['ci', 'verify']) {
     const text = readFileSync(new URL(`../../workflows/${workflow}.yml`, import.meta.url), 'utf8');
-    for (const step of text.split(/\n      - name: /).filter(part => part.startsWith('Cache Playwright browsers'))) {
+    for (const step of text.split(/\n {6}- name: /).filter(part => part.startsWith('Cache Playwright browsers'))) {
       assert(step.includes("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"));
     }
   }
