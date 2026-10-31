@@ -557,7 +557,7 @@ describe("emit -> validate round trip", () => {
       sha: sha("feature"),
       patch_id: patchId("main", "feature"),
       diff_id: diffId("main", "feature"),
-      verifier: { id: "astra-verifier", model_family: "opus", github_login: "verifier-bot" },
+      verifier: { id: "astra-verifier", model_family: "claude", github_login: "verifier-bot" },
       evidence: [{ kind: "verify-run", url: "https://github.com/o/r/actions/runs/42" }],
       notes: [],
       readiness: { conflicts: 0, open_threads: 0, checks: "green" },
@@ -808,5 +808,15 @@ describe("GH_BIN override", () => {
     expect(() => resolveGhBin({ GH_BIN: fakeGh("gh-644", 0o644) }, { lookup: strict })).toThrow(/GH_BIN is not executable/);
     expect(() => resolveGhBin({ GH_BIN: dir }, { lookup: strict })).toThrow(/GH_BIN is not a regular file/);
     expect(strict).not.toHaveBeenCalled();
+  });
+});
+
+describe("R2 canonical model families", () => {
+  const input = { role: "verifier", verdict: "PASS", sha: "a".repeat(40), patchId: "b".repeat(40), diffId: "c".repeat(64), verifierId: "v", githubLogin: "bot", evidence: [{ kind: "ci-run", url: "https://github.com/o/r/actions/runs/1" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } };
+  it.each(["opus", "sonnet"])("emits %s as claude", (modelFamily) => {
+    expect(buildVerdict({ ...input, modelFamily }, { now: NOW }).verifier.model_family).toBe("claude");
+  });
+  it.each(["", "Opus", "claude-opus", "gpt-6"])("rejects %s", (modelFamily) => {
+    expect(() => buildVerdict({ ...input, modelFamily }, { now: NOW })).toThrow("verdict_schema_error");
   });
 });

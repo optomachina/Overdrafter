@@ -362,11 +362,11 @@ describe("actual worker operational advisory seam", () => {
         evidence: { adapterError: null, artifacts: [] } };
     };
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, generic, live, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued",
+      payload: expect.objectContaining({ failureCode: "quote_bookkeeping_failed" }) }) }]));
   });
 
   // OVD-723 x OVD-464: the generic route asks the export gate right before
@@ -495,11 +495,11 @@ describe("actual worker operational advisory seam", () => {
 
   it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, task, config, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued",
+      payload: expect.objectContaining({ failureCode: "quote_bookkeeping_failed" }) }) }]));
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {
@@ -618,9 +618,9 @@ describe("actual worker operational advisory seam", () => {
     const originalQuote = XometryAdapter.prototype.quote;
     const source = "Standard\nUSD $20.00 ea.\nUSD $40.00\n5 business days\nFirm total USD 40.00 quantity: 2 revision: B\nReference: secret-source";
     const page = { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC", locator: (selector: string) => ({
-      count: async () => selector === XOMETRY_LOCATORS.offerContainers[0] ? 1 : 0,
+      count: async () => selector === XOMETRY_LOCATORS.priceTierCard ? 1 : 0,
       nth: () => ({ innerText: async () => source, getAttribute: async () => null,
-        locator: (selector: string) => selector.includes("disabled") ? { count: async () => 0 }
+        locator: (selector: string) => /* A markerless price panel under its heading that holds every card encloses each one. */ selector.startsWith("xpath=") ? { count: async (): Promise<number> => 1, nth: () => ({ getAttribute: async (): Promise<string | null> => null, innerText: async () => `Price and Lead Time\n${source}`, locator: (inner: string) => ({ count: async () => inner === XOMETRY_LOCATORS.priceTierCard ? 1 : 0 }) }) } : selector.includes("disabled") ? { count: async () => 0 }
           : { count: async () => selector.startsWith('[data-testid="tierAndLeadTime"]') ? 1 : 0,
             first: () => ({ innerText: async () => "Fastest - Lead Time: 5 business days" }) } }),
     }) } as unknown as Page;

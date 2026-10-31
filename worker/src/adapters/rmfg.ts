@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
   type VendorAutomationErrorCode,
@@ -17,6 +18,7 @@ import {
   type RmfgQuoteRequest,
   type RmfgQuoteResult,
   type RmfgQuoteTransport,
+  type RmfgStockRequirement,
 } from "./rmfgQuoteTransport.js";
 
 /**
@@ -28,6 +30,11 @@ import {
  * API key mounted at RMFG_API_KEY. The RMFG envelope is not in
  * REVIEWED_PROVIDER_DISPATCH_ENVELOPES and its admission policy is disabled, so
  * no permit can name it today; declaring it here admits nothing.
+ *
+ * The operator live evaluation harness (OVD-1057) replaces the dispatch
+ * authorization with its own digest bound file capture and non export
+ * controlled confirmation; an input that did not come through that entry point
+ * has no captured bytes and is refused.
  *
  * The client can send only analyze, catalog and quote requests (see
  * rmfgHttpTransport.ts), so no cart, checkout or order endpoint is reachable.
@@ -66,17 +73,41 @@ export type RmfgTransportFactory = (apiKey: string) => RmfgQuoteTransport & {
 export type RmfgAdapterOptions = {
   env?: NodeJS.ProcessEnv;
   createTransport?: RmfgTransportFactory;
-};
-
-type StopClassification = {
-  code: Extract<VendorAutomationErrorCode, "login_required" | "captcha" | "anti_detection_block">;
-  reason: "rmfg_authorization_required" | "rmfg_challenge_response" | "rmfg_blocked" | "rmfg_rate_limited";
+  /** Pause before each design or quote status poll; tests set 0. */
+  pollIntervalMs?: number;
 };
 
 /**
- * A challenge page (a non JSON answer from a JSON API) latches for the process,
- * like the HTTP client's 401, 403 and 429 latch, so a new adapter instance
- * cannot retry around it.
+ * Analysis and quoting are asynchronous. Each of the design and the quote may
+ * poll this many times, three seconds apart. With every step bounded at ten
+ * seconds a phase stops as pending within about nine minutes at worst, and a
+ * whole run within about nineteen.
+ */
+const POLL_INTERVAL_MS = 3_000;
+const MAX_POLLS = 40;
+
+type StopClassification = {
+  code: Extract<VendorAutomationErrorCode, "login_required" | "captcha" | "anti_detection_block" | "unexpected_ui_state">;
+  reason: "rmfg_authorization_required" | "rmfg_challenge_response" | "rmfg_blocked" | "rmfg_rate_limited"
+    | "rmfg_account_action_required";
+};
+
+/** Finite terminal state each stop reports to the provider adapter contract. */
+const STOP_TERMINAL_STATE: Record<StopClassification["reason"], string> = {
+  rmfg_authorization_required: "login_required",
+  rmfg_challenge_response: "captcha",
+  rmfg_blocked: "unavailable",
+  rmfg_rate_limited: "unavailable",
+  rmfg_account_action_required: "manual_review",
+};
+
+/** An error naming a payment, plan, credit or terms step is never answered here. */
+const ACCOUNT_ACTION_PATTERN = /terms|agreement|consent|payment|billing|credit|subscription|plan_required|upgrade/i;
+
+/**
+ * A challenge page (a non JSON answer from a JSON API) or a payment, plan or
+ * terms demand latches for the process, like the HTTP client's 401, 402, 403
+ * and 429 latch, so a new adapter instance cannot retry around it.
  */
 let processChallengeLatch: StopClassification | null = null;
 
@@ -149,6 +180,14 @@ function selectionsFrom(specSnapshot: unknown): RmfgQuoteInput["selections"] {
   return selections;
 }
 
+/** Operator-stated sheet stock, such as `{ grade: "6061-T6", thicknessIn: 0.125 }`. */
+function stockFrom(specSnapshot: unknown): RmfgStockRequirement | undefined {
+  const raw = specValue(specSnapshot, ["rmfgStock", "rmfg_stock"]);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const { grade, thicknessIn } = raw as Record<string, unknown>;
+  return typeof grade === "string" && typeof thicknessIn === "number" ? { grade, thicknessIn } : undefined;
+}
+
 function checkpointFor(request: RmfgQuoteRequest): "before_navigation" | "before_upload" | "before_configure" {
   if (request.endpoint === "analyze") return "before_upload";
   if (request.endpoint === "quote") return "before_configure";
@@ -157,10 +196,20 @@ function checkpointFor(request: RmfgQuoteRequest): "before_navigation" | "before
 
 type StopOutcome = StopClassification | null;
 
+function errorCodes(body: unknown): string {
+  const error = body && typeof body === "object" ? (body as Record<string, unknown>).error : null;
+  if (!error || typeof error !== "object") return "";
+  const { code, type } = error as Record<string, unknown>;
+  return [code, type].filter((value) => typeof value === "string").join(" ");
+}
+
 function classifyStop(status: number, body: unknown, blockedBefore: RmfgBlockReason | null): StopOutcome {
+  const accountAction: StopClassification = { code: "unexpected_ui_state", reason: "rmfg_account_action_required" };
   // A latched client answers without a request; report the original block, not a challenge.
   if (blockedBefore === "authorization_required") return { code: "login_required", reason: "rmfg_authorization_required" };
   if (blockedBefore === "rate_limited") return { code: "anti_detection_block", reason: "rmfg_rate_limited" };
+  if (blockedBefore === "account_action_required") return accountAction;
+  if (status === 402 || (status >= 400 && ACCOUNT_ACTION_PATTERN.test(errorCodes(body)))) return accountAction;
   if (status === 401) return { code: "login_required", reason: "rmfg_authorization_required" };
   if (status === 429) return { code: "anti_detection_block", reason: "rmfg_rate_limited" };
   // RMFG answers JSON; an HTML or empty answer is a challenge or interstitial page.
@@ -174,14 +223,15 @@ function stopError(stop: StopClassification, extra: Record<string, unknown> = {}
     "RMFG refused the request; it needs manual follow up and is not retried.",
     stop.code,
     { vendor: "rmfg", reason: stop.reason, adapterRevision: RMFG_ADAPTER_REVISION, retryable: false,
-      terminalState: "manual_follow_up", quoteOnly: true, orderProhibited: true, ...extra },
+      terminalState: STOP_TERMINAL_STATE[stop.reason], quoteOnly: true, orderProhibited: true, ...extra },
   );
 }
 
 function refusal(reason: string, message: string, extra: Record<string, unknown> = {}): VendorAutomationError {
   return new VendorAutomationError(message, "unexpected_ui_state", {
     vendor: "rmfg", reason, adapterRevision: RMFG_ADAPTER_REVISION, providerInteractionAttempted: false,
-    providerMutationPossible: false, retryable: false, quoteOnly: true, orderProhibited: true, ...extra,
+    providerMutationPossible: false, retryable: false, terminalState: "unavailable", quoteOnly: true,
+    orderProhibited: true, ...extra,
   });
 }
 
@@ -189,15 +239,40 @@ function sha256(bytes: Uint8Array | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function authorizeRmfgRequest(input: VendorQuoteAdapterInput, evaluation: boolean,
+  stock: RmfgStockRequirement | undefined): void {
+  if (evaluation) {
+    if (!getAuthorizedLiveEvaluationFiles(input) || input.liveEvaluationAuthorization?.nonExportControlled !== true) {
+      throw refusal("evaluation_file_authorization_missing",
+        "RMFG evaluation needs the harness's digest bound file capture and non export controlled confirmation.");
+    }
+    // The approved evaluation is one part, quantity 1, on a stated stock; nothing else reaches RMFG.
+    if (input.requestedQuantity !== 1 || !stock
+      || specValue(input.requirement.spec_snapshot, ["rmfgSelections", "rmfg_selections"]) !== undefined) {
+      throw refusal("evaluation_scope_unapproved",
+        "RMFG evaluation quotes only quantity 1 on a stated stock; nothing was sent.", { terminalState: "unsupported" });
+    }
+  } else {
+    const denial = providerDispatchAuthorizationDenial(input, { provider: "rmfg", ...RMFG_DISPATCH_ENVELOPE });
+    if (denial) throw refusal(denial, "RMFG dispatch is not authorized for these exact files and quantity.");
+    if (input.providerDispatchAuthorization?.envelope.affirmations?.nonExportControlled !== true) {
+      throw refusal("export_control_affirmation_missing",
+        "RMFG dispatch needs a non export controlled affirmation; nothing was sent.");
+    }
+  }
+}
+
 export class RmfgAdapter extends VendorAdapter {
   private readonly env: NodeJS.ProcessEnv;
   private readonly createTransport: RmfgTransportFactory;
+  private readonly pollIntervalMs: number;
 
   constructor(config: WorkerConfig, options: RmfgAdapterOptions = {}) {
     super("rmfg", config);
     this.env = options.env ?? process.env;
     this.createTransport = options.createTransport
       ?? ((apiKey) => createRmfgHttpTransport({ apiKey }));
+    this.pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
   }
 
   async quote(baseInput: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
@@ -207,42 +282,36 @@ export class RmfgAdapter extends VendorAdapter {
       process: typeof statedProcess === "string" && statedProcess.trim() ? statedProcess : null,
       fileName: input.stagedCadFile?.originalName ?? input.cadFile?.original_name ?? null,
     });
-    if (!eligibility.eligible) return this.finite(input, eligibility.reason, eligibility.note);
+    if (!eligibility.eligible) return this.finite(input, eligibility.reason, eligibility.note, "unsupported");
 
     if (this.config.workerMode !== "live" || !this.config.workerLiveAdapters.includes("rmfg")) {
       return this.finite(input, "rmfg_live_adapter_disabled",
-        "RMFG live quoting is off for this worker; no request was sent.");
+        "RMFG live quoting is off for this worker; no request was sent.", "unavailable");
     }
-    if (input.executionContext === "live_evaluation") {
-      throw refusal("rmfg_live_evaluation_unsupported",
-        "RMFG has no operator evaluation path; it runs only behind a provider dispatch authorization.");
-    }
-    const denial = providerDispatchAuthorizationDenial(input, { provider: "rmfg", ...RMFG_DISPATCH_ENVELOPE });
-    if (denial) throw refusal(denial, "RMFG dispatch is not authorized for these exact files and quantity.");
-    if (input.providerDispatchAuthorization?.envelope.affirmations?.nonExportControlled !== true) {
-      throw refusal("export_control_affirmation_missing",
-        "RMFG dispatch needs a non export controlled affirmation; nothing was sent.");
-    }
+    const evaluation = input.executionContext === "live_evaluation";
+    // A stated stock is the operator evaluation's own scope; production quotes use person-chosen catalog IDs.
+    const stock = evaluation ? stockFrom(input.requirement.spec_snapshot) : undefined;
+    authorizeRmfgRequest(input, evaluation, stock);
 
     // OVD-722: fresh read before any provider facing step; a refusal propagates unchanged.
     await input.providerKillSwitchCheckpoint?.("before_navigation");
     if (processChallengeLatch) throw stopError(processChallengeLatch, { providerInteractionAttempted: false });
 
     const staged = input.stagedCadFile!;
-    const bytes = new Uint8Array(await readFile(staged.localPath));
-    if (sha256(bytes) !== staged.trustedContentSha256) {
+    const captured = evaluation ? getAuthorizedLiveEvaluationFiles(input)!.cad : null;
+    const bytes = new Uint8Array(captured ? captured.buffer : await readFile(staged.localPath));
+    const expectedSha256 = evaluation ? input.liveEvaluationAuthorization!.cadFileSha256 : staged.trustedContentSha256;
+    if (sha256(bytes) !== expectedSha256) {
       throw refusal("dispatch_authorization_file_mismatch", "The staged RMFG file no longer matches its authorization.");
     }
-    const apiKey = this.env[RMFG_API_KEY_ENV];
-    if (!apiKey) {
-      throw refusal("rmfg_api_key_missing", `RMFG needs an API key mounted at ${RMFG_API_KEY_ENV}; nothing was sent.`);
-    }
-    const transport = this.createTransport(apiKey);
+    const transport = this.transportFromMountedKey();
 
     let seamError: { error: unknown } | null = null;
     let stop: StopOutcome = null;
+    // Set once the run has its result: a request still waiting on its checkpoint never starts afterwards.
+    let closed = false;
     const guarded: RmfgQuoteTransport = async (request) => {
-      if (seamError || stop) return { status: 0, body: null };
+      if (seamError || stop || closed) return { status: 0, body: null };
       try {
         await input.providerKillSwitchCheckpoint?.(checkpointFor(request));
         // OVD-723: the export control gate is asked again right before the file leaves.
@@ -251,21 +320,25 @@ export class RmfgAdapter extends VendorAdapter {
         seamError = { error };
         return { status: 0, body: null };
       }
+      if (closed) return { status: 0, body: null };
       const blockedBefore = transport.blockedReason?.() ?? null;
       const response = await transport(request);
       stop = classifyStop(response.status, response.body, blockedBefore);
-      if (stop?.code === "captcha") processChallengeLatch = stop;
+      if (stop?.code === "captcha" || stop?.reason === "rmfg_account_action_required") processChallengeLatch = stop;
       return stop ? { status: 0, body: null } : response;
     };
 
-    const keyBase = sha256([input.quoteRunId, input.part.id, staged.trustedContentSha256, input.requestedQuantity].join(":"));
+    const keyBase = sha256([input.quoteRunId, input.part.id, expectedSha256, input.requestedQuantity].join(":"));
     const result = await runRmfgQuoteOnly({
-      file: { name: staged.originalName, bytes },
+      file: { name: captured?.name ?? staged.originalName, bytes },
       quantity: input.requestedQuantity,
-      selections: selectionsFrom(input.requirement.spec_snapshot),
+      selections: stock ? {} : selectionsFrom(input.requirement.spec_snapshot),
+      ...(stock ? { stock } : {}),
       analyzeKey: `ovd-${keyBase.slice(0, 40)}-analyze`,
       quoteKey: `ovd-${keyBase.slice(0, 40)}-quote`,
-    }, guarded);
+      pollIntervalMs: this.pollIntervalMs,
+      maxPolls: MAX_POLLS,
+    }, guarded).finally(() => { closed = true; });
 
     // Narrowing is lost across the closure, so read the captured values through a cast.
     const capturedSeam = seamError as { error: unknown } | null;
@@ -275,12 +348,38 @@ export class RmfgAdapter extends VendorAdapter {
     return this.fromResult(input, result);
   }
 
+  private transportFromMountedKey(): ReturnType<RmfgTransportFactory> {
+    const apiKey = this.env[RMFG_API_KEY_ENV];
+    if (!apiKey) {
+      throw refusal("rmfg_api_key_missing", `RMFG needs an API key mounted at ${RMFG_API_KEY_ENV}; nothing was sent.`);
+    }
+    try {
+      return this.createTransport(apiKey);
+    } catch {
+      // The client rejects a malformed key; its message is not carried, so nothing about the key leaves here.
+      throw refusal("rmfg_api_key_malformed", `The key mounted at ${RMFG_API_KEY_ENV} is malformed; nothing was sent.`);
+    }
+  }
+
   private fromResult(input: VendorQuoteAdapterInput, result: RmfgQuoteResult): VendorQuoteAdapterOutput {
+    const offerEvidence = result.offer;
+    // Labels and figures only, no RMFG IDs: what a reviewer or the publish path needs to check the price.
+    const rmfgEvidence = {
+      stock: result.stock ? { label: result.stock.label, displayThickness: result.stock.displayThickness,
+        thicknessIn: result.stock.thicknessIn } : null,
+      stockOffered: result.stockMatches?.map(({ label, thicknessIn }) => ({ label, thicknessIn })) ?? null,
+      dfmStatus: result.dfmStatus, dfmIssueCodes: result.dfmIssueCodes, requirementCodes: result.requirementCodes,
+      totalCents: offerEvidence?.totalCents ?? null,
+      // RMFG quotes never select shipping or compute tax, and its minimum order is checked only at cart payment.
+      excludes: offerEvidence ? ["shipping", "tax", "cart_minimum_order"] : null,
+      fulfillment: offerEvidence?.fulfillment ?? null, pricedComponents: offerEvidence?.pricedComponents ?? null,
+    };
     const rawPayload = {
-      source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, transportRevision: result.revision,
+      source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, transportRevision: result.revision, rmfgEvidence,
       rmfgState: result.state, reason: result.reason, designId: result.designId, quoteId: result.quoteId,
       requirementCodes: result.requirementCodes, dfmStatus: result.dfmStatus, dfmIssueCodes: result.dfmIssueCodes,
-      requestedQuantity: input.requestedQuantity, quoteOnly: true, orderProhibited: true,
+      stock: result.stock, stockMatches: result.stockMatches ?? null, requestedQuantity: input.requestedQuantity,
+      quoteOnly: true, orderProhibited: true,
     };
     if (result.state === "ready" && result.offer) {
       const offer = result.offer;
@@ -299,32 +398,42 @@ export class RmfgAdapter extends VendorAdapter {
           rawPayload: { provenance: offer.provenance },
         }],
         dfmIssues: result.dfmIssueCodes, notes: [], artifacts: [], rawPayload,
+        validUntil: offer.validUntil, validitySource: offer.validUntil ? "vendor_date" : null,
       };
     }
     if (result.state === "error" || result.state === "unknown") {
+      // An unrecognized answer needs a person to read it; an error answer has no quote to read.
       throw new VendorAutomationError(
         `RMFG did not return a usable quote (${result.reason}).`,
         "unexpected_ui_state",
-        { ...rawPayload, vendor: "rmfg", providerInteractionAttempted: true, providerMutationPossible: true, retryable: false },
+        { ...rawPayload, vendor: "rmfg", retryable: false,
+          // An input the transport refused never reached RMFG.
+          providerInteractionAttempted: result.reason !== "invalid_quote_input",
+          providerMutationPossible: result.reason !== "invalid_quote_input",
+          terminalState: result.state === "unknown" ? "manual_review" : "unavailable" },
       );
     }
-    const notes: Record<Exclude<RmfgQuoteResult["state"], "ready" | "error" | "unknown">, string> = {
-      pending: "RMFG is still pricing this part; follow up in RMFG.",
-      requires_input: "RMFG needs a person to choose stock or answer a requirement before it can price this part.",
-      blocked: "RMFG reported a manufacturing issue that blocks this quote.",
+    type FollowUpState = Exclude<RmfgQuoteResult["state"], "ready" | "error" | "unknown">;
+    const followUp: Record<FollowUpState, { note: string; terminalState: string }> = {
+      pending: { note: "RMFG is still pricing this part; follow up in RMFG.", terminalState: "unavailable" },
+      requires_input: { terminalState: "configuration_required",
+        note: "RMFG needs a person to choose stock or answer a requirement before it can price this part." },
+      blocked: { note: "RMFG reported a manufacturing issue that blocks this quote.", terminalState: "unsupported" },
     };
+    const outcome = followUp[result.state as FollowUpState];
     return {
       vendor: "rmfg", status: "manual_vendor_followup", unitPriceUsd: null, totalPriceUsd: null,
       leadTimeBusinessDays: null, quoteUrl: null, dfmIssues: result.dfmIssueCodes,
-      notes: [notes[result.state as keyof typeof notes] ?? "RMFG needs manual follow up."], artifacts: [], rawPayload,
+      notes: [outcome.note], artifacts: [], rawPayload: { ...rawPayload, terminalState: outcome.terminalState },
     };
   }
 
-  private finite(input: VendorQuoteAdapterInput, reason: string, note: string): VendorQuoteAdapterOutput {
+  private finite(input: VendorQuoteAdapterInput, reason: string, note: string,
+    terminalState: "unsupported" | "unavailable"): VendorQuoteAdapterOutput {
     return {
       vendor: "rmfg", status: "manual_vendor_followup", unitPriceUsd: null, totalPriceUsd: null,
       leadTimeBusinessDays: null, quoteUrl: null, dfmIssues: [], notes: [note], artifacts: [],
-      rawPayload: { source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, reason,
+      rawPayload: { source: "rmfg-api", adapterRevision: RMFG_ADAPTER_REVISION, reason, terminalState,
         requestedQuantity: input.requestedQuantity, providerInteractionAttempted: false,
         quoteOnly: true, orderProhibited: true },
     };

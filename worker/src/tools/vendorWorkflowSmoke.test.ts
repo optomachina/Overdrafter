@@ -395,6 +395,46 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ]);
   });
 
+  it("runs RMFG only when named, with the stated sheet stock (OVD-1057)", () => {
+    const args = parseSmokeArgs([
+      "--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125",
+    ]);
+    expect(args.vendors).toEqual(["rmfg"]);
+    expect(args.rmfgStock).toEqual({ grade: "6061-T6", thicknessIn: 0.125 });
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step"]))
+      .toThrow(/requires the stated sheet stock/);
+    for (const grade of ["6061", "Aluminum", "304", "6061-T6 aluminum"]) {
+      expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", grade,
+        "--rmfg-thickness-in", "0.125"])).toThrow(/requires the stated sheet stock/);
+    }
+    for (const thickness of ["0", "3.175", "1/8", "0.125in"]) {
+      expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+        "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+    }
+    expect(() => parseSmokeArgs(["--vendor", "xometry", "--cad", "./plate.step", "--rmfg-grade", "6061-T6"]))
+      .toThrow(/only be supplied when --vendor includes rmfg/);
+  });
+
+  it.each(["1", "01", ".125", "0.125", "00.125", " 0.125 "])("accepts decimal RMFG thickness %s", (thickness) => {
+    const args = parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness]);
+    expect(args.rmfgStock?.thicknessIn).toBe(Number(thickness));
+  });
+
+  it.each([".", "1.", "+.125", "1e-1", "0x1", "0.1.25"])("rejects nondecimal RMFG thickness %s", (thickness) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+  });
+
+  it("rejects a long invalid RMFG thickness without quadratic backtracking", () => {
+    const thickness = `${"0".repeat(60_000)}!`;
+    const started = performance.now();
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+    // Generous for a linear scan; the overlapping digit repetitions took seconds.
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("accepts a comma-separated hidden vendor subset", () => {
     const args = parseSmokeArgs([
       "--vendor",
@@ -576,7 +616,29 @@ describe("SendCutSend reviewed evaluation manifest", () => {
   });
 });
 
+describe("parseSmokeArgs RMFG quantities", () => {
+  it.each([["1,5"], ["5"]])("rejects RMFG quantity list %s at parse time before staging (OVD-1057)", (list) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", list,
+      "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]))
+      .toThrow(/RMFG quotes only quantity 1/);
+  });
+});
+
 describe("runQuote", () => {
+  it("refuses RMFG at any quantity but 1 before constructing a registry (OVD-1057)", async () => {
+    const args = {
+      ...parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", "1",
+        "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]),
+      quantities: [5],
+    };
+    const buildRegistry = vi.fn(() => ({}));
+    await expect(runQuote({} as WorkerConfig, args, "rmfg", 5, {
+      authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+      cadPath: "/private/staged/cad.step", drawingPath: null, cleanup: vi.fn(),
+    }, buildRegistry)).rejects.toThrow(/only quantity 1/);
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", null],
     ["partial", { process: "laser_cutting" }],
@@ -1484,7 +1546,8 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+  // Runs the batch with the real startup gate and an unreadable kill switch.
+  async function runWithUnreadableKillSwitch(vendor: string) {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
@@ -1493,13 +1556,37 @@ describe("runEvaluationBatch", () => {
     vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
     const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
     const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
-
-    await expect(runEvaluationBatch(args, {
+    const result = runEvaluationBatch(args, {
       killSwitchReader,
       stageFiles,
       makeVendorConfig: () => ({} as WorkerConfig),
       buildRegistry: () => ({}),
-    })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    });
+    return { result, killSwitchReader, stageFiles };
+  }
+
+  it("gates the Quickparts batch on the kill switch before staging (OVD-1059)", async () => {
+    const { result, killSwitchReader, stageFiles } = await runWithUnreadableKillSwitch("quickparts");
+
+    await expect(result)
+      .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
+    expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
+    expect(stageFiles).not.toHaveBeenCalled();
+  });
+
+  it("evaluates Quickparts through the production portal definition that reaches the provider", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(OFFLINE_EVALUATION_PORTAL_VENDORS.has("quickparts")).toBe(false);
+    expect((registry.quickparts as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider)
+      .toBe(true);
+  });
+
+  it.each(["weerg", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+    const { result, killSwitchReader } = await runWithUnreadableKillSwitch(vendor);
+
+    await expect(result).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
     expect(killSwitchReader).not.toHaveBeenCalled();
   });
 

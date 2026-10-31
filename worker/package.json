@@ -24,6 +24,9 @@
     "export:xometry-profile": "tsx src/tools/exportXometryProfile.ts",
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
     "auth:vendor": "tsx src/tools/vendorAuth.ts",
+    "login:vendors": "tsx src/tools/vendorLogin.ts",
+    "session:check": "tsx src/tools/vendorSession.ts check",
+    "session:refresh": "tsx src/tools/vendorSession.ts refresh",
     "sweep:fictiv-quantity": "tsx src/tools/fictivQuantitySweep.ts",
     "eval:gate": "tsx src/tools/extractEvalGate.ts",
     "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
@@ -54,6 +57,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.16.5",
+    "fast-check": "4.10.2",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   },

@@ -96,6 +96,77 @@ describe("sensitive-paths config", () => {
   });
 });
 
+describe("OVD-1072 privileged entry points and import map", () => {
+  const authPaths = [
+    "supabase/functions/create-project-fallback/index.ts",
+    "supabase/functions/dev-login/index.ts",
+    "supabase/functions/engineering-interpretation/index.test.ts",
+    "supabase/functions/engineering-interpretation/index.ts",
+    "supabase/functions/engineering-worker-task/index.test.ts",
+    "supabase/functions/engineering-worker-task/index.ts",
+    "supabase/functions/engineering-worker/index.test.ts",
+    "supabase/functions/engineering-worker/index.ts",
+    "supabase/functions/engineering-worker/integration.ts",
+    "supabase/functions/job-archive-fallback/authorization.ts",
+    "supabase/functions/job-archive-fallback/delete-flow.ts",
+    "supabase/functions/job-archive-fallback/index.ts",
+    "supabase/functions/job-archive-fallback/query-fragments.ts",
+    "supabase/functions/job-archive-fallback/nested/helper.ts",
+    "supabase/functions/create-project-fallback/nested/helper.ts",
+    "supabase/functions/dev-login/nested/helper.ts",
+    "supabase/functions/engineering-interpretation/nested/helper.ts",
+    "supabase/functions/engineering-worker/nested/helper.ts",
+    "supabase/functions/engineering-worker-task/nested/helper.ts",
+    "api/admin-operations.ts",
+    "server/admin-operations/acceptance.test.ts",
+    "server/admin-operations/budget.ts",
+    "server/admin-operations/capability.test.ts",
+    "server/admin-operations/contract.test.ts",
+    "server/admin-operations/handler.ts",
+    "server/admin-operations/implementation.test.ts",
+    "server/admin-operations/projection.ts",
+    "server/admin-operations/resolver-types.test.ts",
+    "server/admin-operations/runtime.ts",
+    "server/admin-operations/nested/helper.ts",
+  ];
+
+  it.each(authPaths)("classifies %s as auth", (file) => {
+    expect(picomatchClasses(file)).toEqual(["auth"]);
+    expect(classifyPaths([file], config).files[0].classes).toEqual(["auth"]);
+  });
+
+  it("classifies the service-role functions' import map as deps", () => {
+    expect(picomatchClasses("supabase/functions/deno.json")).toEqual(["deps"]);
+    expect(classifyPaths(["supabase/functions/deno.json"], config).files[0].classes).toEqual(["deps"]);
+  });
+
+  it.each([
+    "api/admin-operations-helper.ts",
+    "server/admin-operations-helper/runtime.ts",
+    "server/engineering/interpret-prepared-request.ts",
+    "src/lib/engineering-cumulative.ts",
+    "supabase/functions/deno.jsonc",
+    "supabase/functions/other/deno.json",
+  ])("does not broaden coverage to %s", (file) => {
+    expect(classifyPaths([file], config).files[0].classes).toEqual([]);
+  });
+
+  it("keeps these additions and their regression tests outside gate loosening", () => {
+    const additions = [
+      ...["job-archive-fallback", "create-project-fallback", "dev-login", "engineering-interpretation", "engineering-worker", "engineering-worker-task"].map((name) => `supabase/functions/${name}/**`),
+      "api/admin-operations.ts", "server/admin-operations/**", "supabase/functions/deno.json",
+    ];
+    const baseText = withGlobs((globs) => {
+      globs.splice(0, globs.length, ...globs.filter((entry) => !additions.includes(entry.glob)));
+    });
+    expect(findGateLoosening({
+      baseText,
+      headText: configText,
+      changedFiles: ["AGENTS.md", SENSITIVE_PATHS_FILE, "scripts/lib/sensitive-paths.test.mjs"].map((file) => ({ status: "M", file })),
+    })).toMatchObject({ detected: false, reasons: [] });
+  });
+});
+
 describe("OVD-939 C2 gate coverage", () => {
   it.each([
     ["scripts/lib/jev-screen-marker.mjs", ["infra_ci"]],
@@ -613,6 +684,30 @@ describe("gate loosening", () => {
     expect(config.globs.filter((entry) => controlGlobs.includes(entry.glob))).toEqual(controlGlobs.map((glob) => ({ glob, class: "infra_ci" })));
     const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !controlGlobs.includes(entry.glob))));
     expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
+  });
+
+  it("puts the agent graph and its validator on the list, so editing the merge gate spec is sensitive", () => {
+    const graphFiles = [
+      "docs/agent-graph/graph.v1.yaml",
+      "docs/agent-graph/graph.schema.json",
+      "docs/agent-graph/README.md",
+      "scripts/validate-agent-graph.mjs",
+      "scripts/validate-agent-graph.node-test.mjs",
+    ];
+    const matcher = createMatcher(config);
+    for (const file of graphFiles) expect(matcher.classify(file), file).toContain("infra_ci");
+    // A PR that edits only the graph (for example drops a merge gate requirement) is sensitive, not docs-only.
+    expect(classifyPaths(["docs/agent-graph/graph.v1.yaml"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
+    // Adding these globs did not loosen anything.
+    const graphGlobs = ["docs/agent-graph/**", "scripts/validate-agent-graph*"];
+    expect(config.globs.filter((entry) => graphGlobs.includes(entry.glob))).toEqual(graphGlobs.map((glob) => ({ glob, class: "infra_ci" })));
+    const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !graphGlobs.includes(entry.glob))));
+    expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
+    // Removing either glob is gate_loosening.
+    for (const glob of graphGlobs) {
+      const without = withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === glob), 1));
+      expect(findGateLoosening({ baseText: configText, headText: without }).reasons, glob).toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob })]);
+    }
   });
 
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
