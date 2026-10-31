@@ -53,7 +53,7 @@ are absent.
 
 ## Apply and rollback
 
-`supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql`
+`supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql`
 is the only forward copy. Apply after U2/U3,
 in one transaction. Both forward and rollback support repeated application
 and have no transaction wrapper. No table, policy, owner or grant recipient
@@ -62,7 +62,7 @@ changes. The function keeps `SECURITY DEFINER`, pins
 retains service_role-only execution.
 
 The rollback is generated: `node scripts/ovd979-rollback.mjs
-20261030204300_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
+20261031034800_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
 U2/U3-era definitions of both functions (from U2's migration) and the ACLs;
 auto approval's `md5(prosrc)` is **ba94c43be2ec78486ee9aca4679d2465**. The
 artifact test compares the generated bodies directly to U2's promoted
@@ -205,3 +205,13 @@ PR, hosted apply, production or provider operation was performed.
   20261030204300_ovd979u4_attempt_bound_auto_approval.sql --prove`: PASS
   ("rollback restores md5(prosrc) of 2 prior bodies"). No hosted database
   was contacted.
+
+## Base update (2026-10-31): U3 renamed past main
+
+- U3 (#985) moved its migration to
+  `20261031034754_ovd979u3_extraction_attempt_identity.sql`, which sorts after
+  U4's round-2 name. U4 needs U3's `source_attempt_id` column, so U4 is renamed
+  again to `20261031034800_ovd979u4_attempt_bound_auto_approval.sql` (bytes and
+  sha256 pin unchanged) after merging the U3 branch. The order is now
+  U2 < U3 < U4. U2 (#984) still sorts before main's `20261030204050`; it needs a
+  name between `20261030204050` and `20261031034754`.
