@@ -1,7 +1,7 @@
 # OVD-979 U5: request dedupe and drawing release
 
 Stacked on U2/U3/U4. The forward migration is
-`supabase/migrations/20261031025000_ovd979u5_drawing_extraction_dedupe.sql`,
+`supabase/migrations/20261031034900_ovd979u5_drawing_extraction_dedupe.sql`,
 the only forward copy since repair round 1. Apply after U4. The file applies
 with or without a wrapping transaction: the table lock, duplicate audit and
 index build share one `DO` statement.
@@ -160,7 +160,7 @@ synthetic fixtures only; any hosted duplicates require operator disposition.
 ## Rollback and repeat application
 
 `node scripts/ovd979-rollback.mjs
-20261031025000_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
+20261031034900_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
 it drops the trigger, its private helper and the index, then restores both
 U4-era function definitions (request from U2's migration, claim from U3's)
 and ACLs, all with `pg_catalog` first in `search_path`. The stored
@@ -225,7 +225,7 @@ On the isolated local fixture (U2–U5 applied):
 - The forward applies with `psql` and no wrapping transaction, including the
   index build from scratch (round 0 failed here with 25P01).
 - `node scripts/ovd979-rollback.mjs
-  20261031025000_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
+  20261031034900_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
   <loopback URL>`:
 
   ```
@@ -297,7 +297,7 @@ Council consensus FAIL (Opus PASS_NOTES, GPT FAIL, Jev PASS_NOTES).
 - **Rollback row proof baseline (GPT, minor): fixed.** `--prove` now snapshots
   rows before the first rollback, so rollback itself is checked.
 - **U4 canonical reuse vs the attempt gate (GPT, major): not this PR's file.**
-  `20261030204300_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
+  `20261031034800_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
 - **Cancel hands over to the successor (Opus, minor): documented.** Excluding
   `cancelled` would drop the successor permanently: a later request re-queues
   only for a sim extraction or a failed/cancelled task naming the *current*
@@ -317,3 +317,11 @@ not be pulled, registry rate limit): pgTAP U2 53/53, U3 27/27, U4 89/89,
 U5 63/63 (7 new reaped-attempt cases; 5 of them fail against the bfc07504
 trigger), OVD-723 167/167; `ovd979-rollback.mjs --prove`: PASS. Staging and
 production were not touched.
+
+## Base merge: U3/U4 renames (2026-10-31)
+
+U3 (#985) moved to `20261031034754` and U4 (#986) to `20261031034800`, both
+after this file's `20261031025000`. U5 must apply after U4, so it is renamed to
+`20261031034900_ovd979u5_drawing_extraction_dedupe.sql`. This is a rename only;
+the SHA-256 (`ed01e6e1…`) is unchanged. Only U2 (#984, `20261030162500`) still
+sorts before main's `20261030204050` and keeps `lint` red.

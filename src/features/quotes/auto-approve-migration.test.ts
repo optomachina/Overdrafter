@@ -5,7 +5,7 @@ import { scanFunctionEvents } from "../../../scripts/check-migration-function-co
 import { rollbackSql } from "../../../scripts/ovd979-rollback.mjs";
 
 const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
-const migrationSql = read("supabase/migrations/20261030204300_ovd979u4_attempt_bound_auto_approval.sql");
+const migrationSql = read("supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql");
 const signature = "public.api_auto_approve_job_requirements(uuid)";
 const reuseSignature = "public.api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)";
 const body = (sql: string, name = signature) => scanFunctionEvents(sql).find((event) => event.signature === name)?.body;
@@ -14,7 +14,7 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
   it("replaces auto approval and trusted reuse, and its generated rollback restores the U2-era bodies byte for byte", () => {
     expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature, reuseSignature]);
     const u2 = read("supabase/migrations/20261030162500_ovd979u2_canonical_requirement_lock_order.sql");
-    const rollback = rollbackSql("20261030204300_ovd979u4_attempt_bound_auto_approval.sql");
+    const rollback = rollbackSql("20261031034800_ovd979u4_attempt_bound_auto_approval.sql");
     for (const name of [signature, reuseSignature]) {
       expect(body(u2, name)).toBeTypeOf("string");
       expect(body(rollback, name)).toBe(body(u2, name));
