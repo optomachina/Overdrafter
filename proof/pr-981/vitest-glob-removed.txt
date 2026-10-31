@@ -1,0 +1,3 @@
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
++   "scripts/test-support/source-only-network.cjs (from scripts/test-support/source-only-network-marker.node-test.cjs)",
+      Tests  1 failed | 861 passed (862)
