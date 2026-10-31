@@ -68,7 +68,14 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
 extraction-write RPC. The SQL side of that path is the new nullable column on
 `drawing_extractions`; the worker includes `source_attempt_id` in the same
 upsert as the extraction result. Missing or null legacy claim IDs explicitly
-write null, so an upsert cannot retain an earlier attempt's provenance.
+write null, so the extraction handler's upsert cannot retain an earlier
+attempt's provenance. The operator import tools
+(`worker/src/tools/importDmriflesQuotes.ts`,
+`worker/src/tools/importSpreadsheetQuotes.ts`) also upsert
+`drawing_extractions` but do not set `source_attempt_id`, so a row they
+overwrite keeps the earlier attempt's id. U4's gate must not treat a matching
+`source_attempt_id` as proof that the current content came from that attempt
+once an import has touched the row; that is carried to U4 (#986).
 Canonical artifact reuse does not manufacture a new claim identity.
 
 Existing extraction retries converge on `markTaskQueuedForRetry`. Its guarded
@@ -149,6 +156,11 @@ generator proof below.
   `ephemeral-db` rollback stage replays only `.rollback.sql` files paired with
   a forward draft, so it never ran U3's rollback; this proof replaces it.
 - `supabase/tests/ovd979u3_attempt_identity.sql`: 27/27 on the same fixture.
+- What the committed pgTAP suite proves: the nullable UUID columns, legacy
+  nulls, a fresh UUID on every claim (including a same-worker reclaim), retry
+  clearing, extraction upsert provenance, client write denial and the claim
+  ACL. It does not exercise forward re-apply or rollback. Those are proven only
+  by the local `--prove` run above; no hosted CI job runs U3's rollback.
 - Deploy order and rollback order are stated above.
 
 Exact-head independent review and hosted release qualification remain separate
