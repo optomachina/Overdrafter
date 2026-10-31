@@ -33,6 +33,8 @@ The state dir must not be under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Li
 `~/.config`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube` or `~/.docker`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run.
 Needs `gh` and Claude Code signed in on the mini, plus `node`. No repository-level credentials.
 A finished review is kept until it posts. A failed post or head re-check retries only the post, up to 3 times per head SHA, and never reruns Claude.
+After 3 failed posts the SHA is skipped. To retry once the outage is over, delete only
+`~/.cache/ovd-claude-review/posts-<pr>-<sha>` and keep `ready-<pr>-<sha>.md`; the next run posts the saved review.
 Uninstall: `launchctl bootout gui/$(id -u)/com.optomachina.ovd-claude-review`
 and `rm ~/Library/LaunchAgents/com.optomachina.ovd-claude-review.plist ~/.local/bin/ovd-claude-review`. Nothing else depends on it.
 
