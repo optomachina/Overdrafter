@@ -145,7 +145,7 @@ Never call `pause_project` or `restore_project` with any other ref.
 There are no backups on Free. Recovery is drop/recreate or reseed, never a
 restore from production.
 
-Reseed (synthetic fixtures from OVD-837; on its own PR, not yet on `main`):
+Reseed (synthetic fixtures from OVD-837, on `main` under `supabase/seed/`):
 
 ```bash
 node scripts/staging-reset-guard.mjs "$STAGING_DB_URL"   # must print the staging ref
@@ -183,6 +183,17 @@ limit 5;
 PR verification queries such as the OVD-813 sanity-history query from PR #782.
 Running a smoke read on production needs Blaine's explicit approval for that
 query, even when it is read-only.
+
+### OVD-835 acceptance read
+
+OVD-835 closes when the OVD-813 history SELECT runs on staging without error.
+That read is [`supabase/seed/staging-smoke.sql`](../../supabase/seed/staging-smoke.sql)
+(SELECT only, `LIMIT 50`; expect 4 rows on the current seed). Run it with the
+guarded `psql` command under [Reset and reseed](#reset-and-reseed), or paste it
+into MCP `execute_sql` with `project_id: ldmambwtksfvqdufhaam`. Record the
+UTC time, the row count and the ref on OVD-835. A session with no staging
+credential (`STAGING_DB_URL`) and no Supabase MCP cannot run it. It reports
+that on the PR and does not fall back to production.
 
 ## Staging-first migration flow
 
