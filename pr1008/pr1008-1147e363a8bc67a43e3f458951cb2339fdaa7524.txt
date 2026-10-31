@@ -1,0 +1,109 @@
+PR #1008 QA test output
+sha=1147e363a8bc67a43e3f458951cb2339fdaa7524
+date_utc=2026-10-31T23:13:36Z
+node=v22.23.4 npm=10.9.9
+npm ci: exit=0 (run before this log)
+
+===== $ bash -n scripts/cloud-qa-boot.sh =====
+----- exit=0 elapsed=0s -----
+
+===== $ shellcheck --version =====
+ShellCheck - shell script analysis tool
+version: 0.11.0
+license: GNU General Public License, version 3
+website: https://www.shellcheck.net
+----- exit=0 elapsed=0s -----
+
+===== $ shellcheck scripts/cloud-qa-boot.sh =====
+
+In scripts/cloud-qa-boot.sh line 81:
+      sh -c 'p=$(readlink -f "$(command -v supabase)"); while [ "$(basename "$p")" != node_modules ]; do p=$(dirname "$p"); done; echo "$p"')
+            ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2016 -- Expressions don't expand in singl...
+----- exit=1 elapsed=0s -----
+
+===== $ bash scripts/cloud-qa-boot.sh check =====
+[cloud-qa-boot] github: 0s ok (REST read + push; gh auth status is not used)
+[cloud-qa-boot] docker: 2s ok (started dockerd)
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[cloud-qa-boot] supabase-cli: 6s ok (2.78.1)
+[cloud-qa-boot] playwright: aliased chromium-1208 -> chromium-1243
+[cloud-qa-boot] playwright: aliased chromium_headless_shell-1208 -> chromium_headless_shell-1243
+[cloud-qa-boot] playwright: 0s ok (Version 1.58.2)
+----- exit=0 elapsed=9s -----
+
+===== $ bash scripts/cloud-qa-boot.sh run --list =====
+[cloud-qa-boot] github: 1s ok (REST read + push; gh auth status is not used)
+[cloud-qa-boot] docker: 0s ok (already running)
+[cloud-qa-boot] supabase-cli: 1s ok (2.78.1)
+[cloud-qa-boot] playwright: 0s ok (Version 1.58.2)
+[cloud-qa-boot] copy: 6s ok (/tmp/qa-repo owned by qa)
+[cloud-qa-boot] supabase-start: 18s exit=1
+----- exit=1 elapsed=27s -----
+
+===== $ bash scripts/preflight.sh lint =====
+preflight: lint start
+preflight: lint PASS
+----- exit=0 elapsed=39s -----
+
+===== $ bash scripts/preflight.sh typecheck =====
+preflight: typecheck start
+preflight: typecheck PASS
+----- exit=0 elapsed=39s -----
+
+===== npx eslint scripts/cloud-qa-boot.sh: SKIPPED (shell script; eslint.config does not lint .sh) =====
+
+===== $ bash scripts/cloud-qa-boot.sh run --list   (retry at 23:16:42Z) =====
+[cloud-qa-boot] github: 0s ok (REST read + push; gh auth status is not used)
+[cloud-qa-boot] docker: 0s ok (already running)
+[cloud-qa-boot] supabase-cli: 1s ok (2.78.1)
+[cloud-qa-boot] playwright: 0s ok (Version 1.58.2)
+[cloud-qa-boot] copy: 14s ok (/tmp/qa-repo owned by qa)
+[cloud-qa-boot] supabase-start: 18s exit=1
+----- exit=1 elapsed=34s -----
+
+===== supabase start failure detail (/tmp/cloud-qa-boot-supabase.log, error lines only; log not dumped because it can carry local demo keys) =====
+ postgres-meta Error error from registry: Data limit exceeded
+ kong Error error from registry: Data limit exceeded
+ edge-runtime Error error from registry: Data limit exceeded
+ mailpit Error error from registry: Data limit exceeded
+ postgrest Error error from registry: Data limit exceeded
+ vector Error error from registry: Data limit exceeded
+ realtime Error error from registry: Data limit exceeded
+ logflare Error error from registry: Data limit exceeded
+ studio Error error from registry: Data limit exceeded
+ imgproxy Error error from registry: Data limit exceeded
+ gotrue Error error from registry: Data limit exceeded
+ storage-api Error error from registry: Data limit exceeded
+ postgres Error error from registry: Data limit exceeded
+failed to pull docker image: Error response from daemon: error from registry: Data limit exceeded
+Retrying after 4s: public.ecr.aws/supabase/postgres:17.6.1.095
+failed to pull docker image: Error response from daemon: error from registry: Data limit exceeded
+Retrying after 8s: public.ecr.aws/supabase/postgres:17.6.1.095
+failed to pull docker image: Error response from daemon: error from registry: Data limit exceeded
+docker images cached locally: 0
+
+===== app boot + smoke screenshot (step 3b) =====
+Supabase unavailable (registry data limit), so the app was booted without a backend:
+$ (as user qa, in /tmp/qa-repo at 1147e363a8bc67a43e3f458951cb2339fdaa7524) npm run dev -- --host 127.0.0.1 --port 4173
+  with the env playwright.config.ts webServer injects: VITE_ENABLE_FIXTURE_MODE=1 VITE_ENABLE_ENGINEERING_WORKBENCH=0 VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_PUBLISHABLE_KEY=<LOCAL_SUPABASE_ANON_KEY from playwright.config.ts>
+  VITE v5.4.19  ready in 400 ms
+  ➜  Local:   http://127.0.0.1:4173/
+$ node shot.cjs (Playwright 1.58.2 chromium, chromiumSandbox: true, as user qa) -> http://127.0.0.1:4173/
+status 200 url http://127.0.0.1:4173/ title OverDrafter | Machined Aluminum Sourcing
+headings ["OverDrafter","Sign in","Sign up for free","CAD In\nParts Out","Create account","Log in","Multiple quotes. One obvious tradeoff.","Compare your quotes","Northline Manufacturing\n$445.00 · 16d","Apex CNC\n$487.00 · 12d","Mesa Precision\n$525.00 · 9d","ForgeWorks\n$558.00 · 11d","Axis Ma
+pageerrors 0 []
+----- exit=0 ; screenshot saved: pr1008/1147e363a8bc67a43e3f458951cb2339fdaa7524-smoke.png -----
+(note: a first attempt without the VITE_SUPABASE_* env rendered a blank page with 'VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required' — expected, the config injects them)
+
+===== SUMMARY =====
+bash -n scripts/cloud-qa-boot.sh            exit=0
+shellcheck scripts/cloud-qa-boot.sh         exit=1 (1 finding: SC2016 info, line 81)
+bash scripts/cloud-qa-boot.sh check         exit=0 (github 0s, docker 2s, supabase-cli 6s, playwright 0s)
+bash scripts/cloud-qa-boot.sh run --list    exit=1 x2 (supabase-start: registry 'Data limit exceeded'; seed + playwright not reached)
+bash scripts/preflight.sh lint              exit=0 (PASS)
+bash scripts/preflight.sh typecheck         exit=0 (PASS)
+npx eslint scripts/cloud-qa-boot.sh         skipped (shell script)
+app boot (vite, no backend) + screenshot    ok
