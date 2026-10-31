@@ -527,10 +527,10 @@ describe("identity (§6 item 3)", () => {
     it("reads no trust, mode or identity setting from env in the source, and only the kill switch comes from Actions variables", () => {
       const source = readFileSync(new URL("./ovd-merge-gate.mjs", import.meta.url), "utf8");
       const envReads = [...source.matchAll(/env\.([A-Z_]+)/g)].map((match) => match[1]);
-      expect(new Set(envReads)).toEqual(new Set(["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH", "DOOR_AUTOMERGE"]));
+      expect(new Set(envReads)).toEqual(new Set(["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH", "DOOR_AUTOMERGE", "OVD_AUTOMERGE_DISABLED"]));
       expect(source).not.toMatch(/process\.env\[/);
       const workflow = readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8");
-      expect([...workflow.matchAll(/vars\.([A-Z_]+)/g)].map((match)=>match[1])).toEqual(["DOOR_AUTOMERGE"]);
+      expect([...workflow.matchAll(/vars\.([A-Z_]+)/g)].map((match)=>match[1])).toEqual(["DOOR_AUTOMERGE", "OVD_AUTOMERGE_DISABLED"]);
     });
   });
 });
@@ -673,7 +673,7 @@ const jevStatus = (sha = HEAD, tier = "low", jevTier = "low") => ({
   description:buildMarkerDescription({tier,jevTier,confidence:0.9,model:"jev-1.13.0",questionHash:"1234abcd",stateHash:"x".repeat(43)}),
 });
 
-function fakeGithub({ head = HEAD, headAfter, body, content = "plain docs content", comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, content = "plain docs content", comments = [], files = DOCS_FILES, changedFiles = files.length, labels = [], statuses, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -706,13 +706,13 @@ function fakeGithub({ head = HEAD, headAfter, body, content = "plain docs conten
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? BUILT_BY, state:"open", draft:false, mergeable:true, mergeable_state:"clean", commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? BUILT_BY, state:"open", draft:false, mergeable:true, mergeable_state:"clean", labels, commits: commits.length, changed_files: changedFiles });
     }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
     if (pathname === "/repos/o/r/pulls/7/files") return response(200, files);
     if (pathname.startsWith(`/repos/o/r/commits/`) && pathname.endsWith("/check-runs")) return response(200, { check_runs: listRuns(pathname.split("/")[5], searchParams.get("check_name")) });
-    if (pathname.endsWith("/status") || pathname.endsWith("/statuses")) return response(200, [jevStatus(head)]);
+    if (pathname.endsWith("/status") || pathname.endsWith("/statuses")) return response(200, statuses ?? [jevStatus(head)]);
     return response(404, { message: `no route ${pathname}` });
   };
   const client = {
@@ -1726,7 +1726,7 @@ describe("enforced automerge gates", () => {
     comments:[...passingComments(),posted(verdict({role:"reviewer",family:"opus"}))],
     ...overrides,
   });
-  const pull = {head:{sha:HEAD},state:"open",draft:false,mergeable:true,mergeable_state:"clean"};
+  const pull = {head:{sha:HEAD},state:"open",draft:false,mergeable:true,mergeable_state:"clean",labels:[]};
 
   it("enforces mode and bot identity even when input requests report/shared-account", () => {
     expect(decision({mode:"report",identity:"shared-account"})).toMatchObject({gate:"pass",mode:"enforce",identity:"app",automerge:"eligible"});
@@ -1864,19 +1864,19 @@ describe("enforced automerge gates", () => {
   it("runs only squash with GitHub's atomic head guard and never defers via --auto", async () => {
     const calls=[];
     const merged=await gate.mergePull({client:{json:async()=>pull},repo:"o/r",pr:7,summary:decision(),switchValue:"true",merge:async(args)=>calls.push(args)});
-    expect(merged).toBe(true);
+    expect(merged).toEqual({merged:true,reason:null});
     expect(calls).toEqual([["pr","merge","7","--repo","o/r","--squash","--match-head-commit",HEAD]]);
   });
 
   it("a push after evaluation makes zero merge calls", async () => {
     const calls=[];
-    expect(await gate.mergePull({client:{json:async()=>({...pull,head:{sha:OLD}})},repo:"o/r",pr:7,summary:decision(),switchValue:"true",merge:async(args)=>calls.push(args)})).toBe(false);
+    expect(await gate.mergePull({client:{json:async()=>({...pull,head:{sha:OLD}})},repo:"o/r",pr:7,summary:decision(),switchValue:"true",merge:async(args)=>calls.push(args)})).toMatchObject({merged:false});
     expect(calls).toEqual([]);
   });
 
   it("switch off makes zero API and merge calls", async () => {
     const unexpected=()=>{throw new Error("must not run");};
-    expect(await gate.mergePull({client:{json:unexpected},repo:"o/r",pr:7,summary:decision(),merge:unexpected})).toBe(false);
+    expect(await gate.mergePull({client:{json:unexpected},repo:"o/r",pr:7,summary:decision(),merge:unexpected})).toEqual({merged:false,reason:"DOOR_AUTOMERGE is not exactly true"});
   });
 
   it("writer receives the kill switch only from Actions variables", () => {
@@ -1956,5 +1956,146 @@ describe("enforced runtime boundaries", () => {
     {data:{repository:{pullRequest:{headRefOid:HEAD,reviewThreads:{nodes:[]}}}}},
   ])("rejects partial or stale thread data", async (response) => {
     await expect(gate.readReviewThreads({post:async()=>response},"o/r",7,HEAD)).rejects.toThrow();
+  });
+});
+
+// Checklist item 17: every refusal runs the real write path (or the real
+// decision) with the switch on where it matters, and asserts that no merge
+// call is made, not that a mocked decision was consulted.
+describe("automerge refusals (hardening checklist item 17)", () => {
+  const writeWith = async (apiOptions, { env = { DOOR_AUTOMERGE: "true" }, classify } = {}) => {
+    const api = fakeGithub(apiOptions);
+    const calls = [];
+    const result = await runCli(["write", "--pr", "7", "--history-result", "success"], api, { env, classify, merge: async (args) => calls.push(args) });
+    const gatePost = api.posts.find((post) => post.name === CHECK_NAME);
+    return { ...result, calls, gatePost, codes: gatePost ? reasonCodes(JSON.parse(gatePost.output.text.slice(8, -4))) : [] };
+  };
+  const classifyAt = async ({ headSha }) => ({ classification: { ...okClassification(), sha: headSha }, files: DOCS_FILES });
+
+  it("control: a fully passing PR with the switch on merges exactly once", async () => {
+    const { calls, out } = await writeWith({ comments: passingComments() });
+    expect(calls).toEqual([["pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", HEAD]]);
+    expect(out).toContain("squash merge submitted");
+  });
+
+  it.each([undefined, "", "false", "TRUE", "yes"])("switch off (%j): the gate runs and passes but never merges", async (DOOR_AUTOMERGE) => {
+    const { calls, gatePost, out } = await writeWith({ comments: passingComments() }, { env: { DOOR_AUTOMERGE } });
+    expect(gatePost.conclusion).toBe("success");
+    expect(calls).toEqual([]);
+    expect(out).toContain("ovd-merge-gate: no merge: DOOR_AUTOMERGE is not exactly true");
+  });
+
+  it.each([["automerge:hold"], [" Automerge:Hold "], ["ready", "automerge:hold"]])("hold label %j stops a passing PR with the switch on", async (...names) => {
+    const { calls, gatePost, out } = await writeWith({ comments: passingComments(), labels: names.map((name) => ({ name })) });
+    expect(gatePost.conclusion).toBe("success");
+    expect(calls).toEqual([]);
+    expect(out).toContain("automerge:hold");
+  });
+
+  it.each(["1", "true", "false", "anything"])("OVD_AUTOMERGE_DISABLED=%j stops a passing PR with the switch on", async (value) => {
+    const { calls, out } = await writeWith({ comments: passingComments() }, { env: { DOOR_AUTOMERGE: "true", OVD_AUTOMERGE_DISABLED: value } });
+    expect(calls).toEqual([]);
+    expect(out).toContain("ovd-merge-gate: no merge: OVD_AUTOMERGE_DISABLED is set");
+  });
+
+  it.each([undefined, null, "x", [{}], [{ name: 7 }]])("an unreadable label list (%j) stops the merge", async (labels) => {
+    const calls = [];
+    const summary = gate.evaluate({ ...baseInput({ identity: "app", requiredChecks: greenChecks(), commitStatuses: { sha: HEAD, statuses: [jevStatus()] }, reviewThreads: { sha: HEAD, complete: true, threads: [] } }) });
+    expect(summary.gate).toBe("pass");
+    const pull = { head: { sha: HEAD }, state: "open", draft: false, mergeable: true, mergeable_state: "clean", labels };
+    expect(await gate.mergePull({ client: { json: async () => pull }, repo: "o/r", pr: 7, summary, switchValue: "true", merge: async (args) => calls.push(args) })).toMatchObject({ merged: false });
+    expect(calls).toEqual([]);
+  });
+
+  it("stale head: reviews for an earlier head with an equal diff_id cannot merge the new head", async () => {
+    const { calls, gatePost, codes: found } = await writeWith({ head: NEW_HEAD, comments: passingComments() }, { classify: classifyAt });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toEqual(expect.arrayContaining(["sonnet_not_pass", "qa_not_pass"]));
+    expect(calls).toEqual([]);
+  });
+
+  it("push after reviews: a head that moves before the write gets no result and no merge", async () => {
+    const { calls, gatePost, out } = await writeWith({ headAfter: NEW_HEAD, comments: passingComments() });
+    expect(gatePost).toBeUndefined();
+    expect(out).toContain(`head moved from ${HEAD} to ${NEW_HEAD}`);
+    expect(calls).toEqual([]);
+  });
+
+  it.each(["optomachina", "mallory"])("spoofed author: a verdict body naming the verifier bot but posted by %s does not count", async (login) => {
+    const comments = passingComments().map((item) => ({ ...item, user: { login } }));
+    const { calls, gatePost, codes: found } = await writeWith({ comments });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toEqual(expect.arrayContaining(["sonnet_not_pass", "qa_not_pass"]));
+    expect(calls).toEqual([]);
+  });
+
+  it.each([[[]], [[{ ...jevStatus(), state: "pending" }]], [[jevStatus(OLD)]]])("missing Jev marker (%j) blocks the merge", async (statuses) => {
+    const { calls, gatePost, codes: found } = await writeWith({ comments: passingComments(), statuses });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain("jev_not_pass");
+    expect(calls).toEqual([]);
+  });
+
+  it("CHANGES_REQUIRED (a reviewer FAIL with findings) at the head blocks even with a Sonnet PASS", async () => {
+    const passes = passingComments();
+    const changes = posted(verdict({ role: "reviewer", result: "FAIL", findings: [{ severity: "medium", file: "docs/notes.md", summary: "fix this" }] }));
+    const { calls, gatePost, codes: found } = await writeWith({ comments: [...passes, changes] });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toEqual(expect.arrayContaining(["verdict_conflict", "actionable_findings"]));
+    expect(calls).toEqual([]);
+  });
+
+  it("a literal CHANGES_REQUIRED verdict value from the bot is unreadable and blocks", async () => {
+    const passes = passingComments();
+    const changes = posted(verdict({ role: "reviewer" }));
+    changes.body = changes.body.replace('"verdict": "PASS"', '"verdict": "CHANGES_REQUIRED"');
+    const { calls, gatePost, codes: found } = await writeWith({ comments: [...passes, changes] });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain("verdict_schema_error");
+    expect(calls).toEqual([]);
+  });
+
+  it("an Opus CHANGES_REQUIRED is not cleared by a later Sonnet PASS", async () => {
+    const changes = posted(verdict({ role: "reviewer", family: "opus" }));
+    changes.body = changes.body.replace('"verdict": "PASS"', '"verdict": "CHANGES_REQUIRED"');
+    const { calls, gatePost, codes: found } = await writeWith({ comments: [changes, ...passingComments()] });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain("verdict_schema_error");
+    expect(calls).toEqual([]);
+  });
+
+  it.each(["bot=architect model=model:claude-opus", "bot=engineer model=model:codex; bot=architect model=model:claude-sonnet"])("builder family self-review (%s): a Claude reviewer PASS on a Claude build never merges", async (builders) => {
+    const { calls, gatePost, codes: found } = await writeWith({ comments: passingComments(), body: `Built-by: ${builders}` });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain("reviewer_same_family");
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ["prod_db_migration", { filename: "supabase/migrations/20261030120000_demo.sql", status: "added" }],
+    ["deletion", { filename: "docs/old.md", status: "removed" }],
+    ["gate_machinery", { filename: ".github/workflows/ovd-merge-gate.yml", status: "renamed", previous_filename: ".github/workflows/old-gate.yml" }],
+  ])("held path (%s) through the real detector never merges, even with an approval", async (category, file) => {
+    const { calls, gatePost, codes: found } = await writeWith({ comments: [...passingComments(), approvalComment()], files: [file] }, { classify: classifyPull });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain(`held:${category}`);
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ["a list shorter than changed_files (pagination)", { files: DOCS_FILES, changedFiles: 150 }],
+    ["more files than the API can list", { files: DOCS_FILES, changedFiles: 3001 }],
+    ["an empty list", { files: [], changedFiles: 0 }],
+  ])("%s is held and never merges", async (_name, options) => {
+    const { calls, gatePost, codes: found } = await writeWith({ comments: passingComments(), ...options }, { classify: classifyPull });
+    expect(gatePost.conclusion).toBe("failure");
+    expect(found).toContain("held:file_list_incomplete");
+    expect(calls).toEqual([]);
+  });
+
+  it("heldCategories holds a missing, empty or unclassified file list", () => {
+    for (const files of [null, undefined, []]) expect(gate.heldCategories(files, okClassification())).toContain("file_list_incomplete");
+    expect(gate.heldCategories(DOCS_FILES, { ...okClassification(), status: "error" })).toContain("file_list_incomplete");
+    expect(gate.heldCategories(DOCS_FILES, okClassification())).toEqual([]);
   });
 });

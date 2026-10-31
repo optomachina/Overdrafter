@@ -1342,12 +1342,19 @@ export async function doorTier(result, options = {}) {
 // Every status except "removed" has head content; an unknown status is read too.
 const readsHead = (status) => status !== "removed";
 
+/** Production database apply indicators; any one holds the file. */
+const PROD_APPLY_PATTERNS = Object.freeze([
+  /supabase\s+(?:db\s+push|migration\s+up)/i,
+  /prod(?:uction)?[-_\s]*(?:db[-_\s]*)?(?:apply|migrat)/i,
+  /(?:apply|migrat)[-_\s]*(?:to[-_\s]*)?prod/i,
+]);
+
 /** Conservative content holds, including inline marks outside Sonar paths. */
 export function heldContent(text) {
   const held = [];
   if (/NOSONAR|api\/(?:hotspots\/change_status|issues\/(?:do_transition|accept|false_positive))|sonar[^\n]{0,80}\b(?:safe|false.?positive|wontfix)\b/i.test(text)) held.push("sonar_safe_mark");
   if (/\/branches\/[^\s]+\/protection|updateBranchProtectionRule|deleteBranchProtectionRule|createBranchProtectionRule|\/repos\/[^\s]+\/rulesets/i.test(text)) held.push("branch_protection");
-  if (/supabase\s+(?:db\s+push|migration\s+up)|(?:prod(?:uction)?)[-_\s]*(?:db[-_\s]*)?(?:apply|migrat)|(?:apply|migrat)[-_\s]*(?:to[-_\s]*)?prod(?:uction)?/i.test(text)) held.push("prod_db_migration");
+  if (PROD_APPLY_PATTERNS.some((pattern) => pattern.test(text))) held.push("prod_db_migration");
   return held;
 }
 
@@ -1366,7 +1373,7 @@ function fileProblem(file) {
 
 // Runs `task` over the items one at a time, in order. An async generator's `yield` awaits the promise it
 // is given before the next item starts, so a PR with many SQL files reads its head files one by one.
-async function* inSequence(items, task) {
+export async function* inSequence(items, task) {
   for (const [index, item] of items.entries()) yield task(item, index);
 }
 
