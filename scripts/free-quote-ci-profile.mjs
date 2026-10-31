@@ -49,7 +49,7 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   reviewedMigration('supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql', 'OVD-1018', '18bea12e4b6719143d46d219a0569e9fced25ebe4cc3df178051c3a67654e4f6'),
   reviewedMigration('supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql', 'OVD-979', '572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f'),
   reviewedMigration('supabase/migrations/20261031034754_ovd979u3_extraction_attempt_identity.sql', 'OVD-979', '08edb675042770ed9f56138dd0cf0316f21148c451d06eb83f3c431f2d8ab61d'),
-  reviewedMigration('supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql', 'OVD-979', 'de57d146868136e5f6647159d44fa3a9fe42dcc1ea7d8ee3823175a9463a5499'),
+  reviewedMigration('supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql', 'OVD-979', 'c7770995d71c604bd154639f8bc584d26219656c39fd562fa93ac6cf486a0961'),
 ]);
 
 export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {

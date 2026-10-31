@@ -51,11 +51,43 @@ are absent.
   rather than ten outside pre-quote as the acceptance wording suggests. The
   suite exercises every enum value under pending, failed and successful work.
 
+## Deploy order (required)
+
+**U3 migration -> worker deploy -> U4 migration.** Do not apply U3 and U4
+back to back. Once U3 is applied every claim sets `work_queue.attempt_id`, but
+a pre-U3 worker never writes `drawing_extractions.source_attempt_id`. U4's gate
+would then treat each of that worker's running extractions as pending: the
+in-task `api_auto_approve_job_requirements` call approves nothing, sets the
+job to `extracting`, the task settles and nothing calls auto approval again,
+so the job stays in `extracting`.
+
+The U4 migration enforces this itself. Its first statement
+(`$ovd979u4_worker_guard$`) raises `OVD-979 U4 requires the worker that
+writes drawing_extractions.source_attempt_id` and aborts the transaction when:
+
+- the database has any `extract_part` row but no completed one whose attempt
+  stamped its part's extraction (the new worker has not completed an
+  extraction yet, including the U3-then-U4-back-to-back case), or
+- a claim made since U3 (non-null `attempt_id`) completed later than the
+  newest stamped one and left its part's extraction unstamped (an old worker
+  is still running).
+
+Completion time is the task's `updated_at`. Trusted reuses
+(`payload.reusedCanonicalPartVersion`) are not evidence either way, because
+U2's reuse copy carries no stamp, and an extraction row last written before
+the claim was created is not evidence. A database with no `extract_part`
+rows (fresh, CI, `db reset`) has nothing to strand, so the guard is a no-op.
+The guard reads the newest evidence only; stopping every old worker before
+applying U4 stays an operator step. To apply: deploy the worker everywhere,
+let one real (non-reuse) extraction complete, then apply U4.
+`supabase/tests/ovd979u4_worker_guard.sql` (8 assertions) runs the guard
+block verbatim; the artifact test fails if the copies drift.
+
 ## Apply and rollback
 
 `supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql`
-is the only forward copy. Apply after U2/U3,
-in one transaction. Both forward and rollback support repeated application
+is the only forward copy. Apply after U2/U3 and after the worker deploy
+(above), in one transaction. Both forward and rollback support repeated application
 and have no transaction wrapper. No table, policy, owner or grant recipient
 changes. The function keeps `SECURITY DEFINER`, pins
 `search_path = pg_catalog, public`, revokes PUBLIC/anon/authenticated and
@@ -188,8 +220,8 @@ PR, hosted apply, production or provider operation was performed.
   in U2's body changes (the artifact test strips the stamp and compares the
   rest byte for byte). An existing target row is still left alone
   (`on conflict do nothing`), keeps its own attempt and stays pending for the
-  gate, so that rare retry case falls to staff review rather than reusing an
-  unverified row. New pgTAP case: 4 assertions; against U2's reuse body 3 of
+  gate, so that rare retry case does not auto-approve; the job is left in
+  `extracting` (not `needs_spec_review`) until staff act on it. New pgTAP case: 4 assertions; against U2's reuse body 3 of
   them fail (`source_attempt_id` null, 0 approved, job stays `extracting`).
 - **Ordering (minor).** `pg_temp.u4_store` takes an optional timestamp. New
   case: a matching-attempt extraction stamped before the requirement's
@@ -224,3 +256,21 @@ PR, hosted apply, production or provider operation was performed.
   U3's `20261031034754`. U4 keeps `20261031034800`; the order is now
   U2 < U3 < U4. `src/features/quotes/auto-approve-migration.test.ts` reads U2
   under the new filename.
+
+## Repair round 4 (2026-10-31): council finding at `84c04ab`
+
+- **Mixed-version deploy window (major, Opus).** Documented the required
+  order U3 migration -> worker deploy -> U4 migration (above) and enforced it
+  with a guard at the top of the U4 migration. The guard needs positive
+  evidence: on a database with extraction history it refuses until a stamped
+  extraction has completed, and it refuses while an old worker is still the
+  newest writer. The interrupted WIP version only looked for old-worker
+  evidence, so it passed when U3 and U4 were applied back to back, and it
+  could refuse after a trusted reuse because auto approval's status update
+  bumps the copy's `updated_at`. Against that WIP guard, 4 of the 8 guard
+  assertions fail.
+- Corrected the reuse note above: an existing target row leaves the job in
+  `extracting`, not in staff review (Opus minor). The reuse `on conflict` and
+  copied-`updated_at` minors are not changed in this round.
+- New sha256 pin:
+  `c7770995d71c604bd154639f8bc584d26219656c39fd562fa93ac6cf486a0961`.
