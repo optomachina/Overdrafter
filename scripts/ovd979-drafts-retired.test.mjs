@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { collectFunctionEvents, DRAFTS_DIR, MIGRATIONS_DIR } from "./check-migration-function-collisions.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const promoted = readdirSync(join(root, MIGRATIONS_DIR)).filter((name) => /^\d+_ovd979u\d_.*\.sql$/.test(name));
+const promoted = readdirSync(join(root, MIGRATIONS_DIR)).filter((name) => /^\d+_ovd979u\d_.*\.sql$/.test(name))
+  .sort();
 
 // Pinned on purpose: a later OVD-979 unit must add itself here, so its review
 // confirms that its draft was retired too.

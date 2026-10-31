@@ -48,8 +48,9 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
   transaction. Both support repeat application.
 - The unchanged collision checker passes without a `function-supersessions.json`
   entry. The plan's convention lists one for a replaced deployed body
-  (`api_claim_next_task`); that entry is tracked in U6 against the sha256 of
-  `20260324120000_add_api_claim_next_task.sql`.
+  (`api_claim_next_task`). U6 adds no entry: with the U3 draft deleted there
+  is no draft body to supersede the deployed one, so the checker needs none
+  (see the status section below).
 - Only `worker/src/queue.ts` `markTaskQueuedForRetry` clears `attempt_id` on
   requeue. Other paths that set `status = 'queued'` (SQL resets, stale-lock
   and backstop recovery, U5's deferred release) keep the old id. Claims stay
@@ -148,8 +149,8 @@ generator proof below.
 
 Exact-head independent review and hosted release qualification remain separate
 integration work. At the time of writing, U3 left the attempt gate to U4 and
-request deduplication and deferred release to U5; both have since landed in
-their PRs (#986, #988). See the status section below.
+request deduplication and deferred release to U5; both are now implemented in
+their PRs (#986, #988), which are still open. See the status section below.
 
 ## Status (OVD-979 U6)
 
