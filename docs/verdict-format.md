@@ -481,10 +481,30 @@ when a verdict is carried across a rebase by equal `diff_id`. Failed, cancelled,
 in-progress, unrelated-workflow and unreadable runs do not count.
 
 History and prior gate checks must belong to GitHub Actions app 15368 and a
-check suite from `.github/workflows/ovd-merge-gate.yml` on the repository's
-current default branch, triggered by `pull_request_target`, `issue_comment`,
-`workflow_dispatch` or `merge_group`. Unverifiable provenance blocks with
-`missing_input`. Records exposing distinct `created_at` and `updated_at` are
-rejected. The Checks API does not reliably expose update history; differences
-between `started_at` and `completed_at` do not prove mutation. Provenance alone
-cannot detect an update by another workflow using the same Actions app token.
+check suite from `.github/workflows/ovd-merge-gate.yml`, triggered by
+`pull_request_target`, `issue_comment` or `workflow_dispatch` (`merge_group`
+is not a trusted writer: its YAML comes from the queue ref). For
+`issue_comment` and `workflow_dispatch`, `head_branch` must be the
+repository's current default branch. A `pull_request_target` run executes
+the base branch's YAML and its `head_branch` is the PR head, so a non-default
+base could forge these records. `workflow_run.pull_requests` is computed when
+the API is read, not when the run happened, so a base retargeted after the run
+would still look like the default branch. A `pull_request_target` record is
+therefore trusted only when all hold: `pull_requests` is exactly the PR being
+evaluated, based on the default branch; that PR is still based on the default
+branch and was created no later than the run; the run was created after the
+PR's last `base_ref_changed` event (so a PR retargeted to the default branch
+is trusted again for runs after the retarget); the run's `head_branch` and
+`head_repository` are that PR's head; and every PR, open or closed, from the
+same head branch targets the default branch and had no `base_ref_changed`
+event at or after the run (a closed sibling drops out of `pull_requests` but
+could have triggered the run, and one retargeted before it closed shows only
+its final base). Anything else fails closed with `missing_input`, by design:
+fork PRs (empty `pull_requests`), closed PRs, PRs sharing a head branch with
+another open PR, runs from another head repository or branch, records written
+before a retarget of this PR or a same-head sibling, and head branches whose
+PRs target another base.
+Unverifiable provenance blocks with `missing_input`. The Checks API does not reliably
+expose update history; differences between `started_at` and `completed_at` do
+not prove mutation. Provenance alone cannot detect an update by another
+workflow using the same Actions app token.
