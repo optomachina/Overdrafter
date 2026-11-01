@@ -119,25 +119,42 @@ export function envrcLoadsOnly(text) {
   return text.split(/\r?\n/).every((line) => ENVRC_COMMENT_OR_BLANK.test(line) || ENVRC_LOAD_LINE.test(line));
 }
 
-function git(cwd, args) {
-  return execFileSync(GIT_BIN, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+function git(cwd, args, binary = GIT_BIN) {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+  return execFileSync(binary, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 }
 
-export function refExists(cwd, ref) {
+export function readRefFile(cwd, ref, path, { binary = GIT_BIN } = {}) {
+  const entry = git(cwd, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${path}`], binary);
+  if (!entry) return null;
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${path}`);
+  return git(cwd, ["cat-file", "blob", "--end-of-options", blob[1]], binary);
+}
+
+// Requires git 2.31 or newer (CI runners qualify): an older rev-parse does not
+// understand `--end-of-options` and can exit 1 silently, reading as "absent".
+export function refExists(cwd, ref, { binary = GIT_BIN } = {}) {
   try {
-    git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    git(cwd, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`], binary);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return false;
+    throw error;
   }
 }
 
-/** The merge-base commit of the two refs, or null when they share no history. */
-export function mergeBase(cwd, baseRef, headRef) {
+/**
+ * The merge-base commit of the two refs, or null when they share no history.
+ * CI's full-depth fetch (fetch-depth: 0) prevents a shallow clone's clean exit 1
+ * from being mistaken for "no shared history"; callers must provide full history.
+ */
+export function mergeBase(cwd, baseRef, headRef, { binary = GIT_BIN } = {}) {
   try {
-    return git(cwd, ["merge-base", baseRef, headRef]).trim() || null;
-  } catch {
-    return null;
+    return git(cwd, ["merge-base", "--end-of-options", baseRef, headRef], binary).trim() || null;
+  } catch (error) {
+    if (error.status === 1 && !error.signal && !String(error.stderr ?? "").trim()) return null;
+    throw error;
   }
 }
 
@@ -147,7 +164,7 @@ export function mergeBase(cwd, baseRef, headRef) {
  * Anything that is not a well-formed record throws, so the caller fails.
  */
 export function listChanges(cwd, baseRef, headRef) {
-  const fields = git(cwd, ["diff", "--raw", "--no-renames", "--no-abbrev", "-z", baseRef, headRef, "--"]).split("\0");
+  const fields = git(cwd, ["diff", "--raw", "--no-renames", "--no-abbrev", "-z", "--end-of-options", baseRef, headRef, "--"]).split("\0");
   const changes = [];
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const record = RAW_RECORD.exec(fields[i]);
@@ -220,11 +237,15 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
   const base = mergeBase(cwd, baseRef, headRef);
   if (!base) throw new Error(`no merge-base for ${baseRef} and ${headRef}`);
   const changes = listChanges(cwd, base, headRef);
-  const show = (ref, path) => git(cwd, ["show", `${ref}:${path}`]);
-  const readRef = (side, path) => {
-    try { return show(side === "base" ? base : headRef, path); } catch { return null; }
+  const readHead = (path) => {
+    const text = readRefFile(cwd, headRef, path);
+    if (text === null) throw new Error(`changed path ${path} is missing at ${headRef}`);
+    return text;
   };
-  const { findings, gateLoosening } = evaluateChanges(changes, (path) => show(headRef, path), readRef);
+  const readRef = (side, path) => {
+    return readRefFile(cwd, side === "base" ? base : headRef, path);
+  };
+  const { findings, gateLoosening } = evaluateChanges(changes, readHead, readRef);
   return {
     schema: REPORT_SCHEMA,
     base_ref: baseRef,
