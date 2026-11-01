@@ -107,7 +107,8 @@ checker on the PR range (see below).
   none of the five; the scan step reports all five.
 
 Neither suite runs the real gitleaks binary. These real-binary checks are
-**follow-ups**, due before the job is made required:
+**follow-ups**, due before the job is made enforcing (branch protection
+already lists it as required; see the top of this file):
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
@@ -279,8 +280,9 @@ Shape:
   report, kept for 7 days.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
-- The job has `continue-on-error: true`, is not a required check, and is not
-  in the `ci` aggregate's `needs`.
+- The job has `continue-on-error: true` and is not in the `ci` aggregate's
+  `needs`. Branch protection on `main` lists it as a required check (read-only
+  check, 2026-10-31; no approval recorded, see the top of this file).
 
 Step behaviour. GitHub runs each `run:` block as `bash -e`. Every exit code
 that matters is captured with `|| rc=$?`, so in each case below `-e` does not
