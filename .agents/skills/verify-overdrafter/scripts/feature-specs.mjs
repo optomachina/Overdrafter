@@ -38,6 +38,7 @@ export const FEATURE_SPECS = {
       // under its own config (never the default one).
       spec("e2e/admin-operations.spec.ts", "e2e/admin-operations.config.ts"),
       spec("e2e/engineering-admin-route.spec.ts"),
+      spec("e2e/journeys/jarvis-front-door.spec.ts"),
     ],
     local: [],
   },
@@ -49,17 +50,7 @@ export const FEATURE_SPECS = {
 // test.fail() with that issue (scripts/verify-overdrafter-skill.test.mjs checks
 // this), so an entry cannot outlive its reason. When the issue lands, move the
 // spec back into FEATURE_SPECS; a test.fail() journey there is a FAIL.
-export const PENDING_SPECS = {
-  provider: {
-    fixture: [
-      {
-        ...spec("e2e/journeys/jarvis-front-door.spec.ts"),
-        issue: "OVD-805",
-        reason: "journey is test.fail() until OVD-805 adds the public Jarvis link",
-      },
-    ],
-  },
-};
+export const PENDING_SPECS = {};
 
 // The pending entries for the requested features in a mode, in feature order.
 export function pendingFor(features, mode) {
