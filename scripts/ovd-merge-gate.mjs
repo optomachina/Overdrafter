@@ -103,8 +103,10 @@ export function normalizeModelFamily(value) {
   return typeof value === "string" && Object.hasOwn(MODEL_FAMILY_ALIASES, value) ? MODEL_FAMILY_ALIASES[value] : null;
 }
 export const PASS_EVIDENCE_WORKFLOWS = Object.freeze([".github/workflows/ci.yml", ".github/workflows/verify.yml"]);
-// Events whose workflow YAML is read from the default branch. merge_group is
+// Events whose workflow YAML must come from the default branch. merge_group is
 // excluded: its YAML comes from the queue ref, and its job never writes history.
+// pull_request_target uses the PR base's YAML; verifyGateProvenance requires
+// that base to be the default branch (OVD-1109).
 const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "workflow_dispatch"]);
 
 /**
@@ -1107,25 +1109,105 @@ function jsonFromCheckRun(run) {
 
 const historyItemOk = (item) => isRecord(item) && typeof item.author === "string" && (item.verdict_block === undefined || isRecord(item.verdict_block));
 
-/** Reject foreign writers before interpreting any stored gate data. */
-export async function verifyGateProvenance(client, repo, run) {
+/**
+ * pull_request_target runs the base branch's workflow file. Its head_branch is
+ * the PR head, so that field cannot prove the YAML was the default branch's.
+ * workflow_run.pull_requests is computed when the API is read, not when the
+ * run happened, so a run on a non-default base whose PR was later retargeted
+ * (or re-opened) into the default branch would show the default base. Trust is
+ * therefore tied to the trigger (OVD-1109):
+ * - pull_requests is exactly [the PR being evaluated], based on the default branch;
+ * - that PR (still based on the default branch) was created no later than the run;
+ * - the run was created after the PR's last base_ref_changed event, so the PR
+ *   already targeted the default branch when the run happened;
+ * - the run's head branch and head repository are that PR's head;
+ * - every PR, open or closed, from the same head branch targets the default
+ *   branch and had no base_ref_changed event at or after the run (a closed
+ *   sibling drops out of pull_requests but could have triggered the run, and a
+ *   sibling retargeted before it closed shows only its final base).
+ * Anything else, including a missing list (closed or fork PRs), fails closed.
+ * PR, timeline, sibling and sibling-timeline reads are cached per client and PR.
+ */
+const prFactsCache = new WeakMap();
+function prFacts(client, repo, pr) {
+  let byPr = prFactsCache.get(client);
+  if (!byPr) {
+    byPr = new Map();
+    prFactsCache.set(client, byPr);
+  }
+  const key = `${repo}#${Number(pr)}`;
+  if (!byPr.has(key)) {
+    const facts = (async () => {
+      const pull = await client.json(`/repos/${repo}/pulls/${Number(pr)}`);
+      const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
+      const owner = pull?.head?.repo?.owner?.login;
+      const ref = pull?.head?.ref;
+      const head = `${owner}:${ref}`;
+      const siblings = typeof owner === "string" && typeof ref === "string"
+        ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(head)}`, (data) => data)
+        : null;
+      const others = (Array.isArray(siblings) ? siblings : [])
+        .filter((sibling) => PR_NUMBER.test(String(sibling?.number ?? "")) && Number(sibling.number) !== Number(pr))
+        .map((sibling) => Number(sibling.number));
+      const siblingTimelines = new Map(await Promise.all(others.map(async (number) =>
+        [number, await client.paginate(`/repos/${repo}/issues/${number}/timeline`, (data) => data)])));
+      return { pull, timeline, siblings, siblingTimelines };
+    })();
+    facts.catch(() => byPr.delete(key));
+    byPr.set(key, facts);
+  }
+  return byPr.get(key);
+}
+
+/** True when the timeline is readable and has no base change at or after `since` (or at an unknown time). */
+function baseUnchangedSince(timeline, since) {
+  if (!Array.isArray(timeline) || timeline.some((item) => !isRecord(item))) return false;
+  return timeline.every((item) => {
+    if (item.event !== "base_ref_changed") return true;
+    const changed = Date.parse(item.created_at);
+    return Number.isFinite(changed) && changed < since;
+  });
+}
+
+async function pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr) {
+  const pulls = workflow?.pull_requests;
+  if (!Array.isArray(pulls) || pulls.length !== 1 || typeof defaultBranch !== "string" || !PR_NUMBER.test(String(pr ?? ""))) return false;
+  const [listed] = pulls;
+  if (!isRecord(listed) || Number(listed.number) !== Number(pr) || !isRecord(listed.base) || listed.base.ref !== defaultBranch) return false;
+  const { pull, timeline, siblings, siblingTimelines } = await prFacts(client, repo, pr);
+  const pullCreated = Date.parse(pull?.created_at);
+  const runCreated = Date.parse(workflow?.created_at);
+  if (pull?.base?.ref !== defaultBranch || !Number.isFinite(pullCreated) || !Number.isFinite(runCreated) || pullCreated > runCreated) return false;
+  const headRepo = pull?.head?.repo?.full_name;
+  if (typeof headRepo !== "string" || workflow?.head_repository?.full_name !== headRepo || workflow?.head_branch !== pull?.head?.ref) return false;
+  if (!baseUnchangedSince(timeline, runCreated)) return false;
+  if (!Array.isArray(siblings) || !siblings.some((s) => isRecord(s) && Number(s.number) === Number(pr))) return false;
+  return siblings.every((s) => isRecord(s) && isRecord(s.base) && s.base.ref === defaultBranch
+    && (Number(s.number) === Number(pr) || baseUnchangedSince(siblingTimelines.get(Number(s.number)), runCreated)));
+}
+
+/** Reject foreign writers before interpreting any stored gate data. `pr` is the PR the record is read for. */
+export async function verifyGateProvenance(client, repo, run, pr) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID || !Number.isInteger(run?.check_suite?.id)) throw new Error("gate record has no trusted Actions check suite");
   const repository = await client.json(`/repos/${repo}`);
   const workflows = await client.paginate(`/repos/${repo}/actions/runs?check_suite_id=${run.check_suite.id}`, (data) => data?.workflow_runs);
   if (workflows.length !== 1) throw new Error("gate record workflow provenance is ambiguous or missing");
   const workflow = workflows[0];
+  const defaultBranch = repository.default_branch;
   if (workflow.check_suite_id !== run.check_suite.id || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
-      || !GATE_EVENTS.includes(workflow.event) || typeof repository.default_branch !== "string"
-      // pull_request_target reports the PR's head branch but runs the base branch's YAML.
-      || (workflow.event !== "pull_request_target" && workflow.head_branch !== repository.default_branch)) {
+      || !GATE_EVENTS.includes(workflow.event) || typeof defaultBranch !== "string") {
     throw new Error("gate record is not from the default-branch merge-gate workflow");
   }
+  const onDefaultBranch = workflow.event === "pull_request_target"
+    ? await pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr)
+    : workflow.head_branch === defaultBranch;
+  if (!onDefaultBranch) throw new Error("gate record is not from the default-branch merge-gate workflow");
 }
 
 /** Earlier gate summaries, including replaced runs; unreadable provenance fails closed. */
-async function priorDeletions(client, repo, headSha) {
+async function priorDeletions(client, repo, headSha, pr) {
   const runs = await client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?check_name=${CHECK_NAME}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => {
     const summary = jsonFromCheckRun(run);
     if (!isRecord(summary) || !Array.isArray(summary.deleted_verdicts) || !summary.deleted_verdicts.every(historyItemOk)) {
@@ -1148,7 +1230,7 @@ export function parseHistoryRun(run, pr) {
 export async function readHistory(client, repo, pr) {
   const name = encodeURIComponent(historyCheckName(pr));
   const runs = await client.paginate(`/repos/${repo}/commits/${HISTORY_ANCHOR_SHA}/check-runs?check_name=${name}&filter=all`, (data) => data?.check_runs);
-  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run)));
+  await Promise.all(runs.map((run) => verifyGateProvenance(client, repo, run, pr)));
   return runs.flatMap((run) => parseHistoryRun(run, pr));
 }
 
@@ -1300,7 +1382,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const validHead = HEX40.test(String(headSha));
   const comments = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
   const commits = await attempt(() => readCommits(client, repo, pr, pull));
-  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha)) : [];
+  const prior = validHead ? await attempt(() => priorDeletions(client, repo, headSha, pr)) : [];
   const history = await attempt(() => readHistory(client, repo, pr));
   const verifiedEvidence = validHead && Array.isArray(comments) ? await verifyEvidence({ client, repo, comments, headSha }) : {};
   const deletedVerdicts = [...(prior ?? []), ...deletedVerdictsFromEvent(event)];

@@ -693,7 +693,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings, siblingTimelines = {} } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -715,8 +715,15 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       stored.push({ check_suite: { id: 42 }, id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
     }
-    if (pathname === "/repos/o/r") return response(200, { default_branch: "main" });
-    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", ...provenance }] });
+    if (pathname === "/repos/o/r") return response(200, { default_branch: defaultBranch });
+    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", head_repository: { full_name: "o/r" }, event: "issue_comment", created_at: "2026-01-02T00:00:00Z", ...provenance }] });
+    if (pathname === "/repos/o/r/issues/7/timeline") return response(200, timeline);
+    if (/^\/repos\/o\/r\/issues\/\d+\/timeline$/.test(pathname)) return response(200, siblingTimelines[pathname.split("/")[5]] ?? []);
+    if (pathname === "/repos/o/r/pulls" && searchParams.get("head") === "o:feature") {
+      // GitHub lists only open PRs unless state=all is sent.
+      const state = searchParams.get("state") ?? "open";
+      return response(200, (siblings ?? [{ number: 7, base: { ref: pullBase } }]).filter((pr) => state === "all" || (pr.state ?? "open") === state));
+    }
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
       const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
@@ -725,7 +732,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha, ref: "feature", repo: { full_name: "o/r", owner: { login: "o" } } }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
     }
     if (method === "POST" && pathname === "/repos/o/r/issues/7/comments") {
       const created = { id: 60000 + commentWrites.length, user: { login: "github-actions[bot]", type: "Bot" }, body: JSON.parse(options.body).body };
@@ -1645,9 +1652,102 @@ describe("R2 history provenance", () => {
     const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
     expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
-  it("trusts a pull_request_target record whatever its head branch", async () => {
-    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: { event: "pull_request_target", head_branch: "feature" } });
+  it("accepts a prior gate pull_request_target record on the default base", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(JSON.parse(out).gate).toBe("pass");
+  });
+  it("rejects a prior gate pull_request_target record whose base is not the default branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "release" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a pull_request_target record for this PR on the default base, whatever its head branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main", sha: BASE } }] },
+    });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  const prt = { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] };
+  it.each([
+    ["a retargeted base (the run shows main, the timeline shows a base change after it)", { timeline: [{ event: "base_ref_changed", created_at: "2026-01-03T00:00:00Z" }] }],
+    ["a PR opened after the run (re-opened into main)", { pullCreatedAt: "2026-01-05T00:00:00Z" }],
+    ["a PR whose current base is not the default", { pullBase: "release" }],
+    ["a run listing another PR", { provenance: { ...prt, pull_requests: [{ number: 8, base: { ref: "main" } }] } }],
+    ["a run listing several PRs", { provenance: { ...prt, pull_requests: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }] } }],
+    ["a run with no created_at", { provenance: { ...prt, created_at: null } }],
+    ["a base change at an unknown time", { timeline: [{ event: "base_ref_changed" }] }],
+    ["a closed sibling PR from the same head branch on another base", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "release" } }] }],
+    ["a sibling list that does not include this PR", { siblings: [] }],
+    ["a closed sibling retargeted to the default branch after the run", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed", created_at: "2026-01-03T00:00:00Z" }] } }],
+    ["a sibling base change at an unknown time", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed" }] } }],
+    ["a sibling whose timeline is not a list of records", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }], siblingTimelines: { 8: [null] } }],
+    ["a sibling with no readable number", { siblings: [{ number: 7, base: { ref: "main" } }, { number: "x", base: { ref: "main" } }] }],
+    ["a base change exactly at the run's created_at", { timeline: [{ event: "base_ref_changed", created_at: "2026-01-02T00:00:00Z" }] }],
+    ["a run whose head branch is not this PR's head", { provenance: { ...prt, head_branch: "other" } }],
+    ["a run from another head repository (a fork with the same branch name)", { provenance: { ...prt, head_repository: { full_name: "evil/r" } } }],
+    ["a run with no head repository", { provenance: { ...prt, head_repository: null } }],
+  ])("rejects a pull_request_target record with %s", async (_label, options) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, ...options });
+    await expect(gate.readHistory(gateClientFor(api), "o/r", 7)).rejects.toThrow(/default-branch/);
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a run made after the PR was retargeted to the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, timeline: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("trusts sibling PRs that all target the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+    expect(api.urls).toContain("GET /repos/o/r/pulls?state=all&head=o%3Afeature");
+    expect(api.requests).toContain("GET /repos/o/r/issues/5/timeline");
+  });
+  it("trusts a sibling retargeted to the default branch before the run", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }], siblingTimelines: { 5: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] } });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("compares that base to the repository default branch", async () => {
+    const trusted = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "trunk" } }] },
+    });
+    expect(await gate.readHistory(gateClientFor(trusted), "o/r", 7)).toEqual([]);
+    const hardcodedMain = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], hardcodedMain);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it.each([
+    ["absent pull_requests and a feature head branch", { event: "pull_request_target", head_branch: "feature" }],
+    ["absent pull_requests, even when head_branch is the default", { event: "pull_request_target", head_branch: "main" }],
+    ["empty pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: [] }],
+    ["a non-array pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: { base: { ref: "main" } } }],
+    ["a pull request with no base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{}] }],
+    ["a pull request whose base is not a record", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: "main" }] }],
+    ["a non-default base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "release" } }] }],
+    ["one non-default base among several", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }, { number: 7, base: { ref: "release" } }] }],
+    ["a non-record pull request", { event: "pull_request_target", head_branch: "feature", pull_requests: [null] }],
+  ])("rejects a pull_request_target record with %s", async (_label, provenance) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
   it("trusts an unchanged default-branch gate record", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()] });
