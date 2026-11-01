@@ -89,11 +89,12 @@ describe("prod-backup arguments and credentials", () => {
     const { pgEnv, cliUrl } = parseDbUrl(FAKE_URL);
     const text = `connect ${cliUrl} failed: password authentication failed for user "postgres.fakeref" at pooler.example.invalid (s3cr3t-Pw)`;
     const out = redact(text, [cliUrl, pgEnv.PGPASSWORD, pgEnv.PGHOST, pgEnv.PGUSER]);
-    expect(out).not.toMatch(/s3cr3t|pooler\.example|fakeref/);
+    expect(out).not.toMatch(/s3cr3t|pooler\.example|fakeref/);    expect(redact("cannot reach postgresql://x as postgres", ["postgres"])).toBe("cannot reach postgresql://x as postgres");
   });
 
   it("refuses an output directory inside the repo (also through a symlink) or one that exists", () => {
     expect(() => checkOutDir(join(ROOT, "backup"))).toThrow(/outside the repository/);
+    expect(() => checkOutDir(join(ROOT, "..backup"))).toThrow(/outside the repository/);
     expect(() => checkOutDir(scratch())).toThrow(/must not exist/);
     const link = join(scratch(), "repo-link");
     symlinkSync(ROOT, link);
@@ -172,7 +173,6 @@ describe("prod-backup verification", () => {
     expect(failed.q.lines.join("\n")).not.toMatch(/fakeref|pooler\.example/);
     const partial = join(scratch(), "partial");
     mkdirSync(partial);
-    writeFileSync(join(partial, "schema.sql"), SCHEMA);
     writeFileSync(join(partial, "schema.sql"), 'CREATE TABLE "public"."jobs" (id uuid);\n');
     expect(verifyBackup(partial).problems).toEqual(expect.arrayContaining([
       "counts.prod.json is missing", "SHA256SUMS is missing", "schema.sql has no CREATE TABLE in engineering_private",

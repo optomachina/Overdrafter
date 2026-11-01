@@ -3,7 +3,8 @@
  * Production logical backup with an integrity check (Blaine's card: "Backups:
  * adapt the script in a reviewed PR"). Runs the reference dump commands in
  * docs/release/window-2/README.md step 5 without putting the database password
- * in an argument, and checks the files it wrote.
+ * in an argument, and checks the files it wrote. The supabase CLI still gets
+ * the host and user (not the password) in --db-url, so `ps` shows those.
  *
  * The connection string (for example the session pooler URL) is read from the
  * environment variable NAMED by --url-env (default OVD_BACKUP_DB_URL). No secret
@@ -36,7 +37,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePsql } from "./window-1/restore-check.mjs";
 
@@ -164,9 +165,9 @@ export function buildPlan(source, outDir, bins) {
   ];
 }
 
-/** Replaces every secret or identifying value in text, longest first. */
+/** Replaces every secret or identifying value in text, longest first. The default user "postgres" is not secret and is kept. */
 export function redact(text, values) {
-  const hidden = [...new Set(values.filter((v) => typeof v === "string" && v.length >= 3))].sort((a, b) => b.length - a.length);
+  const hidden = [...new Set(values.filter((v) => typeof v === "string" && v.length >= 3 && v !== "postgres"))].sort((a, b) => b.length - a.length);
   return hidden.reduce((acc, v) => acc.split(v).join("<hidden>"), text);
 }
 
@@ -187,7 +188,8 @@ function realTarget(abs) {
 export function checkOutDir(outDir, root = ROOT) {
   const target = realTarget(resolve(outDir));
   const rel = relative(realpathSync(root), target.abs);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) throw new UsageError("--out must be outside the repository (the backup holds customer data)");
+  const outside = isAbsolute(rel) || rel.split(sep)[0] === "..";
+  if (!outside) throw new UsageError("--out must be outside the repository (the backup holds customer data)");
   if (target.exists) throw new UsageError("--out must not exist yet; pick a new directory");
   return target.abs;
 }
@@ -299,12 +301,18 @@ export function verifyBackup(dir) {
   return { ok: problems.length === 0, problems, tables, rowCounts };
 }
 
+const PASS_ENV = ["PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "XDG_RUNTIME_DIR"];
+
 function defaultRun(step) {
-  // Absolute binary; PATH and HOME pass through only because the supabase CLI starts docker.
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, PGCONNECT_TIMEOUT: "10", ...step.env };
-  const r = spawnSync(step.cmd, step.args, { env, stdio: ["ignore", "inherit", "pipe"], encoding: "utf8" });
-  const stderr = redact(r.error ? r.error.message : r.stderr || "", step.secrets ?? []);
-  return { status: r.error ? 127 : r.status, stderr };
+  // Absolute binary; the docker-related names pass through only because the supabase CLI starts docker.
+  const env = { PGCONNECT_TIMEOUT: "10" };
+  for (const name of PASS_ENV) if (process.env[name] !== undefined) env[name] = process.env[name];
+  Object.assign(env, step.env);
+  const r = spawnSync(step.cmd, step.args, { env, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const secrets = step.secrets ?? [];
+  if (r.stdout) process.stdout.write(redact(r.stdout, secrets));
+  if (r.error) return { status: r.error.code === "ENOENT" ? 127 : 1, stderr: redact(r.error.message, secrets) };
+  return { status: r.status, stderr: redact(r.stderr || "", secrets) };
 }
 
 const USAGE = "usage: node scripts/prod-backup.mjs --out <new dir outside repo> [--url-env NAME] [--dry-run]\n       node scripts/prod-backup.mjs --verify <dir>";
@@ -359,6 +367,7 @@ function runDump(opts, { env, run, log, err, now, bins }) {
     if (r.status !== 0) {
       const detail = r.stderr ? `: ${redact(r.stderr.trim(), secrets)}` : "";
       err(`prod-backup: ${s.name} failed (exit ${r.status})${detail}`);
+      err(`prod-backup: ${outDir} holds a partial dump with customer data; delete it before retrying`);
       return 1;
     }
   }
