@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -473,7 +473,12 @@ describe("AGENTS.md parity", () => {
   });
 
   it("fails when AGENTS.md has a glob the JSON lacks", () => {
-    const agents = agentsText.replace("`**/*.key`", "`**/*.key`, `**/*.p12`");
+    // The fixture drops the trailing "## Agent graph" section so the injected glob
+    // cannot also trip the 24 KiB budget; the real AGENTS.md budget is unchanged.
+    const agents = agentsText
+      .replace("`**/*.key`", "`**/*.key`, `**/*.p12`")
+      .replace(/\n## Agent graph\n[\s\S]*$/, "\n");
+    expect(agents).not.toContain("## Agent graph");
     const errors = validateAgentContract(contractCopy({ agents }));
     expect(errors).toEqual([expect.stringMatching(/\*\*\/\*\.p12 \(secrets\) is in the AGENTS\.md list but not in docs\/sensitive-paths\.json/)]);
   });
@@ -806,5 +811,70 @@ describe("gate loosening", () => {
     expect(main(["report"], { stdout: () => {}, stderr: (line) => errors.push(line) })).toBe(2);
     expect(main(["nope"], { stdout: () => {}, stderr: (line) => errors.push(line) })).toBe(2);
     expect(errors).toHaveLength(2);
+  });
+});
+
+// Gate scripts that were already unclassified when this test was added.
+// Classify a new one in the same PR. Do not add it here.
+const KNOWN_UNCLASSIFIED_GATE_SCRIPTS = [
+  "scripts/check-compiled-worker-scope.mjs",
+  "scripts/lint-cli-test-helpers.mjs",
+  "scripts/verify-ovd372-pending-head.mjs",
+  "scripts/verify-ovd373-applied-prefix.mjs",
+  "scripts/verify-ovd373-database-target.mjs",
+  "scripts/verify-ovd373-deployment-plan.mjs",
+  "scripts/verify-ovd373-schema-fingerprint.mjs",
+  "scripts/verify-ovd418-release-state.mjs",
+  "scripts/verify-ovd635-ledger-manifest.mjs",
+  "scripts/verify-removed-public-assets.mjs",
+  "scripts/verify-snapshot-bucket-controls.mjs",
+  "scripts/verify-xometry-recovery-host.mjs",
+];
+
+const isGateScript = (name) => {
+  if (/\.(?:test|node-test)\.(?:mjs|sh)$/.test(name)) return false;
+  return /^(?:check|validate|lint|guard|verify)-[^/]+\.(?:mjs|sh)$/.test(name) || name === "ci-rerun-once.mjs" || name === "preflight.sh";
+};
+
+const privilegedEnv = /SUPABASE_SERVICE_ROLE_KEY|SERVICE_ROLE_KEY|SUPABASE_DB_URL/;
+
+function walkProductionSources(dir, acc = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walkProductionSources(full, acc);
+    else if (/\.(?:ts|tsx|mjs|js)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx|mjs|js)$/.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
+describe("new gate and privileged files are classified", () => {
+  const matcher = createMatcher(config);
+
+  it("classifies the CI rerun gate and not its test", () => {
+    expect(matcher.classify("scripts/ci-rerun-once.mjs")).toEqual(["infra_ci"]);
+    expect(matcher.classify("scripts/ci-rerun-once.test.mjs")).toEqual([]);
+  });
+
+  it("fails when a new top-level gate script has no class", () => {
+    const unclassified = readdirSync(join(repoRoot, "scripts"))
+      .filter(isGateScript)
+      .map((name) => `scripts/${name}`)
+      .filter((file) => matcher.classify(file).length === 0)
+      .sort();
+    expect(unclassified).toEqual(KNOWN_UNCLASSIFIED_GATE_SCRIPTS);
+  });
+
+  it("fails when a privileged entry point has no auth or payments class", () => {
+    const files = readdirSync(join(repoRoot, "supabase/functions"))
+      .map((name) => join(repoRoot, "supabase/functions", name, "index.ts"))
+      .filter((file) => existsSync(file));
+    for (const root of ["api", "server"]) files.push(...walkProductionSources(join(repoRoot, root)));
+    const missing = files
+      .map((file) => relative(repoRoot, file))
+      .filter((file) => privilegedEnv.test(readFileSync(join(repoRoot, file), "utf8")))
+      .filter((file) => !matcher.classify(file).some((name) => name === "auth" || name === "payments"))
+      .sort();
+    expect(missing).toEqual([]);
   });
 });

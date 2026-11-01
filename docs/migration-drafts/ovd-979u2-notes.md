@@ -7,9 +7,9 @@ one-hour deferred-task backstop. No hosted database was contacted.
 
 ## Files and application
 
-- `supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
+- `supabase/migrations/20261101115900_ovd979u2_canonical_requirement_lock_order.sql` is the only forward copy.
 - The rollback is generated, not stored: `node scripts/ovd979-rollback.mjs
-  20261031034700_ovd979u2_canonical_requirement_lock_order.sql` prints each
+  20261101115900_ovd979u2_canonical_requirement_lock_order.sql` prints each
   replaced function's previous `CREATE` statement, cut byte for byte from the
   latest earlier migration that defines it, followed by the migration's own
   revoke/grant lines. A stored copy duplicated about 700 lines of the migration
@@ -82,7 +82,7 @@ there is no independent feature or unrelated schema change to split out.
 | `api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)` | `20260812042000` | `2a6f670d20b0123b9e0507d1fef2f8f0` |
 
 The committed proof is `node scripts/ovd979-rollback.mjs
-20261031034700_ovd979u2_canonical_requirement_lock_order.sql --prove --db-url
+20261101115900_ovd979u2_canonical_requirement_lock_order.sql --prove --db-url
 <loopback URL>` against a local database with the migration applied. It runs in
 one transaction that always rolls back. Output on the round-1 fixture
 (2026-10-30, migration sha256 `572066174ddb…906f`, recorded under the pre-rename
@@ -188,11 +188,11 @@ PR operation, hosted apply or production action is part of this worktree task.
 Main gained `20261030204050_ovd1018_restrict_project_jobs_writes.sql`, so the
 U2 file sorted before main's newest migration and
 `verify-migration-lineage --against-base` failed. The file is renamed
-`20261030162500_…` → `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`.
+`20261030162500_…` → `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`, and on 2026-11-01 → `20261101115900_ovd979u2_canonical_requirement_lock_order.sql` (after main's `20261101110559`, before U3's `20261101120000`). Bytes unchanged.
 This is a rename only: the bytes and SHA-256 (`572066174ddb…906f`) are
 unchanged, so the rollback proof above, recorded under the old filename, still
-covers this content. The stack order stays U2 (`20261031034700`) < U3
-(`20261031034754`) < U4 (`20261031034800`) < U5 (`20261031034900`).
+covers this content. The stack order stays U2 (`20261101115900`) < U3
+(`20261101120000`) < U4 (`20261101120100`) < U5 (`20261101120200`).
 
 ## Repair round: SonarCloud new-code findings (2026-10-31)
 

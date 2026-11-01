@@ -5,20 +5,24 @@ import { scanFunctionEvents } from "../../../scripts/check-migration-function-co
 import { rollbackSql } from "../../../scripts/ovd979-rollback.mjs";
 
 const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
-const migrationSql = read("supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql");
+const migrationSql = read("supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql");
 const signature = "public.api_auto_approve_job_requirements(uuid)";
-const reuseSignature = "public.api_reuse_trusted_part_version_artifacts(uuid,uuid,uuid)";
 const body = (sql: string, name = signature) => scanFunctionEvents(sql).find((event) => event.signature === name)?.body;
 
+const saveSignature = "public.api_save_drawing_extraction_for_attempt(uuid,uuid,jsonb)";
+const attemptReuseSignature = "public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid,uuid,uuid,uuid)";
+
 describe("api_auto_approve_job_requirements U4 migration", () => {
-  it("replaces auto approval and trusted reuse, and its generated rollback restores the U2-era bodies byte for byte", () => {
-    expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature, reuseSignature]);
-    const u2 = read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql");
-    const rollback = rollbackSql("20261031034800_ovd979u4_attempt_bound_auto_approval.sql");
-    for (const name of [signature, reuseSignature]) {
-      expect(body(u2, name)).toBeTypeOf("string");
-      expect(body(rollback, name)).toBe(body(u2, name));
-    }
+  it("replaces auto approval, adds the attempt-fenced writes, and its generated rollback restores U2 exactly", () => {
+    expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature, saveSignature, attemptReuseSignature]);
+    const u2 = read("supabase/migrations/20261101115900_ovd979u2_canonical_requirement_lock_order.sql");
+    const rollback = rollbackSql("20261101120100_ovd979u4_attempt_bound_auto_approval.sql");
+    expect(body(u2)).toBeTypeOf("string");
+    expect(body(rollback)).toBe(body(u2));
+    // U2's trusted reuse is not redefined: the archived worker keeps its exact identity.
+    expect(scanFunctionEvents(rollback).map((event) => event.signature)).toEqual([saveSignature, attemptReuseSignature, signature]);
+    expect(rollback).toContain(`drop function if exists ${saveSignature};`);
+    expect(rollback).toContain(`drop function if exists ${attemptReuseSignature};`);
     expect(rollback).toMatch(/^set search_path = pg_catalog, public$/m);
   });
 
@@ -29,17 +33,35 @@ describe("api_auto_approve_job_requirements U4 migration", () => {
     expect(body(migrationSql)).toMatch(/for no key update of extraction;/);
   });
 
-  it("stamps reused extractions with the target's running attempt and otherwise keeps U2's reuse body", () => {
-    const reuse = body(migrationSql, reuseSignature) ?? "";
-    expect(reuse).toContain("and queue.status = 'running'\n    and queue.attempt_id is not null");
-    expect(reuse).toContain("v_target.id, extraction.organization_id, v_target_attempt_id,");
-    const u2Reuse = body(read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql"), reuseSignature) ?? "";
-    const stampFree = reuse
-      .replace(/\n {2}v_target_attempt_id uuid;/, "")
-      .replace(/ {2}-- The copy is this attempt's result[\s\S]*?limit 1;\n\n/, "")
-      .replace("part_id, organization_id, source_attempt_id, extractor_version", "part_id, organization_id, extractor_version")
-      .replace("extraction.organization_id, v_target_attempt_id, extraction.extractor_version", "extraction.organization_id, extraction.extractor_version");
-    expect(stampFree).toBe(u2Reuse);
+  it.each([saveSignature, attemptReuseSignature])("%s writes first, then fences on the running attempt FOR SHARE", (name) => {
+    const fenced = body(migrationSql, name) ?? "";
+    const write = Math.max(fenced.indexOf("insert into public.drawing_extractions"), fenced.indexOf("update public.drawing_extractions"));
+    const fence = fenced.indexOf("for share of queue;");
+    expect(write).toBeGreaterThan(-1);
+    expect(fence).toBeGreaterThan(write);
+    expect(fenced).toContain("and queue.status = 'running'");
+    expect(fenced).toMatch(/and queue\.attempt_id is not distinct from p_(expected_)?attempt_id\n/);
+    // The superseded branch raises inside the inner block, which rolls its writes back.
+    expect(fenced).toContain("raise exception using errcode = 'OV979'");
+    expect(fenced).toContain("when sqlstate 'OV979' then");
+    expect(fenced).toContain("if auth.role() <> 'service_role' then");
+    expect(migrationSql).toContain(`revoke all on function ${name.split(",").join(", ")} from public, anon, authenticated;`);
+    expect(migrationSql).toContain(`grant execute on function ${name.split(",").join(", ")} to service_role;`);
+  });
+
+  it("stamps a reused copy with the caller's attempt only when it is that same copy", () => {
+    const reuse = body(migrationSql, attemptReuseSignature) ?? "";
+    expect(reuse).toContain("v_result := public.api_reuse_trusted_part_version_artifacts(\n      p_target_part_id, p_source_part_id, p_part_version_id\n    );");
+    expect(reuse).toContain("set source_attempt_id = p_expected_attempt_id");
+    expect(reuse).toContain("and target.extractor_version = source.extractor_version\n        and target.extraction = source.extraction;");
+    expect(reuse).toContain("'attemptSuperseded', true");
+    expect(reuse).not.toContain("order by queue.id");
+  });
+
+  it("derives the saved row's part and organization from the task, never from the payload", () => {
+    const save = body(migrationSql, saveSignature) ?? "";
+    expect(save).toContain("part.id, part.organization_id, p_attempt_id, v_row.extractor_version");
+    expect(save).toContain("where queue.id = p_task_id\n    and queue.task_type = 'extract_part';");
   });
 
   it.each(["description", "partNumber", "revision", "finish"])("honors both ownership systems for %s", (field) => {

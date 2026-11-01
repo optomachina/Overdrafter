@@ -15,9 +15,13 @@ start where a user starts.
   `surface X is now reachable; remove knownMissing`. Prints a per-surface table.
 - `jarvis-front-door.spec.ts` (`@fixture`, runs in `npm run e2e:fixture`): phone
   viewport, `/` -> Jarvis link -> "design a 4 inch square plate" -> status,
-  result card, PNG, GLB/USDZ and AR link. Green since OVD-805 added the
-  public `/jarvis` route and the header link; a boot guard keeps a broken
-  fixture red on its own.
+  result card, PNG, GLB/USDZ and AR link. The dev server still serves the
+  OVD-805 sample. A production build omits `/jarvis` unless
+  `JARVIS_PWA_ENABLED=1` (OVD-803). A boot guard keeps a broken fixture red
+  on its own.
+- `jarvis-pwa-gate.spec.ts` (`@fixture`): flag off leaves the route and the
+  Jarvis chunks out of the production build; flag on keeps the shell lazy and
+  admits only the server allowlist at AAL2.
 
 ```bash
 npx vitest run src/journeys --maxWorkers=2
@@ -30,8 +34,8 @@ PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/journeys/jarvis-front-door.
    transport) lands in one shared thread with the same result (OVD-807, OVD-808, OVD-809).
 2. Job control: start, pause, steer, resume and cancel from the phone; assert
    state changes and preserved partial work (OVD-810, OVD-812).
-3. Access: an allowlisted user gets in, a non-allowlisted user is blocked, a
-   cross-user decision returns 403 (OVD-803, OVD-806).
+3. Access: the PWA shell gate is OVD-803 (`jarvis-pwa-gate.spec.ts`). Beta-crew
+   tiers and a cross-user decision denial remain OVD-806.
 4. Skip/best-guess: skip every decision card; the job completes with recorded guesses.
 5. Acceptance gate: every Linear issue with user-facing scope links at least one
    journey test; fold into the OVD-788 proof check.

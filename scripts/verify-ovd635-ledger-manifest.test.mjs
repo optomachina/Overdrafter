@@ -18,17 +18,16 @@ function copyRepoSubset() {
   return scratch;
 }
 
-// Exact mode is a deploy-commit check: the repo may legitimately hold later
-// migrations (the default mode admits them), so prune them from the scratch
-// copy to rebuild the exact baseline-plus-suffix tree the check expects.
-function pruneLaterMigrations(root) {
+// Exact mode is the deploy-commit check: the window's tree holds only the
+// baseline and the suffix. Open PRs may add later migrations to the live repo,
+// so trim the scratch copy to that window instead of asserting the repo's count.
+function trimToWindow(root) {
   const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
   const suffix = JSON.parse(readFileSync(path.join(root, SUFFIX_PATH), "utf8"));
-  const kept = new Set([...manifest.migrations.map((entry) => entry.file), ...suffix.migrations.map((entry) => entry.file)]);
-  for (const file of readdirSync(path.join(root, MIGRATION_ROOT))) {
-    if (file.endsWith(".sql") && !kept.has(file)) rmSync(path.join(root, MIGRATION_ROOT, file));
+  const window = new Set([...manifest.migrations, ...suffix.migrations].map((entry) => entry.file));
+  for (const name of readdirSync(path.join(root, MIGRATION_ROOT))) {
+    if (name.endsWith(".sql") && !window.has(name)) rmSync(path.join(root, MIGRATION_ROOT, name));
   }
-  return root;
 }
 
 afterEach(() => {
@@ -48,7 +47,8 @@ describe("OVD-635 ledger manifest", () => {
   });
 
   it("rejects a later migration in exact mode", () => {
-    const root = pruneLaterMigrations(copyRepoSubset());
+    const root = copyRepoSubset();
+    trimToWindow(root);
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([]);
     writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([

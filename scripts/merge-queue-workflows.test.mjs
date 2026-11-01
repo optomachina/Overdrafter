@@ -149,6 +149,17 @@ describe("merge queue workflows", () => {
       expect(queuedCheck).not.toMatch(/['"](?:\.\/)?scripts\/vendor-pr-serialization\.mjs['"]/);
     });
 
+    it("re-checks all open PRs on schedule/push in report-only mode but keeps pull_request blocking", () => {
+      const recheck = steps.find((step) => step.startsWith("name: Re-check all open vendor PRs\n"));
+      const prCheck = steps.find((step) => step.startsWith("name: Check open vendor PRs\n"));
+      expect(recheck).toContain("if: github.event_name == 'schedule' || github.event_name == 'push'");
+      expect(recheck).toContain("node scripts/vendor-pr-serialization.mjs --all --report-only");
+      expect(recheck).not.toContain("continue-on-error");
+      expect(prCheck).toContain("if: github.event_name == 'pull_request'");
+      expect(prCheck).not.toContain("--report-only");
+      expect(queuedCheck).not.toContain("--report-only");
+    });
+
     it("keeps only read access to contents and pull requests", () => {
       expect(text.match(/^permissions:\n((?: {2}.*\n)+)/m)?.[1]).toBe(
         "  contents: read\n  pull-requests: read\n",

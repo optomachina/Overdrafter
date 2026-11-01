@@ -693,7 +693,7 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings, siblingTimelines = {} } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings, siblingTimelines = {}, gateRunIds = [4242] } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
@@ -726,8 +726,11 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     }
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
+      if (gateRunIds.map(String).includes(String(id))) {
+        return response(200, { id, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", head_repository: { full_name: "o/r" }, event: "issue_comment", created_at: "2026-01-02T00:00:00Z", head_sha: HEAD, conclusion: "success", ...provenance });
+      }
       const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
-      return response(200, { head_sha: sha, path: ".github/workflows/ci.yml", conclusion: "success", ...workflowRun });
+      return response(200, { id, head_sha: sha, path: ".github/workflows/ci.yml", conclusion: "success", ...workflowRun });
     }
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
@@ -778,7 +781,7 @@ async function runCli(args, api, overrides = {}) {
   const out = [];
   const err = [];
   const code = await main(args, {
-    env: { GITHUB_TOKEN: "test-token", GITHUB_REPOSITORY: "o/r", ...overrides.env },
+    env: { GITHUB_TOKEN: "test-token", GITHUB_REPOSITORY: "o/r", GITHUB_RUN_ID: "4242", ...overrides.env },
     fetchImpl: api.fetch,
     stdout: { write: (text) => out.push(text) },
     stderr: { write: (text) => err.push(text) },
@@ -923,7 +926,7 @@ describe("IO wrapper and CLI", () => {
 describe("deleted verdicts: only blocking ones are carried forward (ruling b)", () => {
   const deletion = (value, id = 1, body = formatVerdictBlock(value)) => ({ action: "deleted", comment: { id, body, created_at: at(id), user: { login: value.verifier.github_login } } });
   const gateClient = (api) => ({ ...api.client, paginate: async (p, pick = (d) => d) => pick(await api.client.json(p)) });
-  const priorRun = (deletedVerdicts) => ({ app: { id: 15368 }, check_suite: { id: 42 }, name: CHECK_NAME, output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: deletedVerdicts })}\n\`\`\`` } });
+  const priorRun = (deletedVerdicts) => ({ app: { id: 15368 }, check_suite: { id: 42 }, name: CHECK_NAME, external_id: "pr-7:run-4242", details_url: runUrl(4242), output: { text: `\`\`\`json\n${JSON.stringify({ deleted_verdicts: deletedVerdicts })}\n\`\`\`` } });
   const run = (api, event = null) => runGate({ client: gateClient(api), repo: "o/r", pr: 7, event, git: fakeGit(), diff: () => DIFF, classify: docsClassify });
 
   it("reads a deleted blocking verdict from an issue_comment deleted event, with a snapshot", () => {
@@ -1010,6 +1013,25 @@ describe("deleted verdicts: only blocking ones are carried forward (ruling b)", 
     expect(later.gate).toBe("fail");
     expect(reasonCodes(later)).toContain("verdict_conflict");
     expect(later.deleted_verdicts).toEqual(first.deleted_verdicts);
+  });
+
+  it("a forged earlier run cannot replace a removed unreadable blocker with a copy for another head", async () => {
+    const event = deletion(verdict(), 99999, "```overdrafter-verdict\n{not json\n```");
+    expect(reasonCodes(await run(fakeGithub({ comments: passingComments() }), event))).toContain("edited_verdict");
+    // Same comment id and author, no snapshot, but metadata that points away from the head.
+    const forged = { comment_id: 99999, author: "optomachina", created_at: at(99999), sha: OLD, diff_id: OTHER_DIFF, role: "verifier" };
+    const later = await run(fakeGithub({ comments: passingComments(), checkRuns: [priorRun([forged])] }), event);
+    expect(later.gate).toBe("fail");
+    expect(reasonCodes(later)).toContain("edited_verdict");
+    expect(later.deleted_verdicts).toHaveLength(2);
+  });
+
+  it("fails closed on a prior gate check stamped for another PR", async () => {
+    const deletedFail = { comment_id: 1, author: "optomachina", created_at: at(1), sha: HEAD, diff_id: DIFF, role: "verifier", verdict_block: { role: "verifier", verdict: "FAIL", sha: HEAD, diff_id: DIFF } };
+    const foreign = { ...priorRun([deletedFail]), external_id: "pr-8:run-4242" };
+    const later = await run(fakeGithub({ comments: passingComments(), checkRuns: [foreign] }));
+    expect(reasonCodes(later)).toContain("missing_input");
+    expect(reasonCodes(later)).not.toContain("verdict_conflict");
   });
 
   it("a deleted PASS does not count as a pass on later runs, and is never recorded", async () => {
@@ -1222,6 +1244,8 @@ const historyRun = (entries, { pr = 7, name = `ovd-merge-gate-history/pr-${pr}`,
   name,
   head_sha: ANCHOR,
   app: { id: 15368 },
+  external_id: "pr-7:run-4242",
+  details_url: runUrl(4242),
   output: { text: text ?? `\`\`\`json\n${JSON.stringify({ schema: "overdrafter.gate-history/v1", pr, event: "deleted", entries })}\n\`\`\`` },
 });
 
@@ -1264,10 +1288,10 @@ describe("finding 1: verdict history survives a replaced gate run (durable, appe
   it("records only trusted blocking verdicts, never a clean pass, and never the same one twice", async () => {
     const api = fakeGithub({ comments: [...passingComments(), posted(verdict({ result: "FAIL", login: "mallory" }))] });
     const client = gateClientFor(api);
-    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: deletedEvent(verdict(), 1) })).toEqual({ written: 0 });
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, runId: "4242", event: deletedEvent(verdict(), 1) })).toEqual({ written: 0 });
     const fail = deletedEvent(verdict({ role: "reviewer", result: "FAIL" }), 2);
-    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: fail })).toEqual({ written: 1 });
-    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, event: fail })).toEqual({ written: 0 });
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, runId: "4242", event: fail })).toEqual({ written: 1 });
+    expect(await gate.recordHistory({ client, repo: "o/r", pr: 7, runId: "4242", event: fail })).toEqual({ written: 0 });
     const [entry] = await gate.readHistory(client, "o/r", 7);
     expect(entry).toMatchObject({ comment_id: 2, author: "optomachina", role: "reviewer", verdict_block: { verdict: "FAIL", sha: HEAD, diff_id: DIFF } });
   });
@@ -1565,7 +1589,7 @@ describe("F1: an oversized history record fails closed, never leaves a stale res
     const comments = Array.from({ length: 400 }, (_, i) => posted(verdict({ result: "FAIL", findings: undefined, runs: [i + 1] })));
     const api = fakeGithub({ comments });
     const client = gateClientFor(api);
-    const result = await gate.recordHistory({ client, repo: "o/r", pr: 7, event: null });
+    const result = await gate.recordHistory({ client, repo: "o/r", pr: 7, runId: "4242", event: null });
     expect(result.written).toBeGreaterThan(0);
     for (const item of api.posts) expect(item.output.text.length).toBeLessThanOrEqual(65535);
     expect((await gate.readHistory(client, "o/r", 7)).length).toBe(result.written);
@@ -1632,16 +1656,31 @@ describe("R2 evidence workflow and revision binding", () => {
   });
 });
 
-describe("R2 history provenance", () => {
-  const history = (overrides = {}) => ({ name: gate.historyCheckName(7), head_sha: ANCHOR, app: { id: 15368 }, check_suite: { id: 42 }, output: { text: `\`\`\`json\n${JSON.stringify({ schema: gate.HISTORY_SCHEMA_ID, pr: 7, entries: [] })}\n\`\`\`` }, ...overrides });
+describe("OVD-1110 history provenance", () => {
+  const history = (overrides = {}) => ({
+    name: gate.historyCheckName(7),
+    head_sha: ANCHOR,
+    app: { id: 15368 },
+    check_suite: { id: 42 },
+    external_id: "pr-7:run-4242",
+    details_url: runUrl(4242),
+    output: { text: `\`\`\`json\n${JSON.stringify({ schema: gate.HISTORY_SCHEMA_ID, pr: 7, entries: [] })}\n\`\`\`` },
+    ...overrides,
+  });
   it.each([
     ["foreign app", { app: { id: 1 } }, {}],
-    ["missing suite", { check_suite: null }, {}],
+    ["missing external_id", { external_id: undefined }, {}],
+    ["external_id with extra parts", { external_id: "pr-7:run-4242:x" }, {}],
+    ["external_id with a padded PR", { external_id: "pr-07:run-4242" }, {}],
+    ["details_url citing another run", { details_url: runUrl(4243) }, {}],
+    ["legacy suite-only record",{ external_id: "pr-7", details_url: "https://github.com/o/r/runs/99", check_suite: { id: 99 } }, {}],
     ["other workflow", {}, { path: ".github/workflows/ci.yml" }],
     ["fork branch", {}, { head_branch: "fork" }],
     ["wrong event", {}, { event: "pull_request" }],
     ["merge_group event", {}, { event: "merge_group" }],
-    ["wrong suite", {}, { check_suite_id: 43 }],
+    ["external_id for another run", { external_id: "pr-7:run-99" }, {}],
+    ["external_id for another PR", { external_id: "pr-8:run-4242" }, {}],
+    ["details_url for another repository", { details_url: "https://github.com/evil/r/actions/runs/4242" }, {}],
   ])("blocks %s records", async (_label, overrides, provenance) => {
     const api = fakeGithub({ comments: passingComments(), stored: [history(overrides)], provenance });
     const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
@@ -1752,6 +1791,61 @@ describe("R2 history provenance", () => {
   it("trusts an unchanged default-branch gate record", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()] });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it.each([
+    ["missing", undefined],
+    ["replaced by the check run's own URL", "https://github.com/o/r/runs/99"],
+    ["a job URL of the cited run", `${runUrl(4242)}/job/7`],
+  ])("keys provenance on external_id when details_url is %s", async (_label, detailsUrl) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history({ details_url: detailsUrl })] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+    expect(api.requests).toContain("GET /repos/o/r/actions/runs/4242");
+  });
+  it("trusts external_id plus details_url when the suite has no workflow or belongs to another workflow", async () => {
+    for (const checkSuite of [null, { id: 99 }, { id: 42 }]) {
+      const api = fakeGithub({ comments: passingComments(), stored: [history({ check_suite: checkSuite })] });
+      expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+      expect(api.urls.some((url) => url.includes("check_suite_id"))).toBe(false);
+      expect(api.requests).toContain("GET /repos/o/r/actions/runs/4242");
+    }
+  });
+  it("reads history written by two workflow runs", async () => {
+    const api = fakeGithub({ comments: [], gateRunIds: [4242, 4243] });
+    const first = await runWithEvent(["record", "--pr", "7"], api, deletedEvent(verdict({ result: "FAIL" }), 1), { env: { GITHUB_RUN_ID: "4242" } });
+    const second = await runWithEvent(["record", "--pr", "7"], api, deletedEvent(verdict({ role: "reviewer", result: "FAIL" }), 2), { env: { GITHUB_RUN_ID: "4243" } });
+    expect(first.code).toBe(0);
+    expect(second.code).toBe(0);
+    expect(api.posts.map((item) => [item.external_id, item.details_url])).toEqual([
+      ["pr-7:run-4242", runUrl(4242)],
+      ["pr-7:run-4243", runUrl(4243)],
+    ]);
+    const entries = await gate.readHistory(gateClientFor(api), "o/r", 7);
+    expect(entries.map((entry) => entry.comment_id).sort()).toEqual([1, 2]);
+    expect(api.urls.some((url) => url.includes("check_suite_id"))).toBe(false);
+  });
+  it("stamps the gate check so a later run can read the earlier one", async () => {
+    const api = fakeGithub({ comments: passingComments(), gateRunIds: [4242, 4243] });
+    expect((await runCli(["write", "--pr", "7"], api)).code).toBe(0);
+    expect(api.posts.find((item) => item.name === CHECK_NAME)).toMatchObject({ external_id: "pr-7:run-4242", details_url: runUrl(4242) });
+    expect((await runCli(["write", "--pr", "7"], api, { env: { GITHUB_RUN_ID: "4243" } })).code).toBe(0);
+    const checks = api.posts.filter((item) => item.name === CHECK_NAME);
+    expect(checks.map((item) => item.external_id)).toEqual(["pr-7:run-4242", "pr-7:run-4243"]);
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    const summary = JSON.parse(out);
+    expect(summary.gate).toBe("pass");
+    expect(summary.reasons.some((reason) => reason.code === "missing_input")).toBe(false);
+  });
+  it("posts nothing when GITHUB_RUN_ID is missing", async () => {
+    const api = fakeGithub({ comments: [] });
+    const recorded = await runWithEvent(["record", "--pr", "7"], api, deletedEvent(verdict({ result: "FAIL" }), 1), { env: { GITHUB_RUN_ID: "" } });
+    expect(recorded.code).toBe(1);
+    expect(recorded.err).toContain("GITHUB_RUN_ID");
+    expect(api.posts).toEqual([]);
+    const writeApi = fakeGithub({ comments: passingComments() });
+    const written = await runCli(["write", "--pr", "7"], writeApi, { env: { GITHUB_RUN_ID: "" } });
+    expect(written.code).toBe(1);
+    expect(written.err).toContain("GITHUB_RUN_ID");
+    expect(writeApi.posts).toEqual([]);
   });
 });
 

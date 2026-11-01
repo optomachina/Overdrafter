@@ -105,7 +105,7 @@ import {
   scanStagedDrawingForExportMarkings,
 } from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
-import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
+import { acceptVendorQuoteResult, requireSuccessfulVendorQuoteAcceptance } from "./vendorQuoteOfferPersistence.js";
 import {
   enqueueCadPreviewGenerationTask,
   ensurePersistentCadPreview,
@@ -305,6 +305,77 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
   );
 }
 
+/** PostgREST's "function not found" code: the database predates the RPC being called. */
+function isMissingRpcError(error: unknown) {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "PGRST202";
+}
+
+/**
+ * Writes this task's extraction only while the task is still the running attempt it claimed.
+ * U4's RPC writes and checks in one transaction (the check holds the work_queue row FOR SHARE
+ * until commit, so a reap cannot slip between them). Returns false when the attempt was
+ * superseded and nothing was written. Before U4 is applied the RPC does not exist; the
+ * worker then falls back to the read-then-upsert guard, which narrows but cannot close the race.
+ */
+async function saveExtractionForAttempt(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  input: { partId: string; organizationId: string; row: Record<string, unknown> },
+) {
+  const { data, error } = await supabase.rpc("api_save_drawing_extraction_for_attempt", {
+    p_task_id: task.id,
+    p_attempt_id: task.attempt_id ?? null,
+    p_extraction: input.row,
+  });
+  if (!error) {
+    return data === true;
+  }
+  if (!isMissingRpcError(error)) {
+    throw error;
+  }
+  if (await isExtractionAttemptSuperseded(supabase, task)) {
+    return false;
+  }
+  const { error: upsertError } = await supabase.from("drawing_extractions").upsert(
+    {
+      part_id: input.partId,
+      organization_id: input.organizationId,
+      source_attempt_id: task.attempt_id ?? null,
+      ...input.row,
+    },
+    { onConflict: "part_id" },
+  );
+  if (upsertError) {
+    throw upsertError;
+  }
+  return true;
+}
+
+/** True when this task row is no longer the running attempt this worker claimed. */
+async function isExtractionAttemptSuperseded(supabase: SupabaseClient, task: QueueTaskRecord) {
+  const { data, error } = await supabase
+    .from("work_queue")
+    .select("status, attempt_id")
+    .eq("id", task.id)
+    .maybeSingle();
+  if (error) {
+    throw error;
+  }
+  const current = data as { status?: unknown; attempt_id?: unknown } | null;
+  return !current || current.status !== "running" || (current.attempt_id ?? null) !== (task.attempt_id ?? null);
+}
+
+function logSupersededExtractionAttempt(task: QueueTaskRecord) {
+  console.warn(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.extraction.superseded",
+      message: `Dropped the extraction result of superseded attempt ${task.task_type} ${task.id}.`,
+      context: buildTaskContext(task),
+    }),
+  );
+}
 
 async function logWorkerAuditEvent(
   supabase: SupabaseClient,
@@ -884,16 +955,28 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       : null;
 
     if (trustedResult?.result === "existing_version" && sourcePartId && partVersionId) {
-      const { data: reuseResult, error: reuseError } = await supabase.rpc(
-        "api_reuse_trusted_part_version_artifacts",
-        {
-          p_target_part_id: task.part_id,
-          p_source_part_id: sourcePartId,
-          p_part_version_id: partVersionId,
-        },
+      const reuseArgs = {
+        p_target_part_id: task.part_id,
+        p_source_part_id: sourcePartId,
+        p_part_version_id: partVersionId,
+      };
+      // OVD-979 U4: the attempt-bound reuse copies and stamps only while this claim is still
+      // the target's running attempt, in one transaction. Before U4 is applied it does not
+      // exist (PGRST202), and the legacy reuse copies without a stamp.
+      const attemptReuse = await supabase.rpc(
+        "api_reuse_trusted_part_version_artifacts_for_attempt",
+        { ...reuseArgs, p_expected_attempt_id: task.attempt_id ?? null },
       );
+      const { data: reuseResult, error: reuseError } = isMissingRpcError(attemptReuse.error)
+        ? await supabase.rpc("api_reuse_trusted_part_version_artifacts", reuseArgs)
+        : attemptReuse;
       if (reuseError) {
         throw reuseError;
+      }
+      if (reuseResult && typeof reuseResult === "object"
+        && (reuseResult as { attemptSuperseded?: unknown }).attemptSuperseded === true) {
+        logSupersededExtractionAttempt(task);
+        return;
       }
       const artifactsReady = reuseResult && typeof reuseResult === "object"
         ? (reuseResult as { artifactsReady?: unknown }).artifactsReady === true
@@ -963,11 +1046,12 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     organizationIdForError = context.part.organization_id;
     partIdForError = context.part.id;
 
-    const { error } = await supabase.from("drawing_extractions").upsert(
-      {
-        part_id: context.part.id,
-        organization_id: context.part.organization_id,
-        source_attempt_id: task.attempt_id ?? null,
+    // OVD-979: a reaped attempt (requeued, or reclaimed under a new attempt_id) must not
+    // overwrite its successor's extraction or auto-approve for it.
+    const saved = await saveExtractionForAttempt(supabase, task, {
+      partId: context.part.id,
+      organizationId: context.part.organization_id,
+      row: {
         extractor_version: extractorVersion,
         extraction: buildStoredExtractionPayload(
           extraction,
@@ -980,13 +1064,10 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         evidence: extraction.evidence,
         status: extraction.status,
       },
-      {
-        onConflict: "part_id",
-      },
-    );
-
-    if (error) {
-      throw error;
+    });
+    if (!saved) {
+      logSupersededExtractionAttempt(task);
+      return;
     }
 
     await persistDrawingPreviewAssets(supabase, config, {
@@ -1481,10 +1562,16 @@ export async function handleVendorQuoteTask(
   const laneQuoteRunId = task.quote_run_id;
   const handleLaneFailure = async (error: unknown): Promise<void> => {
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
-    if (error instanceof VendorQuoteBookkeepingError) throw error;
+    // The acceptance RPC already settled the task; nothing after it is retried.
     if (resultPersisted) {
-      throw new VendorQuoteBookkeepingError(error);
+      console.warn(JSON.stringify({
+        service: "overdrafter-cad-worker", level: "warn", source: "worker.vendor_quote.post_persist",
+        message: `Bookkeeping failed after task acceptance: ${summarizeWorkerError(error)}`,
+        context: { taskId: task.id },
+      }));
+      return;
     }
+    if (error instanceof VendorQuoteBookkeepingError) throw error;
     // OVD-722: an engaged switch at any checkpoint (before launch, or inside
     // the adapter before navigation/upload/configure) ends the task as
     // cancelled_provider_disabled, never as a provider failure or a retry.
@@ -1948,7 +2035,7 @@ export async function handleVendorQuoteTask(
         pause: fixtureHealSupplierPause,
         sanity: (output, sanityContext) =>
           fixtureSanityGateFor(supabase)(output, { ...sanityContext, requirement: approvedRequirement }),
-        persist: async (output) => {
+        persist: async (output, { offerCount }) => {
           output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
           const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
             vendorQuoteResultId: currentResult.id,
@@ -1958,8 +2045,9 @@ export async function handleVendorQuoteTask(
             vendor,
             artifacts: output.artifacts,
           });
-          await finalizeVendorQuoteResult(
+          const acceptance = await acceptVendorQuoteResult(
             supabase,
+            task,
             currentResult.id,
             {
               status: output.status,
@@ -1991,9 +2079,11 @@ export async function handleVendorQuoteTask(
                 result: output,
               }),
             ),
+            { vendorStatus: output.status, artifactCount: artifactStoragePaths.length, offerCount },
           );
-          resultPersisted = true;
-          return { artifactCount: artifactStoragePaths.length };
+          requireSuccessfulVendorQuoteAcceptance(acceptance);
+          resultPersisted = acceptance.outcome !== "stale";
+          return { artifactCount: artifactStoragePaths.length, acceptance };
         },
       });
       // Once the adapter ran, nothing later in this task may be retried by the
@@ -2052,7 +2142,7 @@ export async function handleVendorQuoteTask(
     });
 
     // OVD-813: Xometry bypasses runProviderTaskPipeline, so the same sanity
-    // gate runs here, before finalizeVendorQuoteResult and before routing
+    // gate runs here, before acceptVendorQuoteResult and before routing
     // scores. Live results only; simulate output is not a supplier price.
     // A gate that throws never lets the unchecked price through: the result is
     // held (fixture_sanity_failed) and persisted, so the task is not retried.
@@ -2107,8 +2197,9 @@ export async function handleVendorQuoteTask(
       result: gatedResult,
     });
 
-    await finalizeVendorQuoteResult(
+    const acceptance = await acceptVendorQuoteResult(
       supabase,
+      task,
       currentResult.id,
       {
         status: gatedResult.status,
@@ -2129,7 +2220,13 @@ export async function handleVendorQuoteTask(
         },
       },
       offerPayloads,
+      { vendorStatus: gatedResult.status, artifactCount: artifactStoragePaths.length },
     );
+    requireSuccessfulVendorQuoteAcceptance(acceptance);
+    if (acceptance.outcome === "stale") {
+      logLostVendorClaim(task);
+      return;
+    }
     resultPersisted = true;
 
     // Compute and store routing scores for this quote run.
@@ -2156,23 +2253,6 @@ export async function handleVendorQuoteTask(
         }),
       );
     }
-
-    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
-
-    if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-          vendorStatus: gatedResult.status,
-        artifactCount: artifactStoragePaths.length,
-        ignoredDueToCanceledRequest: true,
-      });
-      return;
-    }
-
-    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task, {
-      vendorStatus: gatedResult.status,
-      artifactCount: artifactStoragePaths.length,
-    });
   } catch (error) {
     await handleLaneFailure(error);
   } finally {
@@ -2234,6 +2314,13 @@ export async function handleExportMarkingRescanTask(
   }
 }
 
+function logLostVendorClaim(task: QueueTaskRecord) {
+  console.warn(JSON.stringify({
+    service: "overdrafter-cad-worker", level: "warn", source: "worker.vendor_quote.acceptance",
+    message: "Vendor quote acceptance skipped: claim lost.", context: { taskId: task.id },
+  }));
+}
+
 /**
  * Settles the task of a run whose result is persisted, without touching the
  * result row. A failed sync is retried from the stored result on the next claim.
@@ -2256,9 +2343,36 @@ async function settlePersistedResultTask(
   if (task.job_id && task.quote_run_id) {
     await syncRunStatus(supabase, task.job_id, task.quote_run_id);
   }
-  await markTaskFailed(supabase, task, "The vendor quote result was persisted but its acknowledgement was lost.", {
+  await failClaimedTask(supabase, task, "The vendor quote result was persisted but its acknowledgement was lost.", {
     failureCode, vendorQuoteResultPersisted: true,
   });
+}
+
+/**
+ * Fails the task only while this exact claim still holds it (running, same
+ * worker, same attempt). After lost acceptance replies the RPC may already have
+ * settled the task, whatever result it stored (priced, held, manual or failed);
+ * that settlement, or a later claim of the task, is never overwritten.
+ */
+async function failClaimedTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  message: string,
+  payloadPatch: Record<string, unknown>,
+) {
+  if (!task.locked_by) {
+    await markTaskFailed(supabase, task, message, payloadPatch);
+    return;
+  }
+  const { error } = await supabase
+    .from("work_queue")
+    .update({ status: "failed", payload: { ...task.payload, ...payloadPatch },
+      locked_at: null, locked_by: null, last_error: message })
+    .eq("id", task.id)
+    .eq("status", "running")
+    .eq("locked_by", task.locked_by)
+    .eq("attempts", task.attempts);
+  if (error) throw error;
 }
 
 const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
@@ -2279,7 +2393,7 @@ function vendorQuoteWriteError(error: unknown) {
 /**
  * Writes a non persisted outcome to the lane as a compare and set: only while
  * the row is still queued or running. If no row matched, the row is read back:
- * `persisted` means `reconcile_vendor_quote_offers` committed even though its
+ * `persisted` means the result write (`accept_vendor_quote_result`) committed even though its
  * response was lost, so the result and its live offers must stand; `settled`
  * means something else already settled the lane. Neither is ever overwritten.
  */
@@ -2321,7 +2435,7 @@ async function settleUnwrittenProviderOutcome(
     await settlePersistedResultTask(supabase, task, new Error("The result write acknowledgement was lost."), "persist_ack_lost");
     return;
   }
-  await markTaskFailed(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
+  await failClaimedTask(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
     failureCode: "lane_already_settled",
     adapterStarted,
   });
@@ -2389,6 +2503,10 @@ async function recordGenericProviderOutcome(
   const { job_id: jobId, quote_run_id: quoteRunId } = task;
   if (!jobId || !quoteRunId) throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
   if (outcome.disposition === "persisted") {
+    if (outcome.persisted?.acceptance.outcome === "stale") {
+      logLostVendorClaim(task);
+      return;
+    }
     try {
       // OVD-813: a result the sanity gate held carries no price to score.
       if (!outcome.persisted?.held) await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
@@ -2403,21 +2521,6 @@ async function recordGenericProviderOutcome(
         }),
       );
     }
-    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
-    if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-        vendorStatus: outcome.persisted?.status ?? null,
-        artifactCount: outcome.persisted?.artifactCount ?? 0,
-        ignoredDueToCanceledRequest: true,
-      });
-      return;
-    }
-    await syncRunStatus(supabase, jobId, quoteRunId);
-    await markTaskCompleted(supabase, task, {
-      vendorStatus: outcome.persisted?.status ?? null,
-      artifactCount: outcome.persisted?.artifactCount ?? 0,
-      offerCount: outcome.persisted?.offerCount ?? 0,
-    });
     return;
   }
 

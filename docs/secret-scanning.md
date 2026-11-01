@@ -13,9 +13,14 @@ Blaine approved the pinned gitleaks v8.30.1 binary and this report-mode
 workflow on 2026-10-16: "secret scanning tool is approved".
 
 The job runs in **report mode** for one week: findings are printed and never
-fail it. It is not a required check, and the `ci` aggregate does not need it.
-Making it required, or switching either layer to enforce, is a **later,
-separate approval**; this approval does not cover it.
+fail it. The `ci` aggregate does not need it. A read-only check on
+2026-10-31 found that branch protection on `main` already lists `secret-scan`
+as a required check. No approval for making it required is recorded in this
+repo; the 2026-10-16 approval does not cover it. Switching either layer to
+enforce is still a **later, separate approval**. A scanner that cannot run
+(download, checksum or git error) turns the job red. Whether that red job,
+under job-level `continue-on-error`, blocks the PR is not confirmed yet (see the
+[workflow section](#workflow-githubworkflowssecret-scanyml)).
 
 ## Path block
 
@@ -102,7 +107,8 @@ checker on the PR range (see below).
   none of the five; the scan step reports all five.
 
 Neither suite runs the real gitleaks binary. These real-binary checks are
-**follow-ups**, due before the job is made required:
+**follow-ups**, due before the job is made enforcing (branch protection
+already lists it as required; see the top of this file):
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
@@ -274,8 +280,9 @@ Shape:
   report, kept for 7 days.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
-- The job has `continue-on-error: true`, is not a required check, and is not
-  in the `ci` aggregate's `needs`.
+- The job has `continue-on-error: true` and is not in the `ci` aggregate's
+  `needs`. Branch protection on `main` lists it as a required check (read-only
+  check, 2026-10-31; no approval recorded, see the top of this file).
 
 Step behaviour. GitHub runs each `run:` block as `bash -e`. Every exit code
 that matters is captured with `|| rc=$?`, so in each case below `-e` does not
@@ -303,10 +310,13 @@ stop a step before it writes its step summary.
   `::stop-commands::` markers, so it cannot issue workflow commands.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
   run green. gitleaks still runs when the path block step fails. Branch
-  protection now lists `secret-scan` as required (read-only check,
-  2026-10-31), so whether a red job under continue-on-error blocks a merge
-  depends on the reported check conclusion; confirm it on a live run before
-  relying on either answer.
+  protection lists `secret-scan` as required (read-only check, 2026-10-31).
+  Findings are reported and never fail the job. A scanner crash (a gitleaks
+  download, checksum or start failure, or a git error) turns the job red, but
+  whether a red job under continue-on-error blocks a merge depends on the
+  reported check conclusion. No run has had a failed step yet (the last 100
+  runs all concluded `success`), so this is not confirmed. Confirm it on a
+  live run before relying on either answer.
 
 ### Later, separate approval (not covered by the 2026-10-16 approval)
 

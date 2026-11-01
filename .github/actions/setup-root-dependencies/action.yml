@@ -10,10 +10,10 @@ runs:
   using: composite
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: 20
-        cache: npm
+        cache: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'npm' || '' }}
         cache-dependency-path: package-lock.json
 
     # The root package defines no install hooks. The dependency install scripts
