@@ -161,6 +161,7 @@
     { "glob": "scripts/local-quote-test-target.mjs", "class": "infra_ci" },
     { "glob": "scripts/catalog-parity-diff*", "class": "infra_ci" },
     { "glob": "scripts/test-sourcing-intent.mjs", "class": "infra_ci" },
+    { "glob": "scripts/test-lane-contract*", "class": "infra_ci" },
     { "glob": "scripts/test-reconcile-claim-fence.mjs", "class": "infra_ci" },
     { "glob": "scripts/collect-ovd410-operational-envelope.mjs", "class": "infra_ci" },
     { "glob": "scripts/default-deny-execution*", "class": "infra_ci" },
