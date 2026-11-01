@@ -305,6 +305,52 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
   );
 }
 
+/** PostgREST's "function not found" code: the database predates the RPC being called. */
+function isMissingRpcError(error: unknown) {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "PGRST202";
+}
+
+/**
+ * Writes this task's extraction only while the task is still the running attempt it claimed.
+ * U4's RPC writes and checks in one transaction (the check holds the work_queue row FOR SHARE
+ * until commit, so a reap cannot slip between them). Returns false when the attempt was
+ * superseded and nothing was written. Before U4 is applied the RPC does not exist; the
+ * worker then falls back to the read-then-upsert guard, which narrows but cannot close the race.
+ */
+async function saveExtractionForAttempt(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  input: { partId: string; organizationId: string; row: Record<string, unknown> },
+) {
+  const { data, error } = await supabase.rpc("api_save_drawing_extraction_for_attempt", {
+    p_task_id: task.id,
+    p_attempt_id: task.attempt_id ?? null,
+    p_extraction: input.row,
+  });
+  if (!error) {
+    return data === true;
+  }
+  if (!isMissingRpcError(error)) {
+    throw error;
+  }
+  if (await isExtractionAttemptSuperseded(supabase, task)) {
+    return false;
+  }
+  const { error: upsertError } = await supabase.from("drawing_extractions").upsert(
+    {
+      part_id: input.partId,
+      organization_id: input.organizationId,
+      source_attempt_id: task.attempt_id ?? null,
+      ...input.row,
+    },
+    { onConflict: "part_id" },
+  );
+  if (upsertError) {
+    throw upsertError;
+  }
+  return true;
+}
+
 /** True when this task row is no longer the running attempt this worker claimed. */
 async function isExtractionAttemptSuperseded(supabase: SupabaseClient, task: QueueTaskRecord) {
   const { data, error } = await supabase
@@ -909,16 +955,28 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       : null;
 
     if (trustedResult?.result === "existing_version" && sourcePartId && partVersionId) {
-      const { data: reuseResult, error: reuseError } = await supabase.rpc(
-        "api_reuse_trusted_part_version_artifacts",
-        {
-          p_target_part_id: task.part_id,
-          p_source_part_id: sourcePartId,
-          p_part_version_id: partVersionId,
-        },
+      const reuseArgs = {
+        p_target_part_id: task.part_id,
+        p_source_part_id: sourcePartId,
+        p_part_version_id: partVersionId,
+      };
+      // OVD-979 U4: the attempt-bound reuse copies and stamps only while this claim is still
+      // the target's running attempt, in one transaction. Before U4 is applied it does not
+      // exist (PGRST202), and the legacy reuse copies without a stamp.
+      const attemptReuse = await supabase.rpc(
+        "api_reuse_trusted_part_version_artifacts_for_attempt",
+        { ...reuseArgs, p_expected_attempt_id: task.attempt_id ?? null },
       );
+      const { data: reuseResult, error: reuseError } = isMissingRpcError(attemptReuse.error)
+        ? await supabase.rpc("api_reuse_trusted_part_version_artifacts", reuseArgs)
+        : attemptReuse;
       if (reuseError) {
         throw reuseError;
+      }
+      if (reuseResult && typeof reuseResult === "object"
+        && (reuseResult as { attemptSuperseded?: unknown }).attemptSuperseded === true) {
+        logSupersededExtractionAttempt(task);
+        return;
       }
       const artifactsReady = reuseResult && typeof reuseResult === "object"
         ? (reuseResult as { artifactsReady?: unknown }).artifactsReady === true
@@ -989,17 +1047,11 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     partIdForError = context.part.id;
 
     // OVD-979: a reaped attempt (requeued, or reclaimed under a new attempt_id) must not
-    // overwrite its successor's extraction or auto-approve for it. Stop before writing.
-    if (await isExtractionAttemptSuperseded(supabase, task)) {
-      logSupersededExtractionAttempt(task);
-      return;
-    }
-
-    const { error } = await supabase.from("drawing_extractions").upsert(
-      {
-        part_id: context.part.id,
-        organization_id: context.part.organization_id,
-        source_attempt_id: task.attempt_id ?? null,
+    // overwrite its successor's extraction or auto-approve for it.
+    const saved = await saveExtractionForAttempt(supabase, task, {
+      partId: context.part.id,
+      organizationId: context.part.organization_id,
+      row: {
         extractor_version: extractorVersion,
         extraction: buildStoredExtractionPayload(
           extraction,
@@ -1012,13 +1064,10 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         evidence: extraction.evidence,
         status: extraction.status,
       },
-      {
-        onConflict: "part_id",
-      },
-    );
-
-    if (error) {
-      throw error;
+    });
+    if (!saved) {
+      logSupersededExtractionAttempt(task);
+      return;
     }
 
     await persistDrawingPreviewAssets(supabase, config, {

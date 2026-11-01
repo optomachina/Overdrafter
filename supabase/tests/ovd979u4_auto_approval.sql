@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(98);
+select plan(113);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values ('97940000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -281,8 +281,8 @@ values ('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-0000000
   jsonb_build_object('drawingFileId', '97940000-0000-4000-8000-000000000108'));
 select set_config('request.jwt.claim.role', 'service_role', true);
 set local role service_role;
-select is(public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
-  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109')) ->> 'artifactsReady', 'true',
+select is(public.api_reuse_trusted_part_version_artifacts_for_attempt('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'), '97940000-0000-4000-8000-000000000112') ->> 'artifactsReady', 'true',
   'reuse: target copies the source artifacts');
 select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
   '97940000-0000-4000-8000-000000000112'::uuid, 'reuse: copied extraction carries the running attempt');
@@ -299,8 +299,14 @@ update public.work_queue set attempt_id = '97940000-0000-4000-8000-000000000113'
 where id = '97940000-0000-4000-8000-000000000111';
 select set_config('request.jwt.claim.role', 'service_role', true);
 set local role service_role;
-select public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
-  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'));
+-- The reaped attempt arrives late: it is refused and its restamp is rolled back.
+select is(public.api_reuse_trusted_part_version_artifacts_for_attempt('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'), '97940000-0000-4000-8000-000000000112') -> 'attemptSuperseded', 'true'::jsonb,
+  'reuse: a superseded caller is refused');
+select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
+  '97940000-0000-4000-8000-000000000112'::uuid, 'reuse: a superseded caller cannot stamp the successor''s copy');
+select public.api_reuse_trusted_part_version_artifacts_for_attempt('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'), '97940000-0000-4000-8000-000000000113');
 select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
   '97940000-0000-4000-8000-000000000113'::uuid, 'reuse retry: the existing copy carries the new attempt');
 select is(public.api_auto_approve_job_requirements('97940000-0000-4000-8000-000000000102'), 1,
@@ -314,12 +320,40 @@ update public.work_queue set attempt_id = '97940000-0000-4000-8000-000000000114'
 where id = '97940000-0000-4000-8000-000000000111';
 select set_config('request.jwt.claim.role', 'service_role', true);
 set local role service_role;
-select public.api_reuse_trusted_part_version_artifacts('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
-  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'));
+select public.api_reuse_trusted_part_version_artifacts_for_attempt('97940000-0000-4000-8000-000000000110', '97940000-0000-4000-8000-000000000109',
+  (select part_version_id from public.parts where id = '97940000-0000-4000-8000-000000000109'), '97940000-0000-4000-8000-000000000114');
 reset role;
 select set_config('request.jwt.claim.role', '', true);
 select is((select source_attempt_id from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'),
   '97940000-0000-4000-8000-000000000113'::uuid, 'reuse retry: a different target extraction is not restamped');
+
+-- The worker's own extraction write is fenced the same way (task 111 runs attempt 114).
+select set_config('request.jwt.claim.role', 'service_role', true);
+set local role service_role;
+select is(public.api_save_drawing_extraction_for_attempt('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-000000000113',
+  '{"extractor_version": "u4-stale", "extraction": {"u4Stale": true}, "warnings": [], "evidence": [], "status": "approved"}'), false,
+  'save: a superseded attempt is refused');
+select is((select extraction ? 'u4OtherCopy' from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'), true,
+  'save: the refused write is rolled back');
+select is(public.api_save_drawing_extraction_for_attempt('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-000000000114',
+  '{"extractor_version": "u4-current", "extraction": {"u4Current": true}, "confidence": 0.9, "warnings": [], "evidence": [], "status": "approved"}'), true,
+  'save: the running attempt writes');
+select is((select (source_attempt_id, extractor_version, extraction, organization_id)::text from public.drawing_extractions
+  where part_id = '97940000-0000-4000-8000-000000000110'),
+  ('97940000-0000-4000-8000-000000000114'::uuid, 'u4-current', '{"u4Current": true}'::jsonb, '97940000-0000-4000-8000-000000000002'::uuid)::text,
+  'save: the write carries the attempt, the payload and the part''s organization');
+reset role;
+update public.work_queue set status = 'queued' where id = '97940000-0000-4000-8000-000000000111';
+set local role service_role;
+select is(public.api_save_drawing_extraction_for_attempt('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-000000000114',
+  '{"extractor_version": "u4-requeued", "extraction": {}, "warnings": [], "evidence": [], "status": "approved"}'), false,
+  'save: a requeued task refuses its old attempt');
+select is(public.api_save_drawing_extraction_for_attempt('97940000-0000-4000-8000-000000000111', '97940000-0000-4000-8000-000000000114', '[]'),
+  false, 'save: a non-object payload is refused');
+reset role;
+select set_config('request.jwt.claim.role', '', true);
+select is((select extractor_version from public.drawing_extractions where part_id = '97940000-0000-4000-8000-000000000110'), 'u4-current',
+  'save: refused writes leave the stored extraction alone');
 
 -- All actual enum values, each through pending, failed and successful rollup.
 -- This schema has TEN total statuses, SIX outside the four pre-quote statuses.
@@ -345,5 +379,11 @@ select * from pg_temp.u4_status_cases();
 select ok(not has_function_privilege('anon', 'public.api_auto_approve_job_requirements(uuid)', 'EXECUTE'), 'anon cannot auto approve');
 select ok(not has_function_privilege('authenticated', 'public.api_auto_approve_job_requirements(uuid)', 'EXECUTE'), 'client cannot auto approve');
 select ok(has_function_privilege('service_role', 'public.api_auto_approve_job_requirements(uuid)', 'EXECUTE'), 'service role retains execution');
+select ok(not has_function_privilege('anon', 'public.api_save_drawing_extraction_for_attempt(uuid,uuid,jsonb)', 'EXECUTE'), 'anon cannot save extractions');
+select ok(not has_function_privilege('authenticated', 'public.api_save_drawing_extraction_for_attempt(uuid,uuid,jsonb)', 'EXECUTE'), 'client cannot save extractions');
+select ok(has_function_privilege('service_role', 'public.api_save_drawing_extraction_for_attempt(uuid,uuid,jsonb)', 'EXECUTE'), 'service role can save extractions');
+select ok(not has_function_privilege('anon', 'public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid,uuid,uuid,uuid)', 'EXECUTE'), 'anon cannot reuse');
+select ok(not has_function_privilege('authenticated', 'public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid,uuid,uuid,uuid)', 'EXECUTE'), 'client cannot reuse');
+select ok(has_function_privilege('service_role', 'public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid,uuid,uuid,uuid)', 'EXECUTE'), 'service role can reuse');
 select * from finish();
 rollback;

@@ -643,12 +643,93 @@ $$;
 revoke all on function public.api_auto_approve_job_requirements(uuid) from public, anon, authenticated;
 grant execute on function public.api_auto_approve_job_requirements(uuid) to service_role;
 
--- U4 stamps reused extractions with the target's running attempt, so the gate above
--- counts them; otherwise U2's body is unchanged.
-create or replace function public.api_reuse_trusted_part_version_artifacts(
+-- U4 binds the worker's two extraction writes to the attempt that claimed the task.
+-- Each writes first and then takes the task's work_queue row FOR SHARE, holding it to
+-- commit: a reap or reclaim (an UPDATE of that row) either commits first, so the check
+-- fails and the inner block rolls the write back, or waits until this write commits and
+-- the successor writes after it. Lock order (docs/ovd979-lock-order.md): L4 write, then L5.
+
+-- Saves an extract_part task's own extraction, stamped with its attempt. Returns false,
+-- with nothing written, when the task is no longer that running attempt.
+create or replace function public.api_save_drawing_extraction_for_attempt(
+  p_task_id uuid,
+  p_attempt_id uuid,
+  p_extraction jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_part_id uuid;
+  v_row public.drawing_extractions%rowtype;
+begin
+  if auth.role() <> 'service_role' then
+    raise exception 'Extraction results may only be saved by the worker.';
+  end if;
+
+  -- A task's part never changes; the fence below re-checks the task under lock.
+  select queue.part_id into v_part_id
+  from public.work_queue queue
+  where queue.id = p_task_id
+    and queue.task_type = 'extract_part';
+  if v_part_id is null or pg_catalog.jsonb_typeof(p_extraction) is distinct from 'object' then
+    return false;
+  end if;
+  v_row := pg_catalog.jsonb_populate_record(null::public.drawing_extractions, p_extraction);
+
+  begin
+    insert into public.drawing_extractions (
+      part_id, organization_id, source_attempt_id, extractor_version, extraction,
+      confidence, warnings, evidence, status
+    )
+    select
+      part.id, part.organization_id, p_attempt_id, v_row.extractor_version, v_row.extraction,
+      v_row.confidence, v_row.warnings, v_row.evidence, v_row.status
+    from public.parts part
+    where part.id = v_part_id
+    on conflict (part_id) do update
+      set organization_id = excluded.organization_id,
+          source_attempt_id = excluded.source_attempt_id,
+          extractor_version = excluded.extractor_version,
+          extraction = excluded.extraction,
+          confidence = excluded.confidence,
+          warnings = excluded.warnings,
+          evidence = excluded.evidence,
+          status = excluded.status;
+
+    perform 1 from public.work_queue queue
+    where queue.id = p_task_id
+      and queue.status = 'running'
+      and queue.attempt_id is not distinct from p_attempt_id
+    for share of queue;
+    if not found then
+      raise exception using errcode = 'OV979', message = 'OVD-979: the extraction attempt was superseded.';
+    end if;
+  exception
+    when sqlstate 'OV979' then
+      return false;
+  end;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.api_save_drawing_extraction_for_attempt(uuid, uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.api_save_drawing_extraction_for_attempt(uuid, uuid, jsonb) to service_role;
+
+-- Trusted reuse for the attempt that claimed the target's extract_part task. U2's reuse
+-- (unchanged; still the archived worker's identity) copies the source artifacts, then the
+-- target's extraction is stamped with this attempt when it holds that same copy (a retry
+-- restamps it; a target row holding any other extraction keeps its own stamp and stays
+-- pending). A caller that is no longer the target's running attempt gets
+-- attemptSuperseded and nothing is copied or stamped.
+create or replace function public.api_reuse_trusted_part_version_artifacts_for_attempt(
   p_target_part_id uuid,
   p_source_part_id uuid,
-  p_part_version_id uuid
+  p_part_version_id uuid,
+  p_expected_attempt_id uuid
 )
 returns jsonb
 language plpgsql
@@ -656,174 +737,52 @@ security definer
 set search_path = pg_catalog
 as $$
 declare
-  v_target_job_id uuid;
-  v_target public.parts%rowtype;
-  v_source public.parts%rowtype;
-  v_version public.part_versions%rowtype;
-  v_target_cad public.job_files%rowtype;
-  v_target_drawing public.job_files%rowtype;
-  v_source_cad public.job_files%rowtype;
-  v_source_drawing public.job_files%rowtype;
-  v_target_attempt_id uuid;
+  v_result jsonb;
 begin
   if auth.role() <> 'service_role' then
     raise exception 'Trusted part reuse may only be completed by the worker.';
   end if;
 
-  -- No writer moves a part to another job, so the unlocked job_id read stays
-  -- valid; a concurrent delete fails the lineage check below.
-  select part.job_id into v_target_job_id from public.parts part where part.id = p_target_part_id;
-  perform 1 from public.jobs where id = v_target_job_id for no key update;
-  select part.* into v_target from public.parts part
-  where part.id = p_target_part_id and part.job_id = v_target_job_id for no key update;
-  select part.* into v_source from public.parts part where part.id = p_source_part_id;
-  select version.* into v_version from public.part_versions version where version.id = p_part_version_id;
+  begin
+    v_result := public.api_reuse_trusted_part_version_artifacts(
+      p_target_part_id, p_source_part_id, p_part_version_id
+    );
+    if v_result -> 'artifactsReady' = 'true'::jsonb then
+      update public.drawing_extractions target
+      set source_attempt_id = p_expected_attempt_id
+      from public.drawing_extractions source
+      where target.part_id = p_target_part_id
+        and source.part_id = p_source_part_id
+        and p_expected_attempt_id is not null
+        and target.extractor_version = source.extractor_version
+        and target.extraction = source.extraction;
 
-  if v_target.id is null or v_source.id is null or v_version.id is null
-    or v_target.id = v_source.id
-    or v_target.organization_id <> v_source.organization_id
-    or v_target.part_version_id <> v_version.id
-    or v_source.part_version_id <> v_version.id
-    or v_version.version_state <> 'complete' then
-    raise exception 'The trusted part reuse lineage is invalid.';
-  end if;
-
-  select file.* into v_target_cad from public.job_files file where file.id = v_target.cad_file_id;
-  select file.* into v_target_drawing from public.job_files file where file.id = v_target.drawing_file_id;
-  select file.* into v_source_cad from public.job_files file where file.id = v_source.cad_file_id;
-  select file.* into v_source_drawing from public.job_files file where file.id = v_source.drawing_file_id;
-
-  if v_target_cad.trusted_content_sha256 is distinct from v_source_cad.trusted_content_sha256
-    or v_target_drawing.trusted_content_sha256 is distinct from v_source_drawing.trusted_content_sha256 then
-    raise exception 'The trusted part package no longer matches its source version.';
-  end if;
-
-  -- An identical upload can finish hashing while the source placement is still
-  -- extracting. Wait for that task to publish all extraction/preview artifacts
-  -- instead of duplicating work or copying a partially written projection.
-  if not exists (
-      select 1 from public.drawing_extractions extraction
-      where extraction.part_id = v_source.id
-    ) then
-    if not exists (
-      select 1 from public.work_queue queue
-      where queue.part_id = v_source.id
+      perform 1 from public.work_queue queue
+      where queue.part_id = p_target_part_id
         and queue.task_type = 'extract_part'
-        and queue.status in ('queued', 'running')
-    ) then
-      return pg_catalog.jsonb_build_object(
-        'result', 'source_unavailable',
-        'partId', v_target.id,
-        'partVersionId', v_version.id,
-        'sourcePartId', v_source.id,
-        'artifactsReady', false,
-        'extractTargetIndependently', true
-      );
+        and queue.status = 'running'
+        and queue.attempt_id is not distinct from p_expected_attempt_id
+      for share of queue;
+      if not found then
+        raise exception using errcode = 'OV979', message = 'OVD-979: the reuse attempt was superseded.';
+      end if;
     end if;
+  exception
+    when sqlstate 'OV979' then
+      return pg_catalog.jsonb_build_object(
+        'result', 'attempt_superseded',
+        'partId', p_target_part_id,
+        'partVersionId', p_part_version_id,
+        'sourcePartId', p_source_part_id,
+        'artifactsReady', false,
+        'extractTargetIndependently', false,
+        'attemptSuperseded', true
+      );
+  end;
 
-    return pg_catalog.jsonb_build_object(
-      'result', 'existing_version_pending',
-      'partId', v_target.id,
-      'partVersionId', v_version.id,
-      'sourcePartId', v_source.id,
-      'artifactsReady', false,
-      'extractTargetIndependently', false
-    );
-  end if;
-
-  if exists (
-      select 1 from public.work_queue queue
-      where queue.part_id = v_source.id
-        and queue.task_type = 'extract_part'
-        and queue.status in ('queued', 'running')
-    ) then
-    return pg_catalog.jsonb_build_object(
-      'result', 'existing_version_pending',
-      'partId', v_target.id,
-      'partVersionId', v_version.id,
-      'sourcePartId', v_source.id,
-      'artifactsReady', false,
-      'extractTargetIndependently', false
-    );
-  end if;
-
-  -- The copy is this attempt's result: the worker reuses inside its running
-  -- extract_part task and calls auto approval before settling it. On a retry the
-  -- target row already holds this same copy: restamp that row with the new attempt.
-  -- A target row holding any other extraction keeps its own stamp and stays pending.
-  select queue.attempt_id into v_target_attempt_id
-  from public.work_queue queue
-  where queue.part_id = v_target.id
-    and queue.task_type = 'extract_part'
-    and queue.status = 'running'
-    and queue.attempt_id is not null
-  order by queue.id
-  limit 1;
-
-  insert into public.drawing_extractions (
-    part_id, organization_id, source_attempt_id, extractor_version, extraction, confidence,
-    warnings, evidence, status, created_at, updated_at
-  )
-  select
-    v_target.id, extraction.organization_id, v_target_attempt_id, extraction.extractor_version,
-    extraction.extraction, extraction.confidence, extraction.warnings,
-    extraction.evidence, extraction.status, extraction.created_at, extraction.updated_at
-  from public.drawing_extractions extraction
-  where extraction.part_id = v_source.id
-  on conflict (part_id) do update
-    set source_attempt_id = excluded.source_attempt_id
-    where excluded.source_attempt_id is not null
-      and drawing_extractions.extractor_version = excluded.extractor_version
-      and drawing_extractions.extraction = excluded.extraction;
-
-  insert into public.drawing_preview_assets (
-    part_id, organization_id, page_number, kind, storage_bucket, storage_path,
-    width, height, created_at
-  )
-  select
-    v_target.id, asset.organization_id, asset.page_number, asset.kind,
-    asset.storage_bucket, asset.storage_path, asset.width, asset.height, asset.created_at
-  from public.drawing_preview_assets asset
-  where asset.part_id = v_source.id
-  on conflict (part_id, page_number, kind) do nothing;
-
-  insert into public.cad_preview_assets (
-    part_id, organization_id, source_cad_file_id, source_content_sha256,
-    display_style, view_orientation, renderer_version, storage_bucket,
-    storage_path, mime_type, width, height, generated_at, created_at, updated_at
-  )
-  select
-    v_target.id, asset.organization_id, v_target.cad_file_id, asset.source_content_sha256,
-    asset.display_style, asset.view_orientation, asset.renderer_version, asset.storage_bucket,
-    asset.storage_path, asset.mime_type, asset.width, asset.height,
-    asset.generated_at, asset.created_at, asset.updated_at
-  from public.cad_preview_assets asset
-  where asset.part_id = v_source.id
-    and v_target.cad_file_id is not null
-  on conflict (part_id, display_style, view_orientation) do nothing;
-
-  perform public.log_audit_event(
-    v_target.organization_id,
-    'part.exact_version_reused',
-    pg_catalog.jsonb_build_object(
-      'jobId', v_target.job_id,
-      'partId', v_target.id,
-      'partVersionId', v_version.id
-    ),
-    v_target.job_id,
-    null
-  );
-
-  return pg_catalog.jsonb_build_object(
-    'result', 'existing_version',
-    'partId', v_target.id,
-    'partVersionId', v_version.id,
-    'sourcePartId', v_source.id,
-    'artifactsReady', true,
-    'artifactsReused', true
-  );
+  return v_result;
 end;
 $$;
 
-revoke all on function public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid) from public, anon, authenticated;
-grant execute on function public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid) to service_role;
+revoke all on function public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid, uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid, uuid, uuid, uuid) to service_role;
