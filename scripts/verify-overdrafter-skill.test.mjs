@@ -592,7 +592,7 @@ describe("verify-overdrafter run entrypoint and judge, end to end", () => {
       "/tmp/vo-run/fixture/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/quote-comparison.spec.ts --grep @fixture --reporter=list,json --output /tmp/vo-run/fixture/test-results-0 --workers=1",
     );
     expect(r.stdout).toContain(
-      "/tmp/vo-run/local/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/intake.spec.ts e2e/sourcing-destination.spec.ts --grep-invert @fixture",
+      "/tmp/vo-run/local/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/intake.spec.ts e2e/sourcing-destination.spec.ts e2e/journeys/friends-release-golden.spec.ts --grep-invert @fixture",
     );
     expect(spawnSync("bash", [runScript, "--out", "/tmp/vo-run"], { encoding: "utf8" }).status).toBe(2);
   });

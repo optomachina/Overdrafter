@@ -14,11 +14,11 @@ const FEATURES = ["quote"];
 // manifest produced by verify.sh itself through the judge.
 const manifest = ({
   sha = SHA, tree = "clean", codes = "0", verdict = "PASS", mode = "local", features = "quote",
-  specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts", configs = "playwright.config.ts", skipped = "none",
+  specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts e2e/journeys/friends-release-golden.spec.ts", configs = "playwright.config.ts", skipped = "none",
 } = {}) =>
   [
     `mode: ${mode}`, `features: ${features}`, `skipped features: ${skipped}`, `specs: ${specs}`, `configs: ${configs}`, "command: npx playwright test",
-    `git head: ${sha} (${tree} tree)`, `exit codes: ${codes}`, "tests: passed=3 failed=0 skipped=0 expectedFail=0 flaky=0", `verdict: ${verdict}`,
+    `git head: ${sha} (${tree} tree)`, `exit codes: ${codes}`, "tests: passed=4 failed=0 skipped=0 expectedFail=0 flaky=0", `verdict: ${verdict}`,
   ].join("\n");
 
 const test = (status = "passed", extra = {}) => ({
@@ -46,6 +46,11 @@ const report = (intakeStatus = "passed", extra = {}) => JSON.stringify({
       file: "sourcing-destination.spec.ts",
       specs: [{ title: "client picks a destination", file: "sourcing-destination.spec.ts", tests: [test("passed")] }],
     },
+    {
+      title: "journeys/friends-release-golden.spec.ts",
+      file: "journeys/friends-release-golden.spec.ts",
+      specs: [{ title: "upload, edit, compare and inspect without ordering", file: "journeys/friends-release-golden.spec.ts", tests: [test("passed")] }],
+    },
   ],
   errors: [],
 });
@@ -64,7 +69,7 @@ describe("verify-result-judge", () => {
     expect(result.reasons).toEqual([]);
     expect(result.verdict).toBe("PASS");
     expect(result.headShas).toEqual([SHA]);
-    expect(result.journeys).toHaveLength(3);
+    expect(result.journeys).toHaveLength(4);
     expect(result.journeys[1].name).toBe("intake.spec.ts › intake flow › client requests a quote");
   });
 
@@ -109,7 +114,7 @@ describe("verify-result-judge", () => {
   it("fails a dirty tree and a manifest that drifts from the base feature map", () => {
     expect(judgeOne({ manifestText: manifest({ tree: "dirty" }) }).reasons).toEqual(["local: tested tree was dirty, not clean at the head SHA"]);
     const dropped = judgeOne({ manifestText: manifest({ specs: "e2e/intake.spec.ts" }) });
-    expect(dropped.reasons).toEqual(["local: manifest specs differ from the base feature map (e2e/intake.spec.ts e2e/sourcing-destination.spec.ts)"]);
+    expect(dropped.reasons).toEqual(["local: manifest specs differ from the base feature map (e2e/intake.spec.ts e2e/sourcing-destination.spec.ts e2e/journeys/friends-release-golden.spec.ts)"]);
     expect(judgeOne({ manifestText: manifest({ features: "auth" }) }).verdict).toBe("FAIL");
     expect(judgeOne({ manifestText: manifest({ mode: "fixture" }) }).reasons).toContain("local: manifest mode is fixture");
   });
@@ -122,7 +127,10 @@ describe("verify-result-judge", () => {
 
   it("fails when a mapped spec ran no journeys, playwright exited non-zero, or reported errors", () => {
     const noJourneys = JSON.stringify({ ...JSON.parse(report()), suites: JSON.parse(report()).suites.slice(0, 1) });
-    expect(judgeOne({ reportText: noJourneys }).reasons).toEqual(["local: no journeys ran for e2e/sourcing-destination.spec.ts"]);
+    expect(judgeOne({ reportText: noJourneys }).reasons).toEqual([
+      "local: no journeys ran for e2e/sourcing-destination.spec.ts",
+      "local: no journeys ran for e2e/journeys/friends-release-golden.spec.ts",
+    ]);
     expect(judgeOne({ manifestText: manifest({ codes: "1", verdict: "FAIL" }) }).reasons).toEqual([
       "local: playwright exit codes 1",
       "local: verify.sh verdict FAIL",
@@ -207,6 +215,7 @@ describe("verify-result-judge", () => {
     // The skipped feature contributes no journeys and is not counted as passing.
     expect(result.journeys.filter((j) => j.mode === "local").map((j) => j.file)).toEqual([
       "smoke.spec.ts", "access-scope.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts",
+      "journeys/friends-release-golden.spec.ts",
     ]);
   });
 
@@ -262,13 +271,13 @@ describe("verify-result-judge", () => {
   it("parses verify.sh manifests and flattens nested suites", () => {
     expect(parseManifest(manifest({ codes: "0 1" }))).toMatchObject({
       mode: "local", gitHead: SHA, tree: "clean", exitCodes: [0, 1], verdict: "PASS", skipped: [],
-      specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"], configs: ["playwright.config.ts"],
+      specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts", "e2e/journeys/friends-release-golden.spec.ts"], configs: ["playwright.config.ts"],
     });
     expect(parseManifest(manifest({ tree: "dirty" })).tree).toBe("dirty");
     expect(parseManifest(manifest({ skipped: "provider (SKIPPED: no local specs)" })).skipped).toEqual(["provider"]);
     expect(parseManifest("mode: local").skipped).toBeNull();
     expect(parseManifest("git head: not-a-sha (clean tree)").gitHead).toBeNull();
-    expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts"]);
+    expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts", "journeys/friends-release-golden.spec.ts"]);
   });
 
   it("CLI writes verify-result.json and exits non-zero on FAIL", () => {

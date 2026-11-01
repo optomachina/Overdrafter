@@ -30,7 +30,7 @@ export const FEATURE_SPECS = {
   },
   quote: {
     fixture: [spec("e2e/quote-comparison.spec.ts")],
-    local: [spec("e2e/intake.spec.ts"), spec("e2e/sourcing-destination.spec.ts")],
+    local: [spec("e2e/intake.spec.ts"), spec("e2e/sourcing-destination.spec.ts"), spec("e2e/journeys/friends-release-golden.spec.ts")],
   },
   provider: {
     fixture: [
