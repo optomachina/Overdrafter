@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { commentFilterExpression } from "./ovd-merge-gate.mjs";
 
 // Required (and future-required) checks must report on merge_group, or the
 // merge queue stalls until it times out. See docs/runbooks/merge-queue.md.
@@ -60,10 +61,10 @@ describe("merge queue workflows", () => {
           const block = jobBlock(text, check.writer);
           expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
           // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed),
-          // narrowed only for issue_comment to comments with a verdict or approval fence.
+          // narrowed only for issue_comment to comments with a verdict marker or approval fence (OVD-1144).
           for (const line of block.match(/^ {4}if:.*$/gm) ?? []) {
             expect(line).toBe(
-              "    if: ${{ always() && github.event_name != 'merge_group' && (github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval')) }}",
+              `    if: "\${{ always() && github.event_name != 'merge_group' && ${commentFilterExpression()} }}"`,
             );
           }
           expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));

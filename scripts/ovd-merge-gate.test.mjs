@@ -567,8 +567,7 @@ describe("conclusion (§6 item 4)", () => {
   });
 });
 
-const COMMENT_FILTER =
-  "(github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval'))";
+const COMMENT_FILTER = gate.commentFilterExpression();
 
 describe("workflow YAML (§6 item 5)", () => {
   const workflow = yaml.load(readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8"));
@@ -592,7 +591,13 @@ describe("workflow YAML (§6 item 5)", () => {
 
   it("defaults to no permissions and scopes permissions to each job", () => {
     expect(workflow.permissions).toEqual({});
-    for (const [key, job] of jobs) expect(job.permissions).toEqual(key.endsWith("queue") ? { checks: "write" } : { checks: "write", actions: "read", "pull-requests": "read", contents: "read" });
+    // OVD-1144: only the writer may write pull-requests (to edit its one sticky status comment).
+    const expected = {
+      "ovd-merge-gate-writer": { checks: "write", actions: "read", "pull-requests": "write", contents: "read" },
+      "ovd-merge-gate-history": { checks: "write", actions: "read", "pull-requests": "read", contents: "read" },
+      "ovd-merge-gate-queue": { checks: "write" },
+    };
+    for (const [key, job] of jobs) expect(job.permissions).toEqual(expected[key]);
   });
 
   it("separates PR writer/history from the checkout-free queue job", () => {
@@ -613,7 +618,7 @@ describe("workflow YAML (§6 item 5)", () => {
       for (const fence of [FENCE_INFO, APPROVAL_FENCE_INFO]) expect(COMMENT_FILTER).toContain(`contains(${field}, '\`\`\`${fence}')`);
     }
     expect(COMMENT_FILTER.startsWith("(github.event_name != 'issue_comment' || ")).toBe(true);
-    expect(COMMENT_FILTER.match(/contains\(/g)).toHaveLength(4);
+    expect(COMMENT_FILTER.match(/contains\(/g)).toHaveLength(2 * gate.TRIGGER_COMMENT_MARKERS.length);
     expect(COMMENT_FILTER).not.toMatch(/startsWith/);
   });
 
@@ -688,10 +693,11 @@ const ciCheckRuns = (sha, runs) => runs.map((run) => ({ id: 5000 + run, name: `c
  * check_name), like the real Checks API; `checkRuns` are earlier runs listed
  * on every SHA; `ciRuns` maps a SHA to the Actions run ids that reported on it.
  */
-function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {} } = {}) {
+function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_FILES, commits = [{ author: { login: "optomachina" }, committer: { login: "optomachina" } }], checkRuns = [], ciRuns = {}, stored = [], fail = [], workflowRun = {}, provenance = {}, defaultBranch = "main", pullCreatedAt = "2026-01-01T00:00:00Z", pullBase = defaultBranch, timeline = [], siblings, siblingTimelines = {} } = {}) {
   const requests = [];
   const urls = [];
   const posts = [];
+  const commentWrites = [];
   let pullReads = 0;
   const listRuns = (sha, name) => [...checkRuns, ...stored.filter((run) => run.head_sha === sha), ...ciCheckRuns(sha, ciRuns[sha] ?? [1, 2, 3])]
     .filter((run) => name === null || run.name === name);
@@ -709,8 +715,15 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
       stored.push({ check_suite: { id: 42 }, id: 900 + stored.length, app: { id: 15368 }, ...posted });
       return response(201, { id: 1 });
     }
-    if (pathname === "/repos/o/r") return response(200, { default_branch: "main" });
-    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", event: "issue_comment", ...provenance }] });
+    if (pathname === "/repos/o/r") return response(200, { default_branch: defaultBranch });
+    if (pathname === "/repos/o/r/actions/runs") return response(200, { workflow_runs: [{ check_suite_id: 42, path: ".github/workflows/ovd-merge-gate.yml", head_branch: "main", head_repository: { full_name: "o/r" }, event: "issue_comment", created_at: "2026-01-02T00:00:00Z", ...provenance }] });
+    if (pathname === "/repos/o/r/issues/7/timeline") return response(200, timeline);
+    if (/^\/repos\/o\/r\/issues\/\d+\/timeline$/.test(pathname)) return response(200, siblingTimelines[pathname.split("/")[5]] ?? []);
+    if (pathname === "/repos/o/r/pulls" && searchParams.get("head") === "o:feature") {
+      // GitHub lists only open PRs unless state=all is sent.
+      const state = searchParams.get("state") ?? "open";
+      return response(200, (siblings ?? [{ number: 7, base: { ref: pullBase } }]).filter((pr) => state === "all" || (pr.state ?? "open") === state));
+    }
     if (/^\/repos\/o\/r\/actions\/runs\/\d+$/.test(pathname)) {
       const id = Number(pathname.split("/").at(-1));
       const sha = Object.keys(ciRuns).find((sha) => ciRuns[sha].includes(id)) ?? HEAD;
@@ -719,7 +732,21 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     if (pathname === "/repos/o/r/pulls/7") {
       pullReads += 1;
       const sha = headAfter && pullReads > 1 ? headAfter : head;
-      return response(200, { head: { sha }, base: { ref: "main", sha: BASE }, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
+      return response(200, { head: { sha, ref: "feature", repo: { full_name: "o/r", owner: { login: "o" } } }, base: { ref: pullBase, sha: BASE }, created_at: pullCreatedAt, user: { login: "optomachina" }, body: body ?? null, commits: commits.length, changed_files: files.length });
+    }
+    if (method === "POST" && pathname === "/repos/o/r/issues/7/comments") {
+      const created = { id: 60000 + commentWrites.length, user: { login: "github-actions[bot]", type: "Bot" }, body: JSON.parse(options.body).body };
+      comments.push(created);
+      commentWrites.push({ method, id: created.id, body: created.body });
+      return response(201, created);
+    }
+    if (method === "PATCH" && /^\/repos\/o\/r\/issues\/comments\/\d+$/.test(pathname)) {
+      const id = Number(pathname.split("/").at(-1));
+      const comment = comments.find((item) => item.id === id);
+      if (!comment) return response(404, { message: "no comment" });
+      comment.body = JSON.parse(options.body).body;
+      commentWrites.push({ method, id, body: comment.body });
+      return response(200, comment);
     }
     if (pathname === "/repos/o/r/issues/7/comments") return response(200, comments);
     if (pathname === "/repos/o/r/pulls/7/commits") return response(200, commits);
@@ -732,7 +759,7 @@ function fakeGithub({ head = HEAD, headAfter, body, comments = [], files = DOCS_
     json: async (p) => (await fetchImpl(`https://api.test${p}`)).json(),
     raw: async (p) => (await fetchImpl(`https://api.test${p}`)).text(),
   };
-  return { fetch: fetchImpl, client, requests, urls, posts, stored };
+  return { fetch: fetchImpl, client, requests, urls, posts, stored, comments, commentWrites };
 }
 
 function fakeGit(calls = []) {
@@ -1625,9 +1652,102 @@ describe("R2 history provenance", () => {
     const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
     expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
-  it("trusts a pull_request_target record whatever its head branch", async () => {
-    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: { event: "pull_request_target", head_branch: "feature" } });
+  it("accepts a prior gate pull_request_target record on the default base", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(JSON.parse(out).gate).toBe("pass");
+  });
+  it("rejects a prior gate pull_request_target record whose base is not the default branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      checkRuns: [{ ...history(), name: CHECK_NAME, output: { text: '\u0060\u0060\u0060json\n{"deleted_verdicts":[]}\n\u0060\u0060\u0060' } }],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "release" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a pull_request_target record for this PR on the default base, whatever its head branch", async () => {
+    const api = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main", sha: BASE } }] },
+    });
     expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  const prt = { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] };
+  it.each([
+    ["a retargeted base (the run shows main, the timeline shows a base change after it)", { timeline: [{ event: "base_ref_changed", created_at: "2026-01-03T00:00:00Z" }] }],
+    ["a PR opened after the run (re-opened into main)", { pullCreatedAt: "2026-01-05T00:00:00Z" }],
+    ["a PR whose current base is not the default", { pullBase: "release" }],
+    ["a run listing another PR", { provenance: { ...prt, pull_requests: [{ number: 8, base: { ref: "main" } }] } }],
+    ["a run listing several PRs", { provenance: { ...prt, pull_requests: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }] } }],
+    ["a run with no created_at", { provenance: { ...prt, created_at: null } }],
+    ["a base change at an unknown time", { timeline: [{ event: "base_ref_changed" }] }],
+    ["a closed sibling PR from the same head branch on another base", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "release" } }] }],
+    ["a sibling list that does not include this PR", { siblings: [] }],
+    ["a closed sibling retargeted to the default branch after the run", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed", created_at: "2026-01-03T00:00:00Z" }] } }],
+    ["a sibling base change at an unknown time", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, state: "closed", base: { ref: "main" } }], siblingTimelines: { 8: [{ event: "base_ref_changed" }] } }],
+    ["a sibling whose timeline is not a list of records", { siblings: [{ number: 7, base: { ref: "main" } }, { number: 8, base: { ref: "main" } }], siblingTimelines: { 8: [null] } }],
+    ["a sibling with no readable number", { siblings: [{ number: 7, base: { ref: "main" } }, { number: "x", base: { ref: "main" } }] }],
+    ["a base change exactly at the run's created_at", { timeline: [{ event: "base_ref_changed", created_at: "2026-01-02T00:00:00Z" }] }],
+    ["a run whose head branch is not this PR's head", { provenance: { ...prt, head_branch: "other" } }],
+    ["a run from another head repository (a fork with the same branch name)", { provenance: { ...prt, head_repository: { full_name: "evil/r" } } }],
+    ["a run with no head repository", { provenance: { ...prt, head_repository: null } }],
+  ])("rejects a pull_request_target record with %s", async (_label, options) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, ...options });
+    await expect(gate.readHistory(gateClientFor(api), "o/r", 7)).rejects.toThrow(/default-branch/);
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it("trusts a run made after the PR was retargeted to the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, timeline: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("trusts sibling PRs that all target the default branch", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }] });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+    expect(api.urls).toContain("GET /repos/o/r/pulls?state=all&head=o%3Afeature");
+    expect(api.requests).toContain("GET /repos/o/r/issues/5/timeline");
+  });
+  it("trusts a sibling retargeted to the default branch before the run", async () => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance: prt, siblings: [{ number: 7, base: { ref: "main" } }, { number: 5, state: "closed", base: { ref: "main" } }], siblingTimelines: { 5: [{ event: "base_ref_changed", created_at: "2026-01-01T12:00:00Z" }] } });
+    expect(await gate.readHistory(gateClientFor(api), "o/r", 7)).toEqual([]);
+  });
+  it("compares that base to the repository default branch", async () => {
+    const trusted = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "trunk" } }] },
+    });
+    expect(await gate.readHistory(gateClientFor(trusted), "o/r", 7)).toEqual([]);
+    const hardcodedMain = fakeGithub({
+      comments: passingComments(),
+      stored: [history()],
+      defaultBranch: "trunk",
+      provenance: { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }] },
+    });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], hardcodedMain);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
+  });
+  it.each([
+    ["absent pull_requests and a feature head branch", { event: "pull_request_target", head_branch: "feature" }],
+    ["absent pull_requests, even when head_branch is the default", { event: "pull_request_target", head_branch: "main" }],
+    ["empty pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: [] }],
+    ["a non-array pull_requests", { event: "pull_request_target", head_branch: "feature", pull_requests: { base: { ref: "main" } } }],
+    ["a pull request with no base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{}] }],
+    ["a pull request whose base is not a record", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: "main" }] }],
+    ["a non-default base", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "release" } }] }],
+    ["one non-default base among several", { event: "pull_request_target", head_branch: "feature", pull_requests: [{ number: 7, base: { ref: "main" } }, { number: 7, base: { ref: "release" } }] }],
+    ["a non-record pull request", { event: "pull_request_target", head_branch: "feature", pull_requests: [null] }],
+  ])("rejects a pull_request_target record with %s", async (_label, provenance) => {
+    const api = fakeGithub({ comments: passingComments(), stored: [history()], provenance });
+    const { out } = await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    expect(reasonCodes(JSON.parse(out))).toContain("missing_input");
   });
   it("trusts an unchanged default-branch gate record", async () => {
     const api = fakeGithub({ comments: passingComments(), stored: [history()] });
@@ -1858,5 +1978,153 @@ describe("createApi rate limits (403 bursts under issue_comment)", () => {
     expect(rateLimitWait({ retryAfter: "2", remaining: "0", reset: String(NOW / 1000 + 3600) }, 0, NOW)).toBeNull();
     expect(rateLimitWait({ retryAfter: "2", remaining: "4527", reset: String(NOW / 1000 + 30) }, 0, NOW)).toBe(2000);
     expect(RATE_LIMIT_MAX_WAIT_MS).toBe(60_000);
+  });
+});
+
+// ------------------------------------------------- OVD-1144
+
+describe("OVD-1144: issue_comment runs start only for verdict comments", () => {
+  const workflow = yaml.load(readFileSync(new URL("../.github/workflows/ovd-merge-gate.yml", import.meta.url), "utf8"));
+  // Evaluate the workflow's own if: the way Actions would for an issue_comment
+  // event: every contains(field, 'marker') is a case-insensitive substring test.
+  function workflowRuns(job, { body = null, previousBody = null } = {}) {
+    const expression = workflow.jobs[job].if;
+    const filter = expression.slice(expression.indexOf("(github.event_name != 'issue_comment'"), expression.lastIndexOf(")") + 1);
+    expect(filter).toBe(gate.commentFilterExpression());
+    const fields = { "github.event.comment.body": body, "github.event.changes.body.from": previousBody };
+    const terms = [...filter.matchAll(/contains\(([\w.]+), '((?:[^']|'')*)'\)/g)];
+    expect(terms).toHaveLength(2 * gate.TRIGGER_COMMENT_MARKERS.length);
+    return terms.some(([, field, marker]) => String(fields[field] ?? "").toLowerCase().includes(marker.replaceAll("''", "'").toLowerCase()));
+  }
+
+  const triggers = [
+    ["an emit-verdict comment", `**OverDrafter verdict: PASS** for \`${HEAD}\` by codex (openai).\n\n${formatVerdictBlock(verdict())}`],
+    ["a bare verdict fence", formatVerdictBlock(verdict({ result: "FAIL" }))],
+    ["an approval record", approvalComment().body],
+    ["VERDICT: PASS", `VERDICT: PASS at ${HEAD.slice(0, 7)}`],
+    ["VERDICT: PASS_NOTES", `Reviewer VERDICT: PASS_NOTES at ${HEAD.slice(0, 7)}`],
+    ["VERDICT: FAIL", `VERDICT: FAIL at ${HEAD.slice(0, 7)}`],
+    ["QA PASS", `Final-head QA PASS at ${HEAD.slice(0, 7)}`],
+    ["QA FAIL (lower case)", `qa fail on head ${HEAD.slice(0, 7)}`],
+  ];
+  const ignored = [
+    ["relay chatter", "Relaying to the QA session; will report back."],
+    ["progress chatter", "Working on it: CI is running, ETA 10 minutes."],
+    ["a heartbeat", "heartbeat: still waiting on checks"],
+    ["a PR-number mention of a verdict without a marker", "See the verdict above; nothing new."],
+    ["an empty body", ""],
+  ];
+
+  for (const [name, body] of triggers) {
+    it(`starts both jobs for ${name}`, () => {
+      expect(gate.isTriggerComment({ body })).toBe(true);
+      for (const job of ["ovd-merge-gate-writer", "ovd-merge-gate-history"]) expect(workflowRuns(job, { body })).toBe(true);
+    });
+  }
+  for (const [name, body] of ignored) {
+    it(`starts no job for ${name}`, () => {
+      expect(gate.isTriggerComment({ body })).toBe(false);
+      for (const job of ["ovd-merge-gate-writer", "ovd-merge-gate-history"]) expect(workflowRuns(job, { body })).toBe(false);
+    });
+  }
+
+  it("re-evaluates when a verdict is edited away (matches the previous body)", () => {
+    const previousBody = `VERDICT: FAIL at ${HEAD.slice(0, 7)}`;
+    expect(gate.isTriggerComment({ body: "never mind", previousBody })).toBe(true);
+    expect(workflowRuns("ovd-merge-gate-writer", { body: "never mind", previousBody })).toBe(true);
+  });
+
+  it("treats a deleted or missing body as empty", () => {
+    expect(gate.isTriggerComment({})).toBe(false);
+    expect(workflowRuns("ovd-merge-gate-writer", {})).toBe(false);
+  });
+
+  it("names the fences the parsers read and quotes markers for the expression", () => {
+    expect(gate.TRIGGER_COMMENT_MARKERS).toContain("```" + FENCE_INFO);
+    expect(gate.TRIGGER_COMMENT_MARKERS).toContain("```" + APPROVAL_FENCE_INFO);
+    expect(gate.commentFilterExpression(["it's"])).toBe("(github.event_name != 'issue_comment' || contains(github.event.comment.body, 'it''s') || contains(github.event.changes.body.from, 'it''s'))");
+  });
+
+  it("never posts a status comment that would itself match the filter", () => {
+    const summary = evaluate({ headSha: HEAD, liveHeadSha: HEAD, headDiffId: DIFF, comments: [], commits: [], prAuthor: "optomachina" });
+    expect(summary.reasons.length).toBeGreaterThan(0);
+    const body = gate.formatStatusComment(summary, { checkUrl: "https://github.com/o/r/runs/1" });
+    expect(gate.isTriggerComment({ body })).toBe(false);
+    for (const code of ["no_qa_pass_on_head", "verifier_fail", "qa_fail"]) {
+      expect(gate.isTriggerComment({ body: gate.formatStatusComment({ ...summary, reasons: [{ code, detail: "QA PASS QA FAIL VERDICT: PASS" }] }) })).toBe(false);
+    }
+  });
+});
+
+describe("OVD-1144: one sticky status comment per PR, edited in place", () => {
+  const writes = (api) => api.commentWrites.map((write) => write.method);
+
+  it("creates the status comment once, then PATCHes the same comment on later runs", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    expect((await runCli(["write", "--pr", "7"], api)).code).toBe(0);
+    expect(writes(api)).toEqual(["POST"]);
+    const [first] = api.commentWrites;
+    expect(first.body.startsWith(gate.STATUS_MARKER)).toBe(true);
+    expect(first.body).toContain(HEAD);
+
+    // A FAIL arrives: same comment, edited.
+    api.comments.push(posted(verdict({ result: "FAIL" }), { id: 77 }));
+    expect((await runCli(["write", "--pr", "7"], api)).code).toBe(0);
+    expect(writes(api)).toEqual(["POST", "PATCH"]);
+    expect(api.commentWrites[1].id).toBe(first.id);
+    expect(api.comments.filter((comment) => String(comment.body).startsWith(gate.STATUS_MARKER))).toHaveLength(1);
+    expect(api.requests).toContain(`PATCH /repos/o/r/issues/comments/${first.id}`);
+  });
+
+  it("does not edit an unchanged status comment", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["write", "--pr", "7"], api);
+    await runCli(["write", "--pr", "7"], api);
+    expect(writes(api)).toEqual(["POST"]);
+  });
+
+  it("ignores a pasted marker from anyone but the workflow bot and edits the oldest bot comment", async () => {
+    const forged = { id: 1, user: { login: "mallory" }, body: `${gate.STATUS_MARKER}\nfake pass` };
+    const older = { id: 10, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nold` };
+    const newer = { id: 20, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nold too` };
+    const quoted = { id: 5, user: { login: "github-actions[bot]" }, body: `QA handoff\n${gate.STATUS_MARKER}` };
+    expect(gate.findStatusComment([newer, forged, quoted, older])).toBe(older);
+    expect(gate.findStatusComment([forged, quoted])).toBeNull();
+    expect(gate.findStatusComment(null)).toBeNull();
+
+    const api = fakeGithub({ comments: [...passingComments(), forged, newer, older] });
+    await runCli(["write", "--pr", "7"], api);
+    expect(api.commentWrites.map(({ method, id }) => [method, id])).toEqual([["PATCH", 10]]);
+    expect(forged.body).toBe(`${gate.STATUS_MARKER}\nfake pass`);
+  });
+
+  it("writes no comment when the head moved (and no check run either)", async () => {
+    const api = fakeGithub({ comments: passingComments(), headAfter: "b".repeat(40) });
+    await runCli(["write", "--pr", "7"], api);
+    expect(api.posts).toHaveLength(0);
+    expect(api.commentWrites).toHaveLength(0);
+  });
+
+  it("keeps the check run and exit code when the comment edit fails; only warns", async () => {
+    const api = fakeGithub({ comments: passingComments(), fail: ["/issues/comments/"] });
+    api.comments.push({ id: 30, user: { login: "github-actions[bot]" }, body: `${gate.STATUS_MARKER}\nstale` });
+    const { code, err } = await runCli(["write", "--pr", "7"], api);
+    expect(code).toBe(0);
+    expect(api.posts).toHaveLength(1);
+    expect(err).toContain("::warning::ovd-merge-gate: status comment not updated");
+  });
+
+  it("never comments from evaluate, record or merge-group", async () => {
+    const api = fakeGithub({ comments: passingComments() });
+    await runCli(["evaluate", "--pr", "7", "--sha", HEAD, "--json"], api);
+    await runCli(["record", "--pr", "7"], api);
+    await runCli(["merge-group", "--sha", HEAD], api);
+    expect(api.commentWrites).toHaveLength(0);
+  });
+
+  it("links only a github.com check run URL", () => {
+    const summary = { gate: "pass", sha: HEAD, mode: "report", reasons: [] };
+    expect(gate.formatStatusComment(summary, { checkUrl: "https://github.com/o/r/runs/9" })).toContain("- check run: https://github.com/o/r/runs/9");
+    expect(gate.formatStatusComment(summary, { checkUrl: "javascript:alert(1)" })).not.toContain("check run:");
   });
 });
