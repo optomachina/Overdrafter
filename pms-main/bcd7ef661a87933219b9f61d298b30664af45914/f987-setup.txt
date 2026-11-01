@@ -1,0 +1,9 @@
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+  tag   | run_status | job_status |        task        |         stored_result          
+--------+------------+------------+--------------------+--------------------------------
+ BEFORE | running    | quoting    | running attempts=2 | instant_quote_received $456.58
+(1 row)
+

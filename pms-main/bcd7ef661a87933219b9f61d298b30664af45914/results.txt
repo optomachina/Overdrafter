@@ -1,0 +1,48 @@
+PMS-MAIN post-merge smoke QA (key pms-main) — optomachina/Overdrafter main
+Date: 2026-11-01T01:53:25Z
+
+$ gh api repos/optomachina/Overdrafter/commits/main --jq .sha
+bcd7ef661a87933219b9f61d298b30664af45914
+$ git fetch origin && git checkout bcd7ef661a87933219b9f61d298b30664af45914
+$ git rev-parse HEAD
+bcd7ef661a87933219b9f61d298b30664af45914
+$ (in /tmp/qa-repo, unprivileged user qa) git rev-parse HEAD
+bcd7ef661a87933219b9f61d298b30664af45914
+
+Boot (local Supabase only; no prod/staging touched):
+- dockerd started; supabase CLI 2.78.1 (CI pin) via scripts/cloud-qa-boot.sh from pull/1008/head (copied to /tmp, not committed)
+- Playwright 1.58.2: chromium-1208 aliased to image's 1243 (outside repo); Playwright/Chromium run as user qa with sandbox ON
+- Environment workarounds (outside repo, no repo config change):
+  * kernel has no IPv6; realtime v2.78.10 hardcodes socket_opts [:inet6] -> eafnosupport. Built a LOCAL derived docker image (same tag) switching that one listener to [:inet].
+  * edge-runtime cannot fetch deno.land through the egress proxy CA -> `supabase start -x edge-runtime` (edge functions not running).
+- npm run seed:dev (rc=0); npm run dev -- --host 127.0.0.1 --port 4173 (VITE_SUPABASE_URL=http://127.0.0.1:54321)
+- Journey checks run by a fresh-context sub-run (no build context); unit tests run in the main session and re-run by the sub-run.
+
+Commands per flow:
+F916 (#916 OVD-1059, 066ae11f): npx vitest run worker/src/adapters/localProviderEvaluation.test.ts --reporter=verbose
+  -> Tests 11 passed (11); "runs an approved Quickparts evaluation through the production definition up to session lookup" ✓
+  App: client.demo sign-in -> /parts?debug=1 (f916.png)
+F969 (#969 xometry upload/quantity selectors, 12e81201): npx vitest run worker/src/adapters/xometry.test.ts worker/src/jev/operationalRecovery.test.ts
+  -> Test Files 2 passed, Tests 467 passed (467)
+  npx playwright test e2e/intake.spec.ts e2e/journeys/single-quantity-field.spec.ts e2e/journeys/quantity-input-validation.spec.ts
+  -> 9 passed, 1 failed (quantity-input-validation.spec.ts:12 hit 30s test timeout under combined load); re-run alone -> 1 passed (27.0s). See f969-e2e.txt / f969-e2e-rerun.txt.
+  Manual: STEP upload test-fixtures/quoted-sample/1093-05589-02.STEP, Qty 37, quote quantities 37/100, saved, reload persisted; DB jobs.requested_quote_quantities={37,100}, parts.quantity=37 (f969.png, f969-manual.txt)
+F987 (#987 OVD-1134, 92eb2cb2): npx vitest run worker/src/vendorQuoteStatusSync.test.ts worker/src/jev/operationalTask.test.ts worker/src/providerKillSwitch.handler.test.ts
+  -> Test Files 3 passed, Tests 67 passed (67); vendorQuoteStatusSync 16/16
+  Retry vs local Supabase: stored instant_quote_received result + stale run(running)/job(quoting) + run_vendor_quote task (attempts=2) -> handleVendorQuoteTask (worker/src/index.ts) with local service client, provider config a throwing Proxy:
+  -> run completed, job internal_review, task completed, 1 audit event; no provider call; second retry no-op (f987-setup.txt, f987-resync.txt). Caveat: handler called directly, not via main() loop.
+  App: estimator /internal/jobs/<id> shows Internal Review, Qty 37, Quote qty 37/100 (f987.png)
+F981 (#981 OVD-1118, e428cfab): npx vitest run scripts/sensitive-class-detect.test.mjs -> Tests 862 passed (862)
+  incl. "follows literal __dirname paths for preloads, excluding dynamic paths" ✓
+  node --test scripts/test-support/source-only-network-marker.node-test.cjs -> tests 3, pass 3, fail 0
+  App: sign-in page at /?auth=signin&debug=1 (f981.png)
+
+Evidence ledger: hashed 94 unique images on origin/qa-evidence (git ls-tree + git show | sha256), 837 sha256s quoted in qa-evidence text files, 300 sha256s quoted in issue/PR comments (REST, since 2026-01-01; 76 pages). Ledger total 1207 unique. Matches for new screenshots: 0.
+
+Per-flow results:
+F916: PASS  f916.png sha256=98cd98368829ba1373d020fced88fac110ba6f0a415db39b2082622b478cda85  ledger_matches=0
+F969: PASS  f969.png sha256=bff91c2caef0c113826b48eb54b1b53b7e5be658e175506da12dc7366935a989  ledger_matches=0
+F987: PASS  f987.png sha256=d937a45186df239bece837cbad3be5e5772375d63b4fe34fb162e1f0043689d6  ledger_matches=0
+F981: PASS  f981.png sha256=f1250556dd437d45cc331a342ff219502f57c2a7ec9f5befee74f2a5e787559c  ledger_matches=0
+
+PMS-MAIN: PASS sha=bcd7ef661a87933219b9f61d298b30664af45914

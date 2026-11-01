@@ -1,0 +1,6 @@
+
+Running 1 test using 1 worker
+
+  ✓  1 e2e/journeys/quantity-input-validation.spec.ts:12:3 › part request quantity input validation › preserves invalid Qty text, supports replacement, and validates Quote quantities @fixture (27.0s)
+
+  1 passed (34.8s)

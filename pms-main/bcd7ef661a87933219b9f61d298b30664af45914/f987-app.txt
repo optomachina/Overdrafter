@@ -1,0 +1,100 @@
+/internal[ _]review/i -> true
+/completed/i -> true
+/456\.58|12\.34/ -> true
+/xometry/i -> true
+/quoting/i -> false
+OverDrafter
+
+Curated CNC Quotes
+
+Dashboard
+New Job
+
+estimator.demo@overdrafter.local
+
+Internal Estimator
+
+1093-05589-02
+
+Internal review, quote orchestration, and publication for this CNC job.
+
+Queue extraction
+Save approved requirements
+Start quote run
+Job status
+Internal Review
+Parts
+
+1
+
+Files
+
+1
+
+Pricing policy
+
+fixture-2026-03-10
+
+12% markup
+
+Parts and approved requirements
+
+1093-05589-02
+
+CAD: 1093-05589-02.STEP
+Drawing: Missing
+Extraction: Needs Review
+Manufacturing quote
+Qty 37
+Quote qty 37 / 100
+No blocking warnings
+
+Source files
+
+CAD: 1093-05589-02.STEP
+
+Drawing: Missing
+
+Requested services
+Manufacturing quote
+
+Collect vendor pricing or curated quote options for a manufacturable part.
+
+CAD modeling
+
+Create or remodel a usable 3D part model from incomplete design inputs.
+
+Drawing redraft
+
+Create, clean up, or reissue a manufacturing drawing or release package.
+
+FEA analysis
+
+Produce an engineering analysis result tied to the design package.
+
+DFM review
+
+Review manufacturability risks and recommend design changes.
+
+DFA review
+
+Review assembly-focused risks and recommend design or process changes.
+
+Assembly support
+
+Coordinate multi-part BOM, fit, sequence, or assembly package support.
+
+Sourcing only
+
+Obtain supplier options without implying a full engineering deliverable.
+
+Quote quantities stay active only when Manufacturing quote or Sourcing only is selected.
+
+Primary service
+Manufacturing quote
+Service notes
+Description
+
+Extracted raw: Not found • source: parser
+
+Par

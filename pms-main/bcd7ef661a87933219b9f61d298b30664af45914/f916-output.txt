@@ -1,0 +1,58 @@
+
+ RUN  v3.2.4 /tmp/qa-repo
+
+
+>>> Quoting weerg qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access
+done
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"weerg","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting weerg qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"weerg","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting geomiq qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"geomiq","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting geomiq qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"geomiq","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+
+>>> Quoting quickparts qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch
+FAILED
+
+stderr | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch
+{"level":"warn","source":"liveHarnessSupplierCleanup","vendor":"quickparts","quantity":1,"status":"unknown","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":true,"action":"Review the quickparts cart/quote manually and remove any uploaded test part."}
+
+
+>>> Quoting quickparts qty 1... stdout | worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > runs an approved Quickparts evaluation through the production definition up to session lookup
+FAILED
+{"level":"info","source":"liveHarnessSupplierCleanup","vendor":"quickparts","quantity":1,"status":"not_needed","removed":0,"remaining":null,"reason":null,"manualRemovalRequired":false}
+
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'weerg' preflight through the real CLI registry without session access 39ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > reports 'geomiq' preflight through the real CLI registry without session access 11ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > stops an approved Quickparts evaluation at the kill switch before session access or launch 8ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > runs an approved Quickparts evaluation through the production definition up to session lookup 7ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'quickparts' before delegation 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'weerg' before delegation 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > requires exact file authorization for 'geomiq' before delegation 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'quickparts' production dispatch off its local evaluation definition 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'weerg' production dispatch off its local evaluation definition 1ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > keeps 'geomiq' production dispatch off its local evaluation definition 0ms
+ ✓ worker/src/adapters/localProviderEvaluation.test.ts > local provider registry integration > rejects a definition bound to a different provider 1ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  01:44:52
+   Duration  4.30s (transform 1.55s, setup 0ms, collect 3.72s, tests 71ms, environment 0ms, prepare 116ms)
+
+f916 rc=0
+F916 signed in as client at http://127.0.0.1:4173/parts?debug=1
+SEARCH PARTS
+All
+Parts
+Assemblies

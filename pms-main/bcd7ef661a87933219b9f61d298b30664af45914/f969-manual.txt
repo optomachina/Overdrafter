@@ -1,0 +1,14 @@
+signed in at http://127.0.0.1:4173/?debug=1
+part url http://127.0.0.1:4173/parts/d3d12994-827d-4a1d-a6fb-fb834ddf6c38
+heading: Parts
+initial Qty: 1
+hint: "client-request-quote-quantities-help"
+save enabled: true
+toast: Request details updated.
+Qty after save+reload: 37
+Quote quantities: 37/100
+                  id                  |     title     |   status   | requested_quote_quantities | quantity 
+--------------------------------------+---------------+------------+----------------------------+----------
+ d3d12994-827d-4a1d-a6fb-fb834ddf6c38 | 1093-05589-02 | extracting | {37,100}                   |       37
+(1 row)
+

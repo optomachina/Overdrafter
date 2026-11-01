@@ -1,0 +1,58 @@
+
+Running 10 tests using 2 workers
+
+  ✓   2 e2e/intake.spec.ts:211:3 › client STEP intake from the parts page › a STEP upload opens its part, and a reload shows the same part (19.3s)
+  ✘   1 e2e/journeys/quantity-input-validation.spec.ts:12:3 › part request quantity input validation › preserves invalid Qty text, supports replacement, and validates Quote quantities @fixture (31.6s)
+  ✓   4 e2e/journeys/single-quantity-field.spec.ts:99:3 › part request single Quantity field › flag OFF (default): Qty and Quote quantities stay as they were and nothing is asked of the server @fixture (8.1s)
+  ✓   3 e2e/intake.spec.ts:240:3 › client STEP intake from the parts page › a STEP and its drawing selected together become one part holding both files (27.3s)
+  ✓   5 e2e/journeys/single-quantity-field.spec.ts:110:3 › part request single Quantity field › flag ON, server has not scoped a quantity: one Quantity field, fixed at 1, with the reason @fixture (10.8s)
+  ✓   6 e2e/intake.spec.ts:305:3 › client STEP intake from the parts page › a repeated selection while intake is pending creates exactly one job (12.6s)
+  ✓   7 e2e/journeys/single-quantity-field.spec.ts:133:3 › part request single Quantity field › flag ON, scope read fails: Quantity keeps the saved value, says the check failed, and a save does not write 1 @fixture (9.8s)
+  ✓   8 e2e/intake.spec.ts:348:3 › client STEP intake from the parts page › an empty STEP file shows the empty-file toast and never reaches intake (6.9s)
+  ✓   9 e2e/journeys/single-quantity-field.spec.ts:161:3 › part request single Quantity field › flag ON, server scoped the request: Quantity is editable and saves as one quantity @fixture (11.4s)
+  ✓  10 e2e/intake.spec.ts:374:3 › client STEP intake from the parts page › a non-STEP payload named .step ends in the CAD viewer's error state (11.1s)
+
+
+  1) e2e/journeys/quantity-input-validation.spec.ts:12:3 › part request quantity input validation › preserves invalid Qty text, supports replacement, and validates Quote quantities @fixture 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByLabel('Quote quantities', { exact: true })[22m
+    [2m    - locator resolved to <input value="100,250 500" aria-invalid="true" placeholder="10 / 25 / 50" id="client-request-quote-quantities" aria-describedby="client-request-quote-quantities-error" class="flex h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disab…/>[22m
+    [2m    - fill("1,500,25")[22m
+    [2m  - attempting fill action[22m
+    [2m    - waiting for element to be visible, enabled and editable[22m
+
+
+      65 |     await expect(qty).toHaveAccessibleDescription(/the first quote quantity/);
+      66 |     for (const text of ["250,500", "1,250 2,500", "1,250, 2,500", "2,500 7,500", "100,250 500", "1,500,25", "25,1,500", "10,25,1,500", "2,500,10", "12,500,5", "10,25,500", "1234,567", "1000,250"]) {
+    > 67 |       await quoteQuantities.fill(text);
+         |                             ^
+      68 |       await expect(page.getByRole("alert")).toHaveCount(0);
+      69 |       await expect(save).toBeDisabled();
+      70 |       await expect(quoteQuantities).not.toHaveAccessibleDescription(/Saving sets Qty/);
+        at /tmp/qa-repo/e2e/journeys/quantity-input-validation.spec.ts:67:29
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/journeys-quantity-input-va-ed208--validates-Quote-quantities/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/journeys-quantity-input-va-ed208--validates-Quote-quantities/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/journeys-quantity-input-va-ed208--validates-Quote-quantities/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/journeys-quantity-input-va-ed208--validates-Quote-quantities/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/journeys-quantity-input-va-ed208--validates-Quote-quantities/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/journeys/quantity-input-validation.spec.ts:12:3 › part request quantity input validation › preserves invalid Qty text, supports replacement, and validates Quote quantities @fixture 
+  9 passed (1.5m)

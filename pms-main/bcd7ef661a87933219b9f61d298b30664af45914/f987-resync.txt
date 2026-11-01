@@ -1,0 +1,31 @@
+retrying task 0a987000-0000-4000-8000-0000000009b1 type run_vendor_quote attempts 2 status running
+handleVendorQuoteTask returned without error; config never read (no provider path)
+Supabase calls made by the worker during the retry (all 127.0.0.1):
+  GET /rest/v1/quote_runs?select=quote_request_id,quote_requests(status)&id=eq.0a987000-0000-4000-8000-000000000987
+  GET /rest/v1/vendor_quote_results?select=id,requested_quantity,status,raw_payload,notes&id=eq.0a987000-0000-4000-8000-000000
+  GET /rest/v1/jobs?select=organization_id,status&id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38
+  GET /rest/v1/quote_runs?select=status&id=eq.0a987000-0000-4000-8000-000000000987
+  GET /rest/v1/vendor_quote_results?select=status&quote_run_id=eq.0a987000-0000-4000-8000-000000000987
+  PATCH /rest/v1/quote_runs?id=eq.0a987000-0000-4000-8000-000000000987&status=in.(queued,running)&select=id
+  PATCH /rest/v1/jobs?id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38&status=in.(ready_to_quote,quoting,awaiting_vend
+  POST /rest/v1/audit_events
+  PATCH /rest/v1/work_queue?id=eq.0a987000-0000-4000-8000-0000000009b1&status=neq.cancelled
+  tag  | run_status |   job_status    |                 task                 |                            stored_result                             
+-------+------------+-----------------+--------------------------------------+----------------------------------------------------------------------
+ AFTER | completed  | internal_review | completed attempts=2 last_error=null | instant_quote_received $456.58 updated=2026-11-01 01:51:16.075546+00
+(1 row)
+
+         event_type         |                                                                   payload                                                                   
+----------------------------+---------------------------------------------------------------------------------------------------------------------------------------------
+ worker.quote_run_completed | {"quoteRunId": "0a987000-0000-4000-8000-000000000987", "failedVendorQuotes": 0, "successfulVendorQuotes": 1, "manualReviewVendorQuotes": 0}
+(1 row)
+
+[2nd retry] retrying task 0a987000-0000-4000-8000-0000000009b1 type run_vendor_quote attempts 2 status completed
+[2nd retry] handleVendorQuoteTask returned without error; config never read (no provider path)
+[2nd retry] Supabase calls made by the worker during the retry (all 127.0.0.1):
+[2nd retry]   GET /rest/v1/quote_runs?select=quote_request_id,quote_requests(status)&id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   GET /rest/v1/vendor_quote_results?select=id,requested_quantity,status,raw_payload,notes&id=eq.0a987000-0000-4000-8000-000000
+[2nd retry]   GET /rest/v1/jobs?select=organization_id,status&id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38
+[2nd retry]   GET /rest/v1/quote_runs?select=status&id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   GET /rest/v1/vendor_quote_results?select=status&quote_run_id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   PATCH /rest/v1/work_queue?id=eq.0a987000-0000-4000-8000-0000000009b1&status=neq.cancelled

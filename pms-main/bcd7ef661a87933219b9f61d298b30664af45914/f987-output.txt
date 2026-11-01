@@ -1,0 +1,261 @@
+
+ RUN  v3.2.4 /tmp/qa-repo
+
+stdout | worker/src/providerKillSwitch.handler.test.ts > handleVendorQuoteTask with the provider kill switch (OVD-722) > a retryable error after the kill switch cancel never requeues the cancelled task (no revival)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.354Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote task.","context":{"taskId":"task","taskType":"run_vendor_quote","attempts":1,"organizationId":"org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+ ✓ worker/src/vendorQuoteStatusSync.test.ts (16 tests) 45ms
+ ✓ worker/src/providerKillSwitch.handler.test.ts (17 tests) 112ms
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > keeps a persisted generic result when the status read after persistence fails (OVD-464)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.462Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > keeps a persisted generic result when the status read after persistence fails (OVD-464)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.466Z","level":"warn","source":"worker.task.retry","message":"Retrying run_vendor_quote secret-task at 2026-11-01T01:46:33.465Z: Vendor quote bookkeeping failed: status read failed","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":4,"retryCount":0,"nextRetryAt":"2026-11-01T01:46:33.465Z"},"error":{"name":"VendorQuoteBookkeepingError","message":"Vendor quote bookkeeping failed: status read failed","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > holds a generic lane, never requeues it, when the pre quote export lookup fails before any upload (OVD-723)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.482Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > holds a generic lane, never requeues it, when the pre quote export lookup fails before any upload (OVD-723)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.484Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > holds a generic lane with the after start note when the lookup fails once the adapter marked a mutation (OVD-723)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.485Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > holds a generic lane with the after start note when the lookup fails once the adapter marked a mutation (OVD-723)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.487Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"fictiv","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > never overwrites a committed generic result whose persistence acknowledgement was lost (OVD-464)
+{"service":"overdrafter-cad-worker","level":"error","source":"worker.vendor_quote.post_persist","message":"persist_ack_lost: the vendor quote result was persisted; The result write acknowledgement was lost.","context":{"taskId":"secret-task","jobId":"job","quoteRunId":"secret-run"}}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > never overwrites or retries a committed Xometry result whose persistence acknowledgement was lost
+{"service":"overdrafter-cad-worker","level":"error","source":"worker.vendor_quote.post_persist","message":"persist_ack_lost: the vendor quote result was persisted; The result write acknowledgement was lost.","context":{"taskId":"secret-task","jobId":"job","quoteRunId":"secret-run"}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.493Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.494Z","level":"warn","source":"worker.task.retry","message":"Retrying run_vendor_quote secret-task at 2026-11-01T01:46:33.494Z: Vendor quote bookkeeping failed: status read failed","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":2,"retryCount":0,"nextRetryAt":"2026-11-01T01:46:33.494Z"},"error":{"name":"VendorQuoteBookkeepingError","message":"Vendor quote bookkeeping failed: status read failed","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > real claimed-task host waits for completion acknowledgement before the first advisory boundary
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.511Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > real claimed-task host waits for completion acknowledgement before the first advisory boundary
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.564Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":53},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=false, vendorError=false)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.572Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=false, vendorError=false)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.575Z","level":"warn","source":"worker.task.retry","message":"Retrying run_vendor_quote secret-task at 2026-11-01T01:46:33.575Z: page.goto: net::ERR_NETWORK_CHANGED during navigation","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":3,"retryCount":0,"nextRetryAt":"2026-11-01T01:46:33.575Z"},"error":{"name":"Error","message":"page.goto: net::ERR_NETWORK_CHANGED during navigation","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=true, vendorError=false)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.584Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=true, vendorError=false)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.590Z","level":"error","source":"worker.task.failure","message":"Failed run_vendor_quote secret-task: page.goto: net::ERR_NETWORK_CHANGED during navigation","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":6,"retryCount":0,"nextRetryAt":null},"error":{"name":"Error","message":"page.goto: net::ERR_NETWORK_CHANGED during navigation","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=false, vendorError=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.595Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=false, vendorError=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.601Z","level":"warn","source":"worker.task.retry","message":"Retrying run_vendor_quote secret-task at 2026-11-01T01:46:33.600Z: page.goto: net::ERR_NETWORK_CHANGED during navigation","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":6,"retryCount":0,"nextRetryAt":"2026-11-01T01:46:33.600Z"},"error":{"name":"VendorAutomationError","message":"page.goto: net::ERR_NETWORK_CHANGED during navigation","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=true, vendorError=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.603Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > retries a transient failure only before provider mutation (started=true, vendorError=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.604Z","level":"error","source":"worker.task.failure","message":"Failed run_vendor_quote secret-task: page.goto: net::ERR_NETWORK_CHANGED during navigation","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":1,"retryCount":0,"nextRetryAt":null},"error":{"name":"VendorAutomationError","message":"page.goto: net::ERR_NETWORK_CHANGED during navigation","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > real host drains only after confirmed retry/failure persistence (ack=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.614Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > real host drains only after confirmed retry/failure persistence (ack=true)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.666Z","level":"error","source":"worker.task.failure","message":"Failed run_vendor_quote secret-task: session expired","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":52,"retryCount":0,"nextRetryAt":null},"error":{"name":"Error","message":"session expired","stack":null,"code":null,"details":null,"hint":null}}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > real host drains only after confirmed retry/failure persistence (ack=false)
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.670Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > joins real host, task, registry, original collector and admitted consumers after ack without changing quote writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-10-02T00:00:00.000Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > joins real host, task, registry, original collector and admitted consumers after ack without changing quote writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-10-02T00:00:00.000Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":0},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > joins real host, task, registry, original collector and admitted consumers after ack without changing quote writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-10-02T00:00:00.000Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > joins real host, task, registry, original collector and admitted consumers after ack without changing quote writes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-10-02T00:00:00.000Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":0},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > host shutdown cancels advisory before drain while authoritative task acknowledgement still completes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.763Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > host shutdown cancels advisory before drain while authoritative task acknowledgement still completes
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.765Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > contains throw from injected drain after actual cancelled acknowledgement
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.767Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > contains throw from injected drain after actual cancelled acknowledgement
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.768Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":1},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > contains reject from injected drain after actual cancelled acknowledgement
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.769Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > contains reject from injected drain after actual cancelled acknowledgement
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.769Z","level":"info","source":"worker.task.complete","message":"Completed run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":0},"error":null}
+
+stdout | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > shutdown aborts pending admitted drain and prevents later inference restart
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.771Z","level":"info","source":"worker.task.start","message":"Starting run_vendor_quote secret-task.","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2},"error":null}
+
+stderr | worker/src/jev/operationalTask.test.ts > actual worker operational advisory seam > shutdown aborts pending admitted drain and prevents later inference restart
+{"service":"overdrafter-cad-worker","workerStatus":"starting","timestamp":"2026-11-01T01:45:33.771Z","level":"error","source":"worker.task.failure","message":"Failed run_vendor_quote secret-task: session expired","context":{"taskId":"secret-task","taskType":"run_vendor_quote","attempts":1,"organizationId":"secret-org","jobId":"job","partId":"part","quoteRequestId":null,"serviceRequestLineItemId":null,"quoteRunId":"secret-run","packageId":null,"vendor":"xometry","vendorQuoteResultId":"result","requestedQuantity":2,"task_duration_ms":0,"retryCount":0,"nextRetryAt":null},"error":{"name":"Error","message":"session expired","stack":null,"code":null,"details":null,"hint":null}}
+
+ ✓ worker/src/jev/operationalTask.test.ts (34 tests) 445ms
+
+ Test Files  3 passed (3)
+      Tests  67 passed (67)
+   Start at  01:45:29
+   Duration  3.97s (transform 2.08s, setup 0ms, collect 9.08s, tests 602ms, environment 1ms, prepare 320ms)
+
+f987 vitest rc=0
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+  tag   | run_status | job_status |        task        |         stored_result          
+--------+------------+------------+--------------------+--------------------------------
+ BEFORE | running    | quoting    | running attempts=2 | instant_quote_received $456.58
+(1 row)
+
+retrying task 0a987000-0000-4000-8000-0000000009b1 type run_vendor_quote attempts 2 status running
+handleVendorQuoteTask returned without error; config never read (no provider path)
+Supabase calls made by the worker during the retry (all 127.0.0.1):
+  GET /rest/v1/quote_runs?select=quote_request_id,quote_requests(status)&id=eq.0a987000-0000-4000-8000-000000000987
+  GET /rest/v1/vendor_quote_results?select=id,requested_quantity,status,raw_payload,notes&id=eq.0a987000-0000-4000-8000-000000
+  GET /rest/v1/jobs?select=organization_id,status&id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38
+  GET /rest/v1/quote_runs?select=status&id=eq.0a987000-0000-4000-8000-000000000987
+  GET /rest/v1/vendor_quote_results?select=status&quote_run_id=eq.0a987000-0000-4000-8000-000000000987
+  PATCH /rest/v1/quote_runs?id=eq.0a987000-0000-4000-8000-000000000987&status=in.(queued,running)&select=id
+  PATCH /rest/v1/jobs?id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38&status=in.(ready_to_quote,quoting,awaiting_vend
+  POST /rest/v1/audit_events
+  PATCH /rest/v1/work_queue?id=eq.0a987000-0000-4000-8000-0000000009b1&status=neq.cancelled
+  tag  | run_status |   job_status    |                 task                 |                            stored_result                             
+-------+------------+-----------------+--------------------------------------+----------------------------------------------------------------------
+ AFTER | completed  | internal_review | completed attempts=2 last_error=null | instant_quote_received $456.58 updated=2026-11-01 01:51:16.075546+00
+(1 row)
+
+         event_type         |                                                                   payload                                                                   
+----------------------------+---------------------------------------------------------------------------------------------------------------------------------------------
+ worker.quote_run_completed | {"quoteRunId": "0a987000-0000-4000-8000-000000000987", "failedVendorQuotes": 0, "successfulVendorQuotes": 1, "manualReviewVendorQuotes": 0}
+(1 row)
+
+[2nd retry] retrying task 0a987000-0000-4000-8000-0000000009b1 type run_vendor_quote attempts 2 status completed
+[2nd retry] handleVendorQuoteTask returned without error; config never read (no provider path)
+[2nd retry] Supabase calls made by the worker during the retry (all 127.0.0.1):
+[2nd retry]   GET /rest/v1/quote_runs?select=quote_request_id,quote_requests(status)&id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   GET /rest/v1/vendor_quote_results?select=id,requested_quantity,status,raw_payload,notes&id=eq.0a987000-0000-4000-8000-000000
+[2nd retry]   GET /rest/v1/jobs?select=organization_id,status&id=eq.d3d12994-827d-4a1d-a6fb-fb834ddf6c38
+[2nd retry]   GET /rest/v1/quote_runs?select=status&id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   GET /rest/v1/vendor_quote_results?select=status&quote_run_id=eq.0a987000-0000-4000-8000-000000000987
+[2nd retry]   PATCH /rest/v1/work_queue?id=eq.0a987000-0000-4000-8000-0000000009b1&status=neq.cancelled
+/internal[ _]review/i -> true
+/completed/i -> true
+/456\.58|12\.34/ -> true
+/xometry/i -> true
+/quoting/i -> false
+OverDrafter
+
+Curated CNC Quotes
+
+Dashboard
+New Job
+
+estimator.demo@overdrafter.local
+
+Internal Estimator
+
+1093-05589-02
+
+Internal review, quote orchestration, and publication for this CNC job.
+
+Queue extraction
+Save approved requirements
+Start quote run
+Job status
+Internal Review
+Parts
+
+1
+
+Files
+
+1
+
+Pricing policy
+
+fixture-2026-03-10
+
+12% markup
+
+Parts and approved requirements
+
+1093-05589-02
+
+CAD: 1093-05589-02.STEP
+Drawing: Missing
+Extraction: Needs Review
+Manufacturing quote
+Qty 37
+Quote qty 37 / 100
+No blocking warnings
+
+Source files
+
+CAD: 1093-05589-02.STEP
+
+Drawing: Missing
+
+Requested services
+Manufacturing quote
+
+Collect vendor pricing or curated quote options for a manufacturable part.
+
+CAD modeling
+
+Create or remodel a usable 3D part model from incomplete design inputs.
+
+Drawing redraft
+
+Create, clean up, or reissue a manufacturing drawing or release package.
+
+FEA analysis
+
+Produce an engineering analysis result tied to the design package.
+
+DFM review
+
+Review manufacturability risks and recommend design changes.
+
+DFA review
+
+Review assembly-focused risks and recommend design or process changes.
+
+Assembly support
+
+Coordinate multi-part BOM, fit, sequence, or assembly package support.
+
+Sourcing only
+
+Obtain supplier options without implying a full engineering deliverable.
+
+Quote quantities stay active only when Manufacturing quote or Sourcing only is selected.
+
+Primary service
+Manufacturing quote
+Service notes
+Description
+
+Extracted raw: Not found • source: parser
+
+Par
