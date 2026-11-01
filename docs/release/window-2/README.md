@@ -63,6 +63,7 @@ Base: `main` at `26b0b76e` with 148 migrations, equal to the production ledger (
    ```
    Expected: `e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b`. The query fixes `search_path = pg_catalog`, so every role prints the same value; on the rehearsal baseline this exact file printed it as both `postgres` and `supabase_admin` (`rehearsal/window2-read-only-digest.json`). Any other value is a no go for the Jarvis section.
 5. **Dump and restore check**, as in window 1 (on your machine only, outside the repo; it holds customer data):
+   Preferred: `node scripts/prod-backup.mjs --out ~/w2-backup-$(date +%Y%m%d-%H%M) --dry-run`, then the same without `--dry-run`. It reads the connection string from the variable named by `--url-env` (default `OVD_BACKUP_DB_URL`, for example the session pooler URL) or falls back to `supabase db dump --linked`, and verifies the dump (non-empty files, schema, per-table row counts against the live counts, SHA256SUMS). The manual commands below remain the reference.
    ```
    mkdir -p ~/w2-backup && chmod 700 ~/w2-backup
    supabase db dump --db-url "$DB_URL" -f ~/w2-backup/schema.sql
