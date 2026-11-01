@@ -473,7 +473,12 @@ describe("AGENTS.md parity", () => {
   });
 
   it("fails when AGENTS.md has a glob the JSON lacks", () => {
-    const agents = agentsText.replace("`**/*.key`", "`**/*.key`, `**/*.p12`");
+    // The fixture drops the trailing "## Agent graph" section so the injected glob
+    // cannot also trip the 24 KiB budget; the real AGENTS.md budget is unchanged.
+    const agents = agentsText
+      .replace("`**/*.key`", "`**/*.key`, `**/*.p12`")
+      .replace(/\n## Agent graph\n[\s\S]*$/, "\n");
+    expect(agents).not.toContain("## Agent graph");
     const errors = validateAgentContract(contractCopy({ agents }));
     expect(errors).toEqual([expect.stringMatching(/\*\*\/\*\.p12 \(secrets\) is in the AGENTS\.md list but not in docs\/sensitive-paths\.json/)]);
   });

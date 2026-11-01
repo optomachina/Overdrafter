@@ -83,7 +83,10 @@ import {
 import {
   collectXometryOffers,
   selectCompatibilityOffer,
+  xometryCardFingerprint,
 } from "./xometryOffers.js";
+
+import { admitPrice, sourceShowsQuantity, type PageQuantity, type PriceVerdict } from "../quotes/pricedQuantity.js";
 
 export const XOMETRY_AUTOMATION_VERSION = "xometry-worker-v1";
 
@@ -2135,17 +2138,17 @@ export async function setQuantity(
   binding?: OperationalJevBinding,
   beforeSubmit: () => Promise<void> = async () => undefined,
 ) {
-  const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
+  const readback = await readVisibleLineItemQuantityInputs(page);
 
-  if (!match) {
+  if (readback.entries.length === 0) {
     const failure = new VendorAutomationError(
       "Xometry quantity input was not found.",
       "selector_failure",
       {
         vendor: "xometry",
-        failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
-        attemptedSelectors: [...XOMETRY_LOCATORS.quantityInputs],
-        nearbyAttributes: [...XOMETRY_LOCATORS.quantityInputs],
+        failedSelector: XOMETRY_LOCATORS.lineItemQuantityInputs[0],
+        attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+        nearbyAttributes: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
         url: page.url(),
       },
     );
@@ -2168,33 +2171,104 @@ export async function setQuantity(
     throw failure;
   }
 
-  await match.locator.fill(String(quantity));
+  if (readback.entries.length > 1) {
+    throw new VendorAutomationError(
+      "Xometry shows more than one line-item quantity input.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "quantity_input_ambiguous",
+        failedSelector: readback.selector,
+        attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+        requestedQuantity: quantity,
+        observedLineItemQuantities: readback.entries.map((entry) => entry.value),
+        url: page.url(),
+      },
+    );
+  }
+
+  const [{ locator, value }] = readback.entries;
+  if (value === quantity) {
+    return { selector: readback.selector, filled: false };
+  }
+
+  // The switch can engage during the readback; check it before writing to the page.
+  await beforeSubmit();
+  await locator.fill(String(quantity));
   // OVD-722: Enter can submit the form; read the switch again between the
   // fill and the key press.
   await beforeSubmit();
-  await match.locator.press("Enter");
+  await locator.press("Enter");
+
+  const observed = await readSettledQuantity(page, locator, quantity);
+  if (observed !== quantity) {
+    throw new VendorAutomationError(
+      "Xometry line-item quantity did not read back the requested quantity after it was filled.",
+      "unexpected_ui_state",
+      {
+        vendor: "xometry",
+        reason: "quantity_fill_unverified",
+        terminalState: "configuration_required",
+        requestedQuantity: quantity,
+        observedLineItemQuantities: [observed],
+        lineItemQuantitySelector: readback.selector,
+        url: page.url(),
+      },
+    );
+  }
+  return { selector: readback.selector, filled: true };
+}
+
+const XOMETRY_QUANTITY_SETTLE_POLLS = 5;
+const XOMETRY_QUANTITY_SETTLE_POLL_MS = 200;
+
+/**
+ * Reads the stepper back after Enter. Xometry may re-render or debounce the
+ * row, so a correct fill can briefly read stale; poll a bounded number of times
+ * for the requested value and return the last value read, so a value that never
+ * settles still fails closed.
+ */
+async function readSettledQuantity(page: Page, locator: Locator, quantity: number) {
+  let observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  for (let poll = 0; poll < XOMETRY_QUANTITY_SETTLE_POLLS && observed !== quantity; poll += 1) {
+    await page.waitForTimeout(XOMETRY_QUANTITY_SETTLE_POLL_MS).catch(() => undefined);
+    observed = parseQuantityValue(await locator.inputValue().catch(() => ""));
+  }
+  return observed;
+}
+
+function parseQuantityValue(raw: string) {
+  const value = raw.trim();
+  return /^\d+$/.test(value) ? Number.parseInt(value, 10) : null;
 }
 
 /**
- * OVD-776: reads the part row's quantity input values from the first
- * row-scoped selector with a visible match. Every visible match is returned,
- * so a second row or a stray widget with another value cannot hide behind
- * the first one. Unparseable values are returned as null.
+ * OVD-776: the visible line-item quantity inputs of the first row-scoped
+ * selector with a visible match, with their values. Every visible match is
+ * returned, so a second row or a stray widget with another value cannot hide
+ * behind the first one. Unparseable values are returned as null.
  */
-async function readLineItemQuantities(page: Page) {
+async function readVisibleLineItemQuantityInputs(page: Page) {
   for (const selector of XOMETRY_LOCATORS.lineItemQuantityInputs) {
     const locator = page.locator(selector);
     const count = Math.min(await locator.count().catch(() => 0), 10);
-    const values: Array<number | null> = [];
+    const entries: Array<{ locator: Locator; value: number | null }> = [];
     for (let index = 0; index < count; index += 1) {
       const input = locator.nth(index);
       if (!(await input.isVisible().catch(() => false))) continue;
-      const value = (await input.inputValue().catch(() => "")).trim();
-      values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
+      entries.push({
+        locator: input,
+        value: parseQuantityValue(await input.inputValue().catch(() => "")),
+      });
     }
-    if (values.length > 0) return { selector, values };
+    if (entries.length > 0) return { selector, entries };
   }
-  return { selector: null, values: [] as Array<number | null> };
+  return { selector: null, entries: [] as Array<{ locator: Locator; value: number | null }> };
+}
+
+async function readLineItemQuantities(page: Page) {
+  const readback = await readVisibleLineItemQuantityInputs(page);
+  return { selector: readback.selector, values: readback.entries.map((entry) => entry.value) };
 }
 
 /**
@@ -2213,28 +2287,101 @@ async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
   return null;
 }
 
+/** Raw rendered body only. Input-control echoes are never page evidence. */
+async function readQuoteBodyText(page: Page) {
+  return readBodyText(page);
+}
+
+type PageQuantityRead =
+  | { ok: true; value: PageQuantity }
+  | Extract<PriceVerdict, { ok: false }>;
+
+type PricedCardText = { quantityTexts: string[]; priceText: string; fingerprint: string };
+
+/** One card's visible quantity-labelled summary fields, its summary text and its fingerprint. */
+async function readPricedCardText(card: Locator): Promise<PricedCardText> {
+  const summaries = card.locator('[kind="discount"]');
+  const visible = await card.isVisible() && await summaries.count() === 1 && await summaries.first().isVisible();
+  const fields = summaries.first().locator(":scope > *");
+  const quantityTexts: string[] = [];
+  for (let fieldIndex = 0; visible && fieldIndex < await fields.count(); fieldIndex++) {
+    const field = fields.nth(fieldIndex);
+    if (!await field.isVisible()) continue;
+    const text = await field.innerText();
+    if (/qty|quantit|q[^a-z0-9]{0,2}t[^a-z0-9]{0,2}y/i.test(text)) quantityTexts.push(text);
+  }
+  return {
+    quantityTexts,
+    priceText: visible ? await summaries.first().innerText() : "",
+    fingerprint: xometryCardFingerprint(await card.innerText()),
+  };
+}
+
 /**
- * Reads Xometry's quote summary and, only when it exposes no explicit quantity,
- * appends one synthetic `Quantity:` line from the line-item quantity input.
- * Explicit summary quantities always take precedence, including contradictory
- * values, so callers can use the result for fail-closed verification.
+ * Read the printed quantity in the price summaries, independently of the stepper.
+ * All offered cards must agree, including the card selected for publication.
+ * The selector scopes printed fields and price text to the commercial summary.
+ * Neither whitespace nor tokens are normalized for the shared validator.
  */
-async function readQuoteSummaryText(page: Page) {
-  const bodyText = await readBodyText(page);
-  const explicitQuantities = Array.from(
-    bodyText.matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
-  );
-  if (explicitQuantities.length > 0) {
-    return bodyText;
+export async function readPricedCardQuantity(page: Page, offers?: readonly VendorQuoteAdapterOffer[]): Promise<PageQuantityRead> {
+  const read = async () => {
+    const cards = page.locator(XOMETRY_LOCATORS.priceTierCard);
+    const texts: PricedCardText[] = [];
+    // Sequential reads on purpose: card order is the offer order checked below.
+    for (let index = 0; index < await cards.count(); index++) {
+      texts.push(await readPricedCardText(cards.nth(index)));
+    }
+    return texts;
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const first = await read();
+      await page.waitForTimeout(250);
+      const second = await read();
+      // Exact quantity AND price text equality, including whitespace and labels.
+      if (JSON.stringify(first) !== JSON.stringify(second)) continue;
+      if (second.length === 0 || second.some(({ quantityTexts }) => quantityTexts.length === 0 || quantityTexts.some((text) => text.trim() === ""))) {
+        return { ok: false, reason: "page_qty_missing", detail: {} };
+      }
+      if (offers && (offers.length !== second.length || second.some((card, index) =>
+        card.fingerprint !== offers[index].rawPayload.cardFingerprint))) {
+        return { ok: false, reason: "page_qty_unstable", detail: {} };
+      }
+      const fields = second.flatMap(({ quantityTexts }) => quantityTexts);
+      const quantities = fields.flatMap((text) => [...text.matchAll(/\d+/g)].map((hit) => Number(hit[0])));
+      const distinct = new Set(quantities);
+      const [value] = distinct;
+      if (distinct.size !== 1 || !Number.isSafeInteger(value) || value < 1 ||
+          fields.some((text) => !sourceShowsQuantity(text, value))) {
+        return { ok: false, reason: "page_qty_ambiguous", detail: { distinctQuantities: distinct.size } };
+      }
+      const sourceText = fields[0];
+      return { ok: true, value: { value, sourceText, source: "page_dom" } };
+    } catch (error) {
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError ||
+          (error instanceof Error && (error.name === "AbortError" || /(?:target|page|context|browser).*closed/i.test(error.message)))) throw error;
+      // Retry a detached/rerendered card once, then fail closed.
+    }
   }
+  return { ok: false, reason: "page_qty_unstable", detail: {} };
+}
 
-  const readback = await readLineItemQuantities(page);
-  const [value] = readback.values;
-  if (value !== undefined && value !== null && readback.values.every((candidate) => candidate === value)) {
-    return `${bodyText}\nQuantity: ${value}`;
+/** The live adapter and regression tests use the same independent evidence wiring. */
+export async function admitXometryPricedOffers(page: Page, offers: readonly VendorQuoteAdapterOffer[], requestedQuantity: number): Promise<{ ok: true } | Extract<PriceVerdict, { ok: false }>> {
+  const read = await readPricedCardQuantity(page, offers);
+  if (!read.ok) return read;
+  for (const offer of offers) {
+    const verdict = admitPrice({
+      requestedQuantity,
+      quantity: offer.quantity,
+      pageQuantity: read.value,
+      unit: offer.rawPayload.unitPriceExplicit === true
+        ? { cents: Math.round(offer.unitPriceUsd * 100), currency: "USD", label: "each" } : null,
+      total: { cents: Math.round(offer.totalPriceUsd * 100), currency: "USD", label: "total" },
+    });
+    if (!verdict.ok) return verdict;
   }
-
-  return bodyText;
+  return { ok: true };
 }
 
 async function openPartConfigurationIfNeeded(
@@ -2675,6 +2822,7 @@ export function toleranceSummaryMatches(bodyText: string, tier: string | null) {
 function verifySavedRequirements(
   bodyText: string,
   expected: SavedRequirementCheck,
+  lineItemQuantityVerified = false,
 ) {
   const mismatches: string[] = [];
   const observedQuantities = Array.from(
@@ -2683,7 +2831,7 @@ function verifySavedRequirements(
   );
 
   if (
-    observedQuantities.length === 0 ||
+    (observedQuantities.length === 0 && !lineItemQuantityVerified) ||
     observedQuantities.some((quantity) => quantity !== expected.quantity)
   ) {
     mismatches.push("quantity");
@@ -3528,10 +3676,12 @@ export class XometryAdapter extends VendorAdapter {
       };
       const configureCheckpoint = async () =>
         input.providerKillSwitchCheckpoint?.("before_configure");
-      const uploadedSummaryText = await readQuoteSummaryText(page);
+      const uploadedSummaryText = await readQuoteBodyText(page);
+      const uploadedQuantityFailure = await lineItemQuantityFailure(page, normalizedQuantity(input));
       const uploadedSummaryMismatches = verifySavedRequirements(
         uploadedSummaryText,
         configuredRequirementCheck,
+        !uploadedQuantityFailure,
       );
       const uploadedSummaryMatches = uploadedSummaryMismatches.length === 0;
       const uploadedAutoSelections = autoSelectedRequirementMismatches(
@@ -3558,13 +3708,17 @@ export class XometryAdapter extends VendorAdapter {
         selectedTolerance = requestedTolerance.tier;
       } else {
         await input.providerKillSwitchCheckpoint?.("before_configure");
+        // The quantity lives on the quote page's part row. The configure view
+        // that Edit Configuration opens exposed no quantity input the adapter
+        // could find on 2026-10-24 (production job 8c17931b), so the quantity
+        // is set on the row before the view opens.
+        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
+          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
         await openPartConfigurationIfNeeded(
           page,
           this.config.browserTimeoutMs,
         );
-        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
-          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
-        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
         // OVD-777: plate-like geometry can auto-select Sheet Cutting, whose
         // catalog has no CNC material options.
@@ -3676,7 +3830,7 @@ export class XometryAdapter extends VendorAdapter {
         // save; the read-back below still fails closed on any remainder.
         await page.waitForLoadState("networkidle").catch(() => undefined);
         const drawingAutoSelections = autoSelectedRequirementMismatches(
-          await readQuoteSummaryText(page),
+          await readQuoteBodyText(page),
           configuredRequirementCheck,
         );
         if (drawingAutoSelections.length > 0) {
@@ -3720,8 +3874,9 @@ export class XometryAdapter extends VendorAdapter {
         .then(() => true, () => false);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
-      const bodyText = await readQuoteSummaryText(page);
+      const bodyText = await readQuoteBodyText(page);
       const manualReviewResult = await detectManualReview(page, bodyText);
+      const quantityFailure = await lineItemQuantityFailure(page, normalizedQuantity(input));
       const requirementMismatches = verifySavedRequirements(bodyText, {
         ...configuredRequirementCheck,
         toleranceTier: selectedTolerance,
@@ -3731,7 +3886,7 @@ export class XometryAdapter extends VendorAdapter {
             "upload_acknowledged_and_drawing_confirmed"
             ? input.stagedDrawingFile.originalName
             : null,
-      });
+      }, !quantityFailure);
       const requirementsVerified = requirementMismatches.length === 0;
       if (!manualReviewResult.manualReview && !requirementsVerified) {
         throw new VendorAutomationError(
@@ -3755,7 +3910,6 @@ export class XometryAdapter extends VendorAdapter {
       }
       // OVD-776: no price is captured until the part row itself reads back
       // the requested quantity. A manual-review page withholds its price instead.
-      const quantityFailure = await lineItemQuantityFailure(page, normalizedQuantity(input));
       if (quantityFailure && !manualReviewResult.manualReview) {
         throw new VendorAutomationError(
           quantityFailure.reason === "quantity_mismatch"
@@ -3791,6 +3945,22 @@ export class XometryAdapter extends VendorAdapter {
             pricingInProgress: isXometryPricingInProgress({ url: page.url(), bodyText }),
           },
         );
+      if (this.config.xometryPricedCardReadbackEnabled === true && !manualReviewResult.manualReview && offers.length > 0) {
+        const verdict = await admitXometryPricedOffers(page, offers, normalizedQuantity(input));
+        if (!verdict.ok) {
+          throw new VendorAutomationError(
+            "Xometry priced-card quantity did not establish a publishable price.",
+            "unexpected_ui_state",
+            {
+              vendor: "xometry",
+              reason: verdict.reason,
+              terminalState: verdict.reason === "qty_mismatch" ? "configuration_required" : "selector_drift",
+              ...verdict.detail,
+            },
+            await capturePageArtifacts(page, runDir, "priced-quantity-unverified"),
+          );
+        }
+      }
       const compatibilityOffer = selectCompatibilityOffer(offers);
       const priceResult = compatibilityOffer
         ? {
