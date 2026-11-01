@@ -13,10 +13,10 @@ const replaceDrain = (sql: string) => sql.slice(sql.indexOf("create or replace f
 const originalDrain = drain(original).replace("create function", "create or replace function");
 
 describe("reconcile claim fence additive follow-up contract", () => {
-  it("appends a unique later migration with a reversible upgrade", () => {
+  it("adds a unique migration after its predecessor with a reversible upgrade", () => {
     const migrations = readdirSync("supabase/migrations").filter(path => path.endsWith(".sql")).sort();
-    expect(migrations.at(-1)).toBe(`${name}.sql`);
     expect(migrations.filter(path => path.startsWith(name.slice(0, 14)))).toEqual([`${name}.sql`]);
+    expect(migrations[migrations.indexOf(`${name}.sql`) - 1]).toBe("20261031052436_ovd746_client_rpc_auth_gate.sql");
     expect(forward).toContain(`supabase/rollbacks/${name}.rollback.sql`);
     expect(forward).toContain("set local lock_timeout = '1s';");
     expect(rollback).toContain("set local lock_timeout = '1s';");
