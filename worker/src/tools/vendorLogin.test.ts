@@ -167,7 +167,7 @@ describe("login:vendors orchestration", () => {
     expect(saved.cookies.map((entry: { name: string }) => entry.name)).toEqual(["qp_session"]);
     expect((await fs.stat(filePath)).mode & 0o777).toBe(0o600);
     expect(run.vault.open).toHaveBeenCalledTimes(1);
-    expect(run.vault.loginItem).toHaveBeenCalledWith("fixture-quickparts-item", ["quickparts.com", "quickquote.quickparts.com"]);
+    expect(run.vault.loginItem).toHaveBeenCalledWith("fixture-quickparts-item", ["quickparts.com", "quickquote.quickparts.com", "services.qpinternal.com"]);
     expect(run.vault.close).toHaveBeenCalledTimes(1);
     expect(run.reported).toEqual([result]);
   });
