@@ -33,7 +33,7 @@ const QUANTITY_RUN = String.raw`\d[\d.]*(?:(?:\s*\/\s*|,\s*)\d[\d.]*)*`;
 // space-grouped number or range (10 000, 10 - 20, 10 to 20) or a lead time (2 weeks).
 const WHOLE_QUANTITY_RUN =
   String.raw`(?=(?<run>${QUANTITY_RUN}))\k<run>(?![\w-])(?!\s*(?:[-–']\s*)?\d)(?!\s+to\s+\d)(?!\s*(?:days?|weeks?|months?)\b)`;
-const QUANTITY_UNIT_PATTERN = String.raw`(?:of|these|pcs|pieces|parts|units|ea)`;
+const QUANTITY_UNIT_PATTERN = "(?:of|these|pcs|pieces|parts|units|ea)";
 
 const QUANTITY_INTENT_PATTERNS = [
   new RegExp(String.raw`\bneed\s+${WHOLE_QUANTITY_RUN}(?=\s+${QUANTITY_UNIT_PATTERN}\b)`, "gi"),
@@ -41,8 +41,12 @@ const QUANTITY_INTENT_PATTERNS = [
     String.raw`\b(?:qty|quantity|quantities|quote|quotes|quoted|order|orders|ordering|build|builds|want|wants|price|prices|pricing)\b[^0-9]{0,20}${WHOLE_QUANTITY_RUN}`,
     "gi",
   ),
-  // A slash list with no keyword counts only when a unit follows it ("10/25/50 pcs please").
-  new RegExp(String.raw`(?<![\w-])(?=\d[\d.]*\s*\/)${WHOLE_QUANTITY_RUN}(?=\s+${QUANTITY_UNIT_PATTERN}\b)`, "gi"),
+  // A slash list with no keyword counts only when a unit follows it ("10/25/50 pcs please"). The
+  // lookbehind keeps a match from starting inside a number or list ("000/2,000" in "1,000/2,000").
+  new RegExp(
+    String.raw`(?<![\w.,\/-]\s*)(?=\d[\d.,]*\s*\/)${WHOLE_QUANTITY_RUN}(?=\s+${QUANTITY_UNIT_PATTERN}\b)`,
+    "gi",
+  ),
 ];
 
 const THOUSANDS_GROUPED_PATTERN = /^\d{1,3}(?:,\d{3})+$/;
@@ -319,7 +323,8 @@ function parseQuantityNumber(token: string): number | null {
 /**
  * One comma-joined chunk as quantities, or null when it is malformed or ambiguous. "1,000" can only be
  * a thousands group and "10,25,50" can only be a list, but "250,500" reads both ways, so the intent is
- * unknowable. This is the same rule validateRequestedQuoteQuantitiesInput applies to the editor field.
+ * unknowable. Unlike validateRequestedQuoteQuantitiesInput, which rejects any thousands group in the
+ * editor field without a "/" or ";", a lone group here ("1,000") is read as one quantity.
  */
 function parseCommaChunk(chunk: string): number[] | null {
   const pieces = chunk.split(",").map(parseRequestQuantityText);
@@ -333,11 +338,13 @@ function parseCommaChunk(chunk: string): number[] | null {
 
 /** All quantities in a run, or null when any part is malformed or ambiguous. */
 function parseQuantityRun(run: string): number[] | null {
-  const text = run.replace(/\.+$/, "");
+  let end = run.length;
+  while (end > 0 && run[end - 1] === ".") end -= 1;
+  const text = run.slice(0, end);
   // With a slash present, commas inside an item can only be thousands groups ("1,000 / 2,000").
   const parts = text.includes("/")
-    ? text.split(/\s*\/\s*/).map((segment) => {
-        const quantity = parseQuantityNumber(segment);
+    ? text.split("/").map((segment) => {
+        const quantity = parseQuantityNumber(segment.trim());
         return quantity === null ? null : [quantity];
       })
     : text.split(/,\s+/).map(parseCommaChunk);
