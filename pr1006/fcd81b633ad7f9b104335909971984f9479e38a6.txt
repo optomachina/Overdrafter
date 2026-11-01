@@ -1,0 +1,322 @@
+===== $ npm ci
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 588 packages, and audited 589 packages in 11s
+
+131 packages are looking for funding
+  run `npm fund` for details
+
+34 vulnerabilities (11 moderate, 20 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+===== exit=0
+===== $ git rev-parse HEAD
+fcd81b633ad7f9b104335909971984f9479e38a6
+===== exit=0
+===== $ node -e "JSON.parse(require('fs').readFileSync('evals/skills/land/spec.json','utf8'))"
+===== exit=0
+===== $ node scripts/skill-evals.mjs validate
+ok: 15 specs, 15 skills present
+===== exit=0
+===== $ npx vitest run scripts/skill-evals.test.mjs scripts/merge-queue-workflows.test.mjs scripts/secret-scan-workflow.test.mjs scripts/land-strict-merge.test.mjs
+
+ RUN  v3.2.4 /tmp/qa1006c
+
+ ✓ scripts/skill-evals.test.mjs (63 tests) 5044ms
+   ✓ report > report --skill "" with uncommitted skill changes > lists an untracked spec under evals/skills whether or not evals/ is gitignored  446ms
+ ✓ scripts/merge-queue-workflows.test.mjs (28 tests) 11ms
+ ✓ scripts/secret-scan-workflow.test.mjs (56 tests) 6968ms
+   ✓ path block step under bash -e > runs from the base worktree, so a PR's malformed .gitmodules cannot stop it  344ms
+   ✓ gitleaks step on a PR built to hide content (git log stub) > the scan step reports the attribute-hidden, NUL-byte and merge-only content  329ms
+   ✓ gitleaks step on a PR whose own files make git fail (git log stub) > the scan step reports the key the PR hid behind a malformed .gitmodules and a submodule conflict that remerge-diff re-merges  341ms
+   ✓ gitleaks step on a PR whose own files make git fail (git log stub) > fail closed: reading the PR's own work tree (as before this fix) with a malformed .gitmodules and a submodule conflict that remerge-diff re-merges is an ERROR, never clean  303ms
+ ✓ scripts/land-strict-merge.test.mjs (117 tests) 52756ms
+   ✓ merges an up to date head pinned exactly  538ms
+   ✓ updates behind main, ignores stale checks, waits for the merge head  722ms
+   ✓ stops without merging when the update changes the diff  536ms
+   ✓ re-run after an unverified update re-checks the diff and does not merge a changed one  681ms
+   ✓ re-run pins an earlier diff-unchanged update of the reviewed head and reports it  628ms
+   ✓ accepts a chain of update merges since the reviewed head  733ms
+   ✓ refuses an update chain whose last merge brings in an older base and drops newer base content  331ms
+   ✓ lands a chain whose last merge re-merges an older base without changing the tree  740ms
+   ✓ does not merge when the pre-update diff cannot be read  315ms
+   ✓ does not merge when the post-update diff cannot be read  349ms
+   ✓ rejects head movement during checks at the first poll  347ms
+   ✓ rejects unexpected update history: rebase  317ms
+   ✓ rejects unexpected update history: push  319ms
+   ✓ times out after exactly the configured check polls  497ms
+   ✓ waits for checks to register  701ms
+   ✓ rejects merged head mismatch  481ms
+   ✓ verifies even after failed merge: merged=true  528ms
+   ✓ verifies even after failed merge: merged=false  524ms
+   ✓ caps update rounds when the base keeps moving  678ms
+   ✓ ignores checks from another app  519ms
+   ✓ times out when the update does not publish a new head  353ms
+   ✓ waits for lazily computed mergeability  571ms
+   ✓ does not report success without a valid merge commit  575ms
+   ✓ treats unreadable check responses as unverified polls  577ms
+   ✓ does not re-update when BEHIND is stale and the head already contains the base  835ms
+   ✓ rejects an update merge whose first parent is not the pinned head  300ms
+   ✓ rejects a merge commit SHA hidden behind a NUL byte  606ms
+   ✓ queries check runs bound to the pinned SHA, by name, latest only  566ms
+   ✓ rejects a head change in the pre-merge re-read  429ms
+   ✓ enforces the overall deadline across pending polls  1564ms
+   ✓ bounds a hung gh without coreutils timeout  2051ms
+   ✓ bounds hung git fetch and exports low speed limits  2188ms
+   ✓ warns if deadline expires after sending merge  2461ms
+   ✓ enforces extra protection checks and ignores configured overrides  700ms
+   ✓ uses explicit fallback when protection cannot be read  592ms
+   ✓ encodes spaces in protection check names  577ms
+   ✓ uses only latest check run: success  589ms
+   ✓ uses only latest check run: in_progress  588ms
+   ✓ uses latest app-less commit status: success  532ms
+   ✓ uses latest app-less commit status: failure  412ms
+   ✓ uses latest app-less commit status: pending  630ms
+   ✓ refuses unverifiable landed tree: missing=false  550ms
+   ✓ refuses unverifiable landed tree: missing=true  553ms
+   ✓ reports the proven update chain on success  687ms
+   ✓ combines latest status and run: status=failure  309ms
+   ✓ combines latest status and run: status=pending  516ms
+   ✓ combines latest status and run: status=success  520ms
+   ✓ stops 9, not 8, when the post-merge tree fetch hits the deadline  3536ms
+   ✓ stops before a poll sleep that would cross the deadline  423ms
+   ✓ a protection read killed by the deadline exits 8, not the fail-closed 2  2133ms
+   ✓ bounds command substitution with a command and descendant ignoring TERM  3053ms
+   ✓ bounds command substitution with an exited parent leaving a TERM-resistant descendant  1055ms
+   ✓ rejects invalid combined status: truncated  484ms
+   ✓ rejects invalid combined status: wrong sha  510ms
+   ✓ rejects invalid combined status: array  531ms
+   ✓ rejects invalid combined status: missing count  506ms
+   ✓ rejects invalid combined status: string count  504ms
+   ✓ rejects invalid combined status: missing statuses  539ms
+   ✓ preserves known MERGED when a later poll would cross the deadline  520ms
+
+ Test Files  4 passed (4)
+      Tests  264 passed (264)
+   Start at  06:13:18
+   Duration  53.19s (transform 341ms, setup 0ms, collect 693ms, tests 64.78s, environment 1ms, prepare 378ms)
+
+===== exit=0
+===== $ npm run test:agent-control-plane
+
+> overdrafter-web@0.0.1.1 test:agent-control-plane
+> node --test scripts/validate-agent-graph.node-test.mjs scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'
+
+TAP version 13
+# Subtest: parses owned, detached, and prunable worktrees without implying deletion
+ok 1 - parses owned, detached, and prunable worktrees without implying deletion
+  ---
+  duration_ms: 1.202872
+  type: 'test'
+  ...
+# Subtest: current agent contract is internally consistent
+ok 2 - current agent contract is internally consistent
+  ---
+  duration_ms: 5.363497
+  type: 'test'
+  ...
+# Subtest: obsolete complexity approval and workflow settings are rejected
+ok 3 - obsolete complexity approval and workflow settings are rejected
+  ---
+  duration_ms: 5.675708
+  type: 'test'
+  ...
+# Subtest: runs as a CLI when invoked through a symlinked directory
+ok 4 - runs as a CLI when invoked through a symlinked directory
+  ---
+  duration_ms: 51.284136
+  type: 'test'
+  ...
+# Subtest: canonical agent graph is valid
+ok 5 - canonical agent graph is valid
+  ---
+  duration_ms: 3.733898
+  type: 'test'
+  ...
+# Subtest: rejects an edge to an unknown node
+ok 6 - rejects an edge to an unknown node
+  ---
+  duration_ms: 2.602662
+  type: 'test'
+  ...
+# Subtest: rejects an undeclared predicate
+ok 7 - rejects an undeclared predicate
+  ---
+  duration_ms: 0.993001
+  type: 'test'
+  ...
+# Subtest: rejects schema violations
+ok 8 - rejects schema violations
+  ---
+  duration_ms: 0.665157
+  type: 'test'
+  ...
+# Subtest: rejects a single reviewer family
+ok 9 - rejects a single reviewer family
+  ---
+  duration_ms: 1.543784
+  type: 'test'
+  ...
+# Subtest: a reviewer with no family is an error and never counts as a family
+ok 10 - a reviewer with no family is an error and never counts as a family
+  ---
+  duration_ms: 0.820423
+  type: 'test'
+  ...
+# Subtest: rejects a schema keyword the validator does not evaluate
+ok 11 - rejects a schema keyword the validator does not evaluate
+  ---
+  duration_ms: 0.696164
+  type: 'test'
+  ...
+# Subtest: rejects a $ref that does not resolve
+ok 12 - rejects a $ref that does not resolve
+  ---
+  duration_ms: 0.481859
+  type: 'test'
+  ...
+# Subtest: rejects a node that no edge names, but not the root
+ok 13 - rejects a node that no edge names, but not the root
+  ---
+  duration_ms: 1.326365
+  type: 'test'
+  ...
+# Subtest: requires the merge gate pointers and runtime routing
+ok 14 - requires the merge gate pointers and runtime routing
+  ---
+  duration_ms: 3.342555
+  type: 'test'
+  ...
+# Subtest: overflow reviewer does not count toward the two-family rule
+ok 15 - overflow reviewer does not count toward the two-family rule
+  ---
+  duration_ms: 0.824242
+  type: 'test'
+  ...
+# Subtest: caps override every assignment rule
+ok 16 - caps override every assignment rule
+  ---
+  duration_ms: 0.630533
+  type: 'test'
+  ...
+# Subtest: rejects an override cycle
+ok 17 - rejects an override cycle
+  ---
+  duration_ms: 0.756883
+  type: 'test'
+  ...
+# Subtest: usage balancer rules are present, unique and override known rules
+ok 18 - usage balancer rules are present, unique and override known rules
+  ---
+  duration_ms: 1.350766
+  type: 'test'
+  ...
+# Subtest: rejects a usage balancer rule with no text or an unknown key
+ok 19 - rejects a usage balancer rule with no text or an unknown key
+  ---
+  duration_ms: 0.772046
+  type: 'test'
+  ...
+# Subtest: qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+ok 20 - qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+  ---
+  duration_ms: 6.554762
+  type: 'test'
+  ...
+# Subtest: rejects a graph with no qa verdict
+ok 21 - rejects a graph with no qa verdict
+  ---
+  duration_ms: 0.70755
+  type: 'test'
+  ...
+# Subtest: rejects a graph missing a mandatory route
+ok 22 - rejects a graph missing a mandatory route
+  ---
+  duration_ms: 8.694587
+  type: 'test'
+  ...
+# Subtest: a mandatory route with an extra condition does not count
+ok 23 - a mandatory route with an extra condition does not count
+  ---
+  duration_ms: 0.930324
+  type: 'test'
+  ...
+# Subtest: rejects an empty or incomplete merge gate
+ok 24 - rejects an empty or incomplete merge gate
+  ---
+  duration_ms: 4.711087
+  type: 'test'
+  ...
+# Subtest: an event-gated reviewer edge does not count toward the two-family rule
+ok 25 - an event-gated reviewer edge does not count toward the two-family rule
+  ---
+  duration_ms: 2.285247
+  type: 'test'
+  ...
+# Subtest: rejects a $ref with a sibling constraint
+ok 26 - rejects a $ref with a sibling constraint
+  ---
+  duration_ms: 1.21947
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref
+ok 27 - rejects a chained $ref
+  ---
+  duration_ms: 0.511056
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref that ends unresolved
+ok 28 - rejects a chained $ref that ends unresolved
+  ---
+  duration_ms: 0.540424
+  type: 'test'
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 164.060876
+agent-contract: valid
+.................................................................
+----------------------------------------------------------------------
+Ran 65 tests in 63.644s
+
+OK
+===== exit=0
+===== $ bash scripts/preflight.sh lint
+preflight: lint start
+preflight: lint PASS
+===== exit=0
+===== $ bash scripts/preflight.sh typecheck
+preflight: typecheck start
+preflight: typecheck PASS
+===== exit=0
+===== $ VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_PUBLISHABLE_KEY=<dummy> npx vite --host 127.0.0.1 --port 8080 --strictPort (launcher pid 4089; vite node pids 4091/4106/4107 stopped by explicit kill PID; port 8080 confirmed closed)
+
+  VITE v5.4.19  ready in 237 ms
+
+  ➜  Local:   http://127.0.0.1:8080/
+Browserslist: browsers data (caniuse-lite) is 17 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+===== $ node smoke.cjs (Playwright, non-local requests aborted+recorded)
+{
+  "status": 200,
+  "url": "http://127.0.0.1:8080/?auth=signin",
+  "title": "OverDrafter | Machined Aluminum Sourcing",
+  "heading": "CAD InParts Out",
+  "pageErrors": [],
+  "nonLocalRequests": [],
+  "consoleErrors": []
+}
+===== exit=0
