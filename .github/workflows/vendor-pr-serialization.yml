@@ -5,7 +5,9 @@ name: Vendor PR serialization
 # Informational until "vendor-pr-serialization" is added to branch protection. The script
 # and its lib imports run from the base copy so a PR cannot edit its own check:
 # HEAD^1 on pull_request; a separate checkout pinned to merge_group.base_sha on merge_group.
-# schedule and push to main re-check all open vendor PRs (--all). Fails closed on API errors or page caps.
+# schedule and push to main re-check all open vendor PRs (--all --report-only): overlaps between open
+# PRs are reported as warnings and in the job summary but do not fail main, since they are not a
+# defect of main and each newer PR's own pull_request check blocks it. Fails closed on API errors or page caps.
 
 on:
   pull_request:
@@ -72,9 +74,10 @@ jobs:
             if git cat-file -e "HEAD^1:$f" 2>/dev/null; then git show "HEAD^1:$f" > "$RUNNER_TEMP/gate/$f"; else cp "$f" "$RUNNER_TEMP/gate/$f"; fi
           done
           node "$gate/vendor-pr-serialization.mjs" --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
-      # Schedule and push to main: re-check every open vendor PR against every other one.
+      # Schedule and push to main: re-check every open vendor PR against every other one. Report-only:
+      # overlaps become warnings + job summary; API/data errors still fail closed.
       - name: Re-check all open vendor PRs
         if: github.event_name == 'schedule' || github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/vendor-pr-serialization.mjs --all --repo "$GITHUB_REPOSITORY"
+        run: node scripts/vendor-pr-serialization.mjs --all --report-only --repo "$GITHUB_REPOSITORY"

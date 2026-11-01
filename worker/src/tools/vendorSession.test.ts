@@ -85,7 +85,7 @@ describe("vendor session profiles", () => {
     expect(resolveVendorSessionProfile("quickparts")).toMatchObject({
       loginUrl: "https://quickquote.quickparts.com/#/login",
       landingUrl: "https://quickquote.quickparts.com/",
-      sessionHosts: ["quickparts.com", "quickquote.quickparts.com"],
+      sessionHosts: ["quickparts.com", "quickquote.quickparts.com", "services.qpinternal.com"],
     });
     expect(resolveVendorSessionProfile("geomiq")).toMatchObject({
       loginUrl: "https://app.geomiq.com/",
@@ -170,7 +170,7 @@ describe("session:check", () => {
     const [options] = fake.calls;
     expect(options.target).toEqual({
       provider: "quickparts", adapterKind: "portal", landingUrl: "https://quickquote.quickparts.com/",
-      allowedHosts: ["quickparts.com", "quickquote.quickparts.com"],
+      allowedHosts: ["quickparts.com", "quickquote.quickparts.com", "services.qpinternal.com"],
     });
     expect(options.storageState).toEqual(quickpartsState);
     expect(options.allowLoopbackHttp).toBeUndefined();

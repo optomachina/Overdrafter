@@ -25,6 +25,17 @@ Until those checks pass, changed selectors must not publish quote data. Unanchor
 
 A later provider-interacting retest is a new live-continuation action. Rebuild and present the exact provider/account/files/hashes/action/origins/artifacts tuple, then obtain fresh explicit approval. Never reuse the repair review as upload authorization.
 
+## Xometry quote page and auth probe
+
+`docs/provider-integration.md` (Selector repair, and Quote-page price collection) is the contract. Apply it as follows:
+
+- `anonymous_quote_home` is an expired session, including the instant-pricing upload prompt with no dashboard evidence. Re-authenticate. Do not start selector repair.
+- `authenticated_dashboard_not_confirmed` is selector repair. Start from the scrubbed `fixtureHealFingerprint` line. Do not route it to session refresh.
+- Do not wrap `page.goto`, the inspection loop, and fingerprint capture in one empty `catch`. Report the sub-stage (`goto`, `inspection`, `fingerprint`) and a closed cause (`timeout`, `navigation_aborted`, `context_destroyed`, `net_error`, `other`) with no URL or page text.
+- Publish a price only for the complete tier set at the price the customer pays. A hidden, loading, disabled, mislabelled, stale, or conditionally withdrawn tier is a refusal. Two of three tiers is not a complete instant quote. Do not exempt a filename or `originalName` to make the settle wait pass.
+- Update the synthetic fixture in the same change (`worker/src/adapters/fixtures/xometry-quote-page-price-panel-2026-10.html`, `worker/src/adapters/fixtures/xometry-anonymous-quote-home.json`).
+- Do not open this repair while another PR already changes the same adapter files.
+
 ## Repair report
 
 Return the drift state, files inspected, sanitized comparison, proposed and reviewed changes, offline verification evidence, remaining unknowns, and whether a separately approved live retest is still required. Do not claim the provider is production-ready.

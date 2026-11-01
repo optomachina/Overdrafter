@@ -16,12 +16,8 @@
 --
 -- Restores, byte for byte, the bodies, signatures and grants of
 -- api_admin_set_provider_kill_switch and api_admin_list_provider_kill_switches
--- from supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql.
--- If ovd-766-a.sql has been applied at all, in EITHER order relative to
--- ovd-828-s1 (before it, or after it), this rollback overwrites 766-a's
--- api_admin_set_provider_kill_switch body with the OVD-722 one. Re-run
--- ovd-766-a.sql's api_admin_set_provider_kill_switch section after this
--- rollback so the AAL2 guard it added is not lost.
+-- from the current migration baseline: OVD-722 plus the OVD-767
+-- verified-auth and AAL2 guards on the per-provider writer.
 --
 -- Evidence: the cap columns on private.provider_kill_switch_audit and the
 -- private.provider_daily_quote_usage rows are dropped. Export both first, or
@@ -33,7 +29,7 @@ drop function if exists public.api_admin_set_provider_settings(public.vendor_nam
 drop function if exists public.api_worker_reserve_provider_dispatch(public.vendor_name);
 drop function if exists public.api_worker_provider_settings_state(public.vendor_name);
 
--- Prior definition (20261013043100_ovd722_provider_kill_switch.sql), restored exactly.
+-- Current definition (20261016000156_ovd767_admin_write_aal2_guards.sql), restored exactly.
 create or replace function public.api_admin_set_provider_kill_switch(
   p_provider public.vendor_name,
   p_engaged boolean,
@@ -52,8 +48,14 @@ declare
   v_current_version bigint;
   v_version bigint;
 begin
+  perform public.require_verified_auth();
+
   if not coalesce(public.is_platform_admin(), false) then
     raise exception 'platform_admin_required' using errcode = '42501';
+  end if;
+
+  if not public.current_user_has_aal2() then
+    raise exception 'Multi-factor authentication is required for provider kill switch administration.';
   end if;
 
   v_actor := auth.uid();
