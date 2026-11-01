@@ -75,9 +75,11 @@ edited no longer reserves.
 | S7 | 20261003011148 | -2 +4 | `30208617d8ea6ec756e268d1b31ad4c9` / 7473 | `edcca1ef0dd3cf45a7ff9c202696f185` / 7574 |
 
 Every other line of each body is byte-identical to the previous definition.
-The replay of all 153 migrations confirms these are the latest definitions and
-that the seven quantity-1 predicates listed in the design (1.2) are the only
-ones in latest bodies. The migration's precondition block refuses unless each
+The replay of all 153 migrations (before the 2026-10-31 merge of main) confirmed
+these are the latest definitions and that the seven quantity-1 predicates
+listed in the design (1.2) were the only ones in latest bodies. Main has since
+added an eighth site, which this migration does not change (see "Known
+findings": `public.accept_vendor_quote_result`, OVD-1073). The migration's precondition block refuses unless each
 body is the previous md5 or this file's; the rollback's guard refuses unless
 each body is this file's or the previous one.
 
@@ -413,10 +415,28 @@ orphaned. Re-applying re-seeds the control at revision 0.
 
 ## Known findings
 
-- `node scripts/lint-security-definer.mjs` on the migration reports `grant`
-  missing for S1, S5 and S6 (report mode). They are owner-only private helpers
-  whose current definitions are baselined with the same finding; the grants are
-  restated verbatim and the baseline is not grown.
+- **Eighth quantity-1 site, from main (OVD-1073, found in the 2026-10-31
+  review).** `supabase/migrations/20261029165751_reconcile_claim_fence.sql`
+  (around line 338, inside `public.accept_vendor_quote_result`) builds the
+  permit identity with a literal `1 requested_quantity` for
+  `private.xometry_beta_dispatch_permits` and compares it with the result's
+  `requested_quantity`. With the switch OFF nothing changes. With it ON, a
+  Xometry beta result above quantity 1 that goes through this fenced acceptance
+  would get `{"outcome":"stale"}` and never reach `finalize_free_quote_job`.
+  Nothing calls `accept_vendor_quote_result` yet (only its SQL, pgTAP and text
+  pin). This migration does not restate it, so its bytes and the reviewed md5s
+  stay as they are. **Hard prerequisite for switch-on (OVD-1000):** a follow-up
+  migration must take that quantity from the permit's lane
+  (`quote_request_lanes.requested_quantity`) instead of the literal, with an md5
+  precondition and a pgTAP case for acceptance at quantity 5 with the switch ON,
+  before the switch is turned on or before any caller starts using the fenced
+  acceptance for Xometry beta results, whichever comes first.
+- `node scripts/lint-security-definer.mjs` on the migration reports 0 failing
+  and 0 baselined (7 SECURITY DEFINER functions). S1, S5 and S6 are owner-only
+  private helpers; commit 892a7e9 added their owner-only
+  `grant execute ... to postgres` lines (migration around lines 650 and
+  1328-1329), which closed the earlier report-mode `grant` finding. The rollback
+  does not revoke those grants; with postgres as the owner they change nothing.
 - **Consumers that pin exactly four rollout controls (review round 1, finding 1).**
   Once this migration is applied in production,
   `public.api_get_commercial_rollout_controls()` returns five controls and
