@@ -191,6 +191,29 @@ CAPTCHA, anti-detection behavior, selector drift, and portal failures are
 reported with local evidence; they do not require a production rollout or
 provider-admission change before another evaluation attempt.
 
+#### Vendor sessions: unattended login and agent checks (OVD-1060)
+
+Quickparts, Geomiq and Weerg sessions can be refreshed or re-created without
+Blaine logging in by hand. See
+[docs/vendor-unattended-login.md](../docs/vendor-unattended-login.md) for setup,
+the Bitwarden unlock tradeoffs and the LaunchAgent.
+
+- `npm run login:vendors` signs in from Bitwarden and saves each session scoped
+  to the reviewed hosts. **Only Blaine's terminal or his LaunchAgent runs it.
+  Agents never invoke `login:vendors`**, never read its Bitwarden items, and
+  never type a password or solve a CAPTCHA; running it retrieves real
+  credentials, a protected action. It stops a vendor, with a macOS
+  notification and a scrubbed log line, at a visible CAPTCHA, a second-factor
+  prompt, an unknown page or a failed login.
+- `npm run session:check -- quickparts,geomiq,weerg` prints `valid`,
+  `login_required`, `missing`, `unopenable_by_kernel` or `check_failed` per
+  vendor. `npm run session:refresh` re-saves a still-valid session after a
+  visit that sends only GET and HEAD requests to the vendor. Neither reads
+  credentials, fills a form or uploads, so agents may run both.
+- Agents run `session:check` before a live run. If any vendor is not `valid`,
+  they batch the re-login request: one message to Blaine naming every vendor
+  that needs a login.
+
 #### OSH Cut evaluation
 
 OSH Cut uses the versioned `oshcut-sheet-laser-6061-t6.v1` provider envelope.

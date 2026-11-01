@@ -18,12 +18,11 @@ Operators manage suppliers (on/off and daily cap) in the admin operations view, 
 
 Preconditions: fixture mode for every mapped provider spec. There is no local-mode provider spec.
 
-- **Operations (fixture).** `verify.sh --features provider` runs `e2e/admin-operations.spec.ts` under `e2e/admin-operations.config.ts` (synthetic admin server on 4174; under the default config it skips every test), then `e2e/engineering-admin-route.spec.ts` under the default config. `e2e/journeys/jarvis-front-door.spec.ts` is pending (OVD-805): a `PENDING: ...` line is printed to the console (stderr, not `run.log` or `manifest.txt`) and it is listed under "Pending" in the judge summary; it is not run and never counted as a pass. Expect the supplier cap to persist after reload and the off switch to stick.
+- **Operations (fixture).** `verify.sh --features provider` runs `e2e/admin-operations.spec.ts` under `e2e/admin-operations.config.ts` (synthetic admin server on 4174; under the default config it skips every test), then `e2e/engineering-admin-route.spec.ts` under the default config. It then runs `e2e/journeys/jarvis-front-door.spec.ts` (the public Jarvis link from OVD-805) under the default config. Expect the supplier cap to persist after reload and the off switch to stick.
 - **Admin route.** Covered by the fixture command above (synthetic network only). `verify.sh --mode local --features provider` exits 2: no local provider spec exists, so report real-database provider behavior as not verified.
 - **Reachability.** `npx vitest run src/journeys --maxWorkers=2` checks every claimed entry point resolves.
 
 ## Gotchas
 
 - Fixture supplier settings are in-memory; persistence against the real table is not proven here.
-- `jarvis-front-door.spec.ts` is expected-fail until OVD-805; a "failed as expected" result is not a pass of that journey. When OVD-805 lands, remove its `test.fail()`, move it from `PENDING_SPECS` back into `FEATURE_SPECS`, and the skill test stops allowing the pending entry (it requires the spec to still carry `test.fail()` naming OVD-805).
 - Provider upload, checkout and worker adapters are protected actions; this skill never runs them.

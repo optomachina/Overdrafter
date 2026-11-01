@@ -1,0 +1,83 @@
+name: Vendor PR serialization
+
+# Fails a PR that changes a vendor-adapter file (adapters or vendor-named files in tools/src)
+# another open PR also changes, so shared auth/kernel/index edits land in one PR at a time.
+# Informational until "vendor-pr-serialization" is added to branch protection. The script
+# and its lib imports run from the base copy so a PR cannot edit its own check:
+# HEAD^1 on pull_request; a separate checkout pinned to merge_group.base_sha on merge_group.
+# schedule and push to main re-check all open vendor PRs (--all --report-only): overlaps between open
+# PRs are reported as warnings and in the job summary but do not fail main, since they are not a
+# defect of main and each newer PR's own pull_request check blocks it. Fails closed on API errors or page caps.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 */6 * * *"
+
+concurrency:
+  group: vendor-pr-serialization-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  vendor-pr-serialization:
+    name: vendor-pr-serialization
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - uses: actions/checkout@v5
+        if: github.event_name == 'merge_group'
+        with:
+          ref: ${{ github.event.merge_group.base_sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check queued vendor PR
+        if: github.event_name == 'merge_group'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import { parseMergeGroupHeadRef } from './base/scripts/vendor-pr-serialization.mjs';
+
+          const pr = parseMergeGroupHeadRef(process.env.MERGE_GROUP_HEAD_REF);
+          const result = spawnSync(process.execPath, [
+            'base/scripts/vendor-pr-serialization.mjs', '--pr', String(pr),
+            '--repo', process.env.GITHUB_REPOSITORY,
+          ], { stdio: 'inherit' });
+          process.exitCode = result.status ?? 1;
+          NODE
+      - name: Check open vendor PRs
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/gate/scripts"; mkdir -p "$gate/lib"
+          for f in scripts/vendor-pr-serialization.mjs scripts/lib/entry-point.mjs; do
+            if git cat-file -e "HEAD^1:$f" 2>/dev/null; then git show "HEAD^1:$f" > "$RUNNER_TEMP/gate/$f"; else cp "$f" "$RUNNER_TEMP/gate/$f"; fi
+          done
+          node "$gate/vendor-pr-serialization.mjs" --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
+      # Schedule and push to main: re-check every open vendor PR against every other one. Report-only:
+      # overlaps become warnings + job summary; API/data errors still fail closed.
+      - name: Re-check all open vendor PRs
+        if: github.event_name == 'schedule' || github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/vendor-pr-serialization.mjs --all --report-only --repo "$GITHUB_REPOSITORY"

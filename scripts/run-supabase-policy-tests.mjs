@@ -8,6 +8,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runAgainstSupabase } from './ovd462-lease-race.mjs';
 
 export const LEGACY = 'capability_runtime_persistence_concurrency.sql';
+// Reviewed exact-file routes only. Every entry must have a required CI runner;
+// new concurrency suites stay in the generic lane unless explicitly reviewed.
+export const DEDICATED_RUNNERS = Object.freeze({
+  'reconcile_claim_fence_followups_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
+  'reconcile_claim_fence_concurrency.sql': 'scripts/test-reconcile-claim-fence.mjs --ci-local',
+});
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 function inventory(root, relative = '') {
   return readdirSync(join(root, relative)).sort().flatMap(name => {
@@ -21,6 +27,10 @@ function inventory(root, relative = '') {
 export function stagePolicyTests(source, target) {
   const paths = inventory(source);
   assert(paths.includes(LEGACY), 'reviewed legacy source missing');
+  for (const path of Object.keys(DEDICATED_RUNNERS)) {
+    assert(paths.includes(path), `reviewed dedicated-runner source missing: ${path}`);
+  }
+  const selected = paths.filter(path => path !== LEGACY && !Object.hasOwn(DEDICATED_RUNNERS, path));
   const original = readFileSync(join(source, LEGACY), 'utf8');
   const phases = JSON.parse(readFileSync(join(source, 'capability_runtime_persistence_psql.phases.json')));
   assert.equal(phases.schema, 'ovd591.psql-phases.v1');
@@ -33,14 +43,14 @@ export function stagePolicyTests(source, target) {
   assert(!retained.includes('extensions.dblink'), 'replacement must use independent sessions');
   mkdirSync(target, { mode: 0o700 });
   const files = {};
-  for (const path of paths.filter(path => path !== LEGACY)) {
+  for (const path of selected) {
     mkdirSync(dirname(join(target, path)), { recursive: true });
     copyFileSync(join(source, path), join(target, path));
     files[path] = sha(readFileSync(join(source, path)));
     assert.equal(sha(readFileSync(join(target, path))), files[path]);
   }
-  assert.deepEqual(inventory(target), paths.filter(path => path !== LEGACY));
-  return { routedToRequiredPsqlJob: LEGACY, phaseSourceSha256: phases.originalSha256,
+  assert.deepEqual(inventory(target), selected);
+  return { routedToRequiredPsqlJob: LEGACY, dedicatedRunners: DEDICATED_RUNNERS, phaseSourceSha256: phases.originalSha256,
     selectedSql: Object.keys(files).filter(path => /\.(?:sql|pg)$/.test(path)), files };
 }
 export function admitPgProve(stdout, expectedFiles) {
@@ -69,6 +79,9 @@ async function main() {
   try {
     const target = join(owned, 'tests');
     const receipt = stagePolicyTests(join(root, 'supabase/tests'), target);
+    for (const [suite, runner] of Object.entries(receipt.dedicatedRunners)) {
+      console.log(`Excluded ${suite} from generic policy tests; required CI coverage: node ${runner}`);
+    }
     console.log(JSON.stringify(receipt, null, 2));
     // CLI 2.78.1 maps --debug to verbose pg_prove, exposing TAP skip/TODO directives.
     const result = spawnSync('supabase', ['test', 'db', '--local', '--debug', target], {

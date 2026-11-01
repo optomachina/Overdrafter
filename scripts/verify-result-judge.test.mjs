@@ -142,7 +142,7 @@ describe("verify-result-judge", () => {
   it("requires one report per config in the feature map and rejects extra reports", () => {
     expect(expectedConfigRuns(["provider"], "fixture")).toEqual([
       { config: "e2e/admin-operations.config.ts", specs: ["e2e/admin-operations.spec.ts"], report: "playwright-report-0.json" },
-      { config: "playwright.config.ts", specs: ["e2e/engineering-admin-route.spec.ts"], report: "playwright-report-1.json" },
+      { config: "playwright.config.ts", specs: ["e2e/engineering-admin-route.spec.ts", "e2e/journeys/jarvis-front-door.spec.ts"], report: "playwright-report-1.json" },
     ]);
     const suite = (file) => ({ title: file, file, specs: [{ title: "journey", file, tests: [test("passed")] }] });
     const provider = (reports, codes = "0 0") => judge({
@@ -150,7 +150,7 @@ describe("verify-result-judge", () => {
         label: "fixture",
         manifestText: manifest({
           mode: "fixture", features: "provider", codes,
-          specs: "e2e/admin-operations.spec.ts e2e/engineering-admin-route.spec.ts",
+          specs: "e2e/admin-operations.spec.ts e2e/engineering-admin-route.spec.ts e2e/journeys/jarvis-front-door.spec.ts",
           configs: "e2e/admin-operations.config.ts playwright.config.ts",
         }),
         reports,
@@ -159,15 +159,16 @@ describe("verify-result-judge", () => {
       features: ["provider"],
     });
     const admin = JSON.stringify({ suites: [suite("admin-operations.spec.ts")], errors: [] });
-    const rest = JSON.stringify({ suites: [suite("engineering-admin-route.spec.ts")], errors: [] });
+    const rest = JSON.stringify({ suites: [suite("engineering-admin-route.spec.ts"), suite("journeys/jarvis-front-door.spec.ts")], errors: [] });
     const ok = provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest });
     expect(ok.reasons).toEqual([]);
-    expect(ok.journeys.map((j) => j.config)).toEqual(["e2e/admin-operations.config.ts", "playwright.config.ts"]);
+    expect(ok.journeys.map((j) => j.config)).toEqual(["e2e/admin-operations.config.ts", "playwright.config.ts", "playwright.config.ts"]);
     expect(provider({ "playwright-report-0.json": admin }).reasons).toEqual(["fixture: playwright-report-1.json missing (playwright.config.ts)"]);
     // A spec that only ran under the wrong config does not count.
     expect(provider({ "playwright-report-0.json": rest, "playwright-report-1.json": admin }).reasons).toEqual([
       "fixture: no journeys ran for e2e/admin-operations.spec.ts",
       "fixture: no journeys ran for e2e/engineering-admin-route.spec.ts",
+      "fixture: no journeys ran for e2e/journeys/jarvis-front-door.spec.ts",
     ]);
     expect(provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest, "playwright-report-2.json": rest }).reasons).toEqual([
       "fixture: unexpected report playwright-report-2.json",
@@ -237,20 +238,18 @@ describe("verify-result-judge", () => {
     expect(result.reasons).toEqual(["fixture: no journeys ran for e2e/engineering-admin-route.spec.ts"]);
   });
 
-  it("lists pending specs (OVD-805) without running them or counting them as passing", () => {
+  it("runs the Jarvis front door (OVD-805 landed) as a provider journey with nothing pending", () => {
     const result = judge({ runs: [cleanRun(["provider"], "fixture")], expectedSha: SHA, features: ["provider"] });
     expect(result.verdict).toBe("PASS");
-    expect(result.pendingSpecs).toEqual([
-      "fixture: provider e2e/journeys/jarvis-front-door.spec.ts (OVD-805: journey is test.fail() until OVD-805 adds the public Jarvis link)",
-    ]);
-    expect(result.journeys.map((j) => j.file)).toEqual(["admin-operations.spec.ts", "engineering-admin-route.spec.ts"]);
-    expect(formatSummary(result)).toContain("### Pending (not run, not counted as passing)\n- fixture: provider e2e/journeys/jarvis-front-door.spec.ts (OVD-805");
+    expect(result.pendingSpecs).toEqual([]);
+    expect(result.journeys.map((j) => j.file)).toEqual(["admin-operations.spec.ts", "engineering-admin-route.spec.ts", "journeys/jarvis-front-door.spec.ts"]);
+    expect(formatSummary(result)).not.toContain("### Pending");
     // Only for requested features and judged modes.
     expect(judgeOne().pendingSpecs).toEqual([]);
     expect(judge({ runs: [cleanRun(DEFAULT, "local", "provider (SKIPPED: no local specs)")], expectedSha: SHA, features: DEFAULT }).pendingSpecs).toEqual([]);
   });
 
-  it("still fails a test.fail() journey from a pending spec if it runs anyway", () => {
+  it("fails a test.fail() journey in a mapped spec", () => {
     const fixture = cleanRun(["provider"], "fixture");
     const rest = JSON.parse(fixture.reports["playwright-report-1.json"]);
     const file = "journeys/jarvis-front-door.spec.ts";

@@ -1,14 +1,48 @@
 # Merge queue for `main` (OVD-854)
 
 Status: **Option B (strict) and `enforce_admins` were approved by Blaine on
-2026-10-16 and are now in force.** A read-back of the protection on 2026-10-16
+2026-10-16 and applied that day.** A read-back of the protection on 2026-10-16
 after they were applied showed `strict` and `enforce_admins` both `true`, with
-`ci` and `provider-go-live` as the required checks. To re-verify the live
+`ci` and `provider-go-live` as the required checks. A later read-only check
+(2026-10-31) shows `secret-scan` (app 15368) required as well, so the required
+checks are now `ci`, `provider-go-live` and `secret-scan`.
+
+**`strict` looks off now (indirect read-only observation, 2026-11-01).** PR
+#1006 was 12 commits behind `main` (`compare/main...docs/mq-followups`:
+`behind_by: 12`) while `GET repos/optomachina/Overdrafter/pulls/1006` reported
+`mergeable_state: "clean"`. With `strict: true`, GitHub reports `behind` for
+such a PR. `GET .../branches/main/protection` returns 403 from cloud sessions,
+so the `strict` flag itself was not read. No approval card for turning
+`strict` off is recorded in this repo. If the direct read-back confirms it,
+that change is the Rollback under Option B below, which needs Blaine's
+approval card. Until someone runs a direct read-back, treat the `strict`
+state as unconfirmed and rely on neither answer. To re-verify the live
 settings, run:
 
 ```bash
-gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
+gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled, required_checks: [.required_status_checks.checks[]?.context]}'
 ```
+
+The read-back passes only if `required_checks` lists exactly `ci`,
+`provider-go-live` and `secret-scan`. The land helper takes its required
+checks from protection at run time, so a context dropped from protection would
+otherwise go unnoticed until after a merge.
+
+The `land` skill and its eval (`evals/skills/land/spec.json`) are written for
+strict mode, and the helper's stale-base protection depends on it. **Do not
+treat land as safe with `strict` off.** The helper checks that the base is in
+the pinned head before it waits for checks, but its final mergeability loop
+accepts `CLEAN` (also `HAS_HOOKS` and `UNSTABLE`) without fetching the base
+again; only a `BEHIND` state triggers a fresh base check
+(`.codex/skills/land/land_strict_merge.sh`, step 5). With `strict` off,
+GitHub reports `CLEAN` even after `main` has moved during the check wait, and
+`--match-head-commit` pins only the PR head, so a combination no check ran on
+can merge. The tree read-back catches that only after landing. Until a direct
+read-back shows `strict: true`, land only with exclusive serialization over
+the whole update, check and merge sequence: no other merge to `main` from
+the update until this merge lands. Re-checking `main` right before merging
+is not a substitute, because another PR can still merge between that check
+and this merge, and the helper has no hook for such a check anyway.
 
 The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
@@ -21,7 +55,7 @@ pins any other PR head only when that head is the reviewed head brought up to
 date by update merges with the `diff_id` unchanged, so a re-run after a timeout
 verifies an update an earlier run sent before it merges.
 If the diff is unchanged, it waits for the required checks
-read from branch protection (`ci` and `provider-go-live` today) on the new
+read from branch protection (`ci`, `provider-go-live` and `secret-scan` today) on the new
 head, and merges with
 `gh pr merge --match-head-commit <head>`, failing closed on any mismatch,
 timeout or unknown state. It reads back the merge commit tree and requires it
@@ -48,18 +82,25 @@ returned `User`). Two separate decisions for Blaine follow:
    [Prerequisite: organization ownership](#prerequisite-organization-ownership).
 2. **Option B, applicable now:** turn on `strict: true` ("Require branches to be
    up to date before merging") on the classic branch protection. Approved by
-   Blaine on 2026-10-16 together with `enforce_admins`, and now in force (see
-   Status). See
+   Blaine on 2026-10-16 together with `enforce_admins` and applied that day;
+   its current state is unconfirmed (see Status). See
    [Option B: strict up to date checks](#option-b-strict-up-to-date-checks-applicable-now).
 
-Option B is in force. Option A stays drafted so it can be applied once
+Option B was applied on 2026-10-16 (see Status for its current state). Option A stays drafted so it can be applied once
 the repo is org-owned.
+
+> **The merge queue is not live (2026-10-31).** GitHub rejected the
+> `merge_queue` rule because `optomachina/Overdrafter` is user-owned, and merge
+> queues are available only to organization-owned repositories. Until the
+> queue can be enabled, merges stay one at a time, each pinned with
+> `gh pr merge --match-head-commit <sha>`. Whether "require branches to be up
+> to date" is still on is unconfirmed; see Status.
 
 ## Why
 
 Before Option B, `main` required `ci` and `provider-go-live` with
 `strict: false` and had no merge queue, so a PR could merge green against a
-stale base and break `main`. `strict: true` (now in force) fixes that by blocking the merge until the PR branch contains
+stale base and break `main`. `strict: true` (applied 2026-10-16; see Status for its current state) fixes that by blocking the merge until the PR branch contains
 the current `main` and the required checks have passed on it. Merges are then
 serialised by hand (update the branch, wait for checks, merge). A merge queue
 does the same job automatically: it builds each PR on top of the current `main`
@@ -79,14 +120,42 @@ must trigger on `merge_group`. Audit of `.github/workflows/*` at OVD-854:
 | --- | --- | --- | --- | --- |
 | `ci.yml` | `ci` | yes | yes | Full suite on the queue commit; the `ci` aggregate job gates on every dependency |
 | `pr-body-gate.yml` | `provider-go-live` | yes | yes (`checks_requested`) | No op pass; the rule is enforced on the `pull_request` run |
+| `secret-scan.yml` | `secret-scan` | yes (since the 2026-10-31 read) | yes (`checks_requested`) | Real scan, never a no op: gitleaks and the path block run on `merge_group.base_sha..merge_group.head_sha` with the base's config and ignore list |
 | `proof-check.yml` | `proof-check` | no (report mode, future candidate) | yes (`checks_requested`) | No op pass; every other step is `pull_request` only, so the job reports success |
 | `companion-artifact.yml`, `companion-task.yml`, `companion-inert-qualified.yml`, `stop-observer.yml`, `native-sql-proofs.yml`, `ovd*-pending-pgtap.yml` | various | no | no | Path-filtered PR checks; not required, so they do not block the queue |
 | `ovd591-qualification.yml`, `ovd591-retention-qualification.yml`, `free-quote-sql-qualification.yml` | via `ci` | through `ci` | inherited | `workflow_call` only; they run inside `ci.yml` on every event `ci.yml` handles |
 
-No workflow change was needed. `scripts/merge-queue-workflows.test.mjs` keeps
-the required set honest: each required workflow must declare `merge_group`,
-keep its check name, have no job-level `if:` that could skip the job, and (for
-the no op workflows) gate every real step to `pull_request`.
+No workflow change was needed at OVD-854. When `secret-scan` became required
+it had no `merge_group` trigger, so a queue entry would have waited on it until
+the check timeout; it now triggers on `merge_group` (`checks_requested`).
+`scripts/merge-queue-workflows.test.mjs` keeps the required set honest: each
+required workflow must declare `merge_group` with `checks_requested` and no
+paths filter, keep its check name, have no job-level `if:` that could skip the
+job, (for the no op workflows) gate every real step to `pull_request`, and (for
+`secret-scan`) gate no step on the event and diff the merge group's base and
+head.
+
+**`secret-scan` on the queue commit.** On `merge_group`, `BASE_SHA` is
+`merge_group.base_sha` and `HEAD_SHA` is `merge_group.head_sha` (the queue
+commit). `merge_group.base_sha` is the queue entry's parent commit: the `main`
+tip for the first entry, or the previous entry's queue commit when other PRs
+are ahead. The range is exactly what this entry adds on top of that parent:
+the PR's change, rebuilt on it. It never scans less than the `pull_request`
+run does for the same change. The config, `.gitleaksignore` and path block
+come from that parent, so a PR still cannot relax its own scan. When another
+entry is ahead, though, they come from that entry's queue commit, so a PR
+ahead in the queue (itself reviewed and scanned) can change the config this
+entry is scanned with. The header comment in
+`.github/workflows/secret-scan.yml` still describes the range as "this PR's
+change plus any queue entries ahead of it"; this paragraph is the corrected
+reading, and that comment changes only with the workflow's own approval.
+The job keeps `continue-on-error` (report mode) on both events: findings are
+reported and never fail the job, and a scanner that cannot run (for example
+the gitleaks download or checksum fails, or a git command errors) turns the
+job red. Whether that red job, under job-level `continue-on-error`, reports a
+check conclusion that blocks the PR is **not confirmed**: no run so far has
+had a failed step to show it. Confirm it on a live run before relying on
+either answer.
 
 **`provider-go-live` is not re-checked by the queue.** Its `merge_group` run is
 a no op pass. The rule is evaluated only on the PR's own `pull_request` run,
@@ -96,8 +165,9 @@ provider enablement that only appears once the PR is combined with newer
 `main`.
 
 Check names are the bare job `name`s, because branch protection matches the
-check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`) and
-`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`).
+check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`),
+`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`) and
+`secret-scan` (job `secret-scan` in `secret-scan.yml`).
 
 ### Rule for new required checks
 
@@ -168,7 +238,7 @@ Only once `owner.type` reads `Organization` does Option A apply.
 
 | Setting | Value |
 | --- | --- |
-| Required checks | `ci`, `provider-go-live` (GitHub Actions app). Unchanged. |
+| Required checks | `ci`, `provider-go-live`, `secret-scan` (GitHub Actions app). Unchanged. |
 | Strict (require branches up to date) | off. The queue replaces it. If Option B was applied first, set it back to `false` (Option B rollback) in the same approval. |
 | `enforce_admins` | unchanged |
 | Merge queue | on, `main` only |
@@ -274,7 +344,7 @@ so they are harmless and need no revert.
 1. Snapshot recorded above (`owner.type` is `Organization`); ruleset `id`
    recorded on the issue.
 2. Enqueue a trivial docs PR. Confirm a `merge_group` run starts on
-   `gh-readonly-queue/main/...`, that `ci` and `provider-go-live` both report on
+   `gh-readonly-queue/main/...`, that `ci`, `provider-go-live` and `secret-scan` all report on
    the queue commit, and that the PR merges as one squash commit whose SHA on
    `main` equals the tested queue commit SHA.
 3. Enqueue two PRs where the first has a deliberate failure in a `ci`
@@ -292,12 +362,12 @@ have passed on that state. It does not serialise automatically; after each
 merge, every other open PR goes out of date and must be updated (which reruns
 both checks, since both trigger on `synchronize`) before it can merge.
 
-### Applied settings (in force since 2026-10-16)
+### Applied settings (2026-10-16)
 
-| Setting | Before | After (approved and in force, 2026-10-16) |
+| Setting | Before | After (approved and applied, 2026-10-16) |
 | --- | --- | --- |
 | `required_status_checks.strict` | `false` | `true` |
-| `required_status_checks.checks` | `ci`, `provider-go-live` (app 15368) | unchanged |
+| `required_status_checks.checks` | `ci`, `provider-go-live` (app 15368) | unchanged (`secret-scan`, app 15368, was added later; see Status) |
 | `enforce_admins` | `false` | `true` (approved with Option B; a separate setting from the call below) |
 | Everything else in classic protection | as snapshotted | unchanged |
 
@@ -314,19 +384,21 @@ card.
 
 ### Apply command
 
-> **Reference only: both settings are already in force (see Status).** Do not
+> **Reference only: both settings were applied on 2026-10-16; the current
+> `strict` state is unconfirmed (see Status).** Do not
 > re-run this unless the read-back shows the protection has drifted, and then
 > only with Blaine's approval card. Grok Bot applies protection changes only
 > after approval, with the card naming this runbook's commit SHA.
 
 ```bash
-# Reference only (already in force). Re-run only with Blaine's approval card.
+# Reference only (applied 2026-10-16; current state: see Status). Re-run only with Blaine's approval card.
 gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/required_status_checks --input - <<'JSON'
 {
   "strict": true,
   "checks": [
     { "context": "ci", "app_id": 15368 },
-    { "context": "provider-go-live", "app_id": 15368 }
+    { "context": "provider-go-live", "app_id": 15368 },
+    { "context": "secret-scan", "app_id": 15368 }
   ]
 }
 JSON
@@ -341,14 +413,14 @@ diff <(jq -S . /tmp/ovd854-protection-before.json) <(jq -S . /tmp/ovd854-protect
 # enforce_admins.enabled false -> true; nothing else.
 ```
 
-If the snapshot shows the required checks differ from `ci` and
-`provider-go-live` (app 15368), stop and ask; the drafted call would overwrite
-them.
+If the snapshot shows the required checks differ from `ci`,
+`provider-go-live` and `secret-scan` (app 15368), stop and ask; the drafted
+call would overwrite them.
 
 ### Operating under strict
 
 - **Out-of-date PRs.** Update the branch (`gh pr update-branch <n>`, or the
-  "Update branch" button), wait for `ci` and `provider-go-live` to pass on the
+  "Update branch" button), wait for `ci`, `provider-go-live` and `secret-scan` to pass on the
   new head, then merge. The merged commit is then tested against the `main`
   it lands on, unless another PR merged in between, in which case GitHub
   blocks the merge again.
@@ -360,10 +432,10 @@ them.
   does not merge. Do not re-run land at the new head until a passing review and
   QA verdict exist at that head. When the diff is unchanged, it waits for
   the required checks read from branch protection
-  (`ci` and `provider-go-live` today) and verifies the landed tree against the
+  (`ci`, `provider-go-live` and `secret-scan` today) and verifies the landed tree against the
   pinned head. As a manual fallback, update an
-  out-of-date PR with `gh pr update-branch`, wait for `ci` and
-  `provider-go-live` on the new head, re-check the PR state and head by hand,
+  out-of-date PR with `gh pr update-branch`, wait for `ci`,
+  `provider-go-live` and `secret-scan` on the new head, re-check the PR state and head by hand,
   and merge with `gh pr merge --match-head-commit <head>` pinned to the head
   you checked, so GitHub refuses the merge if the head moved. A "not up to
   date" block means update and re-check, never `Rework`.
@@ -382,7 +454,8 @@ gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/req
   "strict": false,
   "checks": [
     { "context": "ci", "app_id": 15368 },
-    { "context": "provider-go-live", "app_id": 15368 }
+    { "context": "provider-go-live", "app_id": 15368 },
+    { "context": "secret-scan", "app_id": 15368 }
   ]
 }
 JSON
@@ -394,7 +467,7 @@ JSON
    `enforce_admins` changed.
 2. Open two trivial docs PRs from the same `main`. Merge the first. Confirm
    the second shows "This branch is out-of-date" and cannot merge.
-3. Update the second branch; confirm `ci` and `provider-go-live` rerun on the
+3. Update the second branch; confirm `ci`, `provider-go-live` and `secret-scan` rerun on the
    new head, then merge it.
 4. Close any throwaway PR and delete its branch.
 

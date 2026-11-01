@@ -1,0 +1,307 @@
+{
+  "schema": "overdrafter.agent-graph/v1",
+  "version": "1.0.0-draft.5",
+  "note": "Canonical OverDrafter agent graph. Written in the JSON subset of YAML so it parses with no dependencies. Owns routing, verdicts and the merge gate; AGENTS.md owns approvals, the auto-merge allowlist and sensitive paths. Validate with: node scripts/validate-agent-graph.mjs",
+  "root": "grok-bot",
+  "nodes": {
+    "grok-bot": {
+      "role": "root",
+      "note": "only seat that talks to Blaine; countersigns gate-loosening changes; council seat"
+    },
+    "jev": {
+      "role": "router",
+      "does": [
+        "pr-screen",
+        "risk-score"
+      ]
+    },
+    "auto-triage": {
+      "role": "router",
+      "does": [
+        "issue-route"
+      ]
+    },
+    "engineer": {
+      "role": "writer",
+      "runtimes": [
+        "claude-code",
+        "codex"
+      ]
+    },
+    "designer": {
+      "role": "writer",
+      "runtimes": [
+        "claude-code",
+        "codex"
+      ]
+    },
+    "sonnet": {
+      "role": "reviewer",
+      "family": "anthropic"
+    },
+    "opus": {
+      "role": "reviewer",
+      "family": "anthropic"
+    },
+    "codex": {
+      "role": "reviewer",
+      "family": "openai",
+      "note": "second reviewer family (Blaine, 2026-10-16)"
+    },
+    "grok": {
+      "role": "reviewer",
+      "family": "xai",
+      "note": "overflow reviewer and council seat"
+    },
+    "qa": {
+      "role": "verifier",
+      "must_not_author": true
+    },
+    "merge-gate": {
+      "role": "gate"
+    },
+    "release": {
+      "role": "release",
+      "note": "Architect/Release bot. Sensitive-scope issues route here architect-first (design and plan before any engineer handoff); protected merges route here from the merge gate."
+    },
+    "ci": {
+      "role": "ci",
+      "note": "hosted GitHub Actions checks"
+    }
+  },
+  "predicates": {
+    "sensitive-paths": "PR or issue scope touches AGENTS.md#sensitive-paths-single-shared-list",
+    "jev-risky": "Jev screen scores the PR risky",
+    "reviewer-overflow": "a primary reviewer is unavailable or rate-limited",
+    "protected": "the change needs a protected action (merge outside the auto-merge allowlist, production migration)"
+  },
+  "edge_semantics": "An edge is a possible handoff from `from` to `to`. With no `when`, it always fires. `when` lists predicate names, and the edge fires only if all of them hold (AND). `unless` lists predicate names, and the edge fires only if none hold. If the condition fails and `else` names a node, work goes there instead; otherwise the edge doesn't fire. Several edges from one node that fire together run in parallel (e.g. reviewers). Every predicate must be declared in `predicates`. Event edges add: `trigger` (the event that fires the edge), `gate` (a condition checked at the head SHA before handoff), `dedupe` (key; at most one handoff per key), `handoff` (how the target is notified), `backstop` (a polling job that catches missed events), and `mode` (`report` posts only; `enforce` may block). `issue` names the tracking ticket.",
+  "edges": [
+    {
+      "from": "auto-triage",
+      "to": "engineer",
+      "unless": [
+        "sensitive-paths"
+      ],
+      "else": "release"
+    },
+    {
+      "from": "engineer",
+      "to": "jev"
+    },
+    {
+      "from": "designer",
+      "to": "jev"
+    },
+    {
+      "from": "jev",
+      "to": "sonnet"
+    },
+    {
+      "from": "jev",
+      "to": "codex"
+    },
+    {
+      "from": "jev",
+      "to": "opus",
+      "when": [
+        "jev-risky"
+      ]
+    },
+    {
+      "from": "jev",
+      "to": "opus",
+      "when": [
+        "sensitive-paths"
+      ]
+    },
+    {
+      "from": "jev",
+      "to": "grok",
+      "when": [
+        "reviewer-overflow"
+      ]
+    },
+    {
+      "from": "sonnet",
+      "to": "qa"
+    },
+    {
+      "from": "codex",
+      "to": "qa"
+    },
+    {
+      "from": "opus",
+      "to": "qa"
+    },
+    {
+      "from": "grok",
+      "to": "qa"
+    },
+    {
+      "from": "qa",
+      "to": "merge-gate"
+    },
+    {
+      "from": "merge-gate",
+      "to": "release",
+      "when": [
+        "protected"
+      ]
+    },
+    {
+      "from": "ci",
+      "to": "qa",
+      "issue": "OVD-865",
+      "trigger": "workflow_run.completed",
+      "gate": "required_checks_green@head_sha",
+      "dedupe": "pr+head_sha",
+      "handoff": "label qa:ready + marker comment",
+      "backstop": "macmini-hourly",
+      "mode": "report"
+    }
+  ],
+  "verdicts": {
+    "qa": {
+      "values": [
+        "PASS",
+        "PASS_NOTES",
+        "FAIL"
+      ],
+      "bound_to": "head_sha",
+      "voided_by": "new_sha",
+      "rebase_reuse": "diff-id-equal",
+      "rebase_reuse_on_error": "reject",
+      "note": "A verdict carries over a rebase only when the diff_id recomputed for the new head equals the verdict's diff_id (docs/verdict-format.md, OVD-845). An equal patch_id alone is never enough; if diff_id cannot be computed, the verdict is not reused."
+    },
+    "readiness": {
+      "values": [
+        "READY",
+        "CONFLICTS",
+        "OPEN_THREADS",
+        "CHECKS_PENDING",
+        "CHECKS_FAILED",
+        "GATE_BLOCKED"
+      ],
+      "note": "typed output of a script; input to automerge eligibility (OVD-845)"
+    }
+  },
+  "merge_gate": {
+    "requires": [
+      "ci_green",
+      "review_no_open_findings",
+      "qa_PASS_or_PASS_NOTES_at_head",
+      "readiness_READY"
+    ],
+    "auto_merge_also_requires": [
+      "jev_not_risky",
+      "allowlisted_paths_only"
+    ],
+    "rules": [
+      "Green CI and an approving bot review are not verdicts; only the verifier's verdict counts, and the verifier must not have authored the code.",
+      "Review the diff, never an abstract plan. A finding raised by two model families is the strongest signal.",
+      "Land only the contiguous verified run, bottom-up, and read each merge back on main. A queued merge or armed auto-merge is not a merge.",
+      "Babysitting (rebases, threads, CI reruns) never authorizes a merge. Classify a CI failure before retrying: one fresh build for a flake, never blind retries.",
+      "verify-overdrafter is the first verification investment; verifiers use it once it exists."
+    ],
+    "auto_merge_allowlist": "AGENTS.md#approval-timing-and-low-risk-auto-merge-blaine-2026-10-14",
+    "sensitive_paths": "AGENTS.md#sensitive-paths-single-shared-list"
+  },
+  "protected": {
+    "live-database-change": "manual; never automated",
+    "gate-loosening": "root-agent countersign plus Blaine's OK"
+  },
+  "runtime_routing": {
+    "note": "Where work runs (Blaine, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate.",
+    "cloud": {
+      "does": [
+        "coordinate",
+        "routines",
+        "24/7",
+        "parallel-fan-out"
+      ],
+      "limited_by": [
+        "usage-credits",
+        "review-and-merge-capacity"
+      ]
+    },
+    "local": {
+      "does": [
+        "heavy-builds"
+      ],
+      "runtimes": [
+        "claude-code",
+        "codex"
+      ],
+      "where": "Blaine's Macs",
+      "when": "Blaine's subscriptions have spare capacity",
+      "why": "local runs avoid Cursor usage credits",
+      "limited_by": [
+        "machine",
+        "5h-rate-caps",
+        "mac-sleep"
+      ]
+    },
+    "bottleneck": "review and Blaine's approval queue",
+    "priority": {
+      "issue": "OVD-845",
+      "note": "auto-merge eligibility"
+    },
+    "usage_balancer": {
+      "note": "Pool selection and Jev-first screening (Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate. Precedence: caps (weekly-review-only, five-hour-no-builds) override every assignment rule (build-furthest-behind-pace, burn-before-reset); each override is declared in `overrides`, and overrides must not form a cycle.",
+      "balancer": {
+        "repo": "optomachina/pstack-project-template",
+        "script": "scripts/usage-balancer/usage-balancer.mjs",
+        "args": [
+          "--source",
+          "claude=web",
+          "--source",
+          "codex=oauth",
+          "--jev-log",
+          "~/.local/state/usage-balancer/jev-calls.jsonl",
+          "--jev-probe"
+        ]
+      },
+      "rules": [
+        {
+          "id": "jev-first",
+          "rule": "Jev goes first for screening, triage, risk and review screens, and scoring. Jev only decides; it never writes code or text. Log every call. When Jev is throttled, failing or low-confidence, Sonnet does the screen instead; a fallback screen never counts as jev_not_risky, so that PR cannot auto-merge and needs Blaine's OK."
+        },
+        {
+          "id": "build-furthest-behind-pace",
+          "rule": "New builds go to the build-mode pool furthest behind pace."
+        },
+        {
+          "id": "burn-before-reset",
+          "rule": "A pool within 24h of its reset with budget left gets backlog work that is okay to burn."
+        },
+        {
+          "id": "weekly-review-only",
+          "rule": "At >=90% of the weekly budget the pool is review only. This cap overrides build-furthest-behind-pace and burn-before-reset.",
+          "overrides": [
+            "build-furthest-behind-pace",
+            "burn-before-reset"
+          ]
+        },
+        {
+          "id": "five-hour-no-builds",
+          "rule": "If the 5-hour window is >=90%, no new builds. This cap overrides build-furthest-behind-pace and burn-before-reset.",
+          "overrides": [
+            "build-furthest-behind-pace",
+            "burn-before-reset"
+          ]
+        },
+        {
+          "id": "skip-no-data",
+          "rule": "Skip pools with no usage data."
+        }
+      ]
+    }
+  },
+  "adapters": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "openclaw-mini:~/.hermes/SOUL.md",
+    "agent-data/workflows/agent-orchestrator-linear/SKILL.md"
+  ]
+}
