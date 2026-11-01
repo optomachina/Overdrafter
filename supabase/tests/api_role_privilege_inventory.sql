@@ -89,6 +89,7 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_get_organization_entitlements(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_get_part_deadline(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_get_provider_dispatch_scope(uuid,public.vendor_name,text)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
+  ('public.api_get_quantity_scope(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-1007'),
   ('public.api_get_quote_access(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_get_quote_lane_eligibility(uuid,public.vendor_name[])', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_get_quote_run_readiness(uuid)', 'authenticated', 'internal-role', 'OVD-602'),
