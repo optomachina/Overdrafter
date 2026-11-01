@@ -656,7 +656,11 @@ function scanPatchLine(text, state, prefixes) {
 }
 
 const freshSides = () => ({ "+": { block: null, template: false }, "-": { block: null, template: false } });
+const sidesAgree = (sides) => sides["+"].block === sides["-"].block && sides["+"].template === sides["-"].template;
 
+// An unchanged context line must read the same on both sides, and each hunk must end with both sides
+// in the same block/template state, so adding or removing a bare `/*`…`*/` pair around unchanged
+// code (commenting it out or back in) is a code change, not a comments-only one.
 function isCommentsOnlyPatch(file) {
   if (!["modified", "added", "removed"].includes(file.status) || typeof file.patch !== "string") return false;
   const changed = { "+": 0, "-": 0 };
@@ -664,13 +668,18 @@ function isCommentsOnlyPatch(file) {
   const prefixes = lineCommentPrefixes(file.filename);
   for (const line of file.patch.split("\n")) {
     const marker = line[0];
-    if (line.startsWith("@@")) sides = freshSides();
-    else if (marker === " ") for (const side of ["+", "-"]) scanPatchLine(line.slice(1), sides[side], prefixes);
-    else if (marker in changed) {
+    if (line.startsWith("@@")) {
+      if (!sidesAgree(sides)) return false;
+      sides = freshSides();
+    } else if (marker === " ") {
+      const added = scanPatchLine(line.slice(1), sides["+"], prefixes);
+      if (added !== scanPatchLine(line.slice(1), sides["-"], prefixes)) return false;
+    } else if (marker in changed) {
       if (!scanPatchLine(line.slice(1), sides[marker], prefixes)) return false;
       changed[marker] += 1;
     }
   }
+  if (!sidesAgree(sides)) return false;
   return changed["+"] + changed["-"] > 0 && changed["+"] === file.additions && changed["-"] === file.deletions;
 }
 

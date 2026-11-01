@@ -272,8 +272,11 @@ are `//`, `/* ... */`, and `<!-- ... -->` in any file, `#` only in `.py`, `.sh`,
 `--` only in `.sql`, `.pgsql`, `.psql`, and `.lua` files (elsewhere they are
 headings, custom properties, or content). Block context is tracked separately
 on each patch side, and so is template-literal state: a line inside a backtick
-literal is content, never a comment. A hunk that starts mid-literal is not
-detected. Missing/binary/truncated patches, file renames, and
+literal is content, never a comment. An unchanged context line must read the
+same (comment or code) on both sides, and each hunk must end with both sides in
+the same block/template state, so adding or removing a bare `/*` … `*/` pair
+around unchanged code (commenting it out or back in) is rejected. A hunk that
+starts mid-literal is not detected. Missing/binary/truncated patches, file renames, and
 comparisons at GitHub's 300-file cap are rejected conservatively. A comparison
 that cannot be fetched (unknown or force-pushed SHA, API error) counts as not
 comments-only for that pair, is logged by SHA pair only, and never stops the

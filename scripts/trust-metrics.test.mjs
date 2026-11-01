@@ -331,6 +331,19 @@ describe("comments-only comparisons", () => {
     assert.equal(isCommentsOnlyComparison(comparison("@@ -1,3 +1,3 @@\n /*\n- old\n+ new\n */")), true);
   });
 
+  it("rejects commenting unchanged code out or back in with a bare block comment pair", () => {
+    const out = "@@ -1,3 +1,5 @@\n x();\n+/*\n deleteAll();\n+*/\n y();";
+    const back = "@@ -1,5 +1,3 @@\n x();\n-/*\n deleteAll();\n-*/\n y();";
+    assert.equal(isCommentsOnlyComparison(comparison(out, { additions: 2, deletions: 0 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison(back, { additions: 0, deletions: 2 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,3 +1,3 @@\n x();\n-<!--\n+// note\n <p>hi</p>", { additions: 1, deletions: 1 })), false);
+  });
+
+  it("rejects a hunk that leaves a block comment open on only one side", () => {
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,2 +1,3 @@\n x();\n+/*\n \n@@ -20,1 +21,1 @@\n-// a\n+// b", { additions: 2, deletions: 1 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,2 +1,3 @@\n x();\n+/*\n ", { additions: 1, deletions: 0 })), false);
+  });
+
   it("accepts added or removed files containing only comments", () => {
     assert.equal(isCommentsOnlyComparison(comparison("@@ -0,0 +1 @@\n+// new", { status: "added", deletions: 0 })), true);
     assert.equal(isCommentsOnlyComparison(comparison("@@ -1 +0,0 @@\n-// old", { status: "removed", additions: 0 })), true);
