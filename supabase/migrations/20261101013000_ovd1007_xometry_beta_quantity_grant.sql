@@ -91,7 +91,7 @@ begin
   for v_expected in
     select * from (values
       ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '916594293cfc4e66053acf4c7414b2ba', '1d482bb5747127128e041549291eae6e'),
-      ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '28c932e1ccf964302ffed42d9ce4bc0b', '239c6102d349cc21c3e68caa0fe98915'),
+      ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '28c932e1ccf964302ffed42d9ce4bc0b', 'be3fd395b4e84ddb118d643386a7bfde'),
       ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19', '5d7e026241a0346a6624063e86a088f7')
     ) as expected(signature, previous_md5, applied_md5)
   loop
@@ -112,6 +112,19 @@ end;
 $ovd1007_precondition$;
 
 -- 1. Grants: never deleted; consume and revoke are one-way updates.
+create or replace function private.reject_xometry_beta_quantity_grant_truncate()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  raise exception 'Xometry beta quantity grants are never deleted; revoke them.';
+end;
+$$;
+
+revoke all on function private.reject_xometry_beta_quantity_grant_truncate()
+  from public, anon, authenticated, service_role;
+
 create table if not exists private.xometry_beta_quantity_grants (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
@@ -294,7 +307,7 @@ drop trigger if exists guard_xometry_beta_quantity_grant_truncate
   on private.xometry_beta_quantity_grants;
 create trigger guard_xometry_beta_quantity_grant_truncate
 before truncate on private.xometry_beta_quantity_grants
-for each statement execute function private.reject_xometry_beta_quantity_grant_event_mutation();
+for each statement execute function private.reject_xometry_beta_quantity_grant_truncate();
 
 -- 4. The one grant reader. p_permit_id null: a live grant (a fresh request).
 -- p_permit_id set: the grant that permit consumed (a replay or the worker
@@ -1066,6 +1079,11 @@ begin
         for update nowait;
         if not found then
           v_grant_id := null;
+          -- Revoked or consumed since S1 read it: without the switch, deny
+          -- with the quantity code, as S1 would now.
+          if not private.xometry_beta_user_quantity_enabled() then
+            raise exception 'xometry_beta_quantity_one_required';
+          end if;
         end if;
       exception
         when lock_not_available then

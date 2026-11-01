@@ -33,7 +33,7 @@ begin
   for v_expected in
     select * from (values
       ('private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)', '1d482bb5747127128e041549291eae6e', '916594293cfc4e66053acf4c7414b2ba'),
-      ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', '239c6102d349cc21c3e68caa0fe98915', '28c932e1ccf964302ffed42d9ce4bc0b'),
+      ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', 'be3fd395b4e84ddb118d643386a7bfde', '28c932e1ccf964302ffed42d9ce4bc0b'),
       ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '5d7e026241a0346a6624063e86a088f7', '0fef772880a4122f72475a9905b7ed19')
     ) as expected(signature, applied_md5, restored_md5)
   loop
@@ -804,6 +804,14 @@ do $ovd1007_rollback_tables$
 declare
   v_rows bigint := 0;
 begin
+  -- Lock both tables first (writers wait until this transaction ends), so a
+  -- grant call committing after the count cannot have its rows dropped.
+  if pg_catalog.to_regclass('private.xometry_beta_quantity_grants') is not null then
+    lock table private.xometry_beta_quantity_grants in share row exclusive mode;
+  end if;
+  if pg_catalog.to_regclass('private.xometry_beta_quantity_grant_events') is not null then
+    lock table private.xometry_beta_quantity_grant_events in share row exclusive mode;
+  end if;
   if pg_catalog.to_regclass('private.xometry_beta_quantity_grants') is not null then
     execute 'select count(*) from private.xometry_beta_quantity_grants' into v_rows;
   end if;
@@ -816,6 +824,7 @@ begin
     drop table if exists private.xometry_beta_quantity_grants;
     drop function if exists private.guard_xometry_beta_quantity_grant_mutation();
     drop function if exists private.reject_xometry_beta_quantity_grant_event_mutation();
+    drop function if exists private.reject_xometry_beta_quantity_grant_truncate();
   else
     revoke all on private.xometry_beta_quantity_grants
       from public, anon, authenticated, service_role;

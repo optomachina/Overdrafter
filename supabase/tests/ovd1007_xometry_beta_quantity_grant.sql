@@ -26,7 +26,7 @@ $$;
 
 select is(ovd1007_drill.body_md5s(), '{
   "private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)": "1d482bb5747127128e041549291eae6e",
-  "public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)": "239c6102d349cc21c3e68caa0fe98915",
+  "public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)": "be3fd395b4e84ddb118d643386a7bfde",
   "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "5d7e026241a0346a6624063e86a088f7"}'::jsonb,
   'rollback drill: S1, S3 and S4 are the OVD-1007 bodies');
 -- Results are captured into psql variables and asserted after the savepoint is
