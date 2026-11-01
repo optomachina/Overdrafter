@@ -45,7 +45,9 @@ function persistenceFailure(error: unknown, context: Record<string, unknown> = {
 /** Follow-ups remain durable for the next maintenance pass if this drain fails. */
 export async function drainQuoteRunRollups(supabase: SupabaseClient): Promise<void> {
   try {
-    const { error } = await supabase.rpc("drain_quote_run_rollup_followups", { p_limit: 50 });
+    // Bounded so a stalled drain cannot hold task completion or the reaper loop.
+    const { error } = await supabase.rpc("drain_quote_run_rollup_followups", { p_limit: 50 })
+      .abortSignal(AbortSignal.timeout(10_000));
     if (error) throw error;
   } catch (error) {
     console.warn(JSON.stringify({

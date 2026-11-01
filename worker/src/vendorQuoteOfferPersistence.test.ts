@@ -10,17 +10,18 @@ const result: VendorQuoteResultFinalization = {
 };
 function harness(responses: unknown[], drainError = false) {
   let call = 0;
-  const rpc = vi.fn(async (name: string) => {
+  const drainSignal = vi.fn();
+  const rpc = vi.fn((name: string) => {
     if (name === "drain_quote_run_rollup_followups") {
-      if (drainError) throw new Error("drain unavailable");
-      return { data: {}, error: null };
+      const drain = drainError ? Promise.reject(new Error("drain unavailable")) : Promise.resolve({ data: {}, error: null });
+      drain.catch(() => undefined);
+      return Object.assign(drain, { abortSignal: (signal: AbortSignal) => { drainSignal(signal); return drain; } });
     }
     const value = responses[Math.min(call++, responses.length - 1)];
-    if (value instanceof Error) throw value;
-    return { data: value, error: null };
+    return value instanceof Error ? Promise.reject(value) : Promise.resolve({ data: value, error: null });
   });
   const client = { rpc } as unknown as SupabaseClient;
-  return { rpc, client, run: () => acceptVendorQuoteResult(client, task, "result", result, [], { offerCount: 0 }) };
+  return { rpc, client, drainSignal, run: () => acceptVendorQuoteResult(client, task, "result", result, [], { offerCount: 0 }) };
 }
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -33,6 +34,8 @@ describe("claim-fenced acceptance", () => {
       p_vendor_quote_result_id: "result", p_result: result, p_offers: [], p_task_payload_patch: { offerCount: 0 },
     });
     expect(h.rpc).toHaveBeenLastCalledWith("drain_quote_run_rollup_followups", { p_limit: 50 });
+    // A stalled drain must not hold the task: the RPC is bounded by an abort signal.
+    expect(h.drainSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
   });
   it("retries busy then accepts within a bounded backoff", async () => {
     vi.useFakeTimers();

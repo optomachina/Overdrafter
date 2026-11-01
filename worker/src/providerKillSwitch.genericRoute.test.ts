@@ -497,6 +497,9 @@ describe("claim-fenced acceptance route", () => {
     if (scenario.failed) expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([
       expect.objectContaining({ raw_payload: expect.objectContaining({ failureCode: "persistence_failure" }) }),
     ]));
+    if (scenario.failed) expect(db.updates("work_queue")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "failed" }),
+    ]));
     expectClaimBoundary({ scenario, stub, claimed, taskPayloadPatch: { vendorStatus: "instant_quote_received", artifactCount: 0, offerCount: 1 }, writes: db.writes });
   });
 });

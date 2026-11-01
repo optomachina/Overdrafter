@@ -2261,9 +2261,22 @@ async function settlePersistedResultTask(
   if (task.job_id && task.quote_run_id) {
     await syncRunStatus(supabase, task.job_id, task.quote_run_id);
   }
-  await markTaskFailed(supabase, task, "The vendor quote result was persisted but its acknowledgement was lost.", {
-    failureCode, vendorQuoteResultPersisted: true,
-  });
+  const message = "The vendor quote result was persisted but its acknowledgement was lost.";
+  const payloadPatch = { failureCode, vendorQuoteResultPersisted: true };
+  if (!task.locked_by) {
+    await markTaskFailed(supabase, task, message, payloadPatch);
+    return;
+  }
+  // Fenced to this claim: an acceptance that committed behind lost replies has
+  // already completed the task and cleared its lock, so it must stay completed.
+  const { error: failError } = await supabase
+    .from("work_queue")
+    .update({ status: "failed", payload: { ...task.payload, ...payloadPatch },
+      locked_at: null, locked_by: null, last_error: message })
+    .eq("id", task.id)
+    .eq("status", "running")
+    .eq("locked_by", task.locked_by);
+  if (failError) throw failError;
 }
 
 const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
@@ -2284,7 +2297,7 @@ function vendorQuoteWriteError(error: unknown) {
 /**
  * Writes a non persisted outcome to the lane as a compare and set: only while
  * the row is still queued or running. If no row matched, the row is read back:
- * `persisted` means `reconcile_vendor_quote_offers` committed even though its
+ * `persisted` means the result write (`accept_vendor_quote_result`) committed even though its
  * response was lost, so the result and its live offers must stand; `settled`
  * means something else already settled the lane. Neither is ever overwritten.
  */

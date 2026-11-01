@@ -43,19 +43,15 @@ export function stubAcceptanceRpc(client: SupabaseClient, scenario: AcceptanceSc
   const counts = { drains: 0 };
   (client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
     if (name === "accept_vendor_quote_result") {
-      return (async () => {
-        const reply = scenario.replies[Math.min(acceptanceArgs.length, scenario.replies.length - 1)];
-        acceptanceArgs.push(structuredClone(args));
-        if (reply instanceof Error) throw reply;
-        return { data: reply, error: null };
-      })();
+      const reply = scenario.replies[Math.min(acceptanceArgs.length, scenario.replies.length - 1)];
+      acceptanceArgs.push(structuredClone(args));
+      return reply instanceof Error ? Promise.reject(reply) : Promise.resolve({ data: reply, error: null });
     }
     if (name === "drain_quote_run_rollup_followups") {
-      return (async () => {
-        counts.drains += 1;
-        if (scenario.drainError) throw new Error("drain failed");
-        return { data: {}, error: null };
-      })();
+      counts.drains += 1;
+      const drain = scenario.drainError ? Promise.reject(new Error("drain failed")) : Promise.resolve({ data: {}, error: null });
+      drain.catch(() => undefined);
+      return Object.assign(drain, { abortSignal: () => drain });
     }
     return rpc(name, args);
   }) as typeof rpc;

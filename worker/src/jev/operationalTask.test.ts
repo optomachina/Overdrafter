@@ -355,7 +355,7 @@ describe("actual worker operational advisory seam", () => {
     ]));
   });
 
-  it("keeps a persisted generic result when the status read after persistence fails (OVD-464)", async () => {
+  it("keeps a persisted generic result without follow-up result or queue writes (OVD-464)", async () => {
     const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
     const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
       providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
@@ -368,7 +368,7 @@ describe("actual worker operational advisory seam", () => {
         providerDisabledForDay: false, rejection: null, persisted: { status: output.status, offerCount: 1, artifactCount, acceptance },
         evidence: { adapterError: null, artifacts: [] } };
     };
-    const db = database(false, false, undefined, requirement, true);
+    const db = database(false, false, undefined, requirement);
     await processClaimedTask(db.client, generic, live, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
@@ -498,8 +498,8 @@ describe("actual worker operational advisory seam", () => {
     expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
   });
 
-  it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
-    const db = database(false, false, undefined, requirement, true);
+  it("keeps a persisted Xometry result without changing its success writes", async () => {
+    const db = database(false, false, undefined, requirement);
     await processClaimedTask(db.client, task, config, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);

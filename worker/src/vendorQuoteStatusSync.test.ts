@@ -28,7 +28,7 @@ const quote = vi.fn(async () => {
 type Row = Record<string, unknown>;
 
 /** Stateful Supabase mock: writes honor every filter and errors do not commit. */
-function database(failTable = "", failures = 0, failStatus?: string, drainFailures = 0) {
+function database(failTable = "", failures = 0, failStatus?: string, drainFailures = 0, lostAcceptanceReplies = 0) {
   const rows: Record<string, Row[]> = {
     work_queue: [{ id: "task", task_type: "run_vendor_quote", organization_id: "org", job_id: "job",
       part_id: "part", quote_run_id: "run", status: "running", attempts: 1, locked_by: "worker",
@@ -87,6 +87,11 @@ function database(failTable = "", failures = 0, failStatus?: string, drainFailur
       Object.assign(rows.work_queue[0], { status: "completed", locked_by: null, locked_at: null,
         payload: { ...(rows.work_queue[0].payload as Row), ...(args.p_task_payload_patch as Row) } });
     }
+    if (name === "accept_vendor_quote_result" && lostAcceptanceReplies-- > 0) {
+      const lost = Promise.reject(new TypeError("fetch failed"));
+      lost.catch(() => undefined);
+      return Object.assign(lost, { abortSignal: () => lost });
+    }
     if (name === "drain_quote_run_rollup_followups" && drainFailures-- > 0) {
       const failed = Promise.resolve({ data: null, error: { message: "drain refused" } });
       return Object.assign(failed, { abortSignal: () => failed });
@@ -140,6 +145,16 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     expect(db.result.status).toBe("instant_quote_received");
     expect(db.writes.some((write) => write.table === "work_queue")).toBe(false);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"source":"worker.quote_run_rollups"'));
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a task completed when the acceptance committed but every reply was lost", async () => {
+    const db = database("", 0, undefined, 0, Infinity);
+    await processClaimedTask(db.client, db.claim(1), config, createWorkerRuntimeState());
+    expect(db.rpc.mock.calls.filter(([name]) => name === "accept_vendor_quote_result")).toHaveLength(3);
+    expect(db.result.status).toBe("instant_quote_received");
+    expect(db.queue.status).toBe("completed");
+    expect(db.queue.last_error).toBeUndefined();
     expect(quote).toHaveBeenCalledTimes(1);
   });
 
