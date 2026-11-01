@@ -51,7 +51,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # schedule payloads carry no repository object, so fall back to main; the step fails closed when empty.
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
       # check-name=workflow-file pairs, space separated.
       REQUIRED_CHECKS: "ci=ci.yml provider-go-live=pr-body-gate.yml secret-scan=secret-scan.yml"
       MAX_RUN_ATTEMPT: "3"
@@ -60,6 +61,7 @@ jobs:
       - name: Re-run cancelled required checks
         run: |
           set -euo pipefail
+          [ -n "${DEFAULT_BRANCH:-}" ] || { echo "::error::DEFAULT_BRANCH is empty; refusing to scan with no base branch"; exit 1; }
           summary="$GITHUB_STEP_SUMMARY"
           {
             echo "## Required checks rerun"

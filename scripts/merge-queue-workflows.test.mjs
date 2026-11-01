@@ -194,6 +194,12 @@ describe("merge queue workflows", () => {
       expect(text.match(/--method POST/g)).toHaveLength(1);
     });
 
+    it("falls back to main for the default branch and fails closed when it is empty", () => {
+      // schedule event payloads have no repository object, so the expression alone would be "".
+      expect(text).toContain("DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}");
+      expect(text).toMatch(/\[ -n "\$\{DEFAULT_BRANCH:-\}" \] \|\| \{ echo "::error::[^"]*"; exit 1; \}/);
+    });
+
     it("covers exactly the required checks and their workflows", () => {
       const pairs = REQUIRED_CHECKS.map((check) => `${check.job}=${check.workflow}`).join(" ");
       expect(text).toContain(`REQUIRED_CHECKS: "${pairs}"`);
