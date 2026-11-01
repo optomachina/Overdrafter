@@ -153,9 +153,9 @@ function harness(options: {
     calls.push("adapter");
     return options.quote ? options.quote(quoteInput) : quoteOutput();
   });
-  const persist = vi.fn(async (output: VendorQuoteAdapterOutput) => {
+  const persist = vi.fn(async (output: VendorQuoteAdapterOutput, metadata: { offerCount: number }) => {
     calls.push("persist");
-    return options.persist ? options.persist(output) : { artifactCount: 0 };
+    return options.persist ? options.persist(output, metadata) : { artifactCount: 0, acceptance: { outcome: "accepted" as const } };
   });
   const validate = vi.fn((...args: Parameters<typeof validateProviderResult>) => {
     calls.push("validate");

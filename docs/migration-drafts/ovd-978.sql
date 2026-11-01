@@ -15,8 +15,12 @@
 -- Rollback: docs/migration-drafts/ovd-978.rollback.sql.
 -- Notes and evidence: docs/migration-drafts/ovd-978-notes.md.
 --
--- Requires: 20261011170000_fix_no_drawing_lifecycle.sql and
--- 20261015074957_ovd736_revoke_anon_definer_execute.sql (applied).
+-- Requires: 20261011170000_fix_no_drawing_lifecycle.sql,
+-- 20261015074957_ovd736_revoke_anon_definer_execute.sql and
+-- 20261031052436_ovd746_client_rpc_auth_gate.sql (applied). OVD-746 moved this
+-- body to private.api_list_client_part_metadata(uuid[]) behind a public
+-- wrapper that refuses unverified callers, so this draft replaces the private
+-- body and leaves the wrapper alone.
 --
 -- Transaction: no begin/commit of its own. The migration runner wraps it in
 -- one transaction. By hand:
@@ -74,13 +78,13 @@
 --
 -- Security: same signature, return type, language, volatility, SECURITY
 -- DEFINER and `set search_path = public` as the definition it replaces.
--- CREATE OR REPLACE keeps the owner and the ACL. The REVOKE and GRANT at the
--- end restate the OVD-736 end state for this function byte for byte
--- (no PUBLIC, no anon; authenticated and service_role); they are no-ops where
--- OVD-736 is applied and never widen anything. The access check
--- (public.user_can_access_job) is unchanged.
+-- CREATE OR REPLACE keeps the owner and the ACL. The REVOKE at the end
+-- restates the OVD-746 end state for the private body (no grant to PUBLIC,
+-- anon, authenticated or service_role; only the public wrapper calls it); it
+-- is a no-op where OVD-746 is applied and never widens anything. The access
+-- check (public.user_can_access_job) is unchanged.
 
-create or replace function public.api_list_client_part_metadata(
+create or replace function private.api_list_client_part_metadata(
   p_job_ids uuid[]
 )
 returns jsonb
@@ -372,5 +376,4 @@ as $$
   from projection_with_missing projection;
 $$;
 
-revoke execute on function public.api_list_client_part_metadata(uuid[]) from public, anon;
-grant execute on function public.api_list_client_part_metadata(uuid[]) to authenticated, service_role;
+revoke all on function private.api_list_client_part_metadata(uuid[]) from public, anon, authenticated, service_role;

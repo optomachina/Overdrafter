@@ -2,7 +2,7 @@
 // Adapters report what they observed; admitPrice decides whether that is a
 // publishable PricedQuantity. Nothing defaults to quantity 1, unit and total
 // are never inferred from unlabeled amounts, and all math is integer cents.
-// The quantity must also be read back from the page's quantity control after
+// The quantity must also be read back from the priced card's rendered quantity after
 // pricing (pageQuantity, with the text it was read from) and agree with both
 // the requested quantity and the quantity the price card states.
 // See /workspace/plans/xometry-quantity-replan.md sections 1, 2a, 3 and Decisions.
@@ -23,6 +23,10 @@ export type PricedQuantity = {
 export type PriceVerdictReason =
   | "qty_missing"
   | "qty_mismatch"
+  | "page_qty_unproven"
+  | "page_qty_missing"
+  | "page_qty_ambiguous"
+  | "page_qty_unstable"
   | "invariant_failed"
   | "both_derived"
   | "ambiguous_label"
@@ -43,7 +47,7 @@ export type ObservedAmount<Label extends string> = {
   label?: Label;
 };
 
-export type PageQuantity = { value: number; sourceText: string };
+export type PageQuantity = { value: number; sourceText: string; source: "page_dom" | "input_echo" };
 
 export const UNIT_PRICE_LABELS = ["each", "per_part"] as const;
 export const TOTAL_PRICE_LABELS = ["total", "subtotal"] as const;
@@ -54,7 +58,7 @@ export type AdmitPriceInput = {
   requestedQuantity: number | null | undefined;
   /** The quantity the price card states for this price. */
   quantity: number | null | undefined;
-  /** The quantity read from the page's quantity control after pricing, and the exact text span it was read from. */
+  /** The quantity read from the priced card's rendered quantity after pricing, and the exact text span it was read from. */
   pageQuantity: PageQuantity | null | undefined;
   unit?: ObservedAmount<UnitPriceLabel> | null;
   total?: ObservedAmount<TotalPriceLabel> | null;
@@ -126,7 +130,7 @@ const hasNearLabel = (sourceText: string) => {
  * Scan each label and its token once, without a backtracking number search.
  * Only an allow-listed suffix may follow the integer (ranges, multipliers, prose fail).
  */
-const sourceShowsQuantity = (sourceText: string, value: number) => {
+export const sourceShowsQuantity = (sourceText: string, value: number) => {
   // Only printable ASCII, tab and newline: look-alike, full-width and invisible characters fail.
   if (/[^\x20-\x7e\t\n]/.test(sourceText)) return false;
   // A label glued to digits (Qty1000) is never read; it poisons the whole text.
@@ -173,6 +177,9 @@ export function admitPrice(input: AdmitPriceInput): PriceVerdict {
   const unit = input.unit ?? null;
   const total = input.total ?? null;
 
+  if (input.pageQuantity && input.pageQuantity.source !== "page_dom") {
+    return refuse("page_qty_unproven", {});
+  }
   const pageQuantityValid = isQuantity(pageQuantity);
   const pageQuantitySourceValid =
     pageQuantityValid && pageSourceText.trim() !== "" && sourceShowsQuantity(pageSourceText, pageQuantity);

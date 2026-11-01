@@ -218,7 +218,7 @@ describe("reapStaleTasks", () => {
     expect(stub.lt).toHaveBeenCalledWith("locked_at", expect.any(String));
     expect(reaped).toBe(1);
     expect(stub.client.rpc).toHaveBeenCalledWith("api_reconcile_terminal_free_quote_tasks", { p_after_admission_id: null, p_limit: 100 });
-    expect(stub.select.mock.invocationCallOrder[0]).toBeLessThan(stub.client.rpc.mock.invocationCallOrder[0]);
+    expect(stub.select.mock.invocationCallOrder[0]).toBeLessThan(stub.client.rpc.mock.invocationCallOrder[1]);
   });
 
   it("returns 0 when no stale tasks exist", async () => {
@@ -227,7 +227,8 @@ describe("reapStaleTasks", () => {
     const reaped = await reapStaleTasks(stub.client as never, 10);
 
     expect(reaped).toBe(0);
-    expect(stub.client.rpc).toHaveBeenCalledTimes(1);
+    expect(stub.client.rpc).toHaveBeenCalledTimes(2);
+    expect(stub.client.rpc).toHaveBeenCalledWith("drain_quote_run_rollup_followups", { p_limit: 50 });
   });
 
   it("returns 0 when data is null", async () => {
