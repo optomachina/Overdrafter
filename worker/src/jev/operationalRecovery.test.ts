@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Page } from "patchright";
 import { setQuantity } from "../adapters/xometry";
+import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevBinding, type OperationalJevScope } from "./operationalSession";
 vi.mock("camoufox-js", () => ({ launchOptions: vi.fn() }));
@@ -22,19 +23,26 @@ function fixture(options: { off?: boolean; denied?: boolean; profileDenied?: boo
   const fill = vi.fn(), selectOption = vi.fn(), press = vi.fn(), dispose = vi.fn(async () => undefined);
   const evaluate = vi.fn(async (callback, args) => callback({ ...args, nodes: args.nodes.map((handle: { node: Element }) => handle.node) }));
   const elementHandles = vi.fn(async () => Array.from(document.querySelectorAll("input")).map((node) => ({ node, fill, selectOption, dispose })));
+  // jsdom cannot parse the row-anchored :has(:text-is()) selector; the adapter treats a
+  // selector its page cannot evaluate as no match.
+  const query = (selector: string) => { try { return document.querySelectorAll(selector).length; } catch { return 0; } };
+  const finalBaselineSelector = XOMETRY_LOCATORS.lineItemQuantityInputs[XOMETRY_LOCATORS.lineItemQuantityInputs.length - 1];
+  const count = async (selector: string) => {
+    const matches = query(selector);
+    // Only a control arriving AFTER the final declared baseline read can reach this source hook.
+    if (selector === finalBaselineSelector && matches === 0 && !appeared) {
+      appeared = true;
+      queueMicrotask(() => { document.body.innerHTML = appearedHtml; });
+    }
+    return matches;
+  };
   const page = { url: () => "https://www.xometry.com/quoting/quote/Q26-SYNTHETIC", evaluate,
-    locator: (selector: string) => ({ first: () => ({ count: async () => {
-        const count = document.querySelectorAll(selector).length;
-        // The final declared baseline selector is already the generic native number
-        // selector. Only a control arriving AFTER that read can reach this source hook.
-        if (selector === 'input[type="number"]' && count === 0 && !appeared) {
-          appeared = true;
-          queueMicrotask(() => { document.body.innerHTML = appearedHtml; });
-        }
-        return count;
-      }, fill, press }),
-      count: async () => document.querySelectorAll(selector).length, elementHandles,
-      innerText: async () => "Configure part quantity" }) } as unknown as Page;
+    locator: (selector: string) => {
+      const single = { count: () => count(selector), fill, press, isVisible: async () => query(selector) > 0,
+        inputValue: async () => (document.querySelector(selector) as HTMLInputElement | null)?.value ?? "" };
+      return { first: () => single, nth: () => single, count: () => count(selector), elementHandles,
+        innerText: async () => "Configure part quantity" };
+    } } as unknown as Page;
   const caps = { authorize: vi.fn(async () => !options.denied), reserve: vi.fn(async () => ({ reservationId: "one", estimatedUsd: 0.1 })),
     settle: vi.fn(async () => undefined), audit: vi.fn(async (receipt) => {
       if (options.auditMutation && receipt.recoveryOutcome === "proposed") document.querySelector("input")!.replaceWith(document.createElement("input"));

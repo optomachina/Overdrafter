@@ -53,7 +53,8 @@
  *       appends the trusted blocking verdicts of the event comment and the
  *       live comments to the PR's verdict history
  *   node scripts/ovd-merge-gate.mjs write --pr N [--repo o/r]
- *       evaluates the live head, re-reads the head, writes the check run
+ *       evaluates the live head, re-reads the head, writes the check run,
+ *       then edits the PR's one sticky status comment in place (OVD-1144)
  *   node scripts/ovd-merge-gate.mjs merge-group --sha S [--repo o/r]
  *       writes success on the merge group commit (the queue no-op)
  *
@@ -68,7 +69,7 @@ import process from "node:process";
 import { loadRouting, parseBuiltBy } from "./agent-graph/built-by.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { pathCandidates } from "./lib/sensitive-paths.mjs";
-import { approvalForHead, parseApprovalComments } from "./approval-record.mjs";
+import { APPROVAL_FENCE_INFO, approvalForHead, parseApprovalComments } from "./approval-record.mjs";
 import { assertSha, computeDiffId, resolveBinary } from "./emit-verdict.mjs";
 import { detect, fetchPullRequest, gateLooseningForPull, loadConfig } from "./sensitive-class-detect.mjs";
 import { FENCE_INFO, extractVerdictBlocks, hasHighNote, parseVerdictComments } from "./verdict-schema.mjs";
@@ -102,8 +103,10 @@ export function normalizeModelFamily(value) {
   return typeof value === "string" && Object.hasOwn(MODEL_FAMILY_ALIASES, value) ? MODEL_FAMILY_ALIASES[value] : null;
 }
 export const PASS_EVIDENCE_WORKFLOWS = Object.freeze([".github/workflows/ci.yml", ".github/workflows/verify.yml"]);
-// Events whose workflow YAML is read from the default branch. merge_group is
+// Events whose workflow YAML must come from the default branch. merge_group is
 // excluded: its YAML comes from the queue ref, and its job never writes history.
+// pull_request_target uses the PR base's YAML; verifyGateProvenance requires
+// that base to be the default branch (OVD-1109).
 const GATE_EVENTS = Object.freeze(["pull_request_target", "issue_comment", "workflow_dispatch"]);
 const RUN_ID = /^[1-9]\d{0,19}$/;
 
@@ -890,25 +893,97 @@ const MAX_EVIDENCE_SHAS = 20;
 /** Check-run output.text is capped at 65535 characters by GitHub. */
 const MAX_OUTPUT_TEXT = 60000;
 
+/** Retries of a rate-limited request (retry-after, or x-ratelimit-remaining 0); never of any other error. */
+export const RATE_LIMIT_RETRIES = 3;
+/** Longest single wait. A limit that resets later than this is not waited for: the call fails closed at once. */
+export const RATE_LIMIT_MAX_WAIT_MS = 60_000;
+const RATE_LIMIT_BASE_WAIT_MS = 1_000;
+const DIGITS = /^\d{1,12}$/;
+
+/** A response header as a short digit string, or null; anything else is not trusted as a number. */
+function digitHeader(response, name) {
+  const value = response?.headers?.get?.(name);
+  return typeof value === "string" && DIGITS.test(value.trim()) ? value.trim() : null;
+}
+
+/** The rate-limit headers and the body's message of a 403/429 (the body is GitHub's error JSON; data only). */
+async function rateLimitDetail(response) {
+  const rawRetryAfter = response?.headers?.get?.("retry-after");
+  let message = null;
+  try {
+    const parsed = JSON.parse(await response.text());
+    if (typeof parsed?.message === "string") message = parsed.message.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200);
+  } catch {
+    // No readable body: the status and headers still describe the failure.
+  }
+  return {
+    remaining: digitHeader(response, "x-ratelimit-remaining"),
+    reset: digitHeader(response, "x-ratelimit-reset"),
+    retryAfter: typeof rawRetryAfter === "string" && rawRetryAfter.trim() ? (digitHeader(response, "retry-after") ?? "unparsed") : null,
+    message,
+  };
+}
+
+/**
+ * Milliseconds to wait before retry `attempt` (0-based), or null when the
+ * failure is not a rate limit or its limit resets beyond the cap. A rate
+ * limit is a retry-after header or x-ratelimit-remaining 0; the wait is the
+ * later of retry-after and (when remaining is 0) x-ratelimit-reset, with an
+ * exponential floor.
+ */
+export function rateLimitWait(detail, attempt, nowMs) {
+  const waits = [];
+  if (detail?.retryAfter) waits.push(DIGITS.test(detail.retryAfter) ? Number(detail.retryAfter) * 1000 : 0);
+  if (detail?.remaining === "0") waits.push(detail.reset ? Number(detail.reset) * 1000 - nowMs : 0);
+  if (!waits.length) return null;
+  const wait = Math.max(...waits, RATE_LIMIT_BASE_WAIT_MS * 2 ** attempt);
+  return wait <= RATE_LIMIT_MAX_WAIT_MS ? wait : null;
+}
+
 export class GithubApiError extends Error {
-  constructor(status, apiPath) {
-    super(`GitHub API ${apiPath} returned ${status}`);
+  constructor(status, apiPath, detail = null) {
+    const fields = detail
+      ? [
+          ["x-ratelimit-remaining", detail.remaining],
+          ["x-ratelimit-reset", detail.reset],
+          ["retry-after", detail.retryAfter],
+          ["message", detail.message === null || detail.message === undefined ? null : JSON.stringify(detail.message)],
+          ["attempts", detail.attempts],
+        ].filter(([, value]) => value !== null && value !== undefined)
+      : [];
+    const pairs = fields.map(([key, value]) => key + ": " + value).join(", ");
+    const suffix = fields.length ? ` (${pairs})` : "";
+    super(`GitHub API ${apiPath} returned ${status}${suffix}`);
     this.status = status;
+    this.rateLimit = detail;
   }
 }
 
-/** Minimal GitHub REST client over fetch: json/raw (what the detector's fetchPullRequest uses), paginate, post. */
-export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl = globalThis.fetch } = {}) {
+/**
+ * Minimal GitHub REST client over fetch: json/raw (what the detector's
+ * fetchPullRequest uses), paginate, post. A 403/429 records its rate-limit
+ * headers and message in the error; only a rate limit is retried (up to
+ * RATE_LIMIT_RETRIES times), and a call that still fails throws, so the gate
+ * fails closed.
+ */
+export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const headers = { "x-github-api-version": "2022-11-28", "user-agent": "overdrafter-ovd-merge-gate" };
   if (token) headers.authorization = `Bearer ${token}`;
   const request = async (method, apiPath, { body, accept = "application/vnd.github+json" } = {}) => {
-    const response = await fetchImpl(`${apiUrl}${apiPath}`, {
-      method,
-      headers: { ...headers, accept, ...(body ? { "content-type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) throw new GithubApiError(response.status, apiPath);
-    return response;
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetchImpl(`${apiUrl}${apiPath}`, {
+        method,
+        headers: { ...headers, accept, ...(body ? { "content-type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (response.ok) return response;
+      if (response.status !== 403 && response.status !== 429) throw new GithubApiError(response.status, apiPath);
+      const detail = await rateLimitDetail(response);
+      const wait = attempt < RATE_LIMIT_RETRIES ? rateLimitWait(detail, attempt, now()) : null;
+      if (wait === null) throw new GithubApiError(response.status, apiPath, { ...detail, attempts: attempt + 1 });
+      log(`ovd-merge-gate: ${method} ${apiPath} rate limited (${response.status}); retry ${attempt + 1}/${RATE_LIMIT_RETRIES} in ${Math.ceil(wait / 1000)}s`);
+      await sleep(wait);
+    }
   };
   const json = async (apiPath) => (await request("GET", apiPath)).json();
   const paginate = async (apiPath, pick = (data) => data) => {
@@ -928,6 +1003,7 @@ export function createApi({ token, apiUrl = "https://api.github.com", fetchImpl 
     raw: async (apiPath) => (await request("GET", apiPath, { accept: "application/vnd.github.raw" })).text(),
     paginate,
     post: async (apiPath, body) => (await request("POST", apiPath, { body })).json(),
+    patch: async (apiPath, body) => (await request("PATCH", apiPath, { body })).json(),
   };
 }
 
@@ -955,6 +1031,7 @@ function authEnv(token) {
 
 /** A fresh, empty directory for the bare object store that holds the PR's git data. */
 const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data-"));
+const removeDataStore = (store) => rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 
 /**
  * Recompute diff_id over base...head. With fetch (the workflow), the PR head
@@ -966,7 +1043,7 @@ const makeDataStore = () => mkdtempSync(path.join(tmpdir(), "ovd-merge-gate-data
  * origin/<base> in `cwd`. Returns { diffId, error } and never throws: any
  * failure is "cannot compute".
  */
-export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore }) {
+export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = true, git = defaultGit, diff = computeDiffId, makeStore = makeDataStore, removeStore = removeDataStore }) {
   let store = null;
   try {
     const head = assertSha(headSha, "head");
@@ -979,13 +1056,23 @@ export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = tru
     if (typeof repo !== "string" || !REPO.test(repo)) throw new Error("repository is not owner/name");
     store = makeStore();
     git(["init", "--bare", "--quiet", store], { cwd: store });
-    git(["--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
+    // No auto-maintenance: newer git (seen on 2.56) can detach a background commit-graph
+    // write after fetch, which races the store removal below (ENOTEMPTY).
+    git(["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.writeCommitGraph=false", "--git-dir", store, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", `https://github.com/${repo}.git`, `+refs/pull/${pr}/head:${FETCH_HEAD_REF}`, `+refs/heads/${baseRef}:${FETCH_BASE_REF}`], { cwd: store, env: authEnv(token) });
     const base = git(["--git-dir", store, "rev-parse", "--verify", "--quiet", "--end-of-options", `${FETCH_BASE_REF}^{commit}`], { cwd: store }).trim();
     return { diffId: diff({ base: assertSha(base, "base"), head, cwd: store }), error: null };
   } catch (error) {
     return { diffId: null, error: error?.message ?? String(error) };
   } finally {
-    if (store) rmSync(store, { recursive: true, force: true });
+    // Best effort: cleanup of a temp store must never turn a computed result
+    // into a writer failure.
+    if (store) {
+      try {
+        removeStore(store);
+      } catch (error) {
+        process.stderr.write(`ovd-merge-gate: could not remove ${store}: ${error?.message ?? error}\n`);
+      }
+    }
   }
 }
 
@@ -1056,6 +1143,83 @@ function parseGateExternalId(value) {
 }
 
 /**
+ * pull_request_target runs the base branch's workflow file. Its head_branch is
+ * the PR head, so that field cannot prove the YAML was the default branch's.
+ * workflow_run.pull_requests is computed when the API is read, not when the
+ * run happened, so a run on a non-default base whose PR was later retargeted
+ * (or re-opened) into the default branch would show the default base. Trust is
+ * therefore tied to the trigger (OVD-1109):
+ * - pull_requests is exactly [the PR being evaluated], based on the default branch;
+ * - that PR (still based on the default branch) was created no later than the run;
+ * - the run was created after the PR's last base_ref_changed event, so the PR
+ *   already targeted the default branch when the run happened;
+ * - the run's head branch and head repository are that PR's head;
+ * - every PR, open or closed, from the same head branch targets the default
+ *   branch and had no base_ref_changed event at or after the run (a closed
+ *   sibling drops out of pull_requests but could have triggered the run, and a
+ *   sibling retargeted before it closed shows only its final base).
+ * Anything else, including a missing list (closed or fork PRs), fails closed.
+ * PR, timeline, sibling and sibling-timeline reads are cached per client and PR.
+ */
+const prFactsCache = new WeakMap();
+function prFacts(client, repo, pr) {
+  let byPr = prFactsCache.get(client);
+  if (!byPr) {
+    byPr = new Map();
+    prFactsCache.set(client, byPr);
+  }
+  const key = `${repo}#${Number(pr)}`;
+  if (!byPr.has(key)) {
+    const facts = (async () => {
+      const pull = await client.json(`/repos/${repo}/pulls/${Number(pr)}`);
+      const timeline = await client.paginate(`/repos/${repo}/issues/${Number(pr)}/timeline`, (data) => data);
+      const owner = pull?.head?.repo?.owner?.login;
+      const ref = pull?.head?.ref;
+      const head = `${owner}:${ref}`;
+      const siblings = typeof owner === "string" && typeof ref === "string"
+        ? await client.paginate(`/repos/${repo}/pulls?state=all&head=${encodeURIComponent(head)}`, (data) => data)
+        : null;
+      const others = (Array.isArray(siblings) ? siblings : [])
+        .filter((sibling) => PR_NUMBER.test(String(sibling?.number ?? "")) && Number(sibling.number) !== Number(pr))
+        .map((sibling) => Number(sibling.number));
+      const siblingTimelines = new Map(await Promise.all(others.map(async (number) =>
+        [number, await client.paginate(`/repos/${repo}/issues/${number}/timeline`, (data) => data)])));
+      return { pull, timeline, siblings, siblingTimelines };
+    })();
+    facts.catch(() => byPr.delete(key));
+    byPr.set(key, facts);
+  }
+  return byPr.get(key);
+}
+
+/** True when the timeline is readable and has no base change at or after `since` (or at an unknown time). */
+function baseUnchangedSince(timeline, since) {
+  if (!Array.isArray(timeline) || timeline.some((item) => !isRecord(item))) return false;
+  return timeline.every((item) => {
+    if (item.event !== "base_ref_changed") return true;
+    const changed = Date.parse(item.created_at);
+    return Number.isFinite(changed) && changed < since;
+  });
+}
+
+async function pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr) {
+  const pulls = workflow?.pull_requests;
+  if (!Array.isArray(pulls) || pulls.length !== 1 || typeof defaultBranch !== "string" || !PR_NUMBER.test(String(pr ?? ""))) return false;
+  const [listed] = pulls;
+  if (!isRecord(listed) || Number(listed.number) !== Number(pr) || !isRecord(listed.base) || listed.base.ref !== defaultBranch) return false;
+  const { pull, timeline, siblings, siblingTimelines } = await prFacts(client, repo, pr);
+  const pullCreated = Date.parse(pull?.created_at);
+  const runCreated = Date.parse(workflow?.created_at);
+  if (pull?.base?.ref !== defaultBranch || !Number.isFinite(pullCreated) || !Number.isFinite(runCreated) || pullCreated > runCreated) return false;
+  const headRepo = pull?.head?.repo?.full_name;
+  if (typeof headRepo !== "string" || workflow?.head_repository?.full_name !== headRepo || workflow?.head_branch !== pull?.head?.ref) return false;
+  if (!baseUnchangedSince(timeline, runCreated)) return false;
+  if (!Array.isArray(siblings) || !siblings.some((s) => isRecord(s) && Number(s.number) === Number(pr))) return false;
+  return siblings.every((s) => isRecord(s) && isRecord(s.base) && s.base.ref === defaultBranch
+    && (Number(s.number) === Number(pr) || baseUnchangedSince(siblingTimelines.get(Number(s.number)), runCreated)));
+}
+
+/**
  * Reject foreign writers before interpreting any stored gate data.
  *
  * OVD-1110: the check suite is not the key. A check run posted with
@@ -1067,10 +1231,11 @@ function parseGateExternalId(value) {
  * it with the check run's own URL for Actions-created runs, and the writer
  * asserts it just like external_id, so it adds no trust. It is a cross-check
  * only when it is an Actions run URL, which must then be this repository's
- * run <id>. The cited run must be this workflow, on an allowed event, on the
- * default branch (pull_request_target excepted: it reports the PR head branch
- * and runs the base YAML). Records written before this key stay unverifiable
- * and fail closed.
+ * run <id>. The cited run must be this workflow, on an allowed event, from
+ * the default branch: head_branch for issue_comment and workflow_dispatch,
+ * and pullRequestTargetOnDefaultBranch (OVD-1109) for pull_request_target.
+ * `pr` is the PR the record is read for. Records written before this key stay
+ * unverifiable and fail closed.
  */
 export async function verifyGateProvenance(client, repo, run, pr) {
   if (run?.app?.id !== GITHUB_ACTIONS_APP_ID) throw new Error("gate record has no trusted Actions app");
@@ -1082,12 +1247,15 @@ export async function verifyGateProvenance(client, repo, run, pr) {
   if (linked && actionsRunId(run.details_url, repo) !== runId) throw new Error("gate record details_url cites another Actions run");
   const repository = await client.json(`/repos/${repo}`);
   const workflow = await client.json(`/repos/${repo}/actions/runs/${runId}`);
+  const defaultBranch = repository.default_branch;
   if (String(workflow?.id) !== runId || workflow.path !== ".github/workflows/ovd-merge-gate.yml"
-      || !GATE_EVENTS.includes(workflow.event) || typeof repository.default_branch !== "string"
-      // pull_request_target reports the PR's head branch but runs the base branch's YAML.
-      || (workflow.event !== "pull_request_target" && workflow.head_branch !== repository.default_branch)) {
+      || !GATE_EVENTS.includes(workflow.event) || typeof defaultBranch !== "string") {
     throw new Error("gate record is not from the default-branch merge-gate workflow");
   }
+  const onDefaultBranch = workflow.event === "pull_request_target"
+    ? await pullRequestTargetOnDefaultBranch(client, repo, workflow, defaultBranch, pr)
+    : workflow.head_branch === defaultBranch;
+  if (!onDefaultBranch) throw new Error("gate record is not from the default-branch merge-gate workflow");
 }
 
 /** Earlier gate summaries, including replaced runs; unreadable provenance fails closed. */
@@ -1358,6 +1526,100 @@ export async function writeCheckRun({ client, repo, sha, summary, pr, runId }) {
   });
 }
 
+// ------------------------------------------------- comment trigger filter
+
+/**
+ * OVD-1144. The issue_comment substrings that start a gate run. Both jobs'
+ * job-level `if:` is built from this list by commentFilterExpression(), and a
+ * test pins the workflow to it, so every other comment (relay, progress or
+ * status chatter) starts no job and spends no run. GitHub's contains() is
+ * case-insensitive, so this is a superset of what the parsers accept:
+ * - the two fences the gate reads (verdicts and Blaine's approval records),
+ * - plain verdict markers ("VERDICT: PASS" also covers PASS_NOTES and the
+ *   emit-verdict summary line "OverDrafter verdict: PASS"; "QA PASS"/"QA FAIL"
+ *   are the QA lines trust-metrics reads).
+ * An edit also matches on its previous body, so editing a verdict away
+ * re-evaluates the gate.
+ */
+export const TRIGGER_COMMENT_MARKERS = Object.freeze([
+  "```" + FENCE_INFO,
+  "```" + APPROVAL_FENCE_INFO,
+  "VERDICT: PASS",
+  "VERDICT: FAIL",
+  "QA PASS",
+  "QA FAIL",
+]);
+
+const COMMENT_FIELDS = Object.freeze(["github.event.comment.body", "github.event.changes.body.from"]);
+
+/** The GitHub expression both jobs use: every non-comment event passes, a comment only with a marker. */
+export function commentFilterExpression(markers = TRIGGER_COMMENT_MARKERS) {
+  const terms = COMMENT_FIELDS.flatMap((field) => markers.map((marker) => `contains(${field}, '${marker.replaceAll("'", "''")}')`));
+  return `(github.event_name != 'issue_comment' || ${terms.join(" || ")})`;
+}
+
+/**
+ * The same decision in JS (contains() semantics: case-insensitive substring,
+ * a missing field is the empty string), for tests and local checks.
+ */
+export function isTriggerComment({ body, previousBody } = {}, markers = TRIGGER_COMMENT_MARKERS) {
+  const texts = [body, previousBody].map((text) => (typeof text === "string" ? text.toLowerCase() : ""));
+  return markers.some((marker) => texts.some((text) => text.includes(marker.toLowerCase())));
+}
+
+// ------------------------------------------------- sticky status comment
+
+/**
+ * OVD-1144. The writer keeps exactly one status comment per PR, found by this
+ * hidden marker and edited in place (REST PATCH); it never posts a comment per
+ * run. Only a comment by STATUS_COMMENT_AUTHOR (the workflow's GITHUB_TOKEN
+ * identity) counts: anyone can paste the marker. The comment is advisory; the
+ * check run is the gate. Comments posted or edited with GITHUB_TOKEN start no
+ * workflow, and the body carries no trigger marker (tested), so it cannot
+ * loop.
+ */
+export const STATUS_MARKER = "<!-- ovd-merge-gate-status -->";
+export const STATUS_COMMENT_AUTHOR = "github-actions[bot]";
+
+/** The status comment body: the marker, then head, conclusion, title and reason codes (no free text). */
+export function formatStatusComment(summary, { checkUrl } = {}) {
+  const { conclusion, title } = conclusionFor(summary);
+  const codes = reasonCodes(summary);
+  const blockingCodes = codes.length ? codes.map((code) => "`" + code + "`").join(", ") : "none";
+  const lines = [
+    STATUS_MARKER,
+    `**ovd-merge-gate** \`${conclusion}\` for \`${summary?.sha ?? "unknown"}\` (mode \`${summary?.mode ?? MODE}\`)`,
+    "",
+    `- result: ${oneLine(title)}`,
+    `- blocking codes: ${blockingCodes}`,
+  ];
+  if (typeof checkUrl === "string" && checkUrl.startsWith("https://github.com/")) lines.push(`- check run: ${checkUrl}`);
+  lines.push("", "_Edited in place on every gate run. Not a verdict; details are in the check run._", "");
+  return lines.join("\n");
+}
+
+/** The sticky comment: the oldest trusted-author comment whose body starts with the marker, or null. */
+export function findStatusComment(comments, author = STATUS_COMMENT_AUTHOR) {
+  const mine = list(comments).filter((comment) => isRecord(comment) && comment.user?.login === author && typeof comment.body === "string" && comment.body.startsWith(STATUS_MARKER));
+  mine.sort((a, b) => Number(a.id) - Number(b.id));
+  return mine[0] ?? null;
+}
+
+/**
+ * Create the status comment once, then PATCH it in place; unchanged bodies
+ * are left alone. Returns { action: "created" | "updated" | "unchanged", id }.
+ */
+export async function upsertStatusComment({ client, repo, pr, body }) {
+  const existing = findStatusComment(await client.paginate(`/repos/${repo}/issues/${pr}/comments`));
+  if (existing && existing.body === body) return { action: "unchanged", id: existing.id };
+  if (existing) {
+    await client.patch(`/repos/${repo}/issues/comments/${existing.id}`, { body });
+    return { action: "updated", id: existing.id };
+  }
+  const created = await client.post(`/repos/${repo}/issues/${pr}/comments`, { body });
+  return { action: "created", id: created?.id ?? null };
+}
+
 const COMMANDS = Object.freeze({ evaluate: ["pr", "sha"], write: ["pr"], record: ["pr"], "merge-group": ["sha"] });
 const HISTORY_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
 const SWITCHES = Object.freeze({ "--json": ["json", true], "--no-fetch": ["fetch", false] });
@@ -1423,19 +1685,26 @@ async function writeMergeGroup({ client, options, stdout }) {
   return 0;
 }
 
-async function writeGate({ client, options, summary, stdout }) {
+async function writeGate({ client, options, summary, stdout, stderr }) {
   // Re-read the head right before writing: a result for a head that moved is not written.
   const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
   if (now !== summary.sha) {
     stdout.write(`ovd-merge-gate: head moved from ${summary.sha} to ${now}; not writing (the run for the new head writes it)\n`);
     return 0;
   }
-  await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary, pr: options.pr, runId: options.runId });
+  const check = await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary, pr: options.pr, runId: options.runId });
   stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
+  // Advisory and best effort, after the check run: a failed edit warns and never changes the gate.
+  try {
+    const { action } = await upsertStatusComment({ client, repo: options.repo, pr: options.pr, body: formatStatusComment(summary, { checkUrl: check?.html_url }) });
+    stderr.write(`ovd-merge-gate: status comment ${action}\n`);
+  } catch (error) {
+    stderr.write(`::warning::ovd-merge-gate: status comment not updated: ${oneLine(error?.message ?? String(error))}\n`);
+  }
   return 0;
 }
 
-async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout }) {
+async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr }) {
   if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
   if (options.command === "record") {
     const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env), runId: workflowRunId(env) });
@@ -1444,7 +1713,7 @@ async function runCommand({ options, env, client, token, cwd, git, diff, classif
   }
   const event = options.command === "write" ? readEvent(env) : null;
   const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
-  if (options.command === "write") return writeGate({ client, options: { ...options, runId: workflowRunId(env) }, summary, stdout });
+  if (options.command === "write") return writeGate({ client, options: { ...options, runId: workflowRunId(env) }, summary, stdout, stderr });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
 }
@@ -1467,9 +1736,11 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   const client = createApi({ token, apiUrl: env.GITHUB_API_URL || undefined, fetchImpl });
   try {
-    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout });
+    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
+    // The writer step tees stdout into the step summary, so the API failure (status, rate-limit headers, message) shows there too.
+    if (error instanceof GithubApiError) stdout.write(`### ovd-merge-gate: ERROR\n\n${error.message}\n`);
     return 1;
   }
 }
