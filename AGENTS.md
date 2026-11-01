@@ -93,7 +93,7 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 <!-- sensitive-paths:begin -->
 - **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`, `**/*.{pgsql,psql}`, `scripts/check-lock-order.mjs`
 - **migrations** (migrations): `supabase/migrations/**`
-- **auth** (auth, RLS, permissions, sessions): `**/*auth*{,/**}`, `**/{rls,*-rls,*_rls}*{,/**}`, `**/*.rls*{,/**}`, `**/*permission*{,/**}`, `**/*session*{,/**}`, `**/*,rls*{,/**}`, `scripts/run-supabase-policy-tests*`, `supabase/functions/job-archive-fallback/**`, `supabase/functions/create-project-fallback/**`, `supabase/functions/dev-login/**`, `supabase/functions/engineering-interpretation/**`, `supabase/functions/engineering-worker/**`, `supabase/functions/engineering-worker-task/**`, `api/admin-operations.ts`, `server/admin-operations/**`
+- **auth** (auth, RLS, permissions, sessions): `**/*auth*{,/**}`, `**/{rls,*-rls,*_rls}*{,/**}`, `**/*.rls*{,/**}`, `**/*permission*{,/**}`, `**/*session*{,/**}`, `**/*,rls*{,/**}`, `scripts/run-supabase-policy-tests*`, `supabase/functions/job-archive-fallback/**`, `supabase/functions/create-project-fallback/**`, `supabase/functions/dev-login/**`, `supabase/functions/engineering-interpretation/**`, `supabase/functions/engineering-worker/**`, `supabase/functions/worker-wake/**`, `supabase/functions/engineering-worker-task/**`, `api/admin-operations.ts`, `server/admin-operations/**`
 - **payments** (payments, pricing, billing): `**/*payment*{,/**}`, `**/*billing*{,/**}`, `**/*stripe*{,/**}`, `**/*pricing*{,/**}`, `**/*invoice*{,/**}`, `**/*checkout*{,/**}`, `**/*chec?out*{,/**}`
 - **provider_dispatch** (provider dispatch): `**/*dispatch*{,/**}`, `worker/src/adapters/**`, `**/*provider-admission*{,/**}`, `**/*provider-upload*{,/**}`, `**/*providerAdmission*{,/**}`, `**/*providerUpload*{,/**}`, `**/*provider_admission*{,/**}`, `**/*provider_upload*{,/**}`, `**/*provider*{admission,upload}*{,/**}`, `**/*provider/{admission,upload}*{,/**}`, `**/*provider*/**/*{admission,upload}*{,/**}`, `**/*provider*{,/**}`, `**/*adapter*{,/**}`, `scripts/provider-kill*`
 - **secrets** (secrets and env): `**/*secret*{,/**}`, `**/*credential*{,/**}`, `**/*.pem`, `**/*.key`, `**/keys/**`, `**/token{,s}.{json,yaml,yml,ts,js}`, `**/*vault*{,/**}`, `**/.env*`, `**/env.{ts,js,json}`, `**/.env*/**/*`, `worker/src/tools/vendorLogin*`, `worker/scripts/launchd/**`
@@ -107,8 +107,8 @@ Repository state and the controller's durable run store are authoritative. Plans
 
 - One writer owns each mutable target; read-only reviewers may run in parallel.
 - Record the owner task, host, worktree, branch, source revision, completion condition, allowed actions, verification, budget, and failure family for nontrivial units.
-- Use the maintained guarded launcher/assignment protocol in `docs/agent-development-control-plane.md` before controlled dispatch; launch prerequisites only with evidence-bound dependency relevance. Reuse valid terminal results and equivalent review results.
-- Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
+- Use the guarded launcher/assignment protocol in `docs/agent-development-control-plane.md` before controlled dispatch; launch prerequisites only with evidence-bound dependency relevance. Reuse valid terminal results and equivalent review results.
+- Only the controller changes scheduling state. A governor observes liveness and protected boundaries.
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
 - Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
 

@@ -16,7 +16,7 @@ describe("reconcile claim fence additive follow-up contract", () => {
   it("adds a unique migration after its predecessor with a reversible upgrade", () => {
     const migrations = readdirSync("supabase/migrations").filter(path => path.endsWith(".sql")).sort();
     expect(migrations.filter(path => path.startsWith(name.slice(0, 14)))).toEqual([`${name}.sql`]);
-    expect(migrations[migrations.indexOf(`${name}.sql`) - 1]).toBe("20261031052436_ovd746_client_rpc_auth_gate.sql");
+    expect(migrations[migrations.indexOf(`${name}.sql`) - 1]).toBe("20261031184522_worker_wake_throttle.sql");
     expect(forward).toContain(`supabase/rollbacks/${name}.rollback.sql`);
     expect(forward).toContain("set local lock_timeout = '1s';");
     expect(rollback).toContain("set local lock_timeout = '1s';");
