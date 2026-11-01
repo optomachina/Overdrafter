@@ -64,7 +64,7 @@ describe("Jarvis PWA installable files", () => {
     expect(manifest.short_name).toBe("Jarvis");
     expect(manifest.display).toBe("standalone");
     expect(manifest.start_url).toBe("/jarvis/");
-    expect(manifest.scope).toBe("/");
+    expect(manifest.scope).toBe("/jarvis/");
     expect(manifest.theme_color).toBe("#0E0E10");
     expect(manifest.background_color).toBe("#0E0E10");
     expect(manifest.icons.map((icon) => icon.sizes).sort()).toEqual(["180x180", "192x192", "512x512"]);
