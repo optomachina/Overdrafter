@@ -2,7 +2,8 @@
  * The operator-provisioned lane requires a network-isolated container.
  * Usage: node scripts/test-reconcile-claim-fence.mjs ovd976-round1 ./private-evidence
  * CI: node scripts/test-reconcile-claim-fence.mjs --ci-local ./private-evidence
- * CI runs only the concurrency suite on the freshly reset local Supabase stack.
+ * CI tests the original concurrency contract before applying follow-ups, then
+ * exercises follow-up rollback, transactional and concurrency coverage.
  * On SQL failure discard this owned container; fixtures commit and disable triggers.
  * Never run these fixtures on a shared stack. No URL or remote-target input.
  */
@@ -96,15 +97,33 @@ console.log(`main-only dependencies: PASS (${catalog.columns.length} columns, ${
 // The concurrency controller uses the image's socket-only local superuser so
 // dblink can connect to local postgres without any credential or password.
 const results = [];
-const suites = ciLocal ? ['reconcile_claim_fence_concurrency']
-  : ['reconcile_claim_fence_rollback', 'reconcile_claim_fence', 'reconcile_claim_fence_concurrency'];
+const followups = JSON.parse(readFileSync('supabase/tests/fixtures/reconcile_claim_fence_followups_dependencies.json', 'utf8'));
+const suites = [
+  ...(ciLocal ? [] : ['reconcile_claim_fence_rollback', 'reconcile_claim_fence']),
+  'reconcile_claim_fence_concurrency',
+  'reconcile_claim_fence_followups_rollback',
+  'reconcile_claim_fence_followups',
+  'reconcile_claim_fence_followups_concurrency',
+];
 for (const suite of suites) {
-  const path = suite.endsWith('_rollback') ? 'rollbacks/tests/reconcile_claim_fence.sql' : `tests/${suite}.sql`;
+  const path = suite.endsWith('_rollback')
+    ? `rollbacks/tests/${suite.slice(0, -'_rollback'.length)}.sql` : `tests/${suite}.sql`;
+  // A reset CI stack already has every migration. Restore the original drain
+  // only for its frozen concurrency suite, then test the additive upgrade.
+  const baseline = ciLocal && suite === 'reconcile_claim_fence_concurrency'
+    ? `begin;\n\\i ${sqlRoot}/rollbacks/${followups.migration}.rollback.sql\ncommit;\n` : '';
+  const prerequisites = suite === 'reconcile_claim_fence_followups_rollback' ? `
+DO $$ begin
+  if exists(select 1 from unnest(array[${list(followups.functions)}]) s where pg_catalog.to_regprocedure(s) is null)
+    or exists(select 1 from unnest(array[${list(followups.relations)}]) s where pg_catalog.to_regclass(s) is null) then
+    raise exception 'missing follow-up migration prerequisite';
+  end if;
+end $$;\n` : '';
   const sql = `${ciLocal ? 'create extension if not exists pgtap with schema extensions;\n' : ''}set search_path=public,extensions,pg_catalog;
 set statement_timeout='30s';
 set ovd.test_local_fixture='reconcile_claim_fence';
 set ovd.test_conninfo='host=/var/run/postgresql port=5432 dbname=postgres user=postgres';
-\\i ${sqlRoot}/${path}\n`;
+${baseline}${prerequisites}\\i ${sqlRoot}/${path}\n`;
   // The CI database owns its synthetic bootstrap password. Keep it inside the
   // container and use it only for the superuser's socket authentication.
   const client = ciLocal ? ['sh', '-eu', '-c', 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec "$@"', 'ovd976-psql', 'psql'] : ['psql'];
