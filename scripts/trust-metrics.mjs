@@ -657,16 +657,26 @@ function scanPatchLine(text, state, prefixes) {
 
 const freshSides = () => ({ "+": { block: null, template: false }, "-": { block: null, template: false } });
 const sidesAgree = (sides) => sides["+"].block === sides["-"].block && sides["+"].template === sides["-"].template;
+const BLOCK_CLOSER = /\*\/|-->/;
 
-// An unchanged context line must read the same on both sides, and each hunk must end with both sides
-// in the same block/template state, so adding or removing a bare `/*`…`*/` pair around unchanged
-// code (commenting it out or back in) is a code change, not a comments-only one.
+// Comment state is known only from the top of a file, so a side whose hunk starts below line 1 may
+// open inside an unseen block. There, a changed line holding a block closer (`// */`, `/* x */`)
+// could end that block and run the code after it, so it is never comments-only.
+function hunkStartsAtTop(header) {
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header);
+  return { "-": match !== null && Number(match[1]) <= 1, "+": match !== null && Number(match[2]) <= 1 };
+}
+
 // Scans one patch line into `scan` and returns false as soon as the patch is not comments-only.
+// An unchanged context line must read the same on both sides, and each hunk must end with both
+// sides in the same block/template state, so adding or removing a bare `/*`…`*/` pair around
+// unchanged code (commenting it out or back in) is a code change, not a comments-only one.
 function scanCommentsOnlyLine(line, scan) {
   const marker = line[0];
   if (line.startsWith("@@")) {
     if (!sidesAgree(scan.sides)) return false;
     scan.sides = freshSides();
+    scan.atTop = hunkStartsAtTop(line);
     return true;
   }
   const text = line.slice(1);
@@ -675,12 +685,13 @@ function scanCommentsOnlyLine(line, scan) {
   }
   if (!(marker in scan.changed)) return true;
   scan.changed[marker] += 1;
+  if (!scan.atTop[marker] && BLOCK_CLOSER.test(text)) return false;
   return scanPatchLine(text, scan.sides[marker], scan.prefixes);
 }
 
 function isCommentsOnlyPatch(file) {
   if (!["modified", "added", "removed"].includes(file.status) || typeof file.patch !== "string") return false;
-  const scan = { changed: { "+": 0, "-": 0 }, sides: freshSides(), prefixes: lineCommentPrefixes(file.filename) };
+  const scan = { changed: { "+": 0, "-": 0 }, sides: freshSides(), atTop: { "+": false, "-": false }, prefixes: lineCommentPrefixes(file.filename) };
   if (!file.patch.split("\n").every((line) => scanCommentsOnlyLine(line, scan)) || !sidesAgree(scan.sides)) return false;
   const { changed } = scan;
   return changed["+"] + changed["-"] > 0 && changed["+"] === file.additions && changed["-"] === file.deletions;

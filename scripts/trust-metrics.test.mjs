@@ -344,6 +344,23 @@ describe("comments-only comparisons", () => {
     assert.equal(isCommentsOnlyComparison(comparison("@@ -1,2 +1,3 @@\n x();\n+/*\n ", { additions: 1, deletions: 0 })), false);
   });
 
+  it("rejects a changed block closer in a hunk that may start inside an unseen block comment", () => {
+    const context = ' console.log("a");\n console.log("b");\n console.log("c");';
+    const tail = ' console.log("d");\n // end */\n x();';
+    const reEnable = `@@ -3,6 +3,7 @@ const ran = true;\n${context}\n+// */\n${tail}`;
+    const reDisable = `@@ -3,7 +3,6 @@ const ran = true;\n${context}\n-// */\n${tail}`;
+    assert.equal(isCommentsOnlyComparison(comparison(reEnable, { additions: 1, deletions: 0 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison(reDisable, { additions: 0, deletions: 1 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -10,2 +10,3 @@\n <p>a</p>\n+// -->\n <p>b</p>", { filename: "a.html", additions: 1, deletions: 0 })), false);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -10 +10 @@\n-// old\n+/* note */")), false);
+  });
+
+  it("accepts changed block comments in hunks that start at the top of the file", () => {
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -1,2 +1,2 @@\n-/* old */\n+/* new */\n x();")), true);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -0,0 +1 @@\n+/* new */", { status: "added", deletions: 0 })), true);
+    assert.equal(isCommentsOnlyComparison(comparison("@@ -10 +10 @@\n-// old\n+// new")), true);
+  });
+
   it("accepts added or removed files containing only comments", () => {
     assert.equal(isCommentsOnlyComparison(comparison("@@ -0,0 +1 @@\n+// new", { status: "added", deletions: 0 })), true);
     assert.equal(isCommentsOnlyComparison(comparison("@@ -1 +0,0 @@\n-// old", { status: "removed", additions: 0 })), true);

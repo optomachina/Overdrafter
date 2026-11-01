@@ -275,8 +275,12 @@ on each patch side, and so is template-literal state: a line inside a backtick
 literal is content, never a comment. An unchanged context line must read the
 same (comment or code) on both sides, and each hunk must end with both sides in
 the same block/template state, so adding or removing a bare `/*` … `*/` pair
-around unchanged code (commenting it out or back in) is rejected. A hunk that
-starts mid-literal is not detected. Missing/binary/truncated patches, file renames, and
+around unchanged code (commenting it out or back in) is rejected. Comment state
+is known only from the top of a file, so a hunk below line 1 may start inside an
+unseen block comment: there, any changed line containing a block closer (`*/` or
+`-->`, including `// */` or `/* note */`) is rejected, because it could end that
+block and re-enable the code after it. A hunk that starts mid-literal is not
+detected. Missing/binary/truncated patches, file renames, and
 comparisons at GitHub's 300-file cap are rejected conservatively. A comparison
 that cannot be fetched (unknown or force-pushed SHA, API error) counts as not
 comments-only for that pair, is logged by SHA pair only, and never stops the
