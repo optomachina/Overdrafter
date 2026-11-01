@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { aclStatements, assertProofDatabaseUrl, libpqHost, proofPsqlEnv } from "./ovd979-rollback.mjs";
 
 const script = join(process.cwd(), "scripts", "ovd979-rollback.mjs");
-const migration = "20261031034700_ovd979u2_canonical_requirement_lock_order.sql";
+const migration = "20261101115900_ovd979u2_canonical_requirement_lock_order.sql";
 
 describe("ovd979-rollback --prove database URL guard", () => {
   it.each([

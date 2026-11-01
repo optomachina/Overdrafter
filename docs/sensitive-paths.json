@@ -82,6 +82,7 @@
     { "glob": "**/{vercel.json,netlify.toml,fly.toml}", "class": "infra_ci" },
     { "glob": "scripts/deploy*{,/**}", "class": "infra_ci" },
     { "glob": "scripts/release*{,/**}", "class": "infra_ci" },
+    { "glob": "scripts/prod-backup*{,/**}", "class": "infra_ci" },
     { "glob": "docs/sensitive-paths.json", "class": "infra_ci" },
     { "glob": "AGENTS.md", "class": "infra_ci" },
     { "glob": "scripts/lib/sensitive-paths*", "class": "infra_ci" },
