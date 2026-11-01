@@ -332,6 +332,8 @@ type LocatorBehavior = {
 
 type FakePageOptions = {
   bodyText: string | (() => string);
+  /** Independent printed card evidence for legacy happy-path page doubles. */
+  pricedCardQuantityText?: string;
   postSaveBodyText?: string | (() => string);
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
@@ -620,10 +622,23 @@ function createFakePage(options: FakePageOptions) {
         : selector;
       const behavior =
         selectorBehaviors[selector] ?? selectorBehaviors[normalizedSelector];
+      if (selector === XOMETRY_LOCATORS.pricedCardQuantity && behavior === undefined) {
+        // Legacy synthetic cards explicitly print qty 2, independent of inputs.
+        // Quantity-1/10 scenarios supply their own printed field below.
+        const quantityText = options.pricedCardQuantityText ?? "Qty 2";
+        return makeLocator({
+          count: 1,
+          text: () => `${quantityText}\n$100 each`,
+          children: { ":scope > *": { items: [{ count: 1, text: quantityText }] } },
+        });
+      }
       if (selector === XOMETRY_LOCATORS.priceTierCard && behavior === undefined) {
         const summaryBehavior = selectorBehaviors[XOMETRY_LOCATORS.priceText[0]];
         return makeLocator({
           ...summaryBehavior,
+          children: { '[kind="discount"]': { count: 1, text: "$100 each", children: {
+            ":scope > *": { items: [{ count: 1, text: options.pricedCardQuantityText ?? "Qty 2" }] },
+          } } },
           getAttribute: (name) => name === "data-option-id" ? "test-option" : null,
         });
       }
@@ -1147,6 +1162,7 @@ function createAutoSelectionFlow(options: {
     ...options.offered.finish,
   ];
   const page = createFakePage({
+    pricedCardQuantityText: "Qty 10",
     bodyText: quoteSummary,
     postSaveBodyText: quoteSummary,
     uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-AUTO-0001/part-1",
@@ -4515,6 +4531,8 @@ describe("XometryAdapter", () => {
       lineItemQuantity?: string;
       strayQuantity?: string;
       summaryQuantity?: string;
+      pricedCardQuantityText?: string;
+      readbackEnabled?: boolean;
     }) {
       const workerTempDir = await makeTempDir();
       const bodyText = t1QuotePageText(input.each, input.total, input.summaryQuantity ?? "Quantity");
@@ -4522,7 +4540,7 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
-          text: `Least Expensive\nArrives by Nov 6\nUSD $${input.each} ea.\nUSD $${input.total}`,
+          text: `Least Expensive\nArrives by Nov 6\n${input.readbackEnabled ? "Qty 1\n" : ""}USD $${input.each} ea.\nUSD $${input.total}`,
         },
       };
       if (input.lineItemQuantity !== undefined) {
@@ -4543,13 +4561,14 @@ describe("XometryAdapter", () => {
       }
       const page = createFakePage({
         bodyText,
+        pricedCardQuantityText: input.pricedCardQuantityText ?? "Qty 1",
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0901",
         selectorBehaviors,
       });
       launchMock.mockResolvedValue(createFakeBrowser(page));
       const adapter = new XometryAdapter(
         "xometry",
-        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+        makeConfig({ workerTempDir, xometryPricedCardReadbackEnabled: input.readbackEnabled, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
       return adapter.quote(makeInput({ requestedQuantity: 1 }));
     }
@@ -4560,6 +4579,21 @@ describe("XometryAdapter", () => {
       expect(result.status).toBe("instant_quote_received");
       expect(result.totalPriceUsd).toBe(41.41);
       expect(result.unitPriceUsd).toBe(41.41);
+    });
+
+    it.each([
+      ["Qty 10", "qty_mismatch", "configuration_required"],
+      ["", "page_qty_missing", "selector_drift"],
+      ["Qty 1; Qty 10", "page_qty_ambiguous", "selector_drift"],
+    ])("publishes no price with independent printed card %j", async (pricedCardQuantityText, reason, terminalState) => {
+      const failure = await quoteT1Page({
+        each: "41.41", total: "41.41", lineItemQuantity: "1", pricedCardQuantityText, readbackEnabled: true,
+      }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({ payload: { reason, terminalState } });
+      expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState });
+      expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
+        .toContain("priced-quantity-unverified-dom");
     });
 
     it("refuses the T1 ten-piece price for a qty-1 run even when the line item reads 1", async () => {
@@ -4751,6 +4785,7 @@ describe("XometryAdapter", () => {
     /** The page-level selectors the collector reads: the cards, and every rendered tier label on and in them. */
     const collectorPageSelectors = [
       tierCardSelector,
+      XOMETRY_LOCATORS.pricedCardQuantity,
       '[data-testid="tierAndLeadTime"]:visible',
       `${tierCardSelector} [data-testid="tierAndLeadTime"]:visible`,
     ];
@@ -4842,6 +4877,7 @@ describe("XometryAdapter", () => {
       const uploadCad = vi.fn();
       const page = createFakePage({
         bodyText: () => bodyText,
+        pricedCardQuantityText: "Qty 1",
         uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-1052",
         selectorBehaviors: {
           [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: uploadCad },

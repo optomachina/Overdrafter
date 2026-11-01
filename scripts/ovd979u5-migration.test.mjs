@@ -7,12 +7,12 @@ import { rollbackSql } from "./ovd979-rollback.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(join(root, file), "utf8");
-const migration = "20261031034900_ovd979u5_drawing_extraction_dedupe.sql";
+const migration = "20261101120200_ovd979u5_drawing_extraction_dedupe.sql";
 const forward = read(`supabase/migrations/${migration}`);
 const rollback = rollbackSql(migration);
 const prior = [
-  ["public.api_request_extraction(uuid)", "20261031034700_ovd979u2_canonical_requirement_lock_order.sql"],
-  ["public.api_claim_next_task(text)", "20261031034754_ovd979u3_extraction_attempt_identity.sql"],
+  ["public.api_request_extraction(uuid)", "20261101115900_ovd979u2_canonical_requirement_lock_order.sql"],
+  ["public.api_claim_next_task(text)", "20261101120000_ovd979u3_extraction_attempt_identity.sql"],
 ];
 
 describe("OVD-979 U5 migration artifacts", () => {

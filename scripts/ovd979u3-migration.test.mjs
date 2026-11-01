@@ -7,7 +7,7 @@ import { rollbackSql } from "./ovd979-rollback.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => readFileSync(join(root, file), "utf8");
-const migration = "20261031034754_ovd979u3_extraction_attempt_identity.sql";
+const migration = "20261101120000_ovd979u3_extraction_attempt_identity.sql";
 const forward = read(`supabase/migrations/${migration}`);
 const rollback = rollbackSql(migration);
 const signature = "public.api_claim_next_task(text)";

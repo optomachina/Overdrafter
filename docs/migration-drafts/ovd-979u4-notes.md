@@ -1,15 +1,19 @@
 # OVD-979 U4: attempt-bound auto approval
 
 U4 is stacked on U2 and U3. It changes
-`public.api_auto_approve_job_requirements(uuid)` and, since repair round 3, one
-statement of `public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid)`
-(see below). It preserves U2's L1 job lock and ordered L2/L3/L4 write phases
-with U2's `FOR NO KEY UPDATE` strength, existing grants, quantities, vendors,
-audit payload and failed-task count. It adds no schema, backfill, request RPC,
-unique index, worker change or task settlement. The deferred backstop stays
-one hour. The bodies and test scenarios were copied selectively from draft
-#874, not cherry-picked; its timestamp exemption and finishing-task ID cache
-are absent.
+`public.api_auto_approve_job_requirements(uuid)` and, since repair round 6,
+adds two attempt-fenced worker RPCs,
+`public.api_save_drawing_extraction_for_attempt(uuid, uuid, jsonb)` and
+`public.api_reuse_trusted_part_version_artifacts_for_attempt(uuid, uuid, uuid, uuid)`
+(see "Attempt fence" below), with the worker change that calls them. U2's
+`public.api_reuse_trusted_part_version_artifacts(uuid, uuid, uuid)` is no
+longer redefined. It preserves U2's L1 job lock and ordered L2/L3/L4 write
+phases with U2's `FOR NO KEY UPDATE` strength, existing grants, quantities,
+vendors, audit payload and failed-task count. It adds no schema, backfill,
+request RPC, unique index or task settlement. The deferred backstop stays one
+hour. The bodies and test scenarios were copied selectively from draft #874,
+not cherry-picked; its timestamp exemption and finishing-task ID cache are
+absent.
 
 ## Behavior
 
@@ -57,9 +61,14 @@ are absent.
 back to back. Once U3 is applied every claim sets `work_queue.attempt_id`, but
 a pre-U3 worker never writes `drawing_extractions.source_attempt_id`. U4's gate
 would then treat each of that worker's running extractions as pending: the
-in-task `api_auto_approve_job_requirements` call approves nothing, sets the
-job to `extracting`, the task settles and nothing calls auto approval again,
-so the job stays in `extracting`.
+in-task `api_auto_approve_job_requirements` call approves nothing and sets
+the job to `extracting`, and nothing calls auto approval again for that
+attempt. After the task settles, the worker's `api_refresh_job_extraction_status`
+call (`worker/src/index.ts`) moves the job on without the fresh extraction
+having been applied. A part with no requirement goes to `needs_spec_review`, so
+every upload falls to staff review. A part whose requirement already exists
+goes to `ready_to_quote` on fields that were never refreshed from the new
+extraction.
 
 The U4 migration enforces this itself. Its first statement
 (`$ovd979u4_worker_guard$`) raises `OVD-979 U4 requires the worker that
@@ -85,7 +94,7 @@ block verbatim; the artifact test fails if the copies drift.
 
 ## Apply and rollback
 
-`supabase/migrations/20261031034800_ovd979u4_attempt_bound_auto_approval.sql`
+`supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql`
 is the only forward copy. Apply after U2/U3 and after the worker deploy
 (above), in one transaction. Both forward and rollback support repeated application
 and have no transaction wrapper. No table, policy, owner or grant recipient
@@ -94,8 +103,9 @@ changes. The function keeps `SECURITY DEFINER`, pins
 retains service_role-only execution.
 
 The rollback is generated: `node scripts/ovd979-rollback.mjs
-20261031034800_ovd979u4_attempt_bound_auto_approval.sql` prints the complete
-U2/U3-era definitions of both functions (from U2's migration) and the ACLs;
+20261101120100_ovd979u4_attempt_bound_auto_approval.sql` drops the two new
+functions and prints the complete U2/U3-era definition of auto approval (from
+U2's migration) and its ACLs;
 auto approval's `md5(prosrc)` is **ba94c43be2ec78486ee9aca4679d2465**. The
 artifact test compares the generated bodies directly to U2's promoted
 migration. Roll back U4 before U3.
@@ -220,8 +230,9 @@ PR, hosted apply, production or provider operation was performed.
   in U2's body changes (the artifact test strips the stamp and compares the
   rest byte for byte). An existing target row is still left alone
   (`on conflict do nothing`), keeps its own attempt and stays pending for the
-  gate, so that rare retry case does not auto-approve; the job is left in
-  `extracting` (not `needs_spec_review`) until staff act on it. New pgTAP case: 4 assertions; against U2's reuse body 3 of
+  gate, so that rare retry case does not auto-approve. After the task settles,
+  `api_refresh_job_extraction_status` moves the job to `needs_spec_review` when
+  the part has no requirement, so the case falls to staff review. New pgTAP case: 4 assertions; against U2's reuse body 3 of
   them fail (`source_attempt_id` null, 0 approved, job stays `extracting`).
 - **Ordering (minor).** `pg_temp.u4_store` takes an optional timestamp. New
   case: a matching-attempt extraction stamped before the requirement's
@@ -269,8 +280,80 @@ PR, hosted apply, production or provider operation was performed.
   could refuse after a trusted reuse because auto approval's status update
   bumps the copy's `updated_at`. Against that WIP guard, 4 of the 8 guard
   assertions fail.
-- Corrected the reuse note above: an existing target row leaves the job in
-  `extracting`, not in staff review (Opus minor). The reuse `on conflict` and
+- Reuse note above: an existing target row does not auto-approve; the
+  worker's post-settle `api_refresh_job_extraction_status` then moves the job
+  to `needs_spec_review` (staff review) when the part has no requirement. An
+  in-session independent review at `2119f26` corrected this round's first
+  wording, which said the job stays in `extracting`. The reuse `on conflict` and
   copied-`updated_at` minors are not changed in this round.
 - New sha256 pin:
   `c7770995d71c604bd154639f8bc584d26219656c39fd562fa93ac6cf486a0961`.
+
+## Repair round 6 (2026-11-01): council and ARCH findings at `34a2381`
+
+GPT (council) and the ARCH delta review raised two majors; both were confirmed
+in the code and are fixed. The Jev screen (pIncident 0.65 on a schema,
+migrations and infra_ci diff) is a risk score, not a code finding; it is
+answered by the tests below and stays for the operator's final check.
+
+- **Extraction write race (major).** The worker checked `work_queue` and then
+  upserted `drawing_extractions` in two requests, so attempt A could pass the
+  check, be reaped, and overwrite successor B's row. The write now goes through
+  `api_save_drawing_extraction_for_attempt(p_task_id, p_attempt_id,
+  p_extraction)`. In one transaction it upserts the row (L4), with part and
+  organization taken from the task, never from the payload, then takes the task's
+  `work_queue` row `FOR SHARE` where `status = 'running'` and `attempt_id`
+  matches (L5). If that row is gone, the inner block raises `OV979` and rolls the
+  write back, and the RPC returns false. Otherwise the share lock is held until
+  commit, so a reap (an `UPDATE` of that row) waits for the write to commit and
+  the successor writes after it. New two-session suite
+  `supabase/tests/ovd979u4_attempt_fence.sql` (9 assertions, committed
+  fixture, dblink): with A's write open, a reap fails with `55P03` under a 1 s
+  `lock_timeout`. After the reap and B's reclaim, A's late write returns false
+  and leaves nothing behind.
+- **Stale reuse stamps (major).** U4's reuse picked whatever attempt was
+  running on the target and never saw the caller's. A stale worker could stamp
+  B's attempt and settle through the reuse path. The new
+  `api_reuse_trusted_part_version_artifacts_for_attempt(..., p_expected_attempt_id)`
+  calls U2's reuse unchanged, stamps the target row with the caller's attempt
+  only when it holds that same copy, then fences on the target's running attempt
+  as above. A stale caller gets `attemptSuperseded: true`, and everything it
+  copied or stamped is rolled back. The worker logs it and stops, without
+  settling or auto-approving.
+- **Why U2's reuse is not redefined or overloaded.** The old-worker
+  compatibility suites (`supabase/fixtures/worker-compatibility/catalog.sql`,
+  `service_role.sql`, run at full head by the free-quote SQL qualification)
+  pin the archived worker's exact three-argument identity and exactly one
+  overload. U4 therefore leaves U2's body in place and adds a new name. An
+  archived worker that is still running gets an unstamped copy, which U4's
+  gate keeps pending (the safe direction). Stopping old workers stays the
+  operator step above.
+- **Deploy window.** The deploy order is unchanged. The new worker runs before
+  U4 is applied: on `PGRST202` (RPC not found) it falls back to the legacy
+  reuse and the read-then-upsert guard, which narrows the race but cannot close
+  it. Once U4 is applied, the fenced RPCs are used.
+- **Lock order.** Both RPCs are in `AUDITED_FUNCTIONS`
+  (`scripts/check-lock-order.mjs`). Save: L4 upsert, then L5. Reuse: U2's L1, L2
+  and L4, then an L4 stamp update, then L5. Neither has an inversion.
+- **Rollback.** `scripts/ovd979-rollback.mjs` now drops functions that no
+  earlier migration mentions and still refuses a signature whose last earlier
+  event is a drop. `--prove` checks that rollback removes the new functions
+  and that re-apply restores their bodies, ACLs and config.
+- **Rename.** U4 is now `20261101120100_ovd979u4_attempt_bound_auto_approval.sql`,
+  after main's `20261101110559` and U3's planned `20261101120000` (#985).
+  U3 (#985) has since moved to `20261101120000`, and this branch merged it.
+  U2 (#984) was renamed to `20261101115900` on 2026-11-01 and this branch
+  merged it, so `verify:migration-lineage --against-base` passes for the
+  whole stack: U2 `20261101115900` < U3 `20261101120000` < U4 `20261101120100`.
+- Local proof: disposable PostgreSQL 16 (unix socket only),
+  `scripts/window-1/supabase-shim.sql` plus all 168 migrations on this branch
+  (main merged), pgTAP and dblink from the distribution packages.
+  `ovd979u4_auto_approval.sql` 113/113, `ovd979u4_attempt_fence.sql` 9/9,
+  `ovd979u4_worker_guard.sql` 8/8, `ovd979u4_lock_strength.sql` 6/6,
+  `ovd979u3_attempt_identity.sql` 27/27, `ovd979u2_lock_order.sql` 53/53.
+  `node scripts/ovd979-rollback.mjs
+  20261101120100_ovd979u4_attempt_bound_auto_approval.sql --prove`: PASS
+  (one prior body restored, two new functions dropped and recreated).
+  No hosted database was contacted.
+- New sha256 pin:
+  `3c46872db181f81badc96e2565c21398541b9fbac492a34a97ac54adba764652`.

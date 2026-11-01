@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,18 @@ function copyRepoSubset() {
     cpSync(path.join(repo, relative), path.join(scratch, relative), { recursive: true });
   }
   return scratch;
+}
+
+// Exact mode is the deploy-commit check: the window's tree holds only the
+// baseline and the suffix. Open PRs may add later migrations to the live repo,
+// so trim the scratch copy to that window instead of asserting the repo's count.
+function trimToWindow(root) {
+  const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
+  const suffix = JSON.parse(readFileSync(path.join(root, SUFFIX_PATH), "utf8"));
+  const window = new Set([...manifest.migrations, ...suffix.migrations].map((entry) => entry.file));
+  for (const name of readdirSync(path.join(root, MIGRATION_ROOT))) {
+    if (name.endsWith(".sql") && !window.has(name)) rmSync(path.join(root, MIGRATION_ROOT, name));
+  }
 }
 
 afterEach(() => {
@@ -36,6 +48,7 @@ describe("OVD-635 ledger manifest", () => {
 
   it("rejects a later migration in exact mode", () => {
     const root = copyRepoSubset();
+    trimToWindow(root);
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([]);
     writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([

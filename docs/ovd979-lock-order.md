@@ -46,6 +46,8 @@ definition of each function in `supabase/migrations`.
 | `api_request_debug_extraction`                      | `debug_extraction_runs` insert, L5 insert                                                          | none                                                                             | —             |
 | `api_reconcile_job_parts`                           | L2 delete, L2 insert, `job_files` update                                                           | none; callers must hold L1 first                                                 | Redesign PR 5 |
 | `api_reuse_trusted_part_version_artifacts`          | Target L1 `FOR NO KEY UPDATE`, target L2 `FOR NO KEY UPDATE`, L4 insert, preview inserts             | none | U2 |
+| `api_reuse_trusted_part_version_artifacts_for_attempt` | `api_reuse_trusted_part_version_artifacts` (L1, L2, L4 insert, preview inserts), L4 stamp update, L5 `FOR SHARE` attempt fence | none | U4 |
+| `api_save_drawing_extraction_for_attempt`           | L4 upsert, L5 `FOR SHARE` attempt fence                                                            | none                                                                             | U4            |
 | `private.reset_job_after_manual_quote_cancellation` | L1 update                                                                                          | none                                                                             | —             |
 | `api_admin_complete_manual_quote_request`           | L0, L0, L1 `FOR UPDATE`, quote/vendor-quote tables, L1 update                                      | none                                                                             | —             |
 | `api_claim_next_task`                               | L5 `FOR UPDATE SKIP LOCKED`, L5 update; part identity lookup is a plain read                       | none | U5 |
@@ -145,7 +147,7 @@ the callee's direct statements are checked). The two-session dblink tests
 
 ## U2 implementation and auxiliary-path audit
 
-U2 is `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`; its draft,
+U2 is `20261101115900_ovd979u2_canonical_requirement_lock_order.sql`; its draft,
 rollback hashes and local proof are documented in
 [`migration-drafts/ovd-979u2-notes.md`](migration-drafts/ovd-979u2-notes.md).
 The checker logic is unchanged. The three resolved functions' inversion entries

@@ -1,7 +1,7 @@
 # OVD-979 U5: request dedupe and drawing release
 
 Stacked on U2/U3/U4. The forward migration is
-`supabase/migrations/20261031034900_ovd979u5_drawing_extraction_dedupe.sql`,
+`supabase/migrations/20261101120200_ovd979u5_drawing_extraction_dedupe.sql`,
 the only forward copy since repair round 1. Apply after U4. The file applies
 with or without a wrapping transaction: the table lock, duplicate audit and
 index build share one `DO` statement.
@@ -160,7 +160,7 @@ synthetic fixtures only; any hosted duplicates require operator disposition.
 ## Rollback and repeat application
 
 `node scripts/ovd979-rollback.mjs
-20261031034900_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
+20261101120200_ovd979u5_drawing_extraction_dedupe.sql` generates the rollback:
 it drops the trigger, its private helper and the index, then restores both
 U4-era function definitions (request from U2's migration, claim from U3's)
 and ACLs, all with `pg_catalog` first in `search_path`. The stored
@@ -225,7 +225,7 @@ On the isolated local fixture (U2–U5 applied):
 - The forward applies with `psql` and no wrapping transaction, including the
   index build from scratch (round 0 failed here with 25P01).
 - `node scripts/ovd979-rollback.mjs
-  20261031034900_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
+  20261101120200_ovd979u5_drawing_extraction_dedupe.sql --prove --db-url
   <loopback URL>`:
 
   ```
@@ -297,7 +297,7 @@ Council consensus FAIL (Opus PASS_NOTES, GPT FAIL, Jev PASS_NOTES).
 - **Rollback row proof baseline (GPT, minor): fixed.** `--prove` now snapshots
   rows before the first rollback, so rollback itself is checked.
 - **U4 canonical reuse vs the attempt gate (GPT, major): not this PR's file.**
-  `20261031034800_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
+  `20261101120100_ovd979u4_attempt_bound_auto_approval.sql` belongs to #986.
 - **Cancel hands over to the successor (Opus, minor): documented.** Excluding
   `cancelled` would drop the successor permanently: a later request re-queues
   only for a sim extraction or a failed/cancelled task naming the *current*
@@ -321,38 +321,25 @@ production were not touched.
 ## Base merge: U3/U4 renames (2026-10-31)
 
 U3 (#985) moved to `20261031034754` and U4 (#986) to `20261031034800`, both
-after this file's `20261031025000`. U5 must apply after U4, so it is renamed to
-`20261031034900_ovd979u5_drawing_extraction_dedupe.sql`. This is a rename only;
-the SHA-256 (`ed01e6e1…`) is unchanged. Only U2 (#984, `20261030162500`) still
-sorts before main's `20261030204050` and keeps `lint` red.
+after this file's `20261031025000`. U5 must apply after U4, so it was renamed to
+`20261031034900_ovd979u5_drawing_extraction_dedupe.sql`. This was a rename only;
+the SHA-256 (`ed01e6e1…`) was unchanged. Only U2 (#984, `20261030162500`) still
+sorted before main's `20261030204050` and kept `lint` red.
 
 ## Base merge: U2 rename (2026-10-31)
 
 U2 (#984) moved to `20261031034700_ovd979u2_canonical_requirement_lock_order.sql`
 (bytes and SHA-256 `572066174ddb…906f` unchanged), after main's
-`20261030204050` and before U3's `20261031034754`. U5 keeps `20261031034900`,
-so the stack order is U2 < U3 < U4 < U5 and every OVD-979 migration sorts after
-main's newest. `scripts/ovd979u5-migration.test.mjs` names U2's new filename as
-the prior definition of `api_request_extraction(uuid)`.
+`20261030204050` and before U3's `20261031034754`. U5 kept `20261031034900`,
+so the stack order was U2 < U3 < U4 < U5 and every OVD-979 migration sorted after
+main's newest at the time.
 
-## Council findings @ a19a3634 (2026-10-31)
+## Re-timestamp (2026-11-01)
 
-- **Stale settlement after the successor settles (GPT, major): fixed.** The
-  fence covered only queued or running rows, so once successor B completed,
-  reaped attempt A's late `markTaskFailed` (filtered by `id` and
-  not-cancelled) still matched the row and overwrote B's status and payload,
-  and U4's gate then saw a failed task. The trigger now also skips any write
-  to a completed or failed `extract_part` row whose `drawingFileId` differs
-  from the row's, whatever the new status (late complete, fail or cancel).
-  Nothing legitimately rewrites a settled row's drawing identity: the request
-  touches only queued and running rows and inserts new ones, and claims only
-  pick queued rows. New pgTAP (4 cases: late failure, late completion, late
-  cancel, successor status/payload kept); all 4 fail against the `a19a3634`
-  trigger. New U5 SHA-256:
-  `2c28901ddfa9ff89253cd4fd056a2b7d85ad20116cb7e35fed25e58d28a2d643`.
-- **Same-drawing late settlement (Opus, minor): follow-up.** A reaped attempt
-  for the same drawing as its requeued successor is indistinguishable by
-  payload; closing it needs the worker to settle by `attempt_id`, which
-  predates U5 and is a worker change outside this unit.
-- **`--prove` destination guard (GPT, major): owned by #984**
-  (`scripts/ovd979-rollback.mjs`), merged down through the stack.
+Main gained `20261101110559_reconcile_claim_fence_followups.sql`, so the whole
+stack was re-timestamped past it: U2 `20261101115900` (#984), U3
+`20261101120000` (#985), U4 `20261101120100` (#986) and this file
+`20261101120200_ovd979u5_drawing_extraction_dedupe.sql`. Rename only; the U5
+SHA-256 (`2c28901d…`) is unchanged. `scripts/ovd979u5-migration.test.mjs` names
+U2's and U3's new filenames as the prior definitions of
+`api_request_extraction(uuid)` and `api_claim_next_task(text)`.

@@ -222,6 +222,10 @@ The tool first checks the vocabulary digest on the log line, then on any baselin
 
 With a reviewed baseline fingerprint, `driftClass` comes from `diff()`. Without one, it comes from what `classifyXometryAuthProbe` needs to see (`XOMETRY_AUTH_PROBE_DRIFT_REFERENCE`). The repair proposal then follows the rules above. A `terminal_group_partial` finding on the anonymous-page groups suggests the session is logged out and the anonymous page's wording drifted. The fix is still a signal update. Once the probe classifies that page as `anonymous_quote_home`, the normal session path applies. The drift result may go on the repair issue. The log file may not. A scrubbed fingerprint becomes a committed baseline only through OVD-796 slice 5.
 
+### Quote-page price collection
+
+A Xometry quote page publishes only the complete tier set at the price the customer pays. A hidden card, a loading or disabled state, a badge-polluted header, a stale tier, or a conditional notice ("not available for quantities over 50" while the request is quantity 1) is a refusal (`selector_drift`, `availability_ambiguous`, or `pending`). It is not an `instant_quote` of the tiers that remained. Do not add a filename or `originalName` exemption to make the settle wait pass; [#920](https://github.com/optomachina/Overdrafter/pull/920) added one and then reverted it. Update the synthetic fixture in the same change: `worker/src/adapters/fixtures/xometry-quote-page-price-panel-2026-10.html`. An expired session is `anonymous_quote_home` / `login_required`, pinned by `worker/src/adapters/fixtures/xometry-anonymous-quote-home.json`, not dashboard drift. Keep the auth probe's `goto`, inspection, and fingerprint failures as separate sub-stages with a closed cause. One open PR may touch a given vendor-adapter file. `vendor-pr-serialization` fails the newer PR.
+
 ## Three-stage provider lifecycle
 
 ### 1. Define `<provider>`’s evidence-backed quote envelope
