@@ -444,6 +444,30 @@ function normalizedCookieDomain(value: unknown): string | null {
   return normalized;
 }
 
+function isAllowedCookie(cookie: unknown, allowed: ReadonlySet<string>): boolean {
+  if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
+    return false;
+  }
+  const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
+  return domain !== null && allowed.has(domain);
+}
+
+function isAllowedExactOriginEntry(originEntry: unknown, allowedHosts: readonly string[]): boolean {
+  if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
+    return false;
+  }
+  const origin = (originEntry as Record<string, unknown>).origin;
+  if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
+    return false;
+  }
+  const parsedOrigin = new URL(origin);
+  return parsedOrigin.pathname === "/"
+    && !parsedOrigin.search
+    && !parsedOrigin.hash
+    && !parsedOrigin.username
+    && !parsedOrigin.password;
+}
+
 function parseStorageState(
   value: unknown,
   allowedHosts: readonly string[],
@@ -456,33 +480,11 @@ function parseStorageState(
     return null;
   }
   const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
-  for (const cookie of record.cookies) {
-    if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
-      return null;
-    }
-    const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
-    if (!domain || !allowed.has(domain)) {
-      return null;
-    }
+  if (!record.cookies.every((cookie) => isAllowedCookie(cookie, allowed))) {
+    return null;
   }
-  for (const originEntry of record.origins) {
-    if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
-      return null;
-    }
-    const origin = (originEntry as Record<string, unknown>).origin;
-    if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
-      return null;
-    }
-    const parsedOrigin = new URL(origin);
-    if (
-      parsedOrigin.pathname !== "/"
-      || parsedOrigin.search
-      || parsedOrigin.hash
-      || parsedOrigin.username
-      || parsedOrigin.password
-    ) {
-      return null;
-    }
+  if (!record.origins.every((originEntry) => isAllowedExactOriginEntry(originEntry, allowedHosts))) {
+    return null;
   }
   if (record.sessionStorage !== undefined && !isValidSessionStorageCapture(record.sessionStorage, allowedHosts)) {
     return null;

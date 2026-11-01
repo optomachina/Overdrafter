@@ -72,7 +72,7 @@ export async function captureSessionStorage(
   pages: readonly PageLike[],
   allowedHosts: readonly string[],
 ): Promise<CapturedSessionStorageOrigin[]> {
-  const byOrigin = new Map<string, CapturedSessionStorageOrigin>();
+  const allowedPages: { origin: string; page: PageLike }[] = [];
   for (const page of pages) {
     let origin: string;
     try {
@@ -80,7 +80,9 @@ export async function captureSessionStorage(
     } catch {
       continue;
     }
-    if (!isAllowedProviderUrl(origin, allowedHosts) || byOrigin.has(origin)) continue;
+    if (isAllowedProviderUrl(origin, allowedHosts)) allowedPages.push({ origin, page });
+  }
+  const captures = await Promise.all(allowedPages.map(async ({ origin, page }) => {
     const entries = await page.evaluate(() => {
       const items: { name: string; value: string }[] = [];
       for (let index = 0; index < globalThis.sessionStorage.length; index += 1) {
@@ -89,7 +91,11 @@ export async function captureSessionStorage(
       }
       return items;
     }).catch(() => [] as { name: string; value: string }[]);
-    if (entries.length > 0) byOrigin.set(origin, { origin, sessionStorage: entries });
+    return { origin, sessionStorage: entries };
+  }));
+  const byOrigin = new Map<string, CapturedSessionStorageOrigin>();
+  for (const capture of captures) {
+    if (capture.sessionStorage.length > 0 && !byOrigin.has(capture.origin)) byOrigin.set(capture.origin, capture);
   }
   return [...byOrigin.values()];
 }

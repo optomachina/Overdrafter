@@ -122,6 +122,18 @@ describe("vendorAuth Quickparts login capture (OVD-1059)", () => {
     }]);
   });
 
+  it("keeps the first non-empty page per origin, so an empty tab does not hide a logged-in one", async () => {
+    const captured = await captureSessionStorage([
+      fakePage("https://quickquote.quickparts.com/#/blank", []),
+      fakePage("https://quickquote.quickparts.com/#/", [{ name: "userToken", value: "first" }]),
+      fakePage("https://quickquote.quickparts.com/#/other", [{ name: "userToken", value: "second" }]),
+    ] as never, hosts);
+    expect(captured).toEqual([{
+      origin: "https://quickquote.quickparts.com",
+      sessionStorage: [{ name: "userToken", value: "first" }],
+    }]);
+  });
+
   it("refuses to save without the upload control or the token, naming only what is missing", () => {
     const signal = LOGGED_IN_SIGNALS.quickparts!;
     const withToken = [{ origin: "https://quickquote.quickparts.com", sessionStorage: [{ name: "userToken", value: "secret-value" }] }];
