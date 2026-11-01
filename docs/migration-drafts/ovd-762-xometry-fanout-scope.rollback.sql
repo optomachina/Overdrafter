@@ -1,6 +1,6 @@
 -- OVD-762 item 1: ROLLBACK for docs/migration-drafts/ovd-762-xometry-fanout-scope.sql.
 --
--- DRAFT ONLY. Restores the OVD-987 worker preflight from 20261101130000 exactly, so a
+-- DRAFT ONLY. Restores the OVD-1007 worker preflight from 20261101130100 exactly, so a
 -- queued fan out Xometry task fails closed with
 -- dispatch_provider_configuration_changed instead of dispatching. The new RPCs
 -- lose every grant and refuse with xometry_beta_fanout_disabled. The marker
@@ -228,7 +228,18 @@ begin
     perform pg_catalog.pg_advisory_xact_lock_shared(
       pg_catalog.hashtextextended('commercial-rollout:controlled_beta_user_quantity', 0)
     );
-    if not private.xometry_beta_user_quantity_enabled() then
+    -- OVD-1007: or the unrevoked grant this permit consumed. The shared lock
+    -- makes an audited revoke wait for this check.
+    perform pg_catalog.pg_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended('xometry-beta-quantity-grant:' || v_permit.job_id::text, 0)
+    );
+    if not private.xometry_beta_user_quantity_enabled()
+      and private.xometry_beta_quantity_grant_id(
+        v_permit.job_id,
+        v_permit.id,
+        v_permit.scope_fingerprint,
+        v_lane.requested_quantity
+      ) is null then
       return pg_catalog.jsonb_build_object(
         v_authorized_key, false,
         v_reason_key, 'dispatch_quantity_not_admitted'

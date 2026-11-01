@@ -48,7 +48,12 @@ describe("OVD-987 controlled beta user quantity migration", () => {
       const defining = sqlFiles.filter((name) =>
         definitionPattern(qualified).test(readFileSync(`${MIGRATIONS}/${name}`, "utf8")),
       );
-      expect(defining.at(-1), qualified).toBe(MIGRATION_FILE);
+      const newest = defining.at(-1);
+      if (newest === MIGRATION_FILE) continue;
+      // A later migration (OVD-1007) may restate it only when rebased onto this body: its md5
+      // precondition names this migration's body, so it refuses to replace anything else.
+      expect(defining, qualified).toContain(MIGRATION_FILE);
+      expect(readFileSync(`${MIGRATIONS}/${newest}`, "utf8"), qualified).toContain(`'${md5(body(migrationSql, qualified))}'`);
     }
   });
 
