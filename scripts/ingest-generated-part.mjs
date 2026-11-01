@@ -190,6 +190,20 @@ export async function ingestGeneratedPart(input) {
   return { jobId, files: uploaded };
 }
 
+/** Parses the session file without ever echoing its contents (JSON.parse errors quote the input). */
+export function parseSessionFile(text) {
+  let stored;
+  try {
+    stored = JSON.parse(text);
+  } catch {
+    throw new Error("The session file is not valid JSON; re-create it.");
+  }
+  if (typeof stored?.refresh_token !== "string" || !stored.refresh_token) {
+    throw new Error("The session file has no refresh_token; re-create it.");
+  }
+  return stored;
+}
+
 export function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -223,7 +237,7 @@ async function main() {
 
   const { createClient } = await import("@supabase/supabase-js");
   const client = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const stored = JSON.parse(await readFile(sessionFile, "utf8"));
+  const stored = parseSessionFile(await readFile(sessionFile, "utf8"));
   const { data, error } = await client.auth.refreshSession({ refresh_token: stored.refresh_token });
   if (error || !data.session) throw new Error("Could not sign in as the user; re-create the session file.");
   await writeSessionFileAtomically(sessionFile, data.session.refresh_token);

@@ -10,6 +10,7 @@ import {
   ingestGeneratedPart,
   isStorageObjectExistsError,
   parseArgs,
+  parseSessionFile,
   sha256Hex,
   thumbnailMimeType,
   writeSessionFileAtomically,
@@ -162,6 +163,21 @@ describe("ingest failure paths", () => {
     expect(parseArgs(["--step", "a.step", "--name", "A"])).toEqual({ step: "a.step", name: "A" });
     expect(thumbnailMimeType("a.PNG")).toBe("image/png");
     expect(() => thumbnailMimeType("a.exe")).toThrow(/png/);
+  });
+});
+
+describe("parseSessionFile", () => {
+  it("never quotes a malformed session file in its error", () => {
+    let message = "";
+    try {
+      parseSessionFile("rtok_SECRET_fragment");
+    } catch (error) {
+      message = error.message;
+    }
+    expect(message).toMatch(/not valid JSON/);
+    expect(message).not.toContain("SECRET");
+    expect(() => parseSessionFile("{}")).toThrow(/no refresh_token/);
+    expect(parseSessionFile('{"refresh_token":"t"}')).toEqual({ refresh_token: "t" });
   });
 });
 
