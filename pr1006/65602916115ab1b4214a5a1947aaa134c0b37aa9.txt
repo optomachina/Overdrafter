@@ -1,42 +1,225 @@
-PR #1006 test-output QA
+PR #1006 QA test output
 sha: 65602916115ab1b4214a5a1947aaa134c0b37aa9
-date: 2026-10-31T21:14:55Z
-node: v22.23.4 npm: 10.9.9
-Docs checks inventory: package.json/.github/workflows define no markdown lint or link check; no script reads docs/ci/ovd-workflow-inventory.md. Docs/evals-relevant checks found and run: skill-evals validate (reads evals/skills), skill-evals unit tests, verify-skill-drift (verify-skill-drift.yml), merge-queue-workflows test (reads docs/runbooks/merge-queue.md), test:agent-control-plane (agent docs/contract validator, ci.yml).
-npm ci: exit 0
+git rev-parse HEAD: 65602916115ab1b4214a5a1947aaa134c0b37aa9
+date (UTC): 2026-11-01T01:45:42Z
+node: v22.23.4  npm: 10.9.9
+npm ci: exit 0 (run before this log)
+Docs checks discovered: no markdown lint, link check, or docs-inventory checker exists in package.json, scripts/ or .github/workflows (rg for markdownlint|lychee|link-check|ovd-workflow-inventory: no matches). Docs-adjacent checks run: skill-evals validate/tests (evals/skills), test:agent-control-plane (agent contract/graph docs), verify-skill-drift.
 
-================================================================
-$ node -e "JSON.parse(require('fs').readFileSync('evals/skills/land/spec.json','utf8')); console.log('spec.json: valid JSON')"
-================================================================
+===== $ node -e "JSON.parse(require('fs').readFileSync('evals/skills/land/spec.json','utf8')); console.log('spec.json: valid JSON')" =====
 spec.json: valid JSON
---- exit code: 0
+----- exit code: 0 -----
 
-================================================================
-$ node scripts/skill-evals.mjs validate
-================================================================
+===== $ node scripts/skill-evals.mjs validate =====
 ok: 15 specs, 15 skills present
---- exit code: 0
+----- exit code: 0 -----
 
-================================================================
-$ npx vitest run scripts/skill-evals.test.mjs scripts/merge-queue-workflows.test.mjs
-================================================================
+===== $ npx vitest run scripts/skill-evals.test.mjs =====
 
  RUN  v3.2.4 /home/user/Overdrafter
 
- ✓ scripts/merge-queue-workflows.test.mjs (28 tests) 12ms
- ✓ scripts/skill-evals.test.mjs (63 tests) 4287ms
-   ✓ report > report --skill "" with uncommitted skill changes > lists an untracked spec under evals/skills whether or not evals/ is gitignored  395ms
+ ✓ scripts/skill-evals.test.mjs (63 tests) 4611ms
+   ✓ report > report --skill "" with uncommitted skill changes > lists an untracked spec under evals/skills whether or not evals/ is gitignored  415ms
 
- Test Files  2 passed (2)
-      Tests  91 passed (91)
-   Start at  21:14:56
-   Duration  4.73s (transform 101ms, setup 0ms, collect 136ms, tests 4.30s, environment 0ms, prepare 286ms)
+ Test Files  1 passed (1)
+      Tests  63 passed (63)
+   Start at  01:45:43
+   Duration  5.01s (transform 60ms, setup 0ms, collect 75ms, tests 4.61s, environment 0ms, prepare 98ms)
 
---- exit code: 0
+----- exit code: 0 -----
 
-================================================================
-$ node scripts/verify-skill-drift.mjs --json /tmp/vsd.json --markdown /tmp/vsd.md
-================================================================
+===== $ npm run test:agent-control-plane =====
+
+> overdrafter-web@0.0.1.1 test:agent-control-plane
+> node --test scripts/validate-agent-graph.node-test.mjs scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'
+
+TAP version 13
+# Subtest: parses owned, detached, and prunable worktrees without implying deletion
+ok 1 - parses owned, detached, and prunable worktrees without implying deletion
+  ---
+  duration_ms: 1.678872
+  type: 'test'
+  ...
+# Subtest: current agent contract is internally consistent
+ok 2 - current agent contract is internally consistent
+  ---
+  duration_ms: 5.011313
+  type: 'test'
+  ...
+# Subtest: obsolete complexity approval and workflow settings are rejected
+ok 3 - obsolete complexity approval and workflow settings are rejected
+  ---
+  duration_ms: 5.40647
+  type: 'test'
+  ...
+# Subtest: runs as a CLI when invoked through a symlinked directory
+ok 4 - runs as a CLI when invoked through a symlinked directory
+  ---
+  duration_ms: 47.188352
+  type: 'test'
+  ...
+# Subtest: canonical agent graph is valid
+ok 5 - canonical agent graph is valid
+  ---
+  duration_ms: 4.075463
+  type: 'test'
+  ...
+# Subtest: rejects an edge to an unknown node
+ok 6 - rejects an edge to an unknown node
+  ---
+  duration_ms: 2.086378
+  type: 'test'
+  ...
+# Subtest: rejects an undeclared predicate
+ok 7 - rejects an undeclared predicate
+  ---
+  duration_ms: 0.912929
+  type: 'test'
+  ...
+# Subtest: rejects schema violations
+ok 8 - rejects schema violations
+  ---
+  duration_ms: 0.664514
+  type: 'test'
+  ...
+# Subtest: rejects a single reviewer family
+ok 9 - rejects a single reviewer family
+  ---
+  duration_ms: 1.405296
+  type: 'test'
+  ...
+# Subtest: a reviewer with no family is an error and never counts as a family
+ok 10 - a reviewer with no family is an error and never counts as a family
+  ---
+  duration_ms: 0.76384
+  type: 'test'
+  ...
+# Subtest: rejects a schema keyword the validator does not evaluate
+ok 11 - rejects a schema keyword the validator does not evaluate
+  ---
+  duration_ms: 0.556029
+  type: 'test'
+  ...
+# Subtest: rejects a $ref that does not resolve
+ok 12 - rejects a $ref that does not resolve
+  ---
+  duration_ms: 0.3996
+  type: 'test'
+  ...
+# Subtest: rejects a node that no edge names, but not the root
+ok 13 - rejects a node that no edge names, but not the root
+  ---
+  duration_ms: 1.184317
+  type: 'test'
+  ...
+# Subtest: requires the merge gate pointers and runtime routing
+ok 14 - requires the merge gate pointers and runtime routing
+  ---
+  duration_ms: 3.207916
+  type: 'test'
+  ...
+# Subtest: overflow reviewer does not count toward the two-family rule
+ok 15 - overflow reviewer does not count toward the two-family rule
+  ---
+  duration_ms: 0.759628
+  type: 'test'
+  ...
+# Subtest: caps override every assignment rule
+ok 16 - caps override every assignment rule
+  ---
+  duration_ms: 0.58645
+  type: 'test'
+  ...
+# Subtest: rejects an override cycle
+ok 17 - rejects an override cycle
+  ---
+  duration_ms: 0.6464
+  type: 'test'
+  ...
+# Subtest: usage balancer rules are present, unique and override known rules
+ok 18 - usage balancer rules are present, unique and override known rules
+  ---
+  duration_ms: 3.972655
+  type: 'test'
+  ...
+# Subtest: rejects a usage balancer rule with no text or an unknown key
+ok 19 - rejects a usage balancer rule with no text or an unknown key
+  ---
+  duration_ms: 1.140203
+  type: 'test'
+  ...
+# Subtest: qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+ok 20 - qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+  ---
+  duration_ms: 8.407207
+  type: 'test'
+  ...
+# Subtest: rejects a graph with no qa verdict
+ok 21 - rejects a graph with no qa verdict
+  ---
+  duration_ms: 0.959188
+  type: 'test'
+  ...
+# Subtest: rejects a graph missing a mandatory route
+ok 22 - rejects a graph missing a mandatory route
+  ---
+  duration_ms: 4.91505
+  type: 'test'
+  ...
+# Subtest: a mandatory route with an extra condition does not count
+ok 23 - a mandatory route with an extra condition does not count
+  ---
+  duration_ms: 1.36491
+  type: 'test'
+  ...
+# Subtest: rejects an empty or incomplete merge gate
+ok 24 - rejects an empty or incomplete merge gate
+  ---
+  duration_ms: 2.567013
+  type: 'test'
+  ...
+# Subtest: an event-gated reviewer edge does not count toward the two-family rule
+ok 25 - an event-gated reviewer edge does not count toward the two-family rule
+  ---
+  duration_ms: 1.873205
+  type: 'test'
+  ...
+# Subtest: rejects a $ref with a sibling constraint
+ok 26 - rejects a $ref with a sibling constraint
+  ---
+  duration_ms: 0.701852
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref
+ok 27 - rejects a chained $ref
+  ---
+  duration_ms: 1.129465
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref that ends unresolved
+ok 28 - rejects a chained $ref that ends unresolved
+  ---
+  duration_ms: 0.672891
+  type: 'test'
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 134.6074
+agent-contract: valid
+.................................................................
+----------------------------------------------------------------------
+Ran 65 tests in 55.340s
+
+OK
+----- exit code: 0 -----
+
+===== $ node scripts/verify-skill-drift.mjs =====
 # verify-overdrafter feature-map drift
 
 Status: **drift**
@@ -94,234 +277,41 @@ Checked 3 feature files against 28 app routes and 30 e2e specs in `.agents/skill
 | unmapped-spec | `e2e/journeys/signin-short-viewport.spec.ts` | `e2e` | e2e spec not named by the feature map |
 | unmapped-spec | `e2e/journeys/single-quantity-field.spec.ts` | `e2e` | e2e spec not named by the feature map |
 
---- exit code: 1
+----- exit code: 1 -----
 
-================================================================
-$ npm run test:agent-control-plane
-================================================================
-
-> overdrafter-web@0.0.1.1 test:agent-control-plane
-> node --test scripts/validate-agent-graph.node-test.mjs scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'
-
-TAP version 13
-# Subtest: parses owned, detached, and prunable worktrees without implying deletion
-ok 1 - parses owned, detached, and prunable worktrees without implying deletion
-  ---
-  duration_ms: 1.746312
-  type: 'test'
-  ...
-# Subtest: current agent contract is internally consistent
-ok 2 - current agent contract is internally consistent
-  ---
-  duration_ms: 5.365784
-  type: 'test'
-  ...
-# Subtest: obsolete complexity approval and workflow settings are rejected
-ok 3 - obsolete complexity approval and workflow settings are rejected
-  ---
-  duration_ms: 3.812696
-  type: 'test'
-  ...
-# Subtest: runs as a CLI when invoked through a symlinked directory
-ok 4 - runs as a CLI when invoked through a symlinked directory
-  ---
-  duration_ms: 44.323601
-  type: 'test'
-  ...
-# Subtest: canonical agent graph is valid
-ok 5 - canonical agent graph is valid
-  ---
-  duration_ms: 4.449707
-  type: 'test'
-  ...
-# Subtest: rejects an edge to an unknown node
-ok 6 - rejects an edge to an unknown node
-  ---
-  duration_ms: 2.973163
-  type: 'test'
-  ...
-# Subtest: rejects an undeclared predicate
-ok 7 - rejects an undeclared predicate
-  ---
-  duration_ms: 0.837419
-  type: 'test'
-  ...
-# Subtest: rejects schema violations
-ok 8 - rejects schema violations
-  ---
-  duration_ms: 0.63801
-  type: 'test'
-  ...
-# Subtest: rejects a single reviewer family
-ok 9 - rejects a single reviewer family
-  ---
-  duration_ms: 1.257457
-  type: 'test'
-  ...
-# Subtest: a reviewer with no family is an error and never counts as a family
-ok 10 - a reviewer with no family is an error and never counts as a family
-  ---
-  duration_ms: 0.816814
-  type: 'test'
-  ...
-# Subtest: rejects a schema keyword the validator does not evaluate
-ok 11 - rejects a schema keyword the validator does not evaluate
-  ---
-  duration_ms: 0.568211
-  type: 'test'
-  ...
-# Subtest: rejects a $ref that does not resolve
-ok 12 - rejects a $ref that does not resolve
-  ---
-  duration_ms: 0.475551
-  type: 'test'
-  ...
-# Subtest: rejects a node that no edge names, but not the root
-ok 13 - rejects a node that no edge names, but not the root
-  ---
-  duration_ms: 1.242452
-  type: 'test'
-  ...
-# Subtest: requires the merge gate pointers and runtime routing
-ok 14 - requires the merge gate pointers and runtime routing
-  ---
-  duration_ms: 3.071454
-  type: 'test'
-  ...
-# Subtest: overflow reviewer does not count toward the two-family rule
-ok 15 - overflow reviewer does not count toward the two-family rule
-  ---
-  duration_ms: 0.789078
-  type: 'test'
-  ...
-# Subtest: caps override every assignment rule
-ok 16 - caps override every assignment rule
-  ---
-  duration_ms: 0.613264
-  type: 'test'
-  ...
-# Subtest: rejects an override cycle
-ok 17 - rejects an override cycle
-  ---
-  duration_ms: 0.709347
-  type: 'test'
-  ...
-# Subtest: usage balancer rules are present, unique and override known rules
-ok 18 - usage balancer rules are present, unique and override known rules
-  ---
-  duration_ms: 1.251592
-  type: 'test'
-  ...
-# Subtest: rejects a usage balancer rule with no text or an unknown key
-ok 19 - rejects a usage balancer rule with no text or an unknown key
-  ---
-  duration_ms: 0.743395
-  type: 'test'
-  ...
-# Subtest: qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
-ok 20 - qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
-  ---
-  duration_ms: 2.999235
-  type: 'test'
-  ...
-# Subtest: rejects a graph with no qa verdict
-ok 21 - rejects a graph with no qa verdict
-  ---
-  duration_ms: 0.577182
-  type: 'test'
-  ...
-# Subtest: rejects a graph missing a mandatory route
-ok 22 - rejects a graph missing a mandatory route
-  ---
-  duration_ms: 7.11547
-  type: 'test'
-  ...
-# Subtest: a mandatory route with an extra condition does not count
-ok 23 - a mandatory route with an extra condition does not count
-  ---
-  duration_ms: 2.077522
-  type: 'test'
-  ...
-# Subtest: rejects an empty or incomplete merge gate
-ok 24 - rejects an empty or incomplete merge gate
-  ---
-  duration_ms: 2.274303
-  type: 'test'
-  ...
-# Subtest: an event-gated reviewer edge does not count toward the two-family rule
-ok 25 - an event-gated reviewer edge does not count toward the two-family rule
-  ---
-  duration_ms: 1.536403
-  type: 'test'
-  ...
-# Subtest: rejects a $ref with a sibling constraint
-ok 26 - rejects a $ref with a sibling constraint
-  ---
-  duration_ms: 0.477859
-  type: 'test'
-  ...
-# Subtest: rejects a chained $ref
-ok 27 - rejects a chained $ref
-  ---
-  duration_ms: 0.565893
-  type: 'test'
-  ...
-# Subtest: rejects a chained $ref that ends unresolved
-ok 28 - rejects a chained $ref that ends unresolved
-  ---
-  duration_ms: 0.403785
-  type: 'test'
-  ...
-1..28
-# tests 28
-# suites 0
-# pass 28
-# fail 0
-# cancelled 0
-# skipped 0
-# todo 0
-# duration_ms 127.278016
-agent-contract: valid
-.................................................................
-----------------------------------------------------------------------
-Ran 65 tests in 55.397s
-
-OK
---- exit code: 0
-
-================================================================
-$ bash scripts/preflight.sh lint
-================================================================
+===== $ bash scripts/preflight.sh lint =====
 preflight: lint start
 preflight: lint PASS
---- exit code: 0
+----- exit code: 0 -----
 
-================================================================
-$ bash scripts/preflight.sh typecheck
-================================================================
+===== $ bash scripts/preflight.sh typecheck =====
 preflight: typecheck start
 preflight: typecheck PASS
---- exit code: 0
+----- exit code: 0 -----
 
-================================================================
-NOTE on verify-skill-drift (exit 1): non-gating context
-================================================================
-.github/workflows/verify-skill-drift.yml runs only on schedule (weekly cron) and
-workflow_dispatch, never on pull_request/merge_group, and is documented to exit 1
-on purpose whenever drift exists. Its findings concern .agents/skills/verify-overdrafter
-feature-map coverage vs src/App.tsx routes; #1006 touches none of those files.
-Re-run at merge base 9271b842f98cc2fceca2aef1cfc5770e9897f819: exit 1, JSON report
-IDENTICAL to the report at 65602916115ab1b4214a5a1947aaa134c0b37aa9. Pre-existing, not introduced by #1006.
+===== baseline: node scripts/verify-skill-drift.mjs at origin/main bcd7ef661a87933219b9f61d298b30664af45914 =====
+exit code at main: 1; exit code at PR head: 1
+$ diff <head output> <main output>
+IDENTICAL (drift is pre-existing on main; PR #1006 changes none of the detector inputs: .agents/skills/verify-overdrafter, src/App.tsx, e2e/). The detector is a weekly scheduled report (verify-skill-drift.yml, schedule/workflow_dispatch only), not a PR check.
+$ git diff --name-only origin/main...HEAD
+docs/agent-development-control-plane.md
+docs/ci/ovd-workflow-inventory.md
+docs/runbooks/merge-queue.md
+docs/secret-scanning.md
+evals/skills/land/spec.json
 
-================================================================
-App boot smoke
-================================================================
-$ VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_PUBLISHABLE_KEY=<local placeholder> npx vite --host 127.0.0.1 --port 5179 --strictPort
-  VITE v5.4.19  ready in 244 ms   ->  GET http://127.0.0.1:5179/  http 200
-Playwright chromium 1440x900: url http://127.0.0.1:5179/  title "OverDrafter | Machined Aluminum Sourcing"
-  body text starts: "OverDrafter Sign in Sign up for free Manufacturing workspace CAD In Parts Out ..."
-  uncaught page errors: 0
-  screenshot: pr1006/65602916115ab1b4214a5a1947aaa134c0b37aa9-smoke.png
-Note: Docker is unavailable in this QA container, so `supabase start` could not run; the frontend was
-pointed at the default local Supabase URL only (no backend running). No prod or staging Supabase
-project was contacted.
+===== app boot smoke =====
+$ git rev-parse HEAD
+65602916115ab1b4214a5a1947aaa134c0b37aa9
+$ VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_PUBLISHABLE_KEY=<local dummy> npx vite --host 127.0.0.1 --port 8080 --strictPort
+
+  VITE v5.4.19  ready in 246 ms
+
+  ➜  Local:   http://127.0.0.1:8080/
+Browserslist: browsers data (caniuse-lite) is 17 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+Playwright chromium 1440x900 GET http://127.0.0.1:8080/signin -> status 200, final url http://127.0.0.1:8080/?auth=signin, title 'OverDrafter | Machined Aluminum Sourcing', pageerrors []
+Note: no supabase CLI and no docker daemon in this session, so local Supabase was not started; the client points at the local default URL only. No Supabase project (prod/staging) contacted.
+screenshot sha256: 5cc0a78e7b63fa49436af8cf9c0f1f6e97f14ef054e62c52f6319f6208d0b38b
+date (UTC): 2026-11-01T01:49:56Z
