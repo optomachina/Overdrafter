@@ -199,8 +199,8 @@ describe("SendCutSend sheet envelope", () => {
       (_match: string, x: string, y: string) => `CARTESIAN_POINT('',(${Number(x) * 0.9},${y},1.5875))`,
     )],
     ["a vertex between the caps (wedge, pocket floor or step)", (plate: string) => plate.replace(
-      "#5 = CARTESIAN_POINT('',(-12.7,-6.35,1.5875));",
-      "#5 = CARTESIAN_POINT('',(-12.7,-6.35,0.5));",
+      /CARTESIAN_POINT\('',\(-12\.7,-6\.35,1\.5875\)\)/,
+      "CARTESIAN_POINT('',(-12.7,-6.35,0.5))",
     )],
   ])("refuses a 0.125 in bounding box that is not a straight extrusion: %s", async (_label, mutate) => {
     const plate = await fs.readFile(PLATE_FIXTURE, "utf8");

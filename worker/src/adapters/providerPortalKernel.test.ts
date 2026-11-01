@@ -2849,3 +2849,28 @@ describe("provider portal post-capture cleanup", () => {
       .rejects.toThrow(/prohibited cleanup selector/);
   });
 });
+
+describe("provider portal pre-upload classification (OVD-1056)", () => {
+  it("classifies the page as the beforeUpload hook left it, not the pre-hook snapshot", async () => {
+    // The fake page reads its body text lazily, so the hook can change what the page shows.
+    const options = { bodyText: "LOGIN" };
+    const fake = fakeBrowser(options);
+    const classify = vi.fn((snapshot: Parameters<typeof classifyProviderPortalSnapshot>[0]) =>
+      classifyProviderPortalSnapshot(snapshot));
+    const settled = definition({
+      hooks: {
+        ...definition().hooks,
+        // A session guard that waits for the header to hydrate: the login link disappears.
+        beforeUpload: async () => { options.bodyText = "quote portal"; },
+        classifyPortalState: classify,
+      },
+    });
+    const result = await runProviderPortalKernel(settled, config(), await input(), {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    });
+    expect(classify.mock.calls[0]?.[0]?.bodyText).toBe("quote portal");
+    expect(classify.mock.calls.map(([snapshot]) => snapshot.bodyText)).not.toContain("LOGIN");
+    expect(result.state).toBe("offers_extracted");
+  });
+});

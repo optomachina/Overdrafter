@@ -2012,6 +2012,9 @@ async function runProviderPortalInteraction(
     buildSessionCapability(definition, session.page, session.boundary),
   );
   assertPortalBoundary(definition, session.page, session.boundary);
+  // The hook may have waited for the page to settle (a session guard, header
+  // hydration), so classify what the page shows now, not the pre-hook snapshot.
+  snapshot = await snapshotPortal(session.page);
   let state = await definition.hooks.classifyPortalState(snapshot);
   const initialTerminal = await captureTerminalPortalState(interaction, state, snapshot);
   if (initialTerminal) {

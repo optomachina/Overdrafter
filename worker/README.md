@@ -258,10 +258,9 @@ provider.
 
 The quote-only sheet lane (OVD-1056) is selected by the exact package flags
 shown above plus an operator approval file (`provider-portal-approval.v1`,
-digest-pinned) for `https://app.sendcutsend.com`,
-`https://main.realtime.ably.net` (the quote page calls Ably on load) and
-`https://sendcutsend.com` (SendCutSend may keep its session cookie on the
-parent domain, and the kernel admits saved cookies only for listed hosts). It admits
+digest-pinned) for exactly `https://app.sendcutsend.com` and
+`https://main.realtime.ably.net` (the quote page calls Ably on load); the
+approval is compared exactly, so no other origin may be listed. It admits
 one flat STEP plate, laser cut from 6061-T6 aluminum at 0.125 in, quantity 1
 through 100, with no drawing; the thinnest bounding dimension of the uploaded
 model must be a straight extrusion of the stock thickness (planar,
