@@ -368,13 +368,14 @@ card.
 
 ### Apply command
 
-> **Reference only: both settings are already in force (see Status).** Do not
+> **Reference only: both settings were applied on 2026-10-16; the current
+> `strict` state is unconfirmed (see Status).** Do not
 > re-run this unless the read-back shows the protection has drifted, and then
 > only with Blaine's approval card. Grok Bot applies protection changes only
 > after approval, with the card naming this runbook's commit SHA.
 
 ```bash
-# Reference only (already in force). Re-run only with Blaine's approval card.
+# Reference only (applied 2026-10-16; current state: see Status). Re-run only with Blaine's approval card.
 gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/required_status_checks --input - <<'JSON'
 {
   "strict": true,
