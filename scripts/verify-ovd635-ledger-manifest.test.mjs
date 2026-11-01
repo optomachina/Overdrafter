@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,19 @@ function copyRepoSubset() {
   return scratch;
 }
 
+// Exact mode is a deploy-commit check: the repo may legitimately hold later
+// migrations (the default mode admits them), so prune them from the scratch
+// copy to rebuild the exact baseline-plus-suffix tree the check expects.
+function pruneLaterMigrations(root) {
+  const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
+  const suffix = JSON.parse(readFileSync(path.join(root, SUFFIX_PATH), "utf8"));
+  const kept = new Set([...manifest.migrations.map((entry) => entry.file), ...suffix.migrations.map((entry) => entry.file)]);
+  for (const file of readdirSync(path.join(root, MIGRATION_ROOT))) {
+    if (file.endsWith(".sql") && !kept.has(file)) rmSync(path.join(root, MIGRATION_ROOT, file));
+  }
+  return root;
+}
+
 afterEach(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
   scratch = undefined;
@@ -35,7 +48,7 @@ describe("OVD-635 ledger manifest", () => {
   });
 
   it("rejects a later migration in exact mode", () => {
-    const root = copyRepoSubset();
+    const root = pruneLaterMigrations(copyRepoSubset());
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([]);
     writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([
