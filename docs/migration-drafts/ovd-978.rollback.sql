@@ -6,16 +6,17 @@
 --   psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f docs/migration-drafts/ovd-978.rollback.sql
 --
 -- It restores the exact 20261011170000_fix_no_drawing_lifecycle.sql (OVD-670)
--- body of public.api_list_client_part_metadata(uuid[]), byte for byte. That
+-- body of api_list_client_part_metadata(uuid[]), byte for byte, in private,
+-- where 20261031052436_ovd746_client_rpc_auth_gate.sql (OVD-746) moved it. That
 -- body is the defective one: every part reads as lifecycle "uploaded" in the
 -- client again, and warnings / missing fields disappear. Rolling back
 -- reintroduces OVD-978.
 --
--- CREATE OR REPLACE keeps the owner and the ACL, so the OVD-736 grants the
--- draft restated stay as they are (they equal the prior ACL). No DROP, no data
+-- CREATE OR REPLACE keeps the owner and the ACL, so the OVD-746 revoke the
+-- draft restated stays as it is (it equals the prior ACL). No DROP, no data
 -- change.
 
-create or replace function public.api_list_client_part_metadata(
+create or replace function private.api_list_client_part_metadata(
   p_job_ids uuid[]
 )
 returns jsonb
