@@ -1,0 +1,46 @@
+PR #995 QA test output
+sha: 082fd3929dff6eec94a21210952ede9cf2caea87
+git rev-parse HEAD: 082fd3929dff6eec94a21210952ede9cf2caea87
+date (UTC): 2026-11-01T03:13:40Z
+node: v22.23.4  npm: 10.9.9
+
+===== $ npx vitest run scripts/ovd419-diagnostic-adapter.test.mjs =====
+
+ RUN  v3.2.4 /home/user/Overdrafter
+
+stderr | scripts/ovd419-diagnostic-adapter.test.mjs > HTTP reads participate in the same finite budget > counts every actual HTTP request toward the shared read cap
+Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | scripts/ovd419-diagnostic-adapter.test.mjs > complete operational-envelope transport > counts all eleven real collector requests for empty queues
+Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+ ✓ scripts/ovd419-diagnostic-adapter.test.mjs (48 tests) 572ms
+
+ Test Files  1 passed (1)
+      Tests  48 passed (48)
+   Start at  03:13:41
+   Duration  1.85s (transform 338ms, setup 0ms, collect 489ms, tests 572ms, environment 436ms, prepare 107ms)
+
+===== exit code: 0 =====
+
+===== $ bash scripts/preflight.sh lint =====
+preflight: lint start
+preflight: lint PASS
+===== exit code: 0 =====
+
+===== $ bash scripts/preflight.sh typecheck =====
+preflight: typecheck start
+preflight: typecheck PASS
+===== exit code: 0 =====
+
+===== $ npx eslint scripts/ovd419-diagnostic-adapter.test.mjs =====
+===== exit code: 0 =====
+
+===== app boot smoke =====
+checkout HEAD at boot: 082fd3929dff6eec94a21210952ede9cf2caea87 (copied to /tmp/qa-repo, run as unprivileged user qa)
+local Supabase: supabase CLI 2.78.1 'supabase start' exit=0, 'supabase db reset' exit=0 (local loopback stack only; no hosted project touched)
+dev server: npm run dev -- --host 127.0.0.1 --port 8080 -> HTTP 200 on /
+browser: Playwright 1.58.2, image Chromium build 1243 aliased as 1208, sandbox on, viewport 1366x900
+page: http://127.0.0.1:8080/ title="OverDrafter | Machined Aluminum Sourcing" pageerrors=0
+first capture collided byte-for-byte with qa-evidence pr952/pr952-726fa6fc8a0872bd2f5db5b3ad9f091bdec5a7f6-smoke.png (deterministic render); recaptured with footer: QA pr995 sha=082fd3929dff6eec94a21210952ede9cf2caea87 session=session_01GMP2zideXymwgihYxpaH8L captured=2026-11-01T03:19:10Z
+smoke screenshot sha256: 390d389e47bd0bff20980c01062f94164ed1401f4a7e6059c5c5f9c5927c94c2 (no match among 3197 files on origin/qa-evidence)
