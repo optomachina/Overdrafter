@@ -2,12 +2,6 @@
   "version": 1,
   "supersessions": [
     {
-      "signature": "public.api_list_client_part_metadata(uuid[])",
-      "file": "docs/migration-drafts/ovd-978.sql",
-      "supersedesSha256": "5f0dc6f06ce5454f24fb5910e61da46eee8978b0844df7f2b5f9c0cdd5869913",
-      "reason": "OVD-978 draft (PR #873): written against the body deployed by 20261011170000 (OVD-670), which it intentionally replaces to restore the client part metadata projection. Verified on staging 2026-10-20 (apply, pgTAP 48/48, rollback to this exact body, re-apply). If a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
-    },
-    {
       "signature": "private.job_file_finalize_delegate(uuid,text,text,text,job_file_kind,text,bigint,text)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
       "supersedesSha256": "9a50049db4c68ff1fd84c3d502c6af6dfbc2ef62bca809f98ddf4121f6f1d87b",
