@@ -1,0 +1,1136 @@
+PR #952 QA test output
+sha: 726fa6fc8a0872bd2f5db5b3ad9f091bdec5a7f6
+git rev-parse HEAD: 726fa6fc8a0872bd2f5db5b3ad9f091bdec5a7f6
+date (UTC): 2026-11-01T03:12:35Z
+node: v22.23.4  npm: 10.9.9
+
+================================================================
+$ node --test scripts/trust-metrics.test.mjs
+----------------------------------------------------------------
+TAP version 13
+# Subtest: window and weeks
+    # Subtest: buckets by Monday 00:00 UTC
+    ok 1 - buckets by Monday 00:00 UTC
+      ---
+      duration_ms: 0.849626
+      type: 'test'
+      ...
+    # Subtest: defaults to eight Monday-aligned weeks ending with the end week
+    ok 2 - defaults to eight Monday-aligned weeks ending with the end week
+      ---
+      duration_ms: 0.980564
+      type: 'test'
+      ...
+    # Subtest: rejects malformed and inverted windows
+    ok 3 - rejects malformed and inverted windows
+      ---
+      duration_ms: 0.580166
+      type: 'test'
+      ...
+    # Subtest: keeps only PRs merged into the base branch inside whole UTC window days
+    ok 4 - keeps only PRs merged into the base branch inside whole UTC window days
+      ---
+      duration_ms: 0.240341
+      type: 'test'
+      ...
+    1..4
+ok 1 - window and weeks
+  ---
+  duration_ms: 3.74084
+  type: 'suite'
+  ...
+# Subtest: merges per week
+    # Subtest: counts merges per Monday week, including empty weeks
+    ok 1 - counts merges per Monday week, including empty weeks
+      ---
+      duration_ms: 0.554635
+      type: 'test'
+      ...
+    # Subtest: accepts gh pr list camelCase input
+    ok 2 - accepts gh pr list camelCase input
+      ---
+      duration_ms: 0.187816
+      type: 'test'
+      ...
+    1..2
+ok 2 - merges per week
+  ---
+  duration_ms: 0.945644
+  type: 'suite'
+  ...
+# Subtest: QA verdicts
+    # Subtest: parses the verdict from the first non-empty line only
+    ok 1 - parses the verdict from the first non-empty line only
+      ---
+      duration_ms: 0.806782
+      type: 'test'
+      ...
+    # Subtest: counts the latest in-window verdict per merged PR
+    ok 2 - counts the latest in-window verdict per merged PR
+      ---
+      duration_ms: 0.487355
+      type: 'test'
+      ...
+    # Subtest: breaks same-instant ties by comment id
+    ok 3 - breaks same-instant ties by comment id
+      ---
+      duration_ms: 0.275486
+      type: 'test'
+      ...
+    1..3
+ok 3 - QA verdicts
+  ---
+  duration_ms: 1.986137
+  type: 'suite'
+  ...
+# Subtest: QA families
+    # Subtest: parses an exact Architect header with a later verdict
+    ok 1 - parses an exact Architect header with a later verdict
+      ---
+      duration_ms: 0.952109
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ abcdef0\\nDetails\\nVERDICT: PASS
+    ok 2 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ abcdef0\\nDetails\\nVERDICT: PASS
+      ---
+      duration_ms: 0.267372
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0\\nDetails\\nVERDICT: PASS
+    ok 3 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0\\nDetails\\nVERDICT: PASS
+      ---
+      duration_ms: 0.079481
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbb: PASS_NOTES
+    ok 4 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbb: PASS_NOTES
+      ---
+      duration_ms: 0.058482
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Engineer review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: PASS
+    ok 5 - rejects a missing or nonstandard Architect header/verdict: Engineer review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: PASS
+      ---
+      duration_ms: 0.056204
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: \#\# Architect review (Codex review mode, gpt-6-astra) at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    ok 6 - rejects a missing or nonstandard Architect header/verdict: \#\# Architect review (Codex review mode, gpt-6-astra) at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      ---
+      duration_ms: 0.052176
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: looks fine
+    ok 7 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: looks fine
+      ---
+      duration_ms: 0.154899
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Engineer review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nDetails\\nVERDICT: PASS
+    ok 8 - rejects a missing or nonstandard Architect header/verdict: Engineer review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nDetails\\nVERDICT: PASS
+      ---
+      duration_ms: 0.063498
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: \\nArchitect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nDetails\\nVERDICT: PASS
+    ok 9 - rejects a missing or nonstandard Architect header/verdict: \\nArchitect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nDetails\\nVERDICT: PASS
+      ---
+      duration_ms: 0.136825
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    ok 10 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      ---
+      duration_ms: 0.145552
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nVerdict:  \\nDelta from x
+    ok 11 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nVerdict:  \\nDelta from x
+      ---
+      duration_ms: 0.094125
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nThe verdict: PASS
+    ok 12 - rejects a missing or nonstandard Architect header/verdict: Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nThe verdict: PASS
+      ---
+      duration_ms: 0.061417
+      type: 'test'
+      ...
+    # Subtest: rejects a missing or nonstandard Architect header/verdict: undefined
+    ok 13 - rejects a missing or nonstandard Architect header/verdict: undefined
+      ---
+      duration_ms: 0.060766
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (Codex) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: PASS_NOTES',\\n  'Codex',\\n  'pass_notes'\\n]
+    ok 14 - accepts tolerant Architect header forms: [\\n  'Architect review (Codex) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: PASS_NOTES',\\n  'Codex',\\n  'pass_notes'\\n]
+      ---
+      duration_ms: 0.110104
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (Opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: CHANGES_REQUIRED\\r\\n' +\\n    'body',\\n  'Opus',\\n  'changes_required'\\n]
+    ok 15 - accepts tolerant Architect header forms: [\\n  'Architect review (Opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: CHANGES_REQUIRED\\r\\n' +\\n    'body',\\n  'Opus',\\n  'changes_required'\\n]
+      ---
+      duration_ms: 0.068899
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (round 2): FAIL',\\n  'opus',\\n  'fail'\\n]
+    ok 16 - accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (round 2): FAIL',\\n  'opus',\\n  'fail'\\n]
+      ---
+      duration_ms: 0.063687
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb — PASS (comments-only delta)',\\n  'opus',\\n  'pass'\\n]
+    ok 17 - accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb — PASS (comments-only delta)',\\n  'opus',\\n  'pass'\\n]
+      ---
+      duration_ms: 0.171034
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (grok) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (delta re-review)\\n' +\\n    'VERDICT: PASS',\\n  'grok',\\n  'pass'\\n]
+    ok 18 - accepts tolerant Architect header forms: [\\n  'Architect review (grok) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (delta re-review)\\n' +\\n    'VERDICT: PASS',\\n  'grok',\\n  'pass'\\n]
+      ---
+      duration_ms: 0.167048
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    'Scope ok.\\n' +\\n    'Verdict: PASS_NOTES (same diff as the reviewed head)',\\n  'opus',\\n  'pass_notes'\\n]
+    ok 19 - accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    'Scope ok.\\n' +\\n    'Verdict: PASS_NOTES (same diff as the reviewed head)',\\n  'opus',\\n  'pass_notes'\\n]
+      ---
+      duration_ms: 0.091516
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (Codex) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    '**Verdict: CHANGES_REQUIRED**\\n' +\\n    '- [high] x',\\n  'Codex',\\n  'changes_required'\\n]
+    ok 20 - accepts tolerant Architect header forms: [\\n  'Architect review (Codex) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    '**Verdict: CHANGES_REQUIRED**\\n' +\\n    '- [high] x',\\n  'Codex',\\n  'changes_required'\\n]
+      ---
+      duration_ms: 0.067577
+      type: 'test'
+      ...
+    # Subtest: accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    'Model: claude-opus\\n' +\\n    'Verdict:  \\n' +\\n    'VERDICT: PASS',\\n  'opus',\\n  'pass'\\n]
+    ok 21 - accepts tolerant Architect header forms: [\\n  'Architect review (opus) @ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' +\\n    'Model: claude-opus\\n' +\\n    'Verdict:  \\n' +\\n    'VERDICT: PASS',\\n  'opus',\\n  'pass'\\n]
+      ---
+      duration_ms: 0.061267
+      type: 'test'
+      ...
+    # Subtest: reads builders from Built-by:/Model: lines after bot attribution and before Built on
+    ok 22 - reads builders from Built-by:/Model: lines after bot attribution and before Built on
+      ---
+      duration_ms: 2.094047
+      type: 'test'
+      ...
+    # Subtest: never reads a builder from the line after a blank Built-by:/Model: and ignores a literal unknown
+    ok 23 - never reads a builder from the line after a blank Built-by:/Model: and ignores a literal unknown
+      ---
+      duration_ms: 0.496854
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Opus', 'claude' ]
+    ok 24 - maps model family by known tokens: [ 'Opus', 'claude' ]
+      ---
+      duration_ms: 0.203592
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'SONNET', 'claude' ]
+    ok 25 - maps model family by known tokens: [ 'SONNET', 'claude' ]
+      ---
+      duration_ms: 0.093365
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'codex', 'openai' ]
+    ok 26 - maps model family by known tokens: [ 'codex', 'openai' ]
+      ---
+      duration_ms: 0.111107
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'gpt', 'openai' ]
+    ok 27 - maps model family by known tokens: [ 'gpt', 'openai' ]
+      ---
+      duration_ms: 0.063349
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'GPT-6.1', 'openai' ]
+    ok 28 - maps model family by known tokens: [ 'GPT-6.1', 'openai' ]
+      ---
+      duration_ms: 0.056293
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'grok', 'xai' ]
+    ok 29 - maps model family by known tokens: [ 'grok', 'xai' ]
+      ---
+      duration_ms: 0.053791
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'claude fable 5.1', 'claude' ]
+    ok 30 - maps model family by known tokens: [ 'claude fable 5.1', 'claude' ]
+      ---
+      duration_ms: 0.062259
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'opus delta 71b15c2d..94090be4', 'claude' ]
+    ok 31 - maps model family by known tokens: [ 'opus delta 71b15c2d..94090be4', 'claude' ]
+      ---
+      duration_ms: 0.058366
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'sonnet delta 9ac028d4..57238331', 'claude' ]
+    ok 32 - maps model family by known tokens: [ 'sonnet delta 9ac028d4..57238331', 'claude' ]
+      ---
+      duration_ms: 0.055898
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Codex gpt-6-astra xhigh, delta since 3473bcd8', 'openai' ]
+    ok 33 - maps model family by known tokens: [ 'Codex gpt-6-astra xhigh, delta since 3473bcd8', 'openai' ]
+      ---
+      duration_ms: 0.0691
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Opus, delta since 3473bcd8', 'claude' ]
+    ok 34 - maps model family by known tokens: [ 'Opus, delta since 3473bcd8', 'claude' ]
+      ---
+      duration_ms: 0.069082
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Claude Code, Opus', 'claude' ]
+    ok 35 - maps model family by known tokens: [ 'Claude Code, Opus', 'claude' ]
+      ---
+      duration_ms: 0.071749
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'claude-opus, fresh session, no build context', 'claude' ]
+    ok 36 - maps model family by known tokens: [ 'claude-opus, fresh session, no build context', 'claude' ]
+      ---
+      duration_ms: 0.108681
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'git + claude-opus', 'claude' ]
+    ok 37 - maps model family by known tokens: [ 'git + claude-opus', 'claude' ]
+      ---
+      duration_ms: 0.066058
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'opus+git', 'claude' ]
+    ok 38 - maps model family by known tokens: [ 'opus+git', 'claude' ]
+      ---
+      duration_ms: 0.052642
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Claude Code + git', 'claude' ]
+    ok 39 - maps model family by known tokens: [ 'Claude Code + git', 'claude' ]
+      ---
+      duration_ms: 0.053154
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Opus, merge-resolution delta since 3473bcd8', 'claude' ]
+    ok 40 - maps model family by known tokens: [ 'Opus, merge-resolution delta since 3473bcd8', 'claude' ]
+      ---
+      duration_ms: 0.054459
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'grok-4.7 via Cursor', 'xai' ]
+    ok 41 - maps model family by known tokens: [ 'grok-4.7 via Cursor', 'xai' ]
+      ---
+      duration_ms: 0.052829
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'git', null ]
+    ok 42 - maps model family by known tokens: [ 'git', null ]
+      ---
+      duration_ms: 0.075539
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'git delta', null ]
+    ok 43 - maps model family by known tokens: [ 'git delta', null ]
+      ---
+      duration_ms: 1.342385
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'git (comments-only delta)', null ]
+    ok 44 - maps model family by known tokens: [ 'git (comments-only delta)', null ]
+      ---
+      duration_ms: 0.068742
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'codex + opus', null ]
+    ok 45 - maps model family by known tokens: [ 'codex + opus', null ]
+      ---
+      duration_ms: 0.048354
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'Opus, then grok', null ]
+    ok 46 - maps model family by known tokens: [ 'Opus, then grok', null ]
+      ---
+      duration_ms: 0.045206
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'unknown', null ]
+    ok 47 - maps model family by known tokens: [ 'unknown', null ]
+      ---
+      duration_ms: 0.045282
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'gptish', null ]
+    ok 48 - maps model family by known tokens: [ 'gptish', null ]
+      ---
+      duration_ms: 0.044192
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ 'opusish', null ]
+    ok 49 - maps model family by known tokens: [ 'opusish', null ]
+      ---
+      duration_ms: 0.042819
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ '', null ]
+    ok 50 - maps model family by known tokens: [ '', null ]
+      ---
+      duration_ms: 0.043209
+      type: 'test'
+      ...
+    # Subtest: maps model family by known tokens: [ undefined, null ]
+    ok 51 - maps model family by known tokens: [ undefined, null ]
+      ---
+      duration_ms: 0.041442
+      type: 'test'
+      ...
+    # Subtest: keeps equal SHAs and only proven comments-only ancestors
+    ok 52 - keeps equal SHAs and only proven comments-only ancestors
+      ---
+      duration_ms: 0.157312
+      type: 'test'
+      ...
+    # Subtest: prefers bot attribution, then the Built on pool token, then unknown
+    ok 53 - prefers bot attribution, then the Built on pool token, then unknown
+      ---
+      duration_ms: 0.316635
+      type: 'test'
+      ...
+    # Subtest: keeps a conflicting bot attribution unknown instead of falling through to body lines
+    ok 54 - keeps a conflicting bot attribution unknown instead of falling through to body lines
+      ---
+      duration_ms: 0.169484
+      type: 'test'
+      ...
+    # Subtest: trims trailing punctuation from builder names without looping on punctuation-only names
+    ok 55 - trims trailing punctuation from builder names without looping on punctuation-only names
+      ---
+      duration_ms: 0.147728
+      type: 'test'
+      ...
+    # Subtest: uses the latest QA head, filters reviews, counts all merged PRs and stays deterministic
+    ok 56 - uses the latest QA head, filters reviews, counts all merged PRs and stays deterministic
+      ---
+      duration_ms: 11.810997
+      type: 'test'
+      ...
+    # Subtest: captures abbreviated QA SHAs without substituting the PR head
+    ok 57 - captures abbreviated QA SHAs without substituting the PR head
+      ---
+      duration_ms: 0.476117
+      type: 'test'
+      ...
+    1..57
+ok 4 - QA families
+  ---
+  duration_ms: 23.165022
+  type: 'suite'
+  ...
+# Subtest: comments-only comparisons
+    # Subtest: accepts changed comment or blank lines: // comment
+    ok 1 - accepts changed comment or blank lines: // comment
+      ---
+      duration_ms: 0.58321
+      type: 'test'
+      ...
+    # Subtest: accepts changed comment or blank lines: /* comment */
+    ok 2 - accepts changed comment or blank lines: /* comment */
+      ---
+      duration_ms: 0.091013
+      type: 'test'
+      ...
+    # Subtest: accepts changed comment or blank lines: <!-- comment -->
+    ok 3 - accepts changed comment or blank lines: <!-- comment -->
+      ---
+      duration_ms: 0.166132
+      type: 'test'
+      ...
+    # Subtest: accepts changed comment or blank lines:    
+    ok 4 - accepts changed comment or blank lines:    
+      ---
+      duration_ms: 0.111942
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'scripts/a.py', '\#' ]
+    ok 5 - accepts \# and -- line comments only where the file type uses them: [ 'scripts/a.py', '\#' ]
+      ---
+      duration_ms: 0.127768
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'bin/run.sh', '\#' ]
+    ok 6 - accepts \# and -- line comments only where the file type uses them: [ 'bin/run.sh', '\#' ]
+      ---
+      duration_ms: 0.123577
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'ci.yml', '\#' ]
+    ok 7 - accepts \# and -- line comments only where the file type uses them: [ 'ci.yml', '\#' ]
+      ---
+      duration_ms: 0.062677
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ '.github/x.yaml', '\#' ]
+    ok 8 - accepts \# and -- line comments only where the file type uses them: [ '.github/x.yaml', '\#' ]
+      ---
+      duration_ms: 0.059296
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'pyproject.toml', '\#' ]
+    ok 9 - accepts \# and -- line comments only where the file type uses them: [ 'pyproject.toml', '\#' ]
+      ---
+      duration_ms: 0.082022
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'Gemfile.rb', '\#' ]
+    ok 10 - accepts \# and -- line comments only where the file type uses them: [ 'Gemfile.rb', '\#' ]
+      ---
+      duration_ms: 0.079151
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'db/q.sql', '--' ]
+    ok 11 - accepts \# and -- line comments only where the file type uses them: [ 'db/q.sql', '--' ]
+      ---
+      duration_ms: 0.067647
+      type: 'test'
+      ...
+    # Subtest: accepts \# and -- line comments only where the file type uses them: [ 'init.lua', '--' ]
+    ok 12 - accepts \# and -- line comments only where the file type uses them: [ 'init.lua', '--' ]
+      ---
+      duration_ms: 0.093075
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [\\n  'README.md',\\n  '@@ -1,2 +1,3 @@\\n-\# Old heading\\n+\# New heading\\n+---',\\n  2,\\n  1\\n]
+    ok 13 - rejects \# and -- changes in files where they are content: [\\n  'README.md',\\n  '@@ -1,2 +1,3 @@\\n-\# Old heading\\n+\# New heading\\n+---',\\n  2,\\n  1\\n]
+      ---
+      duration_ms: 0.18405
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [ 'styles/a.css', '@@ -1 +1 @@\\n---bg: \#fff\\n+--bg: \#000', 1, 1 ]
+    ok 14 - rejects \# and -- changes in files where they are content: [ 'styles/a.css', '@@ -1 +1 @@\\n---bg: \#fff\\n+--bg: \#000', 1, 1 ]
+      ---
+      duration_ms: 0.17837
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [ 'src/a.js', '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+    ok 15 - rejects \# and -- changes in files where they are content: [ 'src/a.js', '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+      ---
+      duration_ms: 0.078747
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [ 'db/q.sql', '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+    ok 16 - rejects \# and -- changes in files where they are content: [ 'db/q.sql', '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+      ---
+      duration_ms: 0.06442
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [ 'scripts/a.py', '@@ -1 +1 @@\\n--- old\\n+-- new', 1, 1 ]
+    ok 17 - rejects \# and -- changes in files where they are content: [ 'scripts/a.py', '@@ -1 +1 @@\\n--- old\\n+-- new', 1, 1 ]
+      ---
+      duration_ms: 0.066348
+      type: 'test'
+      ...
+    # Subtest: rejects \# and -- changes in files where they are content: [ undefined, '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+    ok 18 - rejects \# and -- changes in files where they are content: [ undefined, '@@ -1 +1 @@\\n-\# old\\n+\# new', 1, 1 ]
+      ---
+      duration_ms: 0.056155
+      type: 'test'
+      ...
+    # Subtest: treats // lines inside a template literal as content
+    ok 19 - treats // lines inside a template literal as content
+      ---
+      duration_ms: 0.28309
+      type: 'test'
+      ...
+    # Subtest: recognizes block comment context on each side of the patch
+    ok 20 - recognizes block comment context on each side of the patch
+      ---
+      duration_ms: 0.120244
+      type: 'test'
+      ...
+    # Subtest: accepts added or removed files containing only comments
+    ok 21 - accepts added or removed files containing only comments
+      ---
+      duration_ms: 0.109405
+      type: 'test'
+      ...
+    # Subtest: rejects code, missing/truncated patches, renames and non-ancestor statuses
+    ok 22 - rejects code, missing/truncated patches, renames and non-ancestor statuses
+      ---
+      duration_ms: 0.1747
+      type: 'test'
+      ...
+    1..22
+ok 5 - comments-only comparisons
+  ---
+  duration_ms: 3.563783
+  type: 'suite'
+  ...
+# Subtest: reverts and rollbacks
+    # Subtest: detects reverts by title, revert branch or label, and rollbacks by leading title word or label
+    ok 1 - detects reverts by title, revert branch or label, and rollbacks by leading title word or label
+      ---
+      duration_ms: 0.11917
+      type: 'test'
+      ...
+    # Subtest: counts a PR once, revert first
+    ok 2 - counts a PR once, revert first
+      ---
+      duration_ms: 0.127261
+      type: 'test'
+      ...
+    1..2
+ok 6 - reverts and rollbacks
+  ---
+  duration_ms: 0.332513
+  type: 'suite'
+  ...
+# Subtest: time to merge
+    # Subtest: uses linear-interpolation percentiles
+    ok 1 - uses linear-interpolation percentiles
+      ---
+      duration_ms: 0.148397
+      type: 'test'
+      ...
+    # Subtest: reports window and weekly median and p90 hours, omitting weeks without merges
+    ok 2 - reports window and weekly median and p90 hours, omitting weeks without merges
+      ---
+      duration_ms: 0.234245
+      type: 'test'
+      ...
+    1..2
+ok 7 - time to merge
+  ---
+  duration_ms: 0.486449
+  type: 'suite'
+  ...
+# Subtest: live quotes
+    # Subtest: skips blank and malformed results.jsonl lines
+    ok 1 - skips blank and malformed results.jsonl lines
+      ---
+      duration_ms: 0.3486
+      type: 'test'
+      ...
+    # Subtest: keeps in-window v1 rows, dedupes, sorts and passes lead time through
+    ok 2 - keeps in-window v1 rows, dedupes, sorts and passes lead time through
+      ---
+      duration_ms: 0.165873
+      type: 'test'
+      ...
+    # Subtest: never carries quote URLs or provider quote ids into the snapshot
+    ok 3 - never carries quote URLs or provider quote ids into the snapshot
+      ---
+      duration_ms: 1.855528
+      type: 'test'
+      ...
+    # Subtest: never derives a delivery date from lead time or timestamp
+    ok 4 - never derives a delivery date from lead time or timestamp
+      ---
+      duration_ms: 0.123097
+      type: 'test'
+      ...
+    1..4
+ok 8 - live quotes
+  ---
+  duration_ms: 2.668674
+  type: 'suite'
+  ...
+# Subtest: snapshot
+    # Subtest: has the v1 shape in a stable key order
+    ok 1 - has the v1 shape in a stable key order
+      ---
+      duration_ms: 0.644345
+      type: 'test'
+      ...
+    # Subtest: takes generatedAt from input, normalized to whole-second UTC
+    ok 2 - takes generatedAt from input, normalized to whole-second UTC
+      ---
+      duration_ms: 0.50689
+      type: 'test'
+      ...
+    # Subtest: is deterministic: same inputs in any order give identical JSON
+    ok 3 - is deterministic: same inputs in any order give identical JSON
+      ---
+      duration_ms: 0.807158
+      type: 'test'
+      ...
+    1..3
+ok 9 - snapshot
+  ---
+  duration_ms: 2.067093
+  type: 'suite'
+  ...
+# Subtest: cli
+    # Subtest: writes byte-identical files on repeated offline runs without touching the network
+    ok 1 - writes byte-identical files on repeated offline runs without touching the network
+      ---
+      duration_ms: 2.185297
+      type: 'test'
+      ...
+    # Subtest: reads every run's results.jsonl under an artifact root
+    ok 2 - reads every run's results.jsonl under an artifact root
+      ---
+      duration_ms: 1.524011
+      type: 'test'
+      ...
+    # Subtest: uses offline commit evidence and never fetches absent comparisons
+    ok 3 - uses offline commit evidence and never fetches absent comparisons
+      ---
+      duration_ms: 3.019739
+      type: 'test'
+      ...
+    # Subtest: supplies the repository and SHAs to the online comparison adapter
+    ok 4 - supplies the repository and SHAs to the online comparison adapter
+      ---
+      duration_ms: 0.710872
+      type: 'test'
+      ...
+    # Subtest: treats a failed online comparison as not comments-only, logs the pair without the error, and finishes
+    ok 5 - treats a failed online comparison as not comments-only, logs the pair without the error, and finishes
+      ---
+      duration_ms: 0.76114
+      type: 'test'
+      ...
+    # Subtest: validates arguments
+    ok 6 - validates arguments
+      ---
+      duration_ms: 0.895669
+      type: 'test'
+      ...
+    1..6
+ok 10 - cli
+  ---
+  duration_ms: 12.240265
+  type: 'suite'
+  ...
+# Subtest: resolveBinary
+    # Subtest: returns the first fixed directory that has the binary and never reads PATH
+    ok 1 - returns the first fixed directory that has the binary and never reads PATH
+      ---
+      duration_ms: 0.263456
+      type: 'test'
+      ...
+    # Subtest: fails closed when no fixed directory has the binary
+    ok 2 - fails closed when no fixed directory has the binary
+      ---
+      duration_ms: 0.144702
+      type: 'test'
+      ...
+    1..2
+ok 11 - resolveBinary
+  ---
+  duration_ms: 0.50517
+  type: 'suite'
+  ...
+# Subtest: bot attribution
+    # Subtest: counts builders and reviewers separately with exact aggregates
+    ok 1 - counts builders and reviewers separately with exact aggregates
+      ---
+      duration_ms: 1.6312
+      type: 'test'
+      ...
+    # Subtest: is deterministic and keeps bodies and human identities private
+    ok 2 - is deterministic and keeps bodies and human identities private
+      ---
+      duration_ms: 1.233598
+      type: 'test'
+      ...
+    # Subtest: handles empty and entirely unattributable inputs
+    ok 3 - handles empty and entirely unattributable inputs
+      ---
+      duration_ms: 0.218244
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus per Release
+    ok 4 - reads explicit body evidence: Model: opus per Release
+      ---
+      duration_ms: 0.176746
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: _Model: opus_
+    ok 5 - reads explicit body evidence: _Model: opus_
+      ---
+      duration_ms: 0.077625
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: __model: opus__
+    ok 6 - reads explicit body evidence: __model: opus__
+      ---
+      duration_ms: 0.054078
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: __Model: opus__
+    ok 7 - reads explicit body evidence: __Model: opus__
+      ---
+      duration_ms: 0.050706
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: __model:opus__ · x
+    ok 8 - reads explicit body evidence: __model:opus__ · x
+      ---
+      duration_ms: 0.053123
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus.
+    ok 9 - reads explicit body evidence: Model: opus.
+      ---
+      duration_ms: 0.105796
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus, per Release
+    ok 10 - reads explicit body evidence: Model: opus, per Release
+      ---
+      duration_ms: 0.055174
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus; per Release
+    ok 11 - reads explicit body evidence: Model: opus; per Release
+      ---
+      duration_ms: 0.051951
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus: per Release
+    ok 12 - reads explicit body evidence: Model: opus: per Release
+      ---
+      duration_ms: 0.053966
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus) per Release
+    ok 13 - reads explicit body evidence: Model: opus) per Release
+      ---
+      duration_ms: 0.053958
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Model: opus· per Release
+    ok 14 - reads explicit body evidence: Model: opus· per Release
+      ---
+      duration_ms: 0.049133
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: **model:opus** · **Needs Blaine's card**
+    ok 15 - reads explicit body evidence: **model:opus** · **Needs Blaine's card**
+      ---
+      duration_ms: 0.049525
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: Build model: **opus** (source: handoff)
+    ok 16 - reads explicit body evidence: Build model: **opus** (source: handoff)
+      ---
+      duration_ms: 0.055589
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: > - Builder model: opus
+    ok 17 - reads explicit body evidence: > - Builder model: opus
+      ---
+      duration_ms: 0.049422
+      type: 'test'
+      ...
+    # Subtest: reads explicit body evidence: + Model: opus
+    ok 18 - reads explicit body evidence: + Model: opus
+      ---
+      duration_ms: 0.079476
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: Model: model:codex
+    ok 19 - reads a body line that restates the label syntax: Model: model:codex
+      ---
+      duration_ms: 0.204148
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: - Model: model:codex
+    ok 20 - reads a body line that restates the label syntax: - Model: model:codex
+      ---
+      duration_ms: 0.118704
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: Model: MODEL:Codex
+    ok 21 - reads a body line that restates the label syntax: Model: MODEL:Codex
+      ---
+      duration_ms: 0.07079
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: Model: model:codex.
+    ok 22 - reads a body line that restates the label syntax: Model: model:codex.
+      ---
+      duration_ms: 0.063969
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: Model: model:codex (built by hand)
+    ok 23 - reads a body line that restates the label syntax: Model: model:codex (built by hand)
+      ---
+      duration_ms: 0.069351
+      type: 'test'
+      ...
+    # Subtest: reads a body line that restates the label syntax: Builder model: model:codex, per Release
+    ok 24 - reads a body line that restates the label syntax: Builder model: model:codex, per Release
+      ---
+      duration_ms: 0.072917
+      type: 'test'
+      ...
+    # Subtest: removes only one leading model: from the explicit token
+    ok 25 - removes only one leading model: from the explicit token
+      ---
+      duration_ms: 0.113515
+      type: 'test'
+      ...
+    # Subtest: preserves complete bot keys in body evidence
+    ok 26 - preserves complete bot keys in body evidence
+      ---
+      duration_ms: 0.090961
+      type: 'test'
+      ...
+    # Subtest: keeps bare trailing underscores in builder keys
+    ok 27 - keeps bare trailing underscores in builder keys
+      ---
+      duration_ms: 0.104757
+      type: 'test'
+      ...
+    # Subtest: keeps an unpaired leading underscore, leaving the model prefix unmatched
+    ok 28 - keeps an unpaired leading underscore, leaving the model prefix unmatched
+      ---
+      duration_ms: 0.063063
+      type: 'test'
+      ...
+    # Subtest: treats invalid explicit model tokens as conflicting: codex/opus
+    ok 29 - treats invalid explicit model tokens as conflicting: codex/opus
+      ---
+      duration_ms: 0.270485
+      type: 'test'
+      ...
+    # Subtest: treats invalid explicit model tokens as conflicting: codex,opus
+    ok 30 - treats invalid explicit model tokens as conflicting: codex,opus
+      ---
+      duration_ms: 0.065325
+      type: 'test'
+      ...
+    # Subtest: treats invalid explicit model tokens as conflicting: opus|codex
+    ok 31 - treats invalid explicit model tokens as conflicting: opus|codex
+      ---
+      duration_ms: 0.053791
+      type: 'test'
+      ...
+    # Subtest: treats invalid explicit model tokens as conflicting: 
+    ok 32 - treats invalid explicit model tokens as conflicting: 
+      ---
+      duration_ms: 0.054498
+      type: 'test'
+      ...
+    # Subtest: accepts explicit handoff lines and preserves keys without aliases
+    ok 33 - accepts explicit handoff lines and preserves keys without aliases
+      ---
+      duration_ms: 0.103959
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: Codex and other reviewers: pending
+    ok 34 - ignores prose, fences and reserved keys: Codex and other reviewers: pending
+      ---
+      duration_ms: 0.073146
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: Opus review: CHANGES REQUIRED
+    ok 35 - ignores prose, fences and reserved keys: Opus review: CHANGES REQUIRED
+      ---
+      duration_ms: 0.044566
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: Generated with Claude Code
+    ok 36 - ignores prose, fences and reserved keys: Generated with Claude Code
+      ---
+      duration_ms: 0.044641
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: Co-Authored-By: Claude ...
+    ok 37 - ignores prose, fences and reserved keys: Co-Authored-By: Claude ...
+      ---
+      duration_ms: 0.041479
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: ```\\nModel: opus\\n```
+    ok 38 - ignores prose, fences and reserved keys: ```\\nModel: opus\\n```
+      ---
+      duration_ms: 0.043144
+      type: 'test'
+      ...
+    # Subtest: ignores prose, fences and reserved keys: Model: unknown
+    ok 39 - ignores prose, fences and reserved keys: Model: unknown
+      ---
+      duration_ms: 0.043191
+      type: 'test'
+      ...
+    # Subtest: reports every agreeing or conflicting source without choosing a winner
+    ok 40 - reports every agreeing or conflicting source without choosing a winner
+      ---
+      duration_ms: 1.08077
+      type: 'test'
+      ...
+    # Subtest: keeps only bot author keys during normalization
+    ok 41 - keeps only bot author keys during normalization
+      ---
+      duration_ms: 0.339423
+      type: 'test'
+      ...
+    # Subtest: sorts bot keys in code-unit order with unknown last
+    ok 42 - sorts bot keys in code-unit order with unknown last
+      ---
+      duration_ms: 0.184974
+      type: 'test'
+      ...
+    # Subtest: counts id-zero reviews individually and allows comments before window start
+    ok 43 - counts id-zero reviews individually and allows comments before window start
+      ---
+      duration_ms: 0.176604
+      type: 'test'
+      ...
+    1..43
+ok 12 - bot attribution
+  ---
+  duration_ms: 8.458896
+  type: 'suite'
+  ...
+# Subtest: review verdicts
+    # Subtest: parses the standard first-line format
+    ok 1 - parses the standard first-line format
+      ---
+      duration_ms: 0.208747
+      type: 'test'
+      ...
+    # Subtest: preserves the complete reviewer key: z_bot
+    ok 2 - preserves the complete reviewer key: z_bot
+      ---
+      duration_ms: 0.09028
+      type: 'test'
+      ...
+    # Subtest: preserves the complete reviewer key: bot-
+    ok 3 - preserves the complete reviewer key: bot-
+      ---
+      duration_ms: 0.044345
+      type: 'test'
+      ...
+    # Subtest: keeps bare trailing underscores in reviewer keys: z_bot_
+    ok 4 - keeps bare trailing underscores in reviewer keys: z_bot_
+      ---
+      duration_ms: 0.072544
+      type: 'test'
+      ...
+    # Subtest: keeps bare trailing underscores in reviewer keys: codex_
+    ok 5 - keeps bare trailing underscores in reviewer keys: codex_
+      ---
+      duration_ms: 0.046126
+      type: 'test'
+      ...
+    # Subtest: rejects ambiguous reviewer keys: codex/opus
+    ok 6 - rejects ambiguous reviewer keys: codex/opus
+      ---
+      duration_ms: 0.054917
+      type: 'test'
+      ...
+    # Subtest: rejects ambiguous reviewer keys: codex,opus
+    ok 7 - rejects ambiguous reviewer keys: codex,opus
+      ---
+      duration_ms: 0.035457
+      type: 'test'
+      ...
+    # Subtest: rejects ambiguous reviewer keys: opus|codex
+    ok 8 - rejects ambiguous reviewer keys: opus|codex
+      ---
+      duration_ms: 0.034364
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict undefined
+    ok 9 - rejects nonstandard verdict undefined
+      ---
+      duration_ms: 0.055104
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict Opus review: CHANGES REQUIRED @ 7717135c
+    ok 10 - rejects nonstandard verdict Opus review: CHANGES REQUIRED @ 7717135c
+      ---
+      duration_ms: 0.038495
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict Intro\\nCodex review @ deadbeef: APPROVED
+    ok 11 - rejects nonstandard verdict Intro\\nCodex review @ deadbeef: APPROVED
+      ---
+      duration_ms: 0.03915
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict unknown review @ deadbeef: APPROVED
+    ok 12 - rejects nonstandard verdict unknown review @ deadbeef: APPROVED
+      ---
+      duration_ms: 0.03515
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict Codex review @ abc: APPROVED
+    ok 13 - rejects nonstandard verdict Codex review @ abc: APPROVED
+      ---
+      duration_ms: 0.031858
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict Codex review @ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: APPROVED
+    ok 14 - rejects nonstandard verdict Codex review @ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: APPROVED
+      ---
+      duration_ms: 0.033253
+      type: 'test'
+      ...
+    # Subtest: rejects nonstandard verdict 2bot review @ deadbeef: APPROVED
+    ok 15 - rejects nonstandard verdict 2bot review @ deadbeef: APPROVED
+      ---
+      duration_ms: 0.035928
+      type: 'test'
+      ...
+    1..15
+ok 13 - review verdicts
+  ---
+  duration_ms: 1.097669
+  type: 'suite'
+  ...
+1..13
+# tests 165
+# suites 13
+# pass 165
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 221.676006
+----------------------------------------------------------------
+exit code: 0
+
+================================================================
+$ bash scripts/preflight.sh lint
+----------------------------------------------------------------
+preflight: lint start
+preflight: lint PASS
+----------------------------------------------------------------
+exit code: 0
+
+================================================================
+$ bash scripts/preflight.sh typecheck
+----------------------------------------------------------------
+preflight: typecheck start
+preflight: typecheck PASS
+----------------------------------------------------------------
+exit code: 0
+
+================================================================
+$ npx eslint scripts/trust-metrics.mjs scripts/trust-metrics.test.mjs
+----------------------------------------------------------------
+----------------------------------------------------------------
+exit code: 0
+
+finished: 2026-11-01T03:13:47Z
+
+================================================================
+App boot smoke (this session)
+----------------------------------------------------------------
+supabase CLI 2.78.1 local stack (127.0.0.1 loopback only; no remote project touched); vite dev server at http://127.0.0.1:8080/
+Playwright 1.58.2 run as unprivileged user with chromiumSandbox: true; chromium-1208 aliased to image build 1243
+GET / -> 200, title "OverDrafter | Machined Aluminum Sourcing", pageerrors 0
+screenshot pr952/726fa6fc8a0872bd2f5db5b3ad9f091bdec5a7f6-smoke.png sha256 e49a0ec549fe2020ed2705165b91c3fe92da6acd3d1709f8395d500f76a5857e
+collision check vs origin/qa-evidence: 3195 files, 0 matches
+captured: 2026-11-01T03:16:57Z
