@@ -13,6 +13,7 @@ export function buildExtractionCompletionPayload(input: {
   workerBuildVersion: string;
   previewAssetCount: number;
   autoApprovedPartCount: number;
+  reviewRequired: boolean;
   completedAt: string;
 }) {
   const { extraction, extractionOutcome } = input;
@@ -27,6 +28,8 @@ export function buildExtractionCompletionPayload(input: {
     reviewFields: extractionOutcome.reviewFields,
     previewAssetCount: input.previewAssetCount,
     autoApprovedPartCount: input.autoApprovedPartCount,
+    // OVD-1067: true when auto-approval held the job for spec review.
+    reviewRequired: input.reviewRequired,
     modelFallbackUsed: extraction.modelFallbackUsed ?? false,
     modelName: extraction.modelName ?? null,
     // Model spend and prompt identity travel with the completion event so the

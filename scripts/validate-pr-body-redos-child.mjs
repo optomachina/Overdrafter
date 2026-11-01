@@ -4,6 +4,7 @@ import {
   PROVIDER_GO_LIVE_REQUIRED_ITEMS,
   collectGoLiveEvidenceLinks,
   validatePrBody,
+  validateRevertPlan,
   validateProviderGoLive,
 } from "./validate-pr-body.mjs";
 
@@ -175,7 +176,10 @@ const payloads = {
 const id = process.argv[2];
 let report;
 
-if (id === "a4") {
+if (id === "revert") {
+  const payload = `## R&#101;vert plan\n${combined(WIDTH)}\n- Blast radius: ${repeatTo(MARK_PAIR)}`;
+  report = { id, ...time(() => validateRevertPlan(payload, "revertable")) };
+} else if (id === "a4") {
   const samples = ["-  ".repeat(40) + "x", "-  ".repeat(21845) + "x"];
   report = {
     id,

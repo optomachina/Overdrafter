@@ -18,7 +18,8 @@ export type ArSupport = { state: "available"; mode: "quick-look" | "scene-viewer
   | { state: "unavailable" };
 
 export function isHttps(url?: string): boolean {
-  try { return new URL(url ?? "").protocol === "https:"; } catch { return false; }
+  // Loopback http is a secure context in every browser, so local and fixture runs behave like https.
+  try { const u = new URL(url ?? ""); return u.protocol === "https:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)); } catch { return false; }
 }
 
 // Small adapter boundary for model-viewer's canActivateAR/activateAR after OVD-804.

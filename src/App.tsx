@@ -43,6 +43,7 @@ const SharedInvite = lazy(() => import("./pages/SharedInvite"));
 const StateGallery = lazy(() => import("./pages/StateGallery"));
 const LegalPolicies = lazy(() => import("./pages/LegalPolicies"));
 const ConceptsGallery = lazy(() => import("@/concepts/ConceptsGallery").then((m) => ({ default: m.ConceptsGallery })));
+const Jarvis = lazy(() => import("./pages/Jarvis"));
 
 const JarvisThreadPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisThreadPreview")) : null;
 const JarvisArPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisArPreview")) : null;
@@ -158,6 +159,7 @@ const App = () => {
                   ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
                   : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
                 {JarvisArPreview && <Route path="/dev/jarvis-ar" element={<Suspense fallback={<p>Opening AR preview</p>}><JarvisArPreview /></Suspense>} />}
+                <Route path="/jarvis" element={<Suspense fallback={<p>Opening Jarvis</p>}><Jarvis /></Suspense>} />
                 <Route path="/" element={<Index />} />
                 <Route path="/parts" element={<ClientParts />} />
                 <Route path="/projects/:projectId" element={<ClientProject />} />

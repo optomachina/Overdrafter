@@ -5,6 +5,7 @@ import type { ThreadClient } from './client';
 import type { EventSource } from './event-source';
 import { ModelView } from './ModelView';
 import { ThreadDialog } from './ThreadDialog';
+import { ViewInArAction } from '../ar/ViewInArAction';
 import './thread.css';
 
 function createKey(): string {
@@ -131,7 +132,7 @@ function Decision({ event, resolved, client, offline, stopped }: Readonly<{ even
   if (resolved) {
     body = <>
       <p>{decisionLabel(resolved)} · {resolved.choice}</p>
-      <p>{resolved.rationale}</p>
+      <p className="jt-muted jt-rationale">{resolved.rationale}</p>
       <a href="#jarvis-message" onClick={() => document.getElementById("jarvis-message")?.focus()}>Change</a>
     </>;
   } else if (stopped) {
@@ -154,7 +155,15 @@ function Decision({ event, resolved, client, offline, stopped }: Readonly<{ even
     <h2>{event.question}</h2>{body}{error && <p role="alert">{error}</p>}</section>;
 }
 
-export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate" }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode }>) {
+function absoluteUrl(uri: string): string {
+  try { return new URL(uri, window.location.href).href; } catch { return uri; }
+}
+
+/** `onSend` makes the composer live; without it the composer stays a labelled preview. `request` echoes what the user asked. */
+export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate", onSend, request, note }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode; onSend?: (message: string) => void; request?: string; note?: ReactNode }>) {
+  const [draft, setDraft] = useState('');
+  const submit = () => { const message = draft.trim(); if (!message || !onSend) return; onSend(message); setDraft(''); composeRef.current?.focus(); };
+  const composeRef = useRef<HTMLTextAreaElement>(null);
   const [events, setEvents] = useState<GraphEvent[]>([]), [offline, setOffline] = useState(false);
   const [viewer, setViewer] = useState(false), [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -242,20 +251,23 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <h1 ref={heading} tabIndex={-1}>Jarvis</h1>
     </header>
     <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <p aria-live="polite" className="sr-only">{announcement(result, failure, status, deciding, state)}</p>
-    <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
+    <p role="status" aria-live="polite" className="sr-only">{announcement(result, failure, status, deciding, state)}</p>
+    <div className={deciding ? 'jt-log jt-has-bar' : 'jt-log'}>{request && <p className="jt-request" aria-label="Your request">{request}</p>}{!events.length && !request && <p className="jt-empty">No requests yet. Try “design a 4 inch square plate”.</p>}{status && !result && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map(node => <li key={node}>
         <span>{nodeNames[node]}</span>
         <span>{laneLabel(node, lane)}</span>
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current || lifecycle.queued.cancel} onClick={() => setConfirm(true)}>CANCEL</button>
-      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} stopped={stopped} />)}{control && <p>{controlMessage(control, lifecycle, state)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
-        <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt={pictureAlt(i)} />)}{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} stopped={stopped} />)}{control && <p>{controlMessage(control, lifecycle, state)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{(result || applied?.kind === 'cancel' || refs.length > 0) && <section className="jt-result" data-jarvis-result aria-label={result?.summary ?? (applied?.kind === 'cancel' ? 'Work kept' : 'Work so far')}>{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
+        <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt={pictureAlt(i)} />)}<div className="jt-result-actions">{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{glb && !arActionSlot && <ViewInArAction name={workingName} glbUrl={absoluteUrl(glb.uri)} viewUrl={window.location.href} posterUrl={pictures[0] ?? ''} onRetry={() => undefined} />}{arActionSlot}</div><Dimensions artifacts={artifacts} /><div className="jt-downloads">{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div></section>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
-      <textarea id="jarvis-message" placeholder="Describe the part you need" />
-      <p className="jt-muted">Preview only. Messages are not sent.</p>
+      {onSend ? <form className="jt-compose" onSubmit={e => { e.preventDefault(); submit(); }}>
+        <textarea ref={composeRef} id="jarvis-message" placeholder="Describe the part you need" rows={2} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
+        <button type="submit" className="jt-primary" disabled={!draft.trim()}>SEND</button>
+      </form> : <textarea id="jarvis-message" placeholder="Describe the part you need" />}
+      {note ?? <p className="jt-muted">Preview only. Messages are not sent.</p>}
     </footer>{viewer && glb && <ThreadDialog close={closeViewer} fallbackFocus={heading}>
       <ModelView uri={glb.uri} pictures={pictures} step={step?.uri} />
     </ThreadDialog>}{confirm && <ThreadDialog sheet close={closeConfirm} fallbackFocus={heading}>
