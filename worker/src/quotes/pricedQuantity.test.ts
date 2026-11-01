@@ -10,7 +10,7 @@ import {
 const each = (cents: number) => ({ cents, currency: "USD", label: "each" as const });
 const total = (cents: number) => ({ cents, currency: "USD", label: "total" as const });
 const bare = (cents: number) => ({ cents, currency: "USD" });
-const page = (value: number) => ({ value, sourceText: `Quantity ${value}` });
+const page = (value: number) => ({ value, source: "page_dom" as const, sourceText: `Quantity ${value}` });
 
 const refusals: Array<[string, AdmitPriceInput, PriceVerdictReason]> = [
   // Named regressions from the replan, section 3.
@@ -22,10 +22,10 @@ const refusals: Array<[string, AdmitPriceInput, PriceVerdictReason]> = [
   ["page qty 10, card qty 1, requested 1", { requestedQuantity: 1, quantity: 1, pageQuantity: page(10), total: total(43210) }, "qty_mismatch"],
   ["page quantity missing", { requestedQuantity: 1, quantity: 1, pageQuantity: undefined, total: total(43210) }, "qty_missing"],
   ["page quantity null", { requestedQuantity: 1, quantity: 1, pageQuantity: null, total: total(43210) }, "qty_missing"],
-  ["page quantity 0", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 0, sourceText: "Quantity 0" }, total: total(43210) }, "qty_missing"],
-  ["page source text empty", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, sourceText: "  " }, total: total(43210) }, "qty_missing"],
-  ["page source text lacks the number", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, sourceText: "Quantity 10" }, total: total(43210) }, "qty_missing"],
-  ["page source text has 1 only inside 1.5", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, sourceText: "Qty 1.5" }, total: total(43210) }, "qty_missing"],
+  ["page quantity 0", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 0, source: "page_dom" as const, sourceText: "Quantity 0" }, total: total(43210) }, "qty_missing"],
+  ["page source text empty", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, source: "page_dom" as const, sourceText: "  " }, total: total(43210) }, "qty_missing"],
+  ["page source text lacks the number", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, source: "page_dom" as const, sourceText: "Quantity 10" }, total: total(43210) }, "qty_missing"],
+  ["page source text has 1 only inside 1.5", { requestedQuantity: 1, quantity: 1, pageQuantity: { value: 1, source: "page_dom" as const, sourceText: "Qty 1.5" }, total: total(43210) }, "qty_missing"],
   ["requested 10, lone unlabeled $43.21", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), total: bare(4321) }, "ambiguous_label"],
   ["requested 10, lone $43.21 labeled total", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), total: total(4321) }, "ambiguous_label"],
   ["requested 10, lone $43.21 ea", { requestedQuantity: 10, quantity: 10, pageQuantity: page(10), unit: each(4321) }, "ambiguous_label"],
@@ -99,7 +99,7 @@ describe("admitPrice admissions", () => {
   });
 
   it("reads plain integer page quantities", () => {
-    const pageQuantity = { value: 1000, sourceText: "Qty: 1000 pcs" };
+    const pageQuantity = { value: 1000, source: "page_dom" as const, sourceText: "Qty: 1000 pcs" };
     expect(admitPrice({ requestedQuantity: 1000, quantity: 1000, pageQuantity, unit: each(5), total: total(5000) }).ok).toBe(true);
   });
 
@@ -143,7 +143,7 @@ describe("page quantity labeled tokens", () => {
     expect(admitPrice({
       requestedQuantity: quantity,
       quantity,
-      pageQuantity: { value: quantity, sourceText },
+      pageQuantity: { value: quantity, source: "page_dom" as const, sourceText },
       unit: each(5),
       total: total(5 * quantity),
     })).toMatchObject({
@@ -160,7 +160,7 @@ describe("page quantity labeled tokens", () => {
         expect(admitPrice({
           requestedQuantity: quantity,
           quantity,
-          pageQuantity: { value: quantity, sourceText: `Qty ${token}` },
+          pageQuantity: { value: quantity, source: "page_dom" as const, sourceText: `Qty ${token}` },
           unit: each(5),
           total: total(5 * quantity),
         })).toMatchObject({
@@ -188,7 +188,7 @@ describe("page quantity labeled tokens", () => {
     expect(admitPrice({
       requestedQuantity: quantity,
       quantity,
-      pageQuantity: { value: quantity, sourceText },
+      pageQuantity: { value: quantity, source: "page_dom" as const, sourceText },
       unit: each(5),
       total: total(5 * quantity),
     }).ok).toBe(true);
@@ -199,7 +199,7 @@ const pageQuantityVerdict = (sourceText: string, quantity: number) =>
   admitPrice({
     requestedQuantity: quantity,
     quantity,
-    pageQuantity: { value: quantity, sourceText },
+    pageQuantity: { value: quantity, source: "page_dom" as const, sourceText },
     unit: each(5),
     total: total(5 * quantity),
   });

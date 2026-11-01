@@ -43,7 +43,16 @@ import LegalPolicies from "./pages/LegalPolicies";
 import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
 
-const Jarvis = lazy(() => import("./pages/Jarvis"));
+// JARVIS_PWA_ENABLED must be exactly "1" at build time. Otherwise the PWA route is absent.
+const jarvisPwaEnabled = import.meta.env.JARVIS_PWA_ENABLED === "1";
+// Rollback path: with the flag off, retire a Jarvis worker a browser installed while the flag was on.
+if (!jarvisPwaEnabled && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.getRegistration("/jarvis/")
+    .then((registration) => (registration?.scope.endsWith("/jarvis/") ? registration.unregister() : false))
+    .catch(() => undefined);
+}
+const JarvisPwaGate = jarvisPwaEnabled ? lazy(() => import("./pages/JarvisPwaGate")) : null;
+const JarvisSample = import.meta.env.DEV && !jarvisPwaEnabled ? lazy(() => import("./pages/Jarvis")) : null;
 const JarvisThreadPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisThreadPreview")) : null;
 const JarvisArPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisArPreview")) : null;
 // The dynamic import is eliminated from production builds, including its native handoff tooling.
@@ -157,7 +166,9 @@ const App = () => {
                 ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
                 : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
               {JarvisArPreview && <Route path="/dev/jarvis-ar" element={<Suspense fallback={<p>Opening AR preview</p>}><JarvisArPreview /></Suspense>} />}
-              <Route path="/jarvis" element={<Suspense fallback={<p>Opening Jarvis</p>}><Jarvis /></Suspense>} />
+              {JarvisPwaGate && <Route path="/jarvis" element={<Suspense fallback={null}><JarvisPwaGate /></Suspense>} />}
+              {JarvisPwaGate && <Route path="/jarvis/" element={<Suspense fallback={null}><JarvisPwaGate /></Suspense>} />}
+              {JarvisSample && <Route path="/jarvis" element={<Suspense fallback={<p>Opening Jarvis</p>}><JarvisSample /></Suspense>} />}
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />

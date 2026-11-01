@@ -557,6 +557,8 @@ export type WorkerConfig = {
   xometryProfileSnapshotGeneration: string | null;
   xometryProfileSnapshotMaxBytes: number;
   xometryBrowserChannel: string | null;
+  /** Experimental printed-card witness; off until a real provider capture is qualified. */
+  xometryPricedCardReadbackEnabled?: boolean;
   xometryBrowserEngine: "patchright" | "playwright" | "camoufox";
   xometryProfileLockWaitMs: number;
   xometrySessionFreshnessWarnDays: number;

@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_APP_URL?: string;
   readonly VITE_ENABLE_ENGINEERING_ADMIN_ROUTE?: string;
+  readonly JARVIS_PWA_ENABLED?: string;
   readonly VITE_ENABLE_FIXTURE_MODE?: string;
   readonly VITE_ENABLE_QUOTE_PROVIDER_NOTES?: string;
   readonly VITE_CONTROLLED_BETA_SINGLE_QUANTITY?: string;

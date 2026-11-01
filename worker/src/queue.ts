@@ -1,3 +1,4 @@
+import { drainQuoteRunRollups } from "./vendorQuoteOfferPersistence.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { QueueTaskRecord, WorkerConfig } from "./types.js";
 
@@ -206,6 +207,7 @@ export async function reapStaleTasks(
   supabase: SupabaseClient,
   stalenessMinutes = 10,
 ): Promise<number> {
+  await drainQuoteRunRollups(supabase);
   const cutoff = new Date(Date.now() - stalenessMinutes * 60 * 1000).toISOString();
 
   const { data, error } = await supabase
