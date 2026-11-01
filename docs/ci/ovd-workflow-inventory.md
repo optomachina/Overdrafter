@@ -4,7 +4,7 @@ This table is the acceptance-criteria inventory for the seven `ovd[0-9]*` workfl
 
 `ovd420-recovery-egress-network` is a job inside `ci.yml`, not one of these files, and is out of scope.
 
-Required checks on `main` are `ci` and `provider-go-live` only (`docs/runbooks/merge-queue.md`). Nothing in this table changes that set.
+Required checks on `main` are `ci`, `provider-go-live` and `secret-scan` only (`docs/runbooks/merge-queue.md`). Nothing in this table changes that set.
 
 | Workflow | Trigger | Required | What it proves | Dependencies | OVD-924 disposition |
 | --- | --- | --- | --- | --- | --- |
