@@ -1,0 +1,259 @@
+===== $ npm ci =====
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 588 packages, and audited 589 packages in 19s
+
+131 packages are looking for funding
+  run `npm fund` for details
+
+34 vulnerabilities (11 moderate, 20 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+----- exit=0 -----
+===== $ git rev-parse HEAD =====
+c7f757e87a8cac9ed78a67b0be679e3970ffb2d9
+----- exit=0 -----
+===== $ node -e JSON.parse(require('fs').readFileSync('evals/skills/land/spec.json','utf8')) =====
+----- exit=0 -----
+===== $ node scripts/skill-evals.mjs validate =====
+ok: 15 specs, 15 skills present
+----- exit=0 -----
+===== $ npx vitest run scripts/skill-evals.test.mjs scripts/merge-queue-workflows.test.mjs scripts/secret-scan-workflow.test.mjs =====
+
+ RUN  v3.2.4 /tmp/qa1006
+
+ ✓ scripts/merge-queue-workflows.test.mjs (28 tests) 14ms
+ ✓ scripts/skill-evals.test.mjs (63 tests) 4717ms
+   ✓ report > report --skill "" with uncommitted skill changes > lists an untracked spec under evals/skills whether or not evals/ is gitignored  397ms
+ ✓ scripts/secret-scan-workflow.test.mjs (56 tests) 6483ms
+   ✓ gitleaks step on a PR built to hide content (git log stub) > the scan step reports the attribute-hidden, NUL-byte and merge-only content  315ms
+
+ Test Files  3 passed (3)
+      Tests  147 passed (147)
+   Start at  04:03:53
+   Duration  7.06s (transform 303ms, setup 0ms, collect 698ms, tests 11.21s, environment 0ms, prepare 399ms)
+
+----- exit=0 -----
+===== $ npm run test:agent-control-plane =====
+
+> overdrafter-web@0.0.1.1 test:agent-control-plane
+> node --test scripts/validate-agent-graph.node-test.mjs scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'
+
+TAP version 13
+# Subtest: parses owned, detached, and prunable worktrees without implying deletion
+ok 1 - parses owned, detached, and prunable worktrees without implying deletion
+  ---
+  duration_ms: 1.693902
+  type: 'test'
+  ...
+# Subtest: current agent contract is internally consistent
+ok 2 - current agent contract is internally consistent
+  ---
+  duration_ms: 6.432413
+  type: 'test'
+  ...
+# Subtest: obsolete complexity approval and workflow settings are rejected
+ok 3 - obsolete complexity approval and workflow settings are rejected
+  ---
+  duration_ms: 7.166046
+  type: 'test'
+  ...
+# Subtest: runs as a CLI when invoked through a symlinked directory
+ok 4 - runs as a CLI when invoked through a symlinked directory
+  ---
+  duration_ms: 64.153902
+  type: 'test'
+  ...
+# Subtest: canonical agent graph is valid
+ok 5 - canonical agent graph is valid
+  ---
+  duration_ms: 5.405514
+  type: 'test'
+  ...
+# Subtest: rejects an edge to an unknown node
+ok 6 - rejects an edge to an unknown node
+  ---
+  duration_ms: 2.998743
+  type: 'test'
+  ...
+# Subtest: rejects an undeclared predicate
+ok 7 - rejects an undeclared predicate
+  ---
+  duration_ms: 1.232151
+  type: 'test'
+  ...
+# Subtest: rejects schema violations
+ok 8 - rejects schema violations
+  ---
+  duration_ms: 1.025373
+  type: 'test'
+  ...
+# Subtest: rejects a single reviewer family
+ok 9 - rejects a single reviewer family
+  ---
+  duration_ms: 2.200703
+  type: 'test'
+  ...
+# Subtest: a reviewer with no family is an error and never counts as a family
+ok 10 - a reviewer with no family is an error and never counts as a family
+  ---
+  duration_ms: 1.16052
+  type: 'test'
+  ...
+# Subtest: rejects a schema keyword the validator does not evaluate
+ok 11 - rejects a schema keyword the validator does not evaluate
+  ---
+  duration_ms: 0.976506
+  type: 'test'
+  ...
+# Subtest: rejects a $ref that does not resolve
+ok 12 - rejects a $ref that does not resolve
+  ---
+  duration_ms: 0.778658
+  type: 'test'
+  ...
+# Subtest: rejects a node that no edge names, but not the root
+ok 13 - rejects a node that no edge names, but not the root
+  ---
+  duration_ms: 1.385039
+  type: 'test'
+  ...
+# Subtest: requires the merge gate pointers and runtime routing
+ok 14 - requires the merge gate pointers and runtime routing
+  ---
+  duration_ms: 3.45441
+  type: 'test'
+  ...
+# Subtest: overflow reviewer does not count toward the two-family rule
+ok 15 - overflow reviewer does not count toward the two-family rule
+  ---
+  duration_ms: 0.83509
+  type: 'test'
+  ...
+# Subtest: caps override every assignment rule
+ok 16 - caps override every assignment rule
+  ---
+  duration_ms: 0.602002
+  type: 'test'
+  ...
+# Subtest: rejects an override cycle
+ok 17 - rejects an override cycle
+  ---
+  duration_ms: 0.721971
+  type: 'test'
+  ...
+# Subtest: usage balancer rules are present, unique and override known rules
+ok 18 - usage balancer rules are present, unique and override known rules
+  ---
+  duration_ms: 2.358701
+  type: 'test'
+  ...
+# Subtest: rejects a usage balancer rule with no text or an unknown key
+ok 19 - rejects a usage balancer rule with no text or an unknown key
+  ---
+  duration_ms: 0.747389
+  type: 'test'
+  ...
+# Subtest: qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+ok 20 - qa verdict reuse requires an equal recomputed diff_id and rejects reuse when it cannot be computed
+  ---
+  duration_ms: 2.773473
+  type: 'test'
+  ...
+# Subtest: rejects a graph with no qa verdict
+ok 21 - rejects a graph with no qa verdict
+  ---
+  duration_ms: 0.55965
+  type: 'test'
+  ...
+# Subtest: rejects a graph missing a mandatory route
+ok 22 - rejects a graph missing a mandatory route
+  ---
+  duration_ms: 5.88491
+  type: 'test'
+  ...
+# Subtest: a mandatory route with an extra condition does not count
+ok 23 - a mandatory route with an extra condition does not count
+  ---
+  duration_ms: 0.981315
+  type: 'test'
+  ...
+# Subtest: rejects an empty or incomplete merge gate
+ok 24 - rejects an empty or incomplete merge gate
+  ---
+  duration_ms: 1.59988
+  type: 'test'
+  ...
+# Subtest: an event-gated reviewer edge does not count toward the two-family rule
+ok 25 - an event-gated reviewer edge does not count toward the two-family rule
+  ---
+  duration_ms: 1.169966
+  type: 'test'
+  ...
+# Subtest: rejects a $ref with a sibling constraint
+ok 26 - rejects a $ref with a sibling constraint
+  ---
+  duration_ms: 0.436874
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref
+ok 27 - rejects a chained $ref
+  ---
+  duration_ms: 0.721383
+  type: 'test'
+  ...
+# Subtest: rejects a chained $ref that ends unresolved
+ok 28 - rejects a chained $ref that ends unresolved
+  ---
+  duration_ms: 0.364167
+  type: 'test'
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 168.521083
+agent-contract: valid
+.................................................................
+----------------------------------------------------------------------
+Ran 65 tests in 62.823s
+
+OK
+----- exit=0 -----
+===== $ bash scripts/preflight.sh lint =====
+preflight: lint start
+preflight: lint PASS
+----- exit=0 -----
+===== $ bash scripts/preflight.sh typecheck =====
+preflight: typecheck start
+preflight: typecheck PASS
+----- exit=0 -----
+===== $ VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_PUBLISHABLE_KEY=<dummy> npx vite --host 127.0.0.1 --port 8080 --strictPort (background) =====
+
+  VITE v5.4.19  ready in 276 ms
+
+  ➜  Local:   http://127.0.0.1:8080/
+Browserslist: browsers data (caniuse-lite) is 17 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+----- server stopped after smoke (port 8080 no longer answers) -----
+===== $ node smoke.cjs (Playwright chromium.launch with executablePath = image chromium_headless_shell-1243, because pinned revision 1208 is absent; no browser install) =====
+{
+  "url": "http://127.0.0.1:8080/?auth=signin",
+  "status": 200,
+  "title": "OverDrafter | Machined Aluminum Sourcing",
+  "heading": "CAD InParts Out",
+  "pageErrors": [],
+  "nonLocalHosts": []
+}
+----- exit=0 -----
