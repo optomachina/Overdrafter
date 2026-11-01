@@ -24,7 +24,8 @@ describe("authoritative quote selection expiry migration", () => {
     expect(sql).toContain("result.id = v_option.source_vendor_quote_id");
     expect(sql).toContain("result.quote_run_id = v_package.quote_run_id");
     expect(sql).toContain("part.job_id = v_package.job_id");
-    expect(sql).toContain("public.user_can_edit_job(v_package.job_id)");
+    // OVD-746: the editor guard is part of the FOR SHARE read, so it runs before any lock.
+    expect(sql).toMatch(/and public\.user_can_edit_job\(job_id\)\s+for share;/);
     expect(sql).not.toContain("public.user_can_access_package(v_package.id)");
     expect(sql.indexOf("private.quote_offer_valid_at")).toBeLessThan(sql.indexOf("insert into public.client_selections"));
   });
