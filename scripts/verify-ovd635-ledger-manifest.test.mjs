@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,11 +8,17 @@ import { MANIFEST_PATH, MIGRATION_ROOT, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATI
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let scratch;
 
+// The scratch tree holds the deploy-commit shape: exactly the frozen baseline
+// plus the next-window suffix. Later repository migrations are legitimate (the
+// default mode admits them), so they are left out here; otherwise every new
+// migration on main would break the exact-mode fixture.
 function copyRepoSubset() {
   scratch = mkdtempSync(path.join(tmpdir(), "ovd635-"));
+  const manifest = JSON.parse(readFileSync(path.join(repo, MANIFEST_PATH), "utf8"));
   const suffix = JSON.parse(readFileSync(path.join(repo, SUFFIX_PATH), "utf8"));
   const rollbacks = suffix.migrations.map((entry) => entry.rollback);
-  for (const relative of [MANIFEST_PATH, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATION_PATH, MIGRATION_ROOT, ...rollbacks]) {
+  const migrations = [...manifest.migrations, ...suffix.migrations].map((entry) => path.join(MIGRATION_ROOT, entry.file));
+  for (const relative of [MANIFEST_PATH, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATION_PATH, ...migrations, ...rollbacks]) {
     cpSync(path.join(repo, relative), path.join(scratch, relative), { recursive: true });
   }
   return scratch;
@@ -32,6 +38,13 @@ describe("OVD-635 ledger manifest", () => {
     const root = copyRepoSubset();
     writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
     expect(verifyOvd635LedgerManifest(root)).toEqual([]);
+  });
+
+  it("rejects a later repository migration in exact mode", () => {
+    const later = readdirSync(path.join(repo, MIGRATION_ROOT)).filter((name) => name.endsWith(".sql")).sort().slice(162);
+    const violations = verifyOvd635LedgerManifest(repo, { exact: true });
+    const expected = later.length === 0 ? [] : [`exact: expected 162 migrations, found ${162 + later.length} (${later.join(", ")})`];
+    expect(violations).toEqual(expected);
   });
 
   it("rejects a later migration in exact mode", () => {
