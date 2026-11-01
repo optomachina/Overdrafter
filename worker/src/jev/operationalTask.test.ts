@@ -369,7 +369,7 @@ describe("actual worker operational advisory seam", () => {
         evidence: { adapterError: null, artifacts: [] } };
     };
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, generic, live, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
     expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);
@@ -500,7 +500,7 @@ describe("actual worker operational advisory seam", () => {
 
   it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, task, config, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
     expect(after.filter((write) => (write as { table?: string }).table === "work_queue")).toEqual([]);

@@ -30,7 +30,7 @@ describe("verify-overdrafter skill structure", () => {
   it("has registering frontmatter", () => {
     const skill = read("SKILL.md");
     expect(skill).toMatch(/^---\nname: verify-overdrafter\ndescription: .+\n---/);
-    for (const h of ["Launch", "Doctor", "Drive", "Evidence", "Cleanup", "Helpers"]) {
+    for (const h of ["Launch", "Isolate", "Doctor", "Drive", "Evidence", "Cleanup", "Helpers", "Upkeep"]) {
       expect(skill).toContain(`## ${h}`);
     }
   });
@@ -57,7 +57,7 @@ describe("verify-overdrafter skill structure", () => {
         expect(path.posix.join(path.posix.dirname(config), testDir ?? "?"), `${config} testDir`).toBe(CONFIG_TEST_DIRS[config]);
       }
     }
-    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs", "scripts/verdict.mjs", "scripts/isolation.mjs", "run"]) {
+    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs", "scripts/verdict.mjs", "scripts/isolation.mjs", "scripts/trace-shots.sh", "run"]) {
       expect(existsSync(path.join(skillDir, s)), s).toBe(true);
       expect(read("SKILL.md")).toContain(s);
     }
@@ -197,6 +197,22 @@ describe("verify-overdrafter driver behavior", () => {
     }
   });
 
+  it("doctor fails when Playwright cannot launch sandboxed Chromium", () => {
+    const app = mkdtempSync(path.join(os.tmpdir(), "vo-browser-"));
+    const pkg = path.join(app, "node_modules/@playwright/test");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(path.join(app, "package.json"), "{}");
+    writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "@playwright/test", main: "index.js" }));
+    const doctor = (launch) => {
+      writeFileSync(path.join(pkg, "index.js"), `exports.chromium = { launch: (o) => ${launch} };`);
+      return runEnv({ VERIFY_APP_ROOT: app }, "--doctor", "--features", "quote").stdout;
+    };
+    const message = "FAIL Playwright cannot launch sandboxed Chromium";
+    expect(doctor("Promise.reject(new Error('no build'))")).toContain(message);
+    // The launch must ask for the sandbox, as playwright.config.ts does.
+    expect(doctor("o.chromiumSandbox === true ? Promise.resolve({ close() {} }) : Promise.reject(new Error('unsandboxed'))")).not.toContain(message);
+  });
+
   it("rejects --prepare in fixture mode and unknown modes", () => {
     expect(run("--prepare", "--dry-run").status).toBe(2);
     expect(run("--mode", "prod", "--dry-run").status).toBe(2);
@@ -317,6 +333,34 @@ describe("verify-overdrafter lane mapping", () => {
   });
 });
 
+describe("verify-overdrafter trace shots", () => {
+  const shots = path.join(skillDir, "scripts/trace-shots.sh");
+  const trace = (dir, frames) => {
+    const src = mkdtempSync(path.join(os.tmpdir(), "vo-trace-src-"));
+    mkdirSync(path.join(src, "resources"));
+    writeFileSync(path.join(src, "trace.trace"), "{}");
+    for (const [name, body] of Object.entries(frames)) writeFileSync(path.join(src, "resources", name), body);
+    mkdirSync(dir, { recursive: true });
+    execFileSync("zip", ["-qr", path.join(dir, "trace.zip"), "."], { cwd: src });
+  };
+
+  it("writes each trace's last frame and fails closed without traces or frames", () => {
+    const out = mkdtempSync(path.join(os.tmpdir(), "vo-shots-"));
+    expect(spawnSync("bash", [shots, out], { encoding: "utf8" }).status).toBe(2);
+    trace(path.join(out, "test-results-0/journey-a"), {
+      "page@abc-1793416330468.jpeg": "last",
+      "page@abc-993416330357.jpeg": "first",
+    });
+    const ok = spawnSync("bash", [shots, out], { encoding: "utf8" });
+    expect(ok.status).toBe(0);
+    expect(readFileSync(path.join(out, "shots/journey-a.jpeg"), "utf8")).toBe("last");
+    trace(path.join(out, "test-results-0/journey-b"), {});
+    const bad = spawnSync("bash", [shots, out], { encoding: "utf8" });
+    expect(bad.status).toBe(1);
+    expect(bad.stdout).toContain("FAIL no screencast frames");
+  });
+});
+
 describe("verify-overdrafter verdict", () => {
   const t = (status, expectedStatus = "passed") => ({ status, expectedStatus });
   const report = (...tests) => ({ suites: [{ specs: [{ tests: tests.slice(0, 1) }], suites: [{ specs: [{ tests: tests.slice(1) }] }] }] });
@@ -413,7 +457,11 @@ function fakeApp({ pwExit = 0, status = "expected" } = {}) {
   const pw = path.join(app, "node_modules/@playwright/test");
   mkdirSync(pw, { recursive: true });
   writeFileSync(path.join(pw, "package.json"), '{"name":"@playwright/test","main":"index.js"}');
-  writeFileSync(path.join(pw, "index.js"), "");
+  // Doctor launches sandboxed Chromium; the fake launches only when asked for the sandbox.
+  writeFileSync(
+    path.join(pw, "index.js"),
+    "exports.chromium = { launch: (o) => (o.chromiumSandbox ? Promise.resolve({ close() {} }) : Promise.reject(new Error('unsandboxed'))) };",
+  );
   writeFileSync(path.join(app, ".gitignore"), "/playwright/.auth/\n");
   mkdirSync(path.join(app, "playwright/.auth"), { recursive: true });
   for (const a of ["client", "internal"]) writeFileSync(path.join(app, `playwright/.auth/${a}.json`), "{}");

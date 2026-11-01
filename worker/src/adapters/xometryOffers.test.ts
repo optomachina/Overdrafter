@@ -609,6 +609,9 @@ describe("Xometry multi-offer normalization", () => {
       const [cheapest, standard] = currentPanel();
       for (const [card, line] of [
         [cheapest, "Ground shipping - Arrives by Nov 3"],
+        [cheapest, "Qty 1 | price for 10 sets"],
+        [cheapest, "Qty 1; lot of 10"],
+        [cheapest, "Min qty 1"],
         [standard, "Expedited shipping included"],
         [standard, "Fetching new price..."],
         [cheapest, "Arrives by Nov 3"],

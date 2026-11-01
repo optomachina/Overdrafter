@@ -7,8 +7,11 @@
  * old or new path of a rename) that an OLDER open PR (draft or ready; earlier created_at, tie broken
  * by lower number) also changes, so the oldest PR can always merge. Overlaps with newer PRs and other
  * open PRs that touch the vendor tree without shared files are warnings only.
- * --all (schedule/push) reports every overlapping pair with its older and newer PR (the newer one is
- * blocked) and exits 1 while any pair exists, matching the failing --pr check on the newer PR.
+ * --all reports every overlapping pair with its older and newer PR (the newer one is blocked) and
+ * exits 1 while any pair exists, matching the failing --pr check on the newer PR. --all --report-only
+ * (schedule/push to main) reports the same pairs as warnings and exits 0: an overlap between open PRs
+ * is not a defect of main, and each newer PR's own --pr check already blocks it. API and data errors
+ * still fail closed in report-only mode.
  *
  * Read-only: GitHub REST API via fetch with GITHUB_TOKEN from the env (never logged). It never
  * comments, labels or merges. Console output carries only PR numbers and counts; shared file paths and
@@ -16,7 +19,7 @@
  * fails a vendor check, as does the PR itself missing from the open list, a repeated PR number, a PR
  * without an integer changed_files, or a file list shorter than changed_files.
  *
- *   node scripts/vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]
+ *   node scripts/vendor-pr-serialization.mjs (--pr <number> | --all [--report-only]) [--repo owner/name] [--prs-json file]
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
@@ -190,13 +193,17 @@ const fileList = (paths) => paths.map((p) => `\`${p}\``).join(", ");
 
 /**
  * Console lines for --all carry only PR numbers and counts (this process holds GITHUB_TOKEN, so no
- * API-derived text is logged); the shared file paths go to the step summary only.
+ * API-derived text is logged); the shared file paths go to the step summary only. With reportOnly,
+ * pairs are warnings and the code is 0 (the newer PR's own --pr check is what blocks it).
  */
-export function reportAll(prCount, r) {
-  const lines = r.pairs.map((p) => `::error::Open PR #${p.newer} is blocked by older PR #${p.older} (${p.shared.length} shared vendor files).`);
-  lines.push(r.ok ? `Vendor PR serialization passed for all ${prCount} open PRs.` : `Vendor PR serialization failed: ${r.pairs.length} overlapping PR pairs.`);
+export function reportAll(prCount, r, { reportOnly = false } = {}) {
+  const level = reportOnly ? "warning" : "error";
+  const lines = r.pairs.map((p) => `::${level}::Open PR #${p.newer} is blocked by older PR #${p.older} (${p.shared.length} shared vendor files).`);
+  if (r.ok) lines.push(`Vendor PR serialization passed for all ${prCount} open PRs.`);
+  else if (reportOnly) lines.push(`Vendor PR serialization found ${r.pairs.length} overlapping PR pairs (report-only; each newer PR's own check blocks it).`);
+  else lines.push(`Vendor PR serialization failed: ${r.pairs.length} overlapping PR pairs.`);
   const summary = r.pairs.map((p) => `- #${p.newer} is blocked by older #${p.older}; shared: ${fileList(p.shared)}`);
-  return { code: r.ok ? 0 : 1, lines, summary };
+  return { code: r.ok || reportOnly ? 0 : 1, lines, summary };
 }
 
 /** Console lines for --pr: PR numbers and counts only; shared file paths go to the step summary. */
@@ -232,9 +239,10 @@ export async function main(argv, { repo, token, summaryFile, fetchImpl = globalT
     if (summaryFile && body.length) appendFileSync(summaryFile, `### ${title}\n\n${body.join("\n")}\n\n`);
   };
   const all = argv.includes("--all");
+  const reportOnly = argv.includes("--report-only");
   const pr = Number(arg(argv, "--pr"));
-  if (!all && (!Number.isInteger(pr) || pr <= 0)) {
-    log("usage: vendor-pr-serialization.mjs (--pr <number> | --all) [--repo owner/name] [--prs-json file]");
+  if ((!all && (!Number.isInteger(pr) || pr <= 0)) || (reportOnly && !all)) {
+    log("usage: vendor-pr-serialization.mjs (--pr <number> | --all [--report-only]) [--repo owner/name] [--prs-json file]");
     return 2;
   }
   try {
@@ -242,7 +250,7 @@ export async function main(argv, { repo, token, summaryFile, fetchImpl = globalT
     const prs = file
       ? JSON.parse(readFileSync(file, "utf8"))
       : await listOpenPrs({ repo: arg(argv, "--repo") ?? repo, token, prNumber: all ? undefined : pr, fetchImpl });
-    const out = all ? reportAll(prs.length, checkAll(prs)) : reportPr(pr, checkSerialization(pr, prs));
+    const out = all ? reportAll(prs.length, checkAll(prs), { reportOnly }) : reportPr(pr, checkSerialization(pr, prs));
     for (const line of out.lines) log(line);
     writeSummary("Vendor PR serialization: shared vendor-adapter files", out.summary);
     return out.code;
