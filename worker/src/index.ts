@@ -2261,22 +2261,36 @@ async function settlePersistedResultTask(
   if (task.job_id && task.quote_run_id) {
     await syncRunStatus(supabase, task.job_id, task.quote_run_id);
   }
-  const message = "The vendor quote result was persisted but its acknowledgement was lost.";
-  const payloadPatch = { failureCode, vendorQuoteResultPersisted: true };
+  await failClaimedTask(supabase, task, "The vendor quote result was persisted but its acknowledgement was lost.", {
+    failureCode, vendorQuoteResultPersisted: true,
+  });
+}
+
+/**
+ * Fails the task only while this exact claim still holds it (running, same
+ * worker, same attempt). After lost acceptance replies the RPC may already have
+ * settled the task, whatever result it stored (priced, held, manual or failed);
+ * that settlement, or a later claim of the task, is never overwritten.
+ */
+async function failClaimedTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  message: string,
+  payloadPatch: Record<string, unknown>,
+) {
   if (!task.locked_by) {
     await markTaskFailed(supabase, task, message, payloadPatch);
     return;
   }
-  // Fenced to this claim: an acceptance that committed behind lost replies has
-  // already completed the task and cleared its lock, so it must stay completed.
-  const { error: failError } = await supabase
+  const { error } = await supabase
     .from("work_queue")
     .update({ status: "failed", payload: { ...task.payload, ...payloadPatch },
       locked_at: null, locked_by: null, last_error: message })
     .eq("id", task.id)
     .eq("status", "running")
-    .eq("locked_by", task.locked_by);
-  if (failError) throw failError;
+    .eq("locked_by", task.locked_by)
+    .eq("attempts", task.attempts);
+  if (error) throw error;
 }
 
 const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
@@ -2339,7 +2353,7 @@ async function settleUnwrittenProviderOutcome(
     await settlePersistedResultTask(supabase, task, new Error("The result write acknowledgement was lost."), "persist_ack_lost");
     return;
   }
-  await markTaskFailed(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
+  await failClaimedTask(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
     failureCode: "lane_already_settled",
     adapterStarted,
   });

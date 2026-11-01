@@ -148,11 +148,12 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     expect(quote).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a task completed when the acceptance committed but every reply was lost", async () => {
+  it.each(["instant_quote_received", "manual_review_pending"] as const)("keeps a task completed when the acceptance committed a %s result but every reply was lost", async (status) => {
+    quote.mockImplementation(async () => { markProviderMutationStarted(); return { ...output, status }; });
     const db = database("", 0, undefined, 0, Infinity);
     await processClaimedTask(db.client, db.claim(1), config, createWorkerRuntimeState());
     expect(db.rpc.mock.calls.filter(([name]) => name === "accept_vendor_quote_result")).toHaveLength(3);
-    expect(db.result.status).toBe("instant_quote_received");
+    expect(db.result.status).toBe(status);
     expect(db.queue.status).toBe("completed");
     expect(db.queue.last_error).toBeUndefined();
     expect(quote).toHaveBeenCalledTimes(1);
