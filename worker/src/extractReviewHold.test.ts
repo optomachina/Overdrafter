@@ -1,13 +1,14 @@
 // @vitest-environment node
-// OVD-1067: with DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL off, a new drawing
-// part's title-block fields need review, so api_auto_approve_job_requirements
-// approves nothing (returns 0) and leaves the fields for review. That is
-// a review hold, not a failure: the extract_part task must complete.
+// Review holds depend on this part's approval, independently of the job-wide
+// RPC count. A held extract_part task still completes and records its outcome.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createWorkerRuntimeState } from "./httpServer";
 import { processClaimedTask } from "./index";
+import { finalizeExtractionApproval } from "./extraction/extractionApproval";
 import { markTaskCompleted, markTaskFailed, markTaskQueuedForRetry } from "./queue";
+import { ExportControlLookupError, ExportControlScanRecordError, ExportControlStepScanRetryableError } from "./exportControl";
+import { VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 import type { QueueTaskRecord, WorkerConfig } from "./types";
 
 vi.mock("./queue.js", async (original) => ({
@@ -72,24 +73,48 @@ const config = { workerMode: "simulate", workerName: "worker", workerLiveAdapter
   workerBuildVersion: "test-build", drawingExtractionModel: "test-model", titleBlockApprovalEnabled: false,
 } as unknown as WorkerConfig;
 
-type DatabaseOptions = { trustedReuse: boolean; approvedCount: unknown; approvalError?: Error;
-  artifactsReady?: boolean; refreshFailure?: "response" | "throw" };
+type DatabaseOptions = {
+  trustedReuse: boolean;
+  approvedCount: unknown;
+  partApproved?: boolean;
+  approvalReadError?: { message: string };
+  approvalError?: Error;
+  artifactsPending?: boolean;
+  artifactsReady?: boolean;
+  auditInsertError?: { message: string };
+  refreshFailure?: "response" | "throw";
+};
+
 function database(options: DatabaseOptions) {
   const rpcCalls: string[] = [];
   const auditEvents: Record<string, unknown>[] = [];
+  const auditInsert = vi.fn((value: Record<string, unknown>) => auditEvents.push(value));
+  const approvals = [{ id: "other-approval", part_id: "other-part" },
+    ...(options.partApproved ? [{ id: "this-approval", part_id: part.id }] : [])];
   const from = (table: string) => {
     let inserted: Record<string, unknown> | null = null;
+    const filters: Record<string, unknown> = {};
+    let selected: string | null = null;
     const response = () => {
-      if (inserted) return { data: null, error: null };
+      if (inserted) return { data: null, error: table === "audit_events" ? options.auditInsertError ?? null : null };
+      if (table === "approved_part_requirements") {
+        // Keyed by the query shape, not call order: only the per-part approval
+        // read (select "id", scoped to the organization) sees the read error.
+        const isPartApprovalRead = selected === "id" && filters.organization_id === part.organization_id;
+        return { data: approvals.find((row) => row.part_id === filters.part_id) ?? null,
+          error: isPartApprovalRead ? options.approvalReadError ?? null : null };
+      }
       const data = table === "parts" ? part : table === "job_files" ? [drawing] : null;
       return { data, error: null };
     };
     const query: Record<string, unknown> = {};
-    for (const name of ["select", "eq", "neq", "in", "is", "order", "limit", "update", "delete"]) query[name] = () => query;
+    query.select = (columns: string) => { selected ??= columns; return query; };
+    for (const name of ["neq", "in", "is", "order", "limit", "update", "delete"]) query[name] = () => query;
+    query.eq = (column: string, value: unknown) => { filters[column] = value; return query; };
     query.upsert = () => { inserted = {}; return query; };
     query.insert = (value: Record<string, unknown>) => {
       inserted = value;
-      if (table === "audit_events") auditEvents.push(value);
+      if (table === "audit_events") auditInsert(value);
       return query;
     };
     query.single = async () => response();
@@ -106,7 +131,7 @@ function database(options: DatabaseOptions) {
         : { result: "new_version" }, error: null };
     }
     if (name === "api_reuse_trusted_part_version_artifacts") {
-      return { data: { artifactsReady: options.artifactsReady ?? true }, error: null };
+      return { data: { artifactsReady: options.artifactsReady ?? !options.artifactsPending }, error: null };
     }
     if (name === "api_auto_approve_job_requirements") {
       if (options.approvalError) throw options.approvalError;
@@ -119,16 +144,27 @@ function database(options: DatabaseOptions) {
     }
     return { data: null, error: null };
   });
-  return { client: { from, rpc } as unknown as SupabaseClient, rpc, rpcCalls, auditEvents };
+  return { client: { from, rpc } as unknown as SupabaseClient, rpc, rpcCalls, auditEvents, auditInsert };
 }
 
-const flagOnConfig = { ...config, titleBlockApprovalEnabled: true } as WorkerConfig;
-
-async function run(options: { trustedReuse: boolean; approvedCount: unknown; titleBlockApproval?: boolean }) {
+async function run(options: DatabaseOptions, runTask: QueueTaskRecord = task) {
   const db = database(options);
-  const runConfig = options.titleBlockApproval ? flagOnConfig : config;
-  await expect(processClaimedTask(db.client, task, runConfig, createWorkerRuntimeState())).resolves.toBeUndefined();
+  await expect(processClaimedTask(db.client, runTask, config, createWorkerRuntimeState())).resolves.toBeUndefined();
   return db;
+}
+
+function expectReuseAudit(db: ReturnType<typeof database>, reviewRequired: boolean, approvedCount: number) {
+  const completed = db.auditEvents.filter((event) => event.event_type === "worker.extraction_completed");
+  expect(completed).toEqual([expect.objectContaining({
+    organization_id: part.organization_id,
+    job_id: part.job_id,
+    payload: { partId: part.id, reusedCanonicalPartVersion: true, sourcePartId: "source-part",
+      autoApprovedPartCount: approvedCount, reviewRequired },
+  })]);
+  const auditIndex = db.auditEvents.indexOf(completed[0]);
+  expect(db.auditInsert.mock.invocationCallOrder[auditIndex]).toBeLessThan(
+    vi.mocked(markTaskCompleted).mock.invocationCallOrder[0],
+  );
 }
 
 beforeEach(() => {
@@ -139,26 +175,26 @@ beforeEach(() => {
   vi.mocked(runHybridExtraction).mockResolvedValue(extraction as never);
 });
 
-describe("OVD-1067: extract_part review hold when auto-approval returns 0", () => {
-  it("normal path: completes the task with reviewRequired instead of failing", async () => {
-    const db = await run({ trustedReuse: false, approvedCount: 0 });
+describe("extract_part review hold without this part's approval", () => {
+  it.each([0, 1])("normal path: completes with reviewRequired when RPC returns %i", async (approvedCount) => {
+    const db = await run({ trustedReuse: false, approvedCount });
 
     expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
     expect(markTaskFailed).not.toHaveBeenCalled();
     expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
     expect(markTaskCompleted).toHaveBeenCalledTimes(1);
     expect(vi.mocked(markTaskCompleted).mock.calls[0][2]).toMatchObject({
-      autoApprovedPartCount: 0,
+      autoApprovedPartCount: approvedCount,
       reviewRequired: true,
       extractionStatus: "needs_review",
     });
     const completed = db.auditEvents.find((event) => event.event_type === "worker.extraction_completed");
-    expect(completed?.payload).toMatchObject({ autoApprovedPartCount: 0, reviewRequired: true });
+    expect(completed?.payload).toMatchObject({ autoApprovedPartCount: approvedCount, reviewRequired: true });
     expect(db.auditEvents.some((event) => event.event_type === "worker.extraction_failed")).toBe(false);
   });
 
-  it("trusted-reuse path: completes the task with reviewRequired instead of failing", async () => {
-    const db = await run({ trustedReuse: true, approvedCount: 0 });
+  it.each([0, 1])("trusted-reuse path: audits the hold then completes when RPC returns %i", async (approvedCount) => {
+    const db = await run({ trustedReuse: true, approvedCount });
 
     expect(db.rpcCalls).toContain("api_reuse_trusted_part_version_artifacts");
     expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
@@ -168,36 +204,132 @@ describe("OVD-1067: extract_part review hold when auto-approval returns 0", () =
     expect(markTaskCompleted).toHaveBeenCalledTimes(1);
     expect(vi.mocked(markTaskCompleted).mock.calls[0][2]).toMatchObject({
       reusedCanonicalPartVersion: true,
-      autoApprovedPartCount: 0,
+      autoApprovedPartCount: approvedCount,
       reviewRequired: true,
     });
+    expectReuseAudit(db, true, approvedCount);
+    expect(db.auditEvents.some((event) => event.event_type === "worker.extraction_failed")).toBe(false);
   });
 });
 
-describe("OVD-1067: flag on, approved requirements behave as before", () => {
+describe("RPC returns >=1 and this part has approved requirements", () => {
   it("normal path: reports the approved count with reviewRequired false", async () => {
     vi.mocked(runHybridExtraction).mockResolvedValue({ ...extraction, reviewFields: [], status: "approved" } as never);
-    const db = await run({ trustedReuse: false, approvedCount: 2, titleBlockApproval: true });
+    const db = await run({ trustedReuse: false, approvedCount: 1, partApproved: true });
 
     expect(markTaskFailed).not.toHaveBeenCalled();
     expect(vi.mocked(markTaskCompleted).mock.calls[0][2]).toMatchObject({
-      autoApprovedPartCount: 2,
+      autoApprovedPartCount: 1,
       reviewRequired: false,
       autoApproved: true,
     });
     const completed = db.auditEvents.find((event) => event.event_type === "worker.extraction_completed");
-    expect(completed?.payload).toMatchObject({ autoApprovedPartCount: 2, reviewRequired: false });
+    expect(completed?.payload).toMatchObject({ autoApprovedPartCount: 1, reviewRequired: false });
   });
 
   it("trusted-reuse path: reports the approved count with reviewRequired false", async () => {
-    await run({ trustedReuse: true, approvedCount: 1, titleBlockApproval: true });
+    const db = await run({ trustedReuse: true, approvedCount: 1, partApproved: true });
 
     expect(markTaskFailed).not.toHaveBeenCalled();
     expect(vi.mocked(markTaskCompleted).mock.calls[0][2]).toMatchObject({
       autoApprovedPartCount: 1,
       reviewRequired: false,
     });
+    expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+    expectReuseAudit(db, false, 1);
   });
+});
+
+describe("part approval read errors fail closed", () => {
+  it.each([false, true])("fails the task and audits extraction_failed (trusted reuse=%s)", async (trustedReuse) => {
+    const db = await run({ trustedReuse, approvedCount: 1, partApproved: true,
+      approvalReadError: { message: "approval read failed" } });
+
+    expect(markTaskCompleted).not.toHaveBeenCalled();
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+    expect(markTaskFailed).toHaveBeenCalledExactlyOnceWith(db.client, task, "approval read failed", expect.any(Object));
+    expect(db.auditEvents).toEqual([expect.objectContaining({
+      organization_id: part.organization_id,
+      event_type: "worker.extraction_failed",
+      payload: expect.objectContaining({ partId: part.id, failureMessage: "approval read failed" }),
+    })]);
+  });
+});
+
+describe("extraction_failed audit on errors", () => {
+  it("a retryable failure (canonical artifacts pending) requeues and writes no failed audit", async () => {
+    const db = await run({ trustedReuse: true, approvedCount: 1, artifactsPending: true });
+
+    expect(markTaskQueuedForRetry).toHaveBeenCalledTimes(1);
+    expect(markTaskFailed).not.toHaveBeenCalled();
+    expect(db.auditEvents.some((event) => event.event_type === "worker.extraction_failed")).toBe(false);
+  });
+
+  it("a non-retryable failure writes one failed audit", async () => {
+    const db = await run({ trustedReuse: false, approvedCount: 1, approvalReadError: { message: "approval read failed" } });
+
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+    expect(db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed")).toHaveLength(1);
+  });
+
+  it("a failing audit write does not mask the original error", async () => {
+    const db = await run({ trustedReuse: false, approvedCount: 1,
+      approvalReadError: { message: "approval read failed" }, auditInsertError: { message: "audit insert failed" } });
+
+    expect(markTaskFailed).toHaveBeenCalledExactlyOnceWith(db.client, task, "approval read failed", expect.any(Object));
+    expect(markTaskCompleted).not.toHaveBeenCalled();
+  });
+});
+
+// isRetryableExtractError (skips the failed audit) must agree with the
+// extract_part cases of shouldRetry (requeues): a requeued task writes no
+// extraction_failed audit, and a failed task writes exactly one.
+describe("retry and failed-audit decisions agree for each extract error class", () => {
+  it.each([
+    ["CanonicalArtifactsPendingError", null, true],
+    ["ExportControlLookupError", () => new ExportControlLookupError("extraction"), true],
+    ["ExportControlStepScanRetryableError", () => new ExportControlStepScanRetryableError(), true],
+    ["ExportControlScanRecordError", () => new ExportControlScanRecordError(), false],
+    ["Error", () => new Error("extraction blew up"), false],
+  ] as const)("%s", async (_name, makeError, retryable) => {
+    if (makeError) vi.mocked(runHybridExtraction).mockRejectedValue(makeError());
+    const db = await run({ trustedReuse: !makeError, approvedCount: 1, artifactsPending: !makeError });
+
+    const failedAudits = db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed");
+    expect(vi.mocked(markTaskQueuedForRetry).mock.calls).toHaveLength(retryable ? 1 : 0);
+    expect(vi.mocked(markTaskFailed).mock.calls).toHaveLength(retryable ? 0 : 1);
+    expect(failedAudits).toHaveLength(retryable ? 0 : 1);
+  });
+
+  // The retry schedule has VENDOR_TASK_RETRY_DELAYS_MS.length slots. Past
+  // them a retryable error class fails the task, so it is audited as failed.
+  it("audits a retryable error class as failed once the retry schedule is exhausted", async () => {
+    vi.mocked(runHybridExtraction).mockRejectedValue(new ExportControlLookupError("extraction"));
+    const exhaustedTask = { ...task, attempts: VENDOR_TASK_RETRY_DELAYS_MS.length + 1 } as QueueTaskRecord;
+    const db = await run({ trustedReuse: false, approvedCount: 1 }, exhaustedTask);
+
+    const failedAudits = db.auditEvents.filter((event) => event.event_type === "worker.extraction_failed");
+    expect(vi.mocked(markTaskQueuedForRetry)).not.toHaveBeenCalled();
+    expect(vi.mocked(markTaskFailed)).toHaveBeenCalledOnce();
+    expect(failedAudits).toEqual([expect.objectContaining({ payload: expect.objectContaining({ partId: part.id }) })]);
+  });
+});
+
+it("real title-block approval changes reviewNeeded only when config enables approval", () => {
+  const fixture = { partNumber: { ...titleBlockRaw("PN-1"), snippet: "PART NUMBER PN-1",
+    reviewNeeded: false, reasons: ["title_block_cell_proven"] } };
+  const applyApproval = (workerConfig: WorkerConfig) => {
+    const fields = structuredClone(fixture);
+    finalizeExtractionApproval({ fields, titleBlockApprovalEnabled: workerConfig.titleBlockApprovalEnabled });
+    return fields.partNumber;
+  };
+  const flagOff = applyApproval({ ...config, titleBlockApprovalEnabled: false });
+  const flagOn = applyApproval({ ...config, titleBlockApprovalEnabled: true });
+
+  expect(flagOff).toMatchObject({ value: "PN-1", reviewNeeded: true });
+  expect(flagOff.reasons).toContain("title_block_approval_disabled");
+  expect(flagOn).toMatchObject({ value: "PN-1", reviewNeeded: false });
+  expect(flagOn.reasons).not.toContain("title_block_approval_disabled");
 });
 
 describe("OVD-1067: a malformed auto-approval result still fails the task", () => {

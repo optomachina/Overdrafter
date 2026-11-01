@@ -362,11 +362,11 @@ describe("actual worker operational advisory seam", () => {
         evidence: { adapterError: null, artifacts: [] } };
     };
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, generic, live, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued",
+      payload: expect.objectContaining({ failureCode: "quote_bookkeeping_failed" }) }) }]));
   });
 
   // OVD-723 x OVD-464: the generic route asks the export gate right before
@@ -495,11 +495,11 @@ describe("actual worker operational advisory seam", () => {
 
   it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
     const db = database(false, false, undefined, requirement, true);
-    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    await processClaimedTask(db.client, task, config, createWorkerRuntimeState());
     const after = writesAfterPersist(db.writes);
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
-    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
-      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued",
+      payload: expect.objectContaining({ failureCode: "quote_bookkeeping_failed" }) }) }]));
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {

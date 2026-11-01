@@ -148,7 +148,7 @@ describe("computePatchId", () => {
       expect(run(["--base", sha("main"), "--head", ref])).toThrow(/--head must be a full 40-character lowercase commit SHA/);
     }
     expect(run(["--base=--all", "--head", sha("feature")])).toThrow(/--base must be/);
-    expect(run(["--base", sha("main"), "--head", "f".repeat(40)])).toThrow(/--head f{40} is not a commit in this repository/);
+    expect(run(["--base", sha("main"), "--head", "f".repeat(40)])).toThrow(/git could not verify --head f{40} as a commit/);
   });
 
   it("refuses an empty diff", () => {
@@ -719,7 +719,15 @@ describe("posting", () => {
       seen = { bodyFile, exists: existsSync(bodyFile), contents: readFileSync(bodyFile, "utf8") };
       return { status: 0 };
     });
-    const body = main([...ARGS(), "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
+    // The injected runner never executes gh; supply an owned executable fixture
+    // so this test does not depend on a host installation in a fixed directory.
+    const gh = join(repo, "gh");
+    writeFileSync(gh, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    vi.stubEnv("GH_BIN", gh);
+    let body;
+    try { body = main([...ARGS(), "--pr", "12", "--post"], { cwd: repo, now: NOW, run }); }
+    finally { vi.unstubAllEnvs(); }
+
     expect(run).toHaveBeenCalledTimes(1);
     const [bin, args, opts] = run.mock.calls[0];
     expect(bin).toMatch(/^\/.*\/gh$/);
